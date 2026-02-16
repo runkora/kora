@@ -45,7 +45,6 @@ config.local.yml
 *.key
 *.crt
 secrets/
-credentials/
 
 # Logs
 *.log

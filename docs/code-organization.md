@@ -147,6 +147,10 @@ orbit/
 │   │   │   ├── errors.go             # Error types
 │   │   │   └── handling.go           # Error handling utilities
 │   │   │
+│   │   ├── logging/                  # Logging infrastructure
+│   │   │   ├── logger.go             # Logger interface
+│   │   │   └── slog.go               # slog implementation
+│   │   │
 │   │   ├── auth/                     # Authentication utilities
 │   │   │   ├── jwt.go                # JWT utilities
 │   │   │   ├── context.go            # Auth context
@@ -350,6 +354,13 @@ HTTP server setup and shared middleware:
 - Server initialization and lifecycle
 - Route registration
 - Authentication, logging, rate limiting, tenant isolation
+
+### Logging (`internal/logging/`)
+
+Provides logging infrastructure using dependency injection pattern:
+- Logger interface for feature packages to depend on
+- Concrete implementation using Go's stdlib slog
+- Passed to services via constructors (no global loggers)
 
 ### Observability (`internal/observability/`)
 
