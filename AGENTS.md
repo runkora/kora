@@ -46,7 +46,35 @@ Only after PRD and ADR approval:
 
 ## Code Organization
 
-Code organization will evolve as the codebase develops. Expected structure will align with the architecture documented in `docs/architecture.md`.
+Orbit follows a **feature-based architecture** with the repository pattern for data access. See the following documents for complete details:
+
+- **[docs/code-organization.md](docs/code-organization.md)** - Complete directory structure and package organization
+- **[docs/adr/0003-repository-pattern-and-code-organization.md](docs/adr/0003-repository-pattern-and-code-organization.md)** - Architectural decisions and rationale
+
+### Key Principles
+
+**Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
+- Repository interface (storage contract)
+- PostgreSQL implementation
+- Business logic (service layer)
+- HTTP handlers
+- Feature-specific types
+
+**Storage Infrastructure**: The `internal/storage/` package provides database infrastructure (connections, transactions, migrations) but never imports feature packages. Dependency flow is always: Features → Storage.
+
+**"DDD-lite" Approach**: We use valuable Domain-Driven Design concepts (bounded contexts, repository pattern, ubiquitous language) while staying idiomatic to Go. We skip strict DDD ceremony (deep layering, aggregate roots, value objects) in favor of flat packages and explicit code.
+
+**Standard Feature Structure**:
+```
+internal/{feature}/
+├── repository.go    # Storage interface
+├── postgres.go      # PostgreSQL implementation
+├── service.go       # Business logic
+├── handlers.go      # HTTP transport
+└── models.go        # Feature-specific types
+```
+
+This structure enables feature teams to work independently while maintaining clear separation of concerns.
 
 ## Design Principles
 
@@ -115,8 +143,11 @@ When implementing Orbit components:
 - **Event Emission**: Emit structured events for all significant actions and decisions
 - **Credential Brokering**: Never expose raw credentials to agents - use scoped, temporary access
 - **Identity Context**: Carry identity context through the entire execution chain
+- **Repository Pattern**: Define repository interfaces in feature packages, implement with PostgreSQL in the same package
+- **Feature Independence**: Features should not import each other - share only through well-defined contracts
+- **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
 
-Specific code patterns will be established as implementation progresses.
+See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
 
 ## Templates and Documentation
 
