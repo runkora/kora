@@ -79,3 +79,10 @@ tmp/
 
 # Docker
 .dockerignore.local
+
+# Build
+build/
+*/build/
+dist/
+*.tar.gz
+*.zip

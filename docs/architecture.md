@@ -1,5 +1,7 @@
 # Orbit Architecture
 
+For detailed code organization and project structure, see [code-organization.md](code-organization.md).
+
 ## Overview
 
 **Orbit: The Nervous System for Scalable AI Agents**
