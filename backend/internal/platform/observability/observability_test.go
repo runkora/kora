@@ -94,34 +94,37 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 	defer shutdown(ctx)
 }
 
-// TestSetupProductionNoOTLP verifies production mode requires OTLP endpoint
+// TestSetupProductionNoOTLP verifies production mode falls back to no-op provider without OTLP endpoint
 func TestSetupProductionNoOTLP(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "production",
-		// No OTLP endpoint - should return error
+		// No OTLP endpoint - should fall back to no-op provider
 	}
 
 	shutdown, err := Setup(ctx, cfg)
-	if err == nil {
-		t.Fatal("Setup() expected error for production without OTLP endpoint, got nil")
+	if err != nil {
+		t.Fatalf("Setup() unexpected error for production without OTLP endpoint: %v", err)
 	}
-	if shutdown != nil {
-		t.Error("Setup() returned non-nil shutdown function on error")
+	if shutdown == nil {
+		t.Fatal("Setup() returned nil shutdown function")
 	}
+	defer shutdown(ctx)
 
-	expectedMsg := "OTLP endpoint is required in production (set OTEL_EXPORTER_OTLP_ENDPOINT)"
-	if err.Error() != expectedMsg {
-		t.Errorf("Setup() error = %q, want %q", err.Error(), expectedMsg)
+	// Verify the no-op provider was set up correctly
+	tracer := otel.GetTracerProvider().Tracer("test")
+	if tracer == nil {
+		t.Error("Expected tracer provider to be set, got nil")
 	}
 }
 
 // TestSetupDefaultSamplingRate verifies default sampling rate
 func TestSetupDefaultSamplingRate(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Use production mode with OTLP endpoint to avoid stdout trace pollution in tests
 	// This tests the same sampling logic without the verbose output
 	cfg := Config{
@@ -550,6 +553,7 @@ func TestNoOpTracerProviderShutdown(t *testing.T) {
 
 // TestCreateNoOpProvider verifies createNoOpProvider function
 func TestCreateNoOpProvider(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create test resource

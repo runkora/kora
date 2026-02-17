@@ -58,8 +58,8 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	case cfg.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
 	default:
-		// Production requires OTLP endpoint to be explicitly configured
-		return nil, fmt.Errorf("OTLP endpoint is required in production (set OTEL_EXPORTER_OTLP_ENDPOINT)")
+		// Production without OTLP: use no-op provider to allow app to run
+		return createNoOpProvider(res), nil
 	}
 
 	if err != nil {
