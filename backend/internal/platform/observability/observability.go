@@ -58,7 +58,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	case cfg.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
 	default:
-		// Production without OTLP: no-op mode (logs only, no trace export)
+		// Production without OTLP: use no-op provider to allow app to run
 		return createNoOpProvider(res), nil
 	}
 
@@ -147,7 +147,7 @@ func createStdoutExporter() (sdktrace.SpanExporter, error) {
 // TODO: Add configurable timeout for gRPC connections
 func createOTLPExporter(ctx context.Context, endpoint string, insecure bool) (sdktrace.SpanExporter, error) {
 	var client otlptrace.Client
-	
+
 	if insecure {
 		// Insecure mode - ONLY for local development
 		client = otlptracegrpc.NewClient(
@@ -163,7 +163,7 @@ func createOTLPExporter(ctx context.Context, endpoint string, insecure bool) (sd
 			),
 		)
 	}
-	
+
 	exporter, err := otlptrace.New(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
@@ -184,7 +184,7 @@ func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 }
 
 func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+	if value, exists := os.LookupEnv(key); exists && value != "" {
 		return value
 	}
 	return defaultValue
