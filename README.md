@@ -106,7 +106,53 @@ Orbit is in **early development**. We are actively building the core platform co
 
 ## Getting Started
 
-*Coming soon — Orbit is not yet ready for use.*
+### Prerequisites
+
+- Go 1.21 or later
+- Docker and Docker Compose (for PostgreSQL)
+- Make
+
+### Quick Start
+
+```bash
+# Bootstrap: install tools, start database, run migrations
+make bootstrap
+
+# Start Orbit in development mode
+make dev
+```
+
+### Development Commands
+
+Run `make help` to see all available commands. Key workflows:
+
+**Setup & Installation**
+- `make setup` - Complete project setup
+- `make install-tools` - Install development tools
+- `make tidy` - Tidy dependencies
+
+**Database Management**
+- `make db-up` - Start PostgreSQL
+- `make db-down` - Stop PostgreSQL
+- `make db-reset` - Reset database
+- `make migrate-up` - Run migrations
+- `make migrate-status` - Check migration status
+- `make migrate-create name=<name>` - Create new migration
+
+**Development**
+- `make dev` - Run with auto-reload
+- `make build` - Build binary to `.bin/orbit`
+- `make run` - Run Orbit
+
+**Testing & Quality**
+- `make test` - Run tests with coverage
+- `make test-verbose` - Verbose test output
+- `make lint` - Run linters
+- `make check` - Run all checks (test + lint)
+
+**Cleanup**
+- `make clean` - Remove build artifacts
+- `make clean-all` - Full cleanup (artifacts + database)
 
 ## Contributing
 

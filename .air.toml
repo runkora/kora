@@ -1,0 +1,39 @@
+# .air.toml - Live reload configuration for Orbit development
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = ".bin/orbit"
+  cmd = "make build-backend"
+  include_ext = ["go"]
+  include_dir = ["backend"]
+  exclude_dir = ["tmp", ".git", "docs", ".bin"]
+  exclude_file = []
+  exclude_regex = ["_test\\.go"]
+  exclude_unchanged = true
+  follow_symlink = false
+  log = "orbit.air.log"
+  poll = false
+  poll_interval = 0
+  delay = 1000 # ms
+  stop_on_error = true
+  send_interrupt = false
+  kill_delay = 500 # ms
+
+[color]
+  main = "yellow"
+  watcher = "cyan"
+  build = "green"
+  runner = "green"
+  app = "white"
+
+[log]
+  time = true
+  main_only = false
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true
