@@ -72,22 +72,20 @@ func (a *api) Server(
 
 	// default middleware runs before user provided middleware
 	// provides a catch all middleware for general purpose server
-	// Uses the injected logger to maintain consistency and enable trace correlation
-	defaultMiddleware := mw.MiddlewareChain(
-		mw.LoggingMiddleware(a.logger),
-	)
+	// Empty for now, but can be used for things like panic recovery, metrics, etc.
+	defaultMiddleware := mw.MiddlewareChain()
 
 	// Build final handler with middleware chain
 	var finalHandler http.Handler = a.mux
-	
+
 	// Apply user-provided middleware first
 	if middleware != nil {
 		finalHandler = middleware(finalHandler)
 	}
-	
+
 	// Apply default middleware last (runs first in execution)
 	finalHandler = defaultMiddleware(finalHandler)
-	
+
 	return &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: finalHandler,
