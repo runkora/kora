@@ -119,7 +119,8 @@ func main() {
     
     // Logger sees span in context, adds trace_id automatically
     logger.Info(ctx, "Processing request", 
-        logging.Field{Key: "user_id", Value: "user-123"})
+        logging.Field{Key: "user_id", Value: "user-123"},
+    )
 }
 ```
 

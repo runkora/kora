@@ -439,13 +439,14 @@ service:orbit trace_id:2482aff647d2da4b929d57bc10bcfa74
 
 **Causes:**
 1. Logging before tracing middleware runs
-2. Not using `logger.WithContext(ctx)`
-3. Context not propagated through call chain
+2. Context not propagated through call chain
+3. Tracing not properly initialized
 
 **Solution:**
 ```go
-// Always create logger from context
-logger := logging.FromContext(ctx)
+// Ensure tracing middleware runs first and context is propagated
+// Logger automatically extracts trace context when logging methods are called
+logger.Info(ctx, "message with trace correlation")
 ```
 
 ### Logs missing in production

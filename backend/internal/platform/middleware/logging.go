@@ -30,7 +30,6 @@ func LoggingMiddleware(logger logging.Logger) Middleware {
 			// Wrap response writer to capture status code
 			wrapped := &responseWriter{
 				ResponseWriter: w,
-				statusCode:     http.StatusOK, // default if WriteHeader not called
 			}
 
 			// Call next handler
@@ -51,11 +50,25 @@ func LoggingMiddleware(logger logging.Logger) Middleware {
 // responseWriter wraps http.ResponseWriter to capture the status code
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
 // WriteHeader captures the status code before calling the underlying WriteHeader
 func (rw *responseWriter) WriteHeader(code int) {
+	if rw.wroteHeader {
+		return
+	}
 	rw.statusCode = code
+	rw.wroteHeader = true
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Write captures the implicit 200 status code when WriteHeader is not called explicitly
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.wroteHeader {
+		// WriteHeader hasn't been called - Write will trigger implicit 200
+		rw.WriteHeader(http.StatusOK)
+	}
+	return rw.ResponseWriter.Write(b)
 }

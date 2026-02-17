@@ -10,6 +10,18 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
+// Mux wraps http.ServeMux with controller-level routing and middleware support.
+// 
+// Thread Safety: Mux embeds *http.ServeMux which is safe for concurrent use after
+// registration is complete. The Mux wrapper fields (basePath, middleware, logger, ctx)
+// are only modified during server setup (NewServer) before the server starts accepting
+// requests. Once the server is running, these fields are read-only, making the entire
+// Mux structure safe for concurrent request handling.
+//
+// Single Instance Pattern: Each controller gets its own Mux instance during NewServer,
+// but all route registrations happen before http.Server.ListenAndServe is called.
+// After that point, only the ServeMux.ServeHTTP method is called concurrently by
+// the http.Server, which is explicitly documented as safe in net/http.
 type Mux struct {
 	*http.ServeMux
 	basePath   string
@@ -49,7 +61,7 @@ func (m *Mux) Handle(route string, handler func(http.ResponseWriter, *http.Reque
 	)
 }
 
-// Prepares each route with middleware for processesing
+// Prepares each route with middleware for processing
 //
 // A controller with a GroupedBy of "/planets", and the routes /create, /delete, /update
 // would be registered as:
@@ -68,7 +80,9 @@ func (m *Mux) HandleWithMiddleware(
 	middleware mw.MiddlewareHandler,
 	handler func(http.ResponseWriter, *http.Request),
 ) {
-	// split our route for adding groupedBy registration
+	// Split route into method and path
+	// Routes must follow "METHOD /path" format (enforced by ServeMux)
+	// This split is safe because invalid formats will fail at ServeMux.HandleFunc
 	method := strings.Split(route, " ")[0]
 	path := strings.Split(route, " ")[1]
 
@@ -82,15 +96,17 @@ func (m *Mux) HandleWithMiddleware(
 	m.logger.Info(m.ctx, "Registering sub-route",
 		logging.Field{Key: "route", Value: joinedRoute},
 	)
-	// Build middleware chain - check if m.middleware is nil
+	// Build middleware chain
+	// Middleware wrapping order (inside-out): handler → route-specific → controller-level
+	// Execution order (outside-in): controller-level → route-specific → handler
 	var finalHandler http.Handler = http.HandlerFunc(handler)
 	
-	// Apply route-specific middleware first
+	// Apply route-specific middleware first (wraps handler, executes last)
 	if middleware != nil {
 		finalHandler = middleware(finalHandler)
 	}
 	
-	// Apply mux-level middleware second (if it exists)
+	// Apply controller-level middleware last (wraps everything, executes first)
 	if m.middleware != nil {
 		finalHandler = m.middleware(finalHandler)
 	}

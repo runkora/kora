@@ -166,9 +166,11 @@ func (s *Service) DoWork(ctx context.Context) error {
 ```go
 package myfeature
 
-func DoWork(ctx context.Context) {
-    log := logger.FromContext(ctx)
-    log.Info("doing work")
+func DoWork(ctx context.Context, logger logging.Logger) {
+    // This option would extract logger from context instead of passing it
+    // Example (not our chosen approach):
+    // log := logger.FromContext(ctx)
+    logger.Info(ctx, "doing work")
 }
 ```
 
@@ -399,7 +401,9 @@ func NewService(logger Logger, repo Repository) *Service {
 }
 
 func (s *Service) CreateAgent(ctx context.Context, req CreateAgentRequest) (*Agent, error) {
-    s.logger.Info(ctx, "creating agent", logging.Field{Key: "name", Value: req.Name})
+    s.logger.Info(ctx, "creating agent", 
+        logging.Field{Key: "name", Value: req.Name},
+    )
     
     agent, err := s.repo.Create(ctx, req)
     if err != nil {

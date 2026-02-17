@@ -60,7 +60,9 @@ func (a *api) Server(
 		a.mux = controllerMux.ServeMux
 	}
 
-	// add our base health check
+	// Add health check endpoint
+	// Note: Registered directly to mux, so it gets server-level middleware (tracing, logging)
+	// applied when the final handler chain is built below
 	a.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(`{"status": "health ok"}`)); err != nil {

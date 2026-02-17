@@ -24,15 +24,23 @@ func TracingMiddleware(serviceName string) Middleware {
 			// Get the global tracer for this service
 			tracer := otel.Tracer(serviceName)
 
+			// Extract the route pattern from the request context
+			// Go 1.22+ ServeMux stores the matched pattern in the request context
+			routePattern := r.Pattern
+			if routePattern == "" {
+				// Fallback to URL path if pattern is not available
+				routePattern = r.URL.Path
+			}
+
 			// Extract trace context from incoming request headers (W3C TraceContext format)
 			// Then start a new span for this HTTP request
 			// The span name follows OpenTelemetry semantic conventions: "HTTP {method}"
 			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+r.URL.Path,
+			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern,
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					semconv.HTTPRequestMethodKey.String(r.Method),
-					semconv.HTTPRouteKey.String(r.URL.Path),
+					semconv.HTTPRouteKey.String(routePattern),
 					semconv.URLScheme(schemeFromRequest(r)),
 					semconv.URLPath(r.URL.Path),
 					semconv.ServerAddress(r.Host),
@@ -51,7 +59,6 @@ func TracingMiddleware(serviceName string) Middleware {
 			// Wrap response writer to capture status code for span attributes
 			wrapped := &tracingResponseWriter{
 				ResponseWriter: w,
-				statusCode:     http.StatusOK,
 			}
 
 			// Call next handler with traced context
@@ -71,12 +78,26 @@ func TracingMiddleware(serviceName string) Middleware {
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode     int
+	wroteHeader    bool
 }
 
 func (w *tracingResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
 	w.statusCode = statusCode
+	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write captures the implicit 200 status code when WriteHeader is not called explicitly
+func (w *tracingResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		// WriteHeader hasn't been called - Write will trigger implicit 200
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
 }
 
 // schemeFromRequest determines the scheme (http/https) from the request

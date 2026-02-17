@@ -102,7 +102,9 @@ Logs automatically include trace context when using the context-aware logger:
 
 ```go
 // In any handler or service
-logger.Info(ctx, "Processing request", logging.Field{Key: "user_id", Value: userID})
+logger.Info(ctx, "Processing request", 
+    logging.Field{Key: "user_id", Value: userID},
+)
 
 // Output includes trace_id and span_id:
 // {"level":"info","msg":"Processing request","user_id":"123",
@@ -263,6 +265,6 @@ curl http://localhost:6069/api/v1/example/hello/world
 - **[configuration.md](configuration.md)** - Complete configuration reference
 - **[tracing.md](tracing.md)** - Distributed tracing deep dive
 - **[logging.md](logging.md)** - Structured logging guide
-- [ADR-0004: Structured Logging and Observability](../adr/0004-structured-logging-and-observability.md)
+- [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../adr/0004-dependency-injected-logging.md)
 - [OpenTelemetry Go Documentation](https://opentelemetry.io/docs/instrumentation/go/)
 - [W3C TraceContext Specification](https://www.w3.org/TR/trace-context/)
