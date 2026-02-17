@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -340,9 +341,12 @@ func TestTracingMiddlewareErrorStatus(t *testing.T) {
 	
 	span := spans[0]
 	
-	// For 5xx errors, span status should indicate error
-	// Note: The actual implementation should set span.SetStatus() for errors
-	// This test verifies the status code is recorded (using OpenTelemetry semantic conventions v1.24.0)
+	// Verify span status is set to Error for 5xx responses
+	if span.Status.Code != codes.Error {
+		t.Errorf("Span status code = %v, want %v", span.Status.Code, codes.Error)
+	}
+	
+	// Verify the status code attribute is recorded (using OpenTelemetry semantic conventions v1.24.0)
 	var statusCode int64
 	for _, attr := range span.Attributes {
 		if attr.Key == "http.response.status_code" {

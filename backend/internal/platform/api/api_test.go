@@ -453,7 +453,8 @@ func TestHealthCheckErrorHandling(t *testing.T) {
 	// Use a ResponseWriter that fails on Write
 	req := httptest.NewRequest("GET", "/health", nil)
 	rec := &failingResponseWriter{
-		ResponseWriter: httptest.NewRecorder(),
+		ResponseRecorder: httptest.NewRecorder(),
+		writeError:       io.ErrClosedPipe,
 	}
 
 	// Should not panic even if Write fails
@@ -464,21 +465,22 @@ func TestHealthCheckErrorHandling(t *testing.T) {
 	}()
 
 	server.Handler.ServeHTTP(rec, req)
+	
+	// Verify status code was written despite write error
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", rec.Code, http.StatusOK)
+	}
 }
 
 // failingResponseWriter is a test helper that fails on Write
 type failingResponseWriter struct {
-	http.ResponseWriter
-	headerWritten bool
+	*httptest.ResponseRecorder
+	writeError error
 }
 
 func (f *failingResponseWriter) Write(b []byte) (int, error) {
-	return 0, io.ErrClosedPipe
-}
-
-func (f *failingResponseWriter) WriteHeader(statusCode int) {
-	if !f.headerWritten {
-		f.ResponseWriter.WriteHeader(statusCode)
-		f.headerWritten = true
+	if f.writeError != nil {
+		return 0, f.writeError
 	}
+	return f.ResponseRecorder.Write(b)
 }

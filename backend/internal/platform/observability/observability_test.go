@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
 // TestSetup verifies basic observability setup
@@ -453,8 +455,8 @@ func TestSpanExportWithDevelopment(t *testing.T) {
 	}
 }
 
-// TestCreateNoOpProvider verifies no-op provider creation
-func TestCreateNoOpProvider(t *testing.T) {
+// TestNoOpTracerProviderShutdown verifies no-op tracer provider shutdown
+func TestNoOpTracerProviderShutdown(t *testing.T) {
 	ctx := context.Background()
 	
 	// Create a simple no-op provider to test shutdown
@@ -474,4 +476,50 @@ func TestCreateNoOpProvider(t *testing.T) {
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("shutdown() error = %v", err)
 	}
+}
+
+// TestCreateNoOpProvider verifies createNoOpProvider function
+func TestCreateNoOpProvider(t *testing.T) {
+	ctx := context.Background()
+	
+	// Create test resource
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName("test-service"),
+		),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create resource: %v", err)
+	}
+	
+	shutdown := createNoOpProvider(res)
+	
+	if shutdown == nil {
+		t.Fatal("Shutdown function should not be nil")
+	}
+	
+	// Verify the tracer provider is set globally
+	tp := otel.GetTracerProvider()
+	if tp == nil {
+		t.Fatal("TracerProvider should not be nil")
+	}
+	
+	defer otel.SetTracerProvider(nil)
+	
+	// Verify shutdown works without error
+	if err := shutdown(ctx); err != nil {
+		t.Errorf("shutdown() error = %v", err)
+	}
+	
+	// Create a tracer and span to verify it's functional
+	tracer := tp.Tracer("test")
+	if tracer == nil {
+		t.Fatal("Tracer should not be nil")
+	}
+	
+	_, span := tracer.Start(ctx, "test-span")
+	if span == nil {
+		t.Fatal("Span should not be nil")
+	}
+	span.End()
 }
