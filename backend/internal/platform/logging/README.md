@@ -18,7 +18,8 @@ logger := logging.NewDevelopmentLogger() // Development: colorized console
 
 // Basic logging
 ctx := context.Background()
-logger.Info(ctx, "Server started", logging.Field{Key: "port", Value: 8080})
+logger.Info(ctx, "Server started", 
+    logging.Field{Key: "port", Value: 8080})
 
 // With OTEL trace context (automatic correlation)
 tracedCtx, span := tracer.Start(ctx, "operation")

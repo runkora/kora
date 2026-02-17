@@ -1,0 +1,70 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gosec
+    - goconst
+    - gocritic
+    - gocyclo
+    - nolintlint
+    - unconvert
+    - unparam
+    - whitespace
+  disable:
+    - errcheck
+    - bodyclose
+
+  settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+
+    gocyclo:
+      min-complexity: 15
+
+    goconst:
+      min-len: 3
+      min-occurrences: 5
+
+    misspell:
+      locale: US
+
+    revive:
+      confidence: 0.8
+
+    gosec:
+      excludes:
+        - G104  # Errors unhandled
+        - G204  # Subprocess launched with variable
+        - G302  # File permissions
+        - G304  # File inclusion via variable
+
+  exclusions:
+    paths:
+      - ".*_test\\.go$"
+    rules:
+      - path: examples/
+        linters:
+          - errcheck
+          - unparam
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
