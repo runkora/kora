@@ -253,7 +253,7 @@ The `ctx context.Context` parameter is standard Go practice and enables automati
 
 ### Logger Interface Design
 
-The logger interface is defined in `internal/logging/logger.go`:
+The logger interface is defined in `internal/platform/logging/logger.go`:
 
 ```go
 package logging

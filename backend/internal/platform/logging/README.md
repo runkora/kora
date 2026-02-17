@@ -9,7 +9,7 @@ This package provides a `Logger` interface with automatic trace context extracti
 ## Quick Start
 
 ```go
-import "github.com/clear-route/orbit/internal/logging"
+import "github.com/clear-route/orbit/internal/platform/logging"
 
 // Create logger (inject via dependency injection in production)
 logger := logging.NewLogger() // Production: JSON to stdout
@@ -86,7 +86,7 @@ logger := logging.NewDevelopmentLogger()
 import (
     "bytes"
     "testing"
-    "github.com/clear-route/orbit/internal/logging"
+    "github.com/clear-route/orbit/internal/platform/logging"
 )
 
 func TestMyService(t *testing.T) {
@@ -136,4 +136,4 @@ This enables querying logs by trace ID in your observability backend to see all 
 
 ## Architecture Decision
 
-See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../docs/adr/0004-dependency-injected-logging.md) for design rationale and trade-offs.
+See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../../../docs/adr/0004-dependency-injected-logging.md) for design rationale and trade-offs.

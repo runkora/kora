@@ -13,7 +13,7 @@ This package provides centralized OTEL setup with environment-based configuratio
 ## Quick Start
 
 ```go
-import "github.com/clear-route/orbit/internal/observability"
+import "github.com/clear-route/orbit/internal/platform/observability"
 
 func main() {
     ctx := context.Background()
@@ -97,7 +97,7 @@ go run cmd/orbit/main.go
 
 ## Integration with Logging
 
-The observability package works seamlessly with `internal/logging`:
+The observability package works seamlessly with `internal/platform/logging`:
 
 1. **Setup OTEL first** (in main.go)
 2. **Create tracers** for your operations
@@ -164,4 +164,4 @@ The `shutdown` function:
 
 ## Architecture Decision
 
-See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../docs/adr/0004-dependency-injected-logging.md) for the design rationale behind the logging/observability split.
+See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../../../docs/adr/0004-dependency-injected-logging.md) for the design rationale behind the logging/observability split.
