@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -87,7 +88,8 @@ func (a *api) Server(
 	finalHandler = defaultMiddleware(finalHandler)
 
 	return &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: finalHandler,
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           finalHandler,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 }
