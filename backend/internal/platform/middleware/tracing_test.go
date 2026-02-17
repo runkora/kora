@@ -22,19 +22,19 @@ func TestTracingMiddleware(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	// Verify a span was created
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
@@ -50,28 +50,28 @@ func TestTracingMiddlewareSpanAttributes(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("POST", "/api/users?id=123", nil)
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
 	}
-	
+
 	span := spans[0]
 	attrs := span.Attributes
-	
+
 	// Verify HTTP attributes (using OpenTelemetry semantic conventions v1.24.0)
 	expectedAttrs := map[string]interface{}{
 		"http.request.method":       "POST",
@@ -81,12 +81,12 @@ func TestTracingMiddlewareSpanAttributes(t *testing.T) {
 		"server.address":            "example.com",
 		"http.response.status_code": int64(200),
 	}
-	
+
 	attrMap := make(map[string]interface{})
 	for _, attr := range attrs {
 		attrMap[string(attr.Key)] = attr.Value.AsInterface()
 	}
-	
+
 	for key, expected := range expectedAttrs {
 		actual, ok := attrMap[key]
 		if !ok {
@@ -135,24 +135,24 @@ func TestTracingMiddlewareSpanName(t *testing.T) {
 			)
 			otel.SetTracerProvider(tp)
 			defer otel.SetTracerProvider(nil)
-			
+
 			mw := TracingMiddleware("test-service")
-			
+
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
-			
+
 			wrapped := mw.next(handler)
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
-			
+
 			wrapped.ServeHTTP(rec, req)
-			
+
 			spans := exporter.GetSpans()
 			if len(spans) != 1 {
 				t.Fatalf("Expected 1 span, got %d", len(spans))
 			}
-			
+
 			if spans[0].Name != tt.expectedName {
 				t.Errorf("Span name = %s, want %s", spans[0].Name, tt.expectedName)
 			}
@@ -181,24 +181,24 @@ func TestTracingMiddlewareStatusCodes(t *testing.T) {
 			)
 			otel.SetTracerProvider(tp)
 			defer otel.SetTracerProvider(nil)
-			
+
 			mw := TracingMiddleware("test-service")
-			
+
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 			})
-			
+
 			wrapped := mw.next(handler)
 			req := httptest.NewRequest("GET", "/test", nil)
 			rec := httptest.NewRecorder()
-			
+
 			wrapped.ServeHTTP(rec, req)
-			
+
 			spans := exporter.GetSpans()
 			if len(spans) != 1 {
 				t.Fatalf("Expected 1 span, got %d", len(spans))
 			}
-			
+
 			// Find status_code attribute (using OpenTelemetry semantic conventions v1.24.0)
 			var statusCode int64
 			found := false
@@ -209,11 +209,11 @@ func TestTracingMiddlewareStatusCodes(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if !found {
 				t.Fatal("http.response.status_code attribute not found")
 			}
-			
+
 			if int(statusCode) != tt.statusCode {
 				t.Errorf("http.response.status_code = %d, want %d", statusCode, tt.statusCode)
 			}
@@ -230,16 +230,16 @@ func TestTracingMiddlewareW3CPropagation(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	defer otel.SetTracerProvider(nil)
-	
+
 	// Create parent span
 	tracer := tp.Tracer("parent")
 	parentCtx, parentSpan := tracer.Start(context.Background(), "parent-operation")
 	defer parentSpan.End()
-	
+
 	parentSpanContext := parentSpan.SpanContext()
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify span context was propagated
 		span := oteltrace.SpanFromContext(r.Context())
@@ -248,33 +248,33 @@ func TestTracingMiddlewareW3CPropagation(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
-	
+
 	// Create request with W3C TraceContext header
 	req := httptest.NewRequest("GET", "/test", nil)
-	
+
 	// Inject trace context into request headers
 	propagator := propagation.TraceContext{}
 	propagator.Inject(parentCtx, propagation.HeaderCarrier(req.Header))
-	
+
 	rec := httptest.NewRecorder()
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
 	}
-	
+
 	childSpan := spans[0]
-	
+
 	// Verify child span has same trace ID as parent
 	if childSpan.SpanContext.TraceID() != parentSpanContext.TraceID() {
-		t.Errorf("Child trace ID = %s, want %s", 
-			childSpan.SpanContext.TraceID(), 
+		t.Errorf("Child trace ID = %s, want %s",
+			childSpan.SpanContext.TraceID(),
 			parentSpanContext.TraceID())
 	}
-	
+
 	// Verify child span has different span ID than parent
 	if childSpan.SpanContext.SpanID() == parentSpanContext.SpanID() {
 		t.Error("Child span ID should differ from parent span ID")
@@ -289,25 +289,25 @@ func TestTracingMiddlewareContextPropagation(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	var handlerSpan oteltrace.Span
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerSpan = oteltrace.SpanFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if handlerSpan == nil {
 		t.Fatal("Handler did not receive span in context")
 	}
-	
+
 	if !handlerSpan.SpanContext().IsValid() {
 		t.Error("Handler span context is not valid")
 	}
@@ -321,31 +321,31 @@ func TestTracingMiddlewareErrorStatus(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
 	}
-	
+
 	span := spans[0]
-	
+
 	// Verify span status is set to Error for 5xx responses
 	if span.Status.Code != codes.Error {
 		t.Errorf("Span status code = %v, want %v", span.Status.Code, codes.Error)
 	}
-	
+
 	// Verify the status code attribute is recorded (using OpenTelemetry semantic conventions v1.24.0)
 	var statusCode int64
 	for _, attr := range span.Attributes {
@@ -354,7 +354,7 @@ func TestTracingMiddlewareErrorStatus(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if statusCode != http.StatusInternalServerError {
 		t.Errorf("http.response.status_code = %d, want %d", statusCode, http.StatusInternalServerError)
 	}
@@ -369,20 +369,20 @@ func TestTracingMiddlewareNoPropagatorSet(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	// Don't set propagator - should still work
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	// Should not panic
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
@@ -397,24 +397,24 @@ func TestTracingMiddlewareHTTPSScheme(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "https://example.com/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
 	}
-	
+
 	// Find url.scheme attribute (using OpenTelemetry semantic conventions v1.24.0)
 	var scheme string
 	for _, attr := range spans[0].Attributes {
@@ -423,7 +423,7 @@ func TestTracingMiddlewareHTTPSScheme(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if scheme != "https" {
 		t.Errorf("url.scheme = %s, want https", scheme)
 	}
@@ -437,31 +437,31 @@ func TestTracingMiddlewareSpanEnding(t *testing.T) {
 	)
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	mw := TracingMiddleware("test-service")
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	spans := exporter.GetSpans()
 	if len(spans) != 1 {
 		t.Fatalf("Expected 1 span, got %d", len(spans))
 	}
-	
+
 	span := spans[0]
-	
+
 	// Verify span has ended (has end time)
 	if span.EndTime.IsZero() {
 		t.Error("Span end time is zero - span was not properly ended")
 	}
-	
+
 	// Verify end time is after start time
 	if !span.EndTime.After(span.StartTime) {
 		t.Error("Span end time is not after start time")

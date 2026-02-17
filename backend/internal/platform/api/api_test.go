@@ -260,11 +260,11 @@ func TestServerBasePathStripPrefix(t *testing.T) {
 			ctx := context.Background()
 			logger := logging.NewLogger()
 			api := NewAPI(ctx, logger)
-			
+
 			controller := &mockController{
 				basePath: "/users",
 			}
-			
+
 			server := api.Server(ctx, 8080, tc.serverBase, nil, controller)
 
 			req := httptest.NewRequest("GET", tc.requestPath, nil)
@@ -465,7 +465,7 @@ func TestHealthCheckErrorHandling(t *testing.T) {
 	}()
 
 	server.Handler.ServeHTTP(rec, req)
-	
+
 	// Verify status code was written despite write error
 	if rec.Code != http.StatusOK {
 		t.Errorf("Status code = %d, want %d", rec.Code, http.StatusOK)

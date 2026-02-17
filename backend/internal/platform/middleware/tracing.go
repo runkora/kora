@@ -78,8 +78,8 @@ func TracingMiddleware(serviceName string) Middleware {
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {
 	http.ResponseWriter
-	statusCode     int
-	wroteHeader    bool
+	statusCode  int
+	wroteHeader bool
 }
 
 func (w *tracingResponseWriter) WriteHeader(statusCode int) {

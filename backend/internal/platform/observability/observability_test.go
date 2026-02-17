@@ -21,13 +21,13 @@ func TestSetup(t *testing.T) {
 		Environment:    "development",
 		SamplingRate:   0.5,
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	if shutdown == nil {
 		t.Error("Setup() returned nil shutdown function")
 	}
@@ -41,19 +41,19 @@ func TestSetupDevelopmentMode(t *testing.T) {
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// Verify tracer provider was set
 	tp := otel.GetTracerProvider()
 	if tp == nil {
 		t.Error("Tracer provider not set")
 	}
-	
+
 	// Create a test span to verify it works
 	tracer := tp.Tracer("test")
 	_, span := tracer.Start(ctx, "test-span")
@@ -66,7 +66,7 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 	if os.Getenv("CI") != "" {
 		t.Skip("Skipping OTLP test in CI")
 	}
-	
+
 	ctx := context.Background()
 	cfg := Config{
 		ServiceName:    "test-service",
@@ -75,7 +75,7 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 		OTLPEndpoint:   "localhost:4317",
 		OTLPInsecure:   true, // For testing
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		// If OTLP collector is not available, that's okay for this test
@@ -93,13 +93,13 @@ func TestSetupProductionNoOTLP(t *testing.T) {
 		Environment:    "production",
 		// No OTLP endpoint - should create no-op provider
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	if shutdown == nil {
 		t.Error("Setup() returned nil shutdown function")
 	}
@@ -114,13 +114,13 @@ func TestSetupDefaultSamplingRate(t *testing.T) {
 		Environment:    "development",
 		SamplingRate:   0, // Should default to 0.1
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// The default should have been applied internally
 	// We can't easily verify the sampling rate directly, but we verified no error
 }
@@ -145,7 +145,7 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 				Environment:    "development",
 				SamplingRate:   tt.samplingRate,
 			}
-			
+
 			shutdown, err := Setup(ctx, cfg)
 			if err != nil {
 				t.Fatalf("Setup() error = %v", err)
@@ -163,17 +163,17 @@ func TestSetupShutdown(t *testing.T) {
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
-	
+
 	// Call shutdown
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("shutdown() error = %v", err)
 	}
-	
+
 	// Calling shutdown again should not panic
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("second shutdown() error = %v", err)
@@ -188,16 +188,16 @@ func TestSetupShutdownTimeout(t *testing.T) {
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
-	
-	// Create context with very short timeout
-	shutdownCtx, cancel := context.WithTimeout(ctx, 1*time.Millisecond)
+
+	// Create context with short timeout to verify timeout handling
+	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	defer cancel()
-	
+
 	// Should complete (possibly with timeout error, but shouldn't hang)
 	_ = shutdown(shutdownCtx)
 }
@@ -209,21 +209,37 @@ func TestSetupFromEnv(t *testing.T) {
 	origServiceVersion := os.Getenv("OTEL_SERVICE_VERSION")
 	origEnvironment := os.Getenv("ENVIRONMENT")
 	origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-	
+
 	// Restore after test
 	defer func() {
-		os.Setenv("OTEL_SERVICE_NAME", origServiceName)
-		os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
-		os.Setenv("ENVIRONMENT", origEnvironment)
-		os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+		if origServiceName != "" {
+			os.Setenv("OTEL_SERVICE_NAME", origServiceName)
+		} else {
+			os.Unsetenv("OTEL_SERVICE_NAME")
+		}
+		if origServiceVersion != "" {
+			os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
+		} else {
+			os.Unsetenv("OTEL_SERVICE_VERSION")
+		}
+		if origEnvironment != "" {
+			os.Setenv("ENVIRONMENT", origEnvironment)
+		} else {
+			os.Unsetenv("ENVIRONMENT")
+		}
+		if origSamplingRate != "" {
+			os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+		} else {
+			os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
+		}
 	}()
-	
+
 	// Set test env vars
 	os.Setenv("OTEL_SERVICE_NAME", "env-test-service")
 	os.Setenv("OTEL_SERVICE_VERSION", "2.0.0")
 	os.Setenv("ENVIRONMENT", "development")
 	os.Setenv("OTEL_TRACE_SAMPLING_RATE", "0.5")
-	
+
 	ctx := context.Background()
 	shutdown, err := SetupFromEnv(ctx)
 	if err != nil {
@@ -239,26 +255,42 @@ func TestSetupFromEnvDefaults(t *testing.T) {
 	origServiceVersion := os.Getenv("OTEL_SERVICE_VERSION")
 	origEnvironment := os.Getenv("ENVIRONMENT")
 	origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-	
+
 	os.Unsetenv("OTEL_SERVICE_NAME")
 	os.Unsetenv("OTEL_SERVICE_VERSION")
 	os.Unsetenv("ENVIRONMENT")
 	os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
-	
+
 	defer func() {
-		os.Setenv("OTEL_SERVICE_NAME", origServiceName)
-		os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
-		os.Setenv("ENVIRONMENT", origEnvironment)
-		os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+		if origServiceName != "" {
+			os.Setenv("OTEL_SERVICE_NAME", origServiceName)
+		} else {
+			os.Unsetenv("OTEL_SERVICE_NAME")
+		}
+		if origServiceVersion != "" {
+			os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
+		} else {
+			os.Unsetenv("OTEL_SERVICE_VERSION")
+		}
+		if origEnvironment != "" {
+			os.Setenv("ENVIRONMENT", origEnvironment)
+		} else {
+			os.Unsetenv("ENVIRONMENT")
+		}
+		if origSamplingRate != "" {
+			os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+		} else {
+			os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
+		}
 	}()
-	
+
 	ctx := context.Background()
 	shutdown, err := SetupFromEnv(ctx)
 	if err != nil {
 		t.Fatalf("SetupFromEnv() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// Should use defaults: orbit, dev, development, 0.1
 }
 
@@ -277,16 +309,16 @@ func TestSetupFromEnvInvalidSamplingRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
 			defer os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
-			
+
 			os.Setenv("OTEL_TRACE_SAMPLING_RATE", tt.value)
-			
+
 			ctx := context.Background()
 			shutdown, err := SetupFromEnv(ctx)
 			if err != nil {
 				t.Fatalf("SetupFromEnv() error = %v", err)
 			}
 			defer shutdown(ctx)
-			
+
 			// Should fall back to default (0.1) without error
 		})
 	}
@@ -309,13 +341,13 @@ func TestSetupFromEnvInsecureFlag(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			origInsecure := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE")
 			defer os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", origInsecure)
-			
+
 			if tt.value != "" {
 				os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", tt.value)
 			} else {
 				os.Unsetenv("OTEL_EXPORTER_OTLP_INSECURE")
 			}
-			
+
 			ctx := context.Background()
 			shutdown, err := SetupFromEnv(ctx)
 			if err != nil {
@@ -366,7 +398,7 @@ func TestGetEnv(t *testing.T) {
 			} else {
 				os.Unsetenv(tt.envKey)
 			}
-			
+
 			result := getEnv(tt.envKey, tt.defaultValue)
 			if result != tt.expected {
 				t.Errorf("getEnv() = %s, want %s", result, tt.expected)
@@ -379,26 +411,26 @@ func TestGetEnv(t *testing.T) {
 func TestTracerProviderGlobalSet(t *testing.T) {
 	// Clear any existing tracer provider
 	otel.SetTracerProvider(nil)
-	
+
 	ctx := context.Background()
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// Verify global tracer provider is set
 	tp := otel.GetTracerProvider()
 	if tp == nil {
 		t.Error("Global tracer provider not set")
 	}
-	
+
 	// Verify we can create a tracer
 	tracer := tp.Tracer("test")
 	if tracer == nil {
@@ -414,13 +446,13 @@ func TestPropagatorGlobalSet(t *testing.T) {
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// Verify propagator is set (we can't easily inspect it, but we can verify no panic)
 	propagator := otel.GetTextMapPropagator()
 	if propagator == nil {
@@ -437,18 +469,18 @@ func TestSpanExportWithDevelopment(t *testing.T) {
 		Environment:    "development",
 		SamplingRate:   1.0, // Always sample for this test
 	}
-	
+
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
 	defer shutdown(ctx)
-	
+
 	// Create and end a span
 	tracer := otel.GetTracerProvider().Tracer("test")
 	_, span := tracer.Start(ctx, "test-span")
 	span.End()
-	
+
 	// Shutdown to flush
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("shutdown() error = %v", err)
@@ -458,20 +490,20 @@ func TestSpanExportWithDevelopment(t *testing.T) {
 // TestNoOpTracerProviderShutdown verifies no-op tracer provider shutdown
 func TestNoOpTracerProviderShutdown(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Create a simple no-op provider to test shutdown
 	tp := trace.NewTracerProvider()
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(nil)
-	
+
 	shutdown := func(ctx context.Context) error {
 		return tp.Shutdown(ctx)
 	}
-	
+
 	if shutdown == nil {
 		t.Error("Shutdown function is nil")
 	}
-	
+
 	// Verify shutdown works
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("shutdown() error = %v", err)
@@ -481,7 +513,7 @@ func TestNoOpTracerProviderShutdown(t *testing.T) {
 // TestCreateNoOpProvider verifies createNoOpProvider function
 func TestCreateNoOpProvider(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Create test resource
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -491,32 +523,32 @@ func TestCreateNoOpProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create resource: %v", err)
 	}
-	
+
 	shutdown := createNoOpProvider(res)
-	
+
 	if shutdown == nil {
 		t.Fatal("Shutdown function should not be nil")
 	}
-	
+
 	// Verify the tracer provider is set globally
 	tp := otel.GetTracerProvider()
 	if tp == nil {
 		t.Fatal("TracerProvider should not be nil")
 	}
-	
+
 	defer otel.SetTracerProvider(nil)
-	
+
 	// Verify shutdown works without error
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("shutdown() error = %v", err)
 	}
-	
+
 	// Create a tracer and span to verify it's functional
 	tracer := tp.Tracer("test")
 	if tracer == nil {
 		t.Fatal("Tracer should not be nil")
 	}
-	
+
 	_, span := tracer.Start(ctx, "test-span")
 	if span == nil {
 		t.Fatal("Span should not be nil")

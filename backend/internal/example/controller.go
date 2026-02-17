@@ -42,7 +42,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 // handleHealth returns a simple health check response
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	c.logger.Info(r.Context(), "Health check requested")
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -55,11 +55,11 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleHello(w http.ResponseWriter, r *http.Request) {
 	// Extract path parameter using Go 1.22+ ServeMux pattern
 	name := r.PathValue("name")
-	
+
 	c.logger.Info(r.Context(), "Hello endpoint called",
 		logging.Field{Key: "name", Value: name},
 	)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -75,7 +75,7 @@ type EchoRequest struct {
 // handleEcho demonstrates request body parsing and validation
 func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 	var req EchoRequest
-	
+
 	// Parse JSON body
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.logger.Warn(r.Context(), "Invalid echo request",
@@ -89,7 +89,7 @@ func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// Validate required field
 	if req.Message == "" {
 		c.logger.Warn(r.Context(), "Echo request missing message field")
@@ -100,11 +100,11 @@ func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	c.logger.Info(r.Context(), "Echo request received",
 		logging.Field{Key: "message", Value: req.Message},
 	)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{

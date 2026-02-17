@@ -11,7 +11,7 @@ import (
 )
 
 // Mux wraps http.ServeMux with controller-level routing and middleware support.
-// 
+//
 // Thread Safety: Mux embeds *http.ServeMux which is safe for concurrent use after
 // registration is complete. The Mux wrapper fields (basePath, middleware, logger, ctx)
 // are only modified during server setup (NewServer) before the server starts accepting
@@ -100,17 +100,17 @@ func (m *Mux) HandleWithMiddleware(
 	// Middleware wrapping order (inside-out): handler → route-specific → controller-level
 	// Execution order (outside-in): controller-level → route-specific → handler
 	var finalHandler http.Handler = http.HandlerFunc(handler)
-	
+
 	// Apply route-specific middleware first (wraps handler, executes last)
 	if middleware != nil {
 		finalHandler = middleware(finalHandler)
 	}
-	
+
 	// Apply controller-level middleware last (wraps everything, executes first)
 	if m.middleware != nil {
 		finalHandler = m.middleware(finalHandler)
 	}
-	
+
 	m.ServeMux.Handle(joinedRoute, finalHandler)
 }
 

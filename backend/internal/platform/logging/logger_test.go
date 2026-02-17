@@ -8,11 +8,11 @@ import (
 // TestFieldCreation verifies that Field structs are created correctly
 func TestFieldCreation(t *testing.T) {
 	tests := []struct {
-		name     string
-		key      string
-		value    interface{}
-		wantKey  string
-		wantVal  interface{}
+		name    string
+		key     string
+		value   interface{}
+		wantKey string
+		wantVal interface{}
 	}{
 		{
 			name:    "string field",
@@ -47,11 +47,11 @@ func TestFieldCreation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			field := Field{Key: tt.key, Value: tt.value}
-			
+
 			if field.Key != tt.wantKey {
 				t.Errorf("Field.Key = %v, want %v", field.Key, tt.wantKey)
 			}
-			
+
 			if field.Value != tt.wantVal {
 				t.Errorf("Field.Value = %v, want %v", field.Value, tt.wantVal)
 			}
@@ -101,7 +101,7 @@ func (m *mockLogger) Error(ctx context.Context, msg string, fields ...Field) {
 func TestMockLogger(t *testing.T) {
 	mock := &mockLogger{}
 	ctx := context.Background()
-	
+
 	// Test Debug
 	mock.Debug(ctx, "debug message", Field{Key: "key", Value: "value"})
 	if len(mock.debugCalls) != 1 {
@@ -110,19 +110,19 @@ func TestMockLogger(t *testing.T) {
 	if mock.debugCalls[0].msg != "debug message" {
 		t.Errorf("Debug message = %s, want 'debug message'", mock.debugCalls[0].msg)
 	}
-	
+
 	// Test Info
 	mock.Info(ctx, "info message")
 	if len(mock.infoCalls) != 1 {
 		t.Errorf("Info calls = %d, want 1", len(mock.infoCalls))
 	}
-	
+
 	// Test Warn
 	mock.Warn(ctx, "warn message")
 	if len(mock.warnCalls) != 1 {
 		t.Errorf("Warn calls = %d, want 1", len(mock.warnCalls))
 	}
-	
+
 	// Test Error
 	mock.Error(ctx, "error message")
 	if len(mock.errorCalls) != 1 {

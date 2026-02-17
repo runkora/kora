@@ -15,21 +15,21 @@ func TestNewMiddleware(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if !called {
 		t.Error("Middleware was not called")
 	}
-	
+
 	if rec.Code != http.StatusOK {
 		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -38,7 +38,7 @@ func TestNewMiddleware(t *testing.T) {
 // TestMiddlewareChain verifies middleware chain creation and ordering
 func TestMiddlewareChain(t *testing.T) {
 	var executionOrder []string
-	
+
 	// Create three middleware that track execution order
 	mw1 := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func TestMiddlewareChain(t *testing.T) {
 			executionOrder = append(executionOrder, "mw1-after")
 		})
 	})
-	
+
 	mw2 := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			executionOrder = append(executionOrder, "mw2-before")
@@ -55,7 +55,7 @@ func TestMiddlewareChain(t *testing.T) {
 			executionOrder = append(executionOrder, "mw2-after")
 		})
 	})
-	
+
 	mw3 := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			executionOrder = append(executionOrder, "mw3-before")
@@ -63,32 +63,32 @@ func TestMiddlewareChain(t *testing.T) {
 			executionOrder = append(executionOrder, "mw3-after")
 		})
 	})
-	
+
 	// Chain the middleware
 	chain := MiddlewareChain(mw1, mw2, mw3)
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		executionOrder = append(executionOrder, "handler")
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := chain(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	// Verify execution order: outer middleware executes first
 	// Expected: mw1-before → mw2-before → mw3-before → handler → mw3-after → mw2-after → mw1-after
 	expected := []string{
 		"mw1-before", "mw2-before", "mw3-before", "handler",
 		"mw3-after", "mw2-after", "mw1-after",
 	}
-	
+
 	if len(executionOrder) != len(expected) {
 		t.Fatalf("Execution order length = %d, want %d", len(executionOrder), len(expected))
 	}
-	
+
 	for i, step := range expected {
 		if executionOrder[i] != step {
 			t.Errorf("executionOrder[%d] = %s, want %s", i, executionOrder[i], step)
@@ -99,23 +99,23 @@ func TestMiddlewareChain(t *testing.T) {
 // TestMiddlewareChainEmpty verifies empty middleware chain behavior
 func TestMiddlewareChainEmpty(t *testing.T) {
 	chain := MiddlewareChain()
-	
+
 	called := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := chain(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if !called {
 		t.Error("Handler was not called with empty chain")
 	}
-	
+
 	if rec.Code != http.StatusOK {
 		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -130,19 +130,19 @@ func TestMiddlewareChainSingle(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	chain := MiddlewareChain(mw)
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := chain(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if !called {
 		t.Error("Middleware was not called")
 	}
@@ -157,17 +157,17 @@ func TestMiddlewareResponseModification(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := headerMw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if header := rec.Header().Get("X-Custom-Header"); header != "test-value" {
 		t.Errorf("X-Custom-Header = %s, want 'test-value'", header)
 	}
@@ -176,7 +176,7 @@ func TestMiddlewareResponseModification(t *testing.T) {
 // TestMiddlewareShortCircuit verifies middleware can short-circuit the chain
 func TestMiddlewareShortCircuit(t *testing.T) {
 	handlerCalled := false
-	
+
 	// Middleware that short-circuits (doesn't call next)
 	authMw := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -184,22 +184,22 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 		})
 	})
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := authMw.next(handler)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if handlerCalled {
 		t.Error("Handler should not have been called after middleware short-circuit")
 	}
-	
+
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
@@ -209,55 +209,52 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 func TestMiddlewareNilHandler(t *testing.T) {
 	mw := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Try to call nil handler - should panic
-			if next != nil {
-				next.ServeHTTP(w, r)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError)
-			}
+			// Call next directly; if nil this will panic
+			next.ServeHTTP(w, r)
 		})
 	})
-	
-	// This tests the middleware wrapper itself, not calling with nil
+
+	// Passing a nil handler should result in a panic when the wrapped handler is invoked
 	wrapped := mw.next(nil)
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
-	// Should not panic, should return 500
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when calling middleware with nil handler, but none occurred")
+		}
+	}()
+
 	wrapped.ServeHTTP(rec, req)
-	
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusInternalServerError)
-	}
 }
 
 // TestMiddlewarePassthroughRequest verifies request is passed through correctly
 func TestMiddlewarePassthroughRequest(t *testing.T) {
 	var receivedMethod string
 	var receivedPath string
-	
+
 	mw := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedMethod = r.Method
 		receivedPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	})
-	
+
 	wrapped := mw.next(handler)
 	req := httptest.NewRequest("POST", "/api/users", nil)
 	rec := httptest.NewRecorder()
-	
+
 	wrapped.ServeHTTP(rec, req)
-	
+
 	if receivedMethod != "POST" {
 		t.Errorf("Request method = %s, want POST", receivedMethod)
 	}
-	
+
 	if receivedPath != "/api/users" {
 		t.Errorf("Request path = %s, want /api/users", receivedPath)
 	}
