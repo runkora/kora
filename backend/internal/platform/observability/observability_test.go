@@ -12,15 +12,23 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
 
+// testConfig returns a Config suitable for tests that avoids stdout pollution.
+// Uses production mode with OTLP endpoint to prevent trace output in test logs.
+func testConfig() Config {
+	return Config{
+		ServiceName:    "test-service",
+		ServiceVersion: "1.0.0",
+		Environment:    "production",
+		OTLPEndpoint:   "localhost:4317",
+		OTLPInsecure:   true,
+		SamplingRate:   0.5,
+	}
+}
+
 // TestSetup verifies basic observability setup
 func TestSetup(t *testing.T) {
 	ctx := context.Background()
-	cfg := Config{
-		ServiceName:    "test-service",
-		ServiceVersion: "1.0.0",
-		Environment:    "development",
-		SamplingRate:   0.5,
-	}
+	cfg := testConfig()
 
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
@@ -54,9 +62,11 @@ func TestSetupDevelopmentMode(t *testing.T) {
 		t.Error("Tracer provider not set")
 	}
 
-	// Create a test span to verify it works
+	// Note: This test will output trace JSON to stdout, which is expected
+	// behavior for development mode. The output validates that traces are
+	// being exported correctly.
 	tracer := tp.Tracer("test")
-	_, span := tracer.Start(ctx, "test-span")
+	_, span := tracer.Start(ctx, "test-span-development")
 	span.End()
 }
 
@@ -84,34 +94,42 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 	defer shutdown(ctx)
 }
 
-// TestSetupProductionNoOTLP verifies production mode without OTLP (no-op)
+// TestSetupProductionNoOTLP verifies production mode requires OTLP endpoint
 func TestSetupProductionNoOTLP(t *testing.T) {
 	ctx := context.Background()
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "production",
-		// No OTLP endpoint - should create no-op provider
+		// No OTLP endpoint - should return error
 	}
 
 	shutdown, err := Setup(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Setup() error = %v", err)
+	if err == nil {
+		t.Fatal("Setup() expected error for production without OTLP endpoint, got nil")
 	}
-	defer shutdown(ctx)
+	if shutdown != nil {
+		t.Error("Setup() returned non-nil shutdown function on error")
+	}
 
-	if shutdown == nil {
-		t.Error("Setup() returned nil shutdown function")
+	expectedMsg := "OTLP endpoint is required in production (set OTEL_EXPORTER_OTLP_ENDPOINT)"
+	if err.Error() != expectedMsg {
+		t.Errorf("Setup() error = %q, want %q", err.Error(), expectedMsg)
 	}
 }
 
 // TestSetupDefaultSamplingRate verifies default sampling rate
 func TestSetupDefaultSamplingRate(t *testing.T) {
 	ctx := context.Background()
+	
+	// Use production mode with OTLP endpoint to avoid stdout trace pollution in tests
+	// This tests the same sampling logic without the verbose output
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
-		Environment:    "development",
+		Environment:    "production",
+		OTLPEndpoint:   "localhost:4317", // Will fail to connect but that's OK for this test
+		OTLPInsecure:   true,
 		SamplingRate:   0, // Should default to 0.1
 	}
 
@@ -121,8 +139,29 @@ func TestSetupDefaultSamplingRate(t *testing.T) {
 	}
 	defer shutdown(ctx)
 
-	// The default should have been applied internally
-	// We can't easily verify the sampling rate directly, but we verified no error
+	// Empirically verify that spans are being sampled at approximately the
+	// default 0.1 rate by creating multiple root spans and checking how many
+	// are marked as sampled.
+	tracer := otel.Tracer("test-default-sampling")
+
+	const totalSpans = 1000
+	sampled := 0
+	for i := 0; i < totalSpans; i++ {
+		_, span := tracer.Start(ctx, "test-span-default-sampling")
+		if span.SpanContext().IsSampled() {
+			sampled++
+		}
+		span.End()
+	}
+
+	observedRate := float64(sampled) / float64(totalSpans)
+
+	// Allow for randomness, but ensure we are close to 0.1. These bounds are
+	// deliberately loose to avoid flakiness while still catching obvious errors.
+	if observedRate < 0.05 || observedRate > 0.15 {
+		t.Fatalf("default sampling rate out of expected range: got %f (sampled %d of %d spans), want ~0.1",
+			observedRate, sampled, totalSpans)
+	}
 }
 
 // TestSetupCustomSamplingRate verifies custom sampling rates
@@ -139,12 +178,8 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			cfg := Config{
-				ServiceName:    "test-service",
-				ServiceVersion: "1.0.0",
-				Environment:    "development",
-				SamplingRate:   tt.samplingRate,
-			}
+			cfg := testConfig()
+			cfg.SamplingRate = tt.samplingRate
 
 			shutdown, err := Setup(ctx, cfg)
 			if err != nil {
@@ -158,11 +193,7 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 // TestSetupShutdown verifies shutdown functionality
 func TestSetupShutdown(t *testing.T) {
 	ctx := context.Background()
-	cfg := Config{
-		ServiceName:    "test-service",
-		ServiceVersion: "1.0.0",
-		Environment:    "development",
-	}
+	cfg := testConfig()
 
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
@@ -183,11 +214,7 @@ func TestSetupShutdown(t *testing.T) {
 // TestSetupShutdownTimeout verifies shutdown respects timeout
 func TestSetupShutdownTimeout(t *testing.T) {
 	ctx := context.Background()
-	cfg := Config{
-		ServiceName:    "test-service",
-		ServiceVersion: "1.0.0",
-		Environment:    "development",
-	}
+	cfg := testConfig()
 
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
@@ -402,7 +429,7 @@ func TestGetEnv(t *testing.T) {
 			envKey:       "EMPTY_KEY",
 			envValue:     "",
 			defaultValue: "default",
-			expected:     "", // getEnv now returns empty string when explicitly set
+			expected:     "default", // Empty string should fall back to default
 		},
 	}
 
@@ -431,11 +458,7 @@ func TestTracerProviderGlobalSet(t *testing.T) {
 	otel.SetTracerProvider(nil)
 
 	ctx := context.Background()
-	cfg := Config{
-		ServiceName:    "test-service",
-		ServiceVersion: "1.0.0",
-		Environment:    "development",
-	}
+	cfg := testConfig()
 
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
@@ -459,11 +482,7 @@ func TestTracerProviderGlobalSet(t *testing.T) {
 // TestPropagatorGlobalSet verifies W3C TraceContext propagator is set
 func TestPropagatorGlobalSet(t *testing.T) {
 	ctx := context.Background()
-	cfg := Config{
-		ServiceName:    "test-service",
-		ServiceVersion: "1.0.0",
-		Environment:    "development",
-	}
+	cfg := testConfig()
 
 	shutdown, err := Setup(ctx, cfg)
 	if err != nil {
@@ -494,9 +513,10 @@ func TestSpanExportWithDevelopment(t *testing.T) {
 	}
 	defer shutdown(ctx)
 
-	// Create and end a span
+	// Note: This test outputs trace JSON to stdout, which is expected
+	// behavior for development mode and validates correct export.
 	tracer := otel.GetTracerProvider().Tracer("test")
-	_, span := tracer.Start(ctx, "test-span")
+	_, span := tracer.Start(ctx, "test-span-export")
 	span.End()
 
 	// Shutdown to flush

@@ -205,27 +205,27 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 	}
 }
 
-// TestMiddlewareNilHandler verifies behavior with nil next handler
+// TestMiddlewareNilHandler verifies that MiddlewareChain handles nil handlers defensively
 func TestMiddlewareNilHandler(t *testing.T) {
 	mw := NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Call next directly; if nil this will panic
 			next.ServeHTTP(w, r)
 		})
 	})
 
-	// Passing a nil handler should result in a panic when the wrapped handler is invoked
-	wrapped := mw.next(nil)
+	// Create a middleware chain and pass nil handler
+	chain := MiddlewareChain(mw)
+	wrapped := chain(nil)
+
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic when calling middleware with nil handler, but none occurred")
-		}
-	}()
-
+	// Should not panic - defensive nil check should return 500 error
 	wrapped.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status %d for nil handler, got %d", http.StatusInternalServerError, rec.Code)
+	}
 }
 
 // TestMiddlewarePassthroughRequest verifies request is passed through correctly

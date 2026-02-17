@@ -58,8 +58,8 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	case cfg.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
 	default:
-		// Production without OTLP: no-op mode (logs only, no trace export)
-		return createNoOpProvider(res), nil
+		// Production requires OTLP endpoint to be explicitly configured
+		return nil, fmt.Errorf("OTLP endpoint is required in production (set OTEL_EXPORTER_OTLP_ENDPOINT)")
 	}
 
 	if err != nil {
@@ -184,7 +184,7 @@ func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 }
 
 func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	if value, exists := os.LookupEnv(key); exists && value != "" {
 		return value
 	}
 	return defaultValue

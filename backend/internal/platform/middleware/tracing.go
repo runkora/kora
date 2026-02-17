@@ -65,12 +65,17 @@ func TracingMiddleware(serviceName string) Middleware {
 			next.ServeHTTP(wrapped, r)
 
 			// Record response status in span
-			span.SetAttributes(semconv.HTTPResponseStatusCode(wrapped.statusCode))
+			// If no status was set, default to 200 OK
+			statusCode := wrapped.statusCode
+			if statusCode == 0 {
+				statusCode = http.StatusOK
+			}
+			span.SetAttributes(semconv.HTTPResponseStatusCode(statusCode))
 
 			// Mark span as error only for server errors (5xx), not client errors (4xx).
 			// Client errors indicate issues with the request, not failures in our service.
 			// This aligns with OpenTelemetry semantic conventions for HTTP server spans.
-			if wrapped.statusCode >= 500 {
+			if statusCode >= 500 {
 				span.SetStatus(codes.Error, "HTTP server error")
 			}
 		})

@@ -319,8 +319,8 @@ func TestMuxMiddlewareWithNoRoutes(t *testing.T) {
 
 	mux.ServeHTTP(rec, req)
 
-	// Note: With http.ServeMux, middleware only runs if a route matches.
-	// Since no routes are registered, we expect 404 and middleware not called.
+	// Note: In this Mux implementation, middleware is applied per registered route.
+	// Since no routes are registered, we expect a 404 and middleware not to be called.
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("Response code = %d, want %d", rec.Code, http.StatusNotFound)
 	}

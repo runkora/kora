@@ -477,6 +477,14 @@ type failingResponseWriter struct {
 	*httptest.ResponseRecorder
 	writeError error
 	code       int
+	header     http.Header
+}
+
+func (f *failingResponseWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = make(http.Header)
+	}
+	return f.header
 }
 
 func (f *failingResponseWriter) WriteHeader(statusCode int) {
