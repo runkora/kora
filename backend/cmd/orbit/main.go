@@ -3,11 +3,17 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/clear-route/orbit/internal/example"
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
-	"go.opentelemetry.io/otel"
 )
 
 func main() {
@@ -23,53 +29,55 @@ func main() {
 		}
 	}()
 
-	// Create logger instance - in production, inject this via dependency injection
+	// Create logger instance
 	logger := logging.NewDevelopmentLogger()
-
-	// Example 1: Basic logging without trace context
 	logger.Info(ctx, "Orbit control plane starting", logging.Field{Key: "version", Value: "0.1.0"})
 
-	// Example 2: Logging with OpenTelemetry trace context
-	// In production, traces would come from incoming requests via OTEL middleware
-	tracer := otel.Tracer("orbit-example")
-	
-	// Start a traced operation
-	tracedCtx, span := tracer.Start(ctx, "agent-execution")
-	defer span.End()
+	// Initialize API server with context and logger
+	apiServer := api.NewAPI(ctx, logger)
 
-	// These logs will automatically include trace_id and span_id
-	logger.Info(tracedCtx, "Agent execution started", 
-		logging.Field{Key: "agent_id", Value: "agent-123"},
-		logging.Field{Key: "model", Value: "gpt-4"},
+	// Create example controller
+	exampleController := example.NewController(logger)
+
+	// Create HTTP server with controllers
+	// Server handles controller registration and middleware setup
+	// Middleware chain order:
+	//   1. TracingMiddleware - extracts trace context, creates spans
+	//   2. LoggingMiddleware - logs with automatic trace correlation
+	server := apiServer.Server(
+		ctx,
+		6069,      // port
+		"/api/v1", // base path
+		mw.MiddlewareChain( // server-level middleware
+			mw.TracingMiddleware("orbit"), // OTEL tracing (first - provides context)
+			mw.LoggingMiddleware(logger),  // Request logging (second - uses trace context)
+		),
+		exampleController, // controllers to register
 	)
 
-	// Simulate some work
-	time.Sleep(100 * time.Millisecond)
+	// Setup graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Nested span example - shows parent-child relationship in traces
-	nestedCtx, nestedSpan := tracer.Start(tracedCtx, "policy-evaluation")
-	logger.Info(nestedCtx, "Evaluating agent policies",
-		logging.Field{Key: "policy_count", Value: 3},
-	)
-	nestedSpan.End()
+	// Run server in goroutine
+	go func() {
+		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
 
-	// Error logging with trace context
-	logger.Error(tracedCtx, "Simulated error for demonstration",
-		logging.Field{Key: "error_code", Value: "ERR_DEMO"},
-		logging.Field{Key: "retry_count", Value: 0},
-	)
+	// Wait for interrupt signal
+	<-quit
+	logger.Info(ctx, "Shutting down server...")
 
-	// Example 3: Logging back in non-traced context
+	// Graceful shutdown with 5 second timeout
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
+
 	logger.Info(ctx, "Orbit control plane shutdown complete")
-
-	// Example 4: Debug level (typically filtered in production)
-	logger.Debug(ctx, "This is a debug message",
-		logging.Field{Key: "detail", Value: "only shown in development"},
-	)
-
-	// Example 5: Warning level
-	logger.Warn(ctx, "High memory usage detected",
-		logging.Field{Key: "memory_percent", Value: 85.5},
-		logging.Field{Key: "threshold", Value: 80.0},
-	)
 }
