@@ -32,11 +32,17 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
 
-      - name: Run golangci-lint
-        run: make lint
+      - name: Check formatting
+        run: make fmt
+
+      - name: Verify no formatting changes
+        run: git diff --exit-code
 
       - name: Run go vet
         run: make vet
+
+      - name: Run golangci-lint
+        run: make lint
 
   build:
     name: Build
