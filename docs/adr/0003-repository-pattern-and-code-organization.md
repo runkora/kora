@@ -19,7 +19,7 @@ As Orbit grows from initial prototype to a multi-feature control plane, we need 
 
 ### Background
 
-The Orbit backend is a Go application serving as a control plane for autonomous agents. It manages multiple concerns including authentication, policy enforcement, credential brokering, agent lifecycle, and gateway routing. Each of these domains has its own business logic and data access needs, but they share common infrastructure (database connections, migrations, observability).
+The Orbit backend is a Go application serving as a control plane for autonomous agents. It manages multiple concerns including authentication, policy enforcement, credential brokering, agent lifecycle, and gateway routing. Each of these domains has its own business logic and data access needs, but they share common platform infrastructure (database connections, migrations, logging, observability).
 
 ### Problem Statement
 
@@ -40,7 +40,8 @@ The key tension is between:
 - Enable parallel development across features
 - Maintain testability through interface-based design
 - Keep code idiomatic and approachable for Go developers
-- Share database infrastructure without coupling features
+- Share platform infrastructure without coupling features
+- Clear separation between infrastructure (platform) and business logic (features)
 
 ### Non-Goals
 
@@ -160,31 +161,36 @@ internal/identity/
 
 ```
 internal/
-├── identity/
+├── platform/            # Infrastructure & cross-cutting concerns
+│   ├── storage/         # Database infrastructure
+│   │   ├── db.go        # Connection pooling
+│   │   ├── transaction.go
+│   │   └── migrations/  # SQL files
+│   ├── logging/         # Logging infrastructure
+│   ├── observability/   # OTEL tracing
+│   └── middleware/      # Shared HTTP middleware
+├── identity/            # Feature: Identity & Auth
 │   ├── repository.go    # Interface
 │   ├── postgres.go      # Implementation
 │   ├── service.go       # Business logic
 │   ├── handlers.go      # HTTP
 │   └── models.go        # Types
-├── agents/
-│   ├── repository.go
-│   ├── postgres.go
-│   ├── service.go
-│   ├── handlers.go
-│   └── models.go
-└── storage/             # Infrastructure ONLY
-    ├── db.go            # Connection pooling
-    ├── transaction.go   # Transaction helpers
-    └── migrations/      # SQL files
+└── agents/              # Feature: Agent management
+    ├── repository.go
+    ├── postgres.go
+    ├── service.go
+    ├── handlers.go
+    └── models.go
 ```
 
 **Pros:**
 - **Complete feature autonomy** - each package is self-contained
-- **No circular dependencies** - storage never imports features
+- **No circular dependencies** - platform never imports features
+- **Clear separation** - platform is infrastructure, features are business logic
 - **Idiomatic Go** - flat package structure, interfaces when needed
 - **Easy navigation** - everything for a feature is in one place
 - **Natural testing boundaries** - mock repository interface per feature
-- **Shared infrastructure** - database connection code not duplicated
+- **Shared infrastructure** - database/logging/observability code not duplicated
 
 **Cons:**
 - Repository pattern appears in multiple packages (acceptable Go repetition)
@@ -232,7 +238,7 @@ This is **"DDD-lite"** or **"Pragmatic Feature-Based Architecture"** - we keep t
 - **Testable** - mock the repository interface for each feature
 - **No circular dependencies** - clean, acyclic import graph
 - **Idiomatic Go** - feels natural to Go developers
-- **Shared infrastructure works well** - `internal/storage/` provides DB without coupling
+- **Shared infrastructure works well** - `internal/platform/storage/` provides DB without coupling
 - **Can refactor freely** - internal packages can be reorganized without breaking external contracts
 
 ### Negative
@@ -268,24 +274,29 @@ internal/{feature}/
 └── models.go        # Feature-specific types
 ```
 
-### Storage Package Responsibilities
+### Platform Package Responsibilities
 
-The `internal/storage/` package provides **infrastructure only**:
+The `internal/platform/` packages provide **infrastructure only**:
 
 ```
-internal/storage/
-├── db.go            # Database connection & pooling
-├── transaction.go   # Transaction utilities
-├── migrations.go    # Migration runner
-└── migrations/      # SQL migration files
-    ├── 001_users.sql
-    └── 002_agents.sql
+internal/platform/
+├── storage/         # Database infrastructure
+│   ├── db.go        # Database connection & pooling
+│   ├── transaction.go
+│   ├── migrations.go
+│   └── migrations/  # SQL migration files
+├── logging/         # Logging infrastructure
+│   └── logger.go    # Logger interface & impl
+├── observability/   # OTEL tracing & metrics
+│   └── observability.go
+└── middleware/      # Shared HTTP middleware
+    └── auth.go
 ```
 
-**Critical:** Storage never imports feature packages. Dependency flow is one-way:
+**Critical:** Platform packages never import features. Dependency flow is one-way:
 ```
-Features → Storage (for DB connection)
-Storage ✗ Features (never)
+Features → Platform (for infrastructure)
+Platform ✗ Features (never)
 ```
 
 ### Example Implementation
@@ -302,7 +313,7 @@ type Repository interface {
 // internal/identity/postgres.go
 package identity
 
-import "github.com/clear-route/orbit/internal/storage"
+import "github.com/clear-route/orbit/internal/platform/storage"
 
 type postgresRepository struct {
     db *storage.DB
