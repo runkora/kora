@@ -80,6 +80,10 @@ func (m *Mux) HandleWithMiddleware(
 	middleware mw.MiddlewareHandler,
 	handler func(http.ResponseWriter, *http.Request),
 ) {
+	if handler == nil {
+		panic("handler cannot be nil")
+	}
+
 	// Split route into method and path
 	// Routes must follow "METHOD /path" format (enforced by ServeMux)
 	// This split is safe because invalid formats will fail at ServeMux.HandleFunc

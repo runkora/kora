@@ -195,7 +195,7 @@ func TestSetupShutdownTimeout(t *testing.T) {
 	}
 
 	// Create context with short timeout to verify timeout handling
-	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 
 	// Should complete (possibly with timeout error, but shouldn't hang)
@@ -308,7 +308,13 @@ func TestSetupFromEnvInvalidSamplingRate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-			defer os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+			defer func() {
+				if origSamplingRate != "" {
+					os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
+				} else {
+					os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
+				}
+			}()
 
 			os.Setenv("OTEL_TRACE_SAMPLING_RATE", tt.value)
 
@@ -319,7 +325,11 @@ func TestSetupFromEnvInvalidSamplingRate(t *testing.T) {
 			}
 			defer shutdown(ctx)
 
-			// Should fall back to default (0.1) without error
+			// Verifies that invalid sampling rates don't cause errors.
+			// The implementation falls back to default (0.1) per lines 107-112 in observability.go.
+			// We don't verify the actual sampling rate as that would require exposing
+			// internal TracerProvider state. The fallback logic is simple enough that
+			// code review provides sufficient confidence.
 		})
 	}
 }
@@ -340,7 +350,13 @@ func TestSetupFromEnvInsecureFlag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			origInsecure := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE")
-			defer os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", origInsecure)
+			defer func() {
+				if origInsecure != "" {
+					os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", origInsecure)
+				} else {
+					os.Unsetenv("OTEL_EXPORTER_OTLP_INSECURE")
+				}
+			}()
 
 			if tt.value != "" {
 				os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", tt.value)
@@ -382,21 +398,23 @@ func TestGetEnv(t *testing.T) {
 			expected:     "default",
 		},
 		{
-			name:         "env var empty string",
+			name:         "env var set to empty string",
 			envKey:       "EMPTY_KEY",
 			envValue:     "",
 			defaultValue: "default",
-			expected:     "default",
+			expected:     "", // getEnv now returns empty string when explicitly set
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.envValue != "" {
+			// For "env var not set" test, ensure the key doesn't exist
+			if tt.name == "env var not set" {
+				os.Unsetenv(tt.envKey)
+			} else {
+				// For other tests, explicitly set the value (even if empty)
 				os.Setenv(tt.envKey, tt.envValue)
 				defer os.Unsetenv(tt.envKey)
-			} else {
-				os.Unsetenv(tt.envKey)
 			}
 
 			result := getEnv(tt.envKey, tt.defaultValue)

@@ -361,6 +361,23 @@ func TestMuxConcurrentRequests(t *testing.T) {
 	// Just verify we didn't panic
 }
 
+// TestMuxHandleNilHandler verifies panic on nil handler
+func TestMuxHandleNilHandler(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.NewLogger()
+	mux := NewMux(ctx, logger)
+	mux.SetBasePath("/api")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic when handler is nil")
+		}
+	}()
+
+	// This should panic
+	mux.Handle("GET /test", nil)
+}
+
 // TestMuxRootBasePath verifies root base path handling
 func TestMuxRootBasePath(t *testing.T) {
 	ctx := context.Background()

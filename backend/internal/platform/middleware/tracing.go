@@ -67,9 +67,11 @@ func TracingMiddleware(serviceName string) Middleware {
 			// Record response status in span
 			span.SetAttributes(semconv.HTTPResponseStatusCode(wrapped.statusCode))
 
-			// Mark span as error if status code indicates failure
-			if wrapped.statusCode >= 400 {
-				span.SetStatus(codes.Error, "HTTP error")
+			// Mark span as error only for server errors (5xx), not client errors (4xx).
+			// Client errors indicate issues with the request, not failures in our service.
+			// This aligns with OpenTelemetry semantic conventions for HTTP server spans.
+			if wrapped.statusCode >= 500 {
+				span.SetStatus(codes.Error, "HTTP server error")
 			}
 		})
 	})
@@ -78,29 +80,23 @@ func TracingMiddleware(serviceName string) Middleware {
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {
 	http.ResponseWriter
-	statusCode  int
-	wroteHeader bool
+	statusCode int
 }
 
 func (w *tracingResponseWriter) WriteHeader(statusCode int) {
-	if w.wroteHeader {
-		return
-	}
 	w.statusCode = statusCode
-	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
-// Write captures the implicit 200 status code when WriteHeader is not called explicitly
 func (w *tracingResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		// WriteHeader hasn't been called - Write will trigger implicit 200
-		w.WriteHeader(http.StatusOK)
+	// If WriteHeader hasn't been called, default to 200
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
 	}
 	return w.ResponseWriter.Write(b)
 }
 
-// schemeFromRequest determines the scheme (http/https) from the request
+// schemeFromRequest determines the URL scheme from the request
 func schemeFromRequest(r *http.Request) string {
 	if r.TLS != nil {
 		return "https"

@@ -467,8 +467,8 @@ func TestHealthCheckErrorHandling(t *testing.T) {
 	server.Handler.ServeHTTP(rec, req)
 
 	// Verify status code was written despite write error
-	if rec.Code != http.StatusOK {
-		t.Errorf("Status code = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code() != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", rec.Code(), http.StatusOK)
 	}
 }
 
@@ -476,6 +476,12 @@ func TestHealthCheckErrorHandling(t *testing.T) {
 type failingResponseWriter struct {
 	*httptest.ResponseRecorder
 	writeError error
+	code       int
+}
+
+func (f *failingResponseWriter) WriteHeader(statusCode int) {
+	f.code = statusCode
+	f.ResponseRecorder.WriteHeader(statusCode)
 }
 
 func (f *failingResponseWriter) Write(b []byte) (int, error) {
@@ -483,4 +489,11 @@ func (f *failingResponseWriter) Write(b []byte) (int, error) {
 		return 0, f.writeError
 	}
 	return f.ResponseRecorder.Write(b)
+}
+
+func (f *failingResponseWriter) Code() int {
+	if f.code != 0 {
+		return f.code
+	}
+	return f.ResponseRecorder.Code
 }
