@@ -16,10 +16,26 @@ orbit/
 │   │           └── worker.go         # Run background workers only
 │   │
 │   ├── internal/                     # Private application code
-│   │   ├── server/                   # HTTP server setup
-│   │   │   ├── server.go             # Server initialization
-│   │   │   ├── router.go             # Route registration
-│   │   │   └── middleware/           # Shared middleware
+│   │   ├── platform/                 # Infrastructure & cross-cutting concerns
+│   │   │   ├── logging/              # Logging infrastructure
+│   │   │   │   ├── logger.go         # Logger interface
+│   │   │   │   ├── zerolog.go        # zerolog implementation
+│   │   │   │   └── README.md
+│   │   │   │
+│   │   │   ├── observability/        # OTEL tracing & metrics
+│   │   │   │   ├── observability.go  # OTEL setup
+│   │   │   │   └── README.md
+│   │   │   │
+│   │   │   ├── storage/              # Database infrastructure
+│   │   │   │   ├── db.go             # Database connection & pooling
+│   │   │   │   ├── transaction.go    # Transaction utilities
+│   │   │   │   ├── migrations.go     # Migration runner
+│   │   │   │   └── migrations/       # SQL migration files
+│   │   │   │       ├── 001_users.sql
+│   │   │   │       ├── 002_agents.sql
+│   │   │   │       └── 003_policies.sql
+│   │   │   │
+│   │   │   └── middleware/           # Shared HTTP middleware
 │   │   │       ├── auth.go           # Authentication middleware
 │   │   │       ├── logging.go        # Request logging
 │   │   │       ├── ratelimit.go      # Rate limiting
@@ -115,20 +131,6 @@ orbit/
 │   │   │       ├── kafka.go
 │   │   │       └── webhook.go
 │   │   │
-│   │   ├── storage/                  # Storage infrastructure
-│   │   │   ├── db.go                 # Database connection & pooling
-│   │   │   ├── transaction.go        # Transaction utilities
-│   │   │   ├── migrations.go         # Migration runner
-│   │   │   └── migrations/           # SQL migration files
-│   │   │       ├── 001_users.sql
-│   │   │       ├── 002_agents.sql
-│   │   │       └── 003_policies.sql
-│   │   │
-│   │   ├── observability/            # Observability integration
-│   │   │   ├── metrics.go            # Prometheus metrics
-│   │   │   ├── tracing.go            # OpenTelemetry tracing
-│   │   │   └── audit.go              # Audit logging
-│   │   │
 │   │   ├── config/                   # Configuration management
 │   │   │   ├── config.go             # Config loading
 │   │   │   ├── defaults.go           # Default values
@@ -146,10 +148,6 @@ orbit/
 │   │   │   ├── codes.go              # Error codes
 │   │   │   ├── errors.go             # Error types
 │   │   │   └── handling.go           # Error handling utilities
-│   │   │
-│   │   ├── logging/                  # Logging infrastructure
-│   │   │   ├── logger.go             # Logger interface
-│   │   │   └── slog.go               # slog implementation
 │   │   │
 │   │   ├── auth/                     # Authentication utilities
 │   │   │   ├── jwt.go                # JWT utilities
@@ -202,6 +200,45 @@ orbit/
 └── README.md
 ```
 
+## Platform vs Features
+
+Orbit separates **platform infrastructure** from **business features**:
+
+### Platform Layer (`internal/platform/`)
+
+Infrastructure and cross-cutting concerns that features depend on:
+
+- **`logging/`** - Structured logging with OTEL correlation
+- **`observability/`** - OTEL tracing and metrics setup
+- **`storage/`** - Database connections, transactions, migrations
+- **`middleware/`** - Shared HTTP middleware (auth, logging, rate limiting)
+
+**Key characteristic:** Platform packages are dependencies, not dependents. They never import feature packages.
+
+### Feature Layer (`internal/`)
+
+Domain-specific business logic at the top level:
+
+- **`identity/`** - Identity & authentication
+- **`policy/`** - Policy enforcement
+- **`credentials/`** - Credential broker
+- **`agents/`** - Agent management
+- **`runs/`** - Run control plane
+- **`modelgateway/`** - Model gateway
+- **`toolgateway/`** - Tool gateway
+- **`events/`** - Event spine
+
+**Key characteristic:** Features own their complete vertical stack (handlers → service → repository → storage).
+
+### Import Flow
+
+```
+Feature packages → internal/platform/* (allowed)
+internal/platform/* → Feature packages (FORBIDDEN)
+```
+
+This ensures platform remains reusable infrastructure while features stay decoupled.
+
 ## Architecture Principles
 
 ### 1. Single Binary with Flexible Deployment
@@ -228,6 +265,12 @@ Each feature/domain is a self-contained package in `internal/`:
 - Clear ownership and easier navigation
 - No artificial layering between transport and business logic
 - Promotes high cohesion and low coupling
+
+**Platform infrastructure:**
+- `internal/platform/logging/` - Logging infrastructure
+- `internal/platform/observability/` - OTEL tracing & metrics
+- `internal/platform/storage/` - Database infrastructure
+- `internal/platform/middleware/` - Shared HTTP middleware
 
 **Core features:**
 - `internal/identity/` - Identity & authentication
@@ -264,14 +307,15 @@ internal/{feature}/
 
 **Dependency flow:**
 ```
-Feature packages → internal/storage (for DB connection)
+Feature packages → internal/platform/storage (for DB connection)
+                 → internal/platform/logging (for logger)
                  → internal/models (for shared types)
 
-internal/storage → Does NOT import features
-internal/models  → Does NOT import features
+internal/platform/* → Does NOT import features
+internal/models     → Does NOT import features
 ```
 
-The `internal/storage/` package provides only infrastructure:
+The `internal/platform/storage/` package provides only infrastructure:
 - Database connection & pooling (`db.go`)
 - Transaction utilities (`transaction.go`)
 - Migration runner (`migrations.go`)
@@ -324,9 +368,9 @@ internal/{feature}/
 - **provider.go**: Defines external integration contract (interface)
 - **providers/**: Implements provider interface for specific backends
 
-## Shared Infrastructure
+## Platform Infrastructure
 
-### Storage (`internal/storage/`)
+### Storage (`internal/platform/storage/`)
 
 Provides database infrastructure used by all features:
 
@@ -344,27 +388,33 @@ func WithTransaction(ctx context.Context, db *DB, fn func(*sql.Tx) error) error
 func RunMigrations(db *DB) error
 ```
 
-### Models (`internal/models/`)
-
-Shared domain types used across multiple features. Keep minimal - prefer feature-specific models when possible.
-
-### Server (`internal/server/`)
-
-HTTP server setup and shared middleware:
-- Server initialization and lifecycle
-- Route registration
-- Authentication, logging, rate limiting, tenant isolation
-
-### Logging (`internal/logging/`)
+### Logging (`internal/platform/logging/`)
 
 Provides logging infrastructure using dependency injection pattern:
 - Logger interface for feature packages to depend on
-- Concrete implementation using Go's stdlib slog
+- Concrete implementation using zerolog
 - Passed to services via constructors (no global loggers)
 
-### Observability (`internal/observability/`)
+### Observability (`internal/platform/observability/`)
 
-Metrics, tracing, and audit logging shared across all features.
+OTEL tracing and metrics shared across all features:
+- TracerProvider setup with OTLP exporter
+- Structured span creation with context propagation
+- Environment-based configuration
+
+### Middleware (`internal/platform/middleware/`)
+
+Shared HTTP middleware for cross-cutting concerns:
+- Authentication and authorization
+- Request logging with trace correlation
+- Rate limiting and throttling
+- Tenant isolation
+
+## Shared Domain Layer
+
+### Models (`internal/models/`)
+
+Shared domain types used across multiple features. Keep minimal - prefer feature-specific models when possible.
 
 ## Implementation Guidelines
 
@@ -377,7 +427,7 @@ Metrics, tracing, and audit logging shared across all features.
 5. Implement business logic in `service.go`
 6. Add HTTP handlers in `handlers.go`
 7. Register routes in `internal/server/router.go`
-8. Add database migrations in `internal/storage/migrations/`
+8. Add database migrations in `internal/platform/storage/migrations/`
 
 ### Adding Storage to a Feature
 
@@ -393,7 +443,7 @@ type Repository interface {
 // postgres.go - Implement for PostgreSQL
 package identity
 
-import "github.com/clear-route/orbit/internal/storage"
+import "github.com/clear-route/orbit/internal/platform/storage"
 
 type postgresRepository struct {
     db *storage.DB

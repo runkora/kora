@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/clear-route/orbit/internal/logging"
-	"github.com/clear-route/orbit/internal/observability"
+	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/observability"
 	"go.opentelemetry.io/otel"
 )
 

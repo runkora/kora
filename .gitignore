@@ -19,9 +19,9 @@ go.work
 go.work.sum
 
 # Build artifacts
-/bin/
-/dist/
-/build/
+bin/
+dist/
+build/
 *.bin
 
 # IDE and editor files
