@@ -4,36 +4,39 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"google.golang.org/grpc/credentials"
 )
 
 // Config holds observability configuration
-//
-// TODO: Add SamplingRate field for configurable trace sampling (e.g., 0.1 for 10%)
-// TODO: Add ShutdownTimeout field for configurable span flush timeout
-// TODO: Add TLSConfig field for secure OTLP connections
 type Config struct {
 	ServiceName    string
 	ServiceVersion string
-	Environment    string // "development" or "production"
-	OTLPEndpoint   string // Optional: OTLP collector endpoint (e.g., "localhost:4317")
+	Environment    string  // "development" or "production"
+	OTLPEndpoint   string  // Optional: OTLP collector endpoint (e.g., "localhost:4317")
+	SamplingRate   float64 // Trace sampling rate (0.0 to 1.0, default: 0.1 for 10%)
+	OTLPInsecure   bool    // Use insecure connection (default: false, only for dev)
 }
 
 // Setup initializes OpenTelemetry tracing based on configuration.
 // Returns a shutdown function that must be called before application exit.
 //
-// TODO: Configure W3C TraceContext propagator for distributed tracing across HTTP boundaries
 // TODO: Add OTLP retry logic with exponential backoff for network failures
-// TODO: Return TracerProvider for testing/introspection access
 func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
+	// Set default sampling rate if not specified
+	if cfg.SamplingRate == 0 {
+		cfg.SamplingRate = 0.1 // Default to 10% sampling
+	}
 	// Create resource with service information
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -53,7 +56,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	case cfg.Environment == "development":
 		exporter, err = createStdoutExporter()
 	case cfg.OTLPEndpoint != "":
-		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint)
+		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
 	default:
 		// Production without OTLP: no-op mode (logs only, no trace export)
 		return createNoOpProvider(res), nil
@@ -64,16 +67,24 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	}
 
 	// Create tracer provider with the exporter
-	// TODO: Make sampling rate configurable via Config.SamplingRate
-	// TODO: Consider ParentBased sampler for respecting upstream sampling decisions
+	// Use ParentBased sampler to respect upstream sampling decisions while applying
+	// our own sampling rate for root spans
+	sampler := sdktrace.ParentBased(
+		sdktrace.TraceIDRatioBased(cfg.SamplingRate),
+	)
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sample all traces - expensive at scale!
+		sdktrace.WithSampler(sampler),
 	)
 
 	// Set global tracer provider
 	otel.SetTracerProvider(tp)
+
+	// Configure W3C TraceContext propagator for distributed tracing
+	// This enables trace context propagation across HTTP boundaries
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	// Return shutdown function that flushes remaining spans
 	// TODO: Make shutdown timeout configurable via Config.ShutdownTimeout
@@ -89,16 +100,30 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 // - OTEL_SERVICE_VERSION (default: "dev")
 // - ENVIRONMENT (default: "development")
 // - OTEL_EXPORTER_OTLP_ENDPOINT (optional, e.g., "localhost:4317")
-//
-// TODO: Add OTEL_TRACE_SAMPLING_RATE env var (default: 1.0 for 100%)
-// TODO: Add OTEL_SHUTDOWN_TIMEOUT env var (default: 5s)
-// TODO: Add OTEL_EXPORTER_OTLP_INSECURE env var (default: true for dev, false for prod)
+// - OTEL_TRACE_SAMPLING_RATE (default: 0.1 for 10% sampling)
+// - OTEL_EXPORTER_OTLP_INSECURE (default: false, use "true" only for dev)
 func SetupFromEnv(ctx context.Context) (shutdown func(context.Context) error, err error) {
+	// Parse sampling rate from environment
+	samplingRate := 0.1 // Default to 10%
+	if rateStr := os.Getenv("OTEL_TRACE_SAMPLING_RATE"); rateStr != "" {
+		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil && rate >= 0 && rate <= 1 {
+			samplingRate = rate
+		}
+	}
+
+	// Parse insecure flag from environment
+	insecure := false
+	if insecureStr := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"); insecureStr == "true" {
+		insecure = true
+	}
+
 	cfg := Config{
 		ServiceName:    getEnv("OTEL_SERVICE_NAME", "orbit"),
 		ServiceVersion: getEnv("OTEL_SERVICE_VERSION", "dev"),
 		Environment:    getEnv("ENVIRONMENT", "development"),
 		OTLPEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		SamplingRate:   samplingRate,
+		OTLPInsecure:   insecure,
 	}
 
 	return Setup(ctx, cfg)
@@ -116,15 +141,29 @@ func createStdoutExporter() (sdktrace.SpanExporter, error) {
 }
 
 // createOTLPExporter creates an OTLP trace exporter for production.
+// Uses TLS by default, with optional insecure mode for local development only.
 //
-// SECURITY TODO: Add TLS configuration for production OTLP endpoints
 // TODO: Add retry logic with exponential backoff for network failures
 // TODO: Add configurable timeout for gRPC connections
-func createOTLPExporter(ctx context.Context, endpoint string) (sdktrace.SpanExporter, error) {
-	client := otlptracegrpc.NewClient(
-		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithInsecure(), // SECURITY: This is insecure! Must add TLS for production
-	)
+func createOTLPExporter(ctx context.Context, endpoint string, insecure bool) (sdktrace.SpanExporter, error) {
+	var client otlptrace.Client
+	
+	if insecure {
+		// Insecure mode - ONLY for local development
+		client = otlptracegrpc.NewClient(
+			otlptracegrpc.WithEndpoint(endpoint),
+			otlptracegrpc.WithInsecure(),
+		)
+	} else {
+		// Production mode - use TLS
+		client = otlptracegrpc.NewClient(
+			otlptracegrpc.WithEndpoint(endpoint),
+			otlptracegrpc.WithTLSCredentials(
+				credentials.NewClientTLSFromCert(nil, ""),
+			),
+		)
+	}
+	
 	exporter, err := otlptrace.New(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)

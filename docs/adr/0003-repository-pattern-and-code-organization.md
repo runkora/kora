@@ -238,7 +238,7 @@ This is **"DDD-lite"** or **"Pragmatic Feature-Based Architecture"** - we keep t
 - **Testable** - mock the repository interface for each feature
 - **No circular dependencies** - clean, acyclic import graph
 - **Idiomatic Go** - feels natural to Go developers
-- **Shared infrastructure works well** - `internal/storage/` provides DB without coupling
+- **Shared infrastructure works well** - `internal/platform/storage/` provides DB without coupling
 - **Can refactor freely** - internal packages can be reorganized without breaking external contracts
 
 ### Negative

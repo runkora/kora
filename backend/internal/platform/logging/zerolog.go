@@ -84,6 +84,11 @@ func (l *zerologLogger) logWithContext(
 	msg string,
 	fields []Field,
 ) {
+	// Defensive nil check - prevents panics from incorrect usage
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Extract OTEL span from context (if present)
 	// This is a fast operation - just a context value lookup
 	span := trace.SpanFromContext(ctx)

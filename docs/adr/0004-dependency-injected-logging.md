@@ -399,20 +399,20 @@ func NewService(logger Logger, repo Repository) *Service {
 }
 
 func (s *Service) CreateAgent(ctx context.Context, req CreateAgentRequest) (*Agent, error) {
-    s.logger.Info(ctx, "creating agent", logging.Field{"name", req.Name})
+    s.logger.Info(ctx, "creating agent", logging.Field{Key: "name", Value: req.Name})
     
     agent, err := s.repo.Create(ctx, req)
     if err != nil {
         s.logger.Error(ctx, "failed to create agent", 
-            logging.Field{"error", err},
-            logging.Field{"name", req.Name},
+            logging.Field{Key: "error", Value: err},
+            logging.Field{Key: "name", Value: req.Name},
         )
         return nil, err
     }
     
     // If ctx has active OTEL span, these logs automatically include trace_id/span_id
     s.logger.Info(ctx, "agent created successfully", 
-        logging.Field{"agent_id", agent.ID},
+        logging.Field{Key: "agent_id", Value: agent.ID},
     )
     
     return agent, nil
@@ -466,7 +466,7 @@ import (
     "context"
     "testing"
     
-    "github.com/yourusername/orbit/internal/logging"
+    "github.com/yourusername/orbit/internal/platform/logging"
 )
 
 type mockLogger struct {
