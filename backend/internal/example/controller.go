@@ -1,7 +1,6 @@
 package example
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -49,11 +48,10 @@ func (c *Controller) Boot(mux *api.Mux) {
 
 // handleHealth returns a simple health check response
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
-	c.logger.Info(r.Context(), "Health check requested")
+	ctx := r.Context()
+	c.logger.Info(ctx, "Health check requested")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{
 		"status":  "healthy",
 		"service": "orbit-example",
 	})
@@ -61,16 +59,15 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleHello demonstrates path parameter handling with Go 1.22+ ServeMux
 func (c *Controller) handleHello(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	// Extract path parameter using Go 1.22+ ServeMux pattern
 	name := r.PathValue("name")
 
-	c.logger.Info(r.Context(), "Hello endpoint called",
+	c.logger.Info(ctx, "Hello endpoint called",
 		logging.Field{Key: "name", Value: name},
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{
 		"message": "Hello, " + name + "!",
 	})
 }
@@ -82,40 +79,28 @@ type EchoRequest struct {
 
 // handleEcho demonstrates request body parsing and validation
 func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	var req EchoRequest
 
-	// Parse JSON body
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.logger.Warn(r.Context(), "Invalid echo request",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+	// Parse JSON body using helper
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 
 	// Validate required field
 	if req.Message == "" {
-		c.logger.Warn(r.Context(), "Echo request missing message field")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "message field is required",
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "message field is required", map[string]interface{}{
+			"field": "message",
 		})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	c.logger.Info(r.Context(), "Echo request received",
+	c.logger.Info(ctx, "Echo request received",
 		logging.Field{Key: "message", Value: req.Message},
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]interface{}{
 		"echo":   req.Message,
 		"length": len(req.Message),
 	})
@@ -123,45 +108,33 @@ func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 
 // handleGetUser retrieves a user from the database by ID
 func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	userID := r.PathValue("id")
 
-	c.logger.Info(r.Context(), "Get user endpoint called",
+	c.logger.Info(ctx, "Get user endpoint called",
 		logging.Field{Key: "user_id", Value: userID},
 	)
 
-	user, err := c.repo.GetUserByID(r.Context(), userID)
+	user, err := c.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		if err == ErrUserNotFound {
-			c.logger.Warn(r.Context(), "User not found",
-				logging.Field{Key: "user_id", Value: userID},
-			)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "user not found",
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "user not found", map[string]interface{}{
+				"user_id": userID,
 			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 
-		c.logger.Error(r.Context(), "Failed to get user",
-			logging.Field{Key: "user_id", Value: userID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "internal server error",
-		})
+		apiErr := api.InternalError(api.ErrCodeDatabaseError, "internal server error", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
-	c.logger.Info(r.Context(), "User retrieved successfully",
+	c.logger.Info(ctx, "User retrieved successfully",
 		logging.Field{Key: "user_id", Value: userID},
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]interface{}{
 		"id":         user.ID,
 		"email":      user.Email,
 		"created_at": user.CreatedAt,
@@ -179,23 +152,8 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req CreateUserRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Add error context to the parent HTTP span created by middleware
-		span := trace.SpanFromContext(ctx)
-		span.SetAttributes(
-			attribute.String("app.error.kind", "validation"),
-			attribute.String("app.error.code", "invalid_json"),
-		)
-
-		c.logger.Warn(ctx, "Invalid create user request",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+	// Parse and validate JSON request body
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 
@@ -212,17 +170,14 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
-			attribute.String("app.error.kind", "validation"),
 			attribute.String("app.error.code", "missing_required_fields"),
 			attribute.StringSlice("app.error.fields", missingFields),
 		)
 
-		c.logger.Warn(ctx, "Create user request missing required fields")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "id and email fields are required",
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "id and email fields are required", map[string]interface{}{
+			"missing_fields": missingFields,
 		})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
@@ -240,30 +195,19 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			span := trace.SpanFromContext(ctx)
 			span.SetAttributes(
 				attribute.String("app.error.kind", "conflict"),
-				attribute.String("app.error.code", "duplicate_user"),
+				attribute.String("app.error.code", api.ErrCodeResourceExists),
 			)
 
-			c.logger.Warn(ctx, "User already exists",
-				logging.Field{Key: "user_id", Value: req.ID},
-			)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "user already exists",
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "user already exists", map[string]interface{}{
+				"user_id": req.ID,
 			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 
 		// Other database errors return 500
-		c.logger.Error(ctx, "Failed to create user",
-			logging.Field{Key: "user_id", Value: req.ID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to create user",
-		})
+		apiErr := api.InternalError(api.ErrCodeDatabaseError, "failed to create user", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
@@ -272,9 +216,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		logging.Field{Key: "email", Value: user.Email},
 	)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]interface{}{
 		"id":         user.ID,
 		"email":      user.Email,
 		"created_at": user.CreatedAt,
