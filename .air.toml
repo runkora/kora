@@ -4,6 +4,9 @@ tmp_dir = "tmp"
 
 [build]
   bin = ".bin/orbit"
+  # Run the binary from the backend/ directory so that findProjectRoot locates
+  # backend/go.mod and resolves config paths correctly.
+  full_bin = "sh -c 'cd backend && ../.bin/orbit'"
   cmd = "make build-backend"
   include_ext = ["go"]
   include_dir = ["backend"]

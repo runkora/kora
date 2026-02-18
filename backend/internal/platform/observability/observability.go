@@ -20,7 +20,7 @@ import (
 type Config struct {
 	ServiceName    string
 	ServiceVersion string
-	Environment    string  // "development" or "production"
+	Environment    string  // "local", "development", or "production"
 	OTLPEndpoint   string  // Optional: OTLP collector endpoint (e.g., "localhost:4317")
 	SamplingRate   float64 // Trace sampling rate (0.0 to 1.0, default: 0.1 for 10%)
 	OTLPInsecure   bool    // Use insecure connection (default: false, only for dev)
@@ -51,7 +51,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	var exporter sdktrace.SpanExporter
 
 	switch {
-	case cfg.Environment == "development":
+	case cfg.Environment == "local" || cfg.Environment == "development":
 		exporter, err = createStdoutExporter()
 	case cfg.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)

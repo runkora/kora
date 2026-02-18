@@ -30,8 +30,10 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,7 +44,7 @@ const defaultEnvironment = "local"
 // Environment reads the APP_ENV environment variable and returns its value.
 // If APP_ENV is not set or is empty, it returns "local".
 //
-// Supported values by convention: "local", "development", "staging", "production".
+// Supported values by convention: "local", "development", "production".
 func Environment() string {
 	if env := os.Getenv("APP_ENV"); env != "" {
 		return env
@@ -141,7 +143,9 @@ func findProjectRoot(startDir string) (string, error) {
 	}
 }
 
-// parseFile reads the YAML file at path and unmarshals its contents into dst.
+// parseFile reads the YAML file at path and strictly unmarshals its contents
+// into dst. Unknown YAML keys are rejected so that typos in config files are
+// caught at startup rather than silently ignored.
 // dst must be a non-nil pointer.
 func parseFile(path string, dst any) error {
 	data, err := os.ReadFile(path)
@@ -149,7 +153,9 @@ func parseFile(path string, dst any) error {
 		return fmt.Errorf("config: read file %q: %w", path, err)
 	}
 
-	if err := yaml.Unmarshal(data, dst); err != nil {
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	if err := dec.Decode(dst); err != nil && err != io.EOF {
 		return fmt.Errorf("config: unmarshal %q: %w", path, err)
 	}
 	return nil

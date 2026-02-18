@@ -7,7 +7,7 @@ APP_ENV=production  →  loads {module}/config/production.yaml
 APP_ENV=local       →  loads {module}/config/local.yaml  (default)
 ```
 
-Supported values: `local`, `development`, `staging`, `production`.
+Supported values: `local`, `development`, `production`.
 
 > **Secrets do not go in YAML files.** Passwords, API keys, and certificates belong in environment variables or a secret manager. If rotating a value would trigger a security incident, it's a secret.
 

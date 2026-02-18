@@ -24,6 +24,9 @@ MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 BINARY_NAME=orbit
 BINARY_DIR=.bin
 
+# Tool versions (pin for reproducible installs)
+GITLEAKS_VERSION=v8.27.2
+
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
@@ -68,8 +71,8 @@ install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks
 		echo "golangci-lint already installed"; \
 	fi
 	@if ! command -v gitleaks > /dev/null; then \
-		echo "Installing gitleaks..."; \
-		GL_TAG=$$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | cut -d'"' -f4); \
+		echo "Installing gitleaks $(GITLEAKS_VERSION)..."; \
+		GL_TAG=$(GITLEAKS_VERSION); \
 		GL_VER=$${GL_TAG#v}; \
 		GL_OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
 		GL_ARCH=$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); \
