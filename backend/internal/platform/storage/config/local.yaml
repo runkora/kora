@@ -1,0 +1,13 @@
+# Local development configuration
+
+port: 5432
+sslMode: disable  # No TLS for local development
+
+# Connection pool configuration
+maxConnections: 25        # (CPU cores * 2) + effective_spindle_count
+minConnections: 5         # Keep warm connections for low latency
+maxConnLifetimeMinutes: 60      # Recycle connections after 1 hour
+maxConnIdleTimeMinutes: 30      # Close idle connections after 30 minutes
+healthCheckPeriodSeconds: 60    # Check connection health every minute
+connectTimeoutSeconds: 5        # Timeout for new connections
+captureQueryText: true          # Capture SQL in traces (safe for local dev)
