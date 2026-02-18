@@ -15,13 +15,14 @@ import (
 // testConfig returns a Config suitable for tests that avoids stdout pollution.
 // Uses production mode with OTLP endpoint to prevent trace output in test logs.
 func testConfig() Config {
+	samplingRate := 0.5
 	return Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "production",
 		OTLPEndpoint:   "localhost:4317",
 		OTLPInsecure:   true,
-		SamplingRate:   0.5,
+		SamplingRate:   &samplingRate,
 	}
 }
 
@@ -133,7 +134,7 @@ func TestSetupDefaultSamplingRate(t *testing.T) {
 		Environment:    "production",
 		OTLPEndpoint:   "localhost:4317", // Will fail to connect but that's OK for this test
 		OTLPInsecure:   true,
-		SamplingRate:   0, // Should default to 0.1
+		SamplingRate:   nil, // Should default to 0.1
 	}
 
 	shutdown, err := Setup(ctx, cfg)
@@ -182,7 +183,8 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			cfg := testConfig()
-			cfg.SamplingRate = tt.samplingRate
+			rate := tt.samplingRate
+			cfg.SamplingRate = &rate
 
 			shutdown, err := Setup(ctx, cfg)
 			if err != nil {
@@ -280,11 +282,12 @@ func TestPropagatorGlobalSet(t *testing.T) {
 // TestSpanExportWithDevelopment verifies spans are exported in development mode
 func TestSpanExportWithDevelopment(t *testing.T) {
 	ctx := context.Background()
+	samplingRate := 1.0
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
-		SamplingRate:   1.0, // Always sample for this test
+		SamplingRate:   &samplingRate, // Always sample for this test
 	}
 
 	shutdown, err := Setup(ctx, cfg)

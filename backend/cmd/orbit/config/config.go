@@ -44,7 +44,9 @@ type OrbitConfig struct {
 		// SamplingRate is the fraction of root spans to sample (0.0–1.0).
 		// Use 1.0 locally to capture every trace; lower values (e.g. 0.1) in
 		// production to reduce collector load.
-		SamplingRate float64 `yaml:"samplingRate"`
+		// If omitted from config, defaults to 0.1 (10% sampling).
+		// Set to 0.0 to disable tracing entirely.
+		SamplingRate *float64 `yaml:"samplingRate,omitempty"`
 
 		// OTLPInsecure disables TLS on the OTLP gRPC connection. Set to true
 		// only for local development where the collector runs without TLS.

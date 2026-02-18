@@ -18,12 +18,13 @@ import (
 
 // Config holds observability configuration
 type Config struct {
-	ServiceName    string
-	ServiceVersion string
-	Environment    string  // "local", "development", or "production"
-	OTLPEndpoint   string  // Optional: OTLP collector endpoint (e.g., "localhost:4317")
-	SamplingRate   float64 // Trace sampling rate (0.0 to 1.0, default: 0.1 for 10%)
-	OTLPInsecure   bool    // Use insecure connection (default: false, only for dev)
+	ServiceName     string
+	ServiceVersion  string
+	Environment     string        // "local", "development", or "production"
+	OTLPEndpoint    string        // Optional: OTLP collector endpoint (e.g., "localhost:4317")
+	SamplingRate    *float64      // Trace sampling rate (0.0 to 1.0). nil = default 0.1, 0.0 = disable tracing
+	OTLPInsecure    bool          // Use insecure connection (default: false, only for dev)
+	ShutdownTimeout time.Duration // Timeout for graceful shutdown (default: 5s if zero)
 }
 
 // Setup initializes OpenTelemetry tracing based on configuration.
@@ -32,8 +33,15 @@ type Config struct {
 // TODO: Add OTLP retry logic with exponential backoff for network failures
 func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
 	// Set default sampling rate if not specified
-	if cfg.SamplingRate == 0 {
-		cfg.SamplingRate = 0.1 // Default to 10% sampling
+	samplingRate := 0.1 // Default to 10% sampling
+	if cfg.SamplingRate != nil {
+		samplingRate = *cfg.SamplingRate
+	}
+
+	// Set default shutdown timeout if not specified
+	shutdownTimeout := 5 * time.Second
+	if cfg.ShutdownTimeout > 0 {
+		shutdownTimeout = cfg.ShutdownTimeout
 	}
 	// Create resource with service information
 	res, err := resource.New(ctx,
@@ -68,7 +76,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	// Use ParentBased sampler to respect upstream sampling decisions while applying
 	// our own sampling rate for root spans
 	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(cfg.SamplingRate),
+		sdktrace.TraceIDRatioBased(samplingRate),
 	)
 
 	tp := sdktrace.NewTracerProvider(
@@ -85,10 +93,14 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	// Return shutdown function that flushes remaining spans
-	// TODO: Make shutdown timeout configurable via Config.ShutdownTimeout
+	// Respects the context timeout passed by the caller, or uses configured timeout if context has no deadline
 	return func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+		// Only apply our timeout if the caller didn't provide one
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, shutdownTimeout)
+			defer cancel()
+		}
 		return tp.Shutdown(ctx)
 	}, nil
 }
