@@ -1,0 +1,12 @@
+app:
+  version: "0.1.0"
+  # console gives colorized, human-readable output for local development
+  logFormat: console
+
+server:
+  port: 6069
+  basePath: /api/v1
+  shutdownTimeoutSecs: 5
+
+observability:
+  serviceName: orbit
