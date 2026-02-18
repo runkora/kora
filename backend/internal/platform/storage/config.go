@@ -125,12 +125,12 @@ func (t *otelQueryTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, d
 	attrs := []attribute.KeyValue{
 		attribute.String("db.system", "postgresql"),
 	}
-	
+
 	// Only capture SQL statement text if explicitly enabled (disabled in production for security)
 	if t.captureQueryText {
 		attrs = append(attrs, attribute.String("db.statement", data.SQL))
 	}
-	
+
 	ctx, _ = t.tracer.Start(ctx, "db.query",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attrs...),
@@ -150,10 +150,10 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, dat
 		span.SetAttributes(attribute.Bool("db.error", true))
 		return // Don't set operation attributes on error
 	}
-	
+
 	// For successful operations, leave span status as Unset (idiomatic OpenTelemetry)
 	// Only set status to Error for failures
-	
+
 	// Extract operation type from command tag (just the operation, not the full tag)
 	// CommandTag.String() returns full tag like "INSERT 0 1", we want just "INSERT"
 	commandTag := data.CommandTag.String()
@@ -163,7 +163,7 @@ func (t *otelQueryTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, dat
 		if spaceIdx := strings.Index(commandTag, " "); spaceIdx > 0 {
 			operation = commandTag[:spaceIdx]
 		}
-		
+
 		span.SetAttributes(
 			attribute.String("db.operation", operation),
 			attribute.Int64("db.rows_affected", data.CommandTag.RowsAffected()),

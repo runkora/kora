@@ -186,7 +186,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			attribute.String("app.error.kind", "validation"),
 			attribute.String("app.error.code", "invalid_json"),
 		)
-		
+
 		c.logger.Warn(ctx, "Invalid create user request",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -209,14 +209,14 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		if req.Email == "" {
 			missingFields = append(missingFields, "email")
 		}
-		
+
 		span := trace.SpanFromContext(ctx)
 		span.SetAttributes(
 			attribute.String("app.error.kind", "validation"),
 			attribute.String("app.error.code", "missing_required_fields"),
 			attribute.StringSlice("app.error.fields", missingFields),
 		)
-		
+
 		c.logger.Warn(ctx, "Create user request missing required fields")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -242,7 +242,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 				attribute.String("app.error.kind", "conflict"),
 				attribute.String("app.error.code", "duplicate_user"),
 			)
-			
+
 			c.logger.Warn(ctx, "User already exists",
 				logging.Field{Key: "user_id", Value: req.ID},
 			)
@@ -253,7 +253,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		
+
 		// Other database errors return 500
 		c.logger.Error(ctx, "Failed to create user",
 			logging.Field{Key: "user_id", Value: req.ID},

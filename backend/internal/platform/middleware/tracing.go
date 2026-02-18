@@ -38,7 +38,7 @@ func TracingMiddleware(serviceName string) Middleware {
 			// Then start a new span for this HTTP request
 			// The span name follows OpenTelemetry semantic conventions: "HTTP {method}"
 			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-			
+
 			// Build span attributes following OpenTelemetry semantic conventions
 			attrs := []trace.SpanStartOption{
 				trace.WithSpanKind(trace.SpanKindServer),
@@ -50,7 +50,7 @@ func TracingMiddleware(serviceName string) Middleware {
 					semconv.UserAgentOriginal(r.UserAgent()),
 				),
 			}
-			
+
 			// Split server.address and server.port per semantic conventions
 			if host, port, err := net.SplitHostPort(r.Host); err == nil {
 				attrs = append(attrs, trace.WithAttributes(
@@ -63,7 +63,7 @@ func TracingMiddleware(serviceName string) Middleware {
 					semconv.ServerAddress(r.Host),
 				))
 			}
-			
+
 			// Add client peer attributes from RemoteAddr
 			if clientHost, clientPort, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 				attrs = append(attrs, trace.WithAttributes(
@@ -71,7 +71,7 @@ func TracingMiddleware(serviceName string) Middleware {
 					semconv.ClientPort(mustParsePort(clientPort)),
 				))
 			}
-			
+
 			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern, attrs...)
 			defer span.End()
 

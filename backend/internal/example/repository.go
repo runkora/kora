@@ -14,7 +14,7 @@ import (
 var (
 	// ErrUserNotFound is returned when a user cannot be found
 	ErrUserNotFound = errors.New("user not found")
-	
+
 	// ErrDuplicateKey is returned when a unique constraint is violated
 	ErrDuplicateKey = errors.New("duplicate key violation")
 )
