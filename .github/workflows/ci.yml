@@ -20,9 +20,21 @@ jobs:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GITLEAKS_VERSION=v8.27.2
+          if ! command -v gitleaks > /dev/null; then
+            echo "Installing gitleaks ${GITLEAKS_VERSION}..."
+            GL_TAG=${GITLEAKS_VERSION}
+            GL_VER=${GL_TAG#v}
+            GL_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+            GL_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+            GL_URL="https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_VER}_${GL_OS}_${GL_ARCH}.tar.gz"
+            echo "Downloading ${GL_URL}"
+            curl -sSfL "${GL_URL}" | tar -xz -C "$(go env GOPATH)/bin" gitleaks
+          else
+            echo "gitleaks already installed"
+          fi
+          make secrets
 
   lint:
     name: Lint
