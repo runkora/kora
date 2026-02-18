@@ -19,7 +19,14 @@ import (
 func main() {
 	// Initialize observability (OTEL tracing)
 	ctx := context.Background()
-	shutdown, err := observability.SetupFromEnv(ctx)
+	shutdown, err := observability.Setup(ctx, observability.Config{
+		ServiceName:    oc.Config.Observability.ServiceName,
+		ServiceVersion: oc.Config.App.Version,
+		Environment:    oc.Config.Environment(),
+		OTLPEndpoint:   oc.Config.Observability.OTLPEndpoint,
+		SamplingRate:   oc.Config.Observability.SamplingRate,
+		OTLPInsecure:   oc.Config.Observability.OTLPInsecure,
+	})
 	if err != nil {
 		log.Fatalf("Failed to setup observability: %v", err)
 	}

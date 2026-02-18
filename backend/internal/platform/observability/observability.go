@@ -3,8 +3,6 @@ package observability
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -95,40 +93,6 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	}, nil
 }
 
-// SetupFromEnv initializes observability using environment variables:
-// - OTEL_SERVICE_NAME (default: "orbit")
-// - OTEL_SERVICE_VERSION (default: "dev")
-// - ENVIRONMENT (default: "development")
-// - OTEL_EXPORTER_OTLP_ENDPOINT (optional, e.g., "localhost:4317")
-// - OTEL_TRACE_SAMPLING_RATE (default: 0.1 for 10% sampling)
-// - OTEL_EXPORTER_OTLP_INSECURE (default: false, use "true" only for dev)
-func SetupFromEnv(ctx context.Context) (shutdown func(context.Context) error, err error) {
-	// Parse sampling rate from environment
-	samplingRate := 0.1 // Default to 10%
-	if rateStr := os.Getenv("OTEL_TRACE_SAMPLING_RATE"); rateStr != "" {
-		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil && rate >= 0 && rate <= 1 {
-			samplingRate = rate
-		}
-	}
-
-	// Parse insecure flag from environment
-	insecure := false
-	if insecureStr := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"); insecureStr == "true" {
-		insecure = true
-	}
-
-	cfg := Config{
-		ServiceName:    getEnv("OTEL_SERVICE_NAME", "orbit"),
-		ServiceVersion: getEnv("OTEL_SERVICE_VERSION", "dev"),
-		Environment:    getEnv("ENVIRONMENT", "development"),
-		OTLPEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		SamplingRate:   samplingRate,
-		OTLPInsecure:   insecure,
-	}
-
-	return Setup(ctx, cfg)
-}
-
 // createStdoutExporter creates a stdout trace exporter for development.
 func createStdoutExporter() (sdktrace.SpanExporter, error) {
 	exporter, err := stdouttrace.New(
@@ -181,11 +145,4 @@ func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 	return func(ctx context.Context) error {
 		return tp.Shutdown(ctx)
 	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists && value != "" {
-		return value
-	}
-	return defaultValue
 }

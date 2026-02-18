@@ -10,3 +10,6 @@ server:
 
 observability:
   serviceName: orbit
+  otlpEndpoint: ""      # set to your collector address, e.g. "otel-collector:4317"
+  samplingRate: 0.1     # sample 10% of traces in production
+  otlpInsecure: false   # always use TLS in production

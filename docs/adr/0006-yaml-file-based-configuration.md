@@ -1,6 +1,6 @@
 # 0006. YAML File-Based Configuration with Typed Generic Loader
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-10
 **Deciders:** Engineering Team
 **Technical Story:** Establishing a configuration management strategy for the Orbit control plane that supports multiple environments without requiring every non-secret value to be managed as an environment variable.
@@ -179,32 +179,34 @@ Option 3 delivers type safety, feature autonomy, minimal dependencies, and an im
 
 ---
 
-## Implementation
+## Implementation Notes
 
-### Package Location
+### Public API (`internal/platform/config`)
 
-The loader lives in `internal/platform/config/` — a platform utility, not a feature. Consistent with ADR-0003, platform packages provide infrastructure; features consume it.
+The package exposes three functions:
 
-```
-backend/
-├── internal/
-│   └── platform/
-│       └── config/
-│           ├── config.go        # Load[T] and supporting functions
-│           └── config_test.go   # Unit tests with temp files
+```go
+// Environment reads APP_ENV, defaulting to "local" when unset.
+func Environment() string
+
+// Load reads {projectRoot}/{module}/config/{environment}.yaml and
+// unmarshals it into a new *T. Returns an error if the file is missing
+// or cannot be parsed.
+func Load[T any](module, environment string) (*T, error)
+
+// MustLoad is like Load but panics on error. Use for package-level
+// variable initialisation where misconfiguration is a fatal startup error.
+func MustLoad[T any](module, environment string) *T
 ```
 
 ### Config File Convention
 
-Each feature (or the application itself) places environment-specific YAML files under a `config/` subdirectory within its own package directory:
+Each binary or feature owns its config struct and places environment-specific YAML files under a `config/` subdirectory co-located with its source:
 
 ```
 backend/
 ├── internal/
-│   ├── platform/
-│   │   └── config/
-│   │       └── config.go
-│   └── identity/
+│   └── {feature}/
 │       ├── config/
 │       │   ├── local.yaml
 │       │   ├── development.yaml
@@ -212,53 +214,71 @@ backend/
 │       ├── service.go
 │       └── models.go
 └── cmd/
-    └── orbit/
+    └── {binary}/
         ├── config/
+        │   ├── config.go       ← typed config struct + package-level var
         │   ├── local.yaml
-        │   ├── development.yaml
         │   └── production.yaml
         └── main.go
 ```
 
-### Public API
+### Canonical Usage Pattern — Binary
+
+Config for a binary is defined and loaded in a dedicated package co-located with the binary. A package-level variable is initialised at startup using `MustLoad`, mirroring the `regexp.MustCompile` convention:
 
 ```go
-// internal/platform/config/config.go
-package config
+// cmd/{binary}/config/config.go
+var Config = config.MustLoad[BinaryConfig]("cmd/{binary}", config.Environment())
 
-// Load reads the YAML config file for the given module and environment,
-// unmarshals it into a new instance of T, and returns a pointer to it.
-//
-// module is a path relative to the project root (e.g. "internal/identity").
-// environment is the name of the YAML file without extension (e.g. "production").
-//
-// Config files must not contain secrets. Use environment variables for all
-// sensitive values.
-func Load[T any](module, environment string) (*T, error)
+type BinaryConfig struct {
+    App struct {
+        Version   string `yaml:"version"`
+        LogFormat string `yaml:"logFormat"`
+    } `yaml:"app"`
+
+    Server struct {
+        Port                int    `yaml:"port"`
+        BasePath            string `yaml:"basePath"`
+        ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
+    } `yaml:"server"`
+}
+
+// Helper methods on the top-level struct keep call sites readable.
+func (c BinaryConfig) ShutdownTimeout() time.Duration {
+    return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
+}
 ```
 
-### Usage Pattern
+`main.go` imports the config package and reads values directly:
 
 ```go
-// internal/identity/service.go
+import oc "github.com/clear-route/orbit/cmd/{binary}/config"
 
-type identityConfig struct {
+server := apiServer.Server(ctx, oc.Config.Server.Port, oc.Config.Server.BasePath, ...)
+```
+
+### Canonical Usage Pattern — Internal Feature
+
+For internal features, load config in the service constructor using `Load` (not `MustLoad`) so the error surfaces through the normal dependency wiring path:
+
+```go
+// internal/{feature}/service.go
+type featureConfig struct {
     Server struct {
-        Port int    `yaml:"port"`
+        Port int `yaml:"port"`
     } `yaml:"server"`
+
     OIDC struct {
         Issuer   string `yaml:"issuer"`
         ClientID string `yaml:"clientId"`
-        // Note: client secret comes from an env var, NOT this file
+        // Secrets (client secret, API keys) are NOT here — use env vars
     } `yaml:"oidc"`
 }
 
-var environment = os.Getenv("APP_ENV") // "local" | "development" | "production"
-
 func NewService(repo Repository) (*Service, error) {
-    cfg, err := config.Load[identityConfig]("internal/identity", environment)
+    cfg, err := config.Load[featureConfig]("internal/{feature}", config.Environment())
     if err != nil {
-        return nil, fmt.Errorf("identity config: %w", err)
+        return nil, fmt.Errorf("{feature} config: %w", err)
     }
     return &Service{repo: repo, cfg: cfg}, nil
 }
@@ -277,48 +297,20 @@ A single environment variable, `APP_ENV`, controls which YAML file is loaded. De
 
 ### Project Root Resolution
 
-The loader walks up from the current working directory looking for `go.mod`. This ensures `go test ./...` invoked from any subdirectory resolves config files correctly. In containerised deployments where `go.mod` is absent, the loader falls back to treating the working directory as the project root.
+The loader walks up from the current working directory looking for `go.mod`. This ensures `go test ./...` invoked from any subdirectory resolves config files correctly. Symlinks are resolved before walking (important on macOS where `t.TempDir()` returns paths through `/private/var`). In containerised deployments where `go.mod` is absent, the working directory is used as the fallback root.
 
 ```
 Load called from: backend/internal/identity/
 Walk up: backend/internal/identity/ → backend/internal/ → backend/ (go.mod found ✓)
-Path: backend/internal/identity/config/production.yaml
+Resolved path: backend/internal/identity/config/production.yaml
 ```
 
 ### Security Notes
 
-- YAML config files **must not** contain passwords, API keys, certificates, or any value that would be harmful if leaked via version control
-- Linting / secret scanning (e.g. `gitleaks`) should be added to CI to enforce this
-- The `Load` function itself has no opinion on what values are "secrets" — this is a convention enforced by code review and tooling
-
-### Migration Path
-
-1. Add `gopkg.in/yaml.v3` to `backend/go.mod`
-2. Implement `internal/platform/config/config.go` and tests
-3. Introduce the first config file for `cmd/orbit` (server port, base path, log level) as a proof of concept
-4. Migrate each feature to use `config.Load` as features are built out — no big-bang migration needed
-5. Update `main.go` to read `APP_ENV` and pass it (or the loaded config) through dependency injection
-
-### Timeline
-
-Implement alongside the first feature that would otherwise require 5+ environment variables for non-secret config. The platform package itself is a day's work; the convention pays off immediately.
-
----
-
-## Validation
-
-### Success Metrics
-
-- All non-secret config values for a feature are visible in a single YAML file diff — no hunting across env var documentation
-- `go test ./...` passes with correct config resolution from all working directories
-- Zero secrets committed to config YAML files (enforced by `gitleaks` in CI)
-- Adding a new config value to a feature requires changes only within that feature's package
-
-### Monitoring
-
-- CI linting step validates no secrets in YAML files
-- Startup logs emit the resolved config file path (not the values) so operators can confirm which file was loaded
-- Test suite for `internal/platform/config` covers: happy path, missing file, malformed YAML, working-directory independence
+- YAML config files **must not** contain passwords, API keys, certificates, or any value harmful if leaked via version control
+- `gitleaks` secret scanning in CI will flag accidental secret commits
+- The `Load` function has no opinion on what constitutes a secret — enforcement is by code review and CI tooling
+- The clear rule: if rotating the value requires a security incident, it is a secret → use env var or secret manager
 
 ---
 

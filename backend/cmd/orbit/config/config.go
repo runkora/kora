@@ -34,12 +34,34 @@ type OrbitConfig struct {
 		// ServiceName is the OTEL service name used to identify this process in
 		// distributed traces, e.g. "orbit".
 		ServiceName string `yaml:"serviceName"`
+
+		// OTLPEndpoint is the gRPC address of the OpenTelemetry collector, e.g.
+		// "localhost:4317". Leave empty to disable OTLP export; traces will be
+		// written to stdout in local/development environments, or discarded in
+		// production.
+		OTLPEndpoint string `yaml:"otlpEndpoint"`
+
+		// SamplingRate is the fraction of root spans to sample (0.0–1.0).
+		// Use 1.0 locally to capture every trace; lower values (e.g. 0.1) in
+		// production to reduce collector load.
+		SamplingRate float64 `yaml:"samplingRate"`
+
+		// OTLPInsecure disables TLS on the OTLP gRPC connection. Set to true
+		// only for local development where the collector runs without TLS.
+		OTLPInsecure bool `yaml:"otlpInsecure"`
 	} `yaml:"observability"`
 }
 
 // ShutdownTimeout converts ShutdownTimeoutSecs to a time.Duration.
 func (s OrbitConfig) ShutdownTimeout() time.Duration {
 	return time.Duration(s.Server.ShutdownTimeoutSecs) * time.Second
+}
+
+// Environment returns the current deployment environment derived from APP_ENV.
+// This is the same value used to select the YAML config file, and is passed
+// to the observability layer so it can choose the appropriate exporter.
+func (OrbitConfig) Environment() string {
+	return config.Environment()
 }
 
 // Config holds all non-secret, environment-specific configuration for the
