@@ -3,8 +3,6 @@ package observability
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -20,12 +18,13 @@ import (
 
 // Config holds observability configuration
 type Config struct {
-	ServiceName    string
-	ServiceVersion string
-	Environment    string  // "development" or "production"
-	OTLPEndpoint   string  // Optional: OTLP collector endpoint (e.g., "localhost:4317")
-	SamplingRate   float64 // Trace sampling rate (0.0 to 1.0, default: 0.1 for 10%)
-	OTLPInsecure   bool    // Use insecure connection (default: false, only for dev)
+	ServiceName     string
+	ServiceVersion  string
+	Environment     string        // "local", "development", or "production"
+	OTLPEndpoint    string        // Optional: OTLP collector endpoint (e.g., "localhost:4317")
+	SamplingRate    *float64      // Trace sampling rate (0.0 to 1.0). nil = default 0.1, 0.0 = disable tracing
+	OTLPInsecure    bool          // Use insecure connection (default: false, only for dev)
+	ShutdownTimeout time.Duration // Timeout for graceful shutdown (default: 5s if zero)
 }
 
 // Setup initializes OpenTelemetry tracing based on configuration.
@@ -34,8 +33,15 @@ type Config struct {
 // TODO: Add OTLP retry logic with exponential backoff for network failures
 func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
 	// Set default sampling rate if not specified
-	if cfg.SamplingRate == 0 {
-		cfg.SamplingRate = 0.1 // Default to 10% sampling
+	samplingRate := 0.1 // Default to 10% sampling
+	if cfg.SamplingRate != nil {
+		samplingRate = *cfg.SamplingRate
+	}
+
+	// Set default shutdown timeout if not specified
+	shutdownTimeout := 5 * time.Second
+	if cfg.ShutdownTimeout > 0 {
+		shutdownTimeout = cfg.ShutdownTimeout
 	}
 	// Create resource with service information
 	res, err := resource.New(ctx,
@@ -53,7 +59,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	var exporter sdktrace.SpanExporter
 
 	switch {
-	case cfg.Environment == "development":
+	case cfg.Environment == "local" || cfg.Environment == "development":
 		exporter, err = createStdoutExporter()
 	case cfg.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
@@ -70,7 +76,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	// Use ParentBased sampler to respect upstream sampling decisions while applying
 	// our own sampling rate for root spans
 	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(cfg.SamplingRate),
+		sdktrace.TraceIDRatioBased(samplingRate),
 	)
 
 	tp := sdktrace.NewTracerProvider(
@@ -87,46 +93,16 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	// Return shutdown function that flushes remaining spans
-	// TODO: Make shutdown timeout configurable via Config.ShutdownTimeout
+	// Respects the context timeout passed by the caller, or uses configured timeout if context has no deadline
 	return func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+		// Only apply our timeout if the caller didn't provide one
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, shutdownTimeout)
+			defer cancel()
+		}
 		return tp.Shutdown(ctx)
 	}, nil
-}
-
-// SetupFromEnv initializes observability using environment variables:
-// - OTEL_SERVICE_NAME (default: "orbit")
-// - OTEL_SERVICE_VERSION (default: "dev")
-// - ENVIRONMENT (default: "development")
-// - OTEL_EXPORTER_OTLP_ENDPOINT (optional, e.g., "localhost:4317")
-// - OTEL_TRACE_SAMPLING_RATE (default: 0.1 for 10% sampling)
-// - OTEL_EXPORTER_OTLP_INSECURE (default: false, use "true" only for dev)
-func SetupFromEnv(ctx context.Context) (shutdown func(context.Context) error, err error) {
-	// Parse sampling rate from environment
-	samplingRate := 0.1 // Default to 10%
-	if rateStr := os.Getenv("OTEL_TRACE_SAMPLING_RATE"); rateStr != "" {
-		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil && rate >= 0 && rate <= 1 {
-			samplingRate = rate
-		}
-	}
-
-	// Parse insecure flag from environment
-	insecure := false
-	if insecureStr := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"); insecureStr == "true" {
-		insecure = true
-	}
-
-	cfg := Config{
-		ServiceName:    getEnv("OTEL_SERVICE_NAME", "orbit"),
-		ServiceVersion: getEnv("OTEL_SERVICE_VERSION", "dev"),
-		Environment:    getEnv("ENVIRONMENT", "development"),
-		OTLPEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		SamplingRate:   samplingRate,
-		OTLPInsecure:   insecure,
-	}
-
-	return Setup(ctx, cfg)
 }
 
 // createStdoutExporter creates a stdout trace exporter for development.
@@ -181,11 +157,4 @@ func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 	return func(ctx context.Context) error {
 		return tp.Shutdown(ctx)
 	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists && value != "" {
-		return value
-	}
-	return defaultValue
 }

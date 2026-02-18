@@ -24,6 +24,9 @@ MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 BINARY_NAME=orbit
 BINARY_DIR=.bin
 
+# Tool versions (pin for reproducible installs)
+GITLEAKS_VERSION=v8.27.2
+
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
@@ -53,11 +56,16 @@ help: ## Display this help screen
 # ===========================================
 
 .PHONY: setup
-setup: install-tools tidy ## Complete project setup (install tools, tidy dependencies)
+setup: install-tools tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
 
+.PHONY: hooks
+hooks: ## Configure git to use the project's tracked hooks from .githooks/
+	@git config core.hooksPath .githooks
+	@echo "$(COLOR_GREEN)✓ Git hooks installed (.githooks/)$(COLOR_RESET)"
+
 .PHONY: install-tools
-install-tools: ## Install development tools (goose, golangci-lint, air)
+install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
 	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@latest
 	@$(GOCMD) install github.com/air-verse/air@latest
@@ -66,6 +74,18 @@ install-tools: ## Install development tools (goose, golangci-lint, air)
 		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin; \
 	else \
 		echo "golangci-lint already installed"; \
+	fi
+	@if ! command -v gitleaks > /dev/null; then \
+		echo "Installing gitleaks $(GITLEAKS_VERSION)..."; \
+		GL_TAG=$(GITLEAKS_VERSION); \
+		GL_VER=$${GL_TAG#v}; \
+		GL_OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		GL_ARCH=$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); \
+		GL_URL="https://github.com/gitleaks/gitleaks/releases/download/$${GL_TAG}/gitleaks_$${GL_VER}_$${GL_OS}_$${GL_ARCH}.tar.gz"; \
+		echo "Downloading $${GL_URL}"; \
+		curl -sSfL "$${GL_URL}" | tar -xz -C $$(go env GOPATH)/bin gitleaks; \
+	else \
+		echo "gitleaks already installed"; \
 	fi
 	@echo "$(COLOR_GREEN)✓ Tools installed$(COLOR_RESET)"
 
@@ -135,18 +155,20 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 .PHONY: dev
 dev: ## Run Orbit in development mode with auto-reload support
 	@echo "$(COLOR_YELLOW)Starting Orbit in development mode...$(COLOR_RESET)"
-	@if command -v air > /dev/null; then \
+	@set -a; [ -f backend/.env ] && . backend/.env; set +a; \
+	if command -v air > /dev/null; then \
 		air; \
 	else \
 		echo "$(COLOR_BLUE)Air not installed. Running without live reload...$(COLOR_RESET)"; \
 		echo "$(COLOR_BLUE)Install air for live reload: make install-tools$(COLOR_RESET)"; \
-		cd $(BACKEND_DIR) && ENVIRONMENT=development $(GOCMD) run ./cmd/orbit/main.go; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go; \
 	fi
 
 .PHONY: run
 run: ## Run Orbit control plane
 	@echo "$(COLOR_YELLOW)Starting Orbit...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
+	@set -a; [ -f backend/.env ] && . backend/.env; set +a; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
 
 .PHONY: build-backend
 build-backend: ## Build Orbit binary to .bin directory
@@ -187,6 +209,17 @@ test-quiet: ## Run tests with minimal output (CI/agent-friendly)
 test-coverage: test ## Run tests and generate HTML coverage report
 	@cd $(BACKEND_DIR) && $(GOCMD) tool cover -html=coverage.out -o coverage.html
 	@echo "$(COLOR_GREEN)✓ Coverage report: backend/coverage.html$(COLOR_RESET)"
+
+.PHONY: secrets
+secrets: ## Scan for secrets and leaked credentials (gitleaks)
+	@echo "$(COLOR_YELLOW)Scanning for secrets...$(COLOR_RESET)"
+	@if command -v gitleaks > /dev/null; then \
+		gitleaks detect --source . --config .gitleaks.toml --redact; \
+		echo "$(COLOR_GREEN)✓ No secrets detected$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_YELLOW)gitleaks not installed. Run 'make install-tools'$(COLOR_RESET)"; \
+		exit 1; \
+	fi
 
 .PHONY: lint
 lint: ## Run golangci-lint
@@ -235,7 +268,7 @@ clean-all: clean db-down ## Clean everything including database
 # ===========================================
 
 .PHONY: check
-check: fmt vet lint test ## Run all checks (fmt, vet, lint, test)
+check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all

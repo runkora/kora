@@ -1,0 +1,15 @@
+app:
+  version: "0.1.0"
+  # json emits structured logs for ingestion by log aggregators (Datadog, Loki, etc.)
+  logFormat: json
+
+server:
+  port: 6069
+  basePath: /api/v1
+  shutdownTimeoutSecs: 5
+
+observability:
+  serviceName: orbit
+  otlpEndpoint: ""      # empty → stdout exporter; set to collector address when available
+  samplingRate: 1.0     # capture every trace in development
+  otlpInsecure: true    # no TLS for local collector

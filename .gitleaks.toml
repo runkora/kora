@@ -1,0 +1,30 @@
+title = "Orbit Gitleaks Configuration"
+
+# Extend gitleaks' built-in ruleset so we benefit from upstream rule updates
+# without having to maintain every pattern ourselves.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Global allowlist
+#
+# Entries here suppress false-positives that are intentional or are already
+# covered by other controls (e.g. test fixtures, example config files).
+#
+# Rules:
+#   paths   – regex matched against the file path relative to the repo root
+#   regexes – regex matched against the secret value itself
+#   commits – specific commit SHAs to ignore (use sparingly; prefer path rules)
+# ---------------------------------------------------------------------------
+[allowlist]
+description = "Project-wide false-positive suppressions"
+
+paths = [
+    # Unit/integration test files routinely contain dummy credentials
+    '''.*_test\.go''',
+    # Example and template config files contain placeholder values
+    '''.*\.example\.ya?ml''',
+    '''.*\.example\.env''',
+    # The gitleaks config itself may reference patterns that look like secrets
+    '''\.gitleaks\.toml''',
+]

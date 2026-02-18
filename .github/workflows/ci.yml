@@ -7,6 +7,38 @@ on:
     branches: [main]
 
 jobs:
+  secrets:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required so gitleaks can scan all commits, not just
+          # the tip. Without this, leaked secrets in older commits go undetected.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        run: |
+          GITLEAKS_VERSION=v8.27.2
+          if ! command -v gitleaks > /dev/null; then
+            echo "Installing gitleaks ${GITLEAKS_VERSION}..."
+            GL_TAG=${GITLEAKS_VERSION}
+            GL_VER=${GL_TAG#v}
+            GL_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+            GL_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+            GL_URL="https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_VER}_${GL_OS}_${GL_ARCH}.tar.gz"
+            INSTALL_DIR="${HOME}/.local/bin"
+            mkdir -p "${INSTALL_DIR}"
+            echo "Downloading ${GL_URL}"
+            curl -sSfL "${GL_URL}" | tar -xz -C "${INSTALL_DIR}" gitleaks
+            echo "${INSTALL_DIR}" >> $GITHUB_PATH
+          else
+            echo "gitleaks already installed"
+          fi
+          make secrets
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

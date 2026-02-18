@@ -15,13 +15,14 @@ import (
 // testConfig returns a Config suitable for tests that avoids stdout pollution.
 // Uses production mode with OTLP endpoint to prevent trace output in test logs.
 func testConfig() Config {
+	samplingRate := 0.5
 	return Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "production",
 		OTLPEndpoint:   "localhost:4317",
 		OTLPInsecure:   true,
-		SamplingRate:   0.5,
+		SamplingRate:   &samplingRate,
 	}
 }
 
@@ -133,7 +134,7 @@ func TestSetupDefaultSamplingRate(t *testing.T) {
 		Environment:    "production",
 		OTLPEndpoint:   "localhost:4317", // Will fail to connect but that's OK for this test
 		OTLPInsecure:   true,
-		SamplingRate:   0, // Should default to 0.1
+		SamplingRate:   nil, // Should default to 0.1
 	}
 
 	shutdown, err := Setup(ctx, cfg)
@@ -182,7 +183,8 @@ func TestSetupCustomSamplingRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			cfg := testConfig()
-			cfg.SamplingRate = tt.samplingRate
+			rate := tt.samplingRate
+			cfg.SamplingRate = &rate
 
 			shutdown, err := Setup(ctx, cfg)
 			if err != nil {
@@ -230,229 +232,6 @@ func TestSetupShutdownTimeout(t *testing.T) {
 
 	// Should complete (possibly with timeout error, but shouldn't hang)
 	_ = shutdown(shutdownCtx)
-}
-
-// TestSetupFromEnv verifies environment variable configuration
-func TestSetupFromEnv(t *testing.T) {
-	// Save original env vars
-	origServiceName := os.Getenv("OTEL_SERVICE_NAME")
-	origServiceVersion := os.Getenv("OTEL_SERVICE_VERSION")
-	origEnvironment := os.Getenv("ENVIRONMENT")
-	origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-
-	// Restore after test
-	defer func() {
-		if origServiceName != "" {
-			os.Setenv("OTEL_SERVICE_NAME", origServiceName)
-		} else {
-			os.Unsetenv("OTEL_SERVICE_NAME")
-		}
-		if origServiceVersion != "" {
-			os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
-		} else {
-			os.Unsetenv("OTEL_SERVICE_VERSION")
-		}
-		if origEnvironment != "" {
-			os.Setenv("ENVIRONMENT", origEnvironment)
-		} else {
-			os.Unsetenv("ENVIRONMENT")
-		}
-		if origSamplingRate != "" {
-			os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
-		} else {
-			os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
-		}
-	}()
-
-	// Set test env vars
-	os.Setenv("OTEL_SERVICE_NAME", "env-test-service")
-	os.Setenv("OTEL_SERVICE_VERSION", "2.0.0")
-	os.Setenv("ENVIRONMENT", "development")
-	os.Setenv("OTEL_TRACE_SAMPLING_RATE", "0.5")
-
-	ctx := context.Background()
-	shutdown, err := SetupFromEnv(ctx)
-	if err != nil {
-		t.Fatalf("SetupFromEnv() error = %v", err)
-	}
-	defer shutdown(ctx)
-}
-
-// TestSetupFromEnvDefaults verifies default values when env vars not set
-func TestSetupFromEnvDefaults(t *testing.T) {
-	// Clear env vars
-	origServiceName := os.Getenv("OTEL_SERVICE_NAME")
-	origServiceVersion := os.Getenv("OTEL_SERVICE_VERSION")
-	origEnvironment := os.Getenv("ENVIRONMENT")
-	origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-
-	os.Unsetenv("OTEL_SERVICE_NAME")
-	os.Unsetenv("OTEL_SERVICE_VERSION")
-	os.Unsetenv("ENVIRONMENT")
-	os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
-
-	defer func() {
-		if origServiceName != "" {
-			os.Setenv("OTEL_SERVICE_NAME", origServiceName)
-		} else {
-			os.Unsetenv("OTEL_SERVICE_NAME")
-		}
-		if origServiceVersion != "" {
-			os.Setenv("OTEL_SERVICE_VERSION", origServiceVersion)
-		} else {
-			os.Unsetenv("OTEL_SERVICE_VERSION")
-		}
-		if origEnvironment != "" {
-			os.Setenv("ENVIRONMENT", origEnvironment)
-		} else {
-			os.Unsetenv("ENVIRONMENT")
-		}
-		if origSamplingRate != "" {
-			os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
-		} else {
-			os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
-		}
-	}()
-
-	ctx := context.Background()
-	shutdown, err := SetupFromEnv(ctx)
-	if err != nil {
-		t.Fatalf("SetupFromEnv() error = %v", err)
-	}
-	defer shutdown(ctx)
-
-	// Should use defaults: orbit, dev, development, 0.1
-}
-
-// TestSetupFromEnvInvalidSamplingRate verifies invalid sampling rate handling
-func TestSetupFromEnvInvalidSamplingRate(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{"invalid format", "invalid"},
-		{"negative rate", "-0.5"},
-		{"rate > 1", "1.5"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			origSamplingRate := os.Getenv("OTEL_TRACE_SAMPLING_RATE")
-			defer func() {
-				if origSamplingRate != "" {
-					os.Setenv("OTEL_TRACE_SAMPLING_RATE", origSamplingRate)
-				} else {
-					os.Unsetenv("OTEL_TRACE_SAMPLING_RATE")
-				}
-			}()
-
-			os.Setenv("OTEL_TRACE_SAMPLING_RATE", tt.value)
-
-			ctx := context.Background()
-			shutdown, err := SetupFromEnv(ctx)
-			if err != nil {
-				t.Fatalf("SetupFromEnv() error = %v", err)
-			}
-			defer shutdown(ctx)
-
-			// Verifies that invalid sampling rates don't cause errors.
-			// The implementation falls back to default (0.1) per lines 107-112 in observability.go.
-			// We don't verify the actual sampling rate as that would require exposing
-			// internal TracerProvider state. The fallback logic is simple enough that
-			// code review provides sufficient confidence.
-		})
-	}
-}
-
-// TestSetupFromEnvInsecureFlag verifies OTLP insecure flag parsing
-func TestSetupFromEnvInsecureFlag(t *testing.T) {
-	tests := []struct {
-		name     string
-		value    string
-		expected bool
-	}{
-		{"true", "true", true},
-		{"false", "false", false},
-		{"empty", "", false},
-		{"invalid", "yes", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			origInsecure := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE")
-			defer func() {
-				if origInsecure != "" {
-					os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", origInsecure)
-				} else {
-					os.Unsetenv("OTEL_EXPORTER_OTLP_INSECURE")
-				}
-			}()
-
-			if tt.value != "" {
-				os.Setenv("OTEL_EXPORTER_OTLP_INSECURE", tt.value)
-			} else {
-				os.Unsetenv("OTEL_EXPORTER_OTLP_INSECURE")
-			}
-
-			ctx := context.Background()
-			shutdown, err := SetupFromEnv(ctx)
-			if err != nil {
-				t.Fatalf("SetupFromEnv() error = %v", err)
-			}
-			defer shutdown(ctx)
-		})
-	}
-}
-
-// TestGetEnv verifies getEnv helper function
-func TestGetEnv(t *testing.T) {
-	tests := []struct {
-		name         string
-		envKey       string
-		envValue     string
-		defaultValue string
-		expected     string
-	}{
-		{
-			name:         "env var set",
-			envKey:       "TEST_KEY",
-			envValue:     "test-value",
-			defaultValue: "default",
-			expected:     "test-value",
-		},
-		{
-			name:         "env var not set",
-			envKey:       "NONEXISTENT_KEY",
-			envValue:     "",
-			defaultValue: "default",
-			expected:     "default",
-		},
-		{
-			name:         "env var set to empty string",
-			envKey:       "EMPTY_KEY",
-			envValue:     "",
-			defaultValue: "default",
-			expected:     "default", // Empty string should fall back to default
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// For "env var not set" test, ensure the key doesn't exist
-			if tt.name == "env var not set" {
-				os.Unsetenv(tt.envKey)
-			} else {
-				// For other tests, explicitly set the value (even if empty)
-				os.Setenv(tt.envKey, tt.envValue)
-				defer os.Unsetenv(tt.envKey)
-			}
-
-			result := getEnv(tt.envKey, tt.defaultValue)
-			if result != tt.expected {
-				t.Errorf("getEnv() = %s, want %s", result, tt.expected)
-			}
-		})
-	}
 }
 
 // TestTracerProviderGlobalSet verifies tracer provider is set globally
@@ -503,11 +282,12 @@ func TestPropagatorGlobalSet(t *testing.T) {
 // TestSpanExportWithDevelopment verifies spans are exported in development mode
 func TestSpanExportWithDevelopment(t *testing.T) {
 	ctx := context.Background()
+	samplingRate := 1.0
 	cfg := Config{
 		ServiceName:    "test-service",
 		ServiceVersion: "1.0.0",
 		Environment:    "development",
-		SamplingRate:   1.0, // Always sample for this test
+		SamplingRate:   &samplingRate, // Always sample for this test
 	}
 
 	shutdown, err := Setup(ctx, cfg)
