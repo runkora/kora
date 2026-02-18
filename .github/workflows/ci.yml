@@ -29,8 +29,11 @@ jobs:
             GL_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
             GL_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
             GL_URL="https://github.com/gitleaks/gitleaks/releases/download/${GL_TAG}/gitleaks_${GL_VER}_${GL_OS}_${GL_ARCH}.tar.gz"
+            INSTALL_DIR="${HOME}/.local/bin"
+            mkdir -p "${INSTALL_DIR}"
             echo "Downloading ${GL_URL}"
-            curl -sSfL "${GL_URL}" | tar -xz -C "$(go env GOPATH)/bin" gitleaks
+            curl -sSfL "${GL_URL}" | tar -xz -C "${INSTALL_DIR}" gitleaks
+            echo "${INSTALL_DIR}" >> $GITHUB_PATH
           else
             echo "gitleaks already installed"
           fi
