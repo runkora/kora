@@ -34,7 +34,9 @@ func main() {
 	// Initialize database with deferred cleanup
 	db, err := initDatabase(ctx, logger)
 	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		logger.Error(ctx, "Failed to initialize database", logging.Field{Key: "error", Value: err})
+		shutdownObservability()
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: explicit cleanup needed before exit
 	}
 	defer db.Close()
 

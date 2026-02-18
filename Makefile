@@ -244,8 +244,12 @@ secrets: ## Scan for secrets and leaked credentials (gitleaks)
 lint: ## Run golangci-lint
 	@echo "$(COLOR_YELLOW)Running linters...$(COLOR_RESET)"
 	@if command -v golangci-lint > /dev/null; then \
-		cd $(BACKEND_DIR) && $(GOLINT) run ./...; \
-		echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
+		if cd $(BACKEND_DIR) && $(GOLINT) run ./...; then \
+			echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
+		else \
+			echo "$(COLOR_RESET)"; \
+			exit 1; \
+		fi \
 	else \
 		echo "$(COLOR_YELLOW)golangci-lint not installed. Run 'make install-tools'$(COLOR_RESET)"; \
 		exit 1; \
