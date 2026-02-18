@@ -56,8 +56,13 @@ help: ## Display this help screen
 # ===========================================
 
 .PHONY: setup
-setup: install-tools tidy ## Complete project setup (install tools, tidy dependencies)
+setup: install-tools tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
+
+.PHONY: hooks
+hooks: ## Configure git to use the project's tracked hooks from .githooks/
+	@git config core.hooksPath .githooks
+	@echo "$(COLOR_GREEN)✓ Git hooks installed (.githooks/)$(COLOR_RESET)"
 
 .PHONY: install-tools
 install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
