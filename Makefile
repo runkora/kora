@@ -260,7 +260,7 @@ clean-all: clean db-down ## Clean everything including database
 # ===========================================
 
 .PHONY: check
-check: fmt vet lint secrets test ## Run all checks (fmt, vet, lint, secrets, test)
+check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
