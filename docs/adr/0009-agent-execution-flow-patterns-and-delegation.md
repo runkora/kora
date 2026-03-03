@@ -168,7 +168,7 @@ A human principal explicitly grants an agent authority to act within a bounded s
       "type": "HUMAN"
     },
     "scope": ["write:deployments", "read:config"],
-    "expires_at": "2025-01-24T15:00:00Z"
+    "expires_at": "2099-01-24T15:00:00Z"
   },
   "operation": "deployment.create"
 }
@@ -254,14 +254,14 @@ The bounded delegation token issued after approval is indistinguishable in forma
       "type": "HUMAN"
     },
     "scope": ["infra.restart:service-x"],
-    "expires_at": "2025-01-24T14:35:00Z",
+    "expires_at": "2099-01-24T14:35:00Z",
     "escalation_ref": "{escalation-event-id}"
   },
   "operation": "infra.restart"
 }
 ```
 
-The `escalation_ref` is included for audit correlation but is not used in policy evaluation.
+The `escalation_ref` is included for audit correlation only, MUST be ignored by policy evaluation, and is intentionally omitted from the canonical execution context schema defined in the **Policy Engine Contract** section below.
 
 ---
 

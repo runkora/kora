@@ -162,7 +162,7 @@ id: mcp-msgraph
 display_name: Microsoft Graph MCP
 scope: platform                          # platform | tenant
 tenant_id: null                          # null for platform-scope; tenant ID for tenant-scope
-spiffe_id: spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/mcp-msgraph
+spiffe_id: spiffe://orbit.{instance-id}/system/service/mcp-msgraph
 endpoint: https://mcp-msgraph.internal.orbit.svc
 transport: sse
 external_scopes_consumed:               # what external scopes tools in this server may request
@@ -282,8 +282,6 @@ There is no existing MCP server registration model to migrate from. This is a gr
 - [Model Context Protocol Specification](https://spec.modelcontextprotocol.io)
 - [SPIFFE Workload API](https://spiffe.io/docs/latest/spiffe-about/spiffe-concepts/)
 - [RFC 8693 — OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
-- [ADR-0011](0011-universal-gateway-policy-enforcement.md) — Universal Gateway Policy Enforcement
-
 ---
 
 ## Notes

@@ -263,7 +263,7 @@ Multiple teams may share a single Orbit instance. Tenant isolation is a first-cl
 
 - Every Principal carries a `tenant_id`. It is non-nullable and set at authentication time.
 - Each tenant may have its own OIDC/SAML federation configuration. Orbit supports multiple upstream IdP registrations, each scoped to a tenant.
-- The SPIFFE trust domain for agent principals is structured to make tenant scope unambiguous: `spiffe://orbit.{instance}/tenant/{tenant-id}/...` (see ADR-0010 for full topology).
+- The SPIFFE trust domain for agent principals is structured to make tenant scope unambiguous: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/...` (see ADR-0010 for full topology).
 - Cross-tenant operations are prohibited by default. The policy engine may permit explicit cross-tenant grants, but these require intentional configuration.
 - Escalation paths and delegation chains are tenant-scoped. A principal in one tenant cannot be a delegation target or escalation target for a principal in another tenant unless explicitly permitted.
 

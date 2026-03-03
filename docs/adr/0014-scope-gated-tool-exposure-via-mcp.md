@@ -133,7 +133,7 @@ Per-agent instances (Option 3) are operationally infeasible at scale and incompa
 - The same MCP server instance correctly serves multiple agents with different delegation grants simultaneously
 - MCP server authors do not need to implement OBO flows, token rotation, session store access, or audit emission
 - The full delegation chain (human → agent → MCP server) is captured in every audit record
-- Open-source MCP servers participate without code changes — the Envoy sidecar injects the delegation token on inbound connections
+- Open-source MCP servers participate without code changes for platform authentication — the Envoy sidecar handles mTLS and delegation token validation at the network layer; scope-gated tool filtering is an MCP server implementation concern (see Negative consequences)
 
 ### Negative
 
@@ -186,6 +186,7 @@ Agent's inbound `X-Orbit-Delegation-Token`:
     "sub": "principal-email-agent-abc"
   },
   "scope": "msgraph:mail:read",
+  "tenant_id": "tenant-acme-corp",
   "exp": 1741000800,
   "jti": "grant-xyz-001"
 }
@@ -203,6 +204,7 @@ MCP server presents to Outbound Gateway — chain extended with MCP server ident
     }
   },
   "scope": "msgraph:mail:read",
+  "tenant_id": "tenant-acme-corp",
   "exp": 1741000800,
   "jti": "grant-xyz-001"
 }
@@ -241,10 +243,12 @@ The gateway:
   ],
   "service_name": "msgraph",
   "tool": "list_emails",
-  "http_method": "GET",
+  "method": "GET",
   "path": "/v1.0/me/mailFolders/inbox/messages",
+  "adapter_type": "oauth2_obo",
   "scopes_used": ["Mail.Read"],
   "response_status": 200,
+  "duration_ms": 134,
   "grant_jti": "grant-xyz-001"
 }
 ```
@@ -342,11 +346,14 @@ sequenceDiagram
     else Token valid
         ES->>MCP: SSE connection established<br/>delegation token forwarded
         MCP->>MCP: Read scopes: [msgraph:mail:read]<br/>Compute permitted tools:<br/>[list_emails, read_email, search_emails]
-        MCP-->>A: MCP tool listing:<br/>[list_emails, read_email, search_emails]
+        MCP-->>ES: MCP tool listing:<br/>[list_emails, read_email, search_emails]
+        ES-->>A: MCP tool listing:<br/>[list_emails, read_email, search_emails]
 
         Note over A,MCP: send_email, delete_email, calendar tools not advertised
 
-        A->>MCP: invoke tool: list_emails<br/>{folder: inbox, unread: true}
+        A->>ES: invoke tool: list_emails<br/>{folder: inbox, unread: true}
+        ES->>ES: ext_authz: validate delegation token on tool invocation
+        ES->>MCP: invoke tool: list_emails<br/>{folder: inbox, unread: true}
         MCP->>MCP: Extend delegation chain:<br/>sarah → email-agent → mcp-msgraph
 
         MCP->>GW: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Orbit-Delegation-Token: {sarah→agent→mcp-msgraph}
@@ -365,7 +372,8 @@ sequenceDiagram
 
             GW->>GW: Emit outbound.proxy.call audit event<br/>delegator_chain: [sarah, email-agent]<br/>tool: list_emails
             GW-->>MCP: 200 OK — email list
-            MCP-->>A: Tool result: [email list]
+            MCP-->>ES: Tool result: [email list]
+            ES-->>A: Tool result: [email list]
         end
     end
 ```

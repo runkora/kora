@@ -144,7 +144,7 @@ Traefik is explicitly rejected for the following reasons:
 
 2. **Split data plane.** Using Traefik at the edge and Envoy in sidecars means operating two proxy technologies, two OPA integration patterns (Traefik's `ForwardAuth` vs Envoy's `ext_authz`), two config models, and two audit event formats. This doubles the operational burden and creates the inconsistency problem the unified data plane decision is specifically designed to avoid.
 
-3. **`ForwardAuth` is not `ext_authz`.** Traefik's external auth integration (`ForwardAuth`) is an HTTP-based yes/no check. Envoy's `ext_authz` is a gRPC protocol that carries rich request context, supports structured allow/deny responses, and can return additional headers to be forwarded downstream. The Orbit enforcement model — carrying principal context, delegation chain, execution context document — requires the richer integration that `ext_authz` provides.
+3. **`ForwardAuth` is not `ext_authz`.** Traefik's external auth integration (`ForwardAuth`) is an HTTP-based yes/no check. Envoy's `ext_authz` is an external authorization filter that supports both HTTP and gRPC authorization services; when used with a gRPC-based authorization service it carries rich request context, supports structured allow/deny responses, and can return additional headers to be forwarded downstream. The Orbit enforcement model — carrying principal context, delegation chain, execution context document — requires the richer integration that `ext_authz` provides.
 
 4. **No SPIFFE/SDS integration.** Traefik has no native understanding of SPIFFE SVIDs or automatic SVID rotation via the SPIRE SDS API. mTLS with SPIFFE at the edge would require custom certificate management rather than the automated SVID lifecycle from ADR-0010.
 
@@ -185,8 +185,8 @@ At the **edge (north-south)**, the Orbit Gateway (Envoy) performs:
 
 At the **sidecar (east-west)**, the Envoy sidecar performs:
 1. mTLS handshake validation using SPIFFE SVIDs — caller must present a valid SVID from the Orbit trust domain (ADR-0010)
-2. OPA policy evaluation via `ext_authz` — workload identity context constructed from the caller's SVID, policy bundle evaluated locally
-3. Request rejected at the TLS layer if the caller has no valid SVID
+2. Request rejected at the TLS layer if the caller has no valid SVID
+3. OPA policy evaluation via `ext_authz` — workload identity context constructed from the caller's SVID, policy bundle evaluated locally
 4. 403 returned if workload identity is valid but policy denies the call
 5. Structured audit event emitted to the Orbit event spine
 6. Request forwarded to the local application process only on explicit policy allow

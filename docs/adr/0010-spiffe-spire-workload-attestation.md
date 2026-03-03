@@ -262,15 +262,20 @@ The Envoy sidecar performs the exchange on behalf of the agent workload. The age
     (mTLS using the SVID obtained from SPIRE sidecar via SDS)
     Content-Type: application/json
     {
-      "svid_type": "x509",
-      "svid": "<PEM-encoded certificate chain>"
+      "svid_type": "x509"
     }
 
     Note: this endpoint is gateway-exempt — it is the bootstrap call made before
-    any platform token exists. The SVID itself is the authentication mechanism here.
+    any platform token exists. For X.509 SVID exchanges, the identity service uses
+    the mTLS peer certificate as the SVID source of truth and does not require the
+    SVID in the request body. For JWT-SVID exchanges, the SVID must be provided in
+    the body as a bearer token (svid_type: "jwt", svid: "<JWT>").
 
 5.  Orbit's identity service validates the SVID:
-    a. Verifies the certificate chain against the SPIRE trust bundle for this instance
+    a. For X.509 SVID exchanges: obtains the SVID from the mTLS peer certificate
+       presented during the TLS handshake and verifies the certificate chain against
+       the SPIRE trust bundle for this instance. If an X.509 SVID is also provided
+       in the request body, it MUST match the mTLS peer certificate.
     b. Checks certificate validity period (not expired, not before)
     c. Extracts the SPIFFE ID from the certificate SAN
     d. Validates the SPIFFE ID path structure (correct trust domain, present tenant segment)
@@ -387,7 +392,7 @@ This ensures that only a specific known image can receive the SPIFFE ID — usef
 
 Orbit's identity service interacts with SPIRE Server via its gRPC API (`github.com/spiffe/spire-api-sdk`). The key API surfaces used:
 
-- `Registration` service — create, list, delete registration entries (called during agent register/deregister)
+- `Entry` service (`spire.api.server.entry.v1`) — create, list, delete registration entries (called during agent register/deregister)
 - `Bundle` service — fetch the current trust bundle for SVID validation
 - `Agent` service — list attested SPIRE Agents (useful for health monitoring)
 
@@ -400,14 +405,14 @@ X.509 SVID validation in Go uses the `github.com/spiffe/go-spiffe/v2` library, w
 - SPIFFE ID extraction from the SAN extension
 - URI SAN format validation per the SPIFFE standard
 
-### SPIRE Sidecar
+### SPIFFE Helper Sidecar
 
-The `spiffe/spire-agent` container image includes a sidecar mode that can be configured to:
-- Fetch and rotate SVIDs automatically
-- Expose the current SVID to Envoy via the SPIFFE SDS (Secret Discovery Service) API — this is the primary integration point between the SPIRE sidecar and the Envoy sidecar
+The per-pod workload sidecar is the SPIFFE Helper (`spiffe/spiffe-helper`) container image, which connects to the node-level SPIRE Agent (`spiffe/spire-agent`) via the Workload API and can be configured to:
+- Fetch and rotate SVIDs automatically from the SPIRE Agent
+- Expose the current SVID to Envoy via the SPIFFE SDS (Secret Discovery Service) API — this is the primary integration point between the SPIFFE Helper sidecar and the Envoy sidecar
 - Optionally write the current SVID to a well-known path (for environments where SDS is unavailable)
 
-The agent workload never consumes the SVID directly. The SPIRE sidecar's responsibility ends at exposing the SVID to Envoy via SDS. Orbit should provide a reference pod specification that wires the SPIRE sidecar, Envoy sidecar, and agent workload container together correctly — agent workload authors should not need to configure either sidecar themselves.
+The agent workload never consumes the SVID directly. The SPIFFE Helper sidecar's responsibility ends at obtaining the SVID from the SPIRE Agent and exposing it to Envoy via SDS. Orbit should provide a reference pod specification that wires the SPIFFE Helper sidecar, Envoy sidecar, and agent workload container together correctly — agent workload authors should not need to configure either sidecar themselves.
 
 ### Migration Path
 
@@ -456,7 +461,7 @@ If a future compliance requirement mandates per-tenant cryptographic isolation, 
 - [SPIFFE JWT-SVID Specification](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md)
 - [go-spiffe library](https://github.com/spiffe/go-spiffe)
 - [spire-api-sdk](https://github.com/spiffe/spire-api-sdk)
-- [SPIRE Kubernetes Workload Registrar](https://github.com/spiffe/spire/tree/main/support/k8s/k8s-workload-registrar)
+- [SPIRE Controller Manager](https://github.com/spiffe/spire-controller-manager)
 
 ---
 
