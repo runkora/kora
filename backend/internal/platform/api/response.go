@@ -43,7 +43,7 @@ func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Lo
 	)
 
 	if underlyingErr != nil {
-		span.SetAttributes(attribute.String("app.error.details", underlyingErr.Error()))
+		span.RecordError(underlyingErr)
 	}
 
 	// Log based on severity

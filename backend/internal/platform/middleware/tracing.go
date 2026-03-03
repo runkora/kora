@@ -51,25 +51,25 @@ func TracingMiddleware(serviceName string) Middleware {
 				),
 			}
 
-			// Split server.address and server.port per semantic conventions
+			// Split server.address and server.port per semantic conventions.
+			// Only emit server.port when parsing succeeds to avoid zero-value pollution.
 			if host, port, err := net.SplitHostPort(r.Host); err == nil {
-				attrs = append(attrs, trace.WithAttributes(
-					semconv.ServerAddress(host),
-					semconv.ServerPort(mustParsePort(port)),
-				))
+				attrs = append(attrs, trace.WithAttributes(semconv.ServerAddress(host)))
+				if p := mustParsePort(port); p != -1 {
+					attrs = append(attrs, trace.WithAttributes(semconv.ServerPort(p)))
+				}
 			} else {
 				// No port in Host header, use default based on scheme
-				attrs = append(attrs, trace.WithAttributes(
-					semconv.ServerAddress(r.Host),
-				))
+				attrs = append(attrs, trace.WithAttributes(semconv.ServerAddress(r.Host)))
 			}
 
-			// Add client peer attributes from RemoteAddr
+			// Add client peer attributes from RemoteAddr.
+			// Only emit client.port when parsing succeeds to avoid zero-value pollution.
 			if clientHost, clientPort, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-				attrs = append(attrs, trace.WithAttributes(
-					semconv.ClientAddress(clientHost),
-					semconv.ClientPort(mustParsePort(clientPort)),
-				))
+				attrs = append(attrs, trace.WithAttributes(semconv.ClientAddress(clientHost)))
+				if p := mustParsePort(clientPort); p != -1 {
+					attrs = append(attrs, trace.WithAttributes(semconv.ClientPort(p)))
+				}
 			}
 
 			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern, attrs...)
@@ -135,11 +135,13 @@ func schemeFromRequest(r *http.Request) string {
 	return "http"
 }
 
-// mustParsePort converts a port string to int, returns 0 on error
+// mustParsePort converts a port string to int.
+// Returns -1 if parsing fails so callers can omit the attribute entirely,
+// avoiding zero-value pollution in traces.
 func mustParsePort(portStr string) int {
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return 0
+		return -1
 	}
 	return port
 }

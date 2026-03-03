@@ -19,19 +19,18 @@ func WithTransaction(ctx context.Context, pool *pgxpool.Pool, fn TxFunc) error {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
 
-	// Ensure rollback on panic or error
+	// Ensure rollback on panic or any early return.
+	// After a successful Commit, Rollback is a no-op so this is always safe.
 	defer func() {
 		if p := recover(); p != nil {
 			_ = tx.Rollback(ctx)
 			panic(p) // Re-panic after rollback
 		}
+		_ = tx.Rollback(ctx)
 	}()
 
 	// Execute the transactional function
 	if err := fn(tx); err != nil {
-		if rbErr := tx.Rollback(ctx); rbErr != nil {
-			return fmt.Errorf("rollback after error %v: %w", err, rbErr)
-		}
 		return err
 	}
 

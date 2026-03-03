@@ -135,7 +135,7 @@ db-logs: ## Show database logs
 
 .PHONY: db-shell
 db-shell: ## Open a psql shell to the database
-	@docker compose exec postgres psql -U $${ORBIT_DB_USER:-orbit} -d $${ORBIT_DB_NAME:-orbit}
+	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
 
 .PHONY: migrate-up
 migrate-up: ## Run all database migrations up
