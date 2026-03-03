@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"strconv"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -36,17 +38,41 @@ func TracingMiddleware(serviceName string) Middleware {
 			// Then start a new span for this HTTP request
 			// The span name follows OpenTelemetry semantic conventions: "HTTP {method}"
 			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern,
+
+			// Build span attributes following OpenTelemetry semantic conventions
+			attrs := []trace.SpanStartOption{
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					semconv.HTTPRequestMethodKey.String(r.Method),
 					semconv.HTTPRouteKey.String(routePattern),
 					semconv.URLScheme(schemeFromRequest(r)),
 					semconv.URLPath(r.URL.Path),
-					semconv.ServerAddress(r.Host),
 					semconv.UserAgentOriginal(r.UserAgent()),
 				),
-			)
+			}
+
+			// Split server.address and server.port per semantic conventions.
+			// Only emit server.port when parsing succeeds to avoid zero-value pollution.
+			if host, port, err := net.SplitHostPort(r.Host); err == nil {
+				attrs = append(attrs, trace.WithAttributes(semconv.ServerAddress(host)))
+				if p := mustParsePort(port); p != -1 {
+					attrs = append(attrs, trace.WithAttributes(semconv.ServerPort(p)))
+				}
+			} else {
+				// No port in Host header, use default based on scheme
+				attrs = append(attrs, trace.WithAttributes(semconv.ServerAddress(r.Host)))
+			}
+
+			// Add client peer attributes from RemoteAddr.
+			// Only emit client.port when parsing succeeds to avoid zero-value pollution.
+			if clientHost, clientPort, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				attrs = append(attrs, trace.WithAttributes(semconv.ClientAddress(clientHost)))
+				if p := mustParsePort(clientPort); p != -1 {
+					attrs = append(attrs, trace.WithAttributes(semconv.ClientPort(p)))
+				}
+			}
+
+			tracedCtx, span := tracer.Start(propagatedCtx, r.Method+" "+routePattern, attrs...)
 			defer span.End()
 
 			// Inject the span into the request context
@@ -107,4 +133,15 @@ func schemeFromRequest(r *http.Request) string {
 		return "https"
 	}
 	return "http"
+}
+
+// mustParsePort converts a port string to int.
+// Returns -1 if parsing fails so callers can omit the attribute entirely,
+// avoiding zero-value pollution in traces.
+func mustParsePort(portStr string) int {
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return -1
+	}
+	return port
 }

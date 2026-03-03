@@ -1,0 +1,13 @@
+# Production environment configuration
+
+port: 5432
+sslMode: require # Require TLS in production
+
+# Connection pool configuration - production tuning
+maxConnections: 25        # Tune based on (CPU cores * 2) + disk count
+minConnections: 5         # Keep warm connections
+maxConnLifetimeMinutes: 60      # Recycle after 1 hour
+maxConnIdleTimeMinutes: 30      # Close idle after 30 minutes
+healthCheckPeriodSeconds: 60    # Health check every minute
+connectTimeoutSeconds: 5        # Connection timeout
+captureQueryText: false         # SECURITY: Disable SQL capture (prevents PII/schema exposure)

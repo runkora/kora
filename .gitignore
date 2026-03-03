@@ -19,6 +19,7 @@ go.work
 go.work.sum
 
 # Build artifacts
+.bin/
 bin/
 dist/
 build/
@@ -85,3 +86,6 @@ build/
 dist/
 *.tar.gz
 *.zip
+
+# agents
+.forge/

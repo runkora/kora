@@ -1,0 +1,14 @@
+# Development environment configuration
+# Mirrors production setup but with relaxed security for local development clusters
+
+port: 5432
+sslMode: prefer  # Prefer TLS but allow fallback in dev environments
+
+# Connection pool configuration - development tuning
+maxConnections: 25        # Same as production for realistic testing
+minConnections: 5         # Keep warm connections
+maxConnLifetimeMinutes: 60      # Recycle after 1 hour
+maxConnIdleTimeMinutes: 30      # Close idle after 30 minutes
+healthCheckPeriodSeconds: 60    # Health check every minute
+connectTimeoutSeconds: 5        # Connection timeout
+captureQueryText: true          # Capture SQL in traces (helpful for development)

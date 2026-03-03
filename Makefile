@@ -103,20 +103,39 @@ tidy: ## Tidy and verify go.mod dependencies
 .PHONY: db-up
 db-up: ## Start the PostgreSQL database (docker-compose)
 	@echo "$(COLOR_YELLOW)Starting database...$(COLOR_RESET)"
-	docker-compose up -d
-	@echo "$(COLOR_GREEN)✓ Database started$(COLOR_RESET)"
+	@docker compose up -d postgres
+	@echo "$(COLOR_YELLOW)Waiting for database to be ready...$(COLOR_RESET)"
+	@until docker compose exec -T postgres pg_isready -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit} > /dev/null 2>&1; do \
+		echo "Waiting for postgres..."; \
+		sleep 2; \
+	done
+	@echo "$(COLOR_GREEN)✓ Database started and ready$(COLOR_RESET)"
 
 .PHONY: db-down
 db-down: ## Stop the PostgreSQL database
 	@echo "$(COLOR_YELLOW)Stopping database...$(COLOR_RESET)"
-	docker-compose down
+	@docker compose down
 	@echo "$(COLOR_GREEN)✓ Database stopped$(COLOR_RESET)"
 
 .PHONY: db-reset
-db-reset: db-down db-up ## Reset database (stop, start fresh)
+db-reset: ## Reset database (destroy volume, recreate)
+	@echo "$(COLOR_YELLOW)Resetting database...$(COLOR_RESET)"
+	@docker compose down -v
+	@docker compose up -d postgres
 	@echo "$(COLOR_YELLOW)Waiting for database to be ready...$(COLOR_RESET)"
-	@sleep 3
+	@until docker compose exec -T postgres pg_isready -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit} > /dev/null 2>&1; do \
+		echo "Waiting for postgres..."; \
+		sleep 2; \
+	done
 	@echo "$(COLOR_GREEN)✓ Database reset complete$(COLOR_RESET)"
+
+.PHONY: db-logs
+db-logs: ## Show database logs
+	@docker compose logs -f postgres
+
+.PHONY: db-shell
+db-shell: ## Open a psql shell to the database
+	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
 
 .PHONY: migrate-up
 migrate-up: ## Run all database migrations up
@@ -225,8 +244,12 @@ secrets: ## Scan for secrets and leaked credentials (gitleaks)
 lint: ## Run golangci-lint
 	@echo "$(COLOR_YELLOW)Running linters...$(COLOR_RESET)"
 	@if command -v golangci-lint > /dev/null; then \
-		cd $(BACKEND_DIR) && $(GOLINT) run ./...; \
-		echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
+		if cd $(BACKEND_DIR) && $(GOLINT) run ./...; then \
+			echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
+		else \
+			echo "$(COLOR_RESET)"; \
+			exit 1; \
+		fi \
 	else \
 		echo "$(COLOR_YELLOW)golangci-lint not installed. Run 'make install-tools'$(COLOR_RESET)"; \
 		exit 1; \
