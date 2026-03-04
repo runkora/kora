@@ -248,17 +248,15 @@ OPA policy is distributed to all enforcement points (edge Envoy and all sidecars
 
 ---
 
-## Open Implementation Question: Sidecar Control Plane
+## Sidecar Control Plane — Resolved
 
-This ADR establishes the principle and data plane technology. It does not resolve how Envoy sidecar config is distributed and managed across the platform. Two realistic paths exist:
+This ADR establishes the principle and data plane technology. The question of how Envoy sidecar config is distributed and managed is resolved in **[ADR-0015](0015-service-mesh-and-network-enforcement-infrastructure.md)**.
 
-**Path 1: Adopt a service mesh (e.g. Istio)**
-Istio's control plane (istiod) manages Envoy config distribution for both the edge gateway and all sidecars. Sidecar injection is handled by Istio's admission webhook. This is a significant operational commitment but provides a mature, production-proven control plane.
+**Decision summary (ADR-0015):**
+- **Istio** is adopted as the sidecar control plane. istiod handles sidecar injection via admission webhook and xDS config distribution to all Envoy sidecar instances and the edge gateway. Istio's per-pod sidecar model is fully compatible with the SPIFFE Helper → Envoy SDS handoff defined in ADR-0010.
+- **Cilium** is adopted as the CNI plugin. It operates at the eBPF kernel level underneath Istio, enforcing the "no direct pod-to-pod traffic that bypasses the sidecar" constraint from this ADR at the network layer — significantly harder to bypass than iptables-based NetworkPolicy. Cilium also enforces DNS-aware egress policy, ensuring agent pods cannot call external services directly and must route through the Credential-Aware Outbound Gateway (ADR-0012).
 
-**Path 2: Orbit as xDS control plane**
-Orbit's control plane implements the Envoy xDS APIs and distributes Envoy config directly. When a service is registered with Orbit, Orbit generates and pushes updated Envoy config to the affected enforcement points. This provides tighter integration between service registration and enforcement config but requires building the xDS control plane.
-
-This decision will be captured in a subsequent ADR once the platform's Kubernetes operational model is better defined.
+The Orbit-native xDS control plane option is deferred, not closed — it remains the correct long-term direction if Orbit's service registry model requires tighter Envoy config coupling. See ADR-0015 for full rationale.
 
 ---
 
@@ -317,6 +315,7 @@ This component must be co-located with each enforcement point for latency — ei
 - [ADR-0008](0008-unified-identity-model.md) — Defines the principal model and platform session token that the gateway validates
 - [ADR-0009](0009-agent-execution-flow-patterns-and-delegation.md) — Defines delegation tokens and execution context documents evaluated at enforcement points
 - [ADR-0010](0010-spiffe-spire-workload-attestation.md) — Defines SPIFFE SVIDs used for mTLS at east-west sidecar enforcement points
+- [ADR-0015](0015-service-mesh-and-network-enforcement-infrastructure.md) — Resolves the sidecar control plane open question: Istio as service mesh, Cilium as CNI-level network enforcement
 
 ---
 
