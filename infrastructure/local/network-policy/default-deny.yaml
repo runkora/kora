@@ -1,0 +1,86 @@
+---
+# Default deny all ingress and egress in the orbit namespace.
+# Explicit NetworkPolicy rules below carve out the permitted paths.
+# This substitutes for Cilium eBPF enforcement locally (see ADR-0016).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: orbit
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Allow all pods to reach kube-dns for name resolution
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: orbit
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Allow intra-namespace traffic on the Envoy sidecar port only (15006 = iptables redirect).
+# Direct pod-to-pod on app ports is intentionally blocked — all traffic
+# must transit the sidecar, mirroring what Cilium enforces in CI/staging.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mesh-sidecar
+  namespace: orbit
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: orbit
+      ports:
+        - port: 15006   # Envoy inbound iptables redirect
+        - port: 15008   # Envoy HBONE (HTTP/2 tunnel for mTLS)
+        - port: 15090   # Envoy Prometheus metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: orbit
+      ports:
+        - port: 15006
+        - port: 15008
+
+---
+# Allow orbit pods to reach the SPIRE Server gRPC port (8081) in the spire namespace.
+# Note: the SPIRE Workload API is a Unix domain socket (hostPath mount) — it is not
+# governed by NetworkPolicy. This rule covers direct server API calls only, e.g.
+# bundle federation or any service that calls the SPIRE server gRPC API directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spire-server-grpc
+  namespace: orbit
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: spire
+      ports:
+        - port: 8081   # SPIRE Server gRPC

@@ -168,6 +168,52 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 	@echo "$(COLOR_GREEN)✓ Migration created$(COLOR_RESET)"
 
 # ===========================================
+# Local Development Environment (Tier 1 — docker-compose)
+# ===========================================
+
+.PHONY: dev-up
+dev-up: ## Start Postgres + Redis for daily Go development (no cluster needed)
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis)...$(COLOR_RESET)"
+	@docker compose up -d postgres redis
+	@echo "$(COLOR_YELLOW)Waiting for Postgres...$(COLOR_RESET)"
+	@until docker compose exec -T postgres pg_isready -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit} > /dev/null 2>&1; do \
+		echo "  waiting for postgres..."; \
+		sleep 2; \
+	done
+	@echo "$(COLOR_YELLOW)Waiting for Redis...$(COLOR_RESET)"
+	@until docker compose exec -T redis redis-cli ping > /dev/null 2>&1; do \
+		echo "  waiting for redis..."; \
+		sleep 1; \
+	done
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis ready$(COLOR_RESET)"
+
+.PHONY: dev-down
+dev-down: ## Stop Postgres + Redis
+	@echo "$(COLOR_YELLOW)Stopping local services...$(COLOR_RESET)"
+	@docker compose down
+	@echo "$(COLOR_GREEN)✓ Local services stopped$(COLOR_RESET)"
+
+# ===========================================
+# Local Development Environment (Tier 2 — k3d cluster)
+# ===========================================
+
+.PHONY: install-tools-cluster
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, istioctl, helm)
+	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
+	@bash infrastructure/local/scripts/install-tools-cluster.sh
+	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
+
+.PHONY: dev-cluster
+dev-cluster: ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy)
+	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
+	@bash infrastructure/local/scripts/dev-cluster-up.sh
+
+.PHONY: dev-cluster-down
+dev-cluster-down: ## Tear down the local k3d cluster
+	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
+	@bash infrastructure/local/scripts/dev-cluster-down.sh
+
+# ===========================================
 # Development Workflow
 # ===========================================
 
@@ -200,8 +246,14 @@ build-backend: ## Build Orbit binary to .bin directory
 # Testing & Quality
 # ===========================================
 
+.PHONY: test-integration
+test-integration: ## Run integration tests (requires dev-cluster to be running)
+	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...
+	@echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"
+
 .PHONY: test
-test: ## Run tests with coverage
+test: ## Run unit tests with coverage (no cluster required)
 	@echo "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
 	@cd $(BACKEND_DIR) && $(GOTEST) -race -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
 	@echo ""
@@ -298,7 +350,7 @@ check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, s
 all: tidy check build ## Run all quality checks and build
 
 .PHONY: bootstrap
-bootstrap: setup db-up migrate-up ## Bootstrap project (setup tools, start db, run migrations)
+bootstrap: setup dev-up migrate-up ## Bootstrap project (setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
 

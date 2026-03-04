@@ -1,0 +1,31 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: orbit-local
+
+# 1 server + 2 agents gives us realistic pod scheduling without burning RAM
+servers: 1
+agents: 2
+
+image: rancher/k3s:v1.29.4-k3s1
+
+ports:
+  # Istio ingress gateway
+  - port: 8080:80
+    nodeFilters:
+      - loadbalancer
+  - port: 8443:443
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3s:
+    extraArgs:
+      # Disable Traefik — we use Istio as the ingress gateway
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      # Disable the default ServiceLB — Istio manages its own
+      - arg: --disable=servicelb
+        nodeFilters:
+          - server:*

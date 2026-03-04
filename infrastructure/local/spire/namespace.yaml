@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spire
+  labels:
+    # Exclude SPIRE namespace from Istio sidecar injection —
+    # SPIRE manages its own identity and must not depend on the mesh
+    istio-injection: disabled
