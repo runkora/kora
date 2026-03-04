@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Add a new service by appending its local overlay path here.
+# Each service defines its own ServiceAccount and ClusterSPIFFEID.
+resources:
+  - ../../identity/overlays/local
+  - ../../ext-authz/overlays/local
+  - ../../outbound-gateway/overlays/local

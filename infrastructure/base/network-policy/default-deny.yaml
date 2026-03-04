@@ -32,7 +32,7 @@ spec:
           port: 53
 
 ---
-# Allow intra-namespace traffic on the Envoy sidecar port only (15006 = iptables redirect).
+# Allow intra-namespace traffic on the Envoy sidecar ports only (15006 = iptables redirect).
 # Direct pod-to-pod on app ports is intentionally blocked — all traffic
 # must transit the sidecar, mirroring what Cilium enforces in CI/staging.
 apiVersion: networking.k8s.io/v1
@@ -66,8 +66,7 @@ spec:
 ---
 # Allow orbit pods to reach the SPIRE Server gRPC port (8081) in the spire namespace.
 # Note: the SPIRE Workload API is a Unix domain socket (hostPath mount) — it is not
-# governed by NetworkPolicy. This rule covers direct server API calls only, e.g.
-# bundle federation or any service that calls the SPIRE server gRPC API directly.
+# governed by NetworkPolicy. This rule covers direct server API calls only.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

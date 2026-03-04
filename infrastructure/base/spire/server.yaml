@@ -22,6 +22,13 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "create", "update", "patch"]
+  # Required by the SPIRE Controller Manager to manage ClusterSPIFFEID entries
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids", "clusterspiffeids/status", "clusterfederatedtrustdomains", "clusterfederatedtrustdomains/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -38,67 +45,6 @@ subjects:
     namespace: spire
 
 ---
-# SPIRE Server configuration
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spire-server
-  namespace: spire
-data:
-  server.conf: |
-    server {
-      bind_address = "0.0.0.0"
-      bind_port = "8081"
-      trust_domain = "orbit.local"
-      data_dir = "/run/spire/data"
-      log_level = "DEBUG"
-
-      # Short TTLs for local dev — fast feedback on expiry behaviour
-      default_x509_svid_ttl = "1h"
-      default_jwt_svid_ttl = "5m"
-      ca_ttl = "24h"
-    }
-
-    plugins {
-      DataStore "sql" {
-        plugin_data {
-          database_type = "sqlite3"
-          connection_string = "/run/spire/data/datastore.sqlite3"
-        }
-      }
-
-      NodeAttestor "k8s_psat" {
-        plugin_data {
-          clusters = {
-            "orbit-local" = {
-              service_account_allow_list = ["spire:spire-agent"]
-            }
-          }
-        }
-      }
-
-      KeyManager "disk" {
-        plugin_data {
-          keys_path = "/run/spire/data/keys.json"
-        }
-      }
-
-      Notifier "k8sbundle" {
-        plugin_data {
-          namespace = "spire"
-        }
-      }
-    }
-
-    health_checks {
-      listener_enabled = true
-      bind_address = "0.0.0.0"
-      bind_port = "8080"
-      live_path = "/live"
-      ready_path = "/ready"
-    }
-
----
 # Empty ConfigMap that the k8sbundle notifier populates with the trust bundle.
 # Must exist before the SPIRE Server starts — notifier updates it, not creates it.
 apiVersion: v1
@@ -109,7 +55,10 @@ metadata:
 data: {}
 
 ---
-# SPIRE Server StatefulSet — persistent data dir for the SQLite datastore
+# SPIRE Server StatefulSet
+# Two containers share the server socket via an emptyDir volume:
+#   - spire-server:         the SPIRE gRPC server
+#   - spire-controller-mgr: watches ClusterSPIFFEID CRDs and auto-registers entries
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -144,6 +93,8 @@ spec:
               readOnly: true
             - name: spire-data
               mountPath: /run/spire/data
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
           livenessProbe:
             httpGet:
               path: /live
@@ -163,10 +114,35 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+
+        - name: spire-controller-manager
+          image: ghcr.io/spiffe/spire-controller-manager:0.6.3
+          args:
+            - "--config=controller-manager-config.yaml"
+          volumeMounts:
+            - name: spire-controller-manager-config
+              mountPath: /controller-manager-config.yaml
+              subPath: controller-manager-config.yaml
+            - name: spire-server-socket
+              mountPath: /tmp/spire-server/private
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
       volumes:
         - name: spire-config
           configMap:
             name: spire-server
+        - name: spire-controller-manager-config
+          configMap:
+            name: spire-controller-manager
+        - name: spire-server-socket
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: spire-data

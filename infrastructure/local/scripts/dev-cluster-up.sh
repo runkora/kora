@@ -14,6 +14,9 @@ CLUSTER_NAME="orbit-local"
 ISTIO_VERSION="1.21.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="${SCRIPT_DIR}/.."
+OVERLAYS_DIR="${SCRIPT_DIR}/../../overlays/local"
+SERVICES_DIR="${SCRIPT_DIR}/../../services/overlays/local"
+SPIRE_CM_VERSION="0.6.3"
 
 # Terminal colours
 GREEN="\033[32m"
@@ -64,83 +67,44 @@ fi
 
 # ── 4. Create namespaces ─────────────────────────────────────────────────────
 step "Creating namespaces"
-kubectl apply -f "${INFRA_DIR}/spire/namespace.yaml"
-
 kubectl create namespace orbit --dry-run=client -o yaml | kubectl apply -f -
 kubectl label namespace orbit istio-injection=enabled --overwrite
-
 ok "Namespaces ready"
 
-# ── 5. Deploy SPIRE ──────────────────────────────────────────────────────────
-step "Deploying SPIRE Server"
-kubectl apply -f "${INFRA_DIR}/spire/server.yaml"
+# ── 5. Install SPIRE Controller Manager CRDs ─────────────────────────────────
+step "Installing SPIRE Controller Manager CRDs (v${SPIRE_CM_VERSION})"
+if kubectl get crd clusterspiffeids.spire.spiffe.io &>/dev/null; then
+  warn "SPIRE Controller Manager CRDs already installed — skipping"
+else
+  BASE_URL="https://raw.githubusercontent.com/spiffe/spire-controller-manager/v${SPIRE_CM_VERSION}/config/crd/bases"
+  kubectl apply -f "${BASE_URL}/spire.spiffe.io_clusterspiffeids.yaml"
+  kubectl apply -f "${BASE_URL}/spire.spiffe.io_clusterfederatedtrustdomains.yaml"
+  kubectl apply -f "${BASE_URL}/spire.spiffe.io_clusterstaticentries.yaml"
+  kubectl apply -f "${BASE_URL}/spire.spiffe.io_controllermanagerconfigs.yaml"
+  ok "CRDs installed"
+fi
+
+# ── 6. Deploy SPIRE + NetworkPolicies ────────────────────────────────────────
+step "Deploying SPIRE (Server, Agent, NetworkPolicies)"
+# Applies the local overlay: base/spire + base/network-policy
+kubectl apply -k "${OVERLAYS_DIR}"
 
 echo "  Waiting for SPIRE Server to be ready..."
 kubectl rollout status statefulset/spire-server -n spire --timeout=120s
 ok "SPIRE Server ready"
 
-step "Deploying SPIRE Agent"
-kubectl apply -f "${INFRA_DIR}/spire/agent.yaml"
-
 echo "  Waiting for SPIRE Agent DaemonSet to be ready..."
 kubectl rollout status daemonset/spire-agent -n spire --timeout=240s
 ok "SPIRE Agent ready"
 
-# ── 6. Register SPIFFE IDs ───────────────────────────────────────────────────
-step "Registering SPIFFE IDs"
-# The spire-server image is distroless (no shell), so we exec the spire-server
-# binary directly via kubectl exec.
-#
-# Entry model:
-#   - One node entry (flag: -node) anchors all k8s_psat-attested agents under
-#     spiffe://orbit.local/node. This acts as the parent for all workloads.
-#   - Workload entries use -parentID spiffe://orbit.local/node and declare two
-#     selectors: namespace + service account.
-#
-# Idempotency: `entry create` exits non-zero if the entry already exists, so we
-# suppress that specific error and continue.
-
-SPIRE_SOCKET="/tmp/spire-server/private/api.sock"
-NODE_SPIFFE_ID="spiffe://orbit.local/node"
-
-spire_exec() {
-  kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server "$@" \
-    -socketPath "${SPIRE_SOCKET}" 2>&1
-}
-
-# 6a. Node entry — one entry that matches all k8s_psat-attested agents in this cluster.
-echo "  Registering node entry: ${NODE_SPIFFE_ID}"
-spire_exec entry create \
-  -node \
-  -spiffeID "${NODE_SPIFFE_ID}" \
-  -selector "k8s_psat:cluster:orbit-local" \
-  | grep -v "^$" || true
-
-# 6b. Workload entries — each bound to namespace + service account selectors.
-register_workload() {
-  local spiffe_id="$1"
-  local ns="$2"
-  local sa="$3"
-  echo "  Registering workload: ${spiffe_id}"
-  spire_exec entry create \
-    -spiffeID "${spiffe_id}" \
-    -parentID "${NODE_SPIFFE_ID}" \
-    -selector "k8s:ns:${ns}" \
-    -selector "k8s:sa:${sa}" \
-    | grep -v "^$" || true
-}
-
-register_workload "spiffe://orbit.local/system/identity"         "orbit" "identity"
-register_workload "spiffe://orbit.local/system/ext-authz"        "orbit" "ext-authz"
-register_workload "spiffe://orbit.local/system/outbound-gateway" "orbit" "outbound-gateway"
-register_workload "spiffe://orbit.local/tenant/dev-tenant/agent/smoke-agent" "orbit" "smoke-agent"
-
-ok "SPIFFE IDs registered"
-
-# ── 7. Apply NetworkPolicies ─────────────────────────────────────────────────
-step "Applying NetworkPolicies"
-kubectl apply -f "${INFRA_DIR}/network-policy/default-deny.yaml"
-ok "NetworkPolicies applied"
+# ── 7. Apply service identities ──────────────────────────────────────────────
+step "Applying service identities (ClusterSPIFFEIDs)"
+# The SPIRE Controller Manager watches ClusterSPIFFEID resources and
+# automatically creates SPIRE entries — no kubectl exec registration needed.
+# To add a new service: add its ClusterSPIFFEID under infrastructure/services/
+# and reference it in infrastructure/services/overlays/local/kustomization.yaml.
+kubectl apply -k "${SERVICES_DIR}"
+ok "Service identities applied"
 
 # ── 8. Summary ───────────────────────────────────────────────────────────────
 echo ""

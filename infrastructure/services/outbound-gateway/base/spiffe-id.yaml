@@ -1,0 +1,15 @@
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: outbound-gateway
+spec:
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/system/outbound-gateway"
+  podSelector:
+    matchLabels:
+      app: outbound-gateway
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: In
+        values:
+          - orbit

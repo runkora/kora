@@ -1,0 +1,24 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-controller-manager
+  namespace: spire
+data:
+  controller-manager-config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metadata:
+      name: spire-controller-manager
+    clusterName: orbit-local
+    trustDomain: orbit.local
+    # Connect to the SPIRE Server via the shared Unix socket
+    serverSocketPath: /tmp/spire-server/private/api.sock
+    # Watch all namespaces for ClusterSPIFFEID resources
+    watchClassless: true
+    metrics:
+      bindAddress: "0"
+    health:
+      healthProbeBindAddress: "0"
+    leaderElection:
+      leaderElect: false

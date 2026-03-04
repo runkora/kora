@@ -40,13 +40,13 @@ data:
   agent.conf: |
     agent {
       data_dir = "/run/spire/data"
-      log_level = "DEBUG"
+      log_level = "INFO"
       server_address = "spire-server"
       server_port = "8081"
       trust_domain = "orbit.local"
 
-      # Bootstrap without a pre-distributed bundle — agent fetches it from the server
-      # on first contact. Safe for local dev; server is co-located in the same cluster.
+      # Allow the agent to fetch the bundle from the server on first contact
+      # without a pre-distributed trust bundle (safe for local dev only)
       insecure_bootstrap = true
 
       # Expose the Workload API socket — Envoy and SPIFFE Helper connect here
@@ -75,7 +75,6 @@ data:
 
       WorkloadAttestor "k8s" {
         plugin_data {
-          # Reuse the kubelet read-only port — no client cert required locally
           skip_kubelet_verification = true
         }
       }
@@ -104,10 +103,15 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       initContainers:
         # Wait for the SPIRE Server to be ready before the agent tries to attest.
-        # Uses busybox nc rather than an unpinned :latest image.
         - name: init-server-wait
           image: busybox:1.36.1
-          command: ["sh", "-c", "until nc -z spire-server 8081; do echo 'waiting for SPIRE server...'; sleep 2; done"]
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z spire-server 8081; do
+                echo 'waiting for SPIRE server...'; sleep 2
+              done
       containers:
         - name: spire-agent
           image: ghcr.io/spiffe/spire-agent:1.9.4
