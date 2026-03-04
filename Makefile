@@ -200,18 +200,18 @@ dev-down: ## Stop Postgres + Redis
 .PHONY: install-tools-cluster
 install-tools-cluster: ## Install cluster tooling (k3d, kubectl, istioctl, helm)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
-	@bash infrastructure/local/scripts/install-tools-cluster.sh
+	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
 
 .PHONY: dev-cluster
 dev-cluster: ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy)
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
-	@bash infrastructure/local/scripts/dev-cluster-up.sh
+	@bash scripts/cluster/dev-cluster-up.sh
 
 .PHONY: dev-cluster-down
 dev-cluster-down: ## Tear down the local k3d cluster
 	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
-	@bash infrastructure/local/scripts/dev-cluster-down.sh
+	@bash scripts/cluster/dev-cluster-down.sh
 
 # ===========================================
 # Development Workflow
@@ -335,7 +335,7 @@ clean: ## Clean build artifacts and temporary files
 .PHONY: clean-all
 clean-all: clean db-down ## Clean everything including database
 	@echo "$(COLOR_YELLOW)Cleaning all artifacts and stopping services...$(COLOR_RESET)"
-	@docker-compose down -v
+	@docker compose down -v
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================

@@ -157,19 +157,24 @@ We selected this option because:
 
 ```
 /
-├── backend/              # Go services
+├── backend/              # Go services (control plane)
 │   ├── cmd/
-│   │   └── orbit-api/   # Main control plane API
-│   ├── pkg/             # Shared Go packages
+│   │   └── orbit/        # Main control plane API entrypoint
+│   ├── internal/         # Feature packages (identity, agents, etc.)
+│   │   └── platform/     # Shared infrastructure (logging, storage, api, observability)
 │   ├── go.mod
 │   └── go.sum
-├── frontend/            # Next.js application
-│   ├── app/            # React UI pages (App Router)
-│   ├── app/api/        # BFF API routes (TypeScript)
-│   ├── package.json
-│   └── tsconfig.json
-├── Makefile            # Root-level commands
-└── docker-compose.yml  # Local development environment
+├── docs/                 # ADRs, PRDs, and architecture documentation
+│   ├── adr/
+│   └── prd/
+├── infrastructure/       # Declarative Kubernetes manifests (Kustomize)
+│   ├── base/             # Shared base resources (SPIRE, NetworkPolicy, namespaces)
+│   ├── overlays/         # Environment-specific overlays (local, staging, prod)
+│   └── services/         # Per-service Kustomize overlays (identity, ext-authz, outbound-gateway)
+├── scripts/              # Operational scripts (not manifests)
+│   └── cluster/          # k3d cluster lifecycle (dev-cluster-up.sh, dev-cluster-down.sh)
+├── docker-compose.yml    # Tier 1: Postgres + Redis for daily Go development
+└── Makefile              # Root-level dev commands (dev-up, dev-cluster, test, etc.)
 ```
 
 ### Migration Path

@@ -112,13 +112,13 @@ We need to define:
 
 ### Tier 1 — `make dev-up` (Daily Go Development)
 
-**Tooling:** docker-compose
+**Tooling:** Docker Compose (`docker compose`)
 
 `make dev-up` starts:
 - **PostgreSQL** — primary data store for all platform services
 - **Redis** — JTI blocklist store (session revocation per ADR-0008) and general caching
 
-OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to docker-compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
+OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to Docker Compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
 
 This tier has no Kubernetes dependency. All Go services run directly with `go run` or `air` (hot reload). Unit and repository-level integration tests run against this tier.
 
@@ -186,7 +186,7 @@ Testing this endpoint requires a real SVID, which requires a running SPIRE Agent
 
 ### Negative
 
-- Two-tier maintenance burden: both docker-compose and k3d configurations must be kept up to date as new services are added
+- Two-tier maintenance burden: both Docker Compose and k3d configurations must be kept up to date as new services are added
 - Cilium network policies are not locally testable — bugs in Cilium-specific egress rules will not surface until CI
 - `make dev-cluster` is slower to provision than `make dev-up` (~3–5 minutes for initial cluster creation)
 
@@ -213,7 +213,7 @@ Installed by `make setup`:
 
 | Target | Description |
 |---|---|
-| `make dev-up` | Start Tier 1: Postgres + Redis via docker-compose |
+| `make dev-up` | Start Tier 1: Postgres + Redis via Docker Compose |
 | `make dev-down` | Stop and remove Tier 1 containers |
 | `make dev-cluster` | Provision Tier 2: k3d cluster + SPIRE + Istio |
 | `make dev-cluster-down` | Tear down the k3d cluster |
@@ -222,30 +222,42 @@ Installed by `make setup`:
 
 ### SPIRE Local Configuration
 
-```yaml
-# spire-server-config.yaml (local)
-server:
-  trust_domain: orbit.local
-  bind_address: 0.0.0.0
-  bind_port: 8081
-  log_level: DEBUG
+```hcl
+# spire-server-config (local) — HCL format used by SPIRE
+server {
+  trust_domain = "orbit.local"
+  bind_address = "0.0.0.0"
+  bind_port    = "8081"
+  log_level    = "INFO"
+  data_dir     = "/run/spire/data"
+}
 
-plugins:
-  DataStore:
-    sql:
-      plugin_data:
-        database_type: sqlite3
-        connection_string: /run/spire/data/datastore.sqlite3
-  NodeAttestor:
-    k8s_psat:
-      plugin_data:
-        clusters:
-          orbit-local:
-            service_account_allow_list:
-              - orbit-system:spire-agent
-  KeyManager:
-    memory:
-      plugin_data:
+plugins {
+  DataStore "sql" {
+    plugin_data {
+      database_type     = "sqlite3"
+      connection_string = "/run/spire/data/datastore.sqlite3"
+    }
+  }
+
+  NodeAttestor "k8s_psat" {
+    plugin_data {
+      clusters = {
+        "orbit-local" = {
+          # spire-agent ServiceAccount lives in the `spire` namespace,
+          # not in orbit-system — SPIRE and its agent are self-contained.
+          service_account_allow_list = ["spire:spire-agent"]
+        }
+      }
+    }
+  }
+
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "/run/spire/data/keys.json"
+    }
+  }
+}
 ```
 
 ---
