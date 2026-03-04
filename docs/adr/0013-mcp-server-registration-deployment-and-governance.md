@@ -184,7 +184,9 @@ tools:                                   # declarative manifest — not validate
 
 Every registered MCP server receives:
 
-1. A SPIFFE identity issued by SPIRE: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}`
+1. A SPIFFE identity issued by SPIRE, determined by scope:
+   - **Platform-scope**: `spiffe://orbit.{instance-id}/system/service/{service-id}`
+   - **Tenant-scope**: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}`
 2. An Envoy sidecar deployed alongside the server process, handling:
    - Inbound mTLS termination from agents
    - `X-Orbit-Delegation-Token` header validation via `ext_authz`

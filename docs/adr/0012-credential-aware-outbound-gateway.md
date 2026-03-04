@@ -164,22 +164,24 @@ The Credential-Aware Outbound Gateway is a dedicated platform service. It is not
 
 ```
 Agent (plain HTTP call)
-  → Envoy sidecar
+  → Agent's Envoy sidecar (east-west)
       validates platform session token
-      attaches delegation context from X-Orbit-Delegation-Token
-  → Edge Envoy Gateway
-      OPA policy evaluation: is this agent's principal permitted to call /proxy/{service-name}?
-      403 Forbidden if policy denies — gateway is never reached
-  → Credential-Aware Outbound Gateway
+      checks jti revocation list
+      forwards to Credential-Aware Outbound Gateway via mTLS
+  → Credential-Aware Outbound Gateway's Envoy sidecar
+      OPA policy evaluation (ext_authz): is this agent's principal permitted
+        to call /proxy/{service-name}?
+      403 Forbidden if policy denies — gateway handler is never reached
+  → Credential-Aware Outbound Gateway handler
       resolves target service from path prefix (msgraph → https://graph.microsoft.com)
       selects credential adapter for the service registration
       constructs scoped external credential (OBO token, API key, SigV4 signature, etc.)
       injects credential on outbound leg
-      makes real HTTP call to the external service
+      makes real HTTP call to the external service (north-bound)
       streams response back to the agent
 ```
 
-Envoy never sees or handles external credentials. The gateway is the only component with access to the credential store for external services.
+The agent-to-gateway leg is east-west traffic — enforced by the gateway's own Envoy sidecar, not the Edge Envoy. The gateway-to-external-service leg is outbound north-bound traffic, made by the gateway itself. Envoy never sees or handles external credentials. The gateway is the only component with access to the credential store for external services.
 
 ### Agent Addressing
 
@@ -442,11 +444,11 @@ The agent does not know what an OBO token is. It calls the proxy URL and expects
 
 ### Step 4 — Envoy sidecar validates outbound request
 
-The agent's Envoy sidecar intercepts the outbound call. It validates the agent's platform session token — confirming `principal-email-agent-abc` is authenticated, the token is not expired, and the `jti` is not in the revocation list. The request is forwarded upstream with the delegation context intact.
+The agent's Envoy sidecar intercepts the outbound call. It validates the agent's platform session token — confirming `principal-email-agent-abc` is authenticated, the token is not expired, and the `jti` is not in the revocation list. The request is forwarded east-west via mTLS to the Credential-Aware Outbound Gateway's Envoy sidecar with the delegation context intact.
 
-### Step 5 — Edge Envoy evaluates policy
+### Step 5 — Gateway's Envoy sidecar evaluates policy
 
-The request arrives at the Edge Envoy gateway. The `ext_authz` filter calls OPA with the full request context:
+The request arrives at the Credential-Aware Outbound Gateway's Envoy sidecar via east-west mTLS. The `ext_authz` filter calls OPA with the full request context:
 
 > "Can `principal-email-agent-abc`, holding a delegation from `principal-sarah-xyz` scoped to `msgraph:mail:read`, call `/proxy/msgraph`?"
 
@@ -455,7 +457,7 @@ OPA evaluates:
 - Is `principal-email-agent-abc` permitted to use external services? ✅
 - Is `msgraph:mail:read` within the agent's permitted capability set? ✅
 
-OPA returns allow. Edge Envoy forwards the request to the Credential-Aware Outbound Gateway. If any check had failed, OPA would return deny and Edge Envoy would return `403 Forbidden` — the gateway is never reached.
+OPA returns allow. The gateway sidecar forwards the request to the gateway handler. If any check had failed, OPA would return deny and the sidecar would return `403 Forbidden` — the gateway handler is never reached.
 
 ### Step 6 — Gateway resolves the service and selects the adapter
 
@@ -546,6 +548,7 @@ sequenceDiagram
     participant Agent as Email Agent<br/>(Workload)
     participant Sidecar as Envoy Sidecar<br/>(Agent Pod)
     participant EdgeEnvoy as Edge Envoy<br/>+ OPA
+    participant GatewaySidecar as Envoy Sidecar<br/>(Gateway Pod)
     participant Gateway as Credential-Aware<br/>Outbound Gateway
     participant Entra as Microsoft Entra<br/>(Token Endpoint)
     participant MSGraph as Microsoft Graph
@@ -564,17 +567,17 @@ sequenceDiagram
     %% Agent makes plain HTTP call
     Agent->>+Sidecar: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Orbit-Delegation-Token: {delegation-token}
 
-    %% Sidecar validates
+    %% Sidecar validates and forwards east-west
     Sidecar->>Sidecar: Validate platform session token<br/>Check jti revocation list
-    Sidecar->>+EdgeEnvoy: Forward request with delegation context
+    Sidecar->>+GatewaySidecar: Forward east-west via mTLS
 
-    %% OPA policy evaluation
-    EdgeEnvoy->>EdgeEnvoy: ext_authz → OPA evaluation<br/>Can principal-email-agent-abc<br/>call /proxy/msgraph with<br/>msgraph:mail:read scope?
+    %% OPA policy evaluation at gateway sidecar
+    GatewaySidecar->>GatewaySidecar: ext_authz → OPA evaluation<br/>Can principal-email-agent-abc<br/>call /proxy/msgraph with<br/>msgraph:mail:read scope?
     alt Policy denied
-        EdgeEnvoy-->>Sidecar: 403 Forbidden
+        GatewaySidecar-->>Sidecar: 403 Forbidden
         Sidecar-->>Agent: 403 Forbidden
     else Policy allowed
-        EdgeEnvoy->>+Gateway: Forward to Credential-Aware Outbound Gateway
+        GatewaySidecar->>+Gateway: Forward to gateway handler
     end
 
     %% Gateway resolves service and adapter
@@ -584,8 +587,8 @@ sequenceDiagram
     %% Scope intersection
     Gateway->>Gateway: Compute scope intersection<br/>delegation grant → [Mail.Read]<br/>Sarah Entra session → [Mail.Read, Calendars.Read]<br/>service registration ceiling → [Mail.Read, Mail.ReadWrite, Calendars.Read]<br/>intersection → [Mail.Read]
     alt Scope intersection is empty
-        Gateway-->>EdgeEnvoy: 403 Forbidden (no valid scope)
-        EdgeEnvoy-->>Sidecar: 403 Forbidden
+        Gateway-->>GatewaySidecar: 403 Forbidden (no valid scope)
+        GatewaySidecar-->>Sidecar: 403 Forbidden
         Sidecar-->>Agent: 403 Forbidden
     end
 
@@ -595,15 +598,15 @@ sequenceDiagram
     Entra->>Entra: Validate OBO request<br/>Verify Sarah consented to Mail.Read<br/>Verify Orbit app registration permitted
     Entra-->>-Gateway: OBO access token<br/>(issued for Orbit app, on behalf of Sarah, scope: Mail.Read)
 
-    %% Real outbound call
+    %% Real outbound call (north-bound — gateway makes this directly)
     Gateway->>+MSGraph: GET /v1.0/me/mailFolders/inbox/messages?$filter=isRead eq false<br/>Authorization: Bearer {obo-token}
     MSGraph->>MSGraph: Validate OBO token<br/>Enforce Mail.Read scope
     MSGraph-->>-Gateway: 200 OK — inbox messages (JSON)
 
     %% Audit and response
     Gateway->>Gateway: Emit outbound.proxy.call audit event<br/>{principal, delegator, service, path, scopes, status, duration}
-    Gateway-->>-EdgeEnvoy: 200 OK — inbox messages
-    EdgeEnvoy-->>Sidecar: 200 OK — inbox messages
+    Gateway-->>-GatewaySidecar: 200 OK — inbox messages
+    GatewaySidecar-->>-Sidecar: 200 OK — inbox messages
     Sidecar-->>-Agent: 200 OK — inbox messages
 
     Note over Agent: Agent never saw an OBO token.<br/>Agent never knew Entra was involved.<br/>Full delegation chain is in the audit log.
