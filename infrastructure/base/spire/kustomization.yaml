@@ -3,6 +3,14 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  # SPIRE Controller Manager CRDs — vendored at v0.6.3.
+  # Keep in sync with SPIRE_CM_VERSION in scripts/cluster/dev-cluster-up.sh.
+  # To upgrade: re-download from:
+  #   https://github.com/spiffe/spire-controller-manager/tree/v<ver>/config/crd/bases
+  - crds/spire.spiffe.io_clusterspiffeids.yaml
+  - crds/spire.spiffe.io_clusterfederatedtrustdomains.yaml
+  - crds/spire.spiffe.io_clusterstaticentries.yaml
+  - crds/spire.spiffe.io_controllermanagerconfigs.yaml
   - server-config.yaml
   - controller-manager-config.yaml
   - server.yaml

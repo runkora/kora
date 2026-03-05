@@ -4,7 +4,7 @@
 # =============================================================================
 set -euo pipefail
 
-CLUSTER_NAME="orbit-local"
+CLUSTER_NAME="${CLUSTER_NAME:-orbit-local}"
 
 GREEN="\033[32m"
 YELLOW="\033[33m"

@@ -24,7 +24,14 @@ step()    { echo -e "\n${BLUE}▶ $*${RESET}"; }
 ok()      { echo -e "${GREEN}✓ $*${RESET}"; }
 already() { echo -e "${GREEN}✓ $* already installed — skipping${RESET}"; }
 
-INSTALL_DIR="$(go env GOPATH)/bin"
+# Prefer GOPATH/bin when Go is available so cluster tools share the same
+# PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
+if command -v go &>/dev/null; then
+  INSTALL_DIR="$(go env GOPATH)/bin"
+else
+  INSTALL_DIR="${HOME}/.local/bin"
+fi
+mkdir -p "${INSTALL_DIR}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
@@ -50,7 +57,7 @@ fi
 # ── kubectl ───────────────────────────────────────────────────────────────────
 step "kubectl ${KUBECTL_VERSION}"
 if command -v kubectl &>/dev/null; then
-  already "kubectl $(kubectl version --client --short 2>/dev/null | head -1)"
+  already "kubectl $(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}')"
 else
   curl -sSfL \
     "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH_KUBE}/kubectl" \

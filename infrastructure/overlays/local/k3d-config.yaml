@@ -10,8 +10,8 @@ agents: 2
 image: rancher/k3s:v1.29.4-k3s1
 
 ports:
-  # Istio ingress gateway
-  - port: 8080:80
+  # Istio ingress gateway — 8880 avoids conflicts with common dev tools (air, webpack, spring, SSH tunnels)
+  - port: 8880:80
     nodeFilters:
       - loadbalancer
   - port: 8443:443
