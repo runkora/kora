@@ -108,18 +108,33 @@ Orbit is in **early development**. We are actively building the core platform co
 
 ### Prerequisites
 
+**Tier 1 — Local development (backend + database)**
 - Go 1.21 or later
-- Docker and Docker Compose (for PostgreSQL)
+- Docker and Docker Compose
 - Make
+
+**Tier 2 — Full cluster (adds k3d + Istio + SPIRE)**
+- [Colima](https://github.com/abiosoft/colima) (macOS) or Docker Desktop — minimum 4 CPUs / 8 GiB RAM allocated to the VM
+- k3d, kubectl, istioctl, helm — installed via `make install-tools-cluster`
 
 ### Quick Start
 
+**Tier 1 — Backend only**
 ```bash
-# Bootstrap: install tools, start database, run migrations
+# Scaffold .env, install tools, start database, run migrations
 make bootstrap
 
-# Start Orbit in development mode
+# Start Orbit in development mode (live-reload via air)
 make dev
+```
+
+**Tier 2 — Full local cluster**
+```bash
+# Install cluster tools (k3d, kubectl, istioctl, helm)
+make install-tools-cluster
+
+# Spin up k3d cluster with Istio + SPIRE (~2 min)
+make dev-cluster
 ```
 
 ### Development Commands
@@ -141,7 +156,7 @@ Run `make help` to see all available commands. Key workflows:
 
 **Development**
 - `make dev` - Run with auto-reload
-- `make build` - Build binary to `.bin/orbit`
+- `make build-backend` - Build binary to `.bin/orbit`
 - `make run` - Run Orbit
 
 **Testing & Quality**
@@ -149,6 +164,11 @@ Run `make help` to see all available commands. Key workflows:
 - `make test-verbose` - Verbose test output
 - `make lint` - Run linters
 - `make check` - Run all checks (test + lint)
+
+**Cluster**
+- `make dev-cluster` - Spin up k3d cluster with Istio + SPIRE
+- `make dev-cluster-down` - Tear down the local cluster
+- `make test-integration` - Run integration tests (requires cluster running)
 
 **Cleanup**
 - `make clean` - Remove build artifacts

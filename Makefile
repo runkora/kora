@@ -50,7 +50,7 @@ COLOR_BLUE=\033[36m
 help: ## Display this help screen
 	@echo "$(COLOR_BOLD)Orbit Control Plane - Available Targets$(COLOR_RESET)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 	@echo ""
 
@@ -370,7 +370,7 @@ check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, s
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
-all: tidy check build ## Run all quality checks and build
+all: tidy check build-backend ## Run all quality checks and build
 
 .PHONY: bootstrap
 bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
