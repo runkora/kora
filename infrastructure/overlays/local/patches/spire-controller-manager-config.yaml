@@ -1,0 +1,28 @@
+---
+# Local-dev overlay patch for the SPIRE Controller Manager ConfigMap.
+# Overrides clusterName to "orbit-local" to match the k3d cluster.
+# Production overlays should patch clusterName to their real cluster name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-controller-manager
+  namespace: spire
+data:
+  controller-manager-config.yaml: |
+    apiVersion: spire.spiffe.io/v1alpha1
+    kind: ControllerManagerConfig
+    metadata:
+      name: spire-controller-manager
+      namespace: spire
+    # Local dev: cluster name matches the k3d cluster
+    clusterName: orbit-local
+    trustDomain: orbit.local
+    spireServerSocketPath: /tmp/spire-server/private/api.sock
+    watchClassless: true
+    metrics:
+      bindAddress: "0"
+    health:
+      # Port 8083 avoids colliding with SPIRE Server health (8080) and gRPC (8081)
+      healthProbeBindAddress: ":8083"
+    leaderElection:
+      leaderElect: false

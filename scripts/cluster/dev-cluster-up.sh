@@ -140,7 +140,86 @@ echo "  Waiting for istiod to be Ready..."
 kubectl rollout status deployment/istiod -n istio-system --timeout=180s
 ok "istiod Ready"
 
-# ── 7. Deploy core infrastructure ────────────────────────────────────────────
+# ── 7. Verify postgres is ready ──────────────────────────────────────────────
+# SPIRE server connects to orbit-postgres at startup (k3d nodes share
+# orbit-network with docker-compose via k3d-config.yaml).
+# If the postgres container is not healthy, the SPIRE server pod will
+# crash-loop and the rollout wait below will time out.
+# The Makefile wires 'db-up' as a prerequisite of 'dev-cluster', so this
+# check is normally a fast no-op — but it guards against direct script invocation.
+step "Verifying docker-compose postgres is healthy (required by SPIRE)"
+DB_USER="${DB_USER:-orbit}"
+DB_NAME="${DB_NAME:-orbit}"
+
+if ! docker inspect orbit-postgres &>/dev/null; then
+  echo "  ERROR: orbit-postgres container not found."
+  echo "  Start it first:  make db-up   (or: docker compose up -d postgres)"
+  exit 1
+fi
+
+echo -n "  Waiting for postgres to accept connections"
+for i in $(seq 1 30); do
+  if docker exec orbit-postgres pg_isready -U "${DB_USER}" -d "${DB_NAME}" -q 2>/dev/null; then
+    echo ""
+    break
+  fi
+  if [ "${i}" -eq 30 ]; then
+    echo ""
+    echo "  ERROR: Postgres did not become ready within 30s."
+    echo "  Check logs:  docker compose logs postgres"
+    exit 1
+  fi
+  echo -n "."
+  sleep 1
+done
+ok "Postgres healthy (orbit-postgres)"
+
+# ── 7b. Register orbit-postgres in cluster DNS ───────────────────────────────
+# k3d pods use CoreDNS — not Docker's embedded DNS — so Docker container names
+# like "orbit-postgres" are invisible inside pods even though the k3d nodes are
+# on orbit-network. Fix: create a headless Service + manual Endpoints in the
+# spire namespace so CoreDNS resolves "orbit-postgres" to the container's actual
+# Docker IP on orbit-network.
+step "Registering orbit-postgres in cluster DNS (spire namespace)"
+
+POSTGRES_IP="$(docker inspect orbit-postgres --format '{{(index .NetworkSettings.Networks "orbit-network").IPAddress}}')"
+if [ -z "${POSTGRES_IP}" ]; then
+  echo "  ERROR: Could not determine orbit-postgres IP on orbit-network."
+  echo "  Ensure docker-compose is running:  make db-up"
+  exit 1
+fi
+echo "  orbit-postgres IP on orbit-network: ${POSTGRES_IP}"
+
+# Create spire namespace upfront so we can register the Service before apply-k.
+# kubectl apply -k will see it already exists and skip re-creation.
+kubectl create namespace spire --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-postgres
+  namespace: spire
+spec:
+  clusterIP: None
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: orbit-postgres
+  namespace: spire
+subsets:
+- addresses:
+  - ip: ${POSTGRES_IP}
+  ports:
+  - port: 5432
+EOF
+ok "orbit-postgres registered in CoreDNS at ${POSTGRES_IP}"
+
+# ── 8. Deploy core infrastructure ────────────────────────────────────────────
 # Applies the local overlay: orbit-system-namespace + SPIRE CRDs (vendored) +
 # SPIRE server/agent + NetworkPolicies.
 # The orbit-system namespace (with istio-injection=enabled) is created here.
@@ -155,7 +234,19 @@ echo "  Waiting for SPIRE Agent DaemonSet to be ready..."
 kubectl rollout status daemonset/spire-agent -n spire --timeout=300s
 ok "SPIRE Agent ready"
 
-# ── 8. Apply service identities ──────────────────────────────────────────────
+# Wait for the SPIRE CRDs to be fully established before applying ClusterSPIFFEIDs.
+# kubectl apply -k emits CRDs and workloads in the same pass; the API server may
+# not have registered the new CRDs by the time the next step tries to POST
+# ClusterSPIFFEID resources — resulting in "no matches for kind" errors.
+echo "  Waiting for SPIRE CRDs to be established..."
+kubectl wait --for=condition=Established \
+  crd/clusterspiffeids.spire.spiffe.io \
+  crd/clusterfederatedtrustdomains.spire.spiffe.io \
+  crd/clusterstaticentries.spire.spiffe.io \
+  --timeout=60s
+ok "SPIRE CRDs established"
+
+# ── 9. Apply service identities ──────────────────────────────────────────────
 # The SPIRE Controller Manager watches ClusterSPIFFEID resources and
 # automatically creates SPIRE entries — no kubectl exec registration needed.
 # To add a new service: add its ClusterSPIFFEID under infrastructure/services/
@@ -164,7 +255,7 @@ step "Applying service identities (ClusterSPIFFEIDs)"
 kubectl apply -k "${SERVICES_DIR}"
 ok "Service identities applied"
 
-# ── 9. Summary ───────────────────────────────────────────────────────────────
+# ── 10. Summary ──────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
 echo -e "${GREEN}  Orbit local cluster is ready                    ${RESET}"

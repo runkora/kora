@@ -37,8 +37,8 @@ ARCH="$(uname -m)"
 
 # Normalise arch strings
 case "${ARCH}" in
-  x86_64)  ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_ISTIO="amd64" ;;
-  aarch64|arm64) ARCH_K3D="arm64"; ARCH_KUBE="arm64"; ARCH_ISTIO="arm64" ;;
+  x86_64)  ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_ISTIO="amd64"; ARCH_HELM="amd64" ;;
+  aarch64|arm64) ARCH_K3D="arm64"; ARCH_KUBE="arm64"; ARCH_ISTIO="arm64"; ARCH_HELM="arm64" ;;
   *) echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
 esac
 
@@ -89,10 +89,10 @@ if command -v helm &>/dev/null; then
   already "helm $(helm version --short 2>/dev/null)"
 else
   curl -sSfL \
-    "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_K3D}.tar.gz" \
+    "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_HELM}.tar.gz" \
     | tar -xz -C /tmp
-  mv "/tmp/${OS}-${ARCH_K3D}/helm" "${INSTALL_DIR}/helm"
-  rm -rf "/tmp/${OS}-${ARCH_K3D}"
+  mv "/tmp/${OS}-${ARCH_HELM}/helm" "${INSTALL_DIR}/helm"
+  rm -rf "/tmp/${OS}-${ARCH_HELM}"
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
 fi
 

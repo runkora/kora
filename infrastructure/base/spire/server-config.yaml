@@ -31,15 +31,18 @@ data:
     plugins {
       DataStore "sql" {
         plugin_data {
-          database_type = "sqlite3"
-          connection_string = "/run/spire/data/datastore.sqlite3"
+          # Production: point at a dedicated PostgreSQL database for SPIRE.
+          # Each environment overlay overrides this full ConfigMap with its own
+          # host, credentials, and sslmode — see overlays/*/patches/spire-server-config.yaml.
+          database_type = "postgres"
+          connection_string = "host=spire-db.spire.svc.cluster.local port=5432 user=spire password=changeme dbname=spire sslmode=require"
         }
       }
 
       NodeAttestor "k8s_psat" {
         plugin_data {
           clusters = {
-            "orbit-local" = {
+            "orbit-cluster" = {
               service_account_allow_list = ["spire:spire-agent"]
             }
           }

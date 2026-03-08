@@ -227,7 +227,7 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, istioctl, helm)
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
 
 .PHONY: dev-cluster
-dev-cluster: ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy)
+dev-cluster: db-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-up.sh
 

@@ -5,3 +5,12 @@ resources:
   - ../../base/orbit-system-namespace
   - ../../base/spire
   - ../../base/network-policy
+
+patches:
+  # Restore local-dev values stripped from base:
+  #   agent: insecure_bootstrap=true, cluster=orbit-local, KeyManager memory
+  #   server: cluster name orbit-local
+  #   controller-manager: clusterName=orbit-local
+  - path: patches/spire-agent-configmap.yaml
+  - path: patches/spire-server-config.yaml
+  - path: patches/spire-controller-manager-config.yaml

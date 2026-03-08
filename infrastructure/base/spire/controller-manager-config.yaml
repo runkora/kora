@@ -10,15 +10,17 @@ data:
     kind: ControllerManagerConfig
     metadata:
       name: spire-controller-manager
-    clusterName: orbit-local
+    # Override clusterName and trustDomain via an environment overlay patch.
+    clusterName: orbit-cluster
     trustDomain: orbit.local
     # Connect to the SPIRE Server via the shared Unix socket
-    serverSocketPath: /tmp/spire-server/private/api.sock
+    spireServerSocketPath: /tmp/spire-server/private/api.sock
     # Watch all namespaces for ClusterSPIFFEID resources
     watchClassless: true
     metrics:
       bindAddress: "0"
     health:
-      healthProbeBindAddress: "0"
+      # Port 8083 avoids colliding with SPIRE Server health (8080) and gRPC (8081)
+      healthProbeBindAddress: ":8083"
     leaderElection:
       leaderElect: false

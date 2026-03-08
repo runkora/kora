@@ -14,7 +14,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes", "pods"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
     verbs: ["create"]
@@ -24,10 +24,18 @@ rules:
     verbs: ["get", "list", "create", "update", "patch"]
   # Required by the SPIRE Controller Manager to manage ClusterSPIFFEID entries
   - apiGroups: ["spire.spiffe.io"]
-    resources: ["clusterspiffeids", "clusterspiffeids/status", "clusterfederatedtrustdomains", "clusterfederatedtrustdomains/status"]
+    resources: ["clusterspiffeids", "clusterspiffeids/status", "clusterfederatedtrustdomains", "clusterfederatedtrustdomains/status", "clusterstaticentries", "clusterstaticentries/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["namespaces", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  # Required by the SPIRE Controller Manager to manage the validating webhook
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Required by controller-runtime cache for leader election and service endpoint tracking
+  - apiGroups: [""]
+    resources: ["endpoints", "services"]
     verbs: ["get", "list", "watch"]
 
 ---
@@ -78,6 +86,13 @@ spec:
         app: spire-server
     spec:
       serviceAccountName: spire-server
+      securityContext:
+        # SPIRE server and controller-manager run as root — required for socket
+        # management and key material access. runAsNonRoot is intentionally
+        # omitted. seccompProfile + drop ALL caps + no privilege escalation
+        # are applied as compensating controls.
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: spire-server
           image: ghcr.io/spiffe/spire-server:1.9.4
@@ -107,6 +122,10 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 50m
@@ -119,6 +138,23 @@ spec:
           image: ghcr.io/spiffe/spire-controller-manager:0.6.3
           args:
             - "--config=controller-manager-config.yaml"
+          ports:
+            - containerPort: 9443
+              name: webhook
+            - containerPort: 8083
+              name: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 5
           volumeMounts:
             - name: spire-controller-manager-config
               mountPath: /controller-manager-config.yaml
@@ -126,6 +162,10 @@ spec:
             - name: spire-server-socket
               mountPath: /tmp/spire-server/private
               readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 25m

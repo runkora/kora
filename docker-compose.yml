@@ -24,13 +24,13 @@ services:
     image: redis:7-alpine
     container_name: orbit-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --no-auth-warning
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD --no-auth-warning ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,4 +45,5 @@ volumes:
 
 networks:
   orbit-network:
+    name: orbit-network   # explicit name prevents docker-compose project-prefix (orbit_orbit-network)
     driver: bridge

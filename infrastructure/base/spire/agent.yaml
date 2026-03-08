@@ -45,10 +45,6 @@ data:
       server_port = "8081"
       trust_domain = "orbit.local"
 
-      # Allow the agent to fetch the bundle from the server on first contact
-      # without a pre-distributed trust bundle (safe for local dev only)
-      insecure_bootstrap = true
-
       # Expose the Workload API socket — Envoy and SPIFFE Helper connect here
       socket_path = "/run/spire/sockets/agent.sock"
     }
@@ -64,13 +60,15 @@ data:
     plugins {
       NodeAttestor "k8s_psat" {
         plugin_data {
-          cluster = "orbit-local"
+          cluster = "orbit-cluster"
           token_path = "/var/run/secrets/tokens/spire-agent"
         }
       }
 
-      KeyManager "memory" {
-        plugin_data {}
+      KeyManager "disk" {
+        plugin_data {
+          directory = "/run/spire/data"
+        }
       }
 
       WorkloadAttestor "k8s" {
@@ -98,6 +96,9 @@ spec:
         app: spire-agent
     spec:
       serviceAccountName: spire-agent
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
@@ -116,6 +117,10 @@ spec:
         - name: spire-agent
           image: ghcr.io/spiffe/spire-agent:1.9.4
           args: ["-config", "/run/spire/config/agent.conf"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: spire-config
               mountPath: /run/spire/config
