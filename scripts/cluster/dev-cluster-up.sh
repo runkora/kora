@@ -10,16 +10,19 @@
 # =============================================================================
 set -euo pipefail
 
-# Override CLUSTER_NAME by exporting the variable before calling this script,
-# e.g.:  CLUSTER_NAME=my-orbit make dev-cluster
-# Must match the 'name' field in k3d-config.yaml.
-CLUSTER_NAME="${CLUSTER_NAME:-orbit-local}"
-ISTIO_VERSION="1.21.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 K3D_CONFIG="${REPO_ROOT}/infrastructure/overlays/local/k3d-config.yaml"
 OVERLAYS_DIR="${REPO_ROOT}/infrastructure/overlays/local"
 SERVICES_DIR="${REPO_ROOT}/infrastructure/services/overlays/local"
+
+# All pinned versions live in versions.env — do not hardcode versions here.
+# shellcheck source=scripts/cluster/versions.env
+source "${SCRIPT_DIR}/versions.env"
+
+# Derive cluster name directly from k3d-config.yaml so this script never
+# diverges from what k3d actually names the cluster.
+CLUSTER_NAME="$(grep 'name:' "${K3D_CONFIG}" | head -1 | awk '{print $2}')"
 
 # The pause image must be imported into the cluster IMMEDIATELY after creation
 # so k3s can start sandbox containers (CoreDNS etc.) without hitting Docker Hub.
@@ -29,19 +32,21 @@ PAUSE_IMAGE="rancher/mirrored-pause:3.6"
 
 # All other large images — pre-pulled before cluster creation (slow, network-bound),
 # then imported after pause image is seeded (fast, local tarball copy).
+#
+# NOTE: rancher/mirrored-library-busybox is used for BOTH k3s local-path-provisioner
+# helper pods AND the SPIRE agent init container. busybox:1.36.1 and
+# rancher/mirrored-library-busybox:1.36.1 are the same image — we import only the
+# mirrored tag to avoid pulling twice.
 PREFETCH_IMAGES=(
   # k3s system components — must be pre-loaded; Docker Hub is unreachable from inside k3d nodes
   "rancher/mirrored-coredns-coredns:1.10.1"
   "rancher/mirrored-metrics-server:v0.7.0"
   "rancher/local-path-provisioner:v0.0.26"
-  # local-path-provisioner spawns a busybox helper pod to mkdir the PVC path on the node
-  "rancher/mirrored-library-busybox:1.36.1"
+  "rancher/mirrored-library-busybox:${BUSYBOX_VERSION}"
   # SPIRE
-  "ghcr.io/spiffe/spire-server:1.9.4"
-  "ghcr.io/spiffe/spire-controller-manager:0.6.3"
-  "ghcr.io/spiffe/spire-agent:1.9.4"
-  # busybox used by SPIRE agent init container (nc probe)
-  "busybox:1.36.1"
+  "ghcr.io/spiffe/spire-server:${SPIRE_SERVER_VERSION}"
+  "ghcr.io/spiffe/spire-controller-manager:${SPIRE_CONTROLLER_MANAGER_VERSION}"
+  "ghcr.io/spiffe/spire-agent:${SPIRE_AGENT_VERSION}"
   # Istio
   "docker.io/istio/pilot:${ISTIO_VERSION}"
   "docker.io/istio/proxyv2:${ISTIO_VERSION}"
@@ -177,10 +182,14 @@ ok "Postgres healthy (orbit-postgres)"
 # ── 7b. Register orbit-postgres in cluster DNS ───────────────────────────────
 # k3d pods use CoreDNS — not Docker's embedded DNS — so Docker container names
 # like "orbit-postgres" are invisible inside pods even though the k3d nodes are
-# on orbit-network. Fix: create a headless Service + manual Endpoints in the
-# spire namespace so CoreDNS resolves "orbit-postgres" to the container's actual
-# Docker IP on orbit-network.
-step "Registering orbit-postgres in cluster DNS (spire namespace)"
+# on orbit-network. Fix: create a headless Service + manual Endpoints in each
+# relevant namespace so CoreDNS resolves "orbit-postgres" to the container's
+# actual Docker IP on orbit-network.
+#
+# We create the entry in both 'spire' and 'orbit-system' so that application
+# services in orbit-system can use the short hostname without a cross-namespace
+# DNS reference (orbit-postgres.spire.svc.cluster.local).
+step "Registering orbit-postgres in cluster DNS (spire + orbit-system namespaces)"
 
 POSTGRES_IP="$(docker inspect orbit-postgres --format '{{(index .NetworkSettings.Networks "orbit-network").IPAddress}}')"
 if [ -z "${POSTGRES_IP}" ]; then
@@ -190,16 +199,18 @@ if [ -z "${POSTGRES_IP}" ]; then
 fi
 echo "  orbit-postgres IP on orbit-network: ${POSTGRES_IP}"
 
-# Create spire namespace upfront so we can register the Service before apply-k.
-# kubectl apply -k will see it already exists and skip re-creation.
+# Create namespaces upfront so we can register the Services before apply-k.
+# kubectl apply -k will see them already existing and skip re-creation.
 kubectl create namespace spire --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl apply -f - <<EOF
+for NS in spire orbit-system; do
+  kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
   name: orbit-postgres
-  namespace: spire
+  namespace: ${NS}
 spec:
   clusterIP: None
   ports:
@@ -210,13 +221,15 @@ apiVersion: v1
 kind: Endpoints
 metadata:
   name: orbit-postgres
-  namespace: spire
+  namespace: ${NS}
 subsets:
 - addresses:
   - ip: ${POSTGRES_IP}
   ports:
   - port: 5432
 EOF
+  echo "  Registered orbit-postgres in namespace '${NS}'"
+done
 ok "orbit-postgres registered in CoreDNS at ${POSTGRES_IP}"
 
 # ── 8. Deploy core infrastructure ────────────────────────────────────────────
@@ -233,6 +246,16 @@ ok "SPIRE Server ready"
 echo "  Waiting for SPIRE Agent DaemonSet to be ready..."
 kubectl rollout status daemonset/spire-agent -n spire --timeout=300s
 ok "SPIRE Agent ready"
+
+# Wait for the SPIRE Controller Manager sidecar to be fully Ready before
+# applying ClusterSPIFFEIDs. The ValidatingWebhookConfiguration uses
+# failurePolicy: Fail, meaning the API server calls the webhook for every
+# ClusterSPIFFEID apply. The controller-manager is a sidecar in spire-server-0;
+# waiting for pod Ready ensures all containers (server + controller-manager)
+# have passed their readiness probes and the webhook port is bound.
+echo "  Waiting for SPIRE Controller Manager to be ready..."
+kubectl wait --for=condition=Ready pod/spire-server-0 -n spire --timeout=120s
+ok "SPIRE Controller Manager ready"
 
 # Wait for the SPIRE CRDs to be fully established before applying ClusterSPIFFEIDs.
 # kubectl apply -k emits CRDs and workloads in the same pass; the API server may

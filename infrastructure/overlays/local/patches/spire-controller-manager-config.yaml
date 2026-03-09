@@ -2,6 +2,13 @@
 # Local-dev overlay patch for the SPIRE Controller Manager ConfigMap.
 # Overrides clusterName to "orbit-local" to match the k3d cluster.
 # Production overlays should patch clusterName to their real cluster name.
+#
+# IMPORTANT — FULL REPLACEMENT PATCH:
+# This is a full ConfigMap data replacement, not a strategic-merge diff.
+# Kustomize cannot partially merge embedded YAML-in-ConfigMap string keys.
+# Any field added to the base controller-manager-config.yaml must ALSO be
+# manually added here, or it will be silently dropped in the local overlay.
+# When updating the base config, update this patch in the same commit.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,6 +27,8 @@ data:
     spireServerSocketPath: /tmp/spire-server/private/api.sock
     watchClassless: true
     metrics:
+      # Disable metrics scraping in local dev to reduce noise.
+      # Set to ":8082" (base default) to enable.
       bindAddress: "0"
     health:
       # Port 8083 avoids colliding with SPIRE Server health (8080) and gRPC (8081)

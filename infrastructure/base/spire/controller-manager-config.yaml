@@ -18,7 +18,9 @@ data:
     # Watch all namespaces for ClusterSPIFFEID resources
     watchClassless: true
     metrics:
-      bindAddress: "0"
+      # Port 8082: avoids colliding with SPIRE Server health (8080), gRPC (8081),
+      # or controller-manager health (8083). Override to "0" to disable metrics.
+      bindAddress: ":8082"
     health:
       # Port 8083 avoids colliding with SPIRE Server health (8080) and gRPC (8081)
       healthProbeBindAddress: ":8083"

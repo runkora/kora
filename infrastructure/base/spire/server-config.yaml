@@ -9,6 +9,8 @@ data:
     server {
       bind_address = "0.0.0.0"
       bind_port = "8081"
+      # MUST be overridden by each environment overlay — staging and production
+      # will use a different trust domain (e.g. spiffe://orbit.example.com).
       trust_domain = "orbit.local"
       data_dir = "/run/spire/data"
       log_level = "INFO"
@@ -31,11 +33,13 @@ data:
     plugins {
       DataStore "sql" {
         plugin_data {
-          # Production: point at a dedicated PostgreSQL database for SPIRE.
-          # Each environment overlay overrides this full ConfigMap with its own
-          # host, credentials, and sslmode — see overlays/*/patches/spire-server-config.yaml.
+          # MUST be overridden by each environment overlay.
+          # This connection string is intentionally broken (password=REPLACE-VIA-OVERLAY)
+          # so any environment that inherits the base without patching it will fail
+          # immediately rather than silently using a wrong credential.
+          # See: overlays/*/patches/spire-server-config.yaml
           database_type = "postgres"
-          connection_string = "host=spire-db.spire.svc.cluster.local port=5432 user=spire password=changeme dbname=spire sslmode=require"
+          connection_string = "host=spire-db.spire.svc.cluster.local port=5432 user=spire password=REPLACE-VIA-OVERLAY dbname=spire sslmode=require"
         }
       }
 

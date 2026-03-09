@@ -43,6 +43,8 @@ data:
       log_level = "INFO"
       server_address = "spire-server"
       server_port = "8081"
+      # MUST be overridden by each environment overlay — must match the server's
+      # trust domain exactly (e.g. orbit.example.com for staging/production).
       trust_domain = "orbit.local"
 
       # Expose the Workload API socket — Envoy and SPIFFE Helper connect here
@@ -73,7 +75,9 @@ data:
 
       WorkloadAttestor "k8s" {
         plugin_data {
-          skip_kubelet_verification = true
+          # skip_kubelet_verification is intentionally absent from the base config.
+          # Local dev sets it to true via the overlay patch. Production requires
+          # kubelet verification and must not override this.
         }
       }
     }
@@ -99,13 +103,16 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
-      hostPID: true
+      # hostPID is NOT required for k8s_psat node attestation and is excluded
+      # from base to follow least-privilege. Local dev does not need it either.
+      # If a future attestor plugin explicitly requires hostPID, add it via an
+      # overlay patch with a justification comment.
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       initContainers:
         # Wait for the SPIRE Server to be ready before the agent tries to attest.
         - name: init-server-wait
-          image: busybox:1.36.1
+          image: rancher/mirrored-library-busybox:1.36.1
           command:
             - sh
             - -c

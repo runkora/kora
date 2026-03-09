@@ -2,18 +2,19 @@
 # =============================================================================
 # install-tools-cluster.sh — Install cluster tooling for local dev environment
 #
-# Installs (if not already present):
+# Installs (if not already present at the correct version):
 #   - k3d       >= 5.6   (local k3s cluster manager)
 #   - kubectl   >= 1.29  (Kubernetes CLI)
 #   - istioctl  >= 1.21  (Istio control plane CLI)
 #   - helm      >= 3.14  (Kubernetes package manager)
+#
+# Versions are pinned in scripts/cluster/versions.env — change them there.
 # =============================================================================
 set -euo pipefail
 
-K3D_VERSION="v5.6.3"
-KUBECTL_VERSION="v1.29.4"
-ISTIO_VERSION="1.21.2"
-HELM_VERSION="v3.14.4"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/cluster/versions.env
+source "${SCRIPT_DIR}/versions.env"
 
 GREEN="\033[32m"
 YELLOW="\033[33m"
@@ -22,7 +23,8 @@ RESET="\033[0m"
 
 step()    { echo -e "\n${BLUE}▶ $*${RESET}"; }
 ok()      { echo -e "${GREEN}✓ $*${RESET}"; }
-already() { echo -e "${GREEN}✓ $* already installed — skipping${RESET}"; }
+warn()    { echo -e "${YELLOW}⚠ $*${RESET}"; }
+already() { echo -e "${GREEN}✓ $* already installed at correct version — skipping${RESET}"; }
 
 # Prefer GOPATH/bin when Go is available so cluster tools share the same
 # PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
@@ -37,7 +39,7 @@ ARCH="$(uname -m)"
 
 # Normalise arch strings
 case "${ARCH}" in
-  x86_64)  ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_ISTIO="amd64"; ARCH_HELM="amd64" ;;
+  x86_64)        ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_ISTIO="amd64"; ARCH_HELM="amd64" ;;
   aarch64|arm64) ARCH_K3D="arm64"; ARCH_KUBE="arm64"; ARCH_ISTIO="arm64"; ARCH_HELM="arm64" ;;
   *) echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
 esac
@@ -45,7 +47,17 @@ esac
 # ── k3d ──────────────────────────────────────────────────────────────────────
 step "k3d ${K3D_VERSION}"
 if command -v k3d &>/dev/null; then
-  already "k3d $(k3d version | head -1)"
+  INSTALLED="$(k3d version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ "${INSTALLED}" = "${K3D_VERSION}" ]; then
+    already "k3d ${INSTALLED}"
+  else
+    warn "k3d ${INSTALLED} is installed but ${K3D_VERSION} is required — reinstalling"
+    curl -sSfL \
+      "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-${OS}-${ARCH_K3D}" \
+      -o "${INSTALL_DIR}/k3d"
+    chmod +x "${INSTALL_DIR}/k3d"
+    ok "k3d ${K3D_VERSION} installed → ${INSTALL_DIR}/k3d"
+  fi
 else
   curl -sSfL \
     "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-${OS}-${ARCH_K3D}" \
@@ -57,7 +69,17 @@ fi
 # ── kubectl ───────────────────────────────────────────────────────────────────
 step "kubectl ${KUBECTL_VERSION}"
 if command -v kubectl &>/dev/null; then
-  already "kubectl $(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}')"
+  INSTALLED="$(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}')"
+  if [ "${INSTALLED}" = "${KUBECTL_VERSION}" ]; then
+    already "kubectl ${INSTALLED}"
+  else
+    warn "kubectl ${INSTALLED} is installed but ${KUBECTL_VERSION} is required — reinstalling"
+    curl -sSfL \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH_KUBE}/kubectl" \
+      -o "${INSTALL_DIR}/kubectl"
+    chmod +x "${INSTALL_DIR}/kubectl"
+    ok "kubectl ${KUBECTL_VERSION} installed → ${INSTALL_DIR}/kubectl"
+  fi
 else
   curl -sSfL \
     "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH_KUBE}/kubectl" \
@@ -69,10 +91,23 @@ fi
 # ── istioctl ──────────────────────────────────────────────────────────────────
 step "istioctl ${ISTIO_VERSION}"
 if command -v istioctl &>/dev/null; then
-  already "istioctl $(istioctl version --short 2>/dev/null | head -1)"
+  INSTALLED="$(istioctl version --short 2>/dev/null | head -1 | tr -d ' ' | sed 's/^clientversion://')"
+  if [ "${INSTALLED}" = "${ISTIO_VERSION}" ]; then
+    already "istioctl ${INSTALLED}"
+  else
+    warn "istioctl ${INSTALLED} is installed but ${ISTIO_VERSION} is required — reinstalling"
+    ISTIO_OS="${OS}"
+    [ "${OS}" = "darwin" ] && ISTIO_OS="osx"
+    ISTIO_TARBALL="istio-${ISTIO_VERSION}-${ISTIO_OS}-${ARCH_ISTIO}.tar.gz"
+    curl -sSfL \
+      "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/${ISTIO_TARBALL}" \
+      | tar -xz -C /tmp
+    mv "/tmp/istio-${ISTIO_VERSION}/bin/istioctl" "${INSTALL_DIR}/istioctl"
+    rm -rf "/tmp/istio-${ISTIO_VERSION}"
+    ok "istioctl ${ISTIO_VERSION} installed → ${INSTALL_DIR}/istioctl"
+  fi
 else
   ISTIO_OS="${OS}"
-  # istio release tarballs use 'osx' not 'darwin'
   [ "${OS}" = "darwin" ] && ISTIO_OS="osx"
   ISTIO_TARBALL="istio-${ISTIO_VERSION}-${ISTIO_OS}-${ARCH_ISTIO}.tar.gz"
   curl -sSfL \
@@ -86,7 +121,18 @@ fi
 # ── helm ──────────────────────────────────────────────────────────────────────
 step "helm ${HELM_VERSION}"
 if command -v helm &>/dev/null; then
-  already "helm $(helm version --short 2>/dev/null)"
+  INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ "${INSTALLED}" = "${HELM_VERSION}" ]; then
+    already "helm ${INSTALLED}"
+  else
+    warn "helm ${INSTALLED} is installed but ${HELM_VERSION} is required — reinstalling"
+    curl -sSfL \
+      "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_HELM}.tar.gz" \
+      | tar -xz -C /tmp
+    mv "/tmp/${OS}-${ARCH_HELM}/helm" "${INSTALL_DIR}/helm"
+    rm -rf "/tmp/${OS}-${ARCH_HELM}"
+    ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
+  fi
 else
   curl -sSfL \
     "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH_HELM}.tar.gz" \

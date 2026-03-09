@@ -50,6 +50,9 @@ data:
 
       WorkloadAttestor "k8s" {
         plugin_data {
+          # LOCAL DEV ONLY — skip kubelet TLS verification because k3d nodes
+          # do not have a CA-signed kubelet certificate.
+          # MUST NOT be set in staging or production; remove for any real cluster.
           skip_kubelet_verification = true
         }
       }
