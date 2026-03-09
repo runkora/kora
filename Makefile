@@ -216,6 +216,12 @@ dev-down: ## Stop Postgres + Redis
 	@docker compose down
 	@echo "$(COLOR_GREEN)✓ Local services stopped$(COLOR_RESET)"
 
+.PHONY: dev-down-clean
+dev-down-clean: ## Stop Postgres + Redis and remove volumes
+	@echo "$(COLOR_YELLOW)Stopping local services and removing volumes...$(COLOR_RESET)"
+	@docker compose down -v
+	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
+
 # ===========================================
 # Local Development Environment (Tier 2 — k3d cluster)
 # ===========================================

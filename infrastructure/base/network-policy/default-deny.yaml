@@ -64,6 +64,28 @@ spec:
         - port: 15008
 
 ---
+# Allow orbit-system pods to reach istiod in the istio-system namespace on the xDS port.
+# Envoy sidecars injected into orbit-system must reach istiod:15012 (gRPC xDS) to receive
+# Listener, Cluster, Route, and Endpoint configurations. Without this rule, all
+# sidecar-managed traffic fails silently because Envoy never receives its config.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istiod-xds
+  namespace: orbit-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 15012   # istiod gRPC xDS (Envoy control plane)
+
+---
 # Allow orbit-system pods to reach the SPIRE Server gRPC port (8081) in the spire namespace.
 # Note: the SPIRE Workload API is a Unix domain socket (hostPath mount) — it is not
 # governed by NetworkPolicy. This rule covers direct server API calls only.

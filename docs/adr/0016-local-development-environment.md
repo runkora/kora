@@ -268,7 +268,11 @@ plugins {
     }
   }
 
-  KeyManager "memory" {}
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "/run/spire/data/keys.json"
+    }
+  }
 }
 ```
 
@@ -295,7 +299,7 @@ plugins {
 }
 ```
 
-`insecure_bootstrap = true` and `KeyManager "memory"` are local dev only. They must never appear in the base layer or in any non-local overlay — `insecure_bootstrap` bypasses initial trust bundle validation, and `KeyManager "memory"` discards keys on restart, neither of which is acceptable outside local dev.
+`insecure_bootstrap = true` and `KeyManager "memory"` (agent) are local dev only and must never appear in the base layer or any non-local overlay. `insecure_bootstrap` bypasses initial trust bundle validation. `KeyManager "memory"` on the agent discards keys on restart — acceptable for local dev where clean state is desirable, but not for staging or production. The SPIRE server uses `KeyManager "disk"` in all environments (base and local overlay alike) to persist signing keys across restarts.
 
 ---
 

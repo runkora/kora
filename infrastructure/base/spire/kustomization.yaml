@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
-  # SPIRE Controller Manager CRDs — vendored at v0.6.4.
+  # SPIRE Controller Manager CRDs — vendored at v0.6.3.
   # These are checked in directly; the cluster setup script no longer fetches
   # CRDs at runtime — they are applied via this Kustomize base layer.
   # To upgrade: replace the four files in infrastructure/base/spire/crds/ with
