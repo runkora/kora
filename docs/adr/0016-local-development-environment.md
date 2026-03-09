@@ -26,10 +26,11 @@ A two-tier environment strategy resolves this tension: a fast, lightweight basel
 We need to define:
 
 1. The tooling used to run a local Kubernetes cluster for full-stack testing
-2. How SPIRE is configured locally (trust domain, attestation plugin)
+2. How SPIRE is configured locally (trust domain, attestation plugin, datastore)
 3. Whether Cilium is included in the local environment and if not, what substitutes
 4. How the SVID exchange endpoint (`POST /identity/exchange`) is handled in unit tests vs full integration tests
 5. The `make` targets that provide a consistent entry point for both tiers
+6. How Tier 2 cluster nodes reach the Tier 1 postgres instance
 
 ### Goals
 
@@ -131,8 +132,8 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 **Decision rationale:** k3d is chosen over kind and minikube. The combination of fast cluster creation, Docker-native operation, and clean LoadBalancer support makes it the most productive choice for the local full-stack tier. The k3s API compatibility delta is not relevant to any Orbit platform usage.
 
 `make dev-cluster` provisions:
-- A k3d cluster with 1 server node and 2 agent nodes
-- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local`)
+- A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`) so cluster pods can reach `orbit-postgres` by name without additional networking hacks
+- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
 - **SPIRE Agent** — deployed as a DaemonSet with the `k8s_psat` attestation plugin (Kubernetes projected service account tokens — works without hardware TPM)
 - **Istio** — installed via `istioctl` with sidecar injection enabled for the `orbit-system` namespace
 - Standard Kubernetes **NetworkPolicy** resources enforcing the sidecar-or-nothing constraint from ADR-0011
@@ -140,6 +141,8 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 OPA topology for Tier 2 will be defined when the ext_authz service is designed.
 
 **Cilium is not included in the local dev cluster.** See below.
+
+**Tier 2 requires Tier 1 postgres to be running first.** SPIRE Server connects to PostgreSQL at pod startup; if postgres is not healthy when the cluster deploys, SPIRE enters a crash loop with no actionable error. `make dev-cluster` declares `db-up` as a prerequisite — engineers do not need to remember the ordering.
 
 The full `POST /identity/exchange` flow is testable in this tier — a SPIRE Agent running in the cluster issues real SVIDs to attested workloads, and the exchange endpoint receives and validates them.
 
@@ -183,12 +186,14 @@ Testing this endpoint requires a real SVID, which requires a running SPIRE Agent
 - The full SPIFFE/SPIRE/Istio/Envoy stack is testable locally via `make dev-cluster` for the identity and enforcement flows that genuinely require it
 - The Cilium decision is documented — no engineer will spend time trying to make Cilium work on their MacBook only to discover it is a known unsupported configuration
 - The `SVIDValidator` interface boundary makes the identity service testable without infrastructure at the unit test level, while preserving end-to-end correctness in integration tests
+- SPIRE uses the same PostgreSQL instance as every other platform service — no divergence in storage technology between local dev tiers
 
 ### Negative
 
 - Two-tier maintenance burden: both Docker Compose and k3d configurations must be kept up to date as new services are added
 - Cilium network policies are not locally testable — bugs in Cilium-specific egress rules will not surface until CI
 - `make dev-cluster` is slower to provision than `make dev-up` (~3–5 minutes for initial cluster creation)
+- Tier 2 has an explicit dependency on Tier 1 postgres being running — engineers cannot spin up the cluster in isolation
 
 ### Neutral
 
@@ -206,7 +211,7 @@ Installed by `make setup`:
 - k3d
 - kubectl
 - istioctl
-- helm (for SPIRE chart installation)
+- helm (for Istio and other chart installations — SPIRE is deployed via kustomize manifests, not a helm chart)
 - Existing tools: goose, air, golangci-lint, gitleaks
 
 ### make Targets
@@ -215,28 +220,39 @@ Installed by `make setup`:
 |---|---|
 | `make dev-up` | Start Tier 1: Postgres + Redis via Docker Compose |
 | `make dev-down` | Stop and remove Tier 1 containers |
-| `make dev-cluster` | Provision Tier 2: k3d cluster + SPIRE + Istio |
+| `make db-up` | Start Postgres only (prerequisite for `make dev-cluster`) |
+| `make dev-cluster` | Provision Tier 2: k3d cluster + SPIRE + Istio (implicitly runs `db-up` first) |
 | `make dev-cluster-down` | Tear down the k3d cluster |
 | `make test` | Run unit tests (Tier 1, no cluster required) |
 | `make test-integration` | Run integration tests (requires Tier 2 cluster running) |
 
-### SPIRE Local Configuration
+### SPIRE Configuration — Base vs Local Overlay
 
+SPIRE configuration is layered using kustomize:
+
+- **`infrastructure/base/spire/`** — production-safe defaults. Uses `orbit-cluster` as the cluster name, `KeyManager "disk"` with durable storage, PostgreSQL with a production-pattern DSN (dedicated `spire` database, `sslmode=require`), and no `insecure_bootstrap`. The base layer must never contain dev-only values.
+- **`infrastructure/overlays/local/patches/`** — local dev overrides applied on top of the base. Restores the dev-only values that would be incorrect or insecure in production.
+
+The local overlay patches three ConfigMaps:
+
+**spire-server-config (local overlay):**
 ```hcl
-# spire-server-config (local) — HCL format used by SPIRE
 server {
   trust_domain = "orbit.local"
   bind_address = "0.0.0.0"
   bind_port    = "8081"
   log_level    = "INFO"
   data_dir     = "/run/spire/data"
+
+  # Local dev: connect to the docker-compose postgres instance.
+  # k3d nodes are joined to orbit-network so orbit-postgres is reachable by name.
 }
 
 plugins {
   DataStore "sql" {
     plugin_data {
-      database_type     = "sqlite3"
-      connection_string = "/run/spire/data/datastore.sqlite3"
+      database_type     = "postgres"
+      connection_string = "host=orbit-postgres port=5432 user=orbit password=orbit dbname=orbit sslmode=disable"
     }
   }
 
@@ -252,13 +268,34 @@ plugins {
     }
   }
 
-  KeyManager "disk" {
-    plugin_data {
-      keys_path = "/run/spire/data/keys.json"
-    }
-  }
+  KeyManager "memory" {}
 }
 ```
+
+**spire-agent-configmap (local overlay):**
+```hcl
+agent {
+  trust_domain        = "orbit.local"
+  server_address      = "spire-server"
+  server_port         = 8081
+  insecure_bootstrap  = true   # local dev only — skips trust bundle verification at first contact
+  log_level           = "INFO"
+  data_dir            = "/run/spire/agent-data"
+}
+
+plugins {
+  NodeAttestor "k8s_psat" {
+    plugin_data {
+      cluster = "orbit-local"
+      skip_kubelet_verification = true
+    }
+  }
+
+  KeyManager "memory" {}
+}
+```
+
+`insecure_bootstrap = true` and `KeyManager "memory"` are local dev only. They must never appear in the base layer or in any non-local overlay — `insecure_bootstrap` bypasses initial trust bundle validation, and `KeyManager "memory"` discards keys on restart, neither of which is acceptable outside local dev.
 
 ---
 
