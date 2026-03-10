@@ -11,7 +11,7 @@ Orbit is the **control plane for AI agents** — not a framework, not a model ro
 - **Event Spine** = Neural signaling (awareness & feedback)
 - **Autonomy Levels** = Brain stem vs cortex (decision hierarchy)
 
-**Development Status**: Early development. Core platform components are actively being built.
+**Development Status**: Active early development. The identity layer, platform infrastructure, and local development environment are fully implemented. See `docs/` for ADRs covering all major architectural decisions.
 
 ## Product Development Workflow
 
@@ -40,9 +40,42 @@ Only after PRD and ADR approval:
 
 ## Development Setup
 
-**Language**: Go (control plane), potentially Rust for performance-critical paths
+**Language**: Go 1.26 (control plane)
 
-**Status**: Codebase is in early development. Setup instructions will be added as components are built.
+For the full local setup walkthrough, see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
+
+**First-run bootstrap (Tier 1 — backend only):**
+
+```bash
+make setup             # install goose, air, golangci-lint, gitleaks
+make env               # copy .env.example → .env
+make dev-up            # start Postgres + Redis + Dex — auto-generates secrets/signing.key
+                       # and config/dex/.env on first run if they do not exist
+make migrate-up        # apply database migrations
+make dev               # start backend with hot-reload (air)
+```
+
+> `make gen-signing-key` and `make dex-hash` can be run manually to regenerate
+> credentials at any time. `make dev-up` only auto-runs them when the files are absent.
+
+**Authenticate in a second terminal:**
+
+```bash
+make auth-device       # Device Authorization Grant against local Dex
+                       # browser → dev@orbit.local / password
+                       # token saved to /tmp/orbit_credentials.json
+```
+
+**Key conventions an agent must follow when modifying this codebase:**
+
+- **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
+- **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`
+- **No global loggers**: Inject `*logging.Logger` into structs; all log calls take `ctx context.Context` as first argument
+- **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields
+- **No hand-written migrations**: Generate with `make migrate-create name=X` (Goose format)
+- **Cross-cutting code lives in `internal/platform/`**: Feature packages must not import each other
+- **Config uses `config.Load[T any]`**: Environment-specific YAML loaded by `APP_ENV` value
+- **ADR before implementation**: Significant architectural decisions require an ADR in `docs/adr/` before code is written
 
 ## Code Organization
 
@@ -60,7 +93,7 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 - HTTP handlers
 - Feature-specific types
 
-**Storage Infrastructure**: The `internal/storage/` package provides database infrastructure (connections, transactions, migrations) but never imports feature packages. Dependency flow is always: Features → Storage.
+**Storage Infrastructure**: The `internal/platform/storage/` package provides database infrastructure (Postgres pool, Redis client, migrations) but never imports feature packages. Dependency flow is always: Features → Storage.
 
 **"DDD-lite" Approach**: We use valuable Domain-Driven Design concepts (bounded contexts, repository pattern, ubiquitous language) while staying idiomatic to Go. We skip strict DDD ceremony (deep layering, aggregate roots, value objects) in favor of flat packages and explicit code.
 
@@ -172,12 +205,20 @@ Both templates are designed to facilitate collaboration between agents and human
 
 ## Current Focus Areas
 
-As Orbit is in early development, current priorities are:
+### Implemented
 
-1. **Identity layer**: OIDC/SAML integration, agent identity
-2. **Policy engine**: OPA integration, RBAC/PBAC enforcement
-3. **Event spine**: Structured event emission and routing
-4. **Credential broker**: Secure secret management integration
+- **Identity layer**: Provider-agnostic OIDC federation (RFC 8628 Device Authorization Grant), SPIFFE SVID exchange endpoint, session management, JWT issuance and revocation (JTI blocklist via Redis)
+- **Platform infrastructure**: HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
+- **Local development environment**: Dex OIDC provider via Docker Compose, signing key generation, `make auth-device` CLI flow
+
+### Next Priorities
+
+1. **Policy engine**: OPA integration, RBAC/PBAC enforcement (see ADR-0011)
+2. **Agent execution**: Agent identity registration, run orchestration, execution state management
+3. **Credential broker**: Scoped just-in-time credential provisioning, Vault integration
+4. **Event spine**: Structured event emission and routing
+
+The next ADRs in the sequence are **ADR-0013** (MCP server registration and governance) and **ADR-0014** (scope-gated tool exposure).
 
 Check open issues and project boards for specific tasks.
 

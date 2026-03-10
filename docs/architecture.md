@@ -85,16 +85,18 @@ Scaling intelligence requires coordination. Orbit makes coordination possible.
 **Purpose**: Establish identity for both humans and agents
 
 **Capabilities**:
-- Human authentication via enterprise SSO (OIDC, SAML)
-- Agent identity and registration
-- Service account management
-- Token issuance and validation
-- Integration with existing identity providers (Entra, Okta, etc.)
+- Human authentication via any OIDC-compliant provider (Entra, Okta, Google Workspace, Keycloak, etc.)
+- Headless operator authentication via the OAuth 2.0 Device Authorization Grant (RFC 8628) — no frontend required
+- Agent workload identity via SPIFFE SVIDs exchanged for Orbit platform tokens
+- Session management with JWT issuance, refresh, and revocation (JTI blocklist via Redis)
+- Provider-agnostic implementation — switching identity providers requires only environment variable changes
 
 **Key Concepts**:
 - Every actor (human or agent) has a verified identity
 - Agents are first-class identity principals
 - Identity flows through the entire execution chain
+- Human sessions are federated from an external OIDC provider; machine sessions are attested via SPIFFE/SPIRE
+- The local development environment runs [Dex](https://dexidp.io/) as a real, standards-compliant OIDC provider — no cloud credentials required
 
 ### 2. Policy Enforcement Layer
 
@@ -253,18 +255,29 @@ With Orbit, organizations can:
 6. **Production-Grade**: Built for enterprise reliability and scale
 7. **Open Standards**: OPA for policy, OIDC/SAML for identity, MCP for tools
 
-## Technical Stack (Planned)
+## Technical Stack
 
-- **Language**: Go (control plane), potentially Rust for critical paths
-- **Policy Engine**: Open Policy Agent (OPA)
-- **Identity**: OIDC/SAML integration, custom token service
-- **Storage**: Pluggable (PostgreSQL, etc.)
-- **Events**: Structured event streaming
-- **Deployment**: Kubernetes-native, but also standalone
+| Component | Technology | Status |
+|---|---|---|
+| **Language** | Go 1.26 | Implemented |
+| **HTTP layer** | Custom controller-based router (`internal/platform/api`) | Implemented |
+| **Identity / Auth** | `go-oidc/v3` + `golang.org/x/oauth2` — provider-agnostic OIDC | Implemented |
+| **Workload identity** | SPIFFE/SPIRE with SVID-to-platform-token exchange | Designed (ADR-0010) |
+| **Policy Engine** | Open Policy Agent (OPA) | Designed (ADR-0011) |
+| **Primary storage** | PostgreSQL via `pgx/v5` (no ORM) | Implemented |
+| **Session cache / revocation** | Redis via `go-redis/v9` | Implemented |
+| **Service mesh** | Istio + Envoy sidecars | Designed (ADR-0015) |
+| **Network enforcement** | Cilium (CI/staging) + Kubernetes NetworkPolicy (local) | Designed (ADR-0015) |
+| **Observability** | OpenTelemetry (traces + metrics) | Implemented |
+| **Logging** | Structured, dependency-injected logger (`internal/platform/logging`) | Implemented |
+| **Local dev cluster** | k3d | Designed (ADR-0016) |
+| **Local identity provider** | Dex (Docker Compose, port 5556) | Implemented |
+| **Events** | Structured event spine | Planned |
+| **Deployment** | Kubernetes-native | Planned |
 
 ## Development Status
 
-Orbit is in **early development**. This architecture document represents the vision and design direction. Implementation is ongoing.
+Orbit is in **active early development**. The identity layer, platform infrastructure, and local development environment are fully implemented. Agent execution, policy enforcement, credential brokering, and the event spine are designed via ADRs and under active development.
 
 ## Contributing
 

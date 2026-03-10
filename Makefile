@@ -207,11 +207,13 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 
 .PHONY: dev-up
 dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go development
+	@if [ ! -f secrets/signing.key ]; then \
+		echo "$(COLOR_YELLOW)→ secrets/signing.key not found — generating RSA signing key...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory gen-signing-key; \
+	fi
 	@if [ ! -f config/dex/.env ]; then \
-		echo "$(COLOR_RED)✗ config/dex/.env not found$(COLOR_RESET)"; \
-		echo "  Run: make dex-hash password=yourpassword"; \
-		echo "  Or:  make dex-env   (uses default 'password')"; \
-		exit 1; \
+		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory dex-env; \
 	fi
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex
