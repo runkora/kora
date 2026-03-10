@@ -1,13 +1,31 @@
-# Local development configuration
+# Local development storage configuration
 
-port: 5432
-sslMode: disable  # No TLS for local development
+postgres:
+  port: 5432
+  sslMode: disable  # No TLS for local development
 
-# Connection pool configuration
-maxConnections: 25        # (CPU cores * 2) + effective_spindle_count
-minConnections: 5         # Keep warm connections for low latency
-maxConnLifetimeMinutes: 60      # Recycle connections after 1 hour
-maxConnIdleTimeMinutes: 30      # Close idle connections after 30 minutes
-healthCheckPeriodSeconds: 60    # Check connection health every minute
-connectTimeoutSeconds: 5        # Timeout for new connections
-captureQueryText: true          # Capture SQL in traces (safe for local dev)
+  # Connection pool
+  maxConnections: 10
+  minConnections: 2
+  maxConnLifetimeMinutes: 30
+  maxConnIdleTimeMinutes: 10
+  healthCheckPeriodSeconds: 30
+  connectTimeoutSeconds: 5
+  captureQueryText: true  # Capture SQL in traces for local debugging
+
+redis:
+  port: 6379
+  db: 0
+
+  # Retry and timeout configuration
+  maxRetries: 3
+  dialTimeoutSeconds: 5
+  readTimeoutSeconds: 3
+  writeTimeoutSeconds: 3
+
+  # Connection pool
+  poolSize: 10
+  minIdleConns: 2
+  connMaxIdleTimeMinutes: 30
+
+  tlsEnabled: false  # No TLS for local development

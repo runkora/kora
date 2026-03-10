@@ -36,6 +36,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 # Colors for output
 COLOR_RESET=\033[0m
 COLOR_BOLD=\033[1m
+COLOR_RED=\033[31m
 COLOR_GREEN=\033[32m
 COLOR_YELLOW=\033[33m
 COLOR_BLUE=\033[36m
@@ -205,10 +206,21 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 # ===========================================
 
 .PHONY: dev-up
-dev-up: ## Start Postgres + Redis for daily Go development (no cluster needed)
-	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis)...$(COLOR_RESET)"
-	@docker compose up -d --wait postgres redis
-	@echo "$(COLOR_GREEN)✓ Postgres + Redis ready$(COLOR_RESET)"
+dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go development
+	@if [ ! -f config/dex/.env ]; then \
+		echo "$(COLOR_RED)✗ config/dex/.env not found$(COLOR_RESET)"; \
+		echo "  Run: make dex-hash password=yourpassword"; \
+		echo "  Or:  make dex-env   (uses default 'password')"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis dex
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
+	@echo "  Dex OIDC issuer:  http://localhost:5556/dex"
+	@echo "  Test user:        dev@orbit.local / password"
+	@echo "  Client ID:        orbit-local  (no secret — public client)"
+	@echo ""
+	@echo "  Authenticate:     make auth-device"
 
 .PHONY: dev-down
 dev-down: ## Stop Postgres + Redis
@@ -368,6 +380,48 @@ clean-all: clean ## Clean everything including database volumes
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================
+# Identity & Auth
+# ===========================================
+
+.PHONY: auth-device
+auth-device: ## Authenticate via Device Authorization Grant (Dex local OIDC or any real provider)
+	@chmod +x scripts/auth-device.sh
+	@./scripts/auth-device.sh \
+		--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
+		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"
+
+.PHONY: gen-signing-key
+gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
+	@mkdir -p secrets
+	@openssl genrsa -out secrets/signing.key 4096 2>/dev/null
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Key written to secrets/signing.key$(COLOR_RESET)"
+	@echo ""
+	@echo "Make sure your .env contains:"
+	@echo ""
+	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
+	@echo ""
+
+.PHONY: dex-hash
+dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-hash password=yourpassword)
+	$(if $(password),,$(error password is required — usage: make dex-hash password=yourpassword))
+	@echo "$(COLOR_YELLOW)Generating bcrypt hash for '$(password)'...$(COLOR_RESET)"
+	@mkdir -p config/dex
+	@HASH=$$(docker run --rm httpd:alpine htpasswd -bnBC 10 "" "$(password)" 2>/dev/null | tr -d ':\n'); \
+	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
+	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
+	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
+	echo "  Test user: dev@orbit.local / $(password)"
+
+.PHONY: dex-env
+dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)
+	@if [ -f config/dex/.env ]; then \
+		echo "$(COLOR_YELLOW)config/dex/.env already exists, skipping$(COLOR_RESET)"; \
+	else \
+		$(MAKE) dex-hash password=password; \
+	fi
+
+# ===========================================
 # Convenience Targets
 # ===========================================
 
@@ -379,7 +433,7 @@ check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, s
 all: tidy check build-backend ## Run all quality checks and build
 
 .PHONY: bootstrap
-bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
+bootstrap: env dex-env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
 
