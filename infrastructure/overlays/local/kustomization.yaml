@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# SPIRE is now managed via Helm (spiffe/spire chart).
+# See infrastructure/helm/spire/values.yaml + values.local.yaml.
+# This overlay only applies resources that are not managed by a Helm chart.
+
+resources:
+  - ../../base/orbit-system-namespace
+  - ../../base/network-policy

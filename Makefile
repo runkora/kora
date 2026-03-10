@@ -26,6 +26,9 @@ BINARY_DIR=.bin
 
 # Tool versions (pin for reproducible installs)
 GITLEAKS_VERSION=v8.27.2
+GOLANGCI_LINT_VERSION=v2.6.2
+GOOSE_VERSION=v3.24.1
+AIR_VERSION=v1.61.7
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -47,7 +50,7 @@ COLOR_BLUE=\033[36m
 help: ## Display this help screen
 	@echo "$(COLOR_BOLD)Orbit Control Plane - Available Targets$(COLOR_RESET)"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 	@echo ""
 
@@ -55,8 +58,17 @@ help: ## Display this help screen
 # Setup & Installation
 # ===========================================
 
+.PHONY: env
+env: ## Scaffold .env from .env.example (no-op if .env already exists)
+	@if [ -f .env ]; then \
+		echo "$(COLOR_YELLOW).env already exists, skipping$(COLOR_RESET)"; \
+	else \
+		cp .env.example .env; \
+		echo "$(COLOR_GREEN)✓ .env created from .env.example — review and update values before continuing$(COLOR_RESET)"; \
+	fi
+
 .PHONY: setup
-setup: install-tools tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
+setup: install-tools install-tools-cluster tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
 
 .PHONY: hooks
@@ -67,27 +79,58 @@ hooks: ## Configure git to use the project's tracked hooks from .githooks/
 .PHONY: install-tools
 install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
-	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@latest
-	@$(GOCMD) install github.com/air-verse/air@latest
-	@if ! command -v golangci-lint > /dev/null; then \
-		echo "Installing golangci-lint..."; \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin; \
+	@echo "  Installing goose $(GOOSE_VERSION)..."
+	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
+	@echo "  Installing air $(AIR_VERSION)..."
+	@$(GOCMD) install github.com/air-verse/air@$(AIR_VERSION)
+	@LINT_INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$LINT_INSTALLED" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "  Installing golangci-lint $(GOLANGCI_LINT_VERSION) (installed: $${LINT_INSTALLED:-none})..."; \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
 	else \
-		echo "golangci-lint already installed"; \
+		echo "  golangci-lint $(GOLANGCI_LINT_VERSION) already installed"; \
 	fi
-	@if ! command -v gitleaks > /dev/null; then \
-		echo "Installing gitleaks $(GITLEAKS_VERSION)..."; \
+	@GL_INSTALLED=$$(gitleaks version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$GL_INSTALLED" != "$(GITLEAKS_VERSION)" ]; then \
+		echo "  Installing gitleaks $(GITLEAKS_VERSION) (installed: $${GL_INSTALLED:-none})..."; \
 		GL_TAG=$(GITLEAKS_VERSION); \
 		GL_VER=$${GL_TAG#v}; \
 		GL_OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
 		GL_ARCH=$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); \
 		GL_URL="https://github.com/gitleaks/gitleaks/releases/download/$${GL_TAG}/gitleaks_$${GL_VER}_$${GL_OS}_$${GL_ARCH}.tar.gz"; \
-		echo "Downloading $${GL_URL}"; \
 		curl -sSfL "$${GL_URL}" | tar -xz -C $$(go env GOPATH)/bin gitleaks; \
 	else \
-		echo "gitleaks already installed"; \
+		echo "  gitleaks $(GITLEAKS_VERSION) already installed"; \
 	fi
 	@echo "$(COLOR_GREEN)✓ Tools installed$(COLOR_RESET)"
+
+.PHONY: check-tool-versions
+check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
+	@echo "$(COLOR_YELLOW)Checking tool versions...$(COLOR_RESET)"
+	@INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "  $(COLOR_GREEN)✓ golangci-lint $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ golangci-lint: installed=$${INSTALLED:-none}  expected=$(GOLANGCI_LINT_VERSION) — run: make install-tools$(COLOR_RESET)"; \
+	fi
+	@INSTALLED=$$(gitleaks version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$(GITLEAKS_VERSION)" ]; then \
+		echo "  $(COLOR_GREEN)✓ gitleaks $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ gitleaks: installed=$${INSTALLED:-none}  expected=$(GITLEAKS_VERSION) — run: make install-tools$(COLOR_RESET)"; \
+	fi
+	@INSTALLED=$$(goose --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$(GOOSE_VERSION)" ]; then \
+		echo "  $(COLOR_GREEN)✓ goose $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ goose: installed=$${INSTALLED:-none}  expected=$(GOOSE_VERSION) — run: make install-tools$(COLOR_RESET)"; \
+	fi
+	@INSTALLED=$$(air -v 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$(AIR_VERSION)" ]; then \
+		echo "  $(COLOR_GREEN)✓ air $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_BLUE)ℹ air: installed=$${INSTALLED:-none}  expected=$(AIR_VERSION) — run: make install-tools$(COLOR_RESET)"; \
+	fi
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod dependencies
@@ -103,12 +146,7 @@ tidy: ## Tidy and verify go.mod dependencies
 .PHONY: db-up
 db-up: ## Start the PostgreSQL database (docker-compose)
 	@echo "$(COLOR_YELLOW)Starting database...$(COLOR_RESET)"
-	@docker compose up -d postgres
-	@echo "$(COLOR_YELLOW)Waiting for database to be ready...$(COLOR_RESET)"
-	@until docker compose exec -T postgres pg_isready -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit} > /dev/null 2>&1; do \
-		echo "Waiting for postgres..."; \
-		sleep 2; \
-	done
+	@docker compose up -d --wait postgres
 	@echo "$(COLOR_GREEN)✓ Database started and ready$(COLOR_RESET)"
 
 .PHONY: db-down
@@ -121,12 +159,7 @@ db-down: ## Stop the PostgreSQL database
 db-reset: ## Reset database (destroy volume, recreate)
 	@echo "$(COLOR_YELLOW)Resetting database...$(COLOR_RESET)"
 	@docker compose down -v
-	@docker compose up -d postgres
-	@echo "$(COLOR_YELLOW)Waiting for database to be ready...$(COLOR_RESET)"
-	@until docker compose exec -T postgres pg_isready -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit} > /dev/null 2>&1; do \
-		echo "Waiting for postgres..."; \
-		sleep 2; \
-	done
+	@docker compose up -d --wait postgres
 	@echo "$(COLOR_GREEN)✓ Database reset complete$(COLOR_RESET)"
 
 .PHONY: db-logs
@@ -168,6 +201,48 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 	@echo "$(COLOR_GREEN)✓ Migration created$(COLOR_RESET)"
 
 # ===========================================
+# Local Development Environment (Tier 1 — docker-compose)
+# ===========================================
+
+.PHONY: dev-up
+dev-up: ## Start Postgres + Redis for daily Go development (no cluster needed)
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis ready$(COLOR_RESET)"
+
+.PHONY: dev-down
+dev-down: ## Stop Postgres + Redis
+	@echo "$(COLOR_YELLOW)Stopping local services...$(COLOR_RESET)"
+	@docker compose down
+	@echo "$(COLOR_GREEN)✓ Local services stopped$(COLOR_RESET)"
+
+.PHONY: dev-down-clean
+dev-down-clean: ## Stop Postgres + Redis and remove volumes
+	@echo "$(COLOR_YELLOW)Stopping local services and removing volumes...$(COLOR_RESET)"
+	@docker compose down -v
+	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
+
+# ===========================================
+# Local Development Environment (Tier 2 — k3d cluster)
+# ===========================================
+
+.PHONY: install-tools-cluster
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istioctl not required, Istio runs via Helm
+	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
+	@bash scripts/cluster/install-tools-cluster.sh
+	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
+
+.PHONY: dev-cluster
+dev-cluster: db-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
+	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
+	@bash scripts/cluster/dev-cluster-up.sh
+
+.PHONY: dev-cluster-down
+dev-cluster-down: ## Tear down the local k3d cluster
+	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
+	@bash scripts/cluster/dev-cluster-down.sh
+
+# ===========================================
 # Development Workflow
 # ===========================================
 
@@ -200,8 +275,14 @@ build-backend: ## Build Orbit binary to .bin directory
 # Testing & Quality
 # ===========================================
 
+.PHONY: test-integration
+test-integration: ## Run integration tests (requires dev-cluster to be running)
+	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...
+	@echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"
+
 .PHONY: test
-test: ## Run tests with coverage
+test: ## Run unit tests with coverage (no cluster required)
 	@echo "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
 	@cd $(BACKEND_DIR) && $(GOTEST) -race -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
 	@echo ""
@@ -281,9 +362,9 @@ clean: ## Clean build artifacts and temporary files
 	@echo "$(COLOR_GREEN)✓ Clean complete$(COLOR_RESET)"
 
 .PHONY: clean-all
-clean-all: clean db-down ## Clean everything including database
+clean-all: clean ## Clean everything including database volumes
 	@echo "$(COLOR_YELLOW)Cleaning all artifacts and stopping services...$(COLOR_RESET)"
-	@docker-compose down -v
+	@docker compose down -v
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================
@@ -295,20 +376,11 @@ check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, s
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
-all: tidy check build ## Run all quality checks and build
+all: tidy check build-backend ## Run all quality checks and build
 
 .PHONY: bootstrap
-bootstrap: setup db-up migrate-up ## Bootstrap project (setup tools, start db, run migrations)
+bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
 
-# ===========================================
-# Utility Targets (hidden from help)
-# ===========================================
 
-.PHONY: up down
-up: ## @ignore Ignore standalone 'up' target
-	@true
-
-down: ## @ignore Ignore standalone 'down' target
-	@true

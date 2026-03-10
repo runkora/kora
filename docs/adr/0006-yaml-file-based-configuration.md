@@ -341,4 +341,7 @@ The `local.yaml` file exists to support developer machines where values differ f
 **On future extension:**
 If the need arises for env-var override of specific YAML keys (e.g., for Kubernetes config injection), this can be added to `Load` without changing call sites. The function signature is stable.
 
+**On config layering (future enhancement):**
+As the number of environments grows, the current model requires duplicating all shared values across every environment-specific YAML file (e.g., `local.yaml` and `development.yaml` are currently identical except for `logFormat`). A future improvement is to introduce a `base.yaml` per module that holds all shared defaults, with environment-specific files containing only their overrides — merged at load time via a second `MergeInConfig`-style call. This would eliminate duplication across environment files and make diffs between environments trivially small. This is explicitly deferred until the config surface area grows large enough to justify the added loader complexity. See `docs/product/scratch/config-layering.md` for a short feature sketch.
+
 **Last Updated:** 2026-06-10

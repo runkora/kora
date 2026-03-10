@@ -1,0 +1,68 @@
+# =============================================================================
+# SPIRE Helm values — local development overrides
+#
+# Applied on top of values.yaml for local k3d development only.
+# NONE of these settings are suitable for staging or production.
+#
+# Usage (handled automatically by dev-cluster-up.sh):
+#   helm upgrade --install spire spiffe/spire \
+#     --namespace spire --create-namespace \
+#     -f infrastructure/helm/spire/values.yaml \
+#     -f infrastructure/helm/spire/values.local.yaml
+# =============================================================================
+
+global:
+  spire:
+    # Local dev cluster name — matches the k3d cluster and PSAT attestor config
+    clusterName: "orbit-local"
+    trustDomain: "orbit.local"
+
+# ── SPIRE Server (local dev overrides) ───────────────────────────────────────
+spire-server:
+  # Connect to the docker-compose postgres instance.
+  # k3d nodes join orbit-network so pods reach orbit-postgres by container name.
+  # Credentials match .env / .env.example. sslmode=disable is local dev only.
+  #
+  # MUST NOT use sslmode=disable in staging or production.
+  dataStore:
+    sql:
+      databaseType: "postgres"
+      host: "orbit-postgres"
+      port: 5432
+      username: "orbit"
+      password: "orbit"
+      databaseName: "orbit"
+      options:
+        - sslmode: disable
+
+  # Override PSAT cluster name to match local k3d cluster.
+  # serviceAccountAllowList uses "namespace:serviceaccount" format.
+  nodeAttestor:
+    k8sPsat:
+      enabled: true
+      serviceAccountAllowList:
+        - "spire:spire-agent"
+
+# ── SPIRE Agent (local dev overrides) ────────────────────────────────────────
+spire-agent:
+  # LOCAL DEV ONLY: cgr.dev/chainguard/bash is pre-loaded into k3d nodes by
+  # dev-cluster-up.sh before the Helm install runs. Override pullPolicy to Never
+  # so containerd uses the cached image instead of trying to reach cgr.dev
+  # (DNS for cgr.dev is unreachable from inside k3d nodes).
+  # In staging/production leave these at the chart default (pullPolicy: Always).
+  fsGroupFix:
+    image:
+      tag: "latest"
+      pullPolicy: Never
+  socketAlternate:
+    image:
+      tag: "latest"
+      pullPolicy: Never
+
+  workloadAttestors:
+    k8s:
+      enabled: true
+      # LOCAL DEV ONLY: k3d kubelet does not present a CA-signed certificate.
+      # Bypasses TLS verification of the kubelet API during workload attestation.
+      # MUST NOT be enabled in staging or production.
+      skipKubeletVerification: true

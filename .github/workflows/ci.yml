@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Tool versions — keep in sync with pinned versions in Makefile.
+env:
+  GOLANGCI_LINT_VERSION: v2.6.2
+  GITLEAKS_VERSION: v8.27.2
+
 jobs:
   secrets:
     name: Secret Scanning
@@ -15,13 +20,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Full history is required so gitleaks can scan all commits, not just
-          # the tip. Without this, leaked secrets in older commits go undetected.
+          # Full history required — gitleaks scans all commits, not just the tip.
           fetch-depth: 0
 
       - name: Run gitleaks
         run: |
-          GITLEAKS_VERSION=v8.27.2
           if ! command -v gitleaks > /dev/null; then
             echo "Installing gitleaks ${GITLEAKS_VERSION}..."
             GL_TAG=${GITLEAKS_VERSION}
@@ -39,6 +42,27 @@ jobs:
           fi
           make secrets
 
+  infra-lint:
+    name: Infra Config Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check sentinel password not in non-base values files
+        # values.yaml (base) intentionally contains REPLACE-VIA-OVERLAY as a
+        # fail-fast guard. Any other values file containing this sentinel means
+        # it was accidentally copy-pasted and would deploy with a broken password.
+        run: |
+          MATCHES=$(grep -rl "REPLACE-VIA-OVERLAY" infrastructure/helm/ | grep -v '/values\.yaml$' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "ERROR: sentinel password 'REPLACE-VIA-OVERLAY' found in non-base values file(s):"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "OK: sentinel password only present in base values.yaml files"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -55,7 +79,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.6.2
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${GOLANGCI_LINT_VERSION}
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Verify dependencies

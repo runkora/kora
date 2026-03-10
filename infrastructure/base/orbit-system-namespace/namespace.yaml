@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orbit-system
+  labels:
+    # Enable Istio sidecar injection for all platform services in this namespace.
+    # SPIRE runs in its own 'spire' namespace with injection disabled (see
+    # infrastructure/base/spire/namespace.yaml) to avoid circular mesh dependencies.
+    istio-injection: enabled

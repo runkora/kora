@@ -24,7 +24,7 @@ paths = [
     '''.*_test\.go''',
     # Example and template config files contain placeholder values
     '''.*\.example\.ya?ml''',
-    '''.*\.example\.env''',
+    '''(^|.*/)\\.env\\.example$''',
     # The gitleaks config itself may reference patterns that look like secrets
     '''\.gitleaks\.toml''',
 ]
