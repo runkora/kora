@@ -85,6 +85,7 @@ spire-server:
   controllerManager:
     enabled: true
     image:
+      # Keep in sync with SPIRE_CONTROLLER_MANAGER_VERSION in scripts/cluster/versions.env
       tag: "0.6.3"
     ignoreNamespaces:
       - kube-system

@@ -42,6 +42,27 @@ jobs:
           fi
           make secrets
 
+  infra-lint:
+    name: Infra Config Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check sentinel password not in non-base values files
+        # values.yaml (base) intentionally contains REPLACE-VIA-OVERLAY as a
+        # fail-fast guard. Any other values file containing this sentinel means
+        # it was accidentally copy-pasted and would deploy with a broken password.
+        run: |
+          MATCHES=$(grep -rl "REPLACE-VIA-OVERLAY" infrastructure/helm/ | grep -v '/values\.yaml$' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "ERROR: sentinel password 'REPLACE-VIA-OVERLAY' found in non-base values file(s):"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "OK: sentinel password only present in base values.yaml files"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

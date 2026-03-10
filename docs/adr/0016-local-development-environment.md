@@ -132,10 +132,11 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 **Decision rationale:** k3d is chosen over kind and minikube. The combination of fast cluster creation, Docker-native operation, and clean LoadBalancer support makes it the most productive choice for the local full-stack tier. The k3s API compatibility delta is not relevant to any Orbit platform usage.
 
 `make dev-cluster` provisions:
-- A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`) so cluster pods can reach `orbit-postgres` by name without additional networking hacks
+- A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`). k3d nodes can reach `orbit-postgres` at the IP level via this shared network, but pods inside the cluster use **CoreDNS** for name resolution — Docker's embedded DNS is invisible to CoreDNS. `dev-cluster-up.sh` registers `orbit-postgres` in CoreDNS by creating a headless `Service` + manual `Endpoints` object pointing at the container's Docker IP. See [CoreDNS DNS Injection](#coredns-dns-injection) below.
 - **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
 - **SPIRE Agent** — deployed as a DaemonSet with the `k8s_psat` attestation plugin (Kubernetes projected service account tokens — works without hardware TPM)
-- **Istio** — installed via `istioctl` with sidecar injection enabled for the `orbit-system` namespace
+- **Istio** — installed via `helm upgrade --install` (`istio/base` + `istio/istiod`) with sidecar injection enabled for the `orbit-system` namespace; no `istioctl` dependency
+- **SPIRE Controller Manager** — deployed as a sidecar on the SPIRE Server pod (included in the `spiffe/spire` umbrella chart); watches `ClusterSPIFFEID` CRDs and automatically creates SPIRE registration entries — no manual `spire-server entry create` calls required
 - Standard Kubernetes **NetworkPolicy** resources enforcing the sidecar-or-nothing constraint from ADR-0011
 
 OPA topology for Tier 2 will be defined when the ext_authz service is designed.
@@ -210,9 +211,10 @@ Installed by `make setup`:
 - Docker Desktop (macOS)
 - k3d
 - kubectl
-- istioctl
-- helm (for Istio and other chart installations — SPIRE is deployed via kustomize manifests, not a helm chart)
+- helm — manages both Istio (`istio/base`, `istio/istiod`) and SPIRE (`spiffe/spire-crds`, `spiffe/spire`)
 - Existing tools: goose, air, golangci-lint, gitleaks
+
+`istioctl` is **not** a required tool and is not installed by `make setup`. Istio is fully managed via Helm charts.
 
 ### make Targets
 
@@ -226,80 +228,66 @@ Installed by `make setup`:
 | `make test` | Run unit tests (Tier 1, no cluster required) |
 | `make test-integration` | Run integration tests (requires Tier 2 cluster running) |
 
-### SPIRE Configuration — Base vs Local Overlay
+### SPIRE Configuration — Helm Values
 
-SPIRE configuration is layered using kustomize:
+SPIRE is deployed via the `spiffe/spire` Helm umbrella chart. Configuration is layered across two files:
 
-- **`infrastructure/base/spire/`** — production-safe defaults. Uses `orbit-cluster` as the cluster name, `KeyManager "disk"` with durable storage, PostgreSQL with a production-pattern DSN (dedicated `spire` database, `sslmode=require`), and no `insecure_bootstrap`. The base layer must never contain dev-only values.
-- **`infrastructure/overlays/local/patches/`** — local dev overrides applied on top of the base. Restores the dev-only values that would be incorrect or insecure in production.
+- **`infrastructure/helm/spire/values.yaml`** — production-safe base defaults (committed to the repo; must be safe for staging/production with overlay overrides applied)
+- **`infrastructure/helm/spire/values.local.yaml`** — local dev overrides (passed as a second `-f` flag during `helm upgrade --install`)
 
-The local overlay patches three ConfigMaps:
+| Concern | Base (`values.yaml`) | Local (`values.local.yaml`) |
+|---|---|---|
+| Trust domain | `orbit.local` | (same) |
+| Datastore | PostgreSQL, `sslmode=require`, dedicated `spire` DB, password `REPLACE-VIA-OVERLAY` sentinel | `host=orbit-postgres`, `sslmode=disable`, shared `orbit` DB, password `orbit` |
+| Node attestor | `k8s_psat` | `skipKubeletVerification: true` |
+| Key manager (server) | `disk` | (same) |
+| Key manager (agent) | `memory` | (same) |
+| Controller Manager | Enabled, sidecar on server pod | (same) |
+| `cgr.dev/chainguard/bash` pull policy | `IfNotPresent` | `Never` (cgr.dev is unreachable inside k3d nodes — image is pre-loaded via `k3d image import`) |
+| SPIFFE CSI driver | Disabled | (same) |
+| OIDC discovery provider | Disabled | (same) |
 
-**spire-server-config (local overlay):**
-```hcl
-server {
-  trust_domain = "orbit.local"
-  bind_address = "0.0.0.0"
-  bind_port    = "8081"
-  log_level    = "INFO"
-  data_dir     = "/run/spire/data"
+**Sentinel password:** `values.yaml` contains `password: "REPLACE-VIA-OVERLAY"` for the PostgreSQL connection string. Any environment that inherits the base file without patching this value will fail immediately with an authentication error rather than silently using a wrong credential. A CI lint step (`infra-lint` job in `.github/workflows/ci.yml`) enforces that the sentinel string never appears in non-base values files.
 
-  # Local dev: connect to the docker-compose postgres instance.
-  # k3d nodes are joined to orbit-network so orbit-postgres is reachable by name.
-}
+**SPIRE Controller Manager** watches `ClusterSPIFFEID` custom resources (in `infrastructure/services/overlays/local/`) and automatically creates SPIRE registration entries. No `kubectl exec spire-server spire-server entry create` calls are needed; applying a `ClusterSPIFFEID` resource is sufficient.
 
-plugins {
-  DataStore "sql" {
-    plugin_data {
-      database_type     = "postgres"
-      connection_string = "host=orbit-postgres port=5432 user=orbit password=orbit dbname=orbit sslmode=disable"
-    }
-  }
+**Install order:** The `spiffe/spire-crds` chart must be installed before the `spiffe/spire` umbrella chart. The umbrella chart creates `ClusterSPIFFEID` resources in its templates; these fail if the CRD is not already Established. `dev-cluster-up.sh` installs `spire-crds` first with `--wait` and a `kubectl wait --for=condition=Established` guard before proceeding.
 
-  NodeAttestor "k8s_psat" {
-    plugin_data {
-      clusters = {
-        "orbit-local" = {
-          # spire-agent ServiceAccount lives in the `spire` namespace,
-          # not in orbit-system — SPIRE and its agent are self-contained.
-          service_account_allow_list = ["spire:spire-agent"]
-        }
-      }
-    }
-  }
+### CoreDNS DNS Injection
 
-  KeyManager "disk" {
-    plugin_data {
-      keys_path = "/run/spire/data/keys.json"
-    }
-  }
-}
+k3d nodes join the Docker bridge network `orbit-network` and can reach the `orbit-postgres` container at the IP level. However, **pods inside the k3s cluster use CoreDNS for DNS resolution, not Docker's embedded DNS**. Docker container hostnames like `orbit-postgres` are not visible to CoreDNS — without intervention, SPIRE Server would crash-loop on startup with `lookup orbit-postgres: no such host`.
+
+`dev-cluster-up.sh` (step 9) resolves this by creating a headless Kubernetes `Service` + manual `Endpoints` object in the `spire` and `orbit-system` namespaces:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-postgres
+  namespace: spire
+spec:
+  clusterIP: None
+  ports:
+    - port: 5432
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: orbit-postgres
+  namespace: spire
+subsets:
+  - addresses:
+      - ip: <docker-ip-of-orbit-postgres>
+    ports:
+      - port: 5432
 ```
 
-**spire-agent-configmap (local overlay):**
-```hcl
-agent {
-  trust_domain        = "orbit.local"
-  server_address      = "spire-server"
-  server_port         = 8081
-  insecure_bootstrap  = true   # local dev only — skips trust bundle verification at first contact
-  log_level           = "INFO"
-  data_dir            = "/run/spire/agent-data"
-}
+The Docker IP is resolved at cluster-up time via `docker inspect orbit-postgres --format '{{(index .NetworkSettings.Networks "orbit-network").IPAddress}}'`. With this `Service`/`Endpoints` pair in place, `orbit-postgres.spire.svc.cluster.local` resolves correctly inside the cluster.
 
-plugins {
-  NodeAttestor "k8s_psat" {
-    plugin_data {
-      cluster = "orbit-local"
-      skip_kubelet_verification = true
-    }
-  }
-
-  KeyManager "memory" {}
-}
-```
-
-`insecure_bootstrap = true` and `KeyManager "memory"` (agent) are local dev only and must never appear in the base layer or any non-local overlay. `insecure_bootstrap` bypasses initial trust bundle validation. `KeyManager "memory"` on the agent discards keys on restart — acceptable for local dev where clean state is desirable, but not for staging or production. The SPIRE server uses `KeyManager "disk"` in all environments (base and local overlay alike) to persist signing keys across restarts.
+**Any future Docker Compose service that cluster pods need to reach by name must replicate this pattern.** The steps are:
+1. Ensure the docker-compose service is on `orbit-network`
+2. In `dev-cluster-up.sh`, resolve the container's Docker IP after confirming it is healthy
+3. Apply a headless `Service` + `Endpoints` in each namespace that needs the name
 
 ---
 

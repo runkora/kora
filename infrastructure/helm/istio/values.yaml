@@ -28,8 +28,9 @@ pilot:
       cpu: 500m
       memory: 512Mi
 
-  # Tracing: off by default — enable per environment
-  traceSampling: 1.0
+  # Tracing: conservative default for production — override per environment.
+  # Local dev overrides this to 100.0 in values.local.yaml.
+  traceSampling: 0.1
 
 # Global mesh configuration
 meshConfig:

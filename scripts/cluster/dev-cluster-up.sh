@@ -275,6 +275,11 @@ ok "SPIRE CRDs established"
 
 # Now install the umbrella chart (server, agent, controller-manager, webhook)
 # values.yaml = base/production defaults; values.local.yaml = local dev overrides.
+#
+# NOTE: --wait is intentionally omitted here. The chainguard/bash init containers
+# on the agent DaemonSet take longer than Helm's default deadline. Readiness is
+# verified explicitly by the kubectl wait calls below, which are the sole
+# failure gate for a slow deploy.
 step "Installing SPIRE ${SPIRE_CHART_VERSION} via Helm"
 helm upgrade --install spire spiffe/spire \
   --namespace spire \

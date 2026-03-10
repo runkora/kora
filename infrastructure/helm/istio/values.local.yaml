@@ -16,6 +16,9 @@
 # =============================================================================
 
 pilot:
+  # 100% trace sampling locally — override of the 0.1% base default
+  traceSampling: 100.0
+
   # Reduced resource requests for local k3d cluster running on Colima
   resources:
     requests:
