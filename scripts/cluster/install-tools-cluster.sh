@@ -3,12 +3,14 @@
 # install-tools-cluster.sh — Install cluster tooling for local dev environment
 #
 # Installs (if not already present at the correct version):
-#   - k3d       >= 5.6   (local k3s cluster manager)
-#   - kubectl   >= 1.29  (Kubernetes CLI)
-#   - istioctl  >= 1.21  (Istio control plane CLI)
-#   - helm      >= 3.14  (Kubernetes package manager)
+#   - k3d    >= 5.6   (local k3s cluster manager)
+#   - kubectl >= 1.29  (Kubernetes CLI)
+#   - helm   >= 3.14  (Kubernetes package manager — used for Istio + SPIRE)
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
+#
+# Note: istioctl is NOT required. Istio is installed via helm (istio/base +
+# istio/istiod) so no additional CLI tooling is needed beyond helm.
 # =============================================================================
 set -euo pipefail
 
@@ -34,13 +36,16 @@ else
   INSTALL_DIR="${HOME}/.local/bin"
 fi
 mkdir -p "${INSTALL_DIR}"
+
+# uname -s returns 'Darwin' on macOS — lower-cased for download URLs.
+# Note: for release assets that use 'osx' instead of 'darwin', see helm below.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
-# Normalise arch strings
+# Normalise arch strings to the values used by each tool's release assets.
 case "${ARCH}" in
-  x86_64)        ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_ISTIO="amd64"; ARCH_HELM="amd64" ;;
-  aarch64|arm64) ARCH_K3D="arm64"; ARCH_KUBE="arm64"; ARCH_ISTIO="arm64"; ARCH_HELM="arm64" ;;
+  x86_64)        ARCH_K3D="amd64"; ARCH_KUBE="amd64"; ARCH_HELM="amd64" ;;
+  aarch64|arm64) ARCH_K3D="arm64"; ARCH_KUBE="arm64"; ARCH_HELM="arm64" ;;
   *) echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
 esac
 
@@ -88,37 +93,11 @@ else
   ok "kubectl ${KUBECTL_VERSION} installed → ${INSTALL_DIR}/kubectl"
 fi
 
-# ── istioctl ──────────────────────────────────────────────────────────────────
-step "istioctl ${ISTIO_VERSION}"
-if command -v istioctl &>/dev/null; then
-  INSTALLED="$(istioctl version --short 2>/dev/null | head -1 | tr -d ' ' | sed 's/^clientversion://')"
-  if [ "${INSTALLED}" = "${ISTIO_VERSION}" ]; then
-    already "istioctl ${INSTALLED}"
-  else
-    warn "istioctl ${INSTALLED} is installed but ${ISTIO_VERSION} is required — reinstalling"
-    ISTIO_OS="${OS}"
-    [ "${OS}" = "darwin" ] && ISTIO_OS="osx"
-    ISTIO_TARBALL="istio-${ISTIO_VERSION}-${ISTIO_OS}-${ARCH_ISTIO}.tar.gz"
-    curl -sSfL \
-      "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/${ISTIO_TARBALL}" \
-      | tar -xz -C /tmp
-    mv "/tmp/istio-${ISTIO_VERSION}/bin/istioctl" "${INSTALL_DIR}/istioctl"
-    rm -rf "/tmp/istio-${ISTIO_VERSION}"
-    ok "istioctl ${ISTIO_VERSION} installed → ${INSTALL_DIR}/istioctl"
-  fi
-else
-  ISTIO_OS="${OS}"
-  [ "${OS}" = "darwin" ] && ISTIO_OS="osx"
-  ISTIO_TARBALL="istio-${ISTIO_VERSION}-${ISTIO_OS}-${ARCH_ISTIO}.tar.gz"
-  curl -sSfL \
-    "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/${ISTIO_TARBALL}" \
-    | tar -xz -C /tmp
-  mv "/tmp/istio-${ISTIO_VERSION}/bin/istioctl" "${INSTALL_DIR}/istioctl"
-  rm -rf "/tmp/istio-${ISTIO_VERSION}"
-  ok "istioctl ${ISTIO_VERSION} installed → ${INSTALL_DIR}/istioctl"
-fi
-
 # ── helm ──────────────────────────────────────────────────────────────────────
+# Used to install both Istio (istio/base + istio/istiod) and SPIRE (spiffe/spire).
+# Helm release assets use 'darwin' on macOS (consistent with uname -s output).
+# Note: if Istio v1.22+ renames its asset prefix from 'osx' to 'darwin', only
+# the istio download URL would need updating — helm is unaffected.
 step "helm ${HELM_VERSION}"
 if command -v helm &>/dev/null; then
   INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"

@@ -1,0 +1,30 @@
+# =============================================================================
+# Istio Helm values — local development overrides
+#
+# Applied on top of values.yaml for local k3d development only.
+# Reduces resource consumption for Colima (4 CPU / 8 GiB target).
+#
+# Usage (handled automatically by dev-cluster-up.sh):
+#   helm upgrade --install istio-base istio/base \
+#     --namespace istio-system --create-namespace \
+#     -f infrastructure/helm/istio/values.yaml \
+#     -f infrastructure/helm/istio/values.local.yaml
+#   helm upgrade --install istiod istio/istiod \
+#     --namespace istio-system \
+#     -f infrastructure/helm/istio/values.yaml \
+#     -f infrastructure/helm/istio/values.local.yaml
+# =============================================================================
+
+pilot:
+  # Reduced resource requests for local k3d cluster running on Colima
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+meshConfig:
+  # Enable access logging locally — useful for debugging sidecar traffic
+  accessLogFile: "/dev/stdout"

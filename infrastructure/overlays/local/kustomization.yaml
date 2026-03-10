@@ -1,16 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# SPIRE is now managed via Helm (spiffe/spire chart).
+# See infrastructure/helm/spire/values.yaml + values.local.yaml.
+# This overlay only applies resources that are not managed by a Helm chart.
+
 resources:
   - ../../base/orbit-system-namespace
-  - ../../base/spire
   - ../../base/network-policy
-
-patches:
-  # Restore local-dev values stripped from base:
-  #   agent: insecure_bootstrap=true, cluster=orbit-local, KeyManager memory
-  #   server: cluster name orbit-local
-  #   controller-manager: clusterName=orbit-local
-  - path: patches/spire-agent-configmap.yaml
-  - path: patches/spire-server-config.yaml
-  - path: patches/spire-controller-manager-config.yaml

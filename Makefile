@@ -227,7 +227,7 @@ dev-down-clean: ## Stop Postgres + Redis and remove volumes
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, istioctl, helm)
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istioctl not required, Istio runs via Helm
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
