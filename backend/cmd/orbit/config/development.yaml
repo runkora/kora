@@ -4,7 +4,7 @@ app:
   logFormat: json
 
 server:
-  port: 6069
+  port: 8080
   basePath: /api/v1
   shutdownTimeoutSecs: 5
 

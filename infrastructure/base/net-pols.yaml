@@ -1,7 +1,4 @@
 ---
-# Default deny all ingress and egress in the orbit-system namespace.
-# Explicit NetworkPolicy rules below carve out the permitted paths.
-# This substitutes for Cilium eBPF enforcement locally (see ADR-0016).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,9 +9,7 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-
 ---
-# Allow all pods to reach kube-dns for name resolution
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
