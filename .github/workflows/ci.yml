@@ -76,6 +76,11 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Verify dependencies
         run: |
@@ -93,10 +98,7 @@ jobs:
         run: make vet
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          working-directory: backend
+        run: make lint
 
   build:
     name: Build
