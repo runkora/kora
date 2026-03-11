@@ -90,19 +90,19 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_DB_PASSWORD` | `.env` / secret manager | PostgreSQL password |
+| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Defaults to `orbit` in `.env.example`. |
 
 ### Redis
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_REDIS_PASSWORD` | `.env` / secret manager | Redis password (empty for local dev) |
+| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Defaults to `orbit` in `.env.example`. |
 
 ### Token Signing
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | `.env` | Path to RSA private key PEM file. Local dev. Generate with `make gen-signing-key`. |
+| `ORBIT_TOKEN_SIGNING_KEY_FILE` | `.env` | Path to RSA private key PEM file (mode 600). Local dev. Generate with `make gen-signing-key`. |
 | `ORBIT_TOKEN_SIGNING_KEY` | secret manager | Inline RSA private key PEM. CI/production. Takes precedence over `_FILE` if set. |
 
 ### OIDC / Federated Identity

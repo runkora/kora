@@ -97,14 +97,6 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]interface{}{
-			"field": "tenant_id",
-		})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
 	var (
 		resp *SessionResponse
 		err  error
@@ -112,6 +104,13 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 
 	switch req.GrantType {
 	case "urn:ietf:params:oauth:grant-type:device_code":
+		if req.TenantID == "" {
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required for device_code grant", map[string]interface{}{
+				"field": "tenant_id",
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if req.DeviceCode == "" {
 			apiErr := api.ValidationError(api.ErrCodeMissingField, "device_code is required for device_code grant", map[string]interface{}{
 				"field": "device_code",
@@ -225,14 +224,17 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	if err := c.svc.RevokeToken(ctx, req); err != nil {
 		switch {
 		case errors.Is(err, ErrUnsupportedTokenType):
-			apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported token_type: expected access_token or refresh_token", map[string]interface{}{
-				"field":           "token_type",
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported token_type_hint: expected access_token or refresh_token", map[string]interface{}{
+				"field":           "token_type_hint",
 				"supported_types": []string{"access_token", "refresh_token"},
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		case errors.Is(err, ErrInvalidToken):
-			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "token not found or already revoked", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			// RFC 7009 §2.1: token revocation endpoints MUST return 200/204 even for
+			// invalid tokens. The client cannot distinguish "never existed" from
+			// "already revoked" — both are success states.
+			c.logger.Info(ctx, "revoke called on invalid/unknown token (treated as success per RFC 7009)")
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			apiErr := api.InternalError(api.ErrCodeInternalError, "failed to revoke token", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)

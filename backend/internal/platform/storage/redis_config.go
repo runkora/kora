@@ -34,7 +34,10 @@ func loadRedisConfig(cfg *RedisConfig) error {
 		return fmt.Errorf("REDIS_HOST environment variable is required")
 	}
 
-	cfg.Password = os.Getenv("REDIS_PASSWORD") // optional — local dev runs without auth
+	cfg.Password = os.Getenv("REDIS_PASSWORD")
+	if cfg.Password == "" {
+		return fmt.Errorf("REDIS_PASSWORD environment variable is required")
+	}
 
 	if port := os.Getenv("REDIS_PORT"); port != "" {
 		if p, err := strconv.Atoi(port); err == nil {

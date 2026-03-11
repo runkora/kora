@@ -82,7 +82,7 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 
 // principalFromSpiffeID constructs a Principal from a SPIFFE URI.
 //
-// Orbit SPIFFE ID formats (ADR-0010 / ADR-0013):
+// Supported SPIFFE ID formats per ADR-0010:
 //
 //	Agent:   spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
 //	Service: spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
@@ -105,23 +105,44 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	trustDomain := withoutScheme[:slashIdx]
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
-	// Parse tenant and agent ID from ADR-0010 path structure:
+	// Parse tenant and principal type/ID from ADR-0010 path structure:
 	// /tenant/{tenant-id}/agent/{agent-id}
 	// /tenant/{tenant-id}/service/{service-id}
+	// /system/{component-name}
 	var tenantID, displayName string
+	var principalType PrincipalType
+
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(segments) >= 2 && segments[0] == "tenant" {
+
+	// Parse principal type and identifiers based on path structure
+	switch {
+	case len(segments) >= 2 && segments[0] == "system":
+		// System principals: /system/{component-name}
+		principalType = PrincipalTypeSystem
+		displayName = segments[1]
+		// System principals have no tenant
+	case len(segments) >= 4 && segments[0] == "tenant":
+		// Tenant-scoped principals: /tenant/{id}/agent|service/{name}
 		tenantID = segments[1]
-	}
-	if len(segments) >= 4 {
 		displayName = segments[3]
+
+		switch segments[2] {
+		case "agent":
+			principalType = PrincipalTypeAgent
+		case "service":
+			principalType = PrincipalTypeService
+		default:
+			return nil, fmt.Errorf("unknown principal type %q in SPIFFE path %q", segments[2], path)
+		}
+	default:
+		return nil, fmt.Errorf("malformed SPIFFE path: expected /tenant/{id}/agent|service/{name} or /system/{name}, got %q", path)
 	}
 
 	return &Principal{
 		// Use the full SPIFFE URI as the stable principal ID so that
 		// policy rules can match on it directly.
 		ID:             spiffeID,
-		Type:           PrincipalTypeAgent,
+		Type:           principalType,
 		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceAttested,

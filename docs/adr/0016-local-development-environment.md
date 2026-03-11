@@ -120,7 +120,7 @@ We need to define:
 - **Redis** — JTI blocklist store (session revocation per ADR-0008) and general caching
 - **Dex** — local OIDC identity provider for the Device Authorization Grant flow (ADR-0017)
 
-Dex runs at `http://localhost:5556/dex` and is pre-configured with a static test user (`dev@orbit.local`) and a public client (`orbit-local`). It requires a one-time credential generation step (`make dex-env`) before the first `make dev-up`. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
+Dex runs at `http://localhost:5556/dex` and is pre-configured with a static test user (`dev@orbit.local`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
 
 OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to Docker Compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
 

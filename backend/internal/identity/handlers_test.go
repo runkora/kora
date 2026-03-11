@@ -449,14 +449,15 @@ func TestHandleRevoke_MissingTokenType(t *testing.T) {
 	}
 }
 
-func TestHandleRevoke_InvalidToken_Returns404(t *testing.T) {
+func TestHandleRevoke_InvalidToken_Returns204(t *testing.T) {
+	// RFC 7009 §2.1: revocation endpoint must return success for invalid tokens
 	c, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{
 		"token":           "not.a.jwt",
 		"token_type_hint": "access_token",
 	})
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNotFound, w.Body)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNoContent, w.Body)
 	}
 }
 

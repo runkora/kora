@@ -246,27 +246,28 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 
 | Variable | Required | Description |
 |---|---|---|
-| `ORBIT_DB_HOST` | Yes | PostgreSQL host. Default: `localhost` |
-| `ORBIT_DB_PORT` | Yes | PostgreSQL port. Default: `5432` |
-| `ORBIT_DB_USER` | Yes | PostgreSQL username. Default: `orbit` |
-| `ORBIT_DB_PASSWORD` | Yes | PostgreSQL password. Default: `orbit` |
-| `ORBIT_DB_NAME` | Yes | Database name. Default: `orbit` |
-| `ORBIT_DB_SSL_MODE` | No | SSL mode. Default: `disable` (local only) |
+| `DB_HOST` | Yes | PostgreSQL host. Default: `localhost` |
+| `DB_PORT` | Yes | PostgreSQL port. Default: `5432` |
+| `DB_USER` | Yes | PostgreSQL username. Default: `orbit` |
+| `DB_PASSWORD` | Yes | PostgreSQL password. Default: `orbit` |
+| `DB_NAME` | Yes | Database name. Default: `orbit` |
+| `DB_SSL_MODE` | No | SSL mode. Default: `disable` (local only) |
 
 ### Redis
 
 | Variable | Required | Description |
 |---|---|---|
-| `ORBIT_REDIS_ADDR` | Yes | Redis address. Default: `localhost:6379` |
-| `ORBIT_REDIS_PASSWORD` | No | Redis password. Leave empty for local dev. |
-| `ORBIT_REDIS_DB` | No | Redis database index. Default: `0` |
+| `REDIS_HOST` | Yes | Redis host. Default: `localhost` |
+| `REDIS_PORT` | Yes | Redis port. Default: `6379` |
+| `REDIS_PASSWORD` | Yes | Redis password. Required in all environments. Default: `orbit` |
+| `REDIS_DB` | No | Redis database index. Default: `0` |
 
 ### Identity / Token Signing
 
 | Variable | Required | Description |
 |---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | Local | Path to RSA private key PEM file. Default: `secrets/signing.key`. Generate with `make gen-signing-key`. |
-| `ORBIT_TOKEN_SIGNING_KEY` | CI/Prod | Inline RSA private key PEM (with real newlines, as injected by secret managers). Takes precedence over `ORBIT_TOKEN_SIGNING_KEY_FILE` if set. |
+| `ORBIT_TOKEN_SIGNING_KEY_FILE` | Local | Path to RSA private key PEM file (mode 600). Default: `secrets/signing.key`. Generate with `make gen-signing-key`. |
+| `ORBIT_TOKEN_SIGNING_KEY` | CI/Prod | Inline RSA private key PEM (with real newlines, as injected by secret managers). If both are set, `_FILE` takes precedence. |
 
 ### OIDC / Federated Identity
 

@@ -396,8 +396,9 @@ auth-device: ## Authenticate via Device Authorization Grant (Dex local OIDC or a
 gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@mkdir -p secrets
 	@openssl genrsa -out secrets/signing.key 4096 2>/dev/null
+	@chmod 600 secrets/signing.key
 	@echo ""
-	@echo "$(COLOR_GREEN)✓ Key written to secrets/signing.key$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ Key written to secrets/signing.key (mode 600)$(COLOR_RESET)"
 	@echo ""
 	@echo "Make sure your .env contains:"
 	@echo ""

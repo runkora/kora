@@ -70,16 +70,15 @@ type Service struct {
 // NewService constructs and initializes the identity Service.
 //
 // cfg must be the value returned by LoadConfig — env-var overrides and secret
-// fields (ClientID, ClientSecret) are resolved there so that NewService never
-// reads from the environment directly and never mutates the caller's struct.
+// fields (ClientID, ClientSecret) are resolved there.
 //
 // If cfg.OIDC.IssuerURL is non-empty, OIDC provider discovery is performed
 // eagerly at construction time.
 //
 // The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
-// ORBIT_TOKEN_SIGNING_KEY environment variables. In local development, if
-// neither is set, a throwaway key is generated and a prominent warning is
-// logged. Never use auto-generated keys in production.
+// ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
+// In local development, if neither is set, a throwaway key is generated
+// and a prominent warning is logged. Never use auto-generated keys in production.
 func NewService(
 	ctx context.Context,
 	cfg *Config,
@@ -157,7 +156,19 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device auth endpoint returned %d: %s", resp.StatusCode, body)
+		oauthErr := parseDeviceTokenError(body)
+		if oauthErr != nil {
+			// If it's an OAuthError, include the error code
+			if oe, ok := oauthErr.(*OAuthError); ok {
+				return nil, fmt.Errorf("device auth endpoint %s returned %d (%s): %w",
+					s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
+			}
+			// Sentinel error (ErrAuthorizationPending, etc.)
+			return nil, fmt.Errorf("device auth endpoint %s returned %d: %w",
+				s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oauthErr)
+		}
+		return nil, fmt.Errorf("device auth endpoint %s returned %d: %s",
+			s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, body)
 	}
 
 	var dar struct {
@@ -620,7 +631,9 @@ func (s *Service) postForm(ctx context.Context, endpoint string, vals url.Values
 
 // initOIDCProvider performs OIDC discovery and populates oidcProvider + oidcMeta.
 func (s *Service) initOIDCProvider(ctx context.Context) error {
-	provider, err := gooidc.NewProvider(ctx, s.cfg.OIDC.IssuerURL)
+	// Use gooidc.ClientContext to inject s.httpClient for all OIDC requests
+	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
+	provider, err := gooidc.NewProvider(ctxWithClient, s.cfg.OIDC.IssuerURL)
 	if err != nil {
 		return fmt.Errorf("oidc discovery: %w", err)
 	}

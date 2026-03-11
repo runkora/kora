@@ -3,9 +3,19 @@
 # Orbit Device Authorization Grant — CLI Authentication Script
 # =============================================================================
 #
+# Usage: ./scripts/auth-device.sh [OPTIONS]
+#
 # Authenticates against the Orbit identity service using the OAuth 2.0 Device
 # Authorization Grant (RFC 8628). No browser on this machine is required — you
 # just need to visit a URL and enter a short code on any device.
+#
+# Options:
+#   --tenant-id <id>     Tenant ID for the session (required)
+#   --api-base <url>     API base URL (default: http://localhost:8080/api/v1)
+#   --help, -h           Show this help message and exit
+#
+# Environment Variables:
+#   ORBIT_TENANT_ID      Default tenant ID if --tenant-id not provided
 #
 # ─── Local dev (default) ──────────────────────────────────────────────────────
 #
@@ -101,11 +111,14 @@ echo ""
 info "Initiating device authorization flow..."
 echo ""
 
-DEVICE_RESP=$(curl -sf \
+DEVICE_RESP=$(curl -s \
   -X POST "${API_BASE}/identity/device" \
   -H "Content-Type: application/json" \
   -d "{\"tenant_id\": \"${TENANT_ID}\"}" \
-  2>&1) || {
+  2>&1)
+
+# Check if curl itself failed (network/DNS error)
+if [ $? -ne 0 ]; then
   error "Failed to reach Orbit API at ${API_BASE}"
   echo ""
   echo "  Is the stack running?  make dev-up && make dev"
@@ -117,9 +130,9 @@ DEVICE_RESP=$(curl -sf \
 }
 
 # Check for API-level error response
-if echo "$DEVICE_RESP" | jq -e '.error' >/dev/null 2>&1; then
-  ERR_CODE=$(echo "$DEVICE_RESP" | jq -r '.error.code // .error')
-  ERR_MSG=$(echo "$DEVICE_RESP" | jq -r '.error.message // "unknown error"')
+if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
+  ERR_CODE=$(echo "$DEVICE_RESP" | jq -r '.code')
+  ERR_MSG=$(echo "$DEVICE_RESP" | jq -r '.message // "unknown error"')
   echo ""
   error "Orbit returned an error: ${ERR_CODE}"
   echo "  ${ERR_MSG}"
@@ -178,6 +191,7 @@ while true; do
     -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\"}")
 
   POLL_RESP=$(cat /tmp/orbit_poll_resp.json)
+  chmod 600 /tmp/orbit_poll_resp.json
 
   if [[ "$POLL_HTTP_CODE" == "202" ]]; then
     CODE=$(echo "$POLL_RESP" | jq -r '.code // ""')
@@ -225,7 +239,8 @@ while true; do
     # Write to a temp credentials file for convenience
     CREDS_FILE="/tmp/orbit_credentials.json"
     echo "$POLL_RESP" > "$CREDS_FILE"
-    info "Full response saved to ${CREDS_FILE}"
+    chmod 600 "$CREDS_FILE"
+    info "Full response saved to ${CREDS_FILE} (mode 600)"
     echo ""
 
     exit 0

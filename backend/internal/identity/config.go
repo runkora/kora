@@ -79,6 +79,11 @@ func LoadConfig() (*Config, error) {
 	cfg.OIDC.ClientID = os.Getenv("ORBIT_OIDC_CLIENT_ID")
 	cfg.OIDC.ClientSecret = os.Getenv("ORBIT_OIDC_CLIENT_SECRET")
 
+	// Validate that ClientID is set if OIDC is configured.
+	if cfg.OIDC.IssuerURL != "" && cfg.OIDC.ClientID == "" {
+		return nil, fmt.Errorf("ORBIT_OIDC_CLIENT_ID must be set when OIDC issuer is configured")
+	}
+
 	// Apply safe defaults for token lifetimes when YAML omits them.
 	if cfg.Token.AccessTokenTTLMinutes == 0 {
 		cfg.Token.AccessTokenTTLMinutes = 60
