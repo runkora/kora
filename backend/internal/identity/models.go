@@ -147,18 +147,25 @@ type SessionResponse struct {
 	IssuedAt     int64  `json:"issued_at"` // Unix seconds
 }
 
-// ExchangeRequest is the body for POST /identity/exchange (SPIFFE → platform token).
-// The caller's SPIFFE identity is extracted from the Envoy-injected
-// x-forwarded-client-cert (XFCC) header — agents never supply SVID material
-// in the request body (ADR-0010, ADR-0011).
-type ExchangeRequest struct {
-	TenantID string `json:"tenant_id"`
+// RevokeRequest is the parsed form body for POST /identity/revoke (RFC 7009 §2.1).
+// The HTTP body must be application/x-www-form-urlencoded.
+// Field names match RFC 7009: "token" and "token_type_hint".
+type RevokeRequest struct {
+	Token     string // form field: token
+	TokenType string // form field: token_type_hint — "access_token" or "refresh_token"
 }
 
-// RevokeRequest is the body for DELETE /identity/revoke.
-type RevokeRequest struct {
-	Token     string `json:"token"`
-	TokenType string `json:"token_type"` // "access_token" or "refresh_token"
+// ─── OAuthError ──────────────────────────────────────────────────────────────
+
+// OAuthError carries a raw OAuth2 error code returned by a provider that does
+// not map to one of the package-level sentinel errors. Callers can type-assert
+// to inspect the code, or simply treat it as an opaque error.
+type OAuthError struct {
+	Code string
+}
+
+func (e *OAuthError) Error() string {
+	return "oauth2 error: " + e.Code
 }
 
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
@@ -175,4 +182,5 @@ var (
 	ErrSlowDown             = errors.New("slow_down")
 	ErrAccessDenied         = errors.New("access_denied")
 	ErrDeviceCodeExpired    = errors.New("device code expired or not found")
+	ErrUnsupportedTokenType = errors.New("unsupported token type")
 )

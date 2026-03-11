@@ -167,46 +167,43 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 // POST and the sidecar infrastructure supplies the cryptographic identity
 // (ADR-0010, ADR-0011, ADR-0015).
 //
-// The request body carries only tenant_id, which is required so the platform
-// can scope the issued token to the correct tenant context.
+// No request body is needed: tenant and principal identity are derived entirely
+// from the SPIFFE URI that SPIRE attests and Envoy injects via XFCC.
 func (c *Controller) handleExchange(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req ExchangeRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
-		return
-	}
-
-	if req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]interface{}{
-			"field": "tenant_id",
-		})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
-	resp, err := c.svc.ExchangeSVID(ctx, r, req.TenantID)
+	resp, err := c.svc.ExchangeSVID(ctx, r)
 	if err != nil {
 		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "identity extraction failed", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
-	c.logger.Info(ctx, "SPIFFE identity exchanged for platform token",
-		logging.Field{Key: "tenant_id", Value: req.TenantID},
-	)
+	c.logger.Info(ctx, "SPIFFE identity exchanged for platform token")
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
+// maxRevokeBodyBytes caps the request body read during RFC 7009 token revocation
+// to prevent memory exhaustion from oversized form payloads.
+const maxRevokeBodyBytes = 1 << 20 // 1 MiB
+
 // handleRevoke revokes an access token or refresh token.
-// Uses POST per RFC 7009 §2.1.
+// Accepts application/x-www-form-urlencoded per RFC 7009 §2.1.
+// Fields: token (required), token_type_hint (required).
 func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req RevokeRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRevokeBodyBytes)
+	if err := r.ParseForm(); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidJSON, "could not parse form body", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
+	}
+
+	req := RevokeRequest{
+		Token:     r.FormValue("token"),
+		TokenType: r.FormValue("token_type_hint"),
 	}
 
 	if req.Token == "" {
@@ -217,8 +214,8 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.TokenType == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "token_type is required", map[string]interface{}{
-			"field":           "token_type",
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "token_type_hint is required", map[string]interface{}{
+			"field":           "token_type_hint",
 			"supported_types": []string{"access_token", "refresh_token"},
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -227,7 +224,13 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 
 	if err := c.svc.RevokeToken(ctx, req); err != nil {
 		switch {
-		case errors.Is(err, ErrInvalidToken), errors.Is(err, ErrRefreshTokenNotFound):
+		case errors.Is(err, ErrUnsupportedTokenType):
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported token_type: expected access_token or refresh_token", map[string]interface{}{
+				"field":           "token_type",
+				"supported_types": []string{"access_token", "refresh_token"},
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrInvalidToken):
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "token not found or already revoked", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		default:

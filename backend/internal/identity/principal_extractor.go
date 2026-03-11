@@ -105,11 +105,25 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	trustDomain := withoutScheme[:slashIdx]
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
+	// Parse tenant and agent ID from ADR-0010 path structure:
+	// /tenant/{tenant-id}/agent/{agent-id}
+	// /tenant/{tenant-id}/service/{service-id}
+	var tenantID, displayName string
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segments) >= 2 && segments[0] == "tenant" {
+		tenantID = segments[1]
+	}
+	if len(segments) >= 4 {
+		displayName = segments[3]
+	}
+
 	return &Principal{
 		// Use the full SPIFFE URI as the stable principal ID so that
 		// policy rules can match on it directly.
 		ID:             spiffeID,
 		Type:           PrincipalTypeAgent,
+		TenantID:       tenantID,
+		DisplayName:    displayName,
 		IdentitySource: IdentitySourceAttested,
 		Claims: map[string]string{
 			"spiffe_id":    spiffeID,

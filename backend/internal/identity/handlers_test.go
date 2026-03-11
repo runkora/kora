@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -49,6 +52,20 @@ func postJSON(t *testing.T, handler http.HandlerFunc, body interface{}) *httptes
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler(w, req)
+	return w
+}
+
+// postForm performs an HTTP POST with an application/x-www-form-urlencoded body.
+func postForm(t *testing.T, handler http.HandlerFunc, fields map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{}
+	for k, v := range fields {
+		form.Set(k, v)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler(w, req)
 	return w
@@ -373,25 +390,11 @@ func postJSONWithXFCC(t *testing.T, handler http.HandlerFunc, body interface{}, 
 	return w
 }
 
-func TestHandleExchange_MissingTenantID(t *testing.T) {
-	// tenant_id is required in the request body regardless of XFCC presence.
-	c, _, _, _, _ := newTestController(t)
-	xfcc := "URI=spiffe://orbit.local/tenant/platform-team/agent/agent-1"
-	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, xfcc)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
-	}
-	code := decodeErrorCode(t, w.Body.Bytes())
-	if code != "missing_required_field" {
-		t.Errorf("code: got %q, want %q", code, "missing_required_field")
-	}
-}
-
 func TestHandleExchange_MissingXFCC_Returns401(t *testing.T) {
 	// No x-forwarded-client-cert header means the request did not arrive via
 	// the Envoy mTLS sidecar — must be rejected with 401.
 	c, _, _, _, _ := newTestController(t)
-	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{"tenant_id": "t1"}, "")
+	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, "")
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusUnauthorized, w.Body)
 	}
@@ -401,7 +404,7 @@ func TestHandleExchange_InvalidXFCC_Returns401(t *testing.T) {
 	// A malformed XFCC header (no URI= field) must be rejected with 401.
 	c, _, _, _, _ := newTestController(t)
 	w := postJSONWithXFCC(t, c.handleExchange,
-		map[string]string{"tenant_id": "t1"},
+		map[string]string{},
 		"Hash=abc123;Cert=something",
 	)
 	if w.Code != http.StatusUnauthorized {
@@ -412,7 +415,7 @@ func TestHandleExchange_InvalidXFCC_Returns401(t *testing.T) {
 func TestHandleExchange_Success(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
 	xfcc := "URI=spiffe://orbit.local/tenant/platform-team/agent/agent-1"
-	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{"tenant_id": "tenant-1"}, xfcc)
+	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, xfcc)
 	if w.Code != http.StatusOK {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
 	}
@@ -432,7 +435,7 @@ func TestHandleExchange_Success(t *testing.T) {
 
 func TestHandleRevoke_MissingToken(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
-	w := postJSON(t, c.handleRevoke, map[string]string{"token_type": "access_token"})
+	w := postForm(t, c.handleRevoke, map[string]string{"token_type_hint": "access_token"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -440,7 +443,7 @@ func TestHandleRevoke_MissingToken(t *testing.T) {
 
 func TestHandleRevoke_MissingTokenType(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
-	w := postJSON(t, c.handleRevoke, map[string]string{"token": "some-token"})
+	w := postForm(t, c.handleRevoke, map[string]string{"token": "some-token"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
 	}
@@ -448,23 +451,25 @@ func TestHandleRevoke_MissingTokenType(t *testing.T) {
 
 func TestHandleRevoke_InvalidToken_Returns404(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
-	w := postJSON(t, c.handleRevoke, map[string]string{
-		"token":      "not.a.jwt",
-		"token_type": "access_token",
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           "not.a.jwt",
+		"token_type_hint": "access_token",
 	})
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNotFound, w.Body)
 	}
 }
 
-func TestHandleRevoke_RefreshTokenNotFound_Returns404(t *testing.T) {
+func TestHandleRevoke_RefreshTokenNotFound_IsIdempotent(t *testing.T) {
+	// RFC 7009 §2.1: revocation of an unknown or already-revoked refresh token
+	// must succeed (idempotent) — the client's goal (token unusable) is already met.
 	c, _, _, _, _ := newTestController(t)
-	w := postJSON(t, c.handleRevoke, map[string]string{
-		"token":      "nonexistent-refresh-token",
-		"token_type": "refresh_token",
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           "nonexistent-refresh-token",
+		"token_type_hint": "refresh_token",
 	})
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status: got %d, want %d", w.Code, http.StatusNotFound)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusNoContent)
 	}
 }
 
@@ -485,9 +490,9 @@ func TestHandleRevoke_AccessToken_Success(t *testing.T) {
 	}
 	seedSession(sessions, sessionID, jti)
 
-	w := postJSON(t, c.handleRevoke, map[string]string{
-		"token":      token,
-		"token_type": "access_token",
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           token,
+		"token_type_hint": "access_token",
 	})
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNoContent, w.Body)
@@ -501,9 +506,9 @@ func TestHandleRevoke_RefreshToken_Success(t *testing.T) {
 	seedSession(sessions, "sess-1", "jti-1")
 	seedRefreshToken(refreshTokens, "rt-1", "sess-1", rawToken)
 
-	w := postJSON(t, c.handleRevoke, map[string]string{
-		"token":      rawToken,
-		"token_type": "refresh_token",
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           rawToken,
+		"token_type_hint": "refresh_token",
 	})
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNoContent, w.Body)
@@ -534,13 +539,33 @@ func TestHandleRevoke_AlreadyBlockedAccessToken_IsIdempotent(t *testing.T) {
 	// Session must still exist so GetSessionByJTI succeeds.
 	seedSession(sessions, "sess-1", jti)
 
-	w := postJSON(t, c.handleRevoke, map[string]string{
-		"token":      token,
-		"token_type": "access_token",
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           token,
+		"token_type_hint": "access_token",
 	})
 	// BlockJTI is idempotent; the service returns nil and the handler 204.
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusNoContent, w.Body)
+	}
+}
+
+func TestHandleRevoke_UnsupportedTokenType_Returns400(t *testing.T) {
+	// token_type_hint values other than "access_token" / "refresh_token" must
+	// be rejected with HTTP 400 and the invalid_field error code.
+	c, _, _, _, _ := newTestController(t)
+	w := postForm(t, c.handleRevoke, map[string]string{
+		"token":           "some-token-value",
+		"token_type_hint": "id_token",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got, _ := body["code"].(string); got != string(api.ErrCodeInvalidField) {
+		t.Errorf("error code: got %q, want %q", got, api.ErrCodeInvalidField)
 	}
 }
 

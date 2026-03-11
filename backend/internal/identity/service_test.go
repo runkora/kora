@@ -105,7 +105,7 @@ func TestExchangeSVID_Success(t *testing.T) {
 	svc, sessions, _, _ := newFullTestService(t)
 
 	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
-	resp, err := svc.ExchangeSVID(context.Background(), r, "tenant-1")
+	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestExchangeSVID_TokenParses(t *testing.T) {
 	const spiffeID = "spiffe://orbit.local/tenant/platform-team/agent/agent-99"
 	svc, _, _, _ := newFullTestService(t)
 
-	resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(spiffeID), "acme")
+	resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(spiffeID))
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
 	}
@@ -150,8 +150,8 @@ func TestExchangeSVID_TokenParses(t *testing.T) {
 	if claims.Subject != spiffeID {
 		t.Errorf("sub: got %q, want %q", claims.Subject, spiffeID)
 	}
-	if claims.Orbit.TenantID != "acme" {
-		t.Errorf("tenant_id: got %q, want %q", claims.Orbit.TenantID, "acme")
+	if claims.Orbit.TenantID != "platform-team" {
+		t.Errorf("tenant_id: got %q, want %q", claims.Orbit.TenantID, "platform-team")
 	}
 	if claims.Orbit.PrincipalType != PrincipalTypeAgent {
 		t.Errorf("principal_type: got %q, want %q", claims.Orbit.PrincipalType, PrincipalTypeAgent)
@@ -161,12 +161,12 @@ func TestExchangeSVID_TokenParses(t *testing.T) {
 	}
 }
 
-func TestExchangeSVID_TenantIDOverride(t *testing.T) {
-	// The tenantID argument always wins; XFCC carries no tenant information.
+func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
+	// Tenant ID is derived from the SPIFFE URI path — no caller override is allowed.
 	svc, _, _, _ := newFullTestService(t)
 
-	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
-	resp, err := svc.ExchangeSVID(context.Background(), r, "override-tenant")
+	r := xfccRequest("spiffe://orbit.local/tenant/acme-corp/agent/deploy-bot")
+	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
 	}
@@ -174,8 +174,8 @@ func TestExchangeSVID_TenantIDOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseToken: %v", err)
 	}
-	if claims.Orbit.TenantID != "override-tenant" {
-		t.Errorf("tenant_id: got %q, want override-tenant", claims.Orbit.TenantID)
+	if claims.Orbit.TenantID != "acme-corp" {
+		t.Errorf("tenant_id: got %q, want %q", claims.Orbit.TenantID, "acme-corp")
 	}
 }
 
@@ -185,7 +185,7 @@ func TestExchangeSVID_MissingXFCC(t *testing.T) {
 	svc, _, _, _ := newFullTestService(t)
 
 	r := httptest.NewRequest(http.MethodPost, "/exchange", nil) // no XFCC header
-	_, err := svc.ExchangeSVID(context.Background(), r, "tenant-1")
+	_, err := svc.ExchangeSVID(context.Background(), r)
 	if err == nil {
 		t.Fatal("expected error when XFCC header is absent")
 	}
@@ -197,7 +197,7 @@ func TestExchangeSVID_SessionPersistError(t *testing.T) {
 	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo())
 
 	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
-	_, err := svc.ExchangeSVID(context.Background(), r, "tenant-1")
+	_, err := svc.ExchangeSVID(context.Background(), r)
 	if err == nil {
 		t.Fatal("expected error when session persistence fails")
 	}
@@ -496,13 +496,16 @@ func TestRevokeToken_RefreshToken_Success(t *testing.T) {
 }
 
 func TestRevokeToken_RefreshToken_NotFound(t *testing.T) {
+	// RFC 7009 §2.1: the server must respond with 200/204 even when the token
+	// never existed or was already revoked. Returning ErrRefreshTokenNotFound
+	// here would be a protocol violation.
 	svc, _, _, _ := newFullTestService(t)
 	err := svc.RevokeToken(context.Background(), RevokeRequest{
 		Token:     "nonexistent-refresh-token",
 		TokenType: "refresh_token",
 	})
-	if !errors.Is(err, ErrRefreshTokenNotFound) {
-		t.Errorf("expected ErrRefreshTokenNotFound, got %v", err)
+	if err != nil {
+		t.Errorf("expected nil (idempotent revocation), got %v", err)
 	}
 }
 
@@ -532,8 +535,8 @@ func TestRevokeToken_UnsupportedTokenType(t *testing.T) {
 		Token:     "any-token",
 		TokenType: "id_token",
 	})
-	if err == nil {
-		t.Fatal("expected error for unsupported token_type")
+	if !errors.Is(err, ErrUnsupportedTokenType) {
+		t.Errorf("expected ErrUnsupportedTokenType, got %v", err)
 	}
 }
 

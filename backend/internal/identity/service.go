@@ -147,7 +147,7 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 
 	resp, err := s.postForm(ctx, s.oidcMeta.DeviceAuthorizationEndpoint, formVals)
 	if err != nil {
-		return nil, fmt.Errorf("device auth request: %w", err)
+		return nil, fmt.Errorf("device auth request to %s: %w", s.oidcMeta.DeviceAuthorizationEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -191,12 +191,15 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 }
 
 // parseDeviceTokenError maps an OAuth2 error-response body to one of the
-// package-level sentinel errors. Returns nil when no recognized error is found.
+// package-level sentinel errors. For recognized OAuth2 device-flow codes
+// (RFC 8628 §3.5) it returns a typed sentinel; for any other non-empty error
+// code it returns an *OAuthError so callers can still inspect the raw code.
+// Returns nil only when the body cannot be parsed as an OAuth2 error object.
 func parseDeviceTokenError(body []byte) error {
 	var oe struct {
 		Error string `json:"error"`
 	}
-	if json.Unmarshal(body, &oe) != nil {
+	if json.Unmarshal(body, &oe) != nil || oe.Error == "" {
 		return nil
 	}
 	switch oe.Error {
@@ -208,8 +211,9 @@ func parseDeviceTokenError(body []byte) error {
 		return ErrAccessDenied
 	case "expired_token":
 		return ErrDeviceCodeExpired
+	default:
+		return &OAuthError{Code: oe.Error}
 	}
-	return nil
 }
 
 // PollDeviceAuth performs a single, non-blocking poll of the OIDC token
@@ -231,7 +235,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
 	if err != nil {
-		return nil, fmt.Errorf("poll device auth: %w", err)
+		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", s.oidcMeta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -282,6 +286,9 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	}
 	if displayName == "" {
 		displayName = claims.Email
+	}
+	if displayName == "" {
+		displayName = claims.Sub
 	}
 
 	principal := &Principal{
@@ -360,15 +367,14 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 //
 // The XFCC header is written by Envoy after mTLS termination and cannot be
 // forged by the calling workload (ADR-0010, ADR-0011, ADR-0015).
-func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request, tenantID string) (*SessionResponse, error) {
+func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionResponse, error) {
 	principal, err := s.extractor.Extract(r)
 	if err != nil {
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
-	if tenantID != "" {
-		principal.TenantID = tenantID
-	}
-
+	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
+	// the value attested by SPIRE and injected by Envoy after mTLS termination.
+	// Agent-supplied request body values cannot override the attested identity.
 	return s.createAgentSession(ctx, principal)
 }
 
@@ -386,7 +392,7 @@ func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	case "refresh_token":
 		return s.revokeRefreshToken(ctx, req.Token)
 	default:
-		return fmt.Errorf("unsupported token_type %q: expected access_token or refresh_token", req.TokenType)
+		return fmt.Errorf("unsupported token_type %q: %w", req.TokenType, ErrUnsupportedTokenType)
 	}
 }
 
@@ -423,10 +429,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 
 	now := time.Now()
 	if rErr := s.refreshTokens.RevokeAllForSession(ctx, session.ID, now); rErr != nil {
-		s.logger.Error(ctx, "failed to revoke refresh tokens for session",
-			logging.Field{Key: "session_id", Value: session.ID},
-			logging.Field{Key: "error", Value: rErr.Error()},
-		)
+		return fmt.Errorf("revoke refresh tokens for session: %w", rErr)
 	}
 	if rErr := s.sessions.RevokeSession(ctx, session.ID, now); rErr != nil {
 		if !errors.Is(rErr, ErrSessionNotFound) {
@@ -442,11 +445,20 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
-			return ErrRefreshTokenNotFound
+			// Token not found means it was never issued or already revoked.
+			// RFC 7009 §2.1 requires idempotent revocation — treat as success.
+			return nil
 		}
 		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
-	return s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now())
+	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			// Concurrent revocation — already gone, still a success per RFC 7009.
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // ─── JWKS ─────────────────────────────────────────────────────────────────────
@@ -468,8 +480,12 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	now = time.Now().UTC()
 
 	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
-	if ttl == 0 {
-		ttl = 60 * time.Minute // safe default
+
+	// Sign before persisting — if signing fails nothing is written to the DB.
+	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
+	if err != nil {
+		err = fmt.Errorf("sign access token: %w", err)
+		return
 	}
 
 	session := &Session{
@@ -486,12 +502,6 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	}
 	if err = s.sessions.CreateSession(ctx, session); err != nil {
 		err = fmt.Errorf("persist session: %w", err)
-		return
-	}
-
-	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
-	if err != nil {
-		err = fmt.Errorf("sign access token: %w", err)
 		return
 	}
 
@@ -512,17 +522,12 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	refreshTTLDays := s.cfg.Token.RefreshTokenTTLDays
-	if refreshTTLDays == 0 {
-		refreshTTLDays = 30
-	}
-
 	rt := &RefreshToken{
 		ID:        uuid.NewString(),
 		SessionID: sessionID,
 		TokenHash: hashToken(rawRefresh),
 		CreatedAt: now,
-		ExpiresAt: now.Add(time.Duration(refreshTTLDays) * 24 * time.Hour),
+		ExpiresAt: now.Add(time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour),
 	}
 	if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
 		return nil, fmt.Errorf("persist refresh token: %w", err)
@@ -559,6 +564,7 @@ func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, 
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti,
 			Subject:   p.ID,
+			Audience:  jwt.ClaimStrings{s.cfg.Token.Audience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			Issuer:    "orbit",
@@ -585,7 +591,7 @@ func (s *Service) parseToken(tokenString string) (*PlatformClaims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return &s.signingKey.PublicKey, nil
-	})
+	}, jwt.WithAudience(s.cfg.Token.Audience))
 	if err != nil {
 		return nil, err
 	}

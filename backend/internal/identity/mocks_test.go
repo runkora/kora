@@ -271,6 +271,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
+			Audience:              "orbit-platform",
 		},
 	}
 	svc, err := NewService(
@@ -306,6 +307,7 @@ func newTestServiceWithOIDC(
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
+			Audience:              "orbit-platform",
 		},
 	}
 	svc, err := NewService(

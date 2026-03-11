@@ -44,6 +44,10 @@ type TokenConfig struct {
 
 	// RefreshTokenTTLDays is the lifetime of a human refresh token.
 	RefreshTokenTTLDays int `yaml:"refreshTokenTtlDays"`
+
+	// Audience is the JWT `aud` claim value. Defaults to "orbit-platform".
+	// Override per environment to scope tokens to a specific cluster or deployment.
+	Audience string `yaml:"audience"`
 }
 
 // LoadConfig loads the identity service configuration from
@@ -74,6 +78,17 @@ func LoadConfig() (*Config, error) {
 	// Client credentials are secrets and must never appear in YAML.
 	cfg.OIDC.ClientID = os.Getenv("ORBIT_OIDC_CLIENT_ID")
 	cfg.OIDC.ClientSecret = os.Getenv("ORBIT_OIDC_CLIENT_SECRET")
+
+	// Apply safe defaults for token lifetimes when YAML omits them.
+	if cfg.Token.AccessTokenTTLMinutes == 0 {
+		cfg.Token.AccessTokenTTLMinutes = 60
+	}
+	if cfg.Token.RefreshTokenTTLDays == 0 {
+		cfg.Token.RefreshTokenTTLDays = 30
+	}
+	if cfg.Token.Audience == "" {
+		cfg.Token.Audience = "orbit-platform"
+	}
 
 	return cfg, nil
 }
