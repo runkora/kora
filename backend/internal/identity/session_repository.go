@@ -11,7 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ─── Session repository ───────────────────────────────────────────────────────
+// ─── Session repository interface ─────────────────────────────────────────────
+
+// SessionRepository defines the PostgreSQL-backed session storage contract.
+// It covers the full lifecycle of a platform session: creation, lookup,
+// revocation, and expiry-aware queries.
+type SessionRepository interface {
+	// CreateSession persists a new session record.
+	CreateSession(ctx context.Context, s *Session) error
+
+	// GetSessionByID retrieves a session by its primary ID.
+	GetSessionByID(ctx context.Context, id string) (*Session, error)
+
+	// GetSessionByJTI retrieves a session by its JWT ID claim.
+	// Used during refresh and revocation to tie a token back to a session.
+	GetSessionByJTI(ctx context.Context, jti string) (*Session, error)
+
+	// RevokeSession marks a session as revoked at the given timestamp.
+	// Refresh token revocation is a separate operation — callers must invoke
+	// RefreshTokenRepository.RevokeAllForSession before or after.
+	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
+}
+
+// ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresSessionRepository struct {
 	pool *pgxpool.Pool
@@ -86,7 +108,7 @@ func (r *postgresSessionRepository) RevokeSession(ctx context.Context, id string
 	return nil
 }
 
-// scanSession executes query with a single argument and hydrates a Session.
+// scanSession executes query with a single string argument and hydrates a Session.
 func (r *postgresSessionRepository) scanSession(ctx context.Context, query, arg string) (*Session, error) {
 	row := r.pool.QueryRow(ctx, query, arg)
 
@@ -122,88 +144,4 @@ func (r *postgresSessionRepository) scanSession(ctx context.Context, query, arg 
 	}
 
 	return &s, nil
-}
-
-// ─── Refresh token repository ─────────────────────────────────────────────────
-
-type postgresRefreshTokenRepository struct {
-	pool *pgxpool.Pool
-}
-
-// NewPostgresRefreshTokenRepository creates a RefreshTokenRepository backed by PostgreSQL.
-func NewPostgresRefreshTokenRepository(pool *pgxpool.Pool) RefreshTokenRepository {
-	return &postgresRefreshTokenRepository{pool: pool}
-}
-
-func (r *postgresRefreshTokenRepository) CreateRefreshToken(ctx context.Context, rt *RefreshToken) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO identity_refresh_tokens
-			(id, session_id, token_hash, created_at, expires_at)
-		VALUES
-			($1, $2, $3, $4, $5)
-	`,
-		rt.ID,
-		rt.SessionID,
-		rt.TokenHash,
-		rt.CreatedAt,
-		rt.ExpiresAt,
-	)
-	if err != nil {
-		return fmt.Errorf("create refresh token: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresRefreshTokenRepository) GetRefreshTokenByHash(ctx context.Context, hash string) (*RefreshToken, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT id, session_id, token_hash, created_at, expires_at, revoked_at
-		FROM   identity_refresh_tokens
-		WHERE  token_hash = $1
-	`, hash)
-
-	var rt RefreshToken
-	err := row.Scan(
-		&rt.ID,
-		&rt.SessionID,
-		&rt.TokenHash,
-		&rt.CreatedAt,
-		&rt.ExpiresAt,
-		&rt.RevokedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrRefreshTokenNotFound
-		}
-		return nil, fmt.Errorf("scan refresh token: %w", err)
-	}
-	return &rt, nil
-}
-
-func (r *postgresRefreshTokenRepository) RevokeRefreshToken(ctx context.Context, id string, revokedAt time.Time) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE identity_refresh_tokens
-		SET    revoked_at = $1
-		WHERE  id = $2
-		  AND  revoked_at IS NULL
-	`, revokedAt, id)
-	if err != nil {
-		return fmt.Errorf("revoke refresh token: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrRefreshTokenNotFound
-	}
-	return nil
-}
-
-func (r *postgresRefreshTokenRepository) RevokeAllForSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE identity_refresh_tokens
-		SET    revoked_at = $1
-		WHERE  session_id = $2
-		  AND  revoked_at IS NULL
-	`, revokedAt, sessionID)
-	if err != nil {
-		return fmt.Errorf("revoke refresh tokens for session: %w", err)
-	}
-	return nil
 }

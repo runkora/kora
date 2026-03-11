@@ -7,8 +7,10 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,68 +26,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
-
-// ─── Configuration ────────────────────────────────────────────────────────────
-
-// Config is the non-secret, YAML-sourced configuration for the identity service.
-// Secrets (client credentials, signing key) are loaded from environment variables.
-type Config struct {
-	OIDC  OIDCConfig  `yaml:"oidc"`
-	Token TokenConfig `yaml:"token"`
-}
-
-// OIDCConfig holds OIDC provider settings. IssuerURL is not a secret and can
-// live in YAML. ClientID and ClientSecret must be supplied via environment
-// variables (ORBIT_OIDC_CLIENT_ID, ORBIT_OIDC_CLIENT_SECRET).
-type OIDCConfig struct {
-	// IssuerURL is the OIDC provider's issuer URL used for discovery.
-	// Leave empty to disable federated authentication.
-	IssuerURL string `yaml:"issuerUrl"`
-
-	// Scopes is the list of OAuth2 scopes requested during authentication.
-	Scopes []string `yaml:"scopes"`
-
-	// ClientID and ClientSecret are loaded from env, not from YAML.
-	ClientID     string `yaml:"-"`
-	ClientSecret string `yaml:"-"`
-}
-
-// TokenConfig controls platform token lifetimes.
-type TokenConfig struct {
-	// AccessTokenTTLMinutes is the lifetime of a platform session token.
-	AccessTokenTTLMinutes int `yaml:"accessTokenTtlMinutes"`
-
-	// RefreshTokenTTLDays is the lifetime of a human refresh token.
-	RefreshTokenTTLDays int `yaml:"refreshTokenTtlDays"`
-}
-
-// ─── SVID validator interface ─────────────────────────────────────────────────
-
-// SVIDValidator validates a SPIFFE SVID and extracts the embedded principal
-// claims. In production this verifies the SVID signature against the SPIRE
-// trust bundle. In local development the StubSVIDValidator is used instead.
-type SVIDValidator interface {
-	Validate(ctx context.Context, svid string) (*Principal, error)
-}
-
-// StubSVIDValidator is a test/local-dev stand-in that accepts any SVID string
-// in the format "stub:<principal_id>:<tenant_id>" and constructs a principal.
-type StubSVIDValidator struct{}
-
-func (s *StubSVIDValidator) Validate(_ context.Context, svid string) (*Principal, error) {
-	parts := strings.SplitN(svid, ":", 3)
-	if len(parts) != 3 || parts[0] != "stub" {
-		return nil, fmt.Errorf("stub validator: expected 'stub:<principal_id>:<tenant_id>', got %q", svid)
-	}
-	return &Principal{
-		ID:             parts[1],
-		Type:           PrincipalTypeAgent,
-		TenantID:       parts[2],
-		DisplayName:    "stub-agent:" + parts[1],
-		IdentitySource: IdentitySourceAttested,
-		Claims:         map[string]string{"spiffe_id": "spiffe://local/stub/" + parts[1]},
-	}, nil
-}
 
 // ─── Internal OIDC provider metadata ─────────────────────────────────────────
 
@@ -108,37 +48,45 @@ type Service struct {
 	blocklist     JTIBlocklistRepository
 	logger        logging.Logger
 
+	// httpClient is used for all outbound OIDC requests. It is set to a
+	// sensible default in NewService and can be replaced in tests.
+	httpClient *http.Client
+
 	// OIDC — nil when federated auth is not configured.
 	oidcProvider *gooidc.Provider
 	oidcMeta     *oidcProviderMeta
 
-	// svid is injected so tests can substitute a stub.
-	svid SVIDValidator
+	// extractor derives a Principal from the inbound request (reads the
+	// Envoy-injected XFCC header in production; a stub header locally).
+	extractor PrincipalExtractor
 
 	// signingKey is the RSA private key used to sign platform tokens (RS256).
 	signingKey *rsa.PrivateKey
 
-	// jwks is the pre-serialized JWKS JSON for GET /.well-known/jwks.json.
+	// jwksJSON is the pre-serialized JWKS JSON for GET /.well-known/jwks.json.
 	jwksJSON []byte
 }
 
 // NewService constructs and initializes the identity Service.
 //
-// If cfg.OIDC.IssuerURL is non-empty, OIDC provider discovery is performed
-// eagerly. OIDC client credentials are read from ORBIT_OIDC_CLIENT_ID and
-// ORBIT_OIDC_CLIENT_SECRET environment variables.
+// cfg must be the value returned by LoadConfig — env-var overrides and secret
+// fields (ClientID, ClientSecret) are resolved there so that NewService never
+// reads from the environment directly and never mutates the caller's struct.
 //
-// The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY environment
-// variable (PEM-encoded PKCS#8 or PKCS#1 RSA private key). In local
-// development, if the variable is not set, a throwaway key is generated and
-// a prominent warning is logged. Never use auto-generated keys in production.
+// If cfg.OIDC.IssuerURL is non-empty, OIDC provider discovery is performed
+// eagerly at construction time.
+//
+// The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
+// ORBIT_TOKEN_SIGNING_KEY environment variables. In local development, if
+// neither is set, a throwaway key is generated and a prominent warning is
+// logged. Never use auto-generated keys in production.
 func NewService(
 	ctx context.Context,
 	cfg *Config,
 	sessions SessionRepository,
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
-	svidValidator SVIDValidator,
+	extractor PrincipalExtractor,
 	logger logging.Logger,
 ) (*Service, error) {
 	svc := &Service{
@@ -146,19 +94,9 @@ func NewService(
 		sessions:      sessions,
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
-		svid:          svidValidator,
+		extractor:     extractor,
 		logger:        logger,
-	}
-
-	// Populate secret fields from environment variables.
-	cfg.OIDC.ClientID = os.Getenv("ORBIT_OIDC_CLIENT_ID")
-	cfg.OIDC.ClientSecret = os.Getenv("ORBIT_OIDC_CLIENT_SECRET")
-
-	// Allow the issuer URL to be overridden via environment variable without
-	// editing YAML files — useful for local dev and CI where you want to point
-	// at a real provider (e.g. Entra) without committing the URL to config.
-	if envIssuer := os.Getenv("ORBIT_OIDC_ISSUER_URL"); envIssuer != "" {
-		cfg.OIDC.IssuerURL = envIssuer
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
 	}
 
 	// Initialize OIDC provider if an issuer URL has been configured.
@@ -207,13 +145,16 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 		"scope":     {strings.Join(scopes, " ")},
 	}
 
-	resp, err := http.PostForm(s.oidcMeta.DeviceAuthorizationEndpoint, formVals) //nolint:noctx
+	resp, err := s.postForm(ctx, s.oidcMeta.DeviceAuthorizationEndpoint, formVals)
 	if err != nil {
 		return nil, fmt.Errorf("device auth request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read device auth response body: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("device auth endpoint returned %d: %s", resp.StatusCode, body)
@@ -288,13 +229,16 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		formVals.Set("client_secret", s.cfg.OIDC.ClientSecret)
 	}
 
-	resp, err := http.PostForm(s.oidcMeta.TokenEndpoint, formVals) //nolint:noctx
+	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
 	if err != nil {
 		return nil, fmt.Errorf("poll device auth: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read token response body: %w", err)
+	}
 
 	// OAuth2 error responses use 4xx status codes.
 	if resp.StatusCode != http.StatusOK {
@@ -366,7 +310,10 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
-		return nil, ErrRefreshTokenNotFound
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return nil, ErrRefreshTokenNotFound
+		}
+		return nil, fmt.Errorf("get refresh token: %w", err)
 	}
 
 	if rt.RevokedAt != nil {
@@ -378,7 +325,10 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 
 	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
 	if err != nil {
-		return nil, ErrSessionNotFound
+		if errors.Is(err, ErrSessionNotFound) {
+			return nil, ErrSessionNotFound
+		}
+		return nil, fmt.Errorf("get session: %w", err)
 	}
 	if session.RevokedAt != nil {
 		return nil, ErrTokenRevoked
@@ -401,18 +351,22 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	return s.createSession(ctx, principal)
 }
 
-// ─── SVID exchange ────────────────────────────────────────────────────────────
+// ─── SPIFFE exchange ──────────────────────────────────────────────────────────
 
-// ExchangeSVID validates a SPIFFE SVID and issues a platform session token for
+// ExchangeSVID extracts the caller's SPIFFE identity from the Envoy-injected
+// x-forwarded-client-cert (XFCC) header and issues a platform session token for
 // the attested agent. Agent sessions have no refresh token — their identity
 // lifecycle is managed by SPIRE workload attestation.
-func (s *Service) ExchangeSVID(ctx context.Context, req ExchangeRequest) (*SessionResponse, error) {
-	principal, err := s.svid.Validate(ctx, req.SVID)
+//
+// The XFCC header is written by Envoy after mTLS termination and cannot be
+// forged by the calling workload (ADR-0010, ADR-0011, ADR-0015).
+func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request, tenantID string) (*SessionResponse, error) {
+	principal, err := s.extractor.Extract(r)
 	if err != nil {
-		return nil, fmt.Errorf("validate svid: %w", err)
+		return nil, fmt.Errorf("extract principal: %w", err)
 	}
-	if req.TenantID != "" {
-		principal.TenantID = req.TenantID
+	if tenantID != "" {
+		principal.TenantID = tenantID
 	}
 
 	return s.createAgentSession(ctx, principal)
@@ -460,8 +414,11 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	// Revoke the backing session and all associated refresh tokens.
 	session, err := s.sessions.GetSessionByJTI(ctx, jti)
 	if err != nil {
-		// Session already gone or not found — blocklist entry is sufficient.
-		return nil
+		if errors.Is(err, ErrSessionNotFound) {
+			// Session already gone — blocklist entry is sufficient.
+			return nil
+		}
+		return fmt.Errorf("get session by jti: %w", err)
 	}
 
 	now := time.Now()
@@ -472,8 +429,7 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 		)
 	}
 	if rErr := s.sessions.RevokeSession(ctx, session.ID, now); rErr != nil {
-		// Not found is acceptable — it may have already been revoked.
-		if rErr != ErrSessionNotFound {
+		if !errors.Is(rErr, ErrSessionNotFound) {
 			return fmt.Errorf("revoke session: %w", rErr)
 		}
 	}
@@ -485,27 +441,33 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 	hash := hashToken(token)
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
-		return ErrRefreshTokenNotFound
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return ErrRefreshTokenNotFound
+		}
+		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
 	return s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now())
 }
 
 // ─── JWKS ─────────────────────────────────────────────────────────────────────
 
-// JWKSJson returns the pre-serialized JWKS JSON for the public key endpoint.
-func (s *Service) JWKSJson() []byte {
+// JWKSJSON returns the pre-serialized JWKS JSON for the public key endpoint.
+func (s *Service) JWKSJSON() []byte {
 	return s.jwksJSON
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-// createSession creates a full human session: PostgreSQL session + refresh token + signed JWT.
-func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
-	sessionID := uuid.NewString()
+// buildAndPersistSession generates IDs, computes TTL, persists the Session
+// record to PostgreSQL, and signs the platform JWT. It is shared by
+// createSession (human, with refresh token) and createAgentSession (no refresh
+// token). Returns the session ID, signed access token, issue time, and TTL.
+func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
+	sessionID = uuid.NewString()
 	jti := uuid.NewString()
-	now := time.Now().UTC()
+	now = time.Now().UTC()
 
-	ttl := time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
+	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
 	if ttl == 0 {
 		ttl = 60 * time.Minute // safe default
 	}
@@ -522,16 +484,29 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		CreatedAt:      now,
 		ExpiresAt:      now.Add(ttl),
 	}
-	if err := s.sessions.CreateSession(ctx, session); err != nil {
-		return nil, fmt.Errorf("persist session: %w", err)
+	if err = s.sessions.CreateSession(ctx, session); err != nil {
+		err = fmt.Errorf("persist session: %w", err)
+		return
 	}
 
-	accessToken, err := s.signToken(principal, jti, sessionID, now, ttl)
+	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
 	if err != nil {
-		return nil, fmt.Errorf("sign access token: %w", err)
+		err = fmt.Errorf("sign access token: %w", err)
+		return
 	}
 
-	// Issue refresh token (opaque random bytes, only the hash is stored).
+	return
+}
+
+// createSession creates a full human session: PostgreSQL session + refresh
+// token + signed JWT.
+func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
+	sessionID, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+
+	// Issue refresh token (opaque random bytes; only the hash is stored).
 	rawRefresh, err := generateOpaqueToken()
 	if err != nil {
 		return nil, fmt.Errorf("generate refresh token: %w", err)
@@ -558,48 +533,23 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		TokenType:    "Bearer",
 		ExpiresIn:    int(ttl.Seconds()),
 		RefreshToken: rawRefresh,
-		IssuedAt:     now,
+		IssuedAt:     now.Unix(),
 	}, nil
 }
 
 // createAgentSession creates an agent session with no refresh token.
 // Agent identity lifecycle is managed entirely by SPIRE workload attestation.
 func (s *Service) createAgentSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
-	sessionID := uuid.NewString()
-	jti := uuid.NewString()
-	now := time.Now().UTC()
-
-	ttl := time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
-	if ttl == 0 {
-		ttl = 60 * time.Minute
-	}
-
-	session := &Session{
-		ID:             sessionID,
-		JTI:            jti,
-		PrincipalID:    principal.ID,
-		PrincipalType:  principal.Type,
-		TenantID:       principal.TenantID,
-		DisplayName:    principal.DisplayName,
-		IdentitySource: principal.IdentitySource,
-		Claims:         principal.Claims,
-		CreatedAt:      now,
-		ExpiresAt:      now.Add(ttl),
-	}
-	if err := s.sessions.CreateSession(ctx, session); err != nil {
-		return nil, fmt.Errorf("persist agent session: %w", err)
-	}
-
-	accessToken, err := s.signToken(principal, jti, sessionID, now, ttl)
+	_, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
-		return nil, fmt.Errorf("sign agent access token: %w", err)
+		return nil, err
 	}
 
 	return &SessionResponse{
 		AccessToken: accessToken,
 		TokenType:   "Bearer",
 		ExpiresIn:   int(ttl.Seconds()),
-		IssuedAt:    now,
+		IssuedAt:    now.Unix(),
 	}, nil
 }
 
@@ -650,6 +600,18 @@ func (s *Service) requireOIDC() error {
 	return nil
 }
 
+// postForm executes an application/x-www-form-urlencoded POST request using the
+// service's HTTP client with the provided context, so that caller deadlines and
+// cancellations are propagated to the upstream OIDC provider.
+func (s *Service) postForm(ctx context.Context, endpoint string, vals url.Values) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(vals.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("build request for %s: %w", endpoint, err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return s.httpClient.Do(req)
+}
+
 // initOIDCProvider performs OIDC discovery and populates oidcProvider + oidcMeta.
 func (s *Service) initOIDCProvider(ctx context.Context) error {
 	provider, err := gooidc.NewProvider(ctx, s.cfg.OIDC.IssuerURL)
@@ -661,9 +623,13 @@ func (s *Service) initOIDCProvider(ctx context.Context) error {
 	if err := provider.Claims(&meta); err != nil {
 		return fmt.Errorf("extract provider metadata: %w", err)
 	}
+
+	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use that as fallback.
 	if meta.TokenEndpoint == "" {
-		// go-oidc exposes token_endpoint via Endpoint().TokenURL — use that as fallback.
 		meta.TokenEndpoint = provider.Endpoint().TokenURL
+	}
+	if meta.TokenEndpoint == "" {
+		return fmt.Errorf("provider does not advertise token_endpoint")
 	}
 	if meta.DeviceAuthorizationEndpoint == "" {
 		return fmt.Errorf("provider does not advertise device_authorization_endpoint")
@@ -686,7 +652,7 @@ func (s *Service) initOIDCProvider(ctx context.Context) error {
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
 	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // path comes from an operator-controlled env var, not user input
 		if err != nil {
 			return fmt.Errorf("read ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
@@ -788,10 +754,7 @@ func keyID(pub *rsa.PublicKey) string {
 // intToBytes converts a small integer (e.g. RSA exponent) to big-endian bytes.
 func intToBytes(i int) []byte {
 	b := make([]byte, 4)
-	b[0] = byte(i >> 24)
-	b[1] = byte(i >> 16)
-	b[2] = byte(i >> 8)
-	b[3] = byte(i)
+	binary.BigEndian.PutUint32(b, uint32(i)) //nolint:gosec // pub.E is always a small positive int (e.g. 65537)
 	// Trim leading zero bytes.
 	for len(b) > 1 && b[0] == 0 {
 		b = b[1:]
@@ -813,18 +776,4 @@ func generateOpaqueToken() (string, error) {
 		return "", fmt.Errorf("read random bytes: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// ─── Configuration loader ─────────────────────────────────────────────────────
-
-// LoadConfig loads the identity service configuration from
-// internal/identity/config/{environment}.yaml.
-// Secrets (OIDC client credentials, token signing key) are never in YAML —
-// they are injected at service construction time via environment variables.
-func LoadConfig() (*Config, error) {
-	cfg, err := config.Load[Config]("internal/identity", config.Environment())
-	if err != nil {
-		return nil, fmt.Errorf("load identity config: %w", err)
-	}
-	return cfg, nil
 }

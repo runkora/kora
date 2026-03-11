@@ -10,9 +10,24 @@ import (
 
 const jtiKeyPrefix = "orbit:jti:blocklist:"
 
+// ─── JTI blocklist repository interface ──────────────────────────────────────
+
+// JTIBlocklistRepository defines the Redis-backed JTI blocklist contract.
+// Tokens are added to the blocklist with a TTL equal to their remaining
+// lifetime so the set never grows without bound.
+type JTIBlocklistRepository interface {
+	// BlockJTI inserts a JTI into the blocklist with the given TTL.
+	// Use the token's remaining lifetime as ttl so revoked entries self-expire.
+	BlockJTI(ctx context.Context, jti string, ttl time.Duration) error
+
+	// IsBlocked reports whether a JTI is present in the blocklist.
+	IsBlocked(ctx context.Context, jti string) (bool, error)
+}
+
+// ─── Redis implementation ─────────────────────────────────────────────────────
+
 // redisJTIBlocklistRepository implements JTIBlocklistRepository using Redis.
-// Keys are namespaced under orbit:jti:blocklist:{jti} and carry a TTL equal
-// to the token's remaining lifetime, so the set never grows without bound.
+// Keys are namespaced under orbit:jti:blocklist:{jti}.
 type redisJTIBlocklistRepository struct {
 	client *goredis.Client
 }
@@ -23,8 +38,6 @@ func NewRedisJTIBlocklistRepository(client *goredis.Client) JTIBlocklistReposito
 }
 
 // BlockJTI inserts a JTI into the blocklist with the given TTL.
-// A zero TTL stores the key without expiry — use the token's remaining
-// lifetime as the TTL so revoked entries are self-expiring.
 func (r *redisJTIBlocklistRepository) BlockJTI(ctx context.Context, jti string, ttl time.Duration) error {
 	key := jtiKeyPrefix + jti
 	if err := r.client.Set(ctx, key, "1", ttl).Err(); err != nil {

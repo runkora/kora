@@ -137,19 +137,21 @@ type SessionRequest struct {
 }
 
 // SessionResponse is returned on successful session creation.
+// IssuedAt is expressed as Unix seconds (integer) per RFC 6749 / RFC 7519
+// convention — not an RFC 3339 string.
 type SessionResponse struct {
-	AccessToken  string    `json:"access_token"`
-	TokenType    string    `json:"token_type"`
-	ExpiresIn    int       `json:"expires_in"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	IssuedAt     time.Time `json:"issued_at"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	IssuedAt     int64  `json:"issued_at"` // Unix seconds
 }
 
-// ExchangeRequest is the body for POST /identity/exchange (SVID → platform token).
-// In production the SVID is presented via mTLS by the Envoy sidecar; this body
-// field is used for local development and testing only.
+// ExchangeRequest is the body for POST /identity/exchange (SPIFFE → platform token).
+// The caller's SPIFFE identity is extracted from the Envoy-injected
+// x-forwarded-client-cert (XFCC) header — agents never supply SVID material
+// in the request body (ADR-0010, ADR-0011).
 type ExchangeRequest struct {
-	SVID     string `json:"svid"`
 	TenantID string `json:"tenant_id"`
 }
 

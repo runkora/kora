@@ -128,10 +128,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
 
-	// In local development the StubSVIDValidator is used — no SPIRE required.
-	// Production deployments replace this with a real SVID validator backed by
-	// the SPIRE workload API (ADR-0010).
-	svidValidator := &identity.StubSVIDValidator{}
+	// XFCCPrincipalExtractor reads the Envoy-injected x-forwarded-client-cert
+	// header after mTLS termination. In local development, callers simply set
+	// the header directly — no stub or special dev path needed
+	// (ADR-0010, ADR-0011, ADR-0015).
+	extractor := &identity.XFCCPrincipalExtractor{}
 
 	identitySvc, err := identity.NewService(
 		ctx,
@@ -139,7 +140,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		sessionRepo,
 		refreshRepo,
 		blocklist,
-		svidValidator,
+		extractor,
 		logger,
 	)
 	if err != nil {

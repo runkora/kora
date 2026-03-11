@@ -30,16 +30,16 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 // Route map:
 //
-//	POST   /identity/device          Initiate a Device Authorization Grant flow.
-//	POST   /identity/session         Complete device flow poll OR exchange a refresh token.
-//	POST   /identity/exchange        Exchange a SPIFFE SVID for a platform session token.
-//	DELETE /identity/revoke          Revoke an access token or refresh token.
+//	POST   /identity/device                 Initiate a Device Authorization Grant flow.
+//	POST   /identity/session                Complete device flow poll OR exchange a refresh token.
+//	POST   /identity/exchange               Exchange a SPIFFE SVID for a platform session token.
+//	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
-	mux.Handle("DELETE /revoke", c.handleRevoke)
+	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
 }
 
@@ -161,10 +161,14 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
-// handleExchange exchanges a SPIFFE SVID for a platform session token.
-// In production, the SVID is presented via mTLS by the Envoy sidecar and this
-// endpoint is called transparently — the agent workload is identity-unaware.
-// In local development, the SVID field in the request body is used directly.
+// handleExchange extracts the caller's SPIFFE identity from the Envoy-injected
+// x-forwarded-client-cert (XFCC) header and issues a platform session token.
+// The agent workload is completely identity-unaware — it makes a plain HTTP
+// POST and the sidecar infrastructure supplies the cryptographic identity
+// (ADR-0010, ADR-0011, ADR-0015).
+//
+// The request body carries only tenant_id, which is required so the platform
+// can scope the issued token to the correct tenant context.
 func (c *Controller) handleExchange(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -173,22 +177,22 @@ func (c *Controller) handleExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.SVID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "svid is required", map[string]interface{}{
-			"field": "svid",
+	if req.TenantID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]interface{}{
+			"field": "tenant_id",
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	resp, err := c.svc.ExchangeSVID(ctx, req)
+	resp, err := c.svc.ExchangeSVID(ctx, r, req.TenantID)
 	if err != nil {
-		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "SVID validation failed", nil)
+		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "identity extraction failed", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 
-	c.logger.Info(ctx, "SVID exchanged for platform token",
+	c.logger.Info(ctx, "SPIFFE identity exchanged for platform token",
 		logging.Field{Key: "tenant_id", Value: req.TenantID},
 	)
 
@@ -196,6 +200,7 @@ func (c *Controller) handleExchange(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRevoke revokes an access token or refresh token.
+// Uses POST per RFC 7009 §2.1.
 func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -246,7 +251,7 @@ func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(c.svc.JWKSJson()); err != nil {
+	if _, err := w.Write(c.svc.JWKSJSON()); err != nil {
 		c.logger.Error(ctx, "failed to write JWKS response",
 			logging.Field{Key: "error", Value: err.Error()},
 		)

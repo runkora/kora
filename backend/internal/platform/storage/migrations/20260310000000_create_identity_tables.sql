@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS identity_sessions (
     revoked_at      TIMESTAMPTZ                             -- NULL = active
 );
 
-CREATE INDEX IF NOT EXISTS idx_identity_sessions_jti
-    ON identity_sessions (jti);
+-- idx_identity_sessions_jti is intentionally absent: the UNIQUE constraint on
+-- jti already creates a B-tree index. A redundant explicit index was removed.
 
 CREATE INDEX IF NOT EXISTS idx_identity_sessions_principal_id
     ON identity_sessions (principal_id, tenant_id);
@@ -62,7 +62,6 @@ DROP TABLE IF EXISTS identity_refresh_tokens;
 
 DROP INDEX IF EXISTS idx_identity_sessions_expires_at;
 DROP INDEX IF EXISTS idx_identity_sessions_principal_id;
-DROP INDEX IF EXISTS idx_identity_sessions_jti;
 DROP TABLE IF EXISTS identity_sessions;
 
 -- +goose StatementEnd
