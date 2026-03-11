@@ -8,7 +8,7 @@ on:
 
 # Tool versions — keep in sync with pinned versions in Makefile.
 env:
-  GOLANGCI_LINT_VERSION: v2.7.0
+  GOLANGCI_LINT_VERSION: v2.11.3
   GITLEAKS_VERSION: v8.27.2
 
 jobs:
