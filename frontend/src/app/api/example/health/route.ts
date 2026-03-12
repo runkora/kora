@@ -17,7 +17,7 @@ export async function GET() {
   } catch (err) {
     if (err instanceof ApiError) {
       return NextResponse.json(
-        { error: { code: err.status, message: err.message } },
+        { error: { code: err.code, message: err.message } },
         { status: err.status },
       );
     }

@@ -151,7 +151,7 @@ See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for de
 
 ## Frontend Rules
 
-- **`server-only` guard**: Every module under `frontend/src/server/` must have `import "server-only"` after its JSDoc block, before any other imports.
+- **`server-only` guard**: Every server-side module must have `import "server-only"` after its JSDoc block, before any other imports. This includes all modules under `frontend/src/server/` **and** all route handlers under `frontend/src/app/api/`. Explicit labelling is preferred over relying on framework file-location conventions.
 - **BFF boundary**: Only `src/app/api/` route handlers may import from `@/server/`. Pages and components must fetch via `/api/*`.
 
 ## Templates and Documentation

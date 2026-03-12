@@ -58,17 +58,22 @@ function buildUrl(path: string): string {
 
 async function request<T>(
   path: string,
-  options: { headers?: Record<string, string> } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<T> {
-  const { headers: extraHeaders = {} } = options;
+  const { method = "GET", body, headers: extraHeaders = {} } = options;
 
   const response = await fetch(buildUrl(path), {
-    method: "GET",
+    method,
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
       ...extraHeaders,
     },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
     // Disable Next.js data cache — control caching explicitly at the UI layer.
     cache: "no-store",
   });
@@ -96,4 +101,10 @@ async function request<T>(
 export const orbitClient = {
   get: <T>(path: string, headers?: Record<string, string>) =>
     request<T>(path, { headers }),
+  post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
+    request<T>(path, { method: "POST", body, headers }),
+  patch: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
+    request<T>(path, { method: "PATCH", body, headers }),
+  delete: <T>(path: string, headers?: Record<string, string>) =>
+    request<T>(path, { method: "DELETE", headers }),
 };

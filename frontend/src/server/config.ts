@@ -29,6 +29,9 @@ export const config = {
 
   /**
    * Secret used to sign/verify session tokens.
+   * Lazy — only validated when the session layer first accesses it.
    */
-  sessionSecret: requireEnv("BFF_SESSION_SECRET", { minLength: 32 }),
+  get sessionSecret() {
+    return requireEnv("BFF_SESSION_SECRET", { minLength: 32 });
+  },
 } as const;

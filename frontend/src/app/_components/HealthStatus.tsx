@@ -18,7 +18,8 @@ export function HealthStatus() {
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
-    fetch("/api/example/health")
+    const controller = new AbortController();
+    fetch("/api/example/health", { signal: controller.signal })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok || body.error) {
@@ -27,7 +28,11 @@ export function HealthStatus() {
           setState({ status: "ok", data: body.data as HealthResponse });
         }
       })
-      .catch(() => setState({ status: "error" }));
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setState({ status: "error" });
+      });
+    return () => controller.abort();
   }, []);
 
   return (
