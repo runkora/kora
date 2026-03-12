@@ -80,10 +80,10 @@ async function request<T>(
 
   // The Go backend returns raw JSON — no envelope wrapper.
   // On error the body is { code, message, details? } at the top level.
-  const json = await response.json().catch(() => ({}));
-
   if (!response.ok) {
-    const err = json as BackendError;
+    // Swallow JSON parse failures on error responses — fall back to statusText.
+    const errJson = await response.json().catch(() => ({}));
+    const err = errJson as BackendError;
     throw new ApiError(
       response.status,
       err.code ?? "UNKNOWN",
@@ -91,7 +91,9 @@ async function request<T>(
     );
   }
 
-  return json as T;
+  // For success responses let JSON parse errors surface — a non-JSON 2xx body
+  // is unexpected and should not be silently coerced to an empty object.
+  return (await response.json()) as T;
 }
 
 // ---------------------------------------------------------------------------

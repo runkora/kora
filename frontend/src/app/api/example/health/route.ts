@@ -23,7 +23,7 @@ export async function GET() {
     }
     console.error("[api/example/health] unexpected error:", err);
     return NextResponse.json(
-      { error: { code: 502, message: "Backend unreachable" } },
+      { error: { code: "BACKEND_UNREACHABLE", message: "Backend unreachable" } },
       { status: 502 },
     );
   }
