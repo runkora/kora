@@ -44,7 +44,7 @@ func newTestControllerWithOIDC(t *testing.T, issuerURL string) *Controller {
 }
 
 // postJSON performs an HTTP POST with a JSON body against the given handler.
-func postJSON(t *testing.T, handler http.HandlerFunc, body interface{}) *httptest.ResponseRecorder {
+func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -374,7 +374,7 @@ func TestHandleSession_RefreshToken_Success(t *testing.T) {
 
 // postJSONWithXFCC is like postJSON but also sets an x-forwarded-client-cert
 // header on the request, simulating the Envoy sidecar injection.
-func postJSONWithXFCC(t *testing.T, handler http.HandlerFunc, body interface{}, xfcc string) *httptest.ResponseRecorder {
+func postJSONWithXFCC(t *testing.T, handler http.HandlerFunc, body any, xfcc string) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -561,7 +561,7 @@ func TestHandleRevoke_UnsupportedTokenType_Returns400(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
 	}
-	var body map[string]interface{}
+	var body map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestHandleJWKS_CacheControlHeader(t *testing.T) {
 func TestHandleJWKS_ValidJSON(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
-	var body map[string]interface{}
+	var body map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("JWKS response is not valid JSON: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestHandleJWKS_ContainsKeys(t *testing.T) {
 	c, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	var body struct {
-		Keys []interface{} `json:"keys"`
+		Keys []any `json:"keys"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("decode JWKS: %v", err)

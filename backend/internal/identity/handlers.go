@@ -57,7 +57,7 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 	}
 
 	if req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]any{
 			"field": "tenant_id",
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -105,14 +105,14 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	switch req.GrantType {
 	case "urn:ietf:params:oauth:grant-type:device_code":
 		if req.TenantID == "" {
-			apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required for device_code grant", map[string]interface{}{
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required for device_code grant", map[string]any{
 				"field": "tenant_id",
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 		if req.DeviceCode == "" {
-			apiErr := api.ValidationError(api.ErrCodeMissingField, "device_code is required for device_code grant", map[string]interface{}{
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "device_code is required for device_code grant", map[string]any{
 				"field": "device_code",
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -122,7 +122,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 
 	case "refresh_token":
 		if req.RefreshToken == "" {
-			apiErr := api.ValidationError(api.ErrCodeMissingField, "refresh_token is required for refresh_token grant", map[string]interface{}{
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "refresh_token is required for refresh_token grant", map[string]any{
 				"field": "refresh_token",
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -131,7 +131,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 		resp, err = c.svc.RefreshSession(ctx, req)
 
 	case "":
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "grant_type is required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "grant_type is required", map[string]any{
 			"field":           "grant_type",
 			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"},
 		})
@@ -139,7 +139,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 
 	default:
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported grant_type", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported grant_type", map[string]any{
 			"grant_type":      req.GrantType,
 			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"},
 		})
@@ -206,14 +206,14 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Token == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "token is required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "token is required", map[string]any{
 			"field": "token",
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 	if req.TokenType == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "token_type_hint is required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "token_type_hint is required", map[string]any{
 			"field":           "token_type_hint",
 			"supported_types": []string{"access_token", "refresh_token"},
 		})
@@ -224,7 +224,7 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	if err := c.svc.RevokeToken(ctx, req); err != nil {
 		switch {
 		case errors.Is(err, ErrUnsupportedTokenType):
-			apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported token_type_hint: expected access_token or refresh_token", map[string]interface{}{
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported token_type_hint: expected access_token or refresh_token", map[string]any{
 				"field":           "token_type_hint",
 				"supported_types": []string{"access_token", "refresh_token"},
 			})
@@ -290,7 +290,7 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 
 	case errors.Is(err, ErrDeviceCodeExpired):
-		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "device code has expired — start a new device flow", map[string]interface{}{
+		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "device code has expired — start a new device flow", map[string]any{
 			"field": "device_code",
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

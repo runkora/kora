@@ -10,9 +10,9 @@ func TestFieldCreation(t *testing.T) {
 	tests := []struct {
 		name    string
 		key     string
-		value   interface{}
+		value   any
 		wantKey string
-		wantVal interface{}
+		wantVal any
 	}{
 		{
 			name:    "string field",

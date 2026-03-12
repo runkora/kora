@@ -66,8 +66,8 @@ func (x *XFCCPrincipalExtractor) Extract(r *http.Request) (*Principal, error) {
 func parseXFCCSpiffeURI(xfcc string) (string, error) {
 	// Each XFCC entry is semicolon-delimited; multiple entries are
 	// comma-separated. We only need the first SPIFFE URI found.
-	for _, entry := range strings.Split(xfcc, ",") {
-		for _, field := range strings.Split(strings.TrimSpace(entry), ";") {
+	for entry := range strings.SplitSeq(xfcc, ",") {
+		for field := range strings.SplitSeq(strings.TrimSpace(entry), ";") {
 			field = strings.TrimSpace(field)
 			if after, ok := strings.CutPrefix(field, "URI="); ok {
 				uri := strings.TrimSpace(after)

@@ -124,8 +124,8 @@ func (l *zerologLogger) logWithContext(
 // The map is sized exactly to the number of fields to minimize allocations.
 //
 // TODO: Consider using sync.Pool for map allocation in high-throughput scenarios
-func convertFields(fields []Field) map[string]interface{} {
-	m := make(map[string]interface{}, len(fields))
+func convertFields(fields []Field) map[string]any {
+	m := make(map[string]any, len(fields))
 	for _, f := range fields {
 		m[f.Key] = f.Value
 	}

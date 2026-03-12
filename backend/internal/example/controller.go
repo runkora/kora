@@ -89,7 +89,7 @@ func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 
 	// Validate required field
 	if req.Message == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "message field is required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "message field is required", map[string]any{
 			"field": "message",
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -100,7 +100,7 @@ func (c *Controller) handleEcho(w http.ResponseWriter, r *http.Request) {
 		logging.Field{Key: "message", Value: req.Message},
 	)
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"echo":   req.Message,
 		"length": len(req.Message),
 	})
@@ -118,7 +118,7 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	user, err := c.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		if err == ErrUserNotFound {
-			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "user not found", map[string]interface{}{
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "user not found", map[string]any{
 				"user_id": userID,
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -134,7 +134,7 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		logging.Field{Key: "user_id", Value: userID},
 	)
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"id":         user.ID,
 		"email":      user.Email,
 		"created_at": user.CreatedAt,
@@ -174,7 +174,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			attribute.StringSlice("app.error.fields", missingFields),
 		)
 
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "id and email fields are required", map[string]interface{}{
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "id and email fields are required", map[string]any{
 			"missing_fields": missingFields,
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -198,7 +198,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 				attribute.String("app.error.code", api.ErrCodeResourceExists),
 			)
 
-			apiErr := api.ConflictError(api.ErrCodeResourceExists, "user already exists", map[string]interface{}{
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "user already exists", map[string]any{
 				"user_id": req.ID,
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -216,7 +216,7 @@ func (c *Controller) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		logging.Field{Key: "email", Value: user.Email},
 	)
 
-	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]interface{}{
+	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{
 		"id":         user.ID,
 		"email":      user.Email,
 		"created_at": user.CreatedAt,

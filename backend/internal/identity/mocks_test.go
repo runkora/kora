@@ -224,7 +224,7 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer":                                base,
 			"authorization_endpoint":                base + "/authorize",
 			"device_authorization_endpoint":         base + "/device",
@@ -237,7 +237,7 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 	})
 	mux.HandleFunc("/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
 	})
 	mux.HandleFunc("/device", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

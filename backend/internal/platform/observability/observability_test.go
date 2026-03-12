@@ -150,7 +150,7 @@ func TestSetupDefaultSamplingRate(t *testing.T) {
 
 	const totalSpans = 1000
 	sampled := 0
-	for i := 0; i < totalSpans; i++ {
+	for range totalSpans {
 		_, span := tracer.Start(ctx, "test-span-default-sampling")
 		if span.SpanContext().IsSampled() {
 			sampled++
