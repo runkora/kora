@@ -294,7 +294,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 - **shadcn/ui CLI** (`npx shadcn@latest init`): Used once as a scaffolding tool to generate Radix-based component boilerplate. Not a runtime dependency; no shadcn imports remain in committed code. Requires Tailwind v4 compatible version.
 - **Radix UI** (`@radix-ui/react-*`): Accessibility primitives that underpin all Terra components; installed as runtime deps of `packages/terra/`.
-- **class-variance-authority (cva)**: Variant management for components; dep of `packages/terra/`.
+- **class-variance-authority (cva)**: Variant management for components; dep of `packages/terra/`. CVA is a first-class part of the shadcn/ui ecosystem — every shadcn component uses it by convention, meaning AI tooling (Forge, v0.dev) is well-trained on the pattern and generates correct CVA-based variant schemas reliably.
 - **clsx + tailwind-merge**: Class utility composition; deps of `packages/terra/`.
 - **Lucide React**: Icon library used by shadcn components; dep of `packages/terra/`.
 - **Storybook** (`@storybook/react`, `@storybook/react-vite`): Isolated component development environment; dev dep of `packages/terra/`. Version 8.x required for Tailwind v4 compatibility.
