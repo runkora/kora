@@ -50,6 +50,10 @@ interface BackendError {
 // Core fetch helper
 // ---------------------------------------------------------------------------
 
+/** Upstream request timeout (ms). Prevents a stalled Go backend from holding
+ *  the BFF worker indefinitely. AbortSignal.timeout() requires Node 18+. */
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
 function buildUrl(path: string): string {
   const base = config.orbitApiUrl.replace(/\/$/, "");
   const normalizedPath = path.replace(/^\//, "");
@@ -69,13 +73,15 @@ async function request<T>(
   const response = await fetch(buildUrl(path), {
     method,
     headers: {
-      "Content-Type": "application/json",
+      // Only set Content-Type when there is a body — GET/DELETE have none.
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       Accept: "application/json",
       ...extraHeaders,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     // Disable Next.js data cache — control caching explicitly at the UI layer.
     cache: "no-store",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
 
   // The Go backend returns raw JSON — no envelope wrapper.
