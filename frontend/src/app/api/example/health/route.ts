@@ -21,9 +21,19 @@ export async function GET() {
         { status: err.status },
       );
     }
-    console.error("[api/example/health] unexpected error:", err);
+    const isTimeout =
+      err instanceof DOMException && err.name === "TimeoutError";
+    console.error(
+      `[api/example/health] ${isTimeout ? "timeout" : "unexpected error"}:`,
+      err,
+    );
     return NextResponse.json(
-      { error: { code: "BACKEND_UNREACHABLE", message: "Backend unreachable" } },
+      {
+        error: {
+          code: isTimeout ? "BACKEND_TIMEOUT" : "BACKEND_UNREACHABLE",
+          message: isTimeout ? "Backend timed out" : "Backend unreachable",
+        },
+      },
       { status: 502 },
     );
   }
