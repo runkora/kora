@@ -50,13 +50,19 @@ interface BackendError {
 // Core fetch helper
 // ---------------------------------------------------------------------------
 
+function buildUrl(path: string): string {
+  const base = config.orbitApiUrl.replace(/\/$/, "");
+  const normalizedPath = path.replace(/^\//, "");
+  return `${base}/${normalizedPath}`;
+}
+
 async function request<T>(
   path: string,
   options: { headers?: Record<string, string> } = {},
 ): Promise<T> {
   const { headers: extraHeaders = {} } = options;
 
-  const response = await fetch(`${config.orbitApiUrl}${path}`, {
+  const response = await fetch(buildUrl(path), {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
