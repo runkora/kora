@@ -127,7 +127,7 @@ if [ $? -ne 0 ]; then
   echo "    docker compose ps dex"
   echo ""
   exit 1
-}
+fi
 
 # Check for API-level error response
 if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then

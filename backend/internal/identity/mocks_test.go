@@ -267,6 +267,10 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 // signing key. This is valid because APP_ENV defaults to "local".
 func newTestService(t *testing.T, sessions SessionRepository, refreshTokens RefreshTokenRepository, blocklist JTIBlocklistRepository) *Service {
 	t.Helper()
+	// Unset signing key env vars to force ephemeral key generation in tests.
+	// This ensures tests don't depend on the local dev signing key file.
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
 	cfg := &Config{
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
@@ -298,6 +302,10 @@ func newTestServiceWithOIDC(
 	blocklist JTIBlocklistRepository,
 ) *Service {
 	t.Helper()
+	// Unset signing key env vars to force ephemeral key generation in tests.
+	// This ensures tests don't depend on the local dev signing key file.
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
 	cfg := &Config{
 		OIDC: OIDCConfig{
 			IssuerURL: issuerURL,
