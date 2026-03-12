@@ -1,0 +1,342 @@
+# Terra — Orbit Design System
+
+**`@orbit/terra`** · `packages/terra/`
+
+---
+
+*Terra* is Latin for earth — the destination of every orbital descent. Terra firma means solid ground. The design system is the solid, stable visual foundation that everything in Orbit lands on: the tokens, components, and visual language that carry the platform experience from the control plane down to the user's screen.
+
+---
+
+## Overview
+
+Terra is a monorepo workspace package. It lives at `packages/terra/` alongside the Orbit frontend and is consumed via the pnpm workspace protocol:
+
+```json
+"@orbit/terra": "workspace:*"
+```
+
+Changes to Terra are reflected immediately in the consuming app — no build step, no publish cycle.
+
+Terra is built on:
+- **[Radix UI](https://www.radix-ui.com/primitives)** — unstyled, accessibility-first React primitives (focus management, keyboard navigation, ARIA)
+- **[Tailwind CSS v4](https://tailwindcss.com/)** — utility-first styling with a semantic token layer
+- **[Storybook](https://storybook.js.org/)** — isolated component development and living documentation
+
+> **On shadcn/ui:** The shadcn CLI is used once during development to scaffold initial Radix-based component boilerplate. It is not a runtime dependency — all shadcn-specific imports and references are stripped immediately after generation. The resulting components are Terra-native.
+
+---
+
+## Getting Started
+
+### Run Storybook (isolated component development)
+
+```bash
+cd packages/terra
+pnpm storybook
+```
+
+Storybook runs entirely in isolation — no Next.js app, no backend, no application code involved. This is the primary environment for building and reviewing components.
+
+### Use components in the frontend
+
+```tsx
+import { Button, Card, CardContent, Badge } from "@orbit/terra"
+
+export default function AgentCard() {
+  return (
+    <Card>
+      <CardContent>
+        <Badge variant="healthy">Running</Badge>
+        <Button variant="ghost">View logs</Button>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+### Use the `cn()` utility
+
+```tsx
+import { cn } from "@orbit/terra"
+
+<div className={cn("base-class", isActive && "active-class")} />
+```
+
+---
+
+## Design Tokens
+
+Terra's visual vocabulary is defined as semantic CSS custom properties in `src/tokens.css`. All tokens are mapped into Tailwind v4 via `@theme inline` and available as utility classes.
+
+**Never use arbitrary Tailwind shades** (e.g., `gray-950`, `blue-500`) in component code. Always reference a semantic token. If the right token doesn't exist yet, add it here first.
+
+### Color — Background & Surface
+
+| Token | Tailwind class | Purpose |
+|-------|---------------|---------|
+| `--color-background` | `bg-background` | Page/root background |
+| `--color-surface` | `bg-surface` | Card and panel backgrounds |
+| `--color-surface-elevated` | `bg-surface-elevated` | Elevated panels, popovers, dropdowns |
+| `--color-surface-overlay` | `bg-surface-overlay` | Modal backdrops |
+
+### Color — Text
+
+| Token | Tailwind class | Purpose |
+|-------|---------------|---------|
+| `--color-foreground` | `text-foreground` | Primary text |
+| `--color-muted` | `text-muted` | Secondary/supporting text |
+| `--color-subtle` | `text-subtle` | Placeholder, disabled text |
+
+### Color — Accent & Brand
+
+| Token | Tailwind class | Purpose |
+|-------|---------------|---------|
+| `--color-accent` | `text-accent` / `bg-accent` | Primary interactive color |
+| `--color-accent-hover` | `bg-accent-hover` | Hover state for accent elements |
+| `--color-accent-foreground` | `text-accent-foreground` | Text on accent backgrounds |
+
+### Color — Border
+
+| Token | Tailwind class | Purpose |
+|-------|---------------|---------|
+| `--color-border` | `border-border` | Default borders |
+| `--color-border-subtle` | `border-border-subtle` | Subtle/inset borders |
+| `--color-border-accent` | `border-border-accent` | Focus rings, active borders |
+
+### Color — Status
+
+Status tokens represent agent, policy, and system health states. Use these consistently so operators can read UI state at a glance.
+
+| Token | Tailwind class | Meaning |
+|-------|---------------|---------|
+| `--color-status-healthy` | `text-status-healthy` | Operational, running, passing |
+| `--color-status-degraded` | `text-status-degraded` | Degraded, warning, slow |
+| `--color-status-error` | `text-status-error` | Failed, blocked, critical |
+| `--color-status-idle` | `text-status-idle` | Inactive, paused, standby |
+| `--color-status-pending` | `text-status-pending` | Queued, starting, in-progress |
+
+Background variants (e.g., `bg-status-healthy-subtle`) are available for badge and chip backgrounds.
+
+### Typography
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--font-sans` | Geist Sans | Body text, UI labels |
+| `--font-mono` | Geist Mono | Agent IDs, policy names, code, identifiers |
+
+Use `font-mono` for any value that represents a system identifier — agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
+
+### Border Radius
+
+| Token | Tailwind class | Purpose |
+|-------|---------------|---------|
+| `--radius-sm` | `rounded-sm` | Tight elements (badges, tags) |
+| `--radius-md` | `rounded-md` | Cards, inputs, buttons |
+| `--radius-lg` | `rounded-lg` | Modals, large panels |
+
+### Shadows — none
+
+**Terra is intentionally flat.** No shadow tokens are defined and no `shadow-*` utility classes should be used in components. Depth and hierarchy are expressed through:
+
+- **Background lightness** — `background` → `surface` → `surface-elevated` tokens create visual layering
+- **Borders** — `border-border` and `border-border-subtle` separate surfaces without adding drop shadows
+- **Spacing** — vertical rhythm and padding communicate structure
+
+---
+
+## Components
+
+Each component lives in its own named folder under `src/components/`. The folder contains the component file, a co-located Storybook story, and an `index.ts` that re-exports the public API — e.g. `src/components/card/card.tsx`, `src/components/card/card.stories.tsx`, `src/components/card/index.ts`. There is no enforced subdirectory hierarchy beyond this — atomic design (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity, not a directory structure.
+
+| Component | Import | Notes |
+|-----------|--------|-------|
+| `Button` | `@orbit/terra` | Variants: `default`, `secondary`, `ghost`, `outline`, `destructive` |
+| `Badge` | `@orbit/terra` | Variants: standard + status (`healthy`, `degraded`, `error`, `idle`, `pending`) |
+| `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | `@orbit/terra` | All exported from a single `card.tsx` file |
+| `Input` | `@orbit/terra` | Text input, Radix-based |
+| `Label` | `@orbit/terra` | Form label, associates with inputs |
+| `Separator` | `@orbit/terra` | Horizontal/vertical divider |
+| `Skeleton` | `@orbit/terra` | Loading placeholder |
+| `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider` | `@orbit/terra` | Radix Tooltip with Terra-token styling |
+| `PageLayout` | `@orbit/terra` | Root page wrapper — applies background, font, padding |
+| `Section` | `@orbit/terra` | Content section with consistent vertical rhythm |
+| *(more added as features are built)* | | |
+
+### Button variants
+
+```tsx
+<Button>Default</Button>
+<Button variant="secondary">Secondary</Button>
+<Button variant="ghost">Ghost</Button>
+<Button variant="outline">Outline</Button>
+<Button variant="destructive">Destructive</Button>
+```
+
+### Badge variants
+
+Standard:
+```tsx
+<Badge>Default</Badge>
+<Badge variant="secondary">Secondary</Badge>
+<Badge variant="outline">Outline</Badge>
+<Badge variant="destructive">Destructive</Badge>
+```
+
+Status (use for agent/policy/system states):
+```tsx
+<Badge variant="healthy">Running</Badge>
+<Badge variant="degraded">Degraded</Badge>
+<Badge variant="error">Failed</Badge>
+<Badge variant="idle">Idle</Badge>
+<Badge variant="pending">Starting</Badge>
+```
+
+---
+
+## Package Structure
+
+```
+packages/terra/
+├── src/
+│   ├── components/
+│   │   ├── button/
+│   │   │   ├── button.tsx
+│   │   │   ├── button.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── badge/
+│   │   │   ├── badge.tsx
+│   │   │   ├── badge.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── card/
+│   │   │   ├── card.tsx          # Exports Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+│   │   │   ├── card.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── input/
+│   │   │   ├── input.tsx
+│   │   │   ├── input.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── label/
+│   │   │   ├── label.tsx
+│   │   │   ├── label.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── separator/
+│   │   │   ├── separator.tsx
+│   │   │   ├── separator.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── skeleton/
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── skeleton.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── tooltip/
+│   │   │   ├── tooltip.tsx
+│   │   │   ├── tooltip.stories.tsx
+│   │   │   └── index.ts
+│   │   ├── page-layout/
+│   │   │   ├── page-layout.tsx
+│   │   │   ├── page-layout.stories.tsx
+│   │   │   └── index.ts
+│   │   └── section/
+│   │       ├── section.tsx
+│   │       ├── section.stories.tsx
+│   │       └── index.ts
+│   ├── lib/
+│   │   └── utils.ts              # cn() utility (clsx + tailwind-merge)
+│   ├── tokens.css                # Design token definitions (@theme block)
+│   └── index.ts                  # Public API — all exports live here
+├── .storybook/                   # Storybook configuration
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+---
+
+## Adding a New Component
+
+### Step 1 — Scaffold (optional)
+
+If the component has a Radix UI primitive, use the shadcn CLI to generate boilerplate:
+
+```bash
+cd packages/terra
+npx shadcn@latest add <component-name>
+```
+
+**Immediately after generating:**
+1. Create the component folder: `src/components/<name>/`
+2. Move the generated file into it and rename to `<name>.tsx`
+3. Fix the import path for `cn` (e.g., `@/lib/utils` → `../../lib/utils`)
+4. Verify no reference to `shadcn`, `@/components/ui`, or `components.json` remains
+
+If there is no shadcn equivalent, write the component from scratch using Radix UI + Terra tokens directly.
+
+### Step 2 — Add an `index.ts`
+
+Each component folder exposes its public API via `index.ts`:
+
+```ts
+// src/components/card/index.ts
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./card"
+```
+
+### Step 3 — Export from the package public API
+
+All component exports are re-exported from the top-level `src/index.ts`:
+
+```ts
+export { Button } from "./components/button"
+export { Badge } from "./components/badge"
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./components/card"
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./components/tooltip"
+export { PageLayout } from "./components/page-layout"
+export { cn } from "./lib/utils"
+```
+
+### Step 4 — Add a Storybook story
+
+Every component must have at least one story co-located in the same folder:
+
+```
+src/components/button/button.stories.tsx
+src/components/card/card.stories.tsx
+```
+
+Stories are the primary way to review and document component variants. Run `pnpm storybook` to verify before committing.
+
+---
+
+## For AI Assistants
+
+When generating components for Orbit using Terra:
+
+1. **Import from `@orbit/terra`** — never import directly from internal paths like `src/components/button`
+2. **Use semantic token classes** — `bg-surface`, `text-foreground`, `text-muted`, `border-border`, `text-accent` — never arbitrary shades like `gray-800` or `blue-500`
+3. **Use `font-mono`** for any system identifier (agent IDs, policy names, event IDs, credential names)
+4. **Use status badge variants** for agent/policy health: `healthy`, `degraded`, `error`, `idle`, `pending`
+5. **Never use `shadow-*` classes** — Terra is a flat design system. Use `bg-surface-elevated` + `border-border` to distinguish layers instead
+6. **Use `cn()`** from `@orbit/terra` for conditional class composition
+7. **Check `src/index.ts`** for the current list of available exports before reaching for a new primitive
+
+---
+
+## Development Scripts
+
+```bash
+# Isolated component development
+pnpm storybook
+
+# Build package (for type checking)
+pnpm build
+
+# Type check
+pnpm typecheck
+```
+
+---
+
+## Related
+
+- [Design System PRD](../../docs/prd/design-system.md)
+- [Architecture Decision Record](../../docs/adr/) *(link once created)*
+- [Orbit Frontend](../../frontend/)
