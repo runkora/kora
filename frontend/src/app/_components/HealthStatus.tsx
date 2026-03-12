@@ -30,6 +30,7 @@ export function HealthStatus() {
       })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
+        console.error("[HealthStatus] fetch failed:", err);
         setState({ status: "error" });
       });
     return () => controller.abort();
