@@ -7,10 +7,15 @@
  */
 import "server-only";
 
-function requireEnv(key: string): string {
+function requireEnv(key: string, options?: { minLength?: number }): string {
   const value = process.env[key];
   if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
+  }
+  if (options?.minLength !== undefined && value.length < options.minLength) {
+    throw new Error(
+      `Environment variable ${key} must be at least ${options.minLength} characters`,
+    );
   }
   return value;
 }
@@ -25,5 +30,5 @@ export const config = {
   /**
    * Secret used to sign/verify session tokens.
    */
-  sessionSecret: requireEnv("BFF_SESSION_SECRET"),
+  sessionSecret: requireEnv("BFF_SESSION_SECRET", { minLength: 32 }),
 } as const;
