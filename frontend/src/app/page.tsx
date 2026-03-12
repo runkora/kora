@@ -14,6 +14,8 @@ async function getBackendHealth(): Promise<HealthResponse | null> {
   } catch (err) {
     if (err instanceof ApiError) {
       console.error("[page] health check failed:", err.status, err.message);
+    } else {
+      console.error("[page] unexpected health check error:", err);
     }
     return null;
   }
