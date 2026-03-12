@@ -22,6 +22,10 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -47,6 +51,7 @@ type Service struct {
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
 	logger        logging.Logger
+	tracer        trace.Tracer
 
 	// httpClient is used for all outbound OIDC requests. It is set to a
 	// sensible default in NewService and can be replaced in tests.
@@ -95,6 +100,7 @@ func NewService(
 		blocklist:     blocklist,
 		extractor:     extractor,
 		logger:        logger,
+		tracer:        otel.Tracer("orbit.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 	}
 
@@ -231,7 +237,17 @@ func parseDeviceTokenError(body []byte) error {
 // endpoint for a device_code grant. It maps provider error codes to sentinel
 // errors so the caller can decide whether to retry or surface the failure.
 func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.PollDeviceAuth",
+		trace.WithAttributes(
+			attribute.String("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+			attribute.String("tenant_id", req.TenantID),
+		),
+	)
+	defer span.End()
+
 	if err := s.requireOIDC(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "OIDC not configured")
 		return nil, err
 	}
 
@@ -246,6 +262,8 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "token endpoint request failed")
 		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", s.oidcMeta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
@@ -257,10 +275,15 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	// OAuth2 error responses use 4xx status codes.
 	if resp.StatusCode != http.StatusOK {
+		span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
 		if sentinelErr := parseDeviceTokenError(body); sentinelErr != nil {
+			recordDeviceAuthError(span, sentinelErr)
 			return nil, sentinelErr
 		}
-		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+		unexpectedErr := fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
+		span.RecordError(unexpectedErr)
+		span.SetStatus(codes.Error, "unexpected status code")
+		return nil, unexpectedErr
 	}
 
 	var tokenResp struct {
@@ -278,6 +301,8 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		ClientID: s.cfg.OIDC.ClientID,
 	}).Verify(ctx, tokenResp.IDToken)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "id_token verification failed")
 		return nil, fmt.Errorf("verify id token: %w", err)
 	}
 
@@ -288,8 +313,16 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "claims extraction failed")
 		return nil, fmt.Errorf("extract id token claims: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("principal.id", claims.Sub),
+		attribute.String("principal.type", string(PrincipalTypeHuman)),
+		attribute.String("identity.source", string(IdentitySourceFederated)),
+	)
 
 	displayName := claims.Name
 	if displayName == "" {
@@ -320,8 +353,18 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 // RefreshSession exchanges a valid refresh token for a new access token and
 // rotates the refresh token (old token is revoked, new token issued).
 func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.RefreshSession",
+		trace.WithAttributes(
+			attribute.String("grant_type", "refresh_token"),
+		),
+	)
+	defer span.End()
+
 	if req.RefreshToken == "" {
-		return nil, fmt.Errorf("refresh_token is required")
+		err := fmt.Errorf("refresh_token is required")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "missing refresh_token")
+		return nil, err
 	}
 
 	hash := hashToken(req.RefreshToken)
@@ -329,31 +372,55 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "refresh_token not found")
 			return nil, ErrRefreshTokenNotFound
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "database error")
 		return nil, fmt.Errorf("get refresh token: %w", err)
 	}
 
 	if rt.RevokedAt != nil {
+		span.RecordError(ErrRefreshTokenRevoked)
+		span.SetStatus(codes.Error, "refresh_token revoked")
 		return nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
+		span.RecordError(ErrRefreshTokenExpired)
+		span.SetStatus(codes.Error, "refresh_token expired")
 		return nil, ErrRefreshTokenExpired
 	}
 
 	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "session not found")
 			return nil, ErrSessionNotFound
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "database error")
 		return nil, fmt.Errorf("get session: %w", err)
 	}
 	if session.RevokedAt != nil {
+		span.RecordError(ErrTokenRevoked)
+		span.SetStatus(codes.Error, "session revoked")
 		return nil, ErrTokenRevoked
 	}
 
+	span.SetAttributes(
+		attribute.String("session.id", session.ID),
+		attribute.String("principal.id", session.PrincipalID),
+		attribute.String("principal.type", string(session.PrincipalType)),
+		attribute.String("tenant_id", session.TenantID),
+		attribute.String("identity.source", string(session.IdentitySource)),
+	)
+
 	// Revoke the used refresh token (rotation).
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "refresh token rotation failed")
 		return nil, fmt.Errorf("rotate refresh token: %w", err)
 	}
 
@@ -379,10 +446,23 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 // The XFCC header is written by Envoy after mTLS termination and cannot be
 // forged by the calling workload (ADR-0010, ADR-0011, ADR-0015).
 func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.ExchangeSVID")
+	defer span.End()
+
 	principal, err := s.extractor.Extract(r)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "principal extraction failed")
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("principal.id", principal.ID),
+		attribute.String("principal.type", string(principal.Type)),
+		attribute.String("tenant_id", principal.TenantID),
+		attribute.String("identity.source", string(principal.IdentitySource)),
+	)
+
 	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
 	// the value attested by SPIRE and injected by Envoy after mTLS termination.
 	// Agent-supplied request body values cannot override the attested identity.
@@ -397,34 +477,70 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 //     session and all its refresh tokens are also revoked in PostgreSQL.
 //   - "refresh_token": only the specific refresh token record is revoked.
 func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
+	ctx, span := s.tracer.Start(ctx, "identity.RevokeToken",
+		trace.WithAttributes(
+			attribute.String("token_type", req.TokenType),
+		),
+	)
+	defer span.End()
+
 	switch req.TokenType {
 	case "access_token":
-		return s.revokeAccessToken(ctx, req.Token)
+		err := s.revokeAccessToken(ctx, req.Token)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "access_token revocation failed")
+		} else {
+			span.SetStatus(codes.Ok, "access_token revoked")
+		}
+		return err
 	case "refresh_token":
-		return s.revokeRefreshToken(ctx, req.Token)
+		err := s.revokeRefreshToken(ctx, req.Token)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "refresh_token revocation failed")
+		} else {
+			span.SetStatus(codes.Ok, "refresh_token revoked")
+		}
+		return err
 	default:
-		return fmt.Errorf("unsupported token_type %q: %w", req.TokenType, ErrUnsupportedTokenType)
+		err := fmt.Errorf("unsupported token_type %q: %w", req.TokenType, ErrUnsupportedTokenType)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "unsupported token_type")
+		return err
 	}
 }
 
 func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
+	ctx, span := s.tracer.Start(ctx, "identity.revokeAccessToken")
+	defer span.End()
+
 	claims, err := s.parseToken(token)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid token")
 		return ErrInvalidToken
 	}
 
 	jti := claims.ID
 	if jti == "" {
+		span.RecordError(ErrInvalidToken)
+		span.SetStatus(codes.Error, "missing jti")
 		return ErrInvalidToken
 	}
+
+	span.SetAttributes(attribute.String("jti", jti))
 
 	expiry, err := claims.GetExpirationTime()
 	if err == nil && expiry != nil {
 		ttl := time.Until(expiry.Time)
 		if ttl > 0 {
 			if blockErr := s.blocklist.BlockJTI(ctx, jti, ttl); blockErr != nil {
+				span.RecordError(blockErr)
+				span.SetStatus(codes.Error, "blocklist operation failed")
 				return fmt.Errorf("block jti: %w", blockErr)
 			}
+			span.SetAttributes(attribute.Int64("jti.ttl_seconds", int64(ttl.Seconds())))
 		}
 	}
 
@@ -433,42 +549,66 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
 			// Session already gone — blocklist entry is sufficient.
+			span.SetStatus(codes.Ok, "jti blocked (session already revoked)")
 			return nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "database error")
 		return fmt.Errorf("get session by jti: %w", err)
 	}
 
+	span.SetAttributes(attribute.String("session.id", session.ID))
+
 	now := time.Now()
 	if rErr := s.refreshTokens.RevokeAllForSession(ctx, session.ID, now); rErr != nil {
+		span.RecordError(rErr)
+		span.SetStatus(codes.Error, "refresh token revocation failed")
 		return fmt.Errorf("revoke refresh tokens for session: %w", rErr)
 	}
 	if rErr := s.sessions.RevokeSession(ctx, session.ID, now); rErr != nil {
 		if !errors.Is(rErr, ErrSessionNotFound) {
+			span.RecordError(rErr)
+			span.SetStatus(codes.Error, "session revocation failed")
 			return fmt.Errorf("revoke session: %w", rErr)
 		}
 	}
 
+	span.SetStatus(codes.Ok, "access_token revoked")
 	return nil
 }
 
 func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
+	ctx, span := s.tracer.Start(ctx, "identity.revokeRefreshToken")
+	defer span.End()
+
 	hash := hashToken(token)
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			// Token not found means it was never issued or already revoked.
 			// RFC 7009 §2.1 requires idempotent revocation — treat as success.
+			span.SetStatus(codes.Ok, "refresh_token not found (already revoked or never issued)")
 			return nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "database error")
 		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
+
+	span.SetAttributes(attribute.String("refresh_token.id", rt.ID))
+
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			// Concurrent revocation — already gone, still a success per RFC 7009.
+			span.SetStatus(codes.Ok, "refresh_token concurrently revoked")
 			return nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "revocation failed")
 		return err
 	}
+
+	span.SetStatus(codes.Ok, "refresh_token revoked")
 	return nil
 }
 
@@ -486,15 +626,33 @@ func (s *Service) JWKSJSON() []byte {
 // createSession (human, with refresh token) and createAgentSession (no refresh
 // token). Returns the session ID, signed access token, issue time, and TTL.
 func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
+	ctx, span := s.tracer.Start(ctx, "identity.buildAndPersistSession",
+		trace.WithAttributes(
+			attribute.String("principal.id", principal.ID),
+			attribute.String("principal.type", string(principal.Type)),
+			attribute.String("tenant_id", principal.TenantID),
+			attribute.String("identity.source", string(principal.IdentitySource)),
+		),
+	)
+	defer span.End()
+
 	sessionID = uuid.NewString()
 	jti := uuid.NewString()
 	now = time.Now().UTC()
 
 	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
 
+	span.SetAttributes(
+		attribute.String("session.id", sessionID),
+		attribute.String("jti", jti),
+		attribute.Int64("ttl_minutes", int64(s.cfg.Token.AccessTokenTTLMinutes)),
+	)
+
 	// Sign before persisting — if signing fails nothing is written to the DB.
 	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "token signing failed")
 		err = fmt.Errorf("sign access token: %w", err)
 		return
 	}
@@ -512,24 +670,38 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 		ExpiresAt:      now.Add(ttl),
 	}
 	if err = s.sessions.CreateSession(ctx, session); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "session persistence failed")
 		err = fmt.Errorf("persist session: %w", err)
 		return
 	}
 
+	span.SetStatus(codes.Ok, "session created")
 	return
 }
 
 // createSession creates a full human session: PostgreSQL session + refresh
 // token + signed JWT.
 func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.createSession",
+		trace.WithAttributes(
+			attribute.String("principal.type", string(principal.Type)),
+		),
+	)
+	defer span.End()
+
 	sessionID, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "session creation failed")
 		return nil, err
 	}
 
 	// Issue refresh token (opaque random bytes; only the hash is stored).
 	rawRefresh, err := generateOpaqueToken()
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "refresh token generation failed")
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
@@ -541,8 +713,16 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		ExpiresAt: now.Add(time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour),
 	}
 	if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "refresh token persistence failed")
 		return nil, fmt.Errorf("persist refresh token: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("refresh_token.id", rt.ID),
+		attribute.Int64("refresh_token.ttl_days", int64(s.cfg.Token.RefreshTokenTTLDays)),
+	)
+	span.SetStatus(codes.Ok, "session with refresh token created")
 
 	return &SessionResponse{
 		AccessToken:  accessToken,
@@ -556,10 +736,21 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 // createAgentSession creates an agent session with no refresh token.
 // Agent identity lifecycle is managed entirely by SPIRE workload attestation.
 func (s *Service) createAgentSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.createAgentSession",
+		trace.WithAttributes(
+			attribute.String("principal.type", string(principal.Type)),
+		),
+	)
+	defer span.End()
+
 	_, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "agent session creation failed")
 		return nil, err
 	}
+
+	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
 	return &SessionResponse{
 		AccessToken: accessToken,
@@ -615,6 +806,25 @@ func (s *Service) requireOIDC() error {
 		return ErrOIDCNotConfigured
 	}
 	return nil
+}
+
+// recordDeviceAuthError records span error details for device authorization flow errors.
+// ErrAuthorizationPending is intentionally not recorded as an error - it's expected polling behavior.
+func recordDeviceAuthError(span trace.Span, err error) {
+	if errors.Is(err, ErrAuthorizationPending) {
+		return
+	}
+	span.RecordError(err)
+	if errors.Is(err, ErrSlowDown) {
+		span.SetStatus(codes.Error, "slow_down")
+	} else if errors.Is(err, ErrAccessDenied) {
+		span.SetStatus(codes.Error, "access_denied")
+	} else if errors.Is(err, ErrDeviceCodeExpired) {
+		span.SetStatus(codes.Error, "expired_token")
+	} else if oe, ok := err.(*OAuthError); ok {
+		span.SetAttributes(attribute.String("oauth.error", oe.Code))
+		span.SetStatus(codes.Error, oe.Code)
+	}
 }
 
 // postForm executes an application/x-www-form-urlencoded POST request using the

@@ -263,7 +263,8 @@ dev-cluster-down: ## Tear down the local k3d cluster
 .PHONY: dev
 dev: ## Run Orbit in development mode with auto-reload support
 	@echo "$(COLOR_YELLOW)Starting Orbit in development mode...$(COLOR_RESET)"
-	@if command -v air > /dev/null; then \
+	@set -a; [ -f .env ] && . .env; set +a; \
+	if command -v air > /dev/null; then \
 		air; \
 	else \
 		echo "$(COLOR_BLUE)Air not installed. Running without live reload...$(COLOR_RESET)"; \
@@ -274,7 +275,8 @@ dev: ## Run Orbit in development mode with auto-reload support
 .PHONY: run
 run: ## Run Orbit control plane
 	@echo "$(COLOR_YELLOW)Starting Orbit...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
+	@set -a; [ -f .env ] && . .env; set +a; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
 
 .PHONY: build-backend
 build-backend: ## Build Orbit binary to .bin directory
