@@ -17,6 +17,7 @@ GOLINT=golangci-lint
 
 # Project directories
 BACKEND_DIR=./backend
+FRONTEND_DIR=./frontend
 CMD_DIR=./backend/cmd/orbit
 MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 
@@ -29,6 +30,7 @@ GITLEAKS_VERSION=v8.27.2
 GOLANGCI_LINT_VERSION=v2.6.2
 GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
+PNPM_VERSION=10.32.1
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -68,7 +70,7 @@ env: ## Scaffold .env from .env.example (no-op if .env already exists)
 	fi
 
 .PHONY: setup
-setup: install-tools install-tools-cluster tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
+setup: install-tools install-tools-cluster tidy frontend-install hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
 
 .PHONY: hooks
@@ -350,6 +352,49 @@ vet: ## Run go vet
 	@echo "$(COLOR_GREEN)✓ Vet passed$(COLOR_RESET)"
 
 # ===========================================
+# Frontend
+# ===========================================
+
+.PHONY: frontend-install
+frontend-install: ## Install frontend dependencies (pnpm install)
+	@echo "$(COLOR_YELLOW)Installing frontend dependencies...$(COLOR_RESET)"
+	@corepack install -g pnpm@$(PNPM_VERSION)
+	@cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
+	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
+
+.PHONY: frontend-dev
+frontend-dev: ## Start the frontend dev server (Next.js, port 3000)
+	@echo "$(COLOR_YELLOW)Starting frontend dev server...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm dev
+
+.PHONY: frontend-build
+frontend-build: ## Build the frontend for production
+	@echo "$(COLOR_YELLOW)Building frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm build
+	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
+
+.PHONY: frontend-lint
+frontend-lint: ## Lint the frontend (eslint)
+	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm lint
+	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
+
+.PHONY: frontend-fmt
+frontend-fmt: ## Check frontend formatting (prettier --check)
+	@echo "$(COLOR_YELLOW)Checking frontend formatting...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm exec prettier --check .
+	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
+
+.PHONY: frontend-check
+frontend-check: frontend-lint frontend-fmt ## Run all frontend checks (eslint + prettier)
+
+.PHONY: frontend-clean
+frontend-clean: ## Remove frontend build artifacts and installed dependencies
+	@echo "$(COLOR_YELLOW)Cleaning frontend...$(COLOR_RESET)"
+	@rm -rf $(FRONTEND_DIR)/.next $(FRONTEND_DIR)/node_modules
+	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
+
+# ===========================================
 # Cleanup
 # ===========================================
 
@@ -372,7 +417,7 @@ clean-all: clean ## Clean everything including database volumes
 # ===========================================
 
 .PHONY: check
-check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
+check: tidy fmt vet lint secrets test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
