@@ -149,6 +149,10 @@ When implementing Orbit components:
 
 See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
 
+## Frontend Rules
+
+- **`server-only` guard**: Every module under `frontend/src/server/` must have `import "server-only"` after its JSDoc block, before any other imports.
+
 ## Templates and Documentation
 
 ### PRD Template

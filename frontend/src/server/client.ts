@@ -4,6 +4,8 @@
  * Wraps fetch with base URL resolution, default headers, and a unified
  * error type. Import this only from Server Components or server actions.
  */
+import "server-only";
+
 import { config } from "@/server/config";
 
 // ---------------------------------------------------------------------------

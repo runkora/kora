@@ -5,6 +5,7 @@
  * never be bundled into the browser. Import it only from API routes, Server
  * Components, or server actions.
  */
+import "server-only";
 
 function requireEnv(key: string): string {
   const value = process.env[key];
