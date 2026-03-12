@@ -363,6 +363,12 @@ vet: ## Run go vet
 	@cd $(BACKEND_DIR) && $(GOCMD) vet ./...
 	@echo "$(COLOR_GREEN)✓ Vet passed$(COLOR_RESET)"
 
+.PHONY: fix
+fix: ## Run go fix
+	@echo "$(COLOR_YELLOW)Running go fix...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOCMD) fix ./...
+	@echo "$(COLOR_GREEN)✓ Fixes applied$(COLOR_RESET)"
+
 # ===========================================
 # Cleanup
 # ===========================================
@@ -429,7 +435,7 @@ dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it
 # ===========================================
 
 .PHONY: check
-check: tidy fmt vet lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
+check: tidy fmt vet fix lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
