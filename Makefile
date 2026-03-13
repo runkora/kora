@@ -493,9 +493,9 @@ frontend-lint: ## Lint the frontend (eslint)
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
 
 .PHONY: frontend-fmt
-frontend-fmt: ## Check frontend formatting (prettier --check)
-	@echo "$(COLOR_YELLOW)Checking frontend formatting...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm exec prettier --check .
+frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
+	@echo "$(COLOR_YELLOW)Formatting frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm exec prettier $(if $(CI),--check,--write) .
 	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
 
 .PHONY: frontend-check
