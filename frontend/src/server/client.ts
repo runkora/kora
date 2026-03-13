@@ -4,9 +4,9 @@
  * Wraps fetch with base URL resolution, default headers, and a unified
  * error type. Import this only from Server Components or server actions.
  */
-import "server-only";
+import 'server-only';
 
-import { config } from "@/server/config";
+import { config } from '@/server/config';
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -19,7 +19,7 @@ export class ApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = "ApiError";
+    this.name = 'ApiError';
   }
 
   get isNotFound() {
@@ -55,8 +55,8 @@ interface BackendError {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 function buildUrl(path: string): string {
-  const base = config.orbitApiUrl.replace(/\/$/, "");
-  const normalizedPath = path.replace(/^\//, "");
+  const base = config.orbitApiUrl.replace(/\/$/, '');
+  const normalizedPath = path.replace(/^\//, '');
   return `${base}/${normalizedPath}`;
 }
 
@@ -68,19 +68,19 @@ async function request<T>(
     headers?: Record<string, string>;
   } = {},
 ): Promise<T> {
-  const { method = "GET", body, headers: extraHeaders = {} } = options;
+  const { method = 'GET', body, headers: extraHeaders = {} } = options;
 
   const response = await fetch(buildUrl(path), {
     method,
     headers: {
       // Only set Content-Type when there is a body — GET/DELETE have none.
-      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      Accept: "application/json",
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      Accept: 'application/json',
       ...extraHeaders,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     // Disable Next.js data cache — control caching explicitly at the UI layer.
-    cache: "no-store",
+    cache: 'no-store',
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
 
@@ -90,20 +90,13 @@ async function request<T>(
     // Swallow JSON parse failures on error responses — fall back to statusText.
     const errJson = await response.json().catch(() => ({}));
     const err = errJson as BackendError;
-    throw new ApiError(
-      response.status,
-      err.code ?? "UNKNOWN",
-      err.message ?? response.statusText,
-    );
+    throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
   }
 
   // 204 No Content (and any response with an explicit empty body) has no JSON
   // to parse. DELETE endpoints commonly return 204 — calling .json() on an
   // empty body throws a SyntaxError even though the request succeeded.
-  if (
-    response.status === 204 ||
-    response.headers.get("Content-Length") === "0"
-  ) {
+  if (response.status === 204 || response.headers.get('Content-Length') === '0') {
     return undefined as T;
   }
 
@@ -117,12 +110,11 @@ async function request<T>(
 // ---------------------------------------------------------------------------
 
 export const orbitClient = {
-  get: <T>(path: string, headers?: Record<string, string>) =>
-    request<T>(path, { headers }),
+  get: <T>(path: string, headers?: Record<string, string>) => request<T>(path, { headers }),
   post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-    request<T>(path, { method: "POST", body, headers }),
+    request<T>(path, { method: 'POST', body, headers }),
   patch: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
-    request<T>(path, { method: "PATCH", body, headers }),
+    request<T>(path, { method: 'PATCH', body, headers }),
   delete: <T>(path: string, headers?: Record<string, string>) =>
-    request<T>(path, { method: "DELETE", headers }),
+    request<T>(path, { method: 'DELETE', headers }),
 };

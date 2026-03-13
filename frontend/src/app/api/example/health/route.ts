@@ -5,14 +5,14 @@
  * communicates with the Go API directly. Auth headers and credentials can
  * be injected here before forwarding.
  */
-import "server-only";
-import { NextResponse } from "next/server";
-import { orbitClient, ApiError } from "@/server/client";
-import type { HealthResponse } from "@/shared/api";
+import 'server-only';
+import { NextResponse } from 'next/server';
+import { orbitClient, ApiError } from '@/server/client';
+import type { HealthResponse } from '@/shared/api';
 
 export async function GET() {
   try {
-    const data = await orbitClient.get<HealthResponse>("/example/health");
+    const data = await orbitClient.get<HealthResponse>('/example/health');
     return NextResponse.json({ data });
   } catch (err) {
     if (err instanceof ApiError) {
@@ -21,17 +21,13 @@ export async function GET() {
         { status: err.status },
       );
     }
-    const isTimeout =
-      err instanceof DOMException && err.name === "TimeoutError";
-    console.error(
-      `[api/example/health] ${isTimeout ? "timeout" : "unexpected error"}:`,
-      err,
-    );
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[api/example/health] ${isTimeout ? 'timeout' : 'unexpected error'}:`, err);
     return NextResponse.json(
       {
         error: {
-          code: isTimeout ? "BACKEND_TIMEOUT" : "BACKEND_UNREACHABLE",
-          message: isTimeout ? "Backend timed out" : "Backend unreachable",
+          code: isTimeout ? 'BACKEND_TIMEOUT' : 'BACKEND_UNREACHABLE',
+          message: isTimeout ? 'Backend timed out' : 'Backend unreachable',
         },
       },
       { status: 502 },
