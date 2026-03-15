@@ -38,7 +38,7 @@ func TestAPIError_MarshalJSON(t *testing.T) {
 			err: &APIError{
 				Code:    "validation_failed",
 				Message: "Validation failed",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"field": "email",
 					"error": "invalid format",
 				},
@@ -56,7 +56,7 @@ func TestAPIError_MarshalJSON(t *testing.T) {
 			}
 
 			// Unmarshal both to compare as objects (handles map ordering)
-			var gotMap, wantMap map[string]interface{}
+			var gotMap, wantMap map[string]any
 			if err := json.Unmarshal(got, &gotMap); err != nil {
 				t.Fatalf("Unmarshal got error = %v", err)
 			}
@@ -80,7 +80,7 @@ func TestAPIError_MarshalJSON(t *testing.T) {
 }
 
 func TestNotFoundError(t *testing.T) {
-	err := NotFoundError("user_not_found", "User not found", map[string]interface{}{
+	err := NotFoundError("user_not_found", "User not found", map[string]any{
 		"user_id": "123",
 	})
 
@@ -99,7 +99,7 @@ func TestNotFoundError(t *testing.T) {
 }
 
 func TestValidationError(t *testing.T) {
-	err := ValidationError("validation_failed", "Validation failed", map[string]interface{}{
+	err := ValidationError("validation_failed", "Validation failed", map[string]any{
 		"fields": []string{"email", "name"},
 	})
 

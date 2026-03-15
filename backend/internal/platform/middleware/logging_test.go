@@ -70,7 +70,7 @@ func TestLoggingMiddlewareIncomingRequest(t *testing.T) {
 
 	// Parse first log entry (incoming request)
 	logs := bytes.Split(buf.Bytes(), []byte("\n"))
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(logs[0], &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestLoggingMiddlewareCompletedRequest(t *testing.T) {
 		t.Fatal("Expected at least 2 log entries")
 	}
 
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(logs[1], &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -178,13 +178,13 @@ func TestLoggingMiddlewareWithTraceContext(t *testing.T) {
 	wrapped.ServeHTTP(rec, req)
 
 	// Parse log entries and verify trace_id is present
-	logs := bytes.Split(buf.Bytes(), []byte("\n"))
-	for _, logBytes := range logs {
+	logs := bytes.SplitSeq(buf.Bytes(), []byte("\n"))
+	for logBytes := range logs {
 		if len(logBytes) == 0 {
 			continue
 		}
 
-		var logEntry map[string]interface{}
+		var logEntry map[string]any
 		if err := json.Unmarshal(logBytes, &logEntry); err != nil {
 			continue
 		}
@@ -236,7 +236,7 @@ func TestResponseWriterStatusCapture(t *testing.T) {
 				t.Fatal("Expected at least 2 log entries")
 			}
 
-			var logEntry map[string]interface{}
+			var logEntry map[string]any
 			if err := json.Unmarshal(logs[1], &logEntry); err != nil {
 				t.Fatalf("Failed to parse log JSON: %v", err)
 			}
@@ -268,7 +268,7 @@ func TestResponseWriterImplicit200(t *testing.T) {
 
 	// Parse completed request log
 	logs := bytes.Split(buf.Bytes(), []byte("\n"))
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(logs[1], &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestResponseWriterMultipleWriteHeader(t *testing.T) {
 
 	// Parse completed request log
 	logs := bytes.Split(buf.Bytes(), []byte("\n"))
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(logs[1], &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestLoggingMiddlewareDurationAccuracy(t *testing.T) {
 
 	// Parse completed request log
 	logs := bytes.Split(buf.Bytes(), []byte("\n"))
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(logs[1], &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}

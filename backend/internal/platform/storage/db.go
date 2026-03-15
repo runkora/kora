@@ -17,7 +17,7 @@ type DB struct {
 
 // New creates and initializes a database connection pool
 // Performs single-phase initialization with connectivity verification
-func New(ctx context.Context, config *Config, logger logging.Logger) (*DB, error) {
+func New(ctx context.Context, config *PostgresConfig, logger logging.Logger) (*DB, error) {
 	logger.Info(ctx, "Initializing database connection pool",
 		logging.Field{Key: "host", Value: config.Host},
 		logging.Field{Key: "database", Value: config.Database},

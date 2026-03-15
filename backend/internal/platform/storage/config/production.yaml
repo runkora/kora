@@ -1,13 +1,31 @@
-# Production environment configuration
+# Production environment storage configuration
 
-port: 5432
-sslMode: require # Require TLS in production
+postgres:
+  port: 5432
+  sslMode: require  # SECURITY: Always require TLS in production
 
-# Connection pool configuration - production tuning
-maxConnections: 25        # Tune based on (CPU cores * 2) + disk count
-minConnections: 5         # Keep warm connections
-maxConnLifetimeMinutes: 60      # Recycle after 1 hour
-maxConnIdleTimeMinutes: 30      # Close idle after 30 minutes
-healthCheckPeriodSeconds: 60    # Health check every minute
-connectTimeoutSeconds: 5        # Connection timeout
-captureQueryText: false         # SECURITY: Disable SQL capture (prevents PII/schema exposure)
+  # Connection pool — tune based on (CPU cores * 2) + disk count
+  maxConnections: 25
+  minConnections: 5
+  maxConnLifetimeMinutes: 60
+  maxConnIdleTimeMinutes: 30
+  healthCheckPeriodSeconds: 60
+  connectTimeoutSeconds: 5
+  captureQueryText: false  # SECURITY: Disable SQL capture (prevents PII/schema exposure)
+
+redis:
+  port: 6379
+  db: 0
+
+  # Retry and timeout configuration
+  maxRetries: 3
+  dialTimeoutSeconds: 5
+  readTimeoutSeconds: 3
+  writeTimeoutSeconds: 3
+
+  # Connection pool — tuned for production workloads
+  poolSize: 20
+  minIdleConns: 5
+  connMaxIdleTimeMinutes: 30
+
+  tlsEnabled: true  # SECURITY: Always require TLS in production

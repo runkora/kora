@@ -73,7 +73,7 @@ func TestTracingMiddlewareSpanAttributes(t *testing.T) {
 	attrs := span.Attributes
 
 	// Verify HTTP attributes (using OpenTelemetry semantic conventions v1.24.0)
-	expectedAttrs := map[string]interface{}{
+	expectedAttrs := map[string]any{
 		"http.request.method":       "POST",
 		"http.route":                "/api/users",
 		"url.scheme":                "http",
@@ -82,7 +82,7 @@ func TestTracingMiddlewareSpanAttributes(t *testing.T) {
 		"http.response.status_code": int64(200),
 	}
 
-	attrMap := make(map[string]interface{})
+	attrMap := make(map[string]any)
 	for _, attr := range attrs {
 		attrMap[string(attr.Key)] = attr.Value.AsInterface()
 	}

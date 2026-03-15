@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: orbit-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --no-auth-warning
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -34,6 +34,41 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - orbit-network
+
+  # ---------------------------------------------------------------------------
+  # Dex — local OIDC provider
+  #
+  # Runs a real, standards-compliant OIDC server so the full OAuth 2.0 Device
+  # Authorization Grant (RFC 8628) protocol executes without any cloud accounts.
+  #
+  # Issuer:   http://localhost:5556/dex
+  # Test user: dev@orbit.local / (password set via DEX_USER_PASSWORD_HASH in .env)
+  # Client ID: orbit-local  (public client — no secret)
+  #
+  # Enabled by: make dev-up  (or docker compose up -d dex)
+  # ---------------------------------------------------------------------------
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    container_name: orbit-dex
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+
+    # Generate config/dex/.env from the example: cp config/dex/.env.example config/dex/.env
+    env_file:
+      - path: ./config/dex/.env
+        required: true
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./config/dex/config.yaml:/etc/dex/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5556/dex/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - orbit-network
 

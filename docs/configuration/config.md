@@ -13,15 +13,82 @@ Supported values: `local`, `development`, `production`.
 
 ---
 
-## Reading config values
+## Two loading patterns
 
-Each binary and feature owns its config struct. For `cmd/orbit`, the config is loaded once at startup and available as a package-level variable:
+There are two places config is loaded, each with a slightly different pattern.
+
+### Binary entry point (`cmd/orbit`)
+
+`cmd/orbit` has a dedicated `config/` sub-package with a `config.go` that exposes a package-level variable initialised at startup:
 
 ```go
-import oc "github.com/clear-route/orbit/cmd/orbit/config"
+// cmd/orbit/config/config.go
+package config
 
-port := oc.Config.Server.Port
-timeout := oc.Config.ShutdownTimeout()
+import "github.com/clear-route/orbit/internal/platform/config"
+
+// AppConfig is initialised once at program start.
+var AppConfig = config.MustLoad[appConfig]("cmd/orbit", config.Environment())
+
+type appConfig struct {
+    Server struct {
+        Port                int    `yaml:"port"`
+        BasePath            string `yaml:"basePath"`
+        ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
+    } `yaml:"server"`
+    OTLPEndpoint string  `yaml:"otlpEndpoint"`
+    SamplingRate float64 `yaml:"samplingRate"`
+}
+```
+
+`MustLoad` panics on startup if the file is missing or unparseable — this surfaces misconfiguration immediately rather than silently at first use.
+
+### Feature packages (`internal/{feature}`)
+
+Feature packages do **not** create a `config/config.go` sub-package. Instead they:
+
+1. Put their YAML config files directly in `{feature}/config/`
+2. Define their config struct inside `service.go` (or a dedicated `config.go` at the feature root)
+3. Call `config.Load[T]()` explicitly inside a `LoadConfig()` function
+
+```go
+// internal/identity/service.go  (abbreviated)
+
+// Config is the identity service configuration.
+type Config struct {
+    OIDC struct {
+        IssuerURL string   `yaml:"issuerUrl"`
+        Scopes    []string `yaml:"scopes"`
+    } `yaml:"oidc"`
+
+    // Secrets are never in YAML — tagged "-" and read from env vars directly.
+    TokenSigningKey     string `yaml:"-"`
+    TokenSigningKeyFile string `yaml:"-"`
+    OIDCClientID        string `yaml:"-"`
+    OIDCClientSecret    string `yaml:"-"`
+}
+
+// LoadConfig loads the YAML config for the current environment and overlays
+// secrets from environment variables.
+func LoadConfig() (*Config, error) {
+    cfg, err := config.Load[Config]("internal/identity", config.Environment())
+    if err != nil {
+        return nil, err
+    }
+
+    // Overlay secrets from environment — never from YAML.
+    cfg.TokenSigningKeyFile = os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE")
+    cfg.TokenSigningKey     = os.Getenv("ORBIT_TOKEN_SIGNING_KEY")
+    cfg.OIDCClientID        = os.Getenv("ORBIT_OIDC_CLIENT_ID")
+    cfg.OIDCClientSecret    = os.Getenv("ORBIT_OIDC_CLIENT_SECRET")
+
+    // Runtime override: allows pointing at a real provider without editing YAML.
+    if url := os.Getenv("ORBIT_OIDC_ISSUER_URL"); url != "" {
+        cfg.OIDC.IssuerURL = url
+    }
+
+    return cfg, nil
+}
 ```
 
 ---
@@ -31,8 +98,7 @@ timeout := oc.Config.ShutdownTimeout()
 1. Add the field to the config struct:
 
 ```go
-// cmd/orbit/config/config.go
-type orbitConfig struct {
+type appConfig struct {
     Server struct {
         Port                int    `yaml:"port"`
         BasePath            string `yaml:"basePath"`
@@ -53,49 +119,64 @@ server:
   readTimeoutSecs: 30  # ← new
 ```
 
-That's it. The loader will unmarshal the new field automatically.
+The loader uses `dec.KnownFields(true)`, so unknown keys in YAML are rejected at startup — typos surface immediately.
 
 ---
 
 ## Adding config for a new feature
 
-1. Create the config package with its YAML files:
+1. Create the YAML files (no `config.go` sub-package needed):
 
 ```
 backend/internal/{feature}/config/
-├── config.go
 ├── local.yaml
 ├── development.yaml
 └── production.yaml
 ```
 
-2. Define the config struct and package-level variable in `config.go` — same pattern as a binary:
+2. Define the config struct and `LoadConfig()` in `service.go` (or a top-level `config.go` in the feature package):
 
 ```go
-// internal/{feature}/config/config.go
-package config
+// internal/{feature}/service.go
 
-var Config = config.MustLoad[featureConfig]("internal/{feature}", config.Environment())
-
-type featureConfig struct {
+type Config struct {
     Cache struct {
         TTLSeconds int `yaml:"ttlSeconds"`
         MaxSize    int `yaml:"maxSize"`
     } `yaml:"cache"`
+
+    // Secrets always use yaml:"-" and are loaded from env vars.
+    APIKey string `yaml:"-"`
+}
+
+func LoadConfig() (*Config, error) {
+    cfg, err := config.Load[Config]("internal/{feature}", config.Environment())
+    if err != nil {
+        return nil, err
+    }
+    cfg.APIKey = os.Getenv("ORBIT_FEATURE_API_KEY")
+    return cfg, nil
 }
 ```
 
-3. Import and use it wherever needed in the feature:
+3. Call `LoadConfig()` from `main.go` when wiring the service:
 
 ```go
-import fc "github.com/clear-route/orbit/internal/{feature}/config"
-
-ttl := time.Duration(fc.Config.Cache.TTLSeconds) * time.Second
+// cmd/orbit/main.go
+featureCfg, err := feature.LoadConfig()
+if err != nil {
+    logger.Error(ctx, "failed to load feature config", logging.Field{Key: "error", Value: err})
+    os.Exit(1)
+}
+svc := feature.NewService(db, redis, logger, featureCfg)
 ```
 
 ---
 
 ## Reference
 
-- `internal/platform/config` — the loader package (`Load`, `MustLoad`, `Environment`)
-- [ADR-0006](adr/0006-yaml-file-based-configuration.md) — decision record and rationale
+- `internal/platform/config/config.go` — the loader package (`Load`, `MustLoad`, `Environment`)
+- `internal/identity/service.go` — canonical example of feature-level `LoadConfig()` with secret overlays
+- `cmd/orbit/config/config.go` — canonical example of binary-level `MustLoad` package var
+- [ADR-0006](../adr/0006-yaml-file-based-configuration.md) — decision record and rationale
+- [Secrets reference](secrets.md) — how secrets are separated from config

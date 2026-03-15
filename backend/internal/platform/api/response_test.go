@@ -32,7 +32,7 @@ func TestJSON(t *testing.T) {
 		{
 			name:       "created response",
 			status:     http.StatusCreated,
-			body:       map[string]interface{}{"id": 123, "name": "test"},
+			body:       map[string]any{"id": 123, "name": "test"},
 			wantStatus: http.StatusCreated,
 			wantHeader: "application/json",
 		},
@@ -54,7 +54,7 @@ func TestJSON(t *testing.T) {
 			}
 
 			// Verify body can be decoded
-			var result map[string]interface{}
+			var result map[string]any
 			if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 				t.Errorf("JSON() body decode error: %v", err)
 			}
@@ -69,7 +69,7 @@ func TestErrorResponse(t *testing.T) {
 		underlyingErr  error
 		wantLogLevel   string
 		wantStatusCode int
-		wantBodyMatch  map[string]interface{}
+		wantBodyMatch  map[string]any
 	}{
 		{
 			name: "client error without underlying error",
@@ -81,7 +81,7 @@ func TestErrorResponse(t *testing.T) {
 			underlyingErr:  nil,
 			wantLogLevel:   "warn",
 			wantStatusCode: http.StatusBadRequest,
-			wantBodyMatch: map[string]interface{}{
+			wantBodyMatch: map[string]any{
 				"code":    "invalid_input",
 				"message": "Invalid input provided",
 			},
@@ -91,7 +91,7 @@ func TestErrorResponse(t *testing.T) {
 			apiErr: &APIError{
 				Code:    "user_not_found",
 				Message: "User not found",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"user_id": "123",
 				},
 				StatusCode: http.StatusNotFound,
@@ -99,10 +99,10 @@ func TestErrorResponse(t *testing.T) {
 			underlyingErr:  fmt.Errorf("db: no rows"),
 			wantLogLevel:   "warn",
 			wantStatusCode: http.StatusNotFound,
-			wantBodyMatch: map[string]interface{}{
+			wantBodyMatch: map[string]any{
 				"code":    "user_not_found",
 				"message": "User not found",
-				"details": map[string]interface{}{"user_id": "123"},
+				"details": map[string]any{"user_id": "123"},
 			},
 		},
 		{
@@ -115,7 +115,7 @@ func TestErrorResponse(t *testing.T) {
 			underlyingErr:  fmt.Errorf("connection failed"),
 			wantLogLevel:   "error",
 			wantStatusCode: http.StatusInternalServerError,
-			wantBodyMatch: map[string]interface{}{
+			wantBodyMatch: map[string]any{
 				"code":    "database_error",
 				"message": "Database error occurred",
 			},
@@ -141,7 +141,7 @@ func TestErrorResponse(t *testing.T) {
 			}
 
 			// Parse response body
-			var got map[string]interface{}
+			var got map[string]any
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatalf("failed to parse response body: %v", err)
 			}

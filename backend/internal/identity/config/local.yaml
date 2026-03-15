@@ -1,0 +1,25 @@
+oidc:
+  # Local dev defaults to the Dex container started by `make dev-up`.
+  # Dex is a real OIDC provider — the full Device Authorization Grant
+  # (RFC 8628) runs end-to-end with zero cloud accounts.
+  #
+  # Test user:  dev@orbit.local / password
+  # Client ID:  orbit-local  (public client — no secret needed)
+  #
+  # Override with ORBIT_OIDC_ISSUER_URL env var to point at a real provider:
+  #   https://login.microsoftonline.com/{tenant-id}/v2.0   (Entra)
+  #   https://{your-domain}.okta.com                       (Okta)
+  #   https://accounts.google.com                          (Google)
+  #
+  # Client credentials (when using a real provider) must be set via
+  # ORBIT_OIDC_CLIENT_ID and ORBIT_OIDC_CLIENT_SECRET — never in YAML.
+  issuerUrl: "http://localhost:5556/dex"
+  scopes:
+    - openid
+    - profile
+    - email
+
+token:
+  # Short-lived access tokens for local dev — easier iteration.
+  accessTokenTtlMinutes: 60
+  refreshTokenTtlDays: 30

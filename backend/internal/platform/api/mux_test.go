@@ -344,7 +344,7 @@ func TestMuxConcurrentRequests(t *testing.T) {
 
 	// Make concurrent requests
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			req := httptest.NewRequest("GET", "/api/test", nil)
 			rec := httptest.NewRecorder()
@@ -354,7 +354,7 @@ func TestMuxConcurrentRequests(t *testing.T) {
 	}
 
 	// Wait for all requests
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 

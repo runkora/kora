@@ -70,7 +70,7 @@ func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Lo
 // Returns true if successful, false if there was an error (error response already written).
 func DecodeJSON(ctx context.Context, r *http.Request, w http.ResponseWriter, logger logging.Logger, dest any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
-		apiErr := BadRequestError(ErrCodeInvalidJSON, "Invalid request body", map[string]interface{}{
+		apiErr := BadRequestError(ErrCodeInvalidJSON, "Invalid request body", map[string]any{
 			"details": err.Error(),
 		})
 		ErrorResponse(ctx, w, logger, apiErr, err)
