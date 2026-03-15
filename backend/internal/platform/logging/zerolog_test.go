@@ -92,7 +92,7 @@ func TestZerologLevels(t *testing.T) {
 			tt.logFunc(logger, ctx, "test message")
 
 			// Parse JSON output
-			var logEntry map[string]interface{}
+			var logEntry map[string]any
 			if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 				t.Fatalf("Failed to parse log JSON: %v", err)
 			}
@@ -123,7 +123,7 @@ func TestZerologWithFields(t *testing.T) {
 	)
 
 	// Parse JSON output
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestZerologWithNoFields(t *testing.T) {
 
 	logger.Info(ctx, "simple message")
 
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestZerologWithTraceContext(t *testing.T) {
 	logger.Info(ctx, "traced message")
 
 	// Parse log output
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestZerologWithoutTraceContext(t *testing.T) {
 
 	logger.Info(ctx, "untraced message")
 
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -245,19 +245,19 @@ func TestConvertFields(t *testing.T) {
 	tests := []struct {
 		name   string
 		fields []Field
-		want   map[string]interface{}
+		want   map[string]any
 	}{
 		{
 			name:   "empty fields",
 			fields: []Field{},
-			want:   map[string]interface{}{},
+			want:   map[string]any{},
 		},
 		{
 			name: "single field",
 			fields: []Field{
 				{Key: "key1", Value: "value1"},
 			},
-			want: map[string]interface{}{
+			want: map[string]any{
 				"key1": "value1",
 			},
 		},
@@ -268,7 +268,7 @@ func TestConvertFields(t *testing.T) {
 				{Key: "number", Value: 42},
 				{Key: "bool", Value: true},
 			},
-			want: map[string]interface{}{
+			want: map[string]any{
 				"string": "text",
 				"number": 42,
 				"bool":   true,
@@ -279,7 +279,7 @@ func TestConvertFields(t *testing.T) {
 			fields: []Field{
 				{Key: "nullable", Value: nil},
 			},
-			want: map[string]interface{}{
+			want: map[string]any{
 				"nullable": nil,
 			},
 		},
@@ -315,7 +315,7 @@ func TestZerologTimestamps(t *testing.T) {
 
 	logger.Info(ctx, "timestamped message")
 
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestZerologSampledTraceFlag(t *testing.T) {
 
 	logger.Info(ctx, "sampled trace")
 
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
 		t.Fatalf("Failed to parse log JSON: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestZerologConcurrentWrites(t *testing.T) {
 
 	// Write concurrently from multiple goroutines
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			logger.Info(ctx, "concurrent write", Field{Key: "id", Value: id})
 			done <- true
@@ -374,7 +374,7 @@ func TestZerologConcurrentWrites(t *testing.T) {
 	}
 
 	// Wait for all writes
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 

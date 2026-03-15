@@ -27,7 +27,7 @@ BINARY_DIR=.bin
 
 # Tool versions (pin for reproducible installs)
 GITLEAKS_VERSION=v8.27.2
-GOLANGCI_LINT_VERSION=v2.6.2
+GOLANGCI_LINT_VERSION=v2.11.3
 GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
 PNPM_VERSION=10.32.1
@@ -38,6 +38,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 # Colors for output
 COLOR_RESET=\033[0m
 COLOR_BOLD=\033[1m
+COLOR_RED=\033[31m
 COLOR_GREEN=\033[32m
 COLOR_YELLOW=\033[33m
 COLOR_BLUE=\033[36m
@@ -207,10 +208,23 @@ migrate-create: ## Create a new migration (usage: make migrate-create name=migra
 # ===========================================
 
 .PHONY: dev-up
-dev-up: ## Start Postgres + Redis for daily Go development (no cluster needed)
-	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis)...$(COLOR_RESET)"
-	@docker compose up -d --wait postgres redis
-	@echo "$(COLOR_GREEN)✓ Postgres + Redis ready$(COLOR_RESET)"
+dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go development
+	@if [ ! -f secrets/signing.key ]; then \
+		echo "$(COLOR_YELLOW)→ secrets/signing.key not found — generating RSA signing key...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory gen-signing-key; \
+	fi
+	@if [ ! -f config/dex/.env ]; then \
+		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory dex-env; \
+	fi
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis dex
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
+	@echo "  Dex OIDC issuer:  http://localhost:5556/dex"
+	@echo "  Test user:        dev@orbit.local / password"
+	@echo "  Client ID:        orbit-local  (no secret — public client)"
+	@echo ""
+	@echo "  Authenticate:     make auth-device"
 
 .PHONY: dev-down
 dev-down: ## Stop Postgres + Redis
@@ -251,7 +265,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 .PHONY: dev
 dev: ## Run Orbit in development mode with auto-reload support
 	@echo "$(COLOR_YELLOW)Starting Orbit in development mode...$(COLOR_RESET)"
-	@set -a; [ -f backend/.env ] && . backend/.env; set +a; \
+	@set -a; [ -f .env ] && . .env; set +a; \
 	if command -v air > /dev/null; then \
 		air; \
 	else \
@@ -263,7 +277,7 @@ dev: ## Run Orbit in development mode with auto-reload support
 .PHONY: run
 run: ## Run Orbit control plane
 	@echo "$(COLOR_YELLOW)Starting Orbit...$(COLOR_RESET)"
-	@set -a; [ -f backend/.env ] && . backend/.env; set +a; \
+	@set -a; [ -f .env ] && . .env; set +a; \
 		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
 
 .PHONY: build-backend
@@ -351,6 +365,12 @@ vet: ## Run go vet
 	@cd $(BACKEND_DIR) && $(GOCMD) vet ./...
 	@echo "$(COLOR_GREEN)✓ Vet passed$(COLOR_RESET)"
 
+.PHONY: fix
+fix: ## Run go fix
+	@echo "$(COLOR_YELLOW)Running go fix...$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOCMD) fix ./...
+	@echo "$(COLOR_GREEN)✓ Fixes applied$(COLOR_RESET)"
+
 # ===========================================
 # Frontend
 # ===========================================
@@ -413,18 +433,61 @@ clean-all: clean ## Clean everything including database volumes
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
 
 # ===========================================
+# Identity & Auth
+# ===========================================
+
+.PHONY: auth-device
+auth-device: ## Authenticate via Device Authorization Grant (Dex local OIDC or any real provider)
+	@chmod +x scripts/auth-device.sh
+	@./scripts/auth-device.sh \
+		--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
+		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"
+
+.PHONY: gen-signing-key
+gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
+	@mkdir -p secrets
+	@openssl genrsa -out secrets/signing.key 4096 2>/dev/null
+	@chmod 600 secrets/signing.key
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Key written to secrets/signing.key (mode 600)$(COLOR_RESET)"
+	@echo ""
+	@echo "Make sure your .env contains:"
+	@echo ""
+	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
+	@echo ""
+
+.PHONY: dex-hash
+dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-hash password=yourpassword)
+	$(if $(password),,$(error password is required — usage: make dex-hash password=yourpassword))
+	@echo "$(COLOR_YELLOW)Generating bcrypt hash for '$(password)'...$(COLOR_RESET)"
+	@mkdir -p config/dex
+	@HASH=$$(docker run --rm httpd:alpine htpasswd -bnBC 10 "" "$(password)" 2>/dev/null | tr -d ':\n'); \
+	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
+	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
+	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
+	echo "  Test user: dev@orbit.local / $(password)"
+
+.PHONY: dex-env
+dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)
+	@if [ -f config/dex/.env ]; then \
+		echo "$(COLOR_YELLOW)config/dex/.env already exists, skipping$(COLOR_RESET)"; \
+	else \
+		$(MAKE) dex-hash password=password; \
+	fi
+
+# ===========================================
 # Convenience Targets
 # ===========================================
 
 .PHONY: check
-check: tidy fmt vet lint secrets test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, test, frontend-check)
+check: tidy fmt vet fix lint secrets test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
 all: tidy check build-backend ## Run all quality checks and build
 
 .PHONY: bootstrap
-bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
+bootstrap: env dex-env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
 

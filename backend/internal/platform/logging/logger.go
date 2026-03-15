@@ -5,8 +5,8 @@ import "context"
 // Field represents a structured key-value pair to attach to a log message.
 // Use Field to add contextual information, e.g., Field{Key: "userID", Value: userID}.
 type Field struct {
-	Key   string      // The key or name of the field, e.g., "userID"
-	Value interface{} // The value associated with the key
+	Key   string // The key or name of the field, e.g., "userID"
+	Value any    // The value associated with the key
 }
 
 // Logger defines the project-wide logging abstraction interface.

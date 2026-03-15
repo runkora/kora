@@ -147,7 +147,7 @@ func (r *PostgresRepository) CreateUsers(ctx context.Context, users []*User) err
 	defer results.Close()
 
 	// Process batch results
-	for i := 0; i < len(users); i++ {
+	for i := range users {
 		_, err := results.Exec()
 		if err != nil {
 			if isDuplicateKeyError(err) {

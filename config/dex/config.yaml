@@ -1,0 +1,76 @@
+# =============================================================================
+# Dex — local OIDC provider for Orbit development
+# =============================================================================
+#
+# Dex runs as a real, standards-compliant OIDC provider so that the full
+# OAuth 2.0 Device Authorization Grant (RFC 8628) protocol executes end-to-end
+# without any cloud accounts or mocking.
+#
+# Test credentials (local dev only):
+#   Email:    dev@orbit.local
+#   Password: whatever you set in DEX_USER_PASSWORD_HASH (default: "password")
+#
+# Client:
+#   ID:     orbit-local
+#   Secret: (none — public client, Device Grant does not require a secret)
+#
+# Issuer:  http://localhost:5556/dex
+#
+# Dex interpolates $VAR references at startup, so credentials stay in .env
+# and never appear in committed config files.
+# =============================================================================
+
+issuer: http://localhost:5556/dex
+
+# In-memory storage — state is lost on restart, which is fine for local dev.
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  # Enable the Device Authorization Grant (RFC 8628).
+  deviceCodeGrant: true
+  # Skip the consent/approval screen — the device code IS the approval gate.
+  skipApprovalScreen: true
+  responseTypes:
+    - code
+
+# Expiry values tuned for fast local iteration.
+expiry:
+  deviceRequests: "10m"
+  signingKeys: "6h"
+  idTokens: "24h"
+  refreshTokens:
+    reuseInterval: "3s"
+    validIfNotUsedFor: "2160h"  # 90 days
+
+logger:
+  level: "info"
+  format: "text"
+
+# ─── Clients ──────────────────────────────────────────────────────────────────
+
+staticClients:
+  - id: orbit-local
+    name: "Orbit (local dev)"
+    # public: true — no client secret required. Correct for Device Grant + CLI tooling.
+    public: true
+
+# ─── Test users ───────────────────────────────────────────────────────────────
+
+# Enable the built-in username/password connector so static passwords work.
+enablePasswordDB: true
+
+staticPasswords:
+  - email: dev@orbit.local
+    # hashFromEnv tells Dex to read the bcrypt hash directly from an environment
+    # variable at startup — no $VAR string interpolation involved, which avoids
+    # os.ExpandEnv mangling the $2y$10$ prefix in the hash value.
+    #
+    # The .env.example default is bcrypt("password"), sufficient for local dev.
+    # To generate a custom hash: make dex-hash password=yourpassword
+    hashFromEnv: DEX_USER_PASSWORD_HASH
+    username: dev
+    userID: "dev-user-001"

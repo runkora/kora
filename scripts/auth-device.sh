@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Orbit Device Authorization Grant — CLI Authentication Script
+# =============================================================================
+#
+# Usage: ./scripts/auth-device.sh [OPTIONS]
+#
+# Authenticates against the Orbit identity service using the OAuth 2.0 Device
+# Authorization Grant (RFC 8628). No browser on this machine is required — you
+# just need to visit a URL and enter a short code on any device.
+#
+# Options:
+#   --tenant-id <id>     Tenant ID for the session (required)
+#   --api-base <url>     API base URL (default: http://localhost:8080/api/v1)
+#   --help, -h           Show this help message and exit
+#
+# Environment Variables:
+#   ORBIT_TENANT_ID      Default tenant ID if --tenant-id not provided
+#
+# ─── Local dev (default) ──────────────────────────────────────────────────────
+#
+#   Dex is started automatically by `make dev-up`.
+#   No extra environment variables needed — just run:
+#
+#     make auth-device
+#
+#   or directly:
+#
+#     ./scripts/auth-device.sh --tenant-id local
+#
+#   Test user:  dev@orbit.local / password
+#   Client ID:  orbit-local  (public client, no secret)
+#
+# ─── Real provider (Entra, Okta, …) ──────────────────────────────────────────
+#
+#   Override the issuer and supply credentials in your .env:
+#
+#     ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0
+#     ORBIT_OIDC_CLIENT_ID=<app-registration-client-id>
+#     ORBIT_OIDC_CLIENT_SECRET=<app-registration-client-secret>
+#     ORBIT_TENANT_ID=<entra-tenant-id>
+#
+#   Then: make auth-device  (or ./scripts/auth-device.sh --tenant-id <id>)
+#
+# ─── Environment variables ────────────────────────────────────────────────────
+#
+#   ORBIT_API_BASE    — Orbit API base URL  (default: http://localhost:6069/api/v1)
+#   ORBIT_TENANT_ID   — Orbit tenant ID     (overridden by --tenant-id flag)
+#
+# Prerequisites: curl, jq
+# =============================================================================
+
+set -euo pipefail
+
+# ─── Colours ──────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+info()    { echo -e "${BLUE}ℹ${RESET}  $*"; }
+success() { echo -e "${GREEN}✓${RESET}  $*"; }
+warn()    { echo -e "${YELLOW}⚠${RESET}  $*"; }
+error()   { echo -e "${RED}✗${RESET}  $*" >&2; }
+die()     { error "$*"; exit 1; }
+
+# ─── Dependency check ─────────────────────────────────────────────────────────
+
+for dep in curl jq; do
+  command -v "$dep" >/dev/null 2>&1 || die "Required dependency not found: $dep"
+done
+
+# ─── Argument parsing ─────────────────────────────────────────────────────────
+
+TENANT_ID="${ORBIT_TENANT_ID:-}"
+API_BASE="${ORBIT_API_BASE:-http://localhost:6069/api/v1}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tenant-id)
+      TENANT_ID="$2"
+      shift 2
+      ;;
+    --api-base)
+      API_BASE="$2"
+      shift 2
+      ;;
+    --help|-h)
+      sed -n '/^# Usage:/,/^# =====$/p' "$0" | grep -v '^# =====$' | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1. Run with --help for usage."
+      ;;
+  esac
+done
+
+[[ -n "$TENANT_ID" ]] || die "Tenant ID is required. Pass --tenant-id <id> or set ORBIT_TENANT_ID."
+
+# ─── Step 1: Initiate device flow ─────────────────────────────────────────────
+
+echo ""
+echo -e "${BOLD}Orbit Device Authentication${RESET}"
+echo -e "API: ${BLUE}${API_BASE}${RESET}  Tenant: ${BLUE}${TENANT_ID}${RESET}"
+echo ""
+info "Initiating device authorization flow..."
+echo ""
+
+DEVICE_RESP=$(curl -s \
+  -X POST "${API_BASE}/identity/device" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_id\": \"${TENANT_ID}\"}" \
+  2>&1)
+
+# Check if curl itself failed (network/DNS error)
+if [ $? -ne 0 ]; then
+  error "Failed to reach Orbit API at ${API_BASE}"
+  echo ""
+  echo "  Is the stack running?  make dev-up && make dev"
+  echo ""
+  echo "  Dex (local OIDC) is started by make dev-up — check it is healthy:"
+  echo "    docker compose ps dex"
+  echo ""
+  exit 1
+fi
+
+# Check for API-level error response
+if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
+  ERR_CODE=$(echo "$DEVICE_RESP" | jq -r '.code')
+  ERR_MSG=$(echo "$DEVICE_RESP" | jq -r '.message // "unknown error"')
+  echo ""
+  error "Orbit returned an error: ${ERR_CODE}"
+  echo "  ${ERR_MSG}"
+  echo ""
+  if [[ "$ERR_CODE" == "oidc_not_configured" ]]; then
+    echo "  Local dev: Dex should be running — start it with:"
+    echo "    make dev-up"
+    echo ""
+    echo "  If Dex is running, check that local.yaml has issuerUrl set:"
+    echo "    backend/internal/identity/config/local.yaml"
+    echo ""
+    echo "  To use a real provider instead, set in your .env and restart:"
+    echo "    ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0"
+    echo "    ORBIT_OIDC_CLIENT_ID=<client-id>"
+    echo "    ORBIT_OIDC_CLIENT_SECRET=<client-secret>"
+    echo ""
+  fi
+  exit 1
+fi
+
+DEVICE_CODE=$(echo "$DEVICE_RESP"    | jq -r '.device_code')
+USER_CODE=$(echo "$DEVICE_RESP"      | jq -r '.user_code')
+VERIFY_URI=$(echo "$DEVICE_RESP"     | jq -r '.verification_uri')
+EXPIRES_IN=$(echo "$DEVICE_RESP"     | jq -r '.expires_in // 300')
+POLL_INTERVAL=$(echo "$DEVICE_RESP"  | jq -r '.interval // 5')
+
+[[ "$DEVICE_CODE" != "null" && -n "$DEVICE_CODE" ]] || die "Unexpected response — missing device_code: $DEVICE_RESP"
+
+# ─── Step 2: Display action prompt ────────────────────────────────────────────
+
+echo -e "  ${BOLD}Action required${RESET}"
+echo ""
+echo -e "  1. Open:  ${BLUE}${VERIFY_URI}${RESET}"
+echo ""
+echo -e "  2. Enter: ${BOLD}${GREEN}${USER_CODE}${RESET}"
+echo ""
+echo -e "  Expires in ${EXPIRES_IN}s — polling every ${POLL_INTERVAL}s"
+echo ""
+
+# ─── Step 3: Poll until authorised ────────────────────────────────────────────
+
+ELAPSED=0
+
+while true; do
+  sleep "$POLL_INTERVAL"
+  ELAPSED=$((ELAPSED + POLL_INTERVAL))
+
+  if [[ $ELAPSED -ge $EXPIRES_IN ]]; then
+    echo ""
+    die "Device code expired after ${EXPIRES_IN}s. Run the script again to start a new flow."
+  fi
+
+  POLL_HTTP_CODE=$(curl -s -o /tmp/orbit_poll_resp.json -w "%{http_code}" \
+    -X POST "${API_BASE}/identity/session" \
+    -H "Content-Type: application/json" \
+    -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\"}")
+
+  POLL_RESP=$(cat /tmp/orbit_poll_resp.json)
+  chmod 600 /tmp/orbit_poll_resp.json
+
+  if [[ "$POLL_HTTP_CODE" == "202" ]]; then
+    CODE=$(echo "$POLL_RESP" | jq -r '.code // ""')
+    if [[ "$CODE" == "slow_down" ]]; then
+      warn "Polling too fast — increasing interval by 5s"
+      POLL_INTERVAL=$((POLL_INTERVAL + 5))
+    fi
+    # authorization_pending or slow_down — keep waiting
+    echo -ne "\r  Waiting for authorisation... (${ELAPSED}s elapsed)  "
+    continue
+  fi
+
+  if [[ "$POLL_HTTP_CODE" == "200" ]]; then
+    # Success — extract and display the platform token
+    ACCESS_TOKEN=$(echo "$POLL_RESP" | jq -r '.access_token // ""')
+    REFRESH_TOKEN=$(echo "$POLL_RESP" | jq -r '.refresh_token // ""')
+    EXPIRES=$(echo "$POLL_RESP" | jq -r '.expires_in // ""')
+
+    echo ""
+    echo ""
+    success "Authenticated successfully!"
+    echo ""
+
+    if [[ -n "$ACCESS_TOKEN" ]]; then
+      echo -e "  ${BOLD}Access token${RESET} (expires in ${EXPIRES}s):"
+      echo ""
+      echo "  $ACCESS_TOKEN"
+      echo ""
+    fi
+
+    if [[ -n "$REFRESH_TOKEN" ]]; then
+      echo -e "  ${BOLD}Refresh token${RESET} (store securely):"
+      echo ""
+      echo "  $REFRESH_TOKEN"
+      echo ""
+    fi
+
+    # Optionally export for use in subsequent curl calls
+    echo -e "  ${YELLOW}To use in curl:${RESET}"
+    echo ""
+    echo "    export ORBIT_TOKEN=${ACCESS_TOKEN}"
+    echo "    curl -H \"Authorization: Bearer \$ORBIT_TOKEN\" ${API_BASE}/..."
+    echo ""
+
+    # Write to a temp credentials file for convenience
+    CREDS_FILE="/tmp/orbit_credentials.json"
+    echo "$POLL_RESP" > "$CREDS_FILE"
+    chmod 600 "$CREDS_FILE"
+    info "Full response saved to ${CREDS_FILE} (mode 600)"
+    echo ""
+
+    exit 0
+  fi
+
+  # Any other status is a terminal error
+  echo ""
+  ERR_CODE=$(echo "$POLL_RESP" | jq -r '.error.code // "unknown"')
+  ERR_MSG=$(echo "$POLL_RESP" | jq -r '.error.message // "unknown error"')
+  echo ""
+  die "Authentication failed (HTTP ${POLL_HTTP_CODE}): ${ERR_CODE} — ${ERR_MSG}"
+done

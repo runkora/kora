@@ -1,0 +1,12 @@
+oidc:
+  # Set issuerUrl to your OIDC provider's discovery URL.
+  # Client credentials via ORBIT_OIDC_CLIENT_ID / ORBIT_OIDC_CLIENT_SECRET.
+  issuerUrl: ""
+  scopes:
+    - openid
+    - profile
+    - email
+
+token:
+  accessTokenTtlMinutes: 60
+  refreshTokenTtlDays: 30

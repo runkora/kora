@@ -68,7 +68,7 @@ Orbit **is**:
 ## Core Capabilities
 
 ### Identity & Authentication
-Establish verified identity for humans and agents. Integration with enterprise SSO (OIDC, SAML, Entra).
+Establish verified identity for humans and agents. Provider-agnostic OIDC integration — works with Entra, Okta, Google Workspace, Keycloak, or any standards-compliant provider. Supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for headless CLI authentication. Local development uses [Dex](https://dexidp.io/) — no cloud credentials required.
 
 ### Policy Enforcement
 Govern what agents can do **before** they do it. OPA-compatible policy engine with RBAC and PBAC.
@@ -102,77 +102,82 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Development Status
 
-Orbit is in **early development**. We are actively building the core platform components.
+Orbit is in **active early development**. The identity layer (OIDC federation, device auth, session management, JWT issuance/revocation), platform infrastructure (HTTP routing, structured logging, OpenTelemetry, PostgreSQL, Redis), and local development environment are fully implemented. Agent execution, policy enforcement, credential brokering, and the event spine are designed and under active development.
 
 ## Getting Started
 
 ### Prerequisites
 
-**Tier 1 — Local development (backend + database)**
-- Go 1.21 or later
-- Docker and Docker Compose
+**Tier 1 — Local development (backend + Postgres + Redis + Dex)**
+- Go 1.26 or later
+- Docker Desktop (or Colima on macOS)
 - Make
 
 **Tier 2 — Full cluster (adds k3d + Istio + SPIRE)**
 - [Colima](https://github.com/abiosoft/colima) (macOS) or Docker Desktop — minimum 4 CPUs / 8 GiB RAM allocated to the VM
-- k3d, kubectl, istioctl, helm — installed via `make install-tools-cluster`
+- k3d, kubectl, istioctl, helm — installed via `make setup`
 
 ### Quick Start
 
-**Tier 1 — Backend only**
-```bash
-# Scaffold .env, install tools, start database, run migrations
-make bootstrap
+**Tier 1 — First-run setup**
 
-# Start Orbit in development mode (live-reload via air)
-make dev
+```bash
+make setup             # install goose, air, golangci-lint, gitleaks; tidy deps
+make env               # copy .env.example → .env
+make dev-up            # start Postgres + Redis + Dex (auto-generates signing key + Dex credentials on first run)
+make migrate-up        # apply database migrations
+make dev               # start Orbit with hot-reload
+```
+
+**Authenticate (in a second terminal):**
+
+```bash
+make auth-device       # device auth flow → log in as dev@orbit.local / password
+                       # token saved to /tmp/orbit_credentials.json
 ```
 
 **Tier 2 — Full local cluster**
 ```bash
-# Install cluster tools (k3d, kubectl, istioctl, helm)
-make install-tools-cluster
-
-# Spin up k3d cluster with Istio + SPIRE (~2 min)
-make dev-cluster
+make dev-cluster       # provisions k3d cluster + SPIRE + Istio (~2 min)
 ```
+
+For a detailed walkthrough see the **[Local Development Guide](docs/guides/local-development.md)**.
 
 ### Development Commands
 
-Run `make help` to see all available commands. Key workflows:
+**Setup & Credentials**
+- `make setup` — Install development tools and git hooks
+- `make env` — Copy `.env.example` → `.env`
+- `make gen-signing-key` — Regenerate RSA signing key at `secrets/signing.key` (auto-run by `dev-up` on first run)
+- `make dex-env` — Regenerate Dex credentials with default password (auto-run by `dev-up` on first run)
+- `make dex-hash password=X` — Generate Dex credentials with a custom password
 
-**Setup & Installation**
-- `make setup` - Complete project setup
-- `make install-tools` - Install development tools
-- `make tidy` - Tidy dependencies
+**Backing Services (Tier 1)**
+- `make dev-up` — Start Postgres + Redis + Dex (bootstraps signing key + Dex credentials if missing)
+- `make dev-down` — Stop all Tier 1 containers
 
-**Database Management**
-- `make db-up` - Start PostgreSQL
-- `make db-down` - Stop PostgreSQL
-- `make db-reset` - Reset database
-- `make migrate-up` - Run migrations
-- `make migrate-status` - Check migration status
-- `make migrate-create name=<name>` - Create new migration
+**Database Migrations**
+- `make migrate-up` — Apply pending migrations
+- `make migrate-down` — Roll back last migration
+- `make migrate-status` — Show applied and pending migrations
+- `make migrate-create name=X` — Generate a new Goose migration file
 
 **Development**
-- `make dev` - Run with auto-reload
-- `make build-backend` - Build binary to `.bin/orbit`
-- `make run` - Run Orbit
+- `make dev` — Start backend with hot-reload
+- `make auth-device` — Authenticate via Device Authorization Grant
+- `make build` — Build binary to `.bin/orbit`
 
 **Testing & Quality**
-- `make test` - Run tests with coverage
-- `make test-verbose` - Verbose test output
-- `make lint` - Run linters
-- `make check` - Run all checks (test + lint)
+- `make check` — Run `go vet`, `golangci-lint`, `gitleaks`, and tests
+- `make test` — Run unit tests with coverage
+- `make test-integration` — Run integration tests (requires Tier 2 cluster)
 
-**Cluster**
-- `make dev-cluster` - Spin up k3d cluster with Istio + SPIRE
-- `make dev-cluster-down` - Tear down the local cluster
-- `make test-integration` - Run integration tests (requires cluster running)
+**Cluster (Tier 2)**
+- `make dev-cluster` — Provision k3d cluster with Istio + SPIRE
+- `make dev-cluster-down` — Tear down the local cluster
 
 **Cleanup**
-- `make clean` - Remove build artifacts
-- `make clean-all` - Full cleanup (artifacts + database)
+- `make clean` — Remove build artifacts
 
 ## Contributing
 

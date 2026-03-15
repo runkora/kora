@@ -118,6 +118,9 @@ We need to define:
 `make dev-up` starts:
 - **PostgreSQL** — primary data store for all platform services
 - **Redis** — JTI blocklist store (session revocation per ADR-0008) and general caching
+- **Dex** — local OIDC identity provider for the Device Authorization Grant flow (ADR-0017)
+
+Dex runs at `http://localhost:5556/dex` and is pre-configured with a static test user (`dev@orbit.local`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
 
 OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to Docker Compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
 
@@ -220,11 +223,21 @@ Installed by `make setup`:
 
 | Target | Description |
 |---|---|
-| `make dev-up` | Start Tier 1: Postgres + Redis via Docker Compose |
+| `make env` | Copy `.env.example` → `.env` (first-run only) |
+| `make gen-signing-key` | Generate RSA signing key and write to `secrets/signing.key` (first-run only) |
+| `make dex-env` | Generate Dex password hash for default password `password` and write `config/dex/.env` (first-run only) |
+| `make dex-hash password=X` | Generate Dex password hash for a custom password and write `config/dex/.env` |
+| `make dev-up` | Start Tier 1: Postgres + Redis + Dex via Docker Compose |
 | `make dev-down` | Stop and remove Tier 1 containers |
 | `make db-up` | Start Postgres only (prerequisite for `make dev-cluster`) |
+| `make migrate-up` | Run pending Goose database migrations |
+| `make migrate-down` | Roll back the last Goose migration |
+| `make migrate-create name=X` | Generate a new Goose migration file |
+| `make dev` | Start the Orbit backend with hot-reload (air) |
+| `make auth-device` | Authenticate via Device Authorization Grant against the local Dex instance |
 | `make dev-cluster` | Provision Tier 2: k3d cluster + SPIRE + Istio (implicitly runs `db-up` first) |
 | `make dev-cluster-down` | Tear down the k3d cluster |
+| `make check` | Run `go vet`, `golangci-lint`, `gitleaks`, and tests |
 | `make test` | Run unit tests (Tier 1, no cluster required) |
 | `make test-integration` | Run integration tests (requires Tier 2 cluster running) |
 
@@ -296,3 +309,4 @@ The Docker IP is resolved at cluster-up time via `docker inspect orbit-postgres 
 - [ADR-0010](0010-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload attestation
 - [ADR-0011](0011-universal-gateway-policy-enforcement.md) — Universal gateway policy enforcement
 - [ADR-0015](0015-service-mesh-and-network-enforcement-infrastructure.md) — Service mesh and network enforcement infrastructure
+- [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction and local identity provider (Dex)

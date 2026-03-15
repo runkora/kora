@@ -1,6 +1,8 @@
 # Code Organization
 
-This document defines the canonical code organization for the Orbit backend. All code must follow this structure to ensure consistency, maintainability, and clear architectural boundaries.
+This document defines the canonical code organization for the Orbit backend. It reflects both the **current codebase** and **planned future features**, clearly distinguished. Planned packages do not exist on disk yet but are documented here so engineers and AI agents know exactly where to create them.
+
+---
 
 ## Directory Structure
 
@@ -8,463 +10,517 @@ This document defines the canonical code organization for the Orbit backend. All
 orbit/
 ├── backend/
 │   ├── cmd/
-│   │   └── orbit/                    # Single binary entrypoint
-│   │       ├── main.go               # Main entry with component registration
-│   │       └── commands/             # Subcommands for different modes
-│   │           ├── server.go         # Run full server (default)
-│   │           ├── gateway.go        # Run gateway components only
-│   │           └── worker.go         # Run background workers only
+│   │   └── orbit/                        # Single binary entrypoint
+│   │       ├── main.go                   # Application wiring: init, register, serve
+│   │       └── config/
+│   │           ├── config.go             # AppConfig struct (server port, OTLP, sampling)
+│   │           ├── config_test.go
+│   │           ├── local.yaml
+│   │           ├── development.yaml
+│   │           └── production.yaml
 │   │
-│   ├── internal/                     # Private application code
-│   │   ├── platform/                 # Infrastructure & cross-cutting concerns
-│   │   │   ├── logging/              # Logging infrastructure
-│   │   │   │   ├── logger.go         # Logger interface
-│   │   │   │   ├── zerolog.go        # zerolog implementation
-│   │   │   │   └── README.md
-│   │   │   │
-│   │   │   ├── observability/        # OTEL tracing & metrics
-│   │   │   │   ├── observability.go  # OTEL setup
-│   │   │   │   └── README.md
-│   │   │   │
-│   │   │   ├── storage/              # Database infrastructure
-│   │   │   │   ├── db.go             # Database connection & pooling
-│   │   │   │   ├── transaction.go    # Transaction utilities
-│   │   │   │   ├── migrations.go     # Migration runner
-│   │   │   │   └── migrations/       # SQL migration files
-│   │   │   │       ├── 001_users.sql
-│   │   │   │       ├── 002_agents.sql
-│   │   │   │       └── 003_policies.sql
-│   │   │   │
-│   │   │   └── middleware/           # Shared HTTP middleware
-│   │   │       ├── auth.go           # Authentication middleware
-│   │   │       ├── logging.go        # Request logging
-│   │   │       ├── ratelimit.go      # Rate limiting
-│   │   │       └── tenant.go         # Tenant isolation
-│   │   │
-│   │   ├── identity/                 # Identity & Auth feature
-│   │   │   ├── service.go            # Identity service logic
-│   │   │   ├── handlers.go           # HTTP handlers for identity endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── provider.go           # Identity provider interface
-│   │   │   ├── providers/            # Provider implementations
-│   │   │   │   ├── oidc.go           # OIDC provider
-│   │   │   │   ├── saml.go           # SAML provider
-│   │   │   │   └── local.go          # Local dev provider
-│   │   │   ├── token.go              # Token management
-│   │   │   └── models.go             # Identity-specific types
-│   │   │
-│   │   ├── policy/                   # Policy enforcement feature
-│   │   │   ├── service.go            # Policy service logic
-│   │   │   ├── handlers.go           # HTTP handlers for policy endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── engine.go             # Policy engine (OPA integration)
-│   │   │   ├── evaluator.go          # Policy evaluation logic
-│   │   │   └── models.go             # Policy types & structures
-│   │   │
-│   │   ├── credentials/              # Credential broker feature
-│   │   │   ├── service.go            # Credential broker service
-│   │   │   ├── handlers.go           # HTTP handlers for credential endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── provider.go           # Credential provider interface
-│   │   │   ├── providers/            # Provider implementations
-│   │   │   │   ├── vault.go          # HashiCorp Vault
-│   │   │   │   ├── aws.go            # AWS Secrets Manager
-│   │   │   │   └── memory.go         # In-memory (dev only)
-│   │   │   ├── scope.go              # Credential scoping
-│   │   │   └── models.go             # Credential types
-│   │   │
-│   │   ├── agents/                   # Agent management feature
-│   │   │   ├── service.go            # Agent service logic
-│   │   │   ├── handlers.go           # HTTP handlers for agent endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   └── models.go             # Agent types
-│   │   │
-│   │   ├── runs/                     # Agent run control plane feature
-│   │   │   ├── service.go            # Run service logic
-│   │   │   ├── handlers.go           # HTTP handlers for run endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── controller.go         # Run orchestration
-│   │   │   ├── scheduler.go          # Run scheduling
-│   │   │   ├── executor.go           # Run execution
-│   │   │   ├── state.go              # State management
-│   │   │   └── models.go             # Run types
-│   │   │
-│   │   ├── modelgateway/             # Model gateway feature
-│   │   │   ├── service.go            # Model gateway service
-│   │   │   ├── handlers.go           # HTTP handlers for model endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── router.go             # Model routing logic
-│   │   │   ├── providers/            # Model provider adapters
-│   │   │   │   ├── openai.go
-│   │   │   │   ├── anthropic.go
-│   │   │   │   └── azure.go
-│   │   │   ├── cache.go              # Response caching
-│   │   │   ├── fallback.go           # Fallback logic
-│   │   │   └── models.go             # Model gateway types
-│   │   │
-│   │   ├── toolgateway/              # Tool gateway feature
-│   │   │   ├── service.go            # Tool gateway service
-│   │   │   ├── handlers.go           # HTTP handlers for tool endpoints
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── registry.go           # Tool registration
-│   │   │   ├── mcp.go                # MCP protocol handling
-│   │   │   ├── executor.go           # Tool execution
-│   │   │   ├── validator.go          # Request validation
-│   │   │   └── models.go             # Tool gateway types
-│   │   │
-│   │   ├── events/                   # Event spine
-│   │   │   ├── emitter.go            # Event emission
-│   │   │   ├── processor.go          # Event processing
-│   │   │   ├── router.go             # Event routing
-│   │   │   ├── repository.go         # Storage interface
-│   │   │   ├── postgres.go           # Postgres implementation of repository
-│   │   │   ├── types.go              # Event types
-│   │   │   └── sinks/                # Event sink implementations
-│   │   │       ├── stdout.go
-│   │   │       ├── kafka.go
-│   │   │       └── webhook.go
-│   │   │
-│   │   ├── config/                   # Configuration management
-│   │   │   ├── config.go             # Config loading
-│   │   │   ├── defaults.go           # Default values
-│   │   │   └── validate.go           # Config validation
-│   │   │
-│   │   ├── models/                   # Shared domain models
-│   │   │   ├── identity.go
-│   │   │   ├── agent.go
-│   │   │   ├── run.go
-│   │   │   ├── policy.go
-│   │   │   ├── credential.go
-│   │   │   └── event.go
-│   │   │
-│   │   ├── errors/                   # Error types & handling
-│   │   │   ├── codes.go              # Error codes
-│   │   │   ├── errors.go             # Error types
-│   │   │   └── handling.go           # Error handling utilities
-│   │   │
-│   │   ├── auth/                     # Authentication utilities
-│   │   │   ├── jwt.go                # JWT utilities
-│   │   │   ├── context.go            # Auth context
-│   │   │   └── claims.go             # Token claims
-│   │   │
-│   │   └── httputil/                 # HTTP utilities
-│   │       ├── client.go             # HTTP client
-│   │       ├── response.go           # Response helpers
-│   │       └── request.go            # Request helpers
-│   │
-│   ├── deployments/                  # Deployment configurations
-│   │   ├── docker/
-│   │   │   ├── Dockerfile.api
-│   │   │   ├── Dockerfile.gateway
-│   │   │   └── docker-compose.yml
-│   │   ├── kubernetes/
+│   ├── internal/
+│   │   ├── platform/                     # Cross-cutting infrastructure (never imports features)
 │   │   │   ├── api/
-│   │   │   ├── gateways/
-│   │   │   └── workers/
-│   │   └── terraform/                # Infrastructure as code
-│   │
-│   ├── scripts/                      # Development & ops scripts
-│   │   ├── dev-setup.sh
-│   │   ├── migrate.sh
-│   │   └── seed-data.sh
-│   │
-│   ├── tests/                        # Integration & E2E tests
-│   │   ├── integration/
-│   │   └── e2e/
+│   │   │   │   ├── api.go                # JSON helpers: DecodeJSON, JSON response writer
+│   │   │   │   ├── controller.go         # Controller interface definition
+│   │   │   │   ├── mux.go                # HTTP multiplexer + route registration
+│   │   │   │   ├── error.go              # APIError type + standard error codes
+│   │   │   │   └── response.go           # Typed response helpers
+│   │   │   │
+│   │   │   ├── config/
+│   │   │   │   └── config.go             # config.Load[T]() generic YAML loader
+│   │   │   │
+│   │   │   ├── logging/
+│   │   │   │   ├── logger.go             # Logger interface + Field struct
+│   │   │   │   ├── zerolog.go            # zerolog implementation
+│   │   │   │   └── README.md
+│   │   │   │
+│   │   │   ├── middleware/
+│   │   │   │   ├── middleware.go         # MiddlewareHandler type
+│   │   │   │   ├── logging.go            # Structured request logging
+│   │   │   │   └── tracing.go            # OpenTelemetry trace injection
+│   │   │   │
+│   │   │   ├── observability/
+│   │   │   │   ├── observability.go      # OTEL TracerProvider + MeterProvider setup
+│   │   │   │   └── README.md
+│   │   │   │
+│   │   │   └── storage/
+│   │   │       ├── config.go             # StorageConfig (postgres + redis nested struct)
+│   │   │       ├── postgres_config.go    # PostgresConfig + env var injection
+│   │   │       ├── postgres_pool.go      # pgxpool.Pool builder + OTel query tracer
+│   │   │       ├── db.go                 # DB type wrapping pgxpool.Pool + healthcheck
+│   │   │       ├── transaction.go        # WithTransaction helper
+│   │   │       ├── redis_config.go       # RedisConfig + env var injection
+│   │   │       ├── redis.go              # Redis type wrapping go-redis/v9 client
+│   │   │       ├── config/
+│   │   │       │   ├── local.yaml
+│   │   │       │   ├── development.yaml
+│   │   │       │   └── production.yaml
+│   │   │       └── migrations/           # Goose SQL migration files
+│   │   │           ├── 20260218215737_create_example_tables.sql
+│   │   │           └── 20260310000000_create_identity_tables.sql
+│   │   │
+│   │   ├── identity/                     # Identity & authentication feature (implemented)
+│   │   │   ├── models.go                 # Principal, Session, OrbitClaims, request/response types
+│   │   │   ├── repository.go             # SessionRepository, RefreshTokenRepository, JTIBlocklistRepository
+│   │   │   ├── postgres.go               # pgx implementations of SessionRepository + RefreshTokenRepository
+│   │   │   ├── redis.go                  # go-redis implementation of JTIBlocklistRepository
+│   │   │   ├── service.go                # Service: OIDC flow, token issuance, session lifecycle
+│   │   │   ├── handlers.go               # HTTP handlers: device, session, refresh, exchange, revoke
+│   │   │   └── config/
+│   │   │       ├── local.yaml            # issuerUrl: http://localhost:5556/dex
+│   │   │       ├── development.yaml
+│   │   │       └── production.yaml
+│   │   │
+│   │   ├── agents/                       # (planned) Agent registration, identity binding, autonomy levels
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   ├── policy/                       # (planned) OPA integration, RBAC/PBAC evaluation, policy bundles
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   ├── credentials/                  # (planned) Credential broker: scoped provisioning, OBO flows, Vault
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── redis.go                  # Token cache / blocklist
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   ├── gateway/                      # (planned) Outbound gateway / ext-authz proxy for agent external calls
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   ├── runs/                         # (planned) Agent run lifecycle, execution tracking, audit trail
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   ├── events/                       # (planned) Structured event emission and routing (event spine)
+│   │   │   ├── models.go
+│   │   │   ├── repository.go
+│   │   │   ├── postgres.go
+│   │   │   ├── service.go
+│   │   │   ├── handlers.go
+│   │   │   └── config/
+│   │   │
+│   │   └── example/                      # Reference implementation (not production code)
+│   │       ├── controller.go             # Demonstrates Controller interface + route registration
+│   │       └── repository.go             # Demonstrates repository pattern with storage.DB
 │   │
 │   ├── go.mod
-│   ├── go.sum
-│   ├── Makefile
-│   └── README.md
+│   └── go.sum
 │
-├── frontend/                         # Future: Admin UI/Dashboard
-│   └── .gitkeep
+├── config/
+│   └── dex/
+│       ├── config.yaml                   # Dex OIDC provider config (static user, orbit-local client)
+│       └── .env                          # DEX_USER_PASSWORD_HASH — gitignored, generated by make dex-env
+│
+├── scripts/
+│   └── auth-device.sh                    # Device Authorization Grant CLI flow
+│
+├── secrets/                              # gitignored — local secrets only
+│   └── signing.key                       # RSA private key, generated by make gen-signing-key
 │
 ├── docs/
-│   ├── adr/
-│   ├── prd/
-│   ├── api/                          # API documentation
-│   │   ├── control-plane.md
-│   │   ├── model-gateway.md
-│   │   └── tool-gateway.md
+│   ├── adr/                              # Architecture Decision Records
+│   ├── prd/                              # Product Requirements Documents
+│   ├── guides/
+│   │   └── local-development.md          # Full local setup walkthrough
+│   ├── configuration/
+│   │   ├── config.md                     # YAML config system reference
+│   │   └── secrets.md                    # Secret management reference
 │   ├── architecture.md
-│   └── code-organization.md          # This file
+│   └── code-organization.md              # This file
 │
-└── README.md
+├── docker-compose.yml                    # Tier 1: Postgres + Redis + Dex
+├── Makefile
+├── .env.example
+├── AGENTS.md                             # AI agent coding conventions
+├── README.md
+└── SECURITY.md
 ```
+
+---
 
 ## Platform vs Features
 
-Orbit separates **platform infrastructure** from **business features**:
-
 ### Platform Layer (`internal/platform/`)
 
-Infrastructure and cross-cutting concerns that features depend on:
+Infrastructure packages shared by all features. Platform packages:
+- **never import feature packages** — dependency flow is strictly one-directional
+- provide building blocks that features wire themselves to via constructors
+- are fully tested in isolation
 
-- **`logging/`** - Structured logging with OTEL correlation
-- **`observability/`** - OTEL tracing and metrics setup
-- **`storage/`** - Database connections, transactions, migrations
-- **`middleware/`** - Shared HTTP middleware (auth, logging, rate limiting)
-
-**Key characteristic:** Platform packages are dependencies, not dependents. They never import feature packages.
+| Package | Purpose |
+|---|---|
+| `api` | HTTP multiplexer, `Controller` interface, JSON helpers, typed errors |
+| `config` | Generic YAML loader `config.Load[T any]()` keyed by `APP_ENV` |
+| `logging` | `Logger` interface + zerolog implementation; injected, never global |
+| `middleware` | Request logging, OTel trace injection; composed in the `Mux` |
+| `observability` | OTEL `TracerProvider` + `MeterProvider` setup, OTLP exporter |
+| `storage` | PostgreSQL (`*pgxpool.Pool` via `storage.DB`) + Redis (`storage.Redis`); config, pool builder, migrations |
 
 ### Feature Layer (`internal/`)
 
-Domain-specific business logic at the top level:
+Domain packages owning a complete vertical slice:
 
-- **`identity/`** - Identity & authentication
-- **`policy/`** - Policy enforcement
-- **`credentials/`** - Credential broker
-- **`agents/`** - Agent management
-- **`runs/`** - Run control plane
-- **`modelgateway/`** - Model gateway
-- **`toolgateway/`** - Tool gateway
-- **`events/`** - Event spine
+| Package | Status | Description |
+|---|---|---|
+| `identity` | ✅ Implemented | OIDC federation, Device Authorization Grant, session lifecycle, JWT issuance, revocation |
+| `agents` | 🔜 Planned | Agent registration, identity binding, autonomy level management |
+| `policy` | 🔜 Planned | OPA integration, RBAC/PBAC evaluation, policy bundle management |
+| `credentials` | 🔜 Planned | Credential broker: scoped provisioning, OBO flows, Vault integration (ADR-0012) |
+| `gateway` | 🔜 Planned | Outbound gateway / ext-authz proxy for agent external service calls (ADR-0011, ADR-0012) |
+| `runs` | 🔜 Planned | Agent run lifecycle, execution tracking, audit trail |
+| `events` | 🔜 Planned | Structured event emission and routing (event spine) |
 
-**Key characteristic:** Features own their complete vertical stack (handlers → service → repository → storage).
+The `example` package is a reference implementation demonstrating the correct patterns. It is not a production feature and will be removed when the first post-identity feature is added.
 
-### Import Flow
+---
 
-```
-Feature packages → internal/platform/* (allowed)
-internal/platform/* → Feature packages (FORBIDDEN)
-```
+## Standard Feature Structure
 
-This ensures platform remains reusable infrastructure while features stay decoupled.
-
-## Architecture Principles
-
-### 1. Single Binary with Flexible Deployment
-
-The `orbit` binary supports multiple deployment modes through component registration:
-
-```bash
-orbit server                    # Run everything (default)
-orbit server --api-only        # Run only API server
-orbit server --gateways-only   # Run only gateways
-orbit worker                   # Run background workers
-```
-
-**Benefits:**
-- Simple deployment (single binary)
-- Easy local development
-- Flexible scaling (run components separately when needed)
-- Clean migration path (can split to microservices later)
-
-### 2. Feature-Based Organization
-
-Each feature/domain is a self-contained package in `internal/`:
-- All related code lives together (service, handlers, storage, models)
-- Clear ownership and easier navigation
-- No artificial layering between transport and business logic
-- Promotes high cohesion and low coupling
-
-**Platform infrastructure:**
-- `internal/platform/logging/` - Logging infrastructure
-- `internal/platform/observability/` - OTEL tracing & metrics
-- `internal/platform/storage/` - Database infrastructure
-- `internal/platform/middleware/` - Shared HTTP middleware
-
-**Core features:**
-- `internal/identity/` - Identity & authentication
-- `internal/policy/` - Policy enforcement
-- `internal/credentials/` - Credential broker
-- `internal/agents/` - Agent management
-- `internal/runs/` - Run control plane
-- `internal/modelgateway/` - Model gateway
-- `internal/toolgateway/` - Tool gateway
-- `internal/events/` - Event spine
-
-### 3. Everything in `internal/`
-
-All application code lives in `internal/` because Orbit is an application, not a library:
-- Prevents external projects from importing our internals
-- Keeps refactoring options open
-- Forces clear API boundaries
-- Shared packages (models, errors, auth) are internal utilities
-
-**Note:** If we later build an official Orbit Go SDK, we would create `pkg/sdk/` explicitly for that purpose.
-
-### 4. Repository Pattern for Data Access
-
-Each feature owns its complete data layer:
+Every feature follows this exact file layout:
 
 ```
 internal/{feature}/
-├── repository.go   # Interface definition (contract)
-├── postgres.go     # PostgreSQL implementation
-├── service.go      # Business logic
-├── handlers.go     # HTTP handlers
-└── models.go       # Feature-specific types
+├── models.go       # Domain types, request/response structs, errors
+├── repository.go   # Storage interface(s) — the contract, not the implementation
+├── postgres.go     # PostgreSQL implementation of repository interfaces
+├── redis.go        # Redis implementation (if the feature uses Redis directly)
+├── service.go      # Business logic; orchestrates repositories and external clients
+├── handlers.go     # HTTP transport: decodes requests, calls service, writes responses
+└── config/
+    ├── local.yaml
+    ├── development.yaml
+    └── production.yaml
 ```
 
-**Dependency flow:**
-```
-Feature packages → internal/platform/storage (for DB connection)
-                 → internal/platform/logging (for logger)
-                 → internal/models (for shared types)
+Features that require Redis (e.g. for caching or blocklists) add a `redis.go` alongside `postgres.go`. There is no `providers/` subdirectory — OIDC and other external integrations live directly in `service.go` or as unexported helpers in the same package.
 
-internal/platform/* → Does NOT import features
-internal/models     → Does NOT import features
-```
+---
 
-The `internal/platform/storage/` package provides only infrastructure:
-- Database connection & pooling (`db.go`)
-- Transaction utilities (`transaction.go`)
-- Migration runner (`migrations.go`)
-- SQL migration files (`migrations/`)
+## Key Patterns
 
-**Benefits:**
-- Features have complete autonomy over their data
-- No circular dependencies
-- Easy to test with mock repositories
-- Clear separation between business logic and data access
-- Shared database infrastructure prevents duplication
+### 1. HTTP Routing via `api.Controller`
 
-### 5. Pluggable Providers
-
-Each integration point uses the provider pattern for extensibility:
-
-- **Identity providers** (`internal/identity/providers/`)
-  - OIDC, SAML, local dev
-- **Credential providers** (`internal/credentials/providers/`)
-  - Vault, AWS Secrets Manager, in-memory
-- **Model providers** (`internal/modelgateway/providers/`)
-  - OpenAI, Anthropic, Azure OpenAI
-- **Event sinks** (`internal/events/sinks/`)
-  - stdout, Kafka, webhooks
-
-## Standard Feature Package Structure
-
-Every feature follows this consistent structure:
-
-```
-internal/{feature}/
-├── service.go      # Business logic and orchestration
-├── handlers.go     # HTTP request/response handling
-├── repository.go   # Storage interface (defines contract)
-├── postgres.go     # PostgreSQL implementation
-├── models.go       # Feature-specific domain types
-├── provider.go     # Provider interface (if applicable)
-└── providers/      # Provider implementations (if applicable)
-    ├── impl1.go
-    └── impl2.go
-```
-
-**Responsibilities:**
-
-- **service.go**: Core business logic, orchestrates between repository and providers
-- **handlers.go**: HTTP transport layer, request validation, response formatting
-- **repository.go**: Defines data access contract (interface)
-- **postgres.go**: Implements repository interface for PostgreSQL
-- **models.go**: Feature-specific types and domain models
-- **provider.go**: Defines external integration contract (interface)
-- **providers/**: Implements provider interface for specific backends
-
-## Platform Infrastructure
-
-### Storage (`internal/platform/storage/`)
-
-Provides database infrastructure used by all features:
+There is no central router file. Each feature registers its own routes by implementing the `api.Controller` interface:
 
 ```go
-// db.go - Database connection
+// internal/platform/api/controller.go
+type Controller interface {
+    GroupedBy() string                      // URL prefix, e.g. "/identity"
+    Middleware() middleware.MiddlewareHandler
+    Boot(mux *api.Mux)                     // Register routes on the mux
+}
+```
+
+`main.go` instantiates each feature's controller and calls `mux.Register(ctrl)`. Adding a new feature never requires touching existing files — only `main.go` needs updating.
+
+```go
+// backend/cmd/orbit/main.go
+mux.Register(identity.NewController(identitySvc))
+mux.Register(example.NewController(db))
+// future: mux.Register(agents.NewController(agentsSvc))
+```
+
+### 2. Dependency-Injected Logger
+
+Global loggers are forbidden. Every struct that logs accepts a `*logging.Logger` in its constructor:
+
+```go
+type Service struct {
+    logger *logging.Logger
+    // ...
+}
+
+// All log calls take ctx as first argument for OTel trace extraction
+s.logger.Info(ctx, "session created", logging.Field{Key: "session_id", Value: id})
+```
+
+The `Logger` interface is defined in `internal/platform/logging/logger.go`. The zerolog implementation is in `zerolog.go`. Features depend on the interface, not the implementation.
+
+### 3. Database Access via `storage.DB`
+
+All database access uses explicit SQL. ORMs are not used. The `storage.DB` type wraps a `pgxpool.Pool`:
+
+```go
+// internal/platform/storage/db.go
 type DB struct {
-    *sql.DB
-    // connection pooling, health checks
+    Pool *pgxpool.Pool
 }
-
-// transaction.go - Transaction utilities
-func WithTransaction(ctx context.Context, db *DB, fn func(*sql.Tx) error) error
-
-// migrations.go - Migration runner
-func RunMigrations(db *DB) error
 ```
 
-### Logging (`internal/platform/logging/`)
-
-Provides logging infrastructure using dependency injection pattern:
-- Logger interface for feature packages to depend on
-- Concrete implementation using zerolog
-- Passed to services via constructors (no global loggers)
-
-### Observability (`internal/platform/observability/`)
-
-OTEL tracing and metrics shared across all features:
-- TracerProvider setup with OTLP exporter
-- Structured span creation with context propagation
-- Environment-based configuration
-
-### Middleware (`internal/platform/middleware/`)
-
-Shared HTTP middleware for cross-cutting concerns:
-- Authentication and authorization
-- Request logging with trace correlation
-- Rate limiting and throttling
-- Tenant isolation
-
-## Shared Domain Layer
-
-### Models (`internal/models/`)
-
-Shared domain types used across multiple features. Keep minimal - prefer feature-specific models when possible.
-
-## Implementation Guidelines
-
-### Adding a New Feature
-
-1. Create feature package in `internal/{feature}/`
-2. Define domain models in `models.go`
-3. Define repository interface in `repository.go`
-4. Implement repository in `postgres.go`
-5. Implement business logic in `service.go`
-6. Add HTTP handlers in `handlers.go`
-7. Register routes in `internal/server/router.go`
-8. Add database migrations in `internal/platform/storage/migrations/`
-
-### Adding Storage to a Feature
+Feature repository implementations receive `*storage.DB` via constructor injection:
 
 ```go
-// repository.go - Define contract
-package identity
-
-type Repository interface {
-    GetUserByID(ctx context.Context, id string) (*User, error)
-    CreateUser(ctx context.Context, user *User) error
-}
-
-// postgres.go - Implement for PostgreSQL
-package identity
-
-import "github.com/clear-route/orbit/internal/platform/storage"
-
-type postgresRepository struct {
+// internal/identity/postgres.go
+type postgresSessionRepository struct {
     db *storage.DB
 }
 
-func NewPostgresRepository(db *storage.DB) Repository {
-    return &postgresRepository{db: db}
-}
-
-func (r *postgresRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
-    // Implementation using r.db
+func (r *postgresSessionRepository) Create(ctx context.Context, s *Session) error {
+    _, err := r.db.Pool.Exec(ctx,
+        `INSERT INTO identity_sessions (id, principal_id, ...) VALUES ($1, $2, ...)`,
+        s.ID, s.PrincipalID, ...)
+    return err
 }
 ```
 
-### Testing
+### 4. Redis Access via `storage.Redis`
 
-- Unit tests alongside implementation files: `service_test.go`, `handlers_test.go`
-- Integration tests in `tests/integration/`
-- E2E tests in `tests/e2e/`
-- Mock repositories for testing business logic
+Redis is a first-class storage primitive alongside PostgreSQL. The `storage.Redis` type wraps a `*redis.Client`:
+
+```go
+// internal/platform/storage/redis.go
+type Redis struct {
+    Client *redis.Client
+}
+```
+
+Features that need Redis receive `*storage.Redis` via constructor injection. The identity service uses it for the JTI blocklist (`orbit:jti:blocklist:{jti}`):
+
+```go
+// internal/identity/redis.go
+type redisJTIBlocklistRepository struct {
+    redis *storage.Redis
+}
+```
+
+### 5. Configuration via `config.Load[T any]()`
+
+Configuration is environment-aware YAML, loaded at startup. Each component has its own config directory with one file per environment:
+
+```
+internal/{feature}/config/
+├── local.yaml
+├── development.yaml
+└── production.yaml
+```
+
+The `config.Load[T any]()` function reads the file matching `APP_ENV` (defaults to `local`):
+
+```go
+// Load the identity service config for the current environment
+cfg, err := config.Load[identity.Config]("internal/identity/config", config.Environment())
+```
+
+**Secrets never appear in YAML.** Any secret field on a config struct must be tagged `yaml:"-"` and loaded separately via `os.Getenv`. See [docs/configuration/secrets.md](configuration/secrets.md) for the full reference.
+
+### 6. Storage Config is Unified
+
+Storage configuration uses a single two-level YAML structure — both PostgreSQL and Redis live in the same environment file:
+
+```yaml
+# internal/platform/storage/config/local.yaml
+postgres:
+  host: localhost
+  port: 5432
+  ...
+
+redis:
+  addr: localhost:6379
+  ...
+```
+
+`storage.LoadStorageConfig()` parses the unified config and returns a `StorageConfig` with both `Postgres` and `Redis` sub-configs. Environment variable overrides (`DATABASE_URL`, `REDIS_ADDR`, etc.) are applied after YAML parsing inside `loadPostgresConfig` and `loadRedisConfig`.
+
+### 7. Migrations via Goose
+
+SQL migrations live in `internal/platform/storage/migrations/` and use Goose annotations:
+
+```sql
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE ...;
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+DROP TABLE ...;
+-- +goose StatementEnd
+```
+
+**Never write migration files by hand.** Always generate them:
+
+```bash
+make migrate-create name=create_agents_table
+```
+
+This ensures correct timestamp ordering and Goose-compatible format.
+
+---
+
+## Application Entry Point
+
+`backend/cmd/orbit/main.go` is the only wiring file. It:
+
+1. Loads `AppConfig` (server port, OTLP endpoint, sampling rate)
+2. Initializes `observability` (TracerProvider, MeterProvider)
+3. Calls `initStorage()` — loads `StorageConfig`, creates `*storage.DB` and `*storage.Redis`
+4. Runs Goose migrations against the DB
+5. Initializes each feature service with its dependencies
+6. Constructs the `api.Mux`, registers each feature's `Controller`
+7. Starts the HTTP server
+
+There are no subcommands (`server`, `worker`, `gateway`). The binary runs a single mode. Deployment topology (running components separately) is a future concern addressed when the scale justification exists.
+
+---
+
+## Adding a New Feature
+
+Follow these steps to add a new feature package:
+
+1. **Create the package** at `internal/{feature}/`
+2. **Define models** in `models.go` — domain types, request/response structs, feature-specific errors
+3. **Define repository interfaces** in `repository.go` — storage contracts; keep methods small and focused
+4. **Implement PostgreSQL** in `postgres.go` — explicit SQL only, inject `*storage.DB`
+5. **Implement Redis** in `redis.go` — if the feature needs Redis, inject `*storage.Redis`
+6. **Write business logic** in `service.go` — call repositories, external clients, issue events
+7. **Write HTTP handlers** in `handlers.go` — implement `api.Controller`, register routes via `Boot(*api.Mux)`
+8. **Add config files** in `config/{local,development,production}.yaml`
+9. **Generate migrations** with `make migrate-create name=create_{feature}_tables`
+10. **Register in `main.go`** — instantiate the service and call `mux.Register(feature.NewController(svc))`
+
+The `internal/example/` package demonstrates steps 3–8 with working code. Read it before implementing the first route in a new feature.
+
+---
+
+## Platform Infrastructure Reference
+
+### `internal/platform/api`
+
+The HTTP layer abstraction. Key types:
+
+```go
+// Controller — implement this in every feature
+type Controller interface {
+    GroupedBy() string
+    Middleware() middleware.MiddlewareHandler
+    Boot(mux *Mux)
+}
+
+// Mux — constructed in main.go, passed to each Controller.Boot()
+type Mux struct { ... }
+func (m *Mux) Register(c Controller)
+func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request)
+
+// JSON helpers — used in handlers
+func JSON(w http.ResponseWriter, status int, v any) error
+func DecodeJSON(r *http.Request, v any) error
+
+// Errors — return these from handlers
+func BadRequest(code, message string) *APIError
+func Unauthorized(code, message string) *APIError
+func NotFound(code, message string) *APIError
+func InternalError() *APIError
+```
+
+### `internal/platform/logging`
+
+```go
+type Logger interface {
+    Debug(ctx context.Context, msg string, fields ...Field)
+    Info(ctx context.Context, msg string, fields ...Field)
+    Warn(ctx context.Context, msg string, fields ...Field)
+    Error(ctx context.Context, msg string, fields ...Field)
+    With(fields ...Field) Logger
+}
+
+type Field struct {
+    Key   string
+    Value interface{}
+}
+```
+
+Construct a logger in `main.go` and inject it into every service:
+
+```go
+logger := logging.NewZerolog(os.Stdout, logging.LevelInfo)
+svc := identity.NewService(db, redis, logger, cfg)
+```
+
+### `internal/platform/storage`
+
+```go
+// PostgreSQL — wraps pgxpool.Pool
+type DB struct {
+    Pool *pgxpool.Pool
+}
+func (db *DB) HealthCheck(ctx context.Context) error
+
+// Redis — wraps go-redis/v9 client
+type Redis struct {
+    Client *redis.Client
+}
+func (r *Redis) HealthCheck(ctx context.Context) error
+
+// Transaction helper
+func WithTransaction(ctx context.Context, db *DB, fn func(pgx.Tx) error) error
+
+// Unified config loader
+func LoadStorageConfig() (*StorageConfig, error)
+type StorageConfig struct {
+    Postgres PostgresConfig
+    Redis    RedisConfig
+}
+```
+
+### `internal/platform/config`
+
+```go
+// Load YAML config for the current APP_ENV
+// path is relative to the backend/ directory
+func Load[T any](path string, env string) (T, error)
+
+// Returns APP_ENV value (defaults to "local")
+func Environment() string
+```
+
+---
+
+## What This Codebase Is Not
+
+To prevent common mistakes:
+
+- **No ORM** — `*pgxpool.Pool` and explicit SQL only; no GORM, Ent, sqlx, or similar
+- **No third-party router** — no Gorilla Mux, Chi, Gin, Echo, or Fiber; routing goes through `api.Mux` and the `Controller` interface
+- **No global logger** — no `log.Println`, no package-level `var logger = ...`; inject `*logging.Logger` everywhere
+- **No `internal/models/` package** — shared domain types do not exist; each feature owns its models
+- **No `internal/server/router.go`** — there is no central route registry; features self-register via `Controller.Boot()`
+- **No `commands/` subdir in `cmd/orbit/`** — no subcommands; `main.go` runs one mode
+- **No `providers/` subdirectory in features** — OIDC and external integrations live in `service.go`
+- **No hand-written migration files** — always use `make migrate-create name=X`
+- **No secrets in YAML** — use `yaml:"-"` tags and `os.Getenv`; see `docs/configuration/secrets.md`
+
+---
 
 ## References
 
-See [architecture.md](architecture.md) for high-level architectural decisions and patterns.
+- [ADR-0003](adr/0003-repository-pattern-and-code-organization.md) — Repository pattern and code organization rationale
+- [ADR-0004](adr/0004-dependency-injected-logging.md) — Dependency-injected logging
+- [ADR-0005](adr/0005-controller-based-http-routing.md) — Controller-based HTTP routing
+- [ADR-0006](adr/0006-yaml-file-based-configuration.md) — YAML configuration system
+- [ADR-0007](adr/0007-database-infrastructure-layer.md) — Database infrastructure layer
+- [ADR-0017](adr/0017-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC abstraction and local Dex setup
+- [docs/configuration/secrets.md](configuration/secrets.md) — Secret management reference
+- [docs/guides/local-development.md](guides/local-development.md) — Local setup walkthrough

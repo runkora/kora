@@ -1,0 +1,13 @@
+oidc:
+  # Production issuerUrl must be explicitly set via deployment configuration.
+  # Client credentials via ORBIT_OIDC_CLIENT_ID / ORBIT_OIDC_CLIENT_SECRET.
+  issuerUrl: ""
+  scopes:
+    - openid
+    - profile
+    - email
+
+token:
+  # Shorter-lived access tokens in production — refresh more frequently.
+  accessTokenTtlMinutes: 15
+  refreshTokenTtlDays: 7

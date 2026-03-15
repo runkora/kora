@@ -13,7 +13,7 @@ type APIError struct {
 	Message string `json:"message"`
 
 	// Details contains optional additional error information (validation errors, IDs, etc.)
-	Details map[string]interface{} `json:"details,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 
 	// StatusCode is the HTTP status code to return (not serialized to JSON)
 	StatusCode int `json:"-"`
@@ -27,7 +27,7 @@ func (e *APIError) Error() string {
 // Common error constructors
 
 // NotFoundError creates a 404 Not Found error
-func NotFoundError(code, message string, details map[string]interface{}) *APIError {
+func NotFoundError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -37,7 +37,7 @@ func NotFoundError(code, message string, details map[string]interface{}) *APIErr
 }
 
 // ValidationError creates a 400 Bad Request error for validation failures
-func ValidationError(code, message string, details map[string]interface{}) *APIError {
+func ValidationError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -47,7 +47,7 @@ func ValidationError(code, message string, details map[string]interface{}) *APIE
 }
 
 // BadRequestError creates a 400 Bad Request error for malformed requests
-func BadRequestError(code, message string, details map[string]interface{}) *APIError {
+func BadRequestError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -57,7 +57,7 @@ func BadRequestError(code, message string, details map[string]interface{}) *APIE
 }
 
 // ConflictError creates a 409 Conflict error for resource conflicts
-func ConflictError(code, message string, details map[string]interface{}) *APIError {
+func ConflictError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -67,7 +67,7 @@ func ConflictError(code, message string, details map[string]interface{}) *APIErr
 }
 
 // UnauthorizedError creates a 401 Unauthorized error
-func UnauthorizedError(code, message string, details map[string]interface{}) *APIError {
+func UnauthorizedError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -77,7 +77,7 @@ func UnauthorizedError(code, message string, details map[string]interface{}) *AP
 }
 
 // ForbiddenError creates a 403 Forbidden error
-func ForbiddenError(code, message string, details map[string]interface{}) *APIError {
+func ForbiddenError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
@@ -87,7 +87,7 @@ func ForbiddenError(code, message string, details map[string]interface{}) *APIEr
 }
 
 // InternalError creates a 500 Internal Server Error
-func InternalError(code, message string, details map[string]interface{}) *APIError {
+func InternalError(code, message string, details map[string]any) *APIError {
 	return &APIError{
 		Code:       code,
 		Message:    message,
