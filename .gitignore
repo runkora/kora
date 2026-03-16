@@ -92,3 +92,4 @@ dist/
 
 # agents
 .forge/
+infrastructure/overlays/local/charts/
