@@ -262,6 +262,59 @@ Each client is:
 - Injected into feature services that need it (constructor injection, consistent with the existing pattern)
 - Configurable via the standard config system (base URL, timeout, retry settings from YAML/env)
 
+#### Wire type ownership
+
+Each client package defines its own request/response structs. These types are **not imported from the feature package they call** — they are independent types owned by the client, with JSON struct tags that match the HTTP wire format of the target service's API.
+
+This is intentional and correct. The relevant coupling point is the HTTP wire contract (the JSON field names and shapes the service actually emits), not the Go type that the service uses internally to produce that JSON. If the identity service refactors its internal `SessionResponse` struct but keeps the JSON output identical, the client is unaffected. The client's types represent the consumer's view of the API.
+
+```go
+// internal/platform/clients/identity/client.go
+
+// TokenInfo is what the client parses from the identity service wire format.
+// These field names and JSON tags must match the identity service's HTTP response.
+// This type is NOT imported from internal/identity — it is the client's own
+// representation of the wire contract.
+type TokenInfo struct {
+    PrincipalID   string            `json:"sub"`
+    TenantID      string            `json:"tenant_id"`
+    PrincipalType string            `json:"principal_type"`
+    SessionID     string            `json:"session_id"`
+    Claims        map[string]string `json:"claims"`
+}
+```
+
+#### Why a shared interface in platform does not work for data shapes
+
+A natural question is whether a Go interface could be defined in `internal/platform/` to enforce that the identity service's response types match what the client expects, with a compile-time conformity check in the identity package (`var _ platform.XInterface = (*ConcreteType)(nil)`).
+
+This does not work for request/response structs because **Go interfaces are method sets, not field sets**. An interface cannot express "this struct must have a field `AccessToken string` with JSON tag `access_token`". The type system has no mechanism to enforce JSON wire format — struct tags are invisible to the interface system. A conformity check can only verify that certain methods exist, not that the JSON serialisation is correct.
+
+Concretely: a type could satisfy every method in a platform interface while having a broken `json:"token"` tag instead of `json:"access_token"`. The compile-time check passes; the wire format breaks at runtime.
+
+Contract safety for the HTTP wire format is enforced by integration tests, not the type system.
+
+#### Where interfaces are correct: consumer-side testability
+
+The right use of interfaces in this pattern is at the consuming feature package, to enable testing without a real HTTP call:
+
+```go
+// internal/policy/service.go — the consumer defines the interface it needs
+type IdentityClient interface {
+    ValidateToken(ctx context.Context, token string) (*identityclient.TokenInfo, error)
+}
+```
+
+The concrete `*identityclient.Client` satisfies this in production. A stub satisfies it in tests. The interface expresses the consuming service's behavioural dependency — methods it calls — which is the correct coupling point for an interface. The identity client package may optionally include a compile-time check confirming the concrete type satisfies any interface it documents:
+
+```go
+// internal/platform/clients/identity/client.go
+// Compile-time check: Client satisfies the Validator interface documented for consumers.
+var _ Validator = (*Client)(nil)
+```
+
+This is the correct application of Go's interface conformity pattern: enforcing behavioural contracts (methods), not data shape contracts (struct fields).
+
 In Tier 1 local development (single binary, no cluster), service-to-service calls that cross service boundaries are not exercised. Integration of the full call chain is a Tier 2 concern (local k8s cluster per ADR-0016).
 
 ### Configuration
