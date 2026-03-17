@@ -418,6 +418,12 @@ frontend-lint: ## Lint the frontend (eslint)
 	@cd $(FRONTEND_DIR) && pnpm lint
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
 
+.PHONY: frontend-type-check
+frontend-type-check: ## Type-check the frontend (tsc --noEmit)
+	@echo "$(COLOR_YELLOW)Type-checking frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm type-check
+	@echo "$(COLOR_GREEN)✓ Frontend type-check passed$(COLOR_RESET)"
+
 .PHONY: frontend-fmt
 frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 	@echo "$(COLOR_YELLOW)Formatting frontend...$(COLOR_RESET)"
@@ -426,7 +432,7 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 
 # TODO: add frontend-test as a dependency once frontend tests are implemented
 .PHONY: frontend-check
-frontend-check: frontend-lint frontend-fmt ## Run all frontend checks (eslint + prettier)
+frontend-check: frontend-lint frontend-type-check frontend-fmt ## Run all frontend checks (eslint + tsc + prettier)
 
 .PHONY: frontend-clean
 frontend-clean: ## Remove frontend build artifacts and installed dependencies
