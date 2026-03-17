@@ -26,11 +26,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# env files — .env.local and .env.*.local are never committed
-.env*
-# ...but the example reference file is always committed
-!.env.example
-
 # vercel
 .vercel
 

@@ -465,49 +465,6 @@ frontend-clean: ## Remove frontend build artifacts and installed dependencies
 	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
 
 # ===========================================
-# Frontend
-# ===========================================
-
-.PHONY: frontend-install
-frontend-install: ## Install frontend dependencies (pnpm install)
-	@echo "$(COLOR_YELLOW)Installing frontend dependencies...$(COLOR_RESET)"
-	@corepack install -g pnpm@$(PNPM_VERSION)
-	@cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
-	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
-
-.PHONY: frontend-dev
-frontend-dev: ## Start the frontend dev server (Next.js, port 3000)
-	@echo "$(COLOR_YELLOW)Starting frontend dev server...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm dev
-
-.PHONY: frontend-build
-frontend-build: ## Build the frontend for production
-	@echo "$(COLOR_YELLOW)Building frontend...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm build
-	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
-
-.PHONY: frontend-lint
-frontend-lint: ## Lint the frontend (eslint)
-	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm lint
-	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
-
-.PHONY: frontend-fmt
-frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
-	@echo "$(COLOR_YELLOW)Formatting frontend...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm exec prettier $(if $(CI),--check,--write) .
-	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
-
-.PHONY: frontend-check
-frontend-check: frontend-lint frontend-fmt ## Run all frontend checks (eslint + prettier)
-
-.PHONY: frontend-clean
-frontend-clean: ## Remove frontend build artifacts and installed dependencies
-	@echo "$(COLOR_YELLOW)Cleaning frontend...$(COLOR_RESET)"
-	@rm -rf $(FRONTEND_DIR)/.next $(FRONTEND_DIR)/node_modules
-	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
-
-# ===========================================
 # Cleanup
 # ===========================================
 
