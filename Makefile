@@ -17,6 +17,7 @@ GOLINT=golangci-lint
 
 # Project directories
 BACKEND_DIR=./backend
+FRONTEND_DIR=./frontend
 CMD_DIR=./backend/cmd/orbit
 MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 
@@ -29,6 +30,8 @@ GITLEAKS_VERSION=v8.27.2
 GOLANGCI_LINT_VERSION=v2.11.3
 GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
+NODE_VERSION=24
+PNPM_VERSION=10.32.1
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -69,7 +72,7 @@ env: ## Scaffold .env from .env.example (no-op if .env already exists)
 	fi
 
 .PHONY: setup
-setup: install-tools install-tools-cluster tidy hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
+setup: install-tools install-tools-cluster tidy frontend-install hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
 
 .PHONY: hooks
@@ -394,6 +397,74 @@ fix: ## Run go fix
 	@echo "$(COLOR_GREEN)✓ Fixes applied$(COLOR_RESET)"
 
 # ===========================================
+# Frontend
+# ===========================================
+
+.PHONY: frontend-install
+frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
+	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
+	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
+	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
+	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
+		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
+		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
+		exit 1; \
+	fi; \
+	. "$$NVM_DIR/nvm.sh"; \
+	echo "  Ensuring Node LTS via nvm (skipped if already installed)..."; \
+	nvm install $(NODE_VERSION); \
+	nvm use $(NODE_VERSION); \
+	echo "  Enabling Corepack..."; \
+	corepack enable; \
+	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
+		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
+	else \
+		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
+		corepack install -g pnpm@$(PNPM_VERSION); \
+	fi; \
+	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
+	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
+
+.PHONY: frontend-dev
+frontend-dev: ## Start the frontend dev server (Next.js, port 3000)
+	@echo "$(COLOR_YELLOW)Starting frontend dev server...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm dev
+
+.PHONY: frontend-build
+frontend-build: ## Build the frontend for production
+	@echo "$(COLOR_YELLOW)Building frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm build
+	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
+
+.PHONY: frontend-lint
+frontend-lint: ## Lint the frontend (eslint)
+	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm lint
+	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
+
+.PHONY: frontend-type-check
+frontend-type-check: ## Type-check the frontend (tsc --noEmit)
+	@echo "$(COLOR_YELLOW)Type-checking frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm type-check
+	@echo "$(COLOR_GREEN)✓ Frontend type-check passed$(COLOR_RESET)"
+
+.PHONY: frontend-fmt
+frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
+	@echo "$(COLOR_YELLOW)Formatting frontend...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm exec prettier $(if $(CI),--check,--write) .
+	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
+
+# TODO: add frontend-test as a dependency once frontend tests are implemented
+.PHONY: frontend-check
+frontend-check: frontend-lint frontend-type-check frontend-fmt ## Run all frontend checks (eslint + tsc + prettier)
+
+.PHONY: frontend-clean
+frontend-clean: ## Remove frontend build artifacts and installed dependencies
+	@echo "$(COLOR_YELLOW)Cleaning frontend...$(COLOR_RESET)"
+	@rm -rf $(FRONTEND_DIR)/.next $(FRONTEND_DIR)/node_modules
+	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
+
+# ===========================================
 # Cleanup
 # ===========================================
 
@@ -459,7 +530,7 @@ dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it
 # ===========================================
 
 .PHONY: check
-check: tidy fmt vet fix lint secrets test ## Run all checks (tidy, fmt, vet, lint, secrets, test)
+check: tidy fmt vet fix lint secrets test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
