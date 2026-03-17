@@ -30,6 +30,7 @@ GITLEAKS_VERSION=v8.27.2
 GOLANGCI_LINT_VERSION=v2.11.3
 GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
+NODE_VERSION=24
 PNPM_VERSION=10.32.1
 
 # Database connection string
@@ -376,10 +377,28 @@ fix: ## Run go fix
 # ===========================================
 
 .PHONY: frontend-install
-frontend-install: ## Install frontend dependencies (pnpm install)
-	@echo "$(COLOR_YELLOW)Installing frontend dependencies...$(COLOR_RESET)"
-	@corepack install -g pnpm@$(PNPM_VERSION)
-	@cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
+frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
+	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
+	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
+	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
+	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
+		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
+		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
+		exit 1; \
+	fi; \
+	. "$$NVM_DIR/nvm.sh"; \
+	echo "  Ensuring Node LTS via nvm (skipped if already installed)..."; \
+	nvm install $(NODE_VERSION); \
+	nvm use $(NODE_VERSION); \
+	echo "  Enabling Corepack..."; \
+	corepack enable; \
+	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
+		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
+	else \
+		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
+		corepack install -g pnpm@$(PNPM_VERSION); \
+	fi; \
+	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
 
 .PHONY: frontend-dev
