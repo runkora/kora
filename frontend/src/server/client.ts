@@ -100,13 +100,6 @@ async function request<T>(
     return undefined;
   }
 
-  // 204 No Content (and any response with an explicit empty body) has no JSON
-  // to parse. DELETE endpoints commonly return 204 — calling .json() on an
-  // empty body throws a SyntaxError even though the request succeeded.
-  if (response.status === 204 || response.headers.get('Content-Length') === '0') {
-    return undefined as T;
-  }
-
   // For success responses let JSON parse errors surface — a non-JSON 2xx body
   // is unexpected and should not be silently coerced to an empty object.
   return (await response.json()) as T;
