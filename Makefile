@@ -247,7 +247,7 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istio
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
 
 .PHONY: dev-cluster
-dev-cluster: db-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
+dev-cluster: dev-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-up.sh
 
@@ -255,6 +255,30 @@ dev-cluster: db-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPol
 dev-cluster-down: ## Tear down the local k3d cluster
 	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-down.sh
+
+.PHONY: docker-build
+docker-build: ## Build Orbit backend Docker image (for local cluster development)
+	@echo "$(COLOR_YELLOW)Building Orbit Docker image...$(COLOR_RESET)"
+	@cd backend && docker build -t orbit-backend:latest -f Dockerfile .
+	@echo "$(COLOR_GREEN)✓ Docker image built: orbit-backend:latest$(COLOR_RESET)"
+
+.PHONY: docker-push
+docker-push: ## Push Orbit backend Docker image to local registry (for local cluster development)
+	@echo "$(COLOR_YELLOW)Pushing Orbit Docker image to local registry...$(COLOR_RESET)"
+	@docker tag orbit-backend:latest localhost:5000/orbit-backend:latest
+	@docker push localhost:5000/orbit-backend:latest
+	@echo "$(COLOR_GREEN)✓ Docker image pushed to local registry: localhost:5000/orbit-backend:latest$(COLOR_RESET)"
+
+.PHONY: cluster-deploy
+cluster-deploy: # docker-build docker-push ## Deploy Orbit backend to local k3d cluster
+	@echo "$(COLOR_YELLOW)Deploying Orbit backend to local cluster...$(COLOR_RESET)"
+	kubectl create secret generic orbit-secrets -n orbit-system \
+		--from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+		--from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}" \
+		--dry-run=client -o yaml | kubectl apply -f -
+
+	@kustomize build k8s | kubectl apply -f -
+	@echo "$(COLOR_GREEN)✓ Orbit backend deployed to cluster$(COLOR_RESET)"
 
 # ===========================================
 # Development Workflow

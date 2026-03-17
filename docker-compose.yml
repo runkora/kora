@@ -54,7 +54,6 @@ services:
     container_name: orbit-dex
     restart: unless-stopped
     command: ["dex", "serve", "/etc/dex/config.yaml"]
-
     # Generate config/dex/.env from the example: cp config/dex/.env.example config/dex/.env
     env_file:
       - path: ./config/dex/.env
