@@ -1,7 +1,7 @@
-# 0018. Multi-Service Backend Deployment Structure
+# 0020. Multi-Service Backend Deployment Structure
 
 **Status:** Accepted
-**Date:** 2026-03-10
+**Date:** 2026-03-17
 **Deciders:** Engineering Team
 **Technical Story:** The enforcement architecture defined in ADRs 0010, 0011, and 0015 requires each platform service to run as a separate Kubernetes workload with its own SPIFFE identity, Istio sidecar, and Cilium network policy. The current single-binary backend cannot satisfy this requirement. This ADR defines how the Go monorepo is restructured to produce multiple independently deployable binaries without abandoning the monorepo model.
 
@@ -19,7 +19,13 @@ However, the enforcement architecture has since been fully specified (ADRs 0010,
 - ADR-0011 places an Envoy sidecar on every service pod. The sidecar performs mTLS using the pod's SVID and enforces `ext_authz` policy on every inbound request. A single pod running all services cannot have independent per-service sidecars.
 - ADR-0015 uses Istio's per-namespace sidecar injection and Cilium's pod-level eBPF network policy. Both operate at the pod boundary. A single all-features pod cannot be addressed by these controls at the per-service granularity that the security model requires.
 
-The existing `infrastructure/services/` directory already reflects the required deployment topology: separate Kustomize trees for `identity/`, `ext-authz/`, and `outbound-gateway/`, each with their own `ServiceAccount` and `ClusterSPIFFEID`. The backend code structure does not yet match.
+The infrastructure SPIFFE ID model (established in `infrastructure/base/spiffe.yaml`) uses three generic `ClusterSPIFFEID` templates rather than per-service resources:
+
+- `orbit-system-component` — any pod in the `orbit-system` namespace carrying the label `spiffe.io/component: <name>` is automatically issued SPIFFE ID `spiffe://orbit.local/system/<name>`
+- `orbit-tenant-service` — any pod in the `orbit-tenant` namespace with label `spiffe.io/service: <name>` gets `spiffe://orbit.local/tenant/<namespace>/service/<name>`
+- `orbit-tenant-agent` — any pod in the `orbit-agent` namespace with label `spiffe.io/agent: <name>` gets `spiffe://orbit.local/tenant/<namespace>/agent/<name>`
+
+No per-service `ClusterSPIFFEID` resource is required. A new service acquires its SPIFFE identity solely by setting the appropriate pod label. Application manifests live in `k8s/` (not `infrastructure/`), which handles cluster-level concerns only (SPIRE, Istio, namespaces, network policies).
 
 This ADR does not reverse the non-goal in ADR-0001. We are not adopting microservices. We are adopting a **modular monorepo with multiple deployment units** — a single Go module, a single repository, shared platform libraries, but multiple binary entrypoints that can be deployed independently as Kubernetes workloads. The distinction matters: the development model remains monorepo; only the deployment model is multi-binary.
 
@@ -49,6 +55,7 @@ We need to define:
 - Adopting microservices patterns (per-service CI pipelines, independent versioning, service meshes as the primary development model)
 - Running multiple services as separate OS processes on a single local developer machine — locally, a single binary can still be used for the fast feedback tier (Tier 1)
 - Defining the production Kubernetes deployment manifests (Helm charts, ArgoCD apps) — those are infrastructure concerns addressed separately
+- Creating per-service `ClusterSPIFFEID` resources — the generic label-driven templates in `infrastructure/base/spiffe.yaml` handle SPIFFE identity for all services
 
 ---
 
@@ -78,7 +85,7 @@ We need to define:
 - Binary contains all feature code regardless of mode — a vulnerability in agents code is present in the identity service image
 - Flag-based mode selection is not idiomatic Go and is not how the Go ecosystem structures multi-binary projects
 - Does not model the actual deployment reality — misleading to engineers reading the code
-- SPIFFE/Istio tooling selects workloads by label selectors on pods, not by internal process flags
+- SPIFFE/Istio tooling selects workloads by pod label selectors, not by internal process flags
 
 ### Option B: Multiple binaries, single Go module (multiple `cmd/` entrypoints)
 
@@ -90,7 +97,7 @@ We need to define:
 - Independent Docker images — each service image contains only the code it needs
 - Migration files are co-located with the service entrypoint (`cmd/identity/migrations/`)
 - Fully idiomatic Go — the Go toolchain natively supports multiple `main` packages in a single module
-- Infrastructure (`infrastructure/services/identity/`) and code (`cmd/identity/`) are structurally aligned
+- Adding a new service requires only a pod label to acquire its SPIFFE identity — no per-service infrastructure resource needed
 
 **Cons:**
 - `make build` must build multiple binaries — slightly more complex Makefile
@@ -121,7 +128,7 @@ We need to define:
 
 The Go module system's `internal/` visibility rules are sufficient to enforce the package boundaries that matter. A Go workspace is solving a problem we do not have. The mode-flag approach (Option A) papers over the deployment reality rather than modelling it.
 
-Option B produces code structure that directly mirrors the infrastructure structure already established in `infrastructure/services/`. When an engineer looks at `infrastructure/services/identity/base/spiffe-id.yaml` and `backend/cmd/identity/main.go`, the relationship is unambiguous. This alignment reduces cognitive overhead and makes the system legible.
+Option B produces code structure that directly mirrors the deployment topology: `backend/cmd/identity/` maps to a k8s Deployment in `k8s/identity.yaml`, labelled `spiffe.io/component: identity`, which the generic `orbit-system-component` ClusterSPIFFEID template automatically gives the SPIFFE ID `spiffe://orbit.local/system/identity`. The relationship from source to running workload is unambiguous.
 
 ---
 
@@ -168,9 +175,45 @@ backend/
 │   └── ...
 ```
 
+### Application Manifests — `k8s/`
+
+Each service binary has a corresponding manifest in `k8s/{service}.yaml`. The `k8s/` directory is for application-level deployments only; cluster-level infrastructure (SPIRE, Istio, namespaces, network policies) lives in `infrastructure/` and is managed separately.
+
+```
+k8s/
+├── kustomization.yaml       # aggregates all service manifests
+├── identity.yaml            # Deployment + ServiceAccount for cmd/identity
+├── ext-authz.yaml           # Deployment + ServiceAccount for cmd/ext-authz
+└── ...
+```
+
+### SPIFFE Identity — Label-Driven, No Per-Service Resources
+
+SPIFFE IDs are assigned automatically by the generic `ClusterSPIFFEID` templates in `infrastructure/base/spiffe.yaml`. No per-service `ClusterSPIFFEID` resource is required.
+
+To give a service its SPIFFE identity, set the appropriate label on its pod:
+
+| Namespace | Pod label | Resulting SPIFFE ID |
+|---|---|---|
+| `orbit-system` | `spiffe.io/component: identity` | `spiffe://orbit.local/system/identity` |
+| `orbit-system` | `spiffe.io/component: ext-authz` | `spiffe://orbit.local/system/ext-authz` |
+| `orbit-tenant` | `spiffe.io/service: <name>` | `spiffe://orbit.local/tenant/<ns>/service/<name>` |
+| `orbit-agent` | `spiffe.io/agent: <name>` | `spiffe://orbit.local/tenant/<ns>/agent/<name>` |
+
+Example pod template labels for the identity service:
+
+```yaml
+labels:
+  app: identity
+  spiffe.io/component: identity
+  spiffe.io/spire-managed-identity: "true"
+annotations:
+  inject.istio.io/templates: "sidecar,spire"
+```
+
 ### Service-to-Binary Mapping
 
-| k8s Service | Binary entrypoint | SPIFFE ID (from ADR-0010) | Internal feature package |
+| k8s Service | Binary entrypoint | SPIFFE ID | Internal feature package |
 |---|---|---|---|
 | identity | `cmd/identity/` | `spiffe://orbit.local/system/identity` | `internal/identity/` |
 | ext-authz | `cmd/ext-authz/` | `spiffe://orbit.local/system/ext-authz` | `internal/policy/` |
@@ -233,11 +276,11 @@ Each service's `cmd/{service}/config/` directory contains the standard environme
 
 ### Positive
 
-- **Deployment model is legible from the codebase** — `cmd/identity/` maps directly to the identity k8s Deployment, its SPIFFE ID, its Istio sidecar, and its Cilium network policy
+- **Deployment model is legible from the codebase** — `cmd/identity/` maps directly to `k8s/identity.yaml`, its pod label `spiffe.io/component: identity`, its Istio sidecar, and its Cilium network policy
 - **Schema isolation** — each service's migrations are co-located with the service code; changes to identity schema do not touch credentials migration files
 - **Independent Docker images** — each service image contains only its binary and migrations; an unrelated feature's code is not present in the image
 - **Correct security surface** — a vulnerability in the agents feature package does not affect the identity service image because the identity binary does not import `internal/agents/`
-- **Infrastructure and code are aligned** — `infrastructure/services/identity/` and `backend/cmd/identity/` are structurally parallel; onboarding engineers see consistent naming across both layers
+- **Zero infrastructure overhead for new services** — adding a new service requires no new `ClusterSPIFFEID` resource; a pod label is sufficient
 
 ### Negative
 
@@ -270,8 +313,10 @@ Each service's `cmd/{service}/config/` directory contains the standard environme
 When a new service is introduced:
 1. Create `backend/cmd/{service}/main.go` — wire only the feature packages the service owns
 2. Create `backend/cmd/{service}/migrations/` — add SQL files for tables the service owns
-3. Create `infrastructure/services/{service}/` — add `ServiceAccount`, `ClusterSPIFFEID`, and Kustomization following the existing pattern
+3. Add `k8s/{service}.yaml` — Deployment and ServiceAccount with `spiffe.io/component: {service}` pod label; the generic `orbit-system-component` ClusterSPIFFEID template issues the SPIFFE ID automatically
 4. Update `make build-all` to include the new binary target
+
+No `ClusterSPIFFEID` resource is required — step 3 is the only infrastructure touch point for SPIFFE identity.
 
 ---
 
@@ -281,7 +326,7 @@ When a new service is introduced:
 
 - Each service binary compiles independently via `go build ./cmd/{service}/...` with no other service's feature packages in its import graph
 - `make migrate-up` applies all service migrations in timestamp order and is idempotent — passes in CI with no manual steps
-- The identity service runs as a standalone binary in the local k3d cluster (Tier 2) with its SPIFFE ID attested and its Istio sidecar injected
+- The identity service runs as a standalone binary in the local k3d cluster (Tier 2) with its SPIFFE ID attested (`spiffe://orbit.local/system/identity`) and its Istio sidecar injected
 - No `internal/{feature}/` package imports another feature package (enforced by import cycle check in CI)
 
 ### Monitoring
@@ -308,7 +353,7 @@ When a new service is introduced:
 - [Go Modules Reference — Multiple main packages in one module](https://go.dev/ref/mod)
 - [Goose — Timestamp-based migration versioning](https://github.com/pressly/goose)
 - [Kubernetes Jobs — run-to-completion workloads](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-- [ClusterSPIFFEID spec — infrastructure/services/identity/base/spiffe-id.yaml](../../infrastructure/services/identity/base/spiffe-id.yaml)
+- [infrastructure/base/spiffe.yaml](../../infrastructure/base/spiffe.yaml) — Generic label-driven ClusterSPIFFEID templates
 
 ---
 
@@ -318,6 +363,6 @@ When a new service is introduced:
 
 ADR-0001's non-goal was ruling out microservices as an *architectural style* — independent teams, independent release cycles, network-first internal design, per-service operational overhead from day one. That remains correct.
 
-What this ADR introduces is multiple *deployment units* within a monorepo — a different concept. The development model is unchanged: single module, single repository, shared platform code, atomic commits across services. The only thing that changes is that the deployment model reflects the security architecture: each service gets its own pod, its own SPIFFE identity, its own Istio sidecar. The enforcement model from ADRs 0010/0011/0015 requires this; it is not an architectural preference but a security requirement.
+What this ADR introduces is multiple *deployment units* within a monorepo — a different concept. The development model is unchanged: single module, single repository, shared platform code, atomic commits across services. The only thing that changes is that the deployment model reflects the security architecture: each service gets its own pod, its own SPIFFE identity (via pod label), its own Istio sidecar. The enforcement model from ADRs 0010/0011/0015 requires this; it is not an architectural preference but a security requirement.
 
-**Last Updated:** 2026-03-10
+**Last Updated:** 2026-03-17
