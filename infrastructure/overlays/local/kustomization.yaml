@@ -1,10 +1,39 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# SPIRE is now managed via Helm (spiffe/spire chart).
-# See infrastructure/helm/spire/values.yaml + values.local.yaml.
-# This overlay only applies resources that are not managed by a Helm chart.
+helmCharts:
+  # https://artifacthub.io/packages/helm/istio-official/base
+  - name: base
+    repo: https://istio-release.storage.googleapis.com/charts
+    version: 1.29.1
+    releaseName: istio-base
+    namespace: istio-system
+  # https://artifacthub.io/packages/helm/istio-official/istiod
+  - name: istiod
+    repo: https://istio-release.storage.googleapis.com/charts
+    version: 1.29.1
+    releaseName: istiod
+    namespace: istio-system
+    valuesFile: ./helm-values/istiod.yaml
+  # https://artifacthub.io/packages/helm/istio-official/gateway
+  - name: gateway
+    repo: https://istio-release.storage.googleapis.com/charts
+    version: 1.29.1
+    releaseName: gateway
+    namespace: istio-system
+  # https://artifacthub.io/packages/helm/spiffe/spire-crds
+  - name: spire-crds
+    repo: https://spiffe.github.io/helm-charts-hardened
+    version: 0.5.0
+    releaseName: spire-crds
+    namespace: spire-server
+  # https://artifacthub.io/packages/helm/spiffe/spire
+  - name: spire
+    repo: https://spiffe.github.io/helm-charts-hardened
+    version: 0.28.3
+    releaseName: spire
+    namespace: spire-server
+    valuesFile: ./helm-values/spire.yaml
 
 resources:
-  - ../../base/orbit-system-namespace
-  - ../../base/network-policy
+  - ../../base
