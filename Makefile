@@ -424,6 +424,7 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 	@cd $(FRONTEND_DIR) && pnpm exec prettier $(if $(CI),--check,--write) .
 	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
 
+# TODO: add frontend-test as a dependency once frontend tests are implemented
 .PHONY: frontend-check
 frontend-check: frontend-lint frontend-fmt ## Run all frontend checks (eslint + prettier)
 
