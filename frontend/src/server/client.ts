@@ -67,7 +67,7 @@ async function request<T>(
     body?: unknown;
     headers?: Record<string, string>;
   } = {},
-): Promise<T> {
+): Promise<T | undefined> {
   const { method = 'GET', body, headers: extraHeaders = {} } = options;
 
   const response = await fetch(buildUrl(path), {
@@ -97,7 +97,7 @@ async function request<T>(
   // to parse. DELETE endpoints commonly return 204 — calling .json() on an
   // empty body throws a SyntaxError even though the request succeeded.
   if (response.status === 204 || response.headers.get('Content-Length') === '0') {
-    return undefined as T;
+    return undefined;
   }
 
   // For success responses let JSON parse errors surface — a non-JSON 2xx body
