@@ -1,4 +1,4 @@
-# 0017. Frontend Scaffolding and Toolchain
+# 0019. Frontend Scaffolding and Toolchain
 
 **Status:** Accepted
 **Date:** 2026-07-10
