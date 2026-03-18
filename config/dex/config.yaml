@@ -14,13 +14,13 @@
 #   ID:     orbit-local
 #   Secret: (none — public client, Device Grant does not require a secret)
 #
-# Issuer:  http://localhost:5556/dex
+# Issuer:  http://dex.orbit.local:5556/dex
 #
 # Dex interpolates $VAR references at startup, so credentials stay in .env
 # and never appear in committed config files.
 # =============================================================================
 
-issuer: http://localhost:5556/dex # for k3d: http://172.18.0.1:5556/dex 
+issuer: http://dex.orbit.local:5556/dex
 
 # In-memory storage — state is lost on restart, which is fine for local dev.
 storage:

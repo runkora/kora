@@ -45,7 +45,7 @@ spec:
   spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/tenant/{{ .PodMeta.Namespace }}/service/{{ index .PodMeta.Labels \"spiffe.io/service\" }}"
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: orbit-tenant
+      orbit.io/role: tenant
   podSelector:
     matchExpressions:
       - key: spiffe.io/service
@@ -60,7 +60,7 @@ spec:
   spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/tenant/{{ .PodMeta.Namespace }}/agent/{{ index .PodMeta.Labels \"spiffe.io/agent\" }}"
   namespaceSelector:
     matchLabels:
-      kubernetes.io/metadata.name: orbit-agent
+      orbit.io/role: tenant
   podSelector:
     matchExpressions:
       - key: spiffe.io/agent

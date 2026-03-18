@@ -1,0 +1,4 @@
+observability:
+  logFormat: json
+  samplingRate: 1.0
+  otlpInsecure: true

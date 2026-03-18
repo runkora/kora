@@ -121,6 +121,28 @@ else
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
 fi
 
+# ── kustomize ─────────────────────────────────────────────────────────────────
+step "kustomize ${KUSTOMIZE_VERSION}"
+if command -v kustomize &>/dev/null; then
+  INSTALLED="$(kustomize version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ "${INSTALLED}" = "${KUSTOMIZE_VERSION}" ]; then
+    already "kustomize ${INSTALLED}"
+  else
+    warn "kustomize ${INSTALLED} is installed but ${KUSTOMIZE_VERSION} is required — reinstalling"
+    curl -sSfL \
+      "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
+      | tar -xz -C /tmp
+    mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
+    ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
+  fi
+else
+  curl -sSfL \
+    "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
+    | tar -xz -C /tmp
+  mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
+  ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
+fi
+
 echo ""
 echo -e "${GREEN}All cluster tools installed.${RESET}"
 echo "  Run 'make dev-cluster' to bring up the local k3d cluster."

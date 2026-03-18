@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	oc "github.com/clear-route/orbit/cmd/orbit/config"
-	"github.com/clear-route/orbit/internal/example"
+	ic "github.com/clear-route/orbit/cmd/identity/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
@@ -30,7 +30,7 @@ func main() {
 
 	// Create logger.
 	logger := initLogger()
-	logger.Info(ctx, "Orbit control plane starting", logging.Field{Key: "version", Value: oc.Config.App.Version})
+	logger.Info(ctx, "Identity service starting", logging.Field{Key: "version", Value: ic.Current.App.Version})
 
 	// Initialize storage backends (Postgres + Redis) from a single config load.
 	db, redis, err := initStorage(ctx, logger)
@@ -57,20 +57,17 @@ func main() {
 // initObservability sets up OTEL tracing and returns a cleanup function.
 func initObservability(ctx context.Context) (func(), error) {
 	shutdown, err := observability.Setup(ctx, observability.Config{
-		ServiceName:     oc.Config.Observability.ServiceName,
-		ServiceVersion:  oc.Config.App.Version,
-		Environment:     oc.Config.Environment(),
-		OTLPEndpoint:    oc.Config.Observability.OTLPEndpoint,
-		SamplingRate:    oc.Config.Observability.SamplingRate,
-		OTLPInsecure:    oc.Config.Observability.OTLPInsecure,
-		ShutdownTimeout: oc.Config.ShutdownTimeout(),
+		ServiceName:     ic.Current.Observability.ServiceName,
+		ServiceVersion:  ic.Current.App.Version,
+		Environment:     config.Environment(),
+		ShutdownTimeout: ic.Current.ShutdownTimeout(),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), oc.Config.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.ShutdownTimeout())
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
 			log.Printf("Error shutting down observability: %v", err)
@@ -80,7 +77,7 @@ func initObservability(ctx context.Context) (func(), error) {
 
 // initLogger creates the appropriate logger based on environment.
 func initLogger() logging.Logger {
-	if oc.Config.App.LogFormat == "console" {
+	if config.Platform.Observability.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()
 	}
 	return logging.NewLogger()
@@ -110,15 +107,10 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-// initControllers wires up repositories, services, and controllers.
-// ctx is passed through because the identity service performs OIDC provider
-// discovery eagerly during construction.
+// initControllers wires up repositories, services, and controllers for the
+// identity service. ctx is passed through because the identity service performs
+// OIDC provider discovery eagerly during construction.
 func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
-	// ── Example ──────────────────────────────────────────────────────────────
-	exampleRepo := example.NewPostgresRepository(db.Pool())
-	exampleController := example.NewController(logger, exampleRepo)
-
-	// ── Identity ──────────────────────────────────────────────────────────────
 	identityCfg, err := identity.LoadConfig()
 	if err != nil {
 		return nil, err
@@ -134,7 +126,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// (ADR-0010, ADR-0011, ADR-0015).
 	extractor := &identity.XFCCPrincipalExtractor{}
 
-	identitySvc, err := identity.NewService(
+	svc, err := identity.NewService(
 		ctx,
 		identityCfg,
 		sessionRepo,
@@ -147,11 +139,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
-	identityController := identity.NewController(identitySvc, logger)
-
 	return []api.Controller{
-		exampleController,
-		identityController,
+		identity.NewController(svc, logger),
 	}, nil
 }
 
@@ -167,10 +156,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	// Middleware order: Tracing (provides context) → Logging (uses trace context).
 	server := apiServer.Server(
 		ctx,
-		oc.Config.Server.Port,
-		oc.Config.Server.BasePath,
+		ic.Current.Server.Port,
+		ic.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(oc.Config.Observability.ServiceName),
+			mw.TracingMiddleware(ic.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
@@ -192,14 +181,14 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	}()
 
 	<-quit
-	logger.Info(ctx, "Shutting down server...")
+	logger.Info(ctx, "Shutting down identity service...")
 
-	shutdownCtx, cancel := context.WithTimeout(ctx, oc.Config.ShutdownTimeout())
+	shutdownCtx, cancel := context.WithTimeout(ctx, ic.Current.ShutdownTimeout())
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
 
-	logger.Info(ctx, "Orbit control plane shutdown complete")
+	logger.Info(ctx, "Identity service shutdown complete")
 }

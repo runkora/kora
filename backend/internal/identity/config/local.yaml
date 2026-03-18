@@ -13,7 +13,7 @@ oidc:
   #
   # Client credentials (when using a real provider) must be set via
   # ORBIT_OIDC_CLIENT_ID and ORBIT_OIDC_CLIENT_SECRET — never in YAML.
-  issuerUrl: "http://localhost:5556/dex"
+  issuerUrl: "http://dex.orbit.local:5556/dex"
   scopes:
     - openid
     - profile

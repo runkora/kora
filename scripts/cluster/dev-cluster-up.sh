@@ -62,6 +62,56 @@ else
   exit 1
 fi
 
+# ── Patch CoreDNS for dex.orbit.local → Docker bridge ────────────────────
+# On the host Mac, dnsmasq resolves *.orbit.local → 127.0.0.1.
+# Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
+# We patch CoreDNS to answer dex.orbit.local with the Docker bridge gateway
+# so pods can reach dex running on the host Mac.
+step "Patching CoreDNS for dex.orbit.local → Docker bridge"
+
+DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
+  --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
+
+if [[ -z "${DOCKER_BRIDGE_IP}" ]]; then
+  DOCKER_BRIDGE_IP="172.18.0.1"
+  warn "Could not detect orbit-network gateway — falling back to ${DOCKER_BRIDGE_IP}"
+fi
+
+ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
+
+# Build the patched Corefile as a variable to avoid heredoc quoting issues.
+COREFILE=".:53 {
+    errors
+    health
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+      pods insecure
+      fallthrough in-addr.arpa ip6.arpa
+    }
+    hosts {
+      ${DOCKER_BRIDGE_IP} dex.orbit.local
+      fallthrough
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf
+    cache 30
+    loop
+    reload
+    loadbalance
+}
+"
+
+kubectl create configmap coredns \
+  --namespace kube-system \
+  --from-literal=Corefile="${COREFILE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart CoreDNS to pick up the patch immediately.
+kubectl rollout restart deployment/coredns -n kube-system
+kubectl rollout status deployment/coredns -n kube-system --timeout=60s
+ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
+
+# ── Apply Helm charts and manifests ───────────────────────────────────────
 # first time CRDs can take a moment to register, so retry if apply fails
 echo "  Applying Helm Charts and Kubernetes Manifests ..."
 kustomize build --enable-helm "${OVERLAYS_DIR}" | kubectl apply -f - || \
@@ -82,6 +132,7 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "  Cluster:       k3d-${CLUSTER_NAME}"
 echo "  Trust domain:  spiffe://orbit.local"
+echo "  Dex OIDC:      http://dex.orbit.local:5556/dex"
 echo "  Istio ingress: http://localhost:8880 / https://localhost:8443"
 echo ""
 echo "  Useful commands:"

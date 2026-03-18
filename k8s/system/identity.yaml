@@ -1,39 +1,41 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: orbit-backend
+  name: orbit-identity
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-backend
+  name: orbit-identity
   labels:
-    app: orbit-backend
+    app: orbit-identity
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: orbit-backend
+      app: orbit-identity
   template:
     metadata:
       labels:
-        app: orbit-backend
+        app: orbit-identity
         spiffe.io/spire-managed-identity: "true"
-        spiffe.io/component: orbit-backend
+        spiffe.io/component: identity
       annotations:
         inject.istio.io/templates: "sidecar,spire"
     spec:
-      serviceAccountName: orbit-backend
+      serviceAccountName: orbit-identity
       volumes:
         - name: spire-workload-socket
           csi:
             driver: csi.spiffe.io
             readOnly: true
       containers:
-        - name: orbit-backend
-          image: orbit-registry:5000/orbit-backend:latest
+        - name: orbit-identity
+          image: orbit-registry:5000/orbit-identity:latest
           imagePullPolicy: Always
           env:
+            - name: APP_ENV
+              value: development
             - name: SPIFFE_ENDPOINT_SOCKET
               value: unix:///run/secrets/workload-spiffe-uds/socket
           ports:
@@ -42,31 +44,44 @@ spec:
               protocol: TCP
           envFrom:
             - configMapRef:
-                name: orbit-secrets
+                name: orbit-config
             - secretRef:
                 name: orbit-secrets
           livenessProbe:
             httpGet:
               path: /health
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
           resources:
             requests:
-              cpu: 256m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: 512m
-              memory: 512Mi
+              cpu: 500m
+              memory: 256Mi
           volumeMounts:
             - name: spire-workload-socket
               mountPath: /run/secrets/workload-spiffe-uds
               readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-identity
+spec:
+  selector:
+    app: orbit-identity
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -16,34 +17,40 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// Config holds observability configuration
+// Config holds the service-specific observability configuration.
+// Platform-wide tunables (OTLP endpoint, sampling rate, insecure flag) are
+// read directly from [config.Platform] and do not need to be supplied here.
 type Config struct {
 	ServiceName     string
 	ServiceVersion  string
 	Environment     string        // "local", "development", or "production"
-	OTLPEndpoint    string        // Optional: OTLP collector endpoint (e.g., "localhost:4317")
-	SamplingRate    *float64      // Trace sampling rate (0.0 to 1.0). nil = default 0.1, 0.0 = disable tracing
-	OTLPInsecure    bool          // Use insecure connection (default: false, only for dev)
 	ShutdownTimeout time.Duration // Timeout for graceful shutdown (default: 5s if zero)
 }
 
 // Setup initializes OpenTelemetry tracing based on configuration.
 // Returns a shutdown function that must be called before application exit.
 //
+// Platform-wide tunables (OTLP endpoint, sampling rate, insecure flag) are
+// read from [config.Platform] automatically — callers only supply
+// service-identity fields and the shutdown timeout.
+//
 // TODO: Add OTLP retry logic with exponential backoff for network failures
 func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
-	// Set default sampling rate if not specified
-	samplingRate := 0.1 // Default to 10% sampling
-	if cfg.SamplingRate != nil {
-		samplingRate = *cfg.SamplingRate
+	platform := config.Platform.Observability
+
+	// Resolve sampling rate: platform default is authoritative.
+	samplingRate := 0.1 // fallback if platform config has no value
+	if platform.SamplingRate != nil {
+		samplingRate = *platform.SamplingRate
 	}
 
-	// Set default shutdown timeout if not specified
+	// Set default shutdown timeout if not specified.
 	shutdownTimeout := 5 * time.Second
 	if cfg.ShutdownTimeout > 0 {
 		shutdownTimeout = cfg.ShutdownTimeout
 	}
-	// Create resource with service information
+
+	// Create resource with service information.
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
@@ -55,16 +62,16 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create appropriate trace exporter based on configuration
+	// Create appropriate trace exporter based on environment and platform config.
 	var exporter sdktrace.SpanExporter
 
 	switch {
 	case cfg.Environment == "local" || cfg.Environment == "development":
 		exporter, err = createStdoutExporter()
-	case cfg.OTLPEndpoint != "":
-		exporter, err = createOTLPExporter(ctx, cfg.OTLPEndpoint, cfg.OTLPInsecure)
+	case platform.OTLPEndpoint != "":
+		exporter, err = createOTLPExporter(ctx, platform.OTLPEndpoint, platform.OTLPInsecure)
 	default:
-		// Production without OTLP: use no-op provider to allow app to run
+		// Production without OTLP configured: use no-op provider.
 		return createNoOpProvider(res), nil
 	}
 

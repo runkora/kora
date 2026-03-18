@@ -1,0 +1,10 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8081
+  basePath: /api/v1
+  shutdownTimeoutSecs: 5
+
+observability:
+  serviceName: orbit-example
