@@ -12,6 +12,7 @@ export default function RootPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center">
       <div className="flex flex-col items-center gap-6 text-center">
+
         {/* Wordmark */}
         <div className="flex flex-col items-center gap-3">
           {/*
@@ -20,9 +21,7 @@ export default function RootPage() {
            * the content. We use a plain uppercase string + size="sm" instead
            * so no className override is needed on Badge itself.
            */}
-          <Badge variant="outline" size="sm">
-            EARLY ACCESS
-          </Badge>
+          <Badge variant="outline" size="sm">EARLY ACCESS</Badge>
 
           {/*
            * variant="display": text-5xl hero wordmark. This is the correct
