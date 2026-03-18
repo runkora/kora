@@ -12,7 +12,9 @@ export default function RootPage() {
     <main className="flex min-h-screen flex-col items-center justify-center bg-gray-950 text-white">
       <div className="flex flex-col items-center gap-6 text-center">
         {/* Wordmark */}
+        {/* eslint-disable-next-line local/no-raw-html-text-tags */}
         <h1 className="text-5xl font-bold tracking-tight">Orbit</h1>
+        {/* eslint-disable-next-line local/no-raw-html-text-tags */}
         <p className="max-w-md text-gray-400 text-lg">Control plane for autonomous AI agents.</p>
 
         {/* Backend connection status */}

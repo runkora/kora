@@ -1,0 +1,128 @@
+/**
+ * Terra Design Tokens
+ * ===================
+ * Orbit's visual foundation. Import this file once at the application root.
+ *
+ * Usage:
+ *   @import "@orbit/terra/src/tokens/tokens.css";
+ *
+ * All tokens are registered via Tailwind v4's @theme directive so they are
+ * available as utility classes (e.g. `bg-background`, `text-foreground`,
+ * `border-border-subtle`) without any additional configuration.
+ *
+ * ── Theming ──────────────────────────────────────────────────────────────────
+ * The entire colour scheme is derived from four seed variables. To retheme,
+ * override these on :root (or any selector) — nothing else needs to change:
+ *
+ *   --terra-neutral-hue:    240   (0–360°  — blue-grey default)
+ *   --terra-neutral-chroma: 0.02  (0–0.37  — how tinted the neutrals are)
+ *   --terra-accent-hue:     210   (0–360°  — electric cyan default)
+ *   --terra-accent-chroma:  0.18  (0–0.37  — accent saturation)
+ *
+ * All values use OKLCH — a perceptually-uniform colour space built into every
+ * modern browser (Chrome 111+, Firefox 113+, Safari 15.4+). No npm dependency
+ * or PostCSS plugin is required.
+ *
+ * Aesthetic: dark and technical — deep backgrounds, accent colours that read
+ * as signals or pulses. The nervous-system metaphor guides every value here.
+ */
+
+@import 'tailwindcss';
+
+/* ─── Theme seeds ─────────────────────────────────────────────────────────── */
+/* Override these two hue angles (and optionally the chroma values) to retheme */
+/* the entire system. All raw palette steps are derived from these four values. */
+:root {
+  --terra-neutral-hue: 137.73;
+  --terra-neutral-chroma: 0.04;
+  --terra-accent-hue: 26;
+  --terra-accent-chroma: 0.23;
+}
+
+/* ─── Raw colour palette ─────────────────────────────────────────────────── */
+/* Derived from the seeds above. Do not consume these directly in components. */
+/* Semantic tokens in @theme reference them below.                            */
+
+:root {
+  /* Neutral scale — lightness steps, fixed chroma and hue from seeds */
+  --terra-raw-black: oklch(4% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-950: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-900: oklch(14% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-800: oklch(20% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-700: oklch(28% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-600: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-500: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-400: oklch(58% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-300: oklch(72% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-200: oklch(82% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-100: oklch(90% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-white: oklch(96% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  /* Accent scale — vivid steps from dark border through hover */
+  --terra-raw-accent-600: oklch(42% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-500: oklch(58% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-400: oklch(72% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-300: oklch(82% var(--terra-accent-chroma) var(--terra-accent-hue));
+
+  /* Accent foreground — dark enough to be legible on any accent background */
+  --terra-raw-accent-fg: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  /* Status — semantic signal colours; independent of the neutral/accent seeds */
+  --terra-raw-healthy: #8ae250;
+  --terra-raw-degraded: #ffd046;
+  --terra-raw-error: #ef4444;
+  --terra-raw-idle: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-pending: oklch(72% var(--terra-accent-chroma) var(--terra-accent-hue));
+}
+
+/* ─── Semantic tokens (Tailwind v4 @theme) ───────────────────────────────── */
+
+@theme inline {
+  /* Backgrounds — depth via lightness progression, no shadows (ADR SD-3) */
+  --color-background: var(--terra-raw-black);
+  --color-surface: var(--terra-raw-950);
+  --color-surface-elevated: var(--terra-raw-900);
+  --color-surface-overlay: var(--terra-raw-800);
+
+  /* Foregrounds */
+  --color-foreground: var(--terra-raw-white);
+  --color-muted: var(--terra-raw-300);
+  /* subtle: raw-500 (L=45%) fails WCAG AA 4.5:1 against surface-overlay.          */
+  /* L=63% is the minimum that clears 4.5:1 on every background layer (worst-case: */
+  /* 4.58:1 on surface-overlay L=20%). No raw palette step exists at this value.   */
+  --color-subtle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  /* Accent */
+  --color-accent: var(--terra-raw-accent-400);
+  --color-accent-hover: var(--terra-raw-accent-300);
+  --color-accent-foreground: var(--terra-raw-accent-fg);
+
+  /* Borders */
+  /* border: raw-700 (L=28%) fails WCAG 1.4.11 non-text 3:1 against all surfaces. */
+  /* L=52% is the minimum that clears 3:1 on every background layer (worst-case:  */
+  /* 3.15:1 on surface-overlay L=20%). Inline OKLCH used — no matching raw step.  */
+  --color-border: oklch(52% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  /* border-subtle: used for decorative separators (card dividers, table rules).   */
+  /* Purely decorative borders are WCAG-exempt. Nudged from raw-800 (L=20%) to    */
+  /* L=36% for better visual definition without making dividers feel heavy.        */
+  --color-border-subtle: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --color-border-accent: var(--terra-raw-accent-600);
+
+  /* Status signals */
+  --color-status-healthy: var(--terra-raw-healthy);
+  --color-status-degraded: var(--terra-raw-degraded);
+  --color-status-error: var(--terra-raw-error);
+  /* status-idle: raw-idle (L=45%) fails AA 4.5:1. Matched to --color-subtle at  */
+  /* L=63% — same perceptual tier, clears 4.58:1 on the darkest surface layer.   */
+  --color-status-idle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --color-status-pending: var(--terra-raw-pending);
+
+  /* Typography */
+  --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, ui-monospace, 'Cascadia Code', monospace);
+
+  /* Radii */
+  --radius-sm: 0.25rem; /* 4px  */
+  --radius-md: 0.5rem; /* 8px  */
+  --radius-lg: 0.75rem; /* 12px */
+}
