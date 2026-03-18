@@ -6,7 +6,7 @@
 **Owner:** Frontend
 **Stakeholders:** Product, Engineering
 
-> **Name:** Terra (`@orbit/terra`, `packages/terra/`) — the destination of every orbital descent; terra firma means solid ground. The design system is the solid, stable visual foundation that everything else lands on.
+> **Name:** Terra (`@orbit/terra`, `frontend/src/packages/terra/`) — the destination of every orbital descent; terra firma means solid ground. The design system is the solid, stable visual foundation that everything else lands on.
 
 ---
 
@@ -43,7 +43,7 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 1. Establish a semantic design token system that encodes Orbit's visual identity and can be applied consistently across all UI.
 2. Integrate a battle-tested, AI-friendly component library (shadcn/ui) as the foundation for all Orbit UI components.
-3. Deliver the design system as an isolated monorepo workspace package (`packages/terra/`) with its own Storybook environment, so components can be built, tested, and documented entirely independently of the application.
+3. Deliver the design system as an isolated monorepo workspace package (`frontend/src/packages/terra/`) with its own Storybook environment, so components can be built, tested, and documented entirely independently of the application.
 
 ### Success Metrics
 
@@ -95,7 +95,7 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 **So that** I can work on the design system without running the Next.js app or touching application code.
 
 **Acceptance Criteria:**
-- [ ] Running `pnpm storybook` from `packages/terra/` launches a fully functional Storybook with all components
+- [ ] Running `pnpm storybook` from `frontend/src/packages/terra/` launches a fully functional Storybook with all components
 - [ ] Storybook has no dependency on or awareness of the Next.js application
 - [ ] Component changes are reflected in the consuming frontend immediately via workspace linking
 
@@ -130,13 +130,13 @@ The Orbit frontend is a bare Next.js scaffold. The only styling in `globals.css`
 
 Build the design system in four layers:
 
-1. **Isolated Workspace Package** — The design system lives at `packages/terra/` in the monorepo root, alongside `frontend/`. It has its own `package.json`, TypeScript config, and Storybook instance. The frontend consumes it via the pnpm workspace protocol (`"@orbit/terra": "workspace:*"`), meaning changes are reflected immediately with no publish step. This isolation means the design system can be developed, tested, and documented with no dependency on application code.
+1. **Isolated Workspace Package** — The design system lives at `frontend/src/packages/terra/`, inside the frontend directory. It has its own `package.json`, TypeScript config, and Storybook instance. The frontend consumes it via the pnpm workspace protocol (`"@orbit/terra": "workspace:*"`), meaning changes are reflected immediately with no publish step. This isolation means the design system can be developed, tested, and documented with no dependency on application code.
 
 2. **Design Tokens** — Orbit's visual vocabulary is defined as semantic CSS custom properties in the package's `src/tokens.css` file, exported and imported by the frontend's `globals.css`. Tokens are mapped into Tailwind v4 via `@theme inline` and cover: color (brand, surface, text, status, border), typography (font families, size scale), spacing extensions, and border radius. **The design system is intentionally flat — no shadow tokens are defined.** Depth and hierarchy are communicated through background lightness, borders, and spacing, not drop shadows. The frontend's Tailwind config uses the `@source` directive to scan the package's component files so token-based utility classes are generated correctly across both codebases.
 
-3. **Component Library** — Components are built on **Radix UI** accessibility primitives, styled with Tailwind v4 and Terra tokens. All component code is owned by the Terra package — there are no runtime design-system dependencies beyond Radix UI, `class-variance-authority`, `clsx`, and `tailwind-merge`. Each component lives in its own named folder under `src/components/` (e.g. `src/components/card/`) containing: the component file (`card.tsx`), a Storybook story (`card.stories.tsx`), and an `index.ts` that re-exports the public API. This keeps everything related to a component co-located and discoverable. **Atomic design** (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity and reuse, but it is not enforced as a directory structure. All components are exported from the package's public API (`packages/terra/src/index.ts`). Shadcn/ui is used purely as a **scaffolding tool** to generate initial Radix-based component code; after generation, all shadcn references are stripped and the components become fully Terra-native.
+3. **Component Library** — Components are built on **Radix UI** accessibility primitives, styled with Tailwind v4 and Terra tokens. All component code is owned by the Terra package — there are no runtime design-system dependencies beyond Radix UI, `class-variance-authority`, `clsx`, and `tailwind-merge`. Each component lives in its own named folder under `src/components/` (e.g. `src/components/card/`) containing: the component file (`card.tsx`), a Storybook story (`card.stories.tsx`), and an `index.ts` that re-exports the public API. This keeps everything related to a component co-located and discoverable. **Atomic design** (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity and reuse, but it is not enforced as a directory structure. All components are exported from the package's public API (`frontend/src/packages/terra/src/index.ts`). Shadcn/ui is used purely as a **scaffolding tool** to generate initial Radix-based component code; after generation, all shadcn references are stripped and the components become fully Terra-native.
 
-4. **Storybook** — Storybook runs against `packages/terra/` directly with no application code involved. It serves as the isolated development environment for building components and doubles as living documentation for design tokens and component variants. Every P0 component has a story file alongside its source.
+4. **Storybook** — Storybook runs against `frontend/src/packages/terra/` directly with no application code involved. It serves as the isolated development environment for building components and doubles as living documentation for design tokens and component variants. Every P0 component has a story file alongside its source.
 
 ### User Experience
 
@@ -164,7 +164,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 #### User Flow — Design system development (isolated)
 
 1. Developer is building or modifying a component in the design system
-2. Runs Storybook from `packages/terra/`: `pnpm storybook`
+2. Runs Storybook from `frontend/src/packages/terra/`: `pnpm storybook`
 3. Works entirely in isolation — no Next.js app running, no application code involved
 4. Writes or updates the component's Story to cover all variants
 5. Changes are immediately reflected in the consuming app via workspace linking
@@ -177,11 +177,11 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 ### Key Components
 
-- **Workspace package scaffold** (`packages/terra/`): `package.json`, `tsconfig.json`, public API entry point (`src/index.ts`)
-- **Design Tokens** (`packages/terra/src/tokens.css`): Complete `@theme` block with all semantic token categories; exported and imported by the frontend
-- **Component library** (`packages/terra/src/components/`): Folder-per-component structure — each component gets its own directory containing the component file, a co-located Storybook story, and an `index.ts` re-export. Initial set: `Button`, `Badge`, `Card` (exports `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Input`, `Label`, `Separator`, `Skeleton`, `Tooltip`, `PageLayout`, `Section`
+- **Workspace package scaffold** (`frontend/src/packages/terra/`): `package.json`, `tsconfig.json`, public API entry point (`src/index.ts`)
+- **Design Tokens** (`frontend/src/packages/terra/src/tokens.css`): Complete `@theme` block with all semantic token categories; exported and imported by the frontend
+- **Component library** (`frontend/src/packages/terra/src/components/`): Folder-per-component structure — each component gets its own directory containing the component file, a co-located Storybook story, and an `index.ts` re-export. Initial set: `Button`, `Badge`, `Card` (exports `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Input`, `Label`, `Separator`, `Skeleton`, `Tooltip`, `PageLayout`, `Section`
 - **Shadcn scaffolding** (dev-time only): CLI used once to bootstrap Radix-based component code; output is immediately cleaned of all shadcn-specific imports and references before committing
-- **Storybook instance**: Configured in `packages/terra/` to run against the package directly with Tailwind v4 support
+- **Storybook instance**: Configured in `frontend/src/packages/terra/` to run against the package directly with Tailwind v4 support
 - **Frontend integration**: `globals.css` updated to import `tokens.css` from the package; `layout.tsx` updated to apply global base theme classes; `page.tsx` refactored to import components from `@orbit/terra`
 
 ---
@@ -190,15 +190,15 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 ### In Scope
 
-- Monorepo workspace setup: `packages/terra/` directory, `package.json` with workspace protocol, root-level `pnpm-workspace.yaml` (or equivalent) updated
-- Design token definition (color, typography, radius, spacing extensions) in `packages/terra/src/tokens.css` — no shadow tokens; the system is intentionally flat
+- Monorepo workspace setup: `frontend/src/packages/terra/` directory, `package.json` with workspace protocol, root-level `pnpm-workspace.yaml` updated
+- Design token definition (color, typography, radius, spacing extensions) in `frontend/src/packages/terra/src/tokens.css` — no shadow tokens; the system is intentionally flat
 - Tailwind v4 `@theme` configuration exported from the package and imported by the frontend's `globals.css`
 - Frontend Tailwind config updated with `@source` directive to scan package component files
 - shadcn/ui initialization and configuration (`components.json`) targeting the package directory
 - Installation of Radix UI primitives (as shadcn peer dependencies in the package)
 - First 8 foundational UI components: Button, Card, Badge, Input, Label, Separator, Skeleton, Tooltip
-- Storybook setup in `packages/terra/` with Tailwind v4 support; one story per P0 component
-- Public package API (`packages/terra/src/index.ts`) exporting all components and the `cn()` utility
+- Storybook setup in `frontend/src/packages/terra/` with Tailwind v4 support; one story per P0 component
+- Public package API (`frontend/src/packages/terra/src/index.ts`) exporting all components and the `cn()` utility
 - Frontend `package.json` updated to depend on `"@orbit/terra": "workspace:*"`
 - Updated root `layout.tsx` with global theme classes applied
 - Updated `page.tsx` (landing page) refactored to import and use components from `@orbit/terra`
@@ -228,12 +228,12 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] Monorepo workspace package scaffolded at `packages/terra/` with correct `package.json`, TypeScript config, and public `src/index.ts` entry point
-- [ ] Semantic color tokens defined and exported from `packages/terra/src/tokens.css`, mapped through Tailwind v4 `@theme` (background, foreground, surface, border, accent, status colors)
+- [ ] Monorepo workspace package scaffolded at `frontend/src/packages/terra/` with correct `package.json`, TypeScript config, and public `src/index.ts` entry point
+- [ ] Semantic color tokens defined and exported from `frontend/src/packages/terra/src/tokens.css`, mapped through Tailwind v4 `@theme` (background, foreground, surface, border, accent, status colors)
 - [ ] Typography tokens defined (font families, scale mapped to Tailwind)
 - [ ] `src/components/` directory in place with folder-per-component structure (each component in `src/components/<name>/` with co-located story and `index.ts`)
 - [ ] Radix UI primitives installed; shadcn used only for bootstrapping — no shadcn references in committed component code
-- [ ] Storybook running successfully against `packages/terra/` in isolation (no app code)
+- [ ] Storybook running successfully against `frontend/src/packages/terra/` in isolation (no app code)
 - [ ] `cn()` utility exported from the package's public API
 - [ ] Button component with variants: default, secondary, ghost, destructive, outline — with Storybook story
 - [ ] Card component with sub-components: CardHeader, CardTitle, CardDescription, CardContent, CardFooter — with Storybook story
@@ -247,7 +247,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 - [ ] Skeleton component for loading states — with Storybook story
 - [ ] Tooltip component — with Storybook story
 - [ ] `PageLayout` and `Section` layout wrapper components
-- [ ] `packages/terra/README.md` documenting the token vocabulary, component list, and usage for AI assistant context
+- [ ] `frontend/src/packages/terra/README.md` documenting the token vocabulary, component list, and usage for AI assistant context
 - [ ] Storybook "Design Tokens" documentation story showing all token swatches
 
 **Nice to Have (P2):**
@@ -264,7 +264,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 **Developer Experience:**
 - Import paths for components are short and predictable: `import { Button } from "@orbit/terra"`
-- Design system components can be developed entirely in isolation via `pnpm storybook` from `packages/terra/` — no application server required
+- Design system components can be developed entirely in isolation via `pnpm storybook` from `frontend/src/packages/terra/` — no application server required
 - The `cn()` utility is re-exported from the package's public API
 - AI tools (Forge, v0.dev) can generate correct on-brand components using the documented token vocabulary in the package README and Storybook
 
@@ -283,21 +283,21 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 ### Internal Dependencies
 
-- **Monorepo workspace config** (`pnpm-workspace.yaml` or root `package.json`): Must declare `packages/*` as workspace members. Currently the repo has no workspace config — this must be added.
-- **`packages/terra/`**: New directory that does not yet exist. Must be scaffolded with `package.json`, `tsconfig.json`, and Storybook config.
+- **Monorepo workspace config** (`frontend/pnpm-workspace.yaml`): Declares `src/packages/*` as workspace members.
+- **`frontend/src/packages/terra/`**: The workspace package. Scaffolded with `package.json`, `tsconfig.json`, and Storybook config.
 - **`frontend/package.json`**: Will gain `"@orbit/terra": "workspace:*"` as a dependency. Runtime deps (`class-variance-authority`, `clsx`, `tailwind-merge`, `@radix-ui/*`) will live in the package's `package.json`, not the frontend's.
 - **`frontend/src/app/globals.css`**: Must be updated to import `tokens.css` from the package; the full `@theme` block moves to the package.
 - **`frontend/src/app/layout.tsx`**: Must be updated to apply base theme classes globally.
-- **Frontend Tailwind config**: Must add `@source` directive pointing at `packages/terra/src/**` so component class names are included in the generated CSS.
+- **Frontend Tailwind config**: Must add `@source` directive pointing at `../packages/terra/src/**` (relative to `globals.css`) so component class names are included in the generated CSS.
 
 ### External Dependencies
 
 - **shadcn/ui CLI** (`npx shadcn@latest init`): Used once as a scaffolding tool to generate Radix-based component boilerplate. Not a runtime dependency; no shadcn imports remain in committed code. Requires Tailwind v4 compatible version.
-- **Radix UI** (`@radix-ui/react-*`): Accessibility primitives that underpin all Terra components; installed as runtime deps of `packages/terra/`.
-- **class-variance-authority (cva)**: Variant management for components; dep of `packages/terra/`. CVA is a first-class part of the shadcn/ui ecosystem — every shadcn component uses it by convention, meaning AI tooling (Forge, v0.dev) is well-trained on the pattern and generates correct CVA-based variant schemas reliably.
-- **clsx + tailwind-merge**: Class utility composition; deps of `packages/terra/`.
-- **Lucide React**: Icon library used by shadcn components; dep of `packages/terra/`.
-- **Storybook** (`@storybook/react`, `@storybook/react-vite`): Isolated component development environment; dev dep of `packages/terra/`. Version 8.x required for Tailwind v4 compatibility.
+- **Radix UI** (`@radix-ui/react-*`): Accessibility primitives that underpin all Terra components; installed as runtime deps of `frontend/src/packages/terra/`.
+- **class-variance-authority (cva)**: Variant management for components; dep of `frontend/src/packages/terra/`. CVA is a first-class part of the shadcn/ui ecosystem — every shadcn component uses it by convention, meaning AI tooling (Forge, v0.dev) is well-trained on the pattern and generates correct CVA-based variant schemas reliably.
+- **clsx + tailwind-merge**: Class utility composition; deps of `frontend/src/packages/terra/`.
+- **Lucide React**: Icon library used by shadcn components; dep of `frontend/src/packages/terra/`.
+- **Storybook** (`@storybook/react`, `@storybook/react-vite`): Isolated component development environment; dev dep of `frontend/src/packages/terra/`. Version 8.x required for Tailwind v4 compatibility.
 
 ---
 
@@ -306,7 +306,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Monorepo workspace setup adds upfront complexity | Medium | Medium | Workspace protocol (`workspace:*`) is well-supported by pnpm. One-time setup cost; significantly lower than extracting components later. |
-| Tailwind v4 `@source` cross-package scanning misconfigured | High | Medium | Frontend Tailwind config must explicitly declare `@source "../packages/terra/src"`. Validate by building frontend and confirming component utility classes are present in the CSS output. |
+| Tailwind v4 `@source` cross-package scanning misconfigured | High | Medium | Frontend Tailwind config must explicitly declare `@source "../packages/terra/src"` (relative to `globals.css`). Validate by building frontend and confirming component utility classes are present in the CSS output. |
 | shadcn/ui CLI incompatibility with Tailwind v4 | Low | Low | shadcn CLI is only used once for scaffolding. If the CLI fails, Radix-based component code can be written by hand — no runtime dependency is affected. |
 | Storybook incompatibility with Tailwind v4 in the package context | Medium | Medium | Storybook 10.x supports Tailwind v4; use `@storybook/react-vite` builder with Tailwind v4 plugin. Validate during Phase 1 setup before building components. |
 | Token naming conflicts with existing Tailwind utilities | Medium | Low | Tailwind v4 `@theme` uses explicit `--color-*` namespace; test token names against existing class usage in the project. |
@@ -360,13 +360,13 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 ## Open Questions
 
-1. **Design system name:** *(Decided)* — **Terra** (`@orbit/terra`, `packages/terra/`). The destination of every orbital descent; terra firma means solid ground. The design system is the solid, stable visual foundation that everything else lands on.
+1. **Design system name:** *(Decided)* — **Terra** (`@orbit/terra`, `frontend/src/packages/terra/`). The destination of every orbital descent; terra firma means solid ground. The design system is the solid, stable visual foundation that everything else lands on.
    - **Status:** Resolved
 
 2. **Token naming convention:** *(Resolved)* Semantic naming — `--color-status-healthy`, `--color-status-degraded`, etc. This is more expressive for an agent control plane where "healthy", "degraded", and "idle" are domain concepts, not generic success/warning/error states. Generic role names like `--color-success` are interchangeable with any product; semantic names encode Orbit's specific operating model.
    - **Status:** Resolved
 
-3. **Component output path:** *(Resolved)* Each component lives in its own named folder under `packages/terra/src/components/` — e.g. `src/components/card/card.tsx`, with a co-located `card.stories.tsx` and `index.ts` that re-exports the component's public API. There is no enforced subdirectory hierarchy beyond this folder-per-component convention; atomic design is a mental model, not a folder structure. The `src/app/` architecture in the frontend is unaffected — components are imported as a package, not co-located with app code.
+3. **Component output path:** *(Resolved)* Each component lives in its own named folder under `frontend/src/packages/terra/src/components/` — e.g. `src/components/card/card.tsx`, with a co-located `card.stories.tsx` and `index.ts` that re-exports the component's public API. There is no enforced subdirectory hierarchy beyond this folder-per-component convention; atomic design is a mental model, not a folder structure. The `src/app/` architecture in the frontend is unaffected — components are imported as a package, not co-located with app code.
    - **Status:** Resolved
 
 4. **Geist font:** The current `layout.tsx` loads Geist Sans and Geist Mono from `next/font/google`. Should these remain as the design system's typography, or should we evaluate alternatives?
@@ -380,10 +380,10 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 ### Phases
 
 **Phase 1: Package Scaffold + Token Foundation** (Week 1)
-- Scaffold `packages/terra/` with `package.json`, TypeScript config, and public `src/index.ts`
+- Scaffold `frontend/src/packages/terra/` with `package.json`, TypeScript config, and public `src/index.ts`
 - Configure monorepo workspace (`pnpm-workspace.yaml`)
-- Define complete design token vocabulary in `packages/terra/src/tokens.css`
-- Initialize and validate Storybook in `packages/terra/` with Tailwind v4
+- Define complete design token vocabulary in `frontend/src/packages/terra/src/tokens.css`
+- Initialize and validate Storybook in `frontend/src/packages/terra/` with Tailwind v4
 - Wire frontend: add `@orbit/terra` dependency, import `tokens.css` in `globals.css`, add `@source` to Tailwind config
 - Update `layout.tsx` to apply base theme
 
@@ -397,7 +397,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 
 **Phase 3: Layout Primitives + Documentation** (Week 2)
 - Create PageLayout and Section wrapper components
-- Write `packages/terra/README.md` with token vocabulary and usage guide
+- Write `frontend/src/packages/terra/README.md` with token vocabulary and usage guide
 - Add Storybook "Design Tokens" documentation story
 - Add P2 components as needed by first real feature
 
@@ -434,7 +434,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 ### Glossary
 
 - **Design Token**: A named, semantic CSS custom property that represents a single visual decision (e.g., `--color-accent` rather than `#3b82f6`).
-- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `packages/terra/` directly — changes are reflected immediately without publishing or versioning.
+- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `frontend/src/packages/terra/` directly — changes are reflected immediately without publishing or versioning.
 - **shadcn/ui**: A CLI tool and component collection used as a one-time scaffolding aid to generate Radix-based component boilerplate. Shadcn is not a runtime dependency of Terra — all shadcn-specific code is stripped after generation, and the resulting components are Terra-native.
 - **Atomic Design**: A methodology for reasoning about UI component complexity in a hierarchy from smallest (atoms) to largest (organisms). Terra uses it as a mental model — not a directory structure. It helps categorize components by how much they compose other components, without prescribing where files must live.
 - **Radix UI**: A low-level, accessibility-first React component library providing unstyled UI primitives (dialogs, dropdowns, tooltips, etc.).
