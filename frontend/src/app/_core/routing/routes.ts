@@ -15,12 +15,7 @@
  *   import { type AppRoute } from '@core/routing/routes';
  */
 
-export const APP_ROUTES = [
-  '/',
-  '/login',
-  '/dashboard',
-  '/chat',
-] as const;
+export const APP_ROUTES = ['/', '/login', '/dashboard', '/chat'] as const;
 
 /**
  * Every valid internal route in the Orbit app.

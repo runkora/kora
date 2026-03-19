@@ -360,8 +360,7 @@ const localPlugin = {
       meta: {
         type: 'problem',
         docs: {
-          description:
-            'Require kebab-case filenames for all JS and TS source files under src/.',
+          description: 'Require kebab-case filenames for all JS and TS source files under src/.',
         },
         messages: {
           notKebab: 'Filename "{{name}}" must be kebab-case. Rename it to "{{suggestion}}".',

@@ -14,9 +14,10 @@
  *   import { type ExternalUrl } from '@core/routing/external-urls';
  */
 
-export const EXTERNAL_URLS = [
-  'https://github.com/clear-route/orbit'
-] as const satisfies readonly (`https://${string}` | `http://${string}`)[];
+export const EXTERNAL_URLS = ['https://github.com/clear-route/orbit'] as const satisfies readonly (
+  | `https://${string}`
+  | `http://${string}`
+)[];
 
 /**
  * Every external URL that may be linked from the Orbit app.

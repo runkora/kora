@@ -41,12 +41,7 @@ type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  */
 export function ExternalLink({ url, children, ...props }: ExternalLinkProps) {
   return (
-    <Anchor
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      {...props}
-    >
+    <Anchor href={url} target="_blank" rel="noopener noreferrer" {...props}>
       {children}
     </Anchor>
   );
