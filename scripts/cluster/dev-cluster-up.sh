@@ -65,9 +65,13 @@ fi
 # ── Patch CoreDNS for dex.orbit.local → Docker bridge ────────────────────
 # On the host Mac, dnsmasq resolves *.orbit.local → 127.0.0.1.
 # Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
-# We patch CoreDNS to answer dex.orbit.local with the Docker bridge gateway
-# so pods can reach dex running on the host Mac.
-step "Patching CoreDNS for dex.orbit.local → Docker bridge"
+#
+# The k3d Corefile already contains:
+#   import /etc/coredns/custom/*.server
+# which loads any *.server key from the coredns-custom ConfigMap as an
+# additional server block. We write our orbit.local zone there so k3d's
+# own Corefile (and its NodeHosts block) is never touched or reconciled away.
+step "Patching CoreDNS for dex.orbit.local"
 
 DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
@@ -79,34 +83,22 @@ fi
 
 ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
 
-# Build the patched Corefile as a variable to avoid heredoc quoting issues.
-COREFILE=".:53 {
-    errors
-    health
-    ready
-    kubernetes cluster.local in-addr.arpa ip6.arpa {
-      pods insecure
-      fallthrough in-addr.arpa ip6.arpa
-    }
+# The key name must end in .server so CoreDNS imports it as a server block.
+ORBIT_SERVER_BLOCK="orbit.local:53 {
     hosts {
       ${DOCKER_BRIDGE_IP} dex.orbit.local
       fallthrough
     }
-    prometheus :9153
     forward . /etc/resolv.conf
-    cache 30
-    loop
-    reload
-    loadbalance
 }
 "
 
-kubectl create configmap coredns \
+kubectl create configmap coredns-custom \
   --namespace kube-system \
-  --from-literal=Corefile="${COREFILE}" \
+  --from-literal=orbit.local.server="${ORBIT_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Restart CoreDNS to pick up the patch immediately.
+# Restart CoreDNS to pick up the new custom block immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"

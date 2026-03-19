@@ -302,18 +302,7 @@ docker-push: ## Push all service images to local registry (orbit-registry:5000/o
 .PHONY: cluster-deploy
 cluster-deploy: ## Deploy all services to local k3d cluster (run docker-build docker-push first)
 	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
-	@test -f secrets/signing.key || (echo "$(COLOR_RED)✗ secrets/signing.key not found — run 'make gen-signing-key' first$(COLOR_RESET)" && exit 1)
-	@# Create orbit-secrets in orbit-system (identity service)
-	@kubectl create secret generic orbit-secrets -n orbit-system \
-		--from-literal=DB_PASSWORD="${DB_PASSWORD}" \
-		--from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}" \
-		--from-literal=ORBIT_OIDC_CLIENT_SECRET="${ORBIT_OIDC_CLIENT_SECRET}" \
-		--from-file=ORBIT_TOKEN_SIGNING_KEY=secrets/signing.key \
-		--dry-run=client -o yaml | kubectl apply -f -
-	@# Create orbit-secrets in orbit-example-tenant (example agent — DB only)
-	@kubectl create secret generic orbit-secrets -n orbit-example-tenant \
-		--from-literal=DB_PASSWORD="${DB_PASSWORD}" \
-		--dry-run=client -o yaml | kubectl apply -f -
+	@bash scripts/cluster/create-secrets.sh
 	@kustomize build k8s | kubectl apply -f -
 	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
 
