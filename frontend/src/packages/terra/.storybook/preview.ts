@@ -104,13 +104,15 @@ const preview: Preview = {
      *
      * Storybook defaults to alphabetical ordering, which would place
      * `Atoms` before `Foundation`. The explicit order below pins
-     * `Foundation` first so design tokens are always the top entry.
+     * `Overview` first (the full Component Grid) so the single-page
+     * system reference is always the top entry. `Foundation` (design
+     * tokens) follows, then the component categories.
      * Any group not listed here falls back to alphabetical after the
      * declared entries.
      */
     options: {
       storySort: {
-        order: ['Terra', ['Foundation', 'Atoms', 'Typography', 'Layout', 'Organisms']],
+        order: ['Terra', ['Overview', 'Foundation', 'Atoms', 'Typography', 'Layout', 'Organisms']],
       },
     },
   },
