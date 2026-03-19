@@ -125,7 +125,7 @@ export const ResponsiveCols: Story = {
           </CardHeader>
           <CardContent>
             <Text size="supporting" color="muted">
-              Processing {(i + 1) * 2} tasks across {i % 3 + 1} tools.
+              Processing {(i + 1) * 2} tasks across {(i % 3) + 1} tools.
             </Text>
           </CardContent>
         </Card>
@@ -216,7 +216,9 @@ export const AsChildComparison: Story = {
     <Stack gap="loose">
       {/* ── Without asChild ──────────────────────────────────────── */}
       <Stack gap="snug">
-        <Text size="caption" color="subtle" className="font-mono">without asChild</Text>
+        <Text size="caption" color="subtle" className="font-mono">
+          without asChild
+        </Text>
         <Text size="caption" color="muted">
           Grid renders a wrapper {'<div>'} around {'<ul>'}. Inspect the DOM to see two elements.
         </Text>
@@ -237,7 +239,9 @@ export const AsChildComparison: Story = {
 
       {/* ── With asChild ─────────────────────────────────────────── */}
       <Stack gap="snug">
-        <Text size="caption" color="subtle" className="font-mono">with asChild</Text>
+        <Text size="caption" color="subtle" className="font-mono">
+          with asChild
+        </Text>
         <Text size="caption" color="muted">
           Grid merges its classes onto {'<ul>'} via Slot. No wrapper div in the DOM.
         </Text>

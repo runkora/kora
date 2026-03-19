@@ -63,29 +63,149 @@ export const BREAKPOINTS: Breakpoint[] = ['base', 'sm', 'md', 'lg', 'xl'];
 
 /** gap-* — uniform gap, used by both Stack and Grid */
 export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
-  base: { none: 'gap-0', tight: 'gap-1', snug: 'gap-2', comfortable: 'gap-4', relaxed: 'gap-6', loose: 'gap-8', spacious: 'gap-12' },
-  sm:   { none: 'sm:gap-0', tight: 'sm:gap-1', snug: 'sm:gap-2', comfortable: 'sm:gap-4', relaxed: 'sm:gap-6', loose: 'sm:gap-8', spacious: 'sm:gap-12' },
-  md:   { none: 'md:gap-0', tight: 'md:gap-1', snug: 'md:gap-2', comfortable: 'md:gap-4', relaxed: 'md:gap-6', loose: 'md:gap-8', spacious: 'md:gap-12' },
-  lg:   { none: 'lg:gap-0', tight: 'lg:gap-1', snug: 'lg:gap-2', comfortable: 'lg:gap-4', relaxed: 'lg:gap-6', loose: 'lg:gap-8', spacious: 'lg:gap-12' },
-  xl:   { none: 'xl:gap-0', tight: 'xl:gap-1', snug: 'xl:gap-2', comfortable: 'xl:gap-4', relaxed: 'xl:gap-6', loose: 'xl:gap-8', spacious: 'xl:gap-12' },
+  base: {
+    none: 'gap-0',
+    tight: 'gap-1',
+    snug: 'gap-2',
+    comfortable: 'gap-4',
+    relaxed: 'gap-6',
+    loose: 'gap-8',
+    spacious: 'gap-12',
+  },
+  sm: {
+    none: 'sm:gap-0',
+    tight: 'sm:gap-1',
+    snug: 'sm:gap-2',
+    comfortable: 'sm:gap-4',
+    relaxed: 'sm:gap-6',
+    loose: 'sm:gap-8',
+    spacious: 'sm:gap-12',
+  },
+  md: {
+    none: 'md:gap-0',
+    tight: 'md:gap-1',
+    snug: 'md:gap-2',
+    comfortable: 'md:gap-4',
+    relaxed: 'md:gap-6',
+    loose: 'md:gap-8',
+    spacious: 'md:gap-12',
+  },
+  lg: {
+    none: 'lg:gap-0',
+    tight: 'lg:gap-1',
+    snug: 'lg:gap-2',
+    comfortable: 'lg:gap-4',
+    relaxed: 'lg:gap-6',
+    loose: 'lg:gap-8',
+    spacious: 'lg:gap-12',
+  },
+  xl: {
+    none: 'xl:gap-0',
+    tight: 'xl:gap-1',
+    snug: 'xl:gap-2',
+    comfortable: 'xl:gap-4',
+    relaxed: 'xl:gap-6',
+    loose: 'xl:gap-8',
+    spacious: 'xl:gap-12',
+  },
 };
 
 /** gap-x-* — horizontal (column) gap override, Grid only */
 export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
-  base: { none: 'gap-x-0', tight: 'gap-x-1', snug: 'gap-x-2', comfortable: 'gap-x-4', relaxed: 'gap-x-6', loose: 'gap-x-8', spacious: 'gap-x-12' },
-  sm:   { none: 'sm:gap-x-0', tight: 'sm:gap-x-1', snug: 'sm:gap-x-2', comfortable: 'sm:gap-x-4', relaxed: 'sm:gap-x-6', loose: 'sm:gap-x-8', spacious: 'sm:gap-x-12' },
-  md:   { none: 'md:gap-x-0', tight: 'md:gap-x-1', snug: 'md:gap-x-2', comfortable: 'md:gap-x-4', relaxed: 'md:gap-x-6', loose: 'md:gap-x-8', spacious: 'md:gap-x-12' },
-  lg:   { none: 'lg:gap-x-0', tight: 'lg:gap-x-1', snug: 'lg:gap-x-2', comfortable: 'lg:gap-x-4', relaxed: 'lg:gap-x-6', loose: 'lg:gap-x-8', spacious: 'lg:gap-x-12' },
-  xl:   { none: 'xl:gap-x-0', tight: 'xl:gap-x-1', snug: 'xl:gap-x-2', comfortable: 'xl:gap-x-4', relaxed: 'xl:gap-x-6', loose: 'xl:gap-x-8', spacious: 'xl:gap-x-12' },
+  base: {
+    none: 'gap-x-0',
+    tight: 'gap-x-1',
+    snug: 'gap-x-2',
+    comfortable: 'gap-x-4',
+    relaxed: 'gap-x-6',
+    loose: 'gap-x-8',
+    spacious: 'gap-x-12',
+  },
+  sm: {
+    none: 'sm:gap-x-0',
+    tight: 'sm:gap-x-1',
+    snug: 'sm:gap-x-2',
+    comfortable: 'sm:gap-x-4',
+    relaxed: 'sm:gap-x-6',
+    loose: 'sm:gap-x-8',
+    spacious: 'sm:gap-x-12',
+  },
+  md: {
+    none: 'md:gap-x-0',
+    tight: 'md:gap-x-1',
+    snug: 'md:gap-x-2',
+    comfortable: 'md:gap-x-4',
+    relaxed: 'md:gap-x-6',
+    loose: 'md:gap-x-8',
+    spacious: 'md:gap-x-12',
+  },
+  lg: {
+    none: 'lg:gap-x-0',
+    tight: 'lg:gap-x-1',
+    snug: 'lg:gap-x-2',
+    comfortable: 'lg:gap-x-4',
+    relaxed: 'lg:gap-x-6',
+    loose: 'lg:gap-x-8',
+    spacious: 'lg:gap-x-12',
+  },
+  xl: {
+    none: 'xl:gap-x-0',
+    tight: 'xl:gap-x-1',
+    snug: 'xl:gap-x-2',
+    comfortable: 'xl:gap-x-4',
+    relaxed: 'xl:gap-x-6',
+    loose: 'xl:gap-x-8',
+    spacious: 'xl:gap-x-12',
+  },
 };
 
 /** gap-y-* — vertical (row) gap override, Grid only */
 export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
-  base: { none: 'gap-y-0', tight: 'gap-y-1', snug: 'gap-y-2', comfortable: 'gap-y-4', relaxed: 'gap-y-6', loose: 'gap-y-8', spacious: 'gap-y-12' },
-  sm:   { none: 'sm:gap-y-0', tight: 'sm:gap-y-1', snug: 'sm:gap-y-2', comfortable: 'sm:gap-y-4', relaxed: 'sm:gap-y-6', loose: 'sm:gap-y-8', spacious: 'sm:gap-y-12' },
-  md:   { none: 'md:gap-y-0', tight: 'md:gap-y-1', snug: 'md:gap-y-2', comfortable: 'md:gap-y-4', relaxed: 'md:gap-y-6', loose: 'md:gap-y-8', spacious: 'md:gap-y-12' },
-  lg:   { none: 'lg:gap-y-0', tight: 'lg:gap-y-1', snug: 'lg:gap-y-2', comfortable: 'lg:gap-y-4', relaxed: 'lg:gap-y-6', loose: 'lg:gap-y-8', spacious: 'lg:gap-y-12' },
-  xl:   { none: 'xl:gap-y-0', tight: 'xl:gap-y-1', snug: 'xl:gap-y-2', comfortable: 'xl:gap-y-4', relaxed: 'xl:gap-y-6', loose: 'xl:gap-y-8', spacious: 'xl:gap-y-12' },
+  base: {
+    none: 'gap-y-0',
+    tight: 'gap-y-1',
+    snug: 'gap-y-2',
+    comfortable: 'gap-y-4',
+    relaxed: 'gap-y-6',
+    loose: 'gap-y-8',
+    spacious: 'gap-y-12',
+  },
+  sm: {
+    none: 'sm:gap-y-0',
+    tight: 'sm:gap-y-1',
+    snug: 'sm:gap-y-2',
+    comfortable: 'sm:gap-y-4',
+    relaxed: 'sm:gap-y-6',
+    loose: 'sm:gap-y-8',
+    spacious: 'sm:gap-y-12',
+  },
+  md: {
+    none: 'md:gap-y-0',
+    tight: 'md:gap-y-1',
+    snug: 'md:gap-y-2',
+    comfortable: 'md:gap-y-4',
+    relaxed: 'md:gap-y-6',
+    loose: 'md:gap-y-8',
+    spacious: 'md:gap-y-12',
+  },
+  lg: {
+    none: 'lg:gap-y-0',
+    tight: 'lg:gap-y-1',
+    snug: 'lg:gap-y-2',
+    comfortable: 'lg:gap-y-4',
+    relaxed: 'lg:gap-y-6',
+    loose: 'lg:gap-y-8',
+    spacious: 'lg:gap-y-12',
+  },
+  xl: {
+    none: 'xl:gap-y-0',
+    tight: 'xl:gap-y-1',
+    snug: 'xl:gap-y-2',
+    comfortable: 'xl:gap-y-4',
+    relaxed: 'xl:gap-y-6',
+    loose: 'xl:gap-y-8',
+    spacious: 'xl:gap-y-12',
+  },
 };
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -109,8 +229,7 @@ export function resolveResponsive<T extends PropertyKey>(
   }
 
   const obj = v as Partial<Record<Breakpoint, T>>;
-  return BREAKPOINTS
-    .filter(bp => obj[bp] !== undefined)
-    .map(bp => table[bp][obj[bp]!])
+  return BREAKPOINTS.filter((bp) => obj[bp] !== undefined)
+    .map((bp) => table[bp][obj[bp]!])
     .join(' ');
 }

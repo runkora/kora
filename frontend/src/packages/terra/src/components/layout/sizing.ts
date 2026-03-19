@@ -29,13 +29,7 @@ import type { Breakpoint } from './spacing';
  *
  * Values describe purpose, not pixel size.
  */
-export type ContainerWidth =
-  | 'compact'
-  | 'card'
-  | 'prose'
-  | 'document'
-  | 'wide'
-  | 'full';
+export type ContainerWidth = 'compact' | 'card' | 'prose' | 'document' | 'wide' | 'full';
 
 /**
  * Semantic height scale for `maxHeight` and `minHeight` props on `Stack` and `Grid`.
@@ -59,38 +53,108 @@ export type TextAlign = 'start' | 'center' | 'end' | 'justify';
 
 /** max-w-* per breakpoint */
 export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
-  base: { compact: 'max-w-xs',    card: 'max-w-sm',    prose: 'max-w-prose',    document: 'max-w-2xl',    wide: 'max-w-4xl',    full: 'max-w-full' },
-  sm:   { compact: 'sm:max-w-xs', card: 'sm:max-w-sm', prose: 'sm:max-w-prose', document: 'sm:max-w-2xl', wide: 'sm:max-w-4xl', full: 'sm:max-w-full' },
-  md:   { compact: 'md:max-w-xs', card: 'md:max-w-sm', prose: 'md:max-w-prose', document: 'md:max-w-2xl', wide: 'md:max-w-4xl', full: 'md:max-w-full' },
-  lg:   { compact: 'lg:max-w-xs', card: 'lg:max-w-sm', prose: 'lg:max-w-prose', document: 'lg:max-w-2xl', wide: 'lg:max-w-4xl', full: 'lg:max-w-full' },
-  xl:   { compact: 'xl:max-w-xs', card: 'xl:max-w-sm', prose: 'xl:max-w-prose', document: 'xl:max-w-2xl', wide: 'xl:max-w-4xl', full: 'xl:max-w-full' },
+  base: {
+    compact: 'max-w-xs',
+    card: 'max-w-sm',
+    prose: 'max-w-prose',
+    document: 'max-w-2xl',
+    wide: 'max-w-4xl',
+    full: 'max-w-full',
+  },
+  sm: {
+    compact: 'sm:max-w-xs',
+    card: 'sm:max-w-sm',
+    prose: 'sm:max-w-prose',
+    document: 'sm:max-w-2xl',
+    wide: 'sm:max-w-4xl',
+    full: 'sm:max-w-full',
+  },
+  md: {
+    compact: 'md:max-w-xs',
+    card: 'md:max-w-sm',
+    prose: 'md:max-w-prose',
+    document: 'md:max-w-2xl',
+    wide: 'md:max-w-4xl',
+    full: 'md:max-w-full',
+  },
+  lg: {
+    compact: 'lg:max-w-xs',
+    card: 'lg:max-w-sm',
+    prose: 'lg:max-w-prose',
+    document: 'lg:max-w-2xl',
+    wide: 'lg:max-w-4xl',
+    full: 'lg:max-w-full',
+  },
+  xl: {
+    compact: 'xl:max-w-xs',
+    card: 'xl:max-w-sm',
+    prose: 'xl:max-w-prose',
+    document: 'xl:max-w-2xl',
+    wide: 'xl:max-w-4xl',
+    full: 'xl:max-w-full',
+  },
 };
 
 /** min-w-* per breakpoint */
 export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
-  base: { compact: 'min-w-xs',    card: 'min-w-sm',    prose: 'min-w-prose',    document: 'min-w-2xl',    wide: 'min-w-4xl',    full: 'min-w-full' },
-  sm:   { compact: 'sm:min-w-xs', card: 'sm:min-w-sm', prose: 'sm:min-w-prose', document: 'sm:min-w-2xl', wide: 'sm:min-w-4xl', full: 'sm:min-w-full' },
-  md:   { compact: 'md:min-w-xs', card: 'md:min-w-sm', prose: 'md:min-w-prose', document: 'md:min-w-2xl', wide: 'md:min-w-4xl', full: 'md:min-w-full' },
-  lg:   { compact: 'lg:min-w-xs', card: 'lg:min-w-sm', prose: 'lg:min-w-prose', document: 'lg:min-w-2xl', wide: 'lg:min-w-4xl', full: 'lg:min-w-full' },
-  xl:   { compact: 'xl:min-w-xs', card: 'xl:min-w-sm', prose: 'xl:min-w-prose', document: 'xl:min-w-2xl', wide: 'xl:min-w-4xl', full: 'xl:min-w-full' },
+  base: {
+    compact: 'min-w-xs',
+    card: 'min-w-sm',
+    prose: 'min-w-prose',
+    document: 'min-w-2xl',
+    wide: 'min-w-4xl',
+    full: 'min-w-full',
+  },
+  sm: {
+    compact: 'sm:min-w-xs',
+    card: 'sm:min-w-sm',
+    prose: 'sm:min-w-prose',
+    document: 'sm:min-w-2xl',
+    wide: 'sm:min-w-4xl',
+    full: 'sm:min-w-full',
+  },
+  md: {
+    compact: 'md:min-w-xs',
+    card: 'md:min-w-sm',
+    prose: 'md:min-w-prose',
+    document: 'md:min-w-2xl',
+    wide: 'md:min-w-4xl',
+    full: 'md:min-w-full',
+  },
+  lg: {
+    compact: 'lg:min-w-xs',
+    card: 'lg:min-w-sm',
+    prose: 'lg:min-w-prose',
+    document: 'lg:min-w-2xl',
+    wide: 'lg:min-w-4xl',
+    full: 'lg:min-w-full',
+  },
+  xl: {
+    compact: 'xl:min-w-xs',
+    card: 'xl:min-w-sm',
+    prose: 'xl:min-w-prose',
+    document: 'xl:min-w-2xl',
+    wide: 'xl:min-w-4xl',
+    full: 'xl:min-w-full',
+  },
 };
 
 /** min-h-* per breakpoint */
 export const MIN_H: Record<Breakpoint, Record<ContainerHeight, string>> = {
-  base: { screen: 'min-h-dvh',    full: 'min-h-full' },
-  sm:   { screen: 'sm:min-h-dvh', full: 'sm:min-h-full' },
-  md:   { screen: 'md:min-h-dvh', full: 'md:min-h-full' },
-  lg:   { screen: 'lg:min-h-dvh', full: 'lg:min-h-full' },
-  xl:   { screen: 'xl:min-h-dvh', full: 'xl:min-h-full' },
+  base: { screen: 'min-h-dvh', full: 'min-h-full' },
+  sm: { screen: 'sm:min-h-dvh', full: 'sm:min-h-full' },
+  md: { screen: 'md:min-h-dvh', full: 'md:min-h-full' },
+  lg: { screen: 'lg:min-h-dvh', full: 'lg:min-h-full' },
+  xl: { screen: 'xl:min-h-dvh', full: 'xl:min-h-full' },
 };
 
 /** max-h-* per breakpoint */
 export const MAX_H: Record<Breakpoint, Record<ContainerHeight, string>> = {
-  base: { screen: 'max-h-dvh',    full: 'max-h-full' },
-  sm:   { screen: 'sm:max-h-dvh', full: 'sm:max-h-full' },
-  md:   { screen: 'md:max-h-dvh', full: 'md:max-h-full' },
-  lg:   { screen: 'lg:max-h-dvh', full: 'lg:max-h-full' },
-  xl:   { screen: 'xl:max-h-dvh', full: 'xl:max-h-full' },
+  base: { screen: 'max-h-dvh', full: 'max-h-full' },
+  sm: { screen: 'sm:max-h-dvh', full: 'sm:max-h-full' },
+  md: { screen: 'md:max-h-dvh', full: 'md:max-h-full' },
+  lg: { screen: 'lg:max-h-dvh', full: 'lg:max-h-full' },
+  xl: { screen: 'xl:max-h-dvh', full: 'xl:max-h-full' },
 };
 
 /**
@@ -98,8 +162,8 @@ export const MAX_H: Record<Breakpoint, Record<ContainerHeight, string>> = {
  * Omitting `textAlign` emits no class (inherits alignment from the parent).
  */
 export const TEXT_ALIGN: Record<TextAlign, string> = {
-  start:   'text-left',
-  center:  'text-center',
-  end:     'text-right',
+  start: 'text-left',
+  center: 'text-center',
+  end: 'text-right',
   justify: 'text-justify',
 };

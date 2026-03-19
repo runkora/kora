@@ -96,13 +96,7 @@ export function Page(props: PageProps) {
   switch (props.variant) {
     case 'centered':
       return (
-        <Stack
-          asChild
-          direction="vertical"
-          align="center"
-          justify="center"
-          minHeight="screen"
-        >
+        <Stack asChild direction="vertical" align="center" justify="center" minHeight="screen">
           <main>{props.children}</main>
         </Stack>
       );
@@ -115,10 +109,6 @@ export function Page(props: PageProps) {
       );
 
     case 'canvas':
-      return (
-        <PageLayout header={props.header}>
-          {props.children}
-        </PageLayout>
-      );
+      return <PageLayout header={props.header}>{props.children}</PageLayout>;
   }
 }

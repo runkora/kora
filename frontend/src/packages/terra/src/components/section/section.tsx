@@ -53,11 +53,7 @@ const Section = React.forwardRef<HTMLElement, SectionProps & React.HTMLAttribute
     <section ref={ref} className={cn('px-6 py-8', className)} {...props}>
       {(heading || description) && (
         <div className="mb-6">
-          {heading && (
-            <Heading variant="section">
-              {heading}
-            </Heading>
-          )}
+          {heading && <Heading variant="section">{heading}</Heading>}
           {description && (
             <Text size="supporting" color="muted" className="mt-1">
               {description}

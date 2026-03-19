@@ -17,28 +17,28 @@ export type StackJustify = 'start' | 'center' | 'end' | 'between' | 'around' | '
 // template literals or dynamic class construction.
 
 const DIRECTION: Record<'base' | 'sm' | 'md' | 'lg' | 'xl', Record<StackDirection, string>> = {
-  base: { vertical: 'flex-col',    horizontal: 'flex-row' },
-  sm:   { vertical: 'sm:flex-col', horizontal: 'sm:flex-row' },
-  md:   { vertical: 'md:flex-col', horizontal: 'md:flex-row' },
-  lg:   { vertical: 'lg:flex-col', horizontal: 'lg:flex-row' },
-  xl:   { vertical: 'xl:flex-col', horizontal: 'xl:flex-row' },
+  base: { vertical: 'flex-col', horizontal: 'flex-row' },
+  sm: { vertical: 'sm:flex-col', horizontal: 'sm:flex-row' },
+  md: { vertical: 'md:flex-col', horizontal: 'md:flex-row' },
+  lg: { vertical: 'lg:flex-col', horizontal: 'lg:flex-row' },
+  xl: { vertical: 'xl:flex-col', horizontal: 'xl:flex-row' },
 };
 
 const ALIGN_CLASSES: Record<StackAlign, string> = {
-  start:    'items-start',
-  center:   'items-center',
-  end:      'items-end',
-  stretch:  'items-stretch',
+  start: 'items-start',
+  center: 'items-center',
+  end: 'items-end',
+  stretch: 'items-stretch',
   baseline: 'items-baseline',
 };
 
 const JUSTIFY_CLASSES: Record<StackJustify, string> = {
-  start:   'justify-start',
-  center:  'justify-center',
-  end:     'justify-end',
+  start: 'justify-start',
+  center: 'justify-center',
+  end: 'justify-end',
   between: 'justify-between',
-  around:  'justify-around',
-  evenly:  'justify-evenly',
+  around: 'justify-around',
+  evenly: 'justify-evenly',
 };
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -279,8 +279,8 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
           align && ALIGN_CLASSES[align],
           justify && JUSTIFY_CLASSES[justify],
           wrap && 'flex-wrap',
-          maxWidth  && resolveResponsive(maxWidth,  MAX_W, 'full'),
-          minWidth  && resolveResponsive(minWidth,  MIN_W, 'compact'),
+          maxWidth && resolveResponsive(maxWidth, MAX_W, 'full'),
+          minWidth && resolveResponsive(minWidth, MIN_W, 'compact'),
           minHeight && resolveResponsive(minHeight, MIN_H, 'full'),
           maxHeight && resolveResponsive(maxHeight, MAX_H, 'full'),
           textAlign && TEXT_ALIGN[textAlign],

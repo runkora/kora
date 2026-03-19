@@ -122,18 +122,20 @@ export const GapScale: Story = {
   name: 'Gap scale',
   render: () => (
     <Stack gap="loose" className="w-full max-w-xl">
-      {(['none', 'tight', 'snug', 'comfortable', 'relaxed', 'loose', 'spacious'] as const).map((g) => (
-        <Stack key={g} direction="horizontal" align="center" gap="comfortable">
-          <Text size="caption" color="subtle" className="w-16 shrink-0 font-mono">
-            {g}
-          </Text>
-          <Stack direction="horizontal" gap={g} className="flex-1">
-            <Box label="·" />
-            <Box label="·" />
-            <Box label="·" />
+      {(['none', 'tight', 'snug', 'comfortable', 'relaxed', 'loose', 'spacious'] as const).map(
+        (g) => (
+          <Stack key={g} direction="horizontal" align="center" gap="comfortable">
+            <Text size="caption" color="subtle" className="w-16 shrink-0 font-mono">
+              {g}
+            </Text>
+            <Stack direction="horizontal" gap={g} className="flex-1">
+              <Box label="·" />
+              <Box label="·" />
+              <Box label="·" />
+            </Stack>
           </Stack>
-        </Stack>
-      ))}
+        ),
+      )}
     </Stack>
   ),
 };
@@ -214,7 +216,9 @@ export const AsChildComparison: Story = {
     <Stack direction="horizontal" gap="loose" align="start">
       {/* ── Without asChild ────────────────────────────────── */}
       <Stack gap="snug" className="flex-1">
-        <Text size="caption" color="subtle" className="font-mono">without asChild</Text>
+        <Text size="caption" color="subtle" className="font-mono">
+          without asChild
+        </Text>
         <Text size="caption" color="muted">
           Stack renders a wrapper {'<div>'} around {'<nav>'}. Inspect the DOM to see two elements.
         </Text>
@@ -235,7 +239,9 @@ export const AsChildComparison: Story = {
 
       {/* ── With asChild ───────────────────────────────────── */}
       <Stack gap="snug" className="flex-1">
-        <Text size="caption" color="subtle" className="font-mono">with asChild</Text>
+        <Text size="caption" color="subtle" className="font-mono">
+          with asChild
+        </Text>
         <Text size="caption" color="muted">
           Stack merges its classes onto {'<nav>'} via Slot. No wrapper div in the DOM.
         </Text>
