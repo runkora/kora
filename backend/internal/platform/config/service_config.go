@@ -25,25 +25,3 @@ type ServerConfig struct {
 func (c ServerConfig) ShutdownTimeout() time.Duration {
 	return time.Duration(c.ShutdownTimeoutSecs) * time.Second
 }
-
-// PlatformConfig holds the shared platform-level defaults loaded from
-// internal/platform/config/base.yaml and its environment overrides.
-// It is available as [Platform] and is the authoritative source for all
-// settings that are identical across every service binary.
-type PlatformConfig struct {
-	Observability struct {
-		// OTLPEndpoint is the gRPC address of the OpenTelemetry collector.
-		// Leave empty to disable OTLP export.
-		OTLPEndpoint string `yaml:"otlpEndpoint"`
-
-		// SamplingRate is the fraction of root spans to sample (0.0–1.0).
-		SamplingRate *float64 `yaml:"samplingRate,omitempty"`
-
-		// OTLPInsecure disables TLS on the OTLP gRPC connection.
-		// Set to true only for local development.
-		OTLPInsecure bool `yaml:"otlpInsecure"`
-
-		// LogFormat controls log output style: "console" or "json".
-		LogFormat string `yaml:"logFormat"`
-	} `yaml:"observability"`
-}

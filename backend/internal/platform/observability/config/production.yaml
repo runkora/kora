@@ -1,0 +1,3 @@
+logFormat: json
+samplingRate: 0.1
+otlpInsecure: false

@@ -9,7 +9,7 @@ import (
 
 // Config holds the example service's own configuration values.
 // Platform-wide settings (OTLP endpoint, sampling rate, log format) are
-// available via [config.Platform] and are not repeated here.
+// owned by the observability package and are not repeated here.
 //
 // Values are loaded from:
 //

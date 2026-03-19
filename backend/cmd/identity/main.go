@@ -77,7 +77,7 @@ func initObservability(ctx context.Context) (func(), error) {
 
 // initLogger creates the appropriate logger based on environment.
 func initLogger() logging.Logger {
-	if config.Platform.Observability.LogFormat == "console" {
+	if observability.DefaultConfig.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()
 	}
 	return logging.NewLogger()

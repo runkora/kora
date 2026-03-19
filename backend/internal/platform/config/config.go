@@ -7,18 +7,17 @@
 //
 //	var cfg = config.MustLoad[StorageConfig]("internal/platform/storage", config.Environment())
 //
-// Use [LoadService] for service entry points under cmd/. It merges four YAML
+// Use [LoadService] for service entry points under cmd/. It merges two YAML
 // layers in order — no duplication required:
 //
-//  1. internal/platform/config/base.yaml         — platform-wide defaults
+//  1. {serviceModule}/config/base.yaml   — service defaults (optional)
 //
-//  2. internal/platform/config/{env}.yaml         — platform env overrides (optional)
-//
-//  3. {serviceModule}/config/base.yaml            — service defaults (optional)
-//
-//  4. {serviceModule}/config/{env}.yaml           — service env overrides (optional)
+//  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
 //
 //     var cfg = config.MustLoadService[Config]("cmd/identity", config.Environment())
+//
+// Platform-wide settings (observability tunables, log format) are loaded
+// independently by each platform package — see [observability.Platform].
 //
 // # Security
 //
@@ -38,12 +37,6 @@ import (
 // defaultEnvironment is used when APP_ENV is not set.
 const defaultEnvironment = "local"
 
-// Platform holds the shared platform-level configuration loaded from
-// internal/platform/config/base.yaml merged with the active environment
-// override. Available after init; service binaries read platform-wide
-// observability settings from here instead of re-declaring them.
-var Platform = mustLoadPlatform()
-
 // Environment reads the APP_ENV environment variable.
 // Returns "local" if APP_ENV is unset or empty.
 //
@@ -53,37 +46,6 @@ func Environment() string {
 		return env
 	}
 	return defaultEnvironment
-}
-
-// mustLoadPlatform loads the shared platform config at init time.
-func mustLoadPlatform() *PlatformConfig {
-	v := viper.New()
-	v.SetConfigType("yaml")
-
-	platformBase, err := resolvePlatformPath("base")
-	if err != nil {
-		panic(fmt.Errorf("config: resolve platform base path: %w", err))
-	}
-	v.SetConfigFile(platformBase)
-	err = v.ReadInConfig()
-	if err != nil {
-		panic(fmt.Errorf("config: read platform base config %q: %w", platformBase, err))
-	}
-
-	platformEnv, err := resolvePlatformPath(Environment())
-	if err != nil {
-		panic(fmt.Errorf("config: resolve platform env path: %w", err))
-	}
-	err = mergeIfExists(v, platformEnv)
-	if err != nil {
-		panic(fmt.Errorf("config: merge platform env config %q: %w", platformEnv, err))
-	}
-
-	cfg, err := unmarshalExact[PlatformConfig](v)
-	if err != nil {
-		panic(fmt.Errorf("config: unmarshal platform config: %w", err))
-	}
-	return cfg
 }
 
 // MustLoad is like [Load] but panics on error. Intended for package-level
@@ -128,16 +90,16 @@ func MustLoadService[T any](serviceModule, environment string) *T {
 	return cfg
 }
 
-// LoadService loads a service binary's configuration by merging only the
-// service-specific YAML layers into T. Platform-wide settings (observability
-// tunables, logFormat) are available separately via [Platform].
+// LoadService loads a service binary's configuration by merging two
+// service-specific YAML layers into T:
 //
 //  1. {serviceModule}/config/base.yaml   — service defaults (optional)
 //  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
 //
-// Service structs should only declare the fields present in their own
-// base.yaml: app.version, server.port, server.basePath,
-// server.shutdownTimeoutSecs, observability.serviceName.
+// Service structs should only declare fields present in their own YAML files:
+// app.version, server.port, server.basePath, server.shutdownTimeoutSecs,
+// observability.serviceName. Platform-wide settings live in the observability
+// package and are loaded there independently.
 func LoadService[T any](serviceModule, environment string) (*T, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
@@ -189,20 +151,6 @@ func unmarshalExact[T any](v *viper.Viper) (*T, error) {
 		return nil, fmt.Errorf("config: unmarshal: %w", err)
 	}
 	return &cfg, nil
-}
-
-// resolvePlatformPath returns the absolute path to a shared platform config file:
-// {projectRoot}/internal/platform/config/{name}.yaml
-func resolvePlatformPath(name string) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
-	}
-	root, err := findProjectRoot(cwd)
-	if err != nil {
-		root = cwd
-	}
-	return filepath.Join(root, "internal", "platform", "config", name+".yaml"), nil
 }
 
 // resolvePath builds the absolute path to

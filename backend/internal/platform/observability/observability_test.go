@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -16,11 +15,11 @@ import (
 // setPlatformObs overwrites platform-level observability tunables for a single
 // test and returns a restore function to be called via defer.
 func setPlatformObs(endpoint string, insecure bool, samplingRate *float64) func() {
-	prev := config.Platform.Observability
-	config.Platform.Observability.OTLPEndpoint = endpoint
-	config.Platform.Observability.OTLPInsecure = insecure
-	config.Platform.Observability.SamplingRate = samplingRate
-	return func() { config.Platform.Observability = prev }
+	prev := *DefaultConfig
+	DefaultConfig.OTLPEndpoint = endpoint
+	DefaultConfig.OTLPInsecure = insecure
+	DefaultConfig.SamplingRate = samplingRate
+	return func() { *DefaultConfig = prev }
 }
 
 // testConfig returns a Config suitable for tests that avoids stdout pollution.

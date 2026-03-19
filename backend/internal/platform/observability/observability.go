@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -17,9 +16,9 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// Config holds the service-specific observability configuration.
+// ServiceConfig holds the per-service observability configuration.
 // Platform-wide tunables (OTLP endpoint, sampling rate, insecure flag) are
-// read directly from [config.Platform] and do not need to be supplied here.
+// read directly from [DefaultConfig] and do not need to be supplied here.
 type Config struct {
 	ServiceName     string
 	ServiceVersion  string
@@ -31,17 +30,15 @@ type Config struct {
 // Returns a shutdown function that must be called before application exit.
 //
 // Platform-wide tunables (OTLP endpoint, sampling rate, insecure flag) are
-// read from [config.Platform] automatically — callers only supply
+// read from [DefaultConfig] automatically — callers only supply
 // service-identity fields and the shutdown timeout.
 //
 // TODO: Add OTLP retry logic with exponential backoff for network failures
 func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) error, err error) {
-	platform := config.Platform.Observability
-
 	// Resolve sampling rate: platform default is authoritative.
 	samplingRate := 0.1 // fallback if platform config has no value
-	if platform.SamplingRate != nil {
-		samplingRate = *platform.SamplingRate
+	if DefaultConfig.SamplingRate != nil {
+		samplingRate = *DefaultConfig.SamplingRate
 	}
 
 	// Set default shutdown timeout if not specified.
@@ -68,8 +65,8 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	switch {
 	case cfg.Environment == "local" || cfg.Environment == "development":
 		exporter, err = createStdoutExporter()
-	case platform.OTLPEndpoint != "":
-		exporter, err = createOTLPExporter(ctx, platform.OTLPEndpoint, platform.OTLPInsecure)
+	case DefaultConfig.OTLPEndpoint != "":
+		exporter, err = createOTLPExporter(ctx, DefaultConfig.OTLPEndpoint, DefaultConfig.OTLPInsecure)
 	default:
 		// Production without OTLP configured: use no-op provider.
 		return createNoOpProvider(res), nil
