@@ -98,6 +98,21 @@ const preview: Preview = {
     docs: {
       theme: undefined,
     },
+
+    /**
+     * Sidebar sort order.
+     *
+     * Storybook defaults to alphabetical ordering, which would place
+     * `Atoms` before `Foundation`. The explicit order below pins
+     * `Foundation` first so design tokens are always the top entry.
+     * Any group not listed here falls back to alphabetical after the
+     * declared entries.
+     */
+    options: {
+      storySort: {
+        order: ['Terra', ['Foundation', 'Atoms', 'Typography', 'Layout', 'Organisms']],
+      },
+    },
   },
 };
 

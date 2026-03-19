@@ -5,46 +5,42 @@
  * The HealthStatus component fetches via the BFF /api/example/health route
  * so the browser never communicates with the Go backend directly.
  */
+import { Page } from '@/components/page/page';
 import { HealthStatus } from '@/components/HealthStatus';
-import { Badge, Heading, Text } from '@orbit/terra';
+import { Badge, Heading, Stack, Text } from '@orbit/terra';
 
 export default function RootPage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center">
-      <div className="flex flex-col items-center gap-6 text-center">
-
+    <Page variant="centered">
+      <Stack align="center" gap="relaxed" textAlign="center">
         {/* Wordmark */}
-        <div className="flex flex-col items-center gap-3">
-          {/*
-           * transform="uppercase": Badge doesn't carry a transform prop — the
-           * uppercase treatment here is applied via Text transform semantics on
-           * the content. We use a plain uppercase string + size="sm" instead
-           * so no className override is needed on Badge itself.
-           */}
-          <Badge variant="outline" size="sm">EARLY ACCESS</Badge>
-
+        <Stack align="center" gap="snug">
           {/*
            * variant="display": text-5xl hero wordmark. This is the correct
            * Terra variant for splash/landing-page titles — no className="text-5xl"
            * override needed.
            */}
+          <Badge variant="outline" size="sm">
+            EARLY ACCESS
+          </Badge>
+
           <Heading variant="display">Orbit</Heading>
 
           {/*
-           * max-w-md wrapper: constrains the subtitle width to a readable
-           * measure on wide viewports. Layout sizing belongs on a wrapper
-           * element, not on the Text component itself.
+           * maxWidth="prose": constrains the subtitle to a comfortable reading
+           * measure (max-w-prose / 65ch) on wide viewports — the correct
+           * semantic token for body-width text constraints.
            */}
-          <div className="max-w-md">
+          <Stack maxWidth="prose">
             <Text size="lead" color="muted">
               Control plane for autonomous AI agents.
             </Text>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
 
         {/* Backend connection status */}
         <HealthStatus />
-      </div>
-    </main>
+      </Stack>
+    </Page>
   );
 }

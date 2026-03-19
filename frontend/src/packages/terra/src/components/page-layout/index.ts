@@ -1,2 +1,2 @@
-export { PageLayout, Section } from './page-layout';
-export type { PageLayoutProps, SectionProps } from './page-layout';
+export { PageLayout } from './page-layout';
+export type { PageLayoutProps } from './page-layout';

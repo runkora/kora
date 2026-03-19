@@ -29,6 +29,12 @@ import prettier from 'eslint-config-prettier';
 //      the Terra package. All text must go through Terra typography
 //      primitives (Heading, Text, Code) so colour and scale stay in the
 //      token system.
+//
+//   5. no-raw-div — warns on raw <div> elements in JSX outside the Terra
+//      package. Prefer Terra layout components (<Stack> for flex layouts,
+//      <Grid> for grid layouts). Suppress with eslint-disable-next-line when
+//      a plain div is genuinely the right tool (e.g. a single-child sizing
+//      wrapper).
 // ---------------------------------------------------------------------------
 
 /** React hooks that are only valid in Client Components. */
@@ -237,9 +243,10 @@ const localPlugin = {
     //   <h3>  →  <Heading variant="subsection">  (@orbit/terra)
     //   <h4>–<h6>  →  <Heading variant="label">  (@orbit/terra)
     //
-    // The rule is intentionally narrow — structural/layout elements such as
-    // <div>, <span>, <section>, <article>, <header>, <footer> are not
-    // restricted because they carry no typographic semantics.
+    // The rule is intentionally narrow — it targets typographic tags only.
+    // Structural/layout elements (<span>, <section>, <article>, <header>,
+    // <footer>) are unrestricted. <div> is handled separately by the
+    // `no-raw-div` rule which steers callers toward Terra layout components.
     // -------------------------------------------------------------------------
     'no-raw-html-text-tags': {
       meta: {
@@ -263,6 +270,52 @@ const localPlugin = {
             const name = node.name.type === 'JSXIdentifier' ? node.name.name : null;
             if (name && BLOCKED.has(name)) {
               context.report({ node, messageId: 'noRawTag', data: { tag: name } });
+            }
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // no-raw-div
+    //
+    // Warns when a raw <div> element is used in JSX outside the Terra package.
+    // Terra provides first-class layout primitives that should be preferred:
+    //
+    //   <div className="flex …">   →  <Stack>  (direction, gap, align, justify, wrap)
+    //   <div className="grid …">   →  <Grid>   (cols, gap, gapX, gapY)
+    //
+    // This is a *warning* rather than an error because there are legitimate
+    // cases where a plain <div> is the right tool — e.g. a single-child
+    // sizing wrapper that provides zero layout value, or a semantic landmark
+    // element. In those cases, suppress with an eslint-disable-next-line
+    // comment and a short explanation so the intent is clear.
+    //
+    // Terra's own source is excluded: it uses raw elements intentionally as
+    // the canonical layout implementation.
+    // -------------------------------------------------------------------------
+    'no-raw-div': {
+      meta: {
+        type: 'suggestion',
+        docs: {
+          description:
+            'Warn on raw <div> elements in JSX outside the Terra package. ' +
+            'Prefer Terra layout components: <Stack> for flex layouts or <Grid> for grid layouts.',
+        },
+        messages: {
+          noRawDiv:
+            'Avoid raw <div> elements. Prefer Terra layout components: ' +
+            '<Stack> (flex) or <Grid> (grid) from @orbit/terra. ' +
+            'If a <div> is genuinely necessary (e.g. a single-child sizing wrapper), ' +
+            'suppress this warning with an eslint-disable-next-line comment.',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type === 'JSXIdentifier' && node.name.name === 'div') {
+              context.report({ node, messageId: 'noRawDiv' });
             }
           },
         };
@@ -346,6 +399,24 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-raw-html-text-tags': 'error',
+    },
+  },
+
+  // ---- Raw <div> usage warning ---------------------------------------------
+  // Outside the Terra package, raw <div> elements should be replaced with
+  // Terra layout primitives (<Stack> for flex, <Grid> for grid). This is a
+  // *warning* rather than an error because there are valid edge-cases (e.g.
+  // a single-child sizing wrapper with no layout value). Suppress the warning
+  // with eslint-disable-next-line and a brief comment when needed.
+  //
+  // Terra's own source is excluded: it uses raw elements as the canonical
+  // layout implementation and intentionally does not go through itself.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-raw-div': 'warn',
     },
   },
 ]);

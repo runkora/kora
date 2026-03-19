@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Text } from '../typography/typography';
-import { PageLayout, Section } from './page-layout';
+import { PageLayout } from './page-layout';
+import { Section } from '../section/section';
 
 const meta: Meta = {
   title: 'Terra/Organisms/PageLayout',

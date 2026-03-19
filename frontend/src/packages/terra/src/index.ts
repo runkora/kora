@@ -44,6 +44,17 @@ export {
 } from './components/typography';
 export type { HeadingProps, TextProps, CodeProps } from './components/typography';
 
+// ─── Layout ──────────────────────────────────────────────────────────────────
+export { Stack, Grid } from './components/layout';
+export type { StackProps, StackDirection, StackAlign, StackJustify } from './components/layout';
+export type { GridProps, ColCount } from './components/layout';
+export type { SpacingSize, Responsive } from './components/layout';
+export type { ContainerWidth, ContainerHeight, TextAlign } from './components/layout';
+
+// ─── Layout: Section ─────────────────────────────────────────────────────────
+export { Section } from './components/section';
+export type { SectionProps } from './components/section';
+
 // ─── Organisms ────────────────────────────────────────────────────────────────
-export { PageLayout, Section } from './components/page-layout';
-export type { PageLayoutProps, SectionProps } from './components/page-layout';
+export { PageLayout } from './components/page-layout';
+export type { PageLayoutProps } from './components/page-layout';

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@/shared/api';
-import { Badge, Card, CardContent, Code, Text } from '@orbit/terra';
+import { Badge, Card, CardContent, Code, Stack, Text } from '@orbit/terra';
 
 type State = { status: 'loading' } | { status: 'ok'; data: HealthResponse } | { status: 'error' };
 
@@ -35,8 +35,7 @@ export function HealthStatus() {
   }, []);
 
   return (
-    // w-72: layout constraint on the card's container, not the card itself.
-    <div className="w-72">
+    <Stack maxWidth="card">
       <Card>
         {/*
          * padded: no CardHeader above this content, so we need the standard
@@ -44,42 +43,38 @@ export function HealthStatus() {
          */}
         <CardContent padded>
           {/*
-           * mb-3: spacing between the section label and the status content.
-           * This is layout — it lives on the wrapper, not the Text component.
+           * Stack gap="snug" replaces the mb-3 wrapper div — vertical rhythm
+           * between the section label and the status row is handled by gap.
            */}
-          <div className="mb-3">
+          <Stack gap="snug">
             <Text size="caption" color="muted" weight="emphasis" transform="uppercase">
               Backend
             </Text>
-          </div>
 
-          {state.status === 'ok' && (
-            <div className="flex items-center gap-2">
-              <Badge variant="healthy" dot>
-                {state.data.status}
-              </Badge>
-              <Text asChild size="supporting" color="muted">
-                <span>{state.data.service}</span>
-              </Text>
-            </div>
-          )}
+            {state.status === 'ok' && (
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Badge variant="healthy" dot>
+                  {state.data.status}
+                </Badge>
+                <Text asChild size="supporting" color="muted">
+                  <span>{state.data.service}</span>
+                </Text>
+              </Stack>
+            )}
 
-          {state.status === 'error' && (
-            <div className="flex flex-col gap-2">
-              <Badge variant="error" dot>
-                Unreachable
-              </Badge>
-              {/*
-               * gap-2 on the parent div handles vertical rhythm — no mt-* needed
-               * directly on the Text element.
-               */}
-              <Text size="caption" color="muted">
-                Is <Code variant="bare">make dev</Code> running?
-              </Text>
-            </div>
-          )}
+            {state.status === 'error' && (
+              <Stack gap="snug">
+                <Badge variant="error" dot>
+                  Unreachable
+                </Badge>
+                <Text size="caption" color="muted">
+                  Is <Code variant="bare">make dev</Code> running?
+                </Text>
+              </Stack>
+            )}
+          </Stack>
         </CardContent>
       </Card>
-    </div>
+    </Stack>
   );
 }
