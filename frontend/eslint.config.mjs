@@ -37,11 +37,11 @@ import prettier from 'eslint-config-prettier';
 //      a plain div is genuinely the right tool (e.g. a single-child sizing
 //      wrapper).
 //
-//   6. require-kebab-filename — all TypeScript and TSX source files outside the
-//      Terra package must use kebab-case filenames. PascalCase filenames (e.g.
-//      HealthStatus.tsx) cause case-sensitivity mismatches between macOS
-//      (case-insensitive) and Linux (case-sensitive) file systems, and create
-//      an inconsistent naming surface across the three source zones.
+//   6. require-kebab-filename — all JS and TS source files under src/ must use
+//      kebab-case filenames (including the Terra package and any future
+//      packages). PascalCase filenames (e.g. HealthStatus.tsx) cause
+//      case-sensitivity mismatches between macOS (case-insensitive) and Linux
+//      (case-sensitive) file systems, and create an inconsistent naming surface.
 // ---------------------------------------------------------------------------
 
 /** React hooks that are only valid in Client Components. */
@@ -346,24 +346,22 @@ const localPlugin = {
     // -------------------------------------------------------------------------
     // require-kebab-filename
     //
-    // All TypeScript/TSX source files must use kebab-case filenames. This
-    // prevents case-sensitivity mismatches between macOS (case-insensitive
-    // HFS+) and Linux CI (case-sensitive ext4), and establishes a single
-    // consistent naming convention across the three source zones
-    // (app/, components/, server/).
+    // All JS and TS source files under src/ must use kebab-case filenames —
+    // this includes the Terra package and any future packages added under
+    // src/packages/. Consistent naming prevents case-sensitivity mismatches
+    // between macOS (case-insensitive HFS+) and Linux CI (case-sensitive
+    // ext4), and establishes a single convention across all source zones.
     //
     // Skipped automatically:
     //   - Dot-files (.prettierrc, etc.)
     //   - Next.js dynamic route segments ([id].tsx, [...slug].tsx)
-    //   - All files under src/packages/terra/ (excluded at config-block level)
     // -------------------------------------------------------------------------
     'require-kebab-filename': {
       meta: {
         type: 'problem',
         docs: {
           description:
-            'Require kebab-case filenames for all TypeScript and TSX source files ' +
-            'outside the Terra package.',
+            'Require kebab-case filenames for all JS and TS source files under src/.',
         },
         messages: {
           notKebab: 'Filename "{{name}}" must be kebab-case. Rename it to "{{suggestion}}".',

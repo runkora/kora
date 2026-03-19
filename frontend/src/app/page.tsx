@@ -5,8 +5,8 @@
  * The HealthStatus component fetches via the BFF /api/example/health route
  * so the browser never communicates with the Go backend directly.
  */
-import { Page } from '@/components/page/page';
-import { HealthStatus } from '@/components/health-status';
+import { Page } from '@core/components/page';
+import { HealthStatus } from '@core/components/health-status';
 import { Badge, Heading, Stack, Text } from '@orbit/terra';
 
 export default function RootPage() {
