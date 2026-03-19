@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// ServiceConfig holds the per-service observability configuration.
+// Config holds the per-service observability configuration.
 // Platform-wide tunables (OTLP endpoint, sampling rate, insecure flag) are
 // read directly from [DefaultConfig] and do not need to be supplied here.
 type Config struct {

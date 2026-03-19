@@ -8,7 +8,7 @@
 //	var cfg = config.MustLoad[StorageConfig]("internal/platform/storage", config.Environment())
 //
 // Use [LoadService] for service entry points under cmd/. It merges two YAML
-// layers in order — no duplication required:
+// layers in order — service-only, no platform config included:
 //
 //  1. {serviceModule}/config/base.yaml   — service defaults (optional)
 //
@@ -17,7 +17,7 @@
 //     var cfg = config.MustLoadService[Config]("cmd/identity", config.Environment())
 //
 // Platform-wide settings (observability tunables, log format) are loaded
-// independently by each platform package — see [observability.Platform].
+// independently by each platform package — see [observability.DefaultConfig].
 //
 // # Security
 //
@@ -96,10 +96,9 @@ func MustLoadService[T any](serviceModule, environment string) *T {
 //  1. {serviceModule}/config/base.yaml   — service defaults (optional)
 //  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
 //
-// Service structs should only declare fields present in their own YAML files:
-// app.version, server.port, server.basePath, server.shutdownTimeoutSecs,
-// observability.serviceName. Platform-wide settings live in the observability
-// package and are loaded there independently.
+// Only service-owned keys are loaded here (e.g. server.port, observability.serviceName).
+// Platform-wide settings (OTLP endpoint, sampling rate, log format) are owned by
+// the observability package and loaded independently via [observability.DefaultConfig].
 func LoadService[T any](serviceModule, environment string) (*T, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")

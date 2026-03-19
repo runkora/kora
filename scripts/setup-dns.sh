@@ -97,7 +97,7 @@ fi
 info "Starting dnsmasq service..."
 # Use brew services so dnsmasq auto-starts on login.
 # `restart` is idempotent — works whether dnsmasq is running or not.
-sudo brew services restart dnsmasq 2>/dev/null || brew services restart dnsmasq
+sudo "${BREW_PREFIX}/bin/brew" services restart dnsmasq 2>/dev/null || "${BREW_PREFIX}/bin/brew" services restart dnsmasq
 ok "dnsmasq running"
 
 # ── Verify ────────────────────────────────────────────────────────────────

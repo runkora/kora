@@ -102,7 +102,6 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 // TestSetupProductionNoOTLP verifies production falls back to no-op when no OTLP
 // endpoint is configured.
 func TestSetupProductionNoOTLP(t *testing.T) {
-	t.Parallel()
 
 	restore := setPlatformObs("", false, nil)
 	defer restore()
@@ -321,7 +320,6 @@ func TestNoOpTracerProviderShutdown(t *testing.T) {
 
 // TestCreateNoOpProvider verifies createNoOpProvider function.
 func TestCreateNoOpProvider(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 
 	res, err := resource.New(ctx,

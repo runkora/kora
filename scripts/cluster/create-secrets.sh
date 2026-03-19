@@ -58,8 +58,7 @@ step "Checking prerequisites"
 [[ -f "${SECRETS_DIR}/signing.key" ]] \
   || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
 
-[[ -n "${DB_PASSWORD:-}" ]]    || fail "DB_PASSWORD is not set"
-[[ -n "${REDIS_PASSWORD:-}" ]] || fail "REDIS_PASSWORD is not set"
+[[ -n "${DB_PASSWORD:-}" ]] || fail "DB_PASSWORD is not set"
 
 ok "Prerequisites satisfied"
 
@@ -68,6 +67,8 @@ ok "Prerequisites satisfied"
 # ORBIT_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
 # for Device Grant so no secret is required. Include it only when set.
 step "Creating secrets for orbit-system"
+
+[[ -n "${REDIS_PASSWORD:-}" ]] || fail "REDIS_PASSWORD is not set (required for orbit-system)"
 
 IDENTITY_SECRET_ARGS=(
   --from-literal=DB_PASSWORD="${DB_PASSWORD}"

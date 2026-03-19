@@ -10,7 +10,7 @@ configMapGenerator:
       - DB_NAME=orbit
       - DB_PORT=5432
       - DB_USER=orbit
-      - REDIS_HOST=172.18.0.1
+      - REDIS_HOST=host.k3d.internal
       - REDIS_PORT=6379
       - ORBIT_OIDC_CLIENT_ID=orbit-local
       - ORBIT_OIDC_ISSUER_URL=http://dex.orbit.local:5556/dex
