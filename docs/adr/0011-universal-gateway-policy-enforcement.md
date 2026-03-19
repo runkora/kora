@@ -253,7 +253,7 @@ OPA policy is distributed to all enforcement points (edge Envoy and all sidecars
 This ADR establishes the principle and data plane technology. The question of how Envoy sidecar config is distributed and managed is resolved in **[ADR-0015](0015-service-mesh-and-network-enforcement-infrastructure.md)**.
 
 **Decision summary (ADR-0015):**
-- **Istio** is adopted as the sidecar control plane. istiod handles sidecar injection via admission webhook and xDS config distribution to all Envoy sidecar instances and the edge gateway. Istio's per-pod sidecar model is fully compatible with the SPIFFE Helper → Envoy SDS handoff defined in ADR-0010.
+- **Istio** is adopted as the sidecar control plane. istiod handles sidecar injection via admission webhook and xDS config distribution to all Envoy sidecar instances and the edge gateway. Istio's per-pod sidecar model is fully compatible with the SPIRE CSI driver socket-mount model defined in ADR-0010 — `istio-proxy` reads the Workload API socket directly via `SPIFFE_ENDPOINT_SOCKET` with no intermediary sidecar required.
 - **Cilium** is adopted as the CNI plugin. It operates at the eBPF kernel level underneath Istio, enforcing the "no direct pod-to-pod traffic that bypasses the sidecar" constraint from this ADR at the network layer — significantly harder to bypass than iptables-based NetworkPolicy. Cilium also enforces DNS-aware egress policy, ensuring agent pods cannot call external services directly and must route through the Credential-Aware Outbound Gateway (ADR-0012).
 
 The Orbit-native xDS control plane option is deferred, not closed — it remains the correct long-term direction if Orbit's service registry model requires tighter Envoy config coupling. See ADR-0015 for full rationale.

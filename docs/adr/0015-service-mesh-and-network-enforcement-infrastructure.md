@@ -23,25 +23,28 @@ This ADR resolves that question and additionally defines the CNI-level network e
 
 The sidecar control plane decision is not a detail — it determines the entire operational model for how Envoy sidecars are injected, how they receive configuration, and how the per-pod SPIFFE identity flow (defined in ADR-0010) is wired to the per-pod Envoy sidecar.
 
-ADR-0010 defines a two-sidecar model per agent pod:
-1. **SPIFFE Helper sidecar** — fetches the workload SVID from the node-level SPIRE Agent and exposes it to Envoy via the SPIFFE SDS API
-2. **Envoy sidecar** — uses the SVID for mTLS, exchanges it for a platform session token, and injects the token on all outbound requests
+ADR-0010 defines the per-pod identity model: each pod has a running workload container and an Istio-injected `istio-proxy` sidecar (Envoy). There is no SPIFFE Helper sidecar container. Instead, the **SPIRE CSI driver** (a node-level DaemonSet) mounts the SPIRE Agent's Workload API socket into each pod as a volume. The `istio-proxy` sidecar reads the socket directly via `SPIFFE_ENDPOINT_SOCKET` — Istio has native SPIRE/SPIFFE integration that does not require an intermediary sidecar.
 
-This model requires a per-pod Envoy sidecar with direct access to the SVID from the SPIFFE Helper via SDS. The control plane decision must be compatible with this per-pod sidecar requirement.
+The per-pod composition is therefore:
+1. **Workload container** — the agent, MCP server, or platform service; fully identity-unaware
+2. **`istio-proxy` sidecar** — Istio-injected Envoy; reads the CSI-mounted SPIRE socket for SVID-backed mTLS; will use the ext_proc filter for platform token injection once identity-proxy is deployed (ADR-0021)
+3. **identity-proxy sidecar** (planned, ADR-0021) — platform-owned Go binary that exchanges the SVID for a platform JWT and injects it on outbound requests via ext_proc
+
+This model requires a per-pod Envoy sidecar with access to the CSI-mounted SPIRE socket. The control plane decision must be compatible with this per-pod sidecar requirement.
 
 ### The Cilium Question
 
-Cilium is an eBPF-based networking layer with its own service mesh story (Cilium Service Mesh) based on a shared per-node Envoy proxy rather than per-pod sidecars. This sidecar-free model is explicitly **incompatible** with ADR-0010's per-pod two-sidecar architecture:
+Cilium is an eBPF-based networking layer with its own service mesh story (Cilium Service Mesh) based on a shared per-node Envoy proxy rather than per-pod sidecars. This sidecar-free model is explicitly **incompatible** with ADR-0010's per-pod sidecar architecture:
 
-- Cilium's per-node Envoy has no direct access to per-pod SVIDs from the SPIFFE Helper sidecar
-- There is no per-pod Envoy for the SPIFFE Helper to expose SVIDs to via SDS
-- The transparent platform token injection model — which keeps agent workloads fully identity-unaware — breaks without a per-pod Envoy
+- Cilium's per-node Envoy has no direct access to the CSI-mounted SPIRE Workload API socket, which is a per-pod volume
+- There is no per-pod Envoy to read the socket and perform per-pod SVID-backed mTLS
+- The transparent platform token injection model — which keeps agent workloads fully identity-unaware — breaks without a per-pod Envoy that can run the identity-proxy ext_proc filter
 
 Cilium as a **service mesh control plane** is rejected for this reason. However, Cilium as a **CNI plugin** operates at a different layer entirely and is not in conflict with the per-pod sidecar model. Its role in the platform is addressed below.
 
 ### Core Requirement
 
-The control plane decision must preserve the property that **agent workloads are fully identity-unaware** — they make plain HTTP calls and the sidecar layer handles SVID management, platform token exchange, mTLS, and credential injection transparently. This is non-negotiable; it is the primary goal of the two-sidecar model in ADR-0010 and the enforcement model in ADR-0011.
+The control plane decision must preserve the property that **agent workloads are fully identity-unaware** — they make plain HTTP calls and the sidecar layer handles SVID management, platform token exchange, mTLS, and credential injection transparently. This is non-negotiable; it is the primary goal of the per-pod sidecar model in ADR-0010 and the enforcement model in ADR-0011.
 
 ### Goals
 
@@ -63,7 +66,7 @@ The control plane decision must preserve the property that **agent workloads are
 ## Decision Drivers
 
 * **Agent transparency**: the control plane must support per-pod sidecar injection so that the Envoy sidecar can perform per-pod SVID-to-platform-token exchange invisibly to the agent workload
-* **SPIFFE/SPIRE integration**: the control plane must support the SPIFFE SDS handoff between the SPIFFE Helper sidecar and the Envoy sidecar at the per-pod level
+* **SPIFFE/SPIRE integration**: the control plane must support native SPIRE/SPIFFE integration with the Istio-injected Envoy sidecar — specifically, the ability to read SVIDs directly from the SPIRE CSI driver's mounted Workload API socket via `SPIFFE_ENDPOINT_SOCKET`, without requiring an intermediary SPIFFE Helper sidecar container
 * **Operational maturity**: the control plane must be production-proven at scale; Orbit cannot afford to invest in a custom xDS implementation before the core platform is built
 * **ext_authz + OPA support**: the control plane must support Envoy's `ext_authz` filter with OPA as the authorisation service — this is the foundation of ADR-0011's policy enforcement model
 * **Sidecar injection automation**: sidecar injection must be automatic and enforced via admission webhook — manual sidecar configuration is not acceptable at scale
@@ -109,7 +112,7 @@ The control plane decision must preserve the property that **agent workloads are
 
 **Description:** Use Cilium's service mesh with its shared per-node Envoy proxy model.
 
-**Rejected** — see Context section. Cilium's per-node Envoy is structurally incompatible with the per-pod SPIFFE Helper → per-pod Envoy SDS handoff required by ADR-0010. This model cannot deliver agent workload identity transparency without fundamental changes to the two-sidecar architecture.
+**Rejected** — see Context section. Cilium's per-node Envoy is structurally incompatible with the per-pod identity model required by ADR-0010. A shared per-node Envoy proxy cannot hold per-pod SVID context or run per-pod ext_proc filters (ADR-0021). This model cannot deliver agent workload identity transparency without fundamental changes to the per-pod architecture.
 
 ---
 
@@ -135,12 +138,13 @@ Option B is explicitly deferred, not rejected. If Orbit's service registry model
 │  Sidecar injection · xDS config distribution            │
 │  SPIRE Controller Manager integration                   │
 ├─────────────────────────────────────────────────────────┤
-│  Envoy sidecars (per-pod)                               │
+│  Envoy sidecars / istio-proxy (per-pod)                 │
 │  mTLS · ext_authz → OPA · platform token injection      │
-│  SVID consumed from SPIFFE Helper via SDS               │
+│  SVID read from SPIRE CSI socket (SPIFFE_ENDPOINT_SOCKET)│
 ├─────────────────────────────────────────────────────────┤
-│  SPIFFE Helper sidecars (per-pod)                       │
-│  SVID lifecycle management · SDS exposure to Envoy      │
+│  SPIRE CSI Driver (per-node DaemonSet)                  │
+│  Mounts SPIRE Workload API socket into pods as volume   │
+│  No per-pod sidecar — node-level socket delivery only   │
 ├─────────────────────────────────────────────────────────┤
 │  SPIRE Agent (per-node DaemonSet)                       │
 │  Workload attestation · SVID issuance                   │
@@ -158,7 +162,7 @@ Option B is explicitly deferred, not rejected. If Orbit's service registry model
 |---|---|
 | **Istio / istiod** | Sidecar injection, xDS config distribution to Envoy sidecars and edge gateway |
 | **Envoy sidecar** | mTLS termination, `ext_authz` policy evaluation, platform token injection, outbound request enrichment |
-| **SPIFFE Helper sidecar** | SVID fetch from SPIRE Agent, SVID rotation, SDS exposure to Envoy |
+| **SPIRE CSI Driver (DaemonSet)** | Mounts SPIRE Workload API socket into pods as a CSI volume (`spire-workload-socket` at `/run/secrets/workload-spiffe-uds/socket`); no per-pod sidecar container |
 | **SPIRE Agent (DaemonSet)** | Node attestation, workload attestation, SVID issuance |
 | **SPIRE Server** | Trust domain CA, registration entry management |
 | **Cilium** | eBPF-level NetworkPolicy, DNS egress control, SPIFFE-aware network-level policy |
@@ -177,7 +181,7 @@ Cilium enforces three constraints that harden the ADR-0011 sidecar model:
 
 ### Positive
 
-- Agent workloads remain fully identity-unaware: sidecar injection is automatic via Istio's admission webhook, Envoy config is distributed by istiod, and the SPIFFE Helper + Envoy two-sidecar model works exactly as defined in ADR-0010
+- Agent workloads remain fully identity-unaware: sidecar injection is automatic via Istio's admission webhook, Envoy config is distributed by istiod, and the SPIRE CSI driver delivers the Workload API socket to each pod with zero agent workload configuration
 - The operational complexity of xDS config distribution is handled by a mature, production-proven system rather than Orbit building it from scratch
 - Cilium adds a kernel-level enforcement backstop that makes the "no bypass" constraint from ADR-0011 genuinely hard rather than conventionally enforced
 - DNS egress control in Cilium structurally prevents agents from calling external services directly, reinforcing the Credential-Aware Outbound Gateway model in ADR-0012
@@ -226,7 +230,7 @@ The SPIRE Controller Manager automates the synchronisation between Kubernetes wo
 ### Success Metrics
 
 - All service pods receive correctly configured Envoy sidecars via Istio injection with zero manual configuration by service or agent authors
-- SVID-to-platform-token exchange operates correctly through the SPIFFE Helper → Envoy SDS handoff under Istio's control plane
+- SVID-to-platform-token exchange operates correctly: `istio-proxy` reads the CSI-mounted Workload API socket, identity-proxy (ADR-0021) performs the exchange, and platform tokens are injected transparently on outbound requests
 - Direct pod-to-pod traffic bypassing sidecars is blocked at the Cilium level — verified by network policy audit and penetration testing
 - Direct external egress from agent pods is blocked by Cilium DNS egress policy — all external calls route through the Credential-Aware Outbound Gateway
 
