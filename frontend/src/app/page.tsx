@@ -6,7 +6,7 @@
  * so the browser never communicates with the Go backend directly.
  */
 import { Page } from '@/components/page/page';
-import { HealthStatus } from '@/components/HealthStatus';
+import { HealthStatus } from '@/components/health-status';
 import { Badge, Heading, Stack, Text } from '@orbit/terra';
 
 export default function RootPage() {

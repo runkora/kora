@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import nextVitals from 'eslint-config-next/core-web-vitals';
 import nextTs from 'eslint-config-next/typescript';
@@ -35,6 +36,12 @@ import prettier from 'eslint-config-prettier';
 //      <Grid> for grid layouts). Suppress with eslint-disable-next-line when
 //      a plain div is genuinely the right tool (e.g. a single-child sizing
 //      wrapper).
+//
+//   6. require-kebab-filename — all TypeScript and TSX source files outside the
+//      Terra package must use kebab-case filenames. PascalCase filenames (e.g.
+//      HealthStatus.tsx) cause case-sensitivity mismatches between macOS
+//      (case-insensitive) and Linux (case-sensitive) file systems, and create
+//      an inconsistent naming surface across the three source zones.
 // ---------------------------------------------------------------------------
 
 /** React hooks that are only valid in Client Components. */
@@ -70,6 +77,20 @@ const CLIENT_HOOKS = new Set([
  * components must express layout needs through variant props or wrapper elements.
  */
 const CLASSNAME_EXEMPT = new Set(['Skeleton', 'Separator']);
+
+/**
+ * Convert a PascalCase or camelCase string to kebab-case, used to generate
+ * rename suggestions in `require-kebab-filename` error messages.
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function toKebab(str) {
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .toLowerCase();
+}
 
 const localPlugin = {
   rules: {
@@ -321,6 +342,61 @@ const localPlugin = {
         };
       },
     },
+
+    // -------------------------------------------------------------------------
+    // require-kebab-filename
+    //
+    // All TypeScript/TSX source files must use kebab-case filenames. This
+    // prevents case-sensitivity mismatches between macOS (case-insensitive
+    // HFS+) and Linux CI (case-sensitive ext4), and establishes a single
+    // consistent naming convention across the three source zones
+    // (app/, components/, server/).
+    //
+    // Skipped automatically:
+    //   - Dot-files (.prettierrc, etc.)
+    //   - Next.js dynamic route segments ([id].tsx, [...slug].tsx)
+    //   - All files under src/packages/terra/ (excluded at config-block level)
+    // -------------------------------------------------------------------------
+    'require-kebab-filename': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Require kebab-case filenames for all TypeScript and TSX source files ' +
+            'outside the Terra package.',
+        },
+        messages: {
+          notKebab: 'Filename "{{name}}" must be kebab-case. Rename it to "{{suggestion}}".',
+        },
+      },
+      create(context) {
+        return {
+          Program(node) {
+            const filename = context.filename ?? context.getFilename();
+            const base = path.basename(filename);
+
+            // Skip dot-files and Next.js dynamic route segments.
+            if (base.startsWith('.') || base.startsWith('[')) return;
+
+            // Isolate the stem (everything before the first dot), e.g.
+            //   "health-status.tsx" → "health-status"
+            //   "HealthStatus.tsx"  → "HealthStatus"
+            const dotIdx = base.indexOf('.');
+            const stem = dotIdx === -1 ? base : base.slice(0, dotIdx);
+            const ext = dotIdx === -1 ? '' : base.slice(dotIdx);
+
+            // Valid: lowercase letters and digits separated by single hyphens.
+            if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(stem)) {
+              context.report({
+                node,
+                messageId: 'notKebab',
+                data: { name: base, suggestion: toKebab(stem) + ext },
+              });
+            }
+          },
+        };
+      },
+    },
   },
 };
 
@@ -417,6 +493,20 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-raw-div': 'warn',
+    },
+  },
+
+  // ---- Kebab-case filename enforcement ------------------------------------
+  // ALL JavaScript and TypeScript source files under src/ must use kebab-case
+  // filenames — this includes the Terra package and any future packages added
+  // under src/packages/. Consistent naming prevents case-sensitivity mismatches
+  // between macOS (case-insensitive) and Linux CI (case-sensitive) and gives
+  // every source zone a single predictable convention.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'local/require-kebab-filename': 'error',
     },
   },
 ]);
