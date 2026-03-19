@@ -15,3 +15,12 @@ metadata:
   labels:
     istio-injection: enabled
     spiffe.io/enabled: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orbit-example-tenant
+  labels:
+    istio-injection: enabled
+    spiffe.io/enabled: "true"
+    orbit.io/role: tenant

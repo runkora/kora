@@ -108,7 +108,7 @@ Starts the Orbit backend with `air` for hot-reload. The server listens on `http:
 You should see startup output including:
 
 ```
-INFO  OIDC provider initialized  issuer=http://localhost:5556/dex
+INFO  OIDC provider initialized  issuer=http://dex.orbit.local:5556/dex
 INFO  Server listening           addr=:6069
 ```
 
@@ -336,10 +336,10 @@ make dev-up
 
 **Cause:** `issuerUrl` is empty in `backend/internal/identity/config/local.yaml` and `ORBIT_OIDC_ISSUER_URL` is not set.
 
-**Fix:** Confirm `local.yaml` has `issuerUrl: "http://localhost:5556/dex"` and that the Dex container is healthy:
+**Fix:** Confirm `local.yaml` has `issuerUrl: "http://dex.orbit.local:5556/dex"` and that the Dex container is healthy:
 ```bash
 docker compose ps
-curl http://localhost:5556/dex/.well-known/openid-configuration
+curl http://dex.orbit.local:5556/dex/.well-known/openid-configuration
 ```
 
 ### `POST /api/v1/identity/device` returns 400 `oidc_not_configured`
