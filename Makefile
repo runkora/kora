@@ -22,7 +22,6 @@ CMD_DIR=./backend/cmd/orbit
 MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
 
 # Binary output
-BINARY_NAME=orbit
 BINARY_DIR=.bin
 
 # Tool versions (pin for reproducible installs)
@@ -35,6 +34,11 @@ PNPM_VERSION=10.32.1
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
+
+# Colima (Lima-based Docker runtime on macOS) uses 192.168.5.2 as its internal DNS,
+# which conflicts with k3d's DNS-fix behaviour. Auto-detect Colima and disable the fix.
+# Developers on Docker Desktop can override this in .env: K3D_FIX_DNS=1
+K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
 # Colors for output
 COLOR_RESET=\033[0m
@@ -72,8 +76,13 @@ env: ## Scaffold .env from .env.example (no-op if .env already exists)
 	fi
 
 .PHONY: setup
-setup: install-tools install-tools-cluster tidy frontend-install hooks ## Complete project setup (install tools, tidy dependencies, install hooks)
+setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
+
+.PHONY: setup-dns
+setup-dns: ## Configure *.orbit.local DNS on macOS via dnsmasq (idempotent, no-op on Linux)
+	@chmod +x scripts/setup-dns.sh
+	@bash scripts/setup-dns.sh
 
 .PHONY: hooks
 hooks: ## Configure git to use the project's tracked hooks from .githooks/
@@ -174,35 +183,50 @@ db-logs: ## Show database logs
 db-shell: ## Open a psql shell to the database
 	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
 
+# Collect all per-service migration files into a temp directory for local dev.
+# Each service owns its migrations under backend/cmd/{service}/migrations/.
+# Goose orders them by timestamp prefix so cross-service ordering is preserved.
+COLLECT_MIGRATIONS = \
+	MIGRATIONS_TEMP=$$(mktemp -d); \
+	find backend/cmd -path '*/migrations/*.sql' -exec cp {} "$$MIGRATIONS_TEMP/" \; ;
+
 .PHONY: migrate-up
-migrate-up: ## Run all database migrations up
+migrate-up: ## Run all database migrations up (collects all per-service migrations)
 	@echo "$(COLOR_YELLOW)Running migrations up...$(COLOR_RESET)"
-	@GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" \
-		goose -dir $(MIGRATIONS_DIR) up
+	@$(COLLECT_MIGRATIONS) \
+		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" up; \
+		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
 	@echo "$(COLOR_GREEN)✓ Migrations up complete$(COLOR_RESET)"
 
 .PHONY: migrate-down
 migrate-down: ## Roll back the last database migration
 	@echo "$(COLOR_YELLOW)Rolling back last migration...$(COLOR_RESET)"
-	@GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" \
-		goose -dir $(MIGRATIONS_DIR) down
+	@$(COLLECT_MIGRATIONS) \
+		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" down; \
+		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
 	@echo "$(COLOR_GREEN)✓ Migration rolled back$(COLOR_RESET)"
 
 .PHONY: migrate-status
 migrate-status: ## Show migration status
 	@echo "$(COLOR_YELLOW)Migration status:$(COLOR_RESET)"
-	@GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" \
-		goose -dir $(MIGRATIONS_DIR) status
+	@$(COLLECT_MIGRATIONS) \
+		GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DB_URL)" goose -dir "$$MIGRATIONS_TEMP" status; \
+		EXIT=$$?; rm -rf "$$MIGRATIONS_TEMP"; exit $$EXIT
 
 .PHONY: migrate-create
-migrate-create: ## Create a new migration (usage: make migrate-create name=migration_name)
-	@if [ -z "$(name)" ]; then \
-		echo "$(COLOR_YELLOW)Usage: make migrate-create name=<migration_name>$(COLOR_RESET)"; \
+migrate-create: ## Create a new migration (usage: make migrate-create service=identity name=migration_name)
+	@if [ -z "$(name)" ] || [ -z "$(service)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make migrate-create service=<service> name=<migration_name>$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)  e.g. make migrate-create service=identity name=add_sessions_index$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	@echo "$(COLOR_YELLOW)Creating migration: $(name)$(COLOR_RESET)"
-	@goose -dir $(MIGRATIONS_DIR) create $(name) sql
-	@echo "$(COLOR_GREEN)✓ Migration created$(COLOR_RESET)"
+	@if [ ! -d "backend/cmd/$(service)/migrations" ]; then \
+		echo "$(COLOR_RED)Error: backend/cmd/$(service)/migrations does not exist$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_YELLOW)Creating migration for service '$(service)': $(name)$(COLOR_RESET)"
+	@goose -dir backend/cmd/$(service)/migrations create $(name) sql
+	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
 
 # ===========================================
 # Local Development Environment (Tier 1 — docker-compose)
@@ -221,7 +245,7 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  http://localhost:5556/dex"
+	@echo "  Dex OIDC issuer:  http://dex.orbit.local:5556/dex"
 	@echo "  Test user:        dev@orbit.local / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
 	@echo ""
@@ -252,65 +276,79 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istio
 .PHONY: dev-cluster
 dev-cluster: dev-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
-	@bash scripts/cluster/dev-cluster-up.sh
+	@K3D_FIX_DNS=$(K3D_FIX_DNS) bash scripts/cluster/dev-cluster-up.sh
 
 .PHONY: dev-cluster-down
 dev-cluster-down: ## Tear down the local k3d cluster
 	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-down.sh
 
+# SERVICES is the list of service directories under backend/cmd/.
+# Add a new service here when a new cmd/<service> entrypoint is created.
+SERVICES := identity example
+
 .PHONY: docker-build
-docker-build: ## Build Orbit backend Docker image (for local cluster development)
-	@echo "$(COLOR_YELLOW)Building Orbit Docker image...$(COLOR_RESET)"
-	@cd backend && docker build -t orbit-backend:latest -f Dockerfile .
-	@echo "$(COLOR_GREEN)✓ Docker image built: orbit-backend:latest$(COLOR_RESET)"
+docker-build: ## Build all service Docker images (orbit-<service>:latest)
+	@for svc in $(SERVICES); do \
+		echo "$(COLOR_YELLOW)Building orbit-$$svc:latest...$(COLOR_RESET)"; \
+		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
+		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
+	done
 
 .PHONY: docker-push
-docker-push: ## Push Orbit backend Docker image to local registry (for local cluster development)
-	@echo "$(COLOR_YELLOW)Pushing Orbit Docker image to local registry...$(COLOR_RESET)"
-	@docker tag orbit-backend:latest localhost:5000/orbit-backend:latest
-	@docker push localhost:5000/orbit-backend:latest
-	@echo "$(COLOR_GREEN)✓ Docker image pushed to local registry: localhost:5000/orbit-backend:latest$(COLOR_RESET)"
+docker-push: ## Push all service images to local registry (orbit-registry:5000/orbit-<service>:latest)
+	@for svc in $(SERVICES); do \
+		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
+		docker tag orbit-$$svc:latest localhost:5000/orbit-$$svc:latest; \
+		docker push localhost:5000/orbit-$$svc:latest; \
+		echo "$(COLOR_GREEN)✓ localhost:5000/orbit-$$svc:latest$(COLOR_RESET)"; \
+	done
 
 .PHONY: cluster-deploy
-cluster-deploy: # docker-build docker-push ## Deploy Orbit backend to local k3d cluster
-	@echo "$(COLOR_YELLOW)Deploying Orbit backend to local cluster...$(COLOR_RESET)"
-	kubectl create secret generic orbit-secrets -n orbit-system \
-		--from-literal=DB_PASSWORD="${DB_PASSWORD}" \
-		--from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}" \
-		--dry-run=client -o yaml | kubectl apply -f -
-
+cluster-deploy: ## Deploy all services to local k3d cluster (run docker-build docker-push first)
+	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh
 	@kustomize build k8s | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ Orbit backend deployed to cluster$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
 
 # ===========================================
 # Development Workflow
 # ===========================================
 
 .PHONY: dev
-dev: ## Run Orbit in development mode with auto-reload support
-	@echo "$(COLOR_YELLOW)Starting Orbit in development mode...$(COLOR_RESET)"
+dev: ## Run identity service in development mode with auto-reload (air)
+	@echo "$(COLOR_YELLOW)Starting identity service in development mode...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
 	if command -v air > /dev/null; then \
 		air; \
 	else \
 		echo "$(COLOR_BLUE)Air not installed. Running without live reload...$(COLOR_RESET)"; \
 		echo "$(COLOR_BLUE)Install air for live reload: make install-tools$(COLOR_RESET)"; \
-		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/identity/main.go; \
 	fi
 
 .PHONY: run
-run: ## Run Orbit control plane
-	@echo "$(COLOR_YELLOW)Starting Orbit...$(COLOR_RESET)"
+run: run-identity ## Alias for run-identity
+
+.PHONY: run-identity
+run-identity: ## Run the identity service
+	@echo "$(COLOR_YELLOW)Starting identity service...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
-		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/orbit/main.go
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/identity/main.go
+
+.PHONY: run-example
+run-example: ## Run the example service
+	@echo "$(COLOR_YELLOW)Starting example service...$(COLOR_RESET)"
+	@set -a; [ -f .env ] && . .env; set +a; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/example/main.go
 
 .PHONY: build-backend
-build-backend: ## Build Orbit binary to .bin directory
-	@echo "$(COLOR_YELLOW)Building Orbit...$(COLOR_RESET)"
+build-backend: ## Build all service binaries to .bin directory
+	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
-	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/$(BINARY_NAME) ./cmd/orbit
-	@echo "$(COLOR_GREEN)✓ Binary built: $(BINARY_DIR)/$(BINARY_NAME)$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
+	@echo "$(COLOR_GREEN)✓ Binaries built: $(BINARY_DIR)/orbit-identity, $(BINARY_DIR)/orbit-example$(COLOR_RESET)"
 
 # ===========================================
 # Testing & Quality
@@ -498,11 +536,25 @@ clean-all: clean ## Clean everything including database volumes
 # ===========================================
 
 .PHONY: auth-device
-auth-device: ## Authenticate via Device Authorization Grant (Dex local OIDC or any real provider)
+auth-device: ## Authenticate via Device Authorization Grant (local binary on :6069)
 	@chmod +x scripts/auth-device.sh
 	@./scripts/auth-device.sh \
 		--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
 		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"
+
+.PHONY: auth-device-k3d
+auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via port-forward)
+	@chmod +x scripts/auth-device.sh
+	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+		PF_PID=$$!; \
+		sleep 2; \
+		./scripts/auth-device.sh \
+			--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
+			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"; \
+		STATUS=$$?; \
+		kill $$PF_PID 2>/dev/null || true; \
+		exit $$STATUS
 
 .PHONY: gen-signing-key
 gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key

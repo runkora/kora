@@ -1,13 +1,15 @@
 # .air.toml - Live reload configuration for Orbit development
+# Watches the identity service by default. To watch a different service,
+# change bin/full_bin to the appropriate binary (e.g. orbit-example).
 root = "."
 tmp_dir = "tmp"
 
 [build]
-  bin = ".bin/orbit"
+  bin = ".bin/orbit-identity"
   # Run the binary from backend/ so findProjectRoot() locates backend/go.mod
-  # and resolves config paths to backend/cmd/orbit/config/*.yaml correctly.
+  # and resolves config paths to backend/cmd/identity/config/*.yaml correctly.
   # The signing key path must be adjusted to ../secrets/signing.key in .env.
-  full_bin = "sh -c 'cd backend && ../.bin/orbit'"
+  full_bin = "sh -c 'cd backend && ../.bin/orbit-identity'"
   cmd = "make build-backend"
   include_ext = ["go"]
   include_dir = ["backend"]

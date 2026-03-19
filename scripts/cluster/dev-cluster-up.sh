@@ -62,6 +62,48 @@ else
   exit 1
 fi
 
+# ── Patch CoreDNS for dex.orbit.local → Docker bridge ────────────────────
+# On the host Mac, dnsmasq resolves *.orbit.local → 127.0.0.1.
+# Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
+#
+# The k3d Corefile already contains:
+#   import /etc/coredns/custom/*.server
+# which loads any *.server key from the coredns-custom ConfigMap as an
+# additional server block. We write our orbit.local zone there so k3d's
+# own Corefile (and its NodeHosts block) is never touched or reconciled away.
+step "Patching CoreDNS for dex.orbit.local"
+
+DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
+  --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
+
+if [[ -z "${DOCKER_BRIDGE_IP}" ]]; then
+  DOCKER_BRIDGE_IP="172.18.0.1"
+  warn "Could not detect orbit-network gateway — falling back to ${DOCKER_BRIDGE_IP}"
+fi
+
+ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
+
+# The key name must end in .server so CoreDNS imports it as a server block.
+ORBIT_SERVER_BLOCK="orbit.local:53 {
+    hosts {
+      ${DOCKER_BRIDGE_IP} dex.orbit.local
+      fallthrough
+    }
+    forward . /etc/resolv.conf
+}
+"
+
+kubectl create configmap coredns-custom \
+  --namespace kube-system \
+  --from-literal=orbit.local.server="${ORBIT_SERVER_BLOCK}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart CoreDNS to pick up the new custom block immediately.
+kubectl rollout restart deployment/coredns -n kube-system
+kubectl rollout status deployment/coredns -n kube-system --timeout=60s
+ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
+
+# ── Apply Helm charts and manifests ───────────────────────────────────────
 # first time CRDs can take a moment to register, so retry if apply fails
 echo "  Applying Helm Charts and Kubernetes Manifests ..."
 kustomize build --enable-helm "${OVERLAYS_DIR}" | kubectl apply -f - || \
@@ -82,6 +124,7 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "  Cluster:       k3d-${CLUSTER_NAME}"
 echo "  Trust domain:  spiffe://orbit.local"
+echo "  Dex OIDC:      http://dex.orbit.local:5556/dex"
 echo "  Istio ingress: http://localhost:8880 / https://localhost:8443"
 echo ""
 echo "  Useful commands:"

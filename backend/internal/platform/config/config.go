@@ -1,48 +1,44 @@
-// Package config provides a typed, environment-aware YAML configuration loader
+// Package config provides a typed, environment-aware configuration loader
 // for the Orbit control plane.
 //
-// Each feature owns its config struct and places environment-specific YAML files
-// under a config/ subdirectory within its own package directory. The loader
-// resolves file paths relative to the project root so that tests and binaries
-// work correctly regardless of the working directory.
+// # Loading modes
+//
+// Use [Load] for packages that own a single config file (e.g. storage):
+//
+//	var cfg = config.MustLoad[StorageConfig]("internal/platform/storage", config.Environment())
+//
+// Use [LoadService] for service entry points under cmd/. It merges two YAML
+// layers in order — service-only, no platform config included:
+//
+//  1. {serviceModule}/config/base.yaml   — service defaults (optional)
+//
+//  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
+//
+//     var cfg = config.MustLoadService[Config]("cmd/identity", config.Environment())
+//
+// Platform-wide settings (observability tunables, log format) are loaded
+// independently by each platform package — see [observability.DefaultConfig].
 //
 // # Security
 //
-// YAML config files must not contain secrets (passwords, API keys, certificates).
-// Use environment variables or a secret manager for all sensitive values.
-//
-// # Usage
-//
-// Config is intended to be loaded once at program startup as a package-level
-// variable, following the same convention as [regexp.MustCompile]:
-//
-//	type serverConfig struct {
-//	    Port     int    `yaml:"port"`
-//	    BasePath string `yaml:"basePath"`
-//	}
-//
-//	var cfg = config.MustLoad[serverConfig]("cmd/orbit", config.Environment())
-//
-// MustLoad panics if the file cannot be read or parsed, which surfaces
-// misconfiguration immediately at startup rather than silently at first use.
-// Use [Load] directly in tests or when you need to handle the error explicitly.
+// YAML config files must not contain secrets. Use environment variables for
+// all sensitive values; mark secret fields with yaml:"-".
 package config
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/spf13/viper"
 )
 
 // defaultEnvironment is used when APP_ENV is not set.
 const defaultEnvironment = "local"
 
-// Environment reads the APP_ENV environment variable and returns its value.
-// If APP_ENV is not set or is empty, it returns "local".
+// Environment reads the APP_ENV environment variable.
+// Returns "local" if APP_ENV is unset or empty.
 //
 // Supported values by convention: "local", "development", "production".
 func Environment() string {
@@ -52,11 +48,8 @@ func Environment() string {
 	return defaultEnvironment
 }
 
-// MustLoad is like [Load] but panics if the config file cannot be read or
-// parsed. It is intended for package-level variable initialisation where a
-// missing config file is a fatal startup error:
-//
-//	var cfg = config.MustLoad[serverConfig]("cmd/orbit", config.Environment())
+// MustLoad is like [Load] but panics on error. Intended for package-level
+// variable initialisation where a missing config file is a fatal startup error.
 func MustLoad[T any](module, environment string) *T {
 	cfg, err := Load[T](module, environment)
 	if err != nil {
@@ -65,38 +58,103 @@ func MustLoad[T any](module, environment string) *T {
 	return cfg
 }
 
-// Load reads the YAML config file for the given module and environment,
-// unmarshals it into a new instance of T, and returns a pointer to it.
+// Load reads and unmarshals the YAML config file at
+// {projectRoot}/{module}/config/{environment}.yaml into a new T.
 //
-// module is a path relative to the project root (e.g. "internal/identity" or
-// "cmd/orbit"). environment is the name of the YAML file without the extension
-// (e.g. "production"). The resolved path is:
-//
-//	{projectRoot}/{module}/config/{environment}.yaml
-//
-// The project root is determined by walking up from the current working directory
-// until a go.mod file is found. In environments where go.mod is absent (e.g.
-// inside a minimal container image), the working directory is used as the root.
-//
-// Config files must not contain secrets. Use environment variables for all
-// sensitive values.
+// Use this for packages that own a single config file. For service binaries
+// that need the four-layer platform + per-service merge, use [LoadService].
 func Load[T any](module, environment string) (*T, error) {
 	path, err := resolvePath(module, environment)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolve path for module %q env %q: %w", module, environment, err)
 	}
 
+	v := viper.New()
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("config: read %q: %w", path, err)
+	}
+
+	return unmarshalExact[T](v)
+}
+
+// MustLoadService is like [LoadService] but panics on error. It is the
+// standard loader for service binaries under cmd/:
+//
+//	var Current = config.MustLoadService[Config]("cmd/identity", config.Environment())
+func MustLoadService[T any](serviceModule, environment string) *T {
+	cfg, err := LoadService[T](serviceModule, environment)
+	if err != nil {
+		panic(err)
+	}
+	return cfg
+}
+
+// LoadService loads a service binary's configuration by merging two
+// service-specific YAML layers into T:
+//
+//  1. {serviceModule}/config/base.yaml   — service defaults (optional)
+//  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
+//
+// Only service-owned keys are loaded here (e.g. server.port, observability.serviceName).
+// Platform-wide settings (OTLP endpoint, sampling rate, log format) are owned by
+// the observability package and loaded independently via [observability.DefaultConfig].
+func LoadService[T any](serviceModule, environment string) (*T, error) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+
+	// Layer 1: service base (optional).
+	serviceBase, err := resolvePath(serviceModule, "base")
+	if err != nil {
+		return nil, fmt.Errorf("config: resolve service base path: %w", err)
+	}
+	err = mergeIfExists(v, serviceBase)
+	if err != nil {
+		return nil, fmt.Errorf("config: merge service base config %q: %w", serviceBase, err)
+	}
+
+	// Layer 2: service env override (optional).
+	serviceEnv, err := resolvePath(serviceModule, environment)
+	if err != nil {
+		return nil, fmt.Errorf("config: resolve service env path: %w", err)
+	}
+	if err := mergeIfExists(v, serviceEnv); err != nil {
+		return nil, fmt.Errorf("config: merge service env config %q: %w", serviceEnv, err)
+	}
+
+	return unmarshalExact[T](v)
+}
+
+// mergeIfExists merges the YAML file at path into v. If the file does not
+// exist it is silently skipped. Any other error is returned.
+func mergeIfExists(v *viper.Viper, path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	v.SetConfigFile(path)
+	return v.MergeInConfig()
+}
+
+// unmarshalExact decodes the Viper instance into a new T using yaml struct
+// tags. Fields tagged yaml:"-" are skipped. Unknown keys in the config file
+// that have no corresponding struct field cause an error.
+func unmarshalExact[T any](v *viper.Viper) (*T, error) {
 	var cfg T
-	if err := parseFile(path, &cfg); err != nil {
-		return nil, err
+	err := v.UnmarshalExact(&cfg, func(dc *mapstructure.DecoderConfig) {
+		dc.TagName = "yaml"
+	})
+	if err != nil {
+		return nil, fmt.Errorf("config: unmarshal: %w", err)
 	}
 	return &cfg, nil
 }
 
-// resolvePath builds the absolute path to the config file. It first attempts
-// to locate the project root via go.mod, then falls back to the working
-// directory as root for containerised deployments.
-func resolvePath(module, environment string) (string, error) {
+// resolvePath builds the absolute path to
+// {projectRoot}/{module}/config/{name}.yaml.
+func resolvePath(module, name string) (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
@@ -108,22 +166,15 @@ func resolvePath(module, environment string) (string, error) {
 		root = cwd
 	}
 
-	return filepath.Join(root, module, "config", environment+".yaml"), nil
+	return filepath.Join(root, module, "config", name+".yaml"), nil
 }
 
 // findProjectRoot walks up the directory tree from startDir looking for a
-// go.mod file. Returns the directory that contains go.mod, or an error if the
-// filesystem root is reached without finding it.
-//
-// startDir is resolved through symlinks before walking so the returned path is
-// always the canonical real path. This matters on macOS where /tmp and /var are
-// symlinks into /private, and os.Getwd() returns the real path.
+// go.mod file. Returns the directory that contains go.mod, or an error if
+// the filesystem root is reached without finding it.
 func findProjectRoot(startDir string) (string, error) {
-	// Resolve symlinks so the returned root is always a real path.
 	resolved, err := filepath.EvalSymlinks(startDir)
 	if err != nil {
-		// If EvalSymlinks fails (e.g. dir does not exist yet), continue with
-		// the original path so the error surfaces naturally below.
 		resolved = startDir
 	}
 
@@ -141,22 +192,4 @@ func findProjectRoot(startDir string) (string, error) {
 		}
 		dir = parent
 	}
-}
-
-// parseFile reads the YAML file at path and strictly unmarshals its contents
-// into dst. Unknown YAML keys are rejected so that typos in config files are
-// caught at startup rather than silently ignored.
-// dst must be a non-nil pointer.
-func parseFile(path string, dst any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("config: read file %q: %w", path, err)
-	}
-
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
-	dec.KnownFields(true)
-	if err := dec.Decode(dst); err != nil && err != io.EOF {
-		return fmt.Errorf("config: unmarshal %q: %w", path, err)
-	}
-	return nil
 }
