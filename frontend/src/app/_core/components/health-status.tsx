@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@/shared/api';
-import { Badge, Card, CardContent, Code, Stack, Text } from '@orbit/terra';
+import { Badge, Card, CardContent, Code, Skeleton, Stack, Text } from '@orbit/terra';
 
 type State = { status: 'loading' } | { status: 'ok'; data: HealthResponse } | { status: 'error' };
 
@@ -50,6 +50,10 @@ export function HealthStatus() {
             <Text size="caption" color="muted" weight="emphasis" transform="uppercase">
               Backend
             </Text>
+
+            {state.status === 'loading' && (
+              <Skeleton shape="line" width="half" size="sm" />
+            )}
 
             {state.status === 'ok' && (
               <Stack direction="horizontal" align="center" gap="snug">

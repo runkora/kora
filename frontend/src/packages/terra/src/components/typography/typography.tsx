@@ -93,7 +93,7 @@ const HEADING_TAG: Record<
 
 export interface HeadingProps
   extends
-    Omit<React.HTMLAttributes<HTMLHeadingElement>, 'color'>,
+    Omit<React.HTMLAttributes<HTMLElement>, 'color'>,
     VariantProps<typeof headingVariants> {
   /**
    * When true, merges Heading styles into the immediate child element instead
@@ -119,7 +119,7 @@ export interface HeadingProps
  * <Heading variant="subsection" color="muted">Configuration</Heading>
  * ```
  */
-const Heading = React.forwardRef<HTMLHeadingElement, HeadingProps>(
+const Heading = React.forwardRef<HTMLElement, HeadingProps>(
   ({ className, variant = 'section', color, asChild = false, ...props }, ref) => {
     const Comp = (asChild ? Slot : HEADING_TAG[variant ?? 'section']) as React.ElementType;
     return (

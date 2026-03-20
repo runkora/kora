@@ -34,7 +34,7 @@ export const WithHeadingAndDescription: Story = {
     heading: 'Active agents',
     description: 'Agents currently running in this workspace.',
     children: (
-      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
         Agent table placeholder
       </div>
     ),
@@ -50,7 +50,7 @@ export const HeadingOnly: Story = {
   args: {
     heading: 'Overview',
     children: (
-      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
         Stats grid placeholder
       </div>
     ),
@@ -66,7 +66,7 @@ export const ContentOnly: Story = {
   name: 'Content only (no heading)',
   args: {
     children: (
-      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+      <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
         Content with consistent padding, no heading
       </div>
     ),
@@ -82,17 +82,17 @@ export const MultipleStacked: Story = {
   render: () => (
     <div className="flex flex-col">
       <Section heading="Overview" description="High-level metrics for this workspace.">
-        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
           Stats grid
         </div>
       </Section>
       <Section heading="Active agents">
-        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
           Agent table
         </div>
       </Section>
       <Section>
-        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-foreground-muted">
+        <div className="rounded-md border border-dashed border-border-subtle px-4 py-8 text-center text-sm text-muted">
           Trailing content (no heading)
         </div>
       </Section>

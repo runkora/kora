@@ -1,4 +1,4 @@
-# 0018. Terra Frontend Design System
+# 0021. Terra Frontend Design System
 
 **Status:** Accepted
 **Date:** 2025-07-11
@@ -155,7 +155,7 @@ Several architectural choices within the selected option require explicit record
 
 ### SD-1: Design Token Strategy — Semantic CSS Custom Properties via Tailwind v4 `@theme`
 
-**Decision:** Design tokens are defined as semantic CSS custom properties in `frontend/src/packages/terra/src/tokens.css` and registered as Tailwind v4 theme tokens via the `@theme inline` directive. All color, typography, radius, and spacing extension values are referenced by semantic name throughout component code. Zero arbitrary Tailwind shade values (e.g., `gray-950`, `blue-500`) appear in committed component source.
+**Decision:** Design tokens are defined as semantic CSS custom properties in `frontend/src/packages/terra/src/tokens/tokens.css` and registered as Tailwind v4 theme tokens via the `@theme inline` directive. All color, typography, radius, and spacing extension values are referenced by semantic name throughout component code. Zero arbitrary Tailwind shade values (e.g., `gray-950`, `blue-500`) appear in committed component source.
 
 Token categories:
 - **Color — brand/background layer**: `--color-background`, `--color-surface`, `--color-surface-elevated`
@@ -233,7 +233,7 @@ All public component exports are re-exported from `frontend/src/packages/terra/s
 - **Complete design system isolation**: Components can be built, reviewed, and documented without the Next.js app. Design system work and application work can proceed independently.
 - **Immediate workspace feedback loop**: The `workspace:*` protocol means no publish cycle — editing a component in `frontend/src/packages/terra/` is reflected in the frontend on the next save.
 - **Owned component code**: All component logic is editable source under our control. Customizing a component is editing a file, not fighting a third-party theme override system.
-- **Token-driven maintainability**: Changing Orbit's accent color from electric blue to indigo is a one-line change in `tokens.css`. No component file needs to be touched.
+- **Token-driven maintainability**: Changing Orbit's accent color (currently orange/amber at `--terra-accent-hue: 26`) is a one-line change in `tokens/tokens.css`. No component file needs to be touched.
 - **AI-friendly surface**: The combination of a documented token vocabulary, a known component API (shadcn/Radix conventions), and Storybook stories gives AI tools (Forge, v0.dev) the context needed to generate accurate, on-brand output.
 - **Accessibility by default**: Radix UI handles focus management, ARIA, keyboard navigation, and portal rendering — the hardest parts of accessible component development — without requiring implementation per component.
 - **Extensible to future Orbit surfaces**: If a second Orbit UI surface is built, it can consume `@orbit/terra` via the same workspace protocol with no additional infrastructure.
@@ -289,7 +289,7 @@ frontend/src/packages/terra/
 
 ```css
 /* frontend/src/app/globals.css */
-@import "@orbit/terra/src/tokens.css";
+@import "@orbit/terra/src/tokens/tokens.css";
 @source "../packages/terra/src";
 ```
 
@@ -307,7 +307,7 @@ Components use `class-variance-authority` (cva) to define variant-driven class s
 ```typescript
 // Example: frontend/src/packages/terra/src/components/button/button.tsx
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "../../lib/utils";
+import { cn } from "../../utils";
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50",
