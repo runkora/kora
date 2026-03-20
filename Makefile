@@ -305,11 +305,34 @@ docker-push: ## Push all service images to local registry (orbit-registry:5000/o
 	done
 
 .PHONY: cluster-deploy
-cluster-deploy: ## Deploy all services to local k3d cluster (run docker-build docker-push first)
+cluster-deploy: docker-build docker-push ## Apply k8s manifests and secrets to the local k3d cluster (does NOT build or restart)
 	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh
 	@kustomize build k8s | kubectl apply -f -
 	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
+
+.PHONY: cluster-update
+cluster-update: docker-build docker-push cluster-deploy ## Build, push, re-apply manifests and restart ALL services in the cluster
+	@echo "$(COLOR_YELLOW)Restarting all deployments to pick up new images...$(COLOR_RESET)"
+	@kubectl rollout restart deployment -n orbit-system
+	@kubectl rollout restart deployment -n orbit-example-tenant 2>/dev/null || true
+	@echo "$(COLOR_YELLOW)Waiting for rollouts to complete...$(COLOR_RESET)"
+	@kubectl rollout status deployment -n orbit-system --timeout=120s
+	@kubectl rollout status deployment -n orbit-example-tenant --timeout=120s 2>/dev/null || true
+	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
+
+.PHONY: cluster-update-service
+cluster-update-service: ## Build, push and restart a single service (usage: make cluster-update-service SERVICE=identity)
+	$(if $(SERVICE),,$(error SERVICE is required — usage: make cluster-update-service SERVICE=identity))
+	@echo "$(COLOR_YELLOW)Building orbit-$(SERVICE):latest...$(COLOR_RESET)"
+	@docker build --build-arg SERVICE=$(SERVICE) -t orbit-$(SERVICE):latest -f backend/Dockerfile backend/
+	@echo "$(COLOR_YELLOW)Pushing orbit-$(SERVICE) to local registry...$(COLOR_RESET)"
+	@docker tag orbit-$(SERVICE):latest localhost:5000/orbit-$(SERVICE):latest
+	@docker push localhost:5000/orbit-$(SERVICE):latest
+	@echo "$(COLOR_YELLOW)Restarting orbit-$(SERVICE)...$(COLOR_RESET)"
+	@kubectl rollout restart deployment/orbit-$(SERVICE) -n orbit-system
+	@kubectl rollout status deployment/orbit-$(SERVICE) -n orbit-system --timeout=120s
+	@echo "$(COLOR_GREEN)✓ orbit-$(SERVICE) updated$(COLOR_RESET)"
 
 # ===========================================
 # Development Workflow
