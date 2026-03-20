@@ -28,8 +28,20 @@ export {
   CardFooter,
 } from './components/card';
 
+export { Input } from './components/input';
+export type { InputProps } from './components/input';
+
+export { Field, FieldHint, FieldError } from './components/field';
+export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';
+
 export { Anchor, anchorVariants } from './components/anchor';
 export type { AnchorProps } from './components/anchor';
+
+export { Label } from './components/label';
+
+export { Separator } from './components/separator';
+
+export { Skeleton } from './components/skeleton';
 
 export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './components/tooltip';
 
@@ -44,12 +56,44 @@ export {
 } from './components/typography';
 export type { HeadingProps, TextProps, CodeProps } from './components/typography';
 
+// ─── Molecules ───────────────────────────────────────────────────────────────
+
+export { Textarea } from './components/textarea';
+export type { TextareaProps } from './components/textarea';
+
+export { NavItem, navItemVariants } from './components/nav-item';
+export type { NavItemProps } from './components/nav-item';
+
+export { Progress, progressVariants } from './components/progress';
+export type { ProgressProps } from './components/progress';
+
+export {
+  TableRoot,
+  Table,
+  TableCaption,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableRow,
+  TableHead,
+  TableCell,
+} from './components/table';
+
 // ─── Layout ──────────────────────────────────────────────────────────────────
 export { Stack, Grid } from './components/layout';
-export type { StackProps, StackDirection, StackAlign, StackJustify } from './components/layout';
-export type { GridProps, ColCount } from './components/layout';
-export type { SpacingSize, Responsive } from './components/layout';
-export type { ContainerWidth, ContainerHeight, TextAlign } from './components/layout';
+export type {
+  StackProps,
+  StackDirection,
+  StackAlign,
+  StackJustify,
+  GridProps,
+  ColCount,
+  SpacingSize,
+  Responsive,
+  ContainerWidth,
+  ContainerHeight,
+  TextAlign,
+} from './components/layout';
 
 // ─── Layout: Section ─────────────────────────────────────────────────────────
 export { Section } from './components/section';

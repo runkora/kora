@@ -4,7 +4,7 @@ import { PageLayout } from './page-layout';
 import { Section } from '../section/section';
 
 const meta: Meta = {
-  title: 'Terra/Organisms/PageLayout',
+  title: 'Terra/Layout/PageLayout',
   parameters: {
     layout: 'fullscreen',
     backgrounds: {

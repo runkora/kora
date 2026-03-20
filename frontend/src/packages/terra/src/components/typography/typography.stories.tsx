@@ -4,7 +4,7 @@ import { Heading, Text, Code } from './typography';
 // ─── Meta ─────────────────────────────────────────────────────────────────────
 
 const meta = {
-  title: 'Terra/Typography',
+  title: 'Terra/Foundation/Typography',
   parameters: {
     layout: 'padded',
   },

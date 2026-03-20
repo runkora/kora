@@ -63,22 +63,6 @@ const CLIENT_HOOKS = new Set([
 ]);
 
 /**
- * Terra components that intentionally accept `className` for structural sizing.
- *
- * `Skeleton` is a shape-agnostic placeholder whose dimensions must be supplied
- * by the call site — it has no inherent size (it fills any role from a
- * word-length text skeleton to a full card skeleton).
- *
- * `Separator` is a structural divider whose cross-axis dimension (height when
- * orientation="vertical", width when orientation="horizontal") must be set by
- * the parent layout context, not baked into the component itself.
- *
- * Both components document this expectation in their JSDoc. All other Terra
- * components must express layout needs through variant props or wrapper elements.
- */
-const CLASSNAME_EXEMPT = new Set(['Skeleton', 'Separator']);
-
-/**
  * Convert a PascalCase or camelCase string to kebab-case, used to generate
  * rename suggestions in `require-kebab-filename` error messages.
  *
@@ -228,11 +212,6 @@ const localPlugin = {
             // Only care about named components (uppercase first letter).
             const componentName = node.name.type === 'JSXIdentifier' ? node.name.name : null;
             if (!componentName || !terraComponents.has(componentName)) return;
-            // Skeleton and Separator are intentionally shape-agnostic — callers
-            // must size them via className. All other Terra components must use
-            // variant props or wrapper elements instead.
-            if (CLASSNAME_EXEMPT.has(componentName)) return;
-
             const classNameAttr = node.attributes.find(
               (attr) =>
                 attr.type === 'JSXAttribute' &&

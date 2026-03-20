@@ -307,7 +307,7 @@ export const ComponentGrid: Story = {
                     Set <Code variant="inline">ORBIT_POLICY_ENGINE=opa</Code> before starting the
                     control plane.
                   </Text>
-                  <div className="rounded-md border border-border-subtle bg-surface-elevated p-4">
+                  <div className="rounded-md bg-surface-elevated p-4">
                     <Code variant="bare">
                       {`const result = await orbit.agents.deploy({
   id: "apollo-3",
@@ -708,14 +708,11 @@ export const ComponentGrid: Story = {
           <Section heading="Stack">
             <Stack direction="vertical" gap="relaxed">
               <Group label="Vertical">
-                <div className="max-w-xs rounded-lg border border-border-subtle p-4">
+                <div className="max-w-xs rounded-lg bg-surface-elevated p-4">
                   <Stack direction="vertical" gap="snug">
                     {['Identity layer', 'Policy engine', 'Credential broker', 'Event spine'].map(
                       (item) => (
-                        <div
-                          key={item}
-                          className="rounded-md border border-border-subtle bg-surface px-3 py-2"
-                        >
+                        <div key={item} className="rounded-md bg-surface px-3 py-2">
                           <Text size="caption" mono>
                             {item}
                           </Text>
@@ -729,7 +726,7 @@ export const ComponentGrid: Story = {
               <Rule />
 
               <Group label="Horizontal with wrap">
-                <div className="rounded-lg border border-border-subtle p-4">
+                <div className="rounded-lg bg-surface-elevated p-4">
                   <Stack direction="horizontal" gap="snug" wrap>
                     {[
                       'apollo-3',
@@ -761,7 +758,7 @@ export const ComponentGrid: Story = {
                         direction="horizontal"
                         gap="snug"
                         align={align}
-                        className="flex-1 rounded-md border border-border-subtle bg-surface p-3 h-16"
+                        className="flex-1 rounded-md bg-surface p-3 h-16"
                       >
                         <div className="h-5 w-12 rounded bg-surface-elevated" />
                         <div className="h-3 w-20 rounded bg-surface-elevated" />
@@ -780,7 +777,7 @@ export const ComponentGrid: Story = {
                   gap="snug"
                   justify="between"
                   align="center"
-                  className="rounded-md border border-border-subtle px-4 py-3"
+                  className="rounded-md bg-surface px-4 py-3"
                 >
                   <Stack direction="horizontal" gap="snug" align="center">
                     <Heading variant="subsection">apollo-3</Heading>
@@ -810,7 +807,7 @@ export const ComponentGrid: Story = {
                     {Array.from({ length: cols }).map((_, i) => (
                       <div
                         key={i}
-                        className="h-16 rounded-md border border-border-subtle bg-surface flex items-center justify-center"
+                        className="h-16 rounded-md bg-surface flex items-center justify-center"
                       >
                         <Text size="caption" color="muted" mono>
                           col {i + 1}
@@ -859,7 +856,7 @@ export const ComponentGrid: Story = {
           <Section heading="Section">
             <Stack direction="vertical" gap="relaxed">
               <Group label="Compositions">
-                <div className="rounded-lg border border-border-subtle overflow-hidden">
+                <div className="rounded-lg overflow-hidden">
                   <Section heading="Active Agents">
                     <Grid cols={2} gap="comfortable">
                       <Card>
@@ -877,13 +874,9 @@ export const ComponentGrid: Story = {
                     </Grid>
                   </Section>
 
-                  <div className="border-t border-border-subtle" />
-
                   <Section heading="Overview">
                     <></>
                   </Section>
-
-                  <div className="border-t border-border-subtle" />
 
                   <Section>
                     <></>
@@ -901,7 +894,7 @@ export const ComponentGrid: Story = {
                 PageLayout is `h-screen` by default. We override to a fixed height
                 here so it renders inline within the grid without escaping the canvas.
               */}
-                <div className="rounded-lg border border-border-subtle overflow-hidden">
+                <div className="rounded-lg overflow-hidden">
                   <PageLayout
                     className="h-96"
                     sidebar={
@@ -985,7 +978,7 @@ export const ComponentGrid: Story = {
               <Rule />
 
               <Group label="Header-only — no sidebar">
-                <div className="rounded-lg border border-border-subtle overflow-hidden">
+                <div className="rounded-lg overflow-hidden">
                   <PageLayout
                     className="h-48"
                     header={
@@ -1016,7 +1009,7 @@ export const ComponentGrid: Story = {
               <Rule />
 
               <Group label="Bare shell — no sidebar, no header">
-                <div className="rounded-lg border border-border-subtle overflow-hidden">
+                <div className="rounded-lg overflow-hidden">
                   <PageLayout className="h-32">
                     <></>
                   </PageLayout>
