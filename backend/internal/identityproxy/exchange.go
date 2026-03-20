@@ -19,7 +19,7 @@ type exchangeResponse struct {
 	IssuedAt    int64  `json:"issued_at"`  // Unix seconds
 }
 
-// Exchanger performs the POST /identity/exchange call against the Orbit
+// Exchanger performs the POST /api/v1/identity/exchange call against the Orbit
 // identity service.
 //
 // In the Istio mesh, Envoy intercepts outbound HTTP from the identity-proxy
@@ -32,10 +32,10 @@ type exchangeResponse struct {
 // We do NOT perform manual mTLS here — doing so would produce a double-TLS
 // situation where Envoy sees an opaque TCP stream and never injects XFCC.
 type Exchanger struct {
-	// identityServiceURL is the base URL of the identity service including
-	// the API version path prefix, e.g.:
-	//   "http://orbit-identity.orbit-system.svc.cluster.local/api/v1"
-	// It must NOT include a trailing slash.
+	// identityServiceURL is the scheme+host base URL of the identity service,
+	// e.g. "http://orbit-identity.orbit-system.svc.cluster.local"
+	// Do NOT include a path suffix or trailing slash — Exchange() appends
+	// "/api/v1/identity/exchange" itself.
 	// Note: plain HTTP — Istio handles the mTLS upgrade transparently.
 	// Supplied via ORBIT_IDENTITY_SERVICE_URL environment variable.
 	identityServiceURL string
@@ -44,8 +44,9 @@ type Exchanger struct {
 }
 
 // NewExchanger constructs an Exchanger. identityServiceURL must be the
-// in-cluster base URL including the API version prefix, e.g.
-// "http://orbit-identity.orbit-system.svc.cluster.local/api/v1" (no trailing slash).
+// in-cluster scheme+host only, e.g.
+// "http://orbit-identity.orbit-system.svc.cluster.local" (no path, no trailing slash).
+// The full exchange path (/api/v1/identity/exchange) is appended by Exchange().
 // Supplied via the ORBIT_IDENTITY_SERVICE_URL environment variable.
 func NewExchanger(identityServiceURL string, logger logging.Logger) *Exchanger {
 	return &Exchanger{
@@ -57,7 +58,7 @@ func NewExchanger(identityServiceURL string, logger logging.Logger) *Exchanger {
 	}
 }
 
-// Exchange calls POST {identityServiceURL}/identity/exchange with no body.
+// Exchange calls POST {identityServiceURL}/api/v1/identity/exchange with no body.
 // Istio's Envoy sidecar presents the pod's SVID as the mTLS client certificate
 // on the outbound connection. No credential material passes through this
 // process — identity is asserted at the transport layer by SPIRE/Istio.
@@ -73,8 +74,6 @@ func (e *Exchanger) Exchange(ctx context.Context) (token string, expiry time.Tim
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("build exchange request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("exchange call: %w", err)

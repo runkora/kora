@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -130,12 +131,18 @@ func (p *Processor) handleRequestHeaders(ctx context.Context) *ext_procv3.Proces
 			RequestHeaders: &ext_procv3.HeadersResponse{
 				Response: &ext_procv3.CommonResponse{
 					HeaderMutation: &ext_procv3.HeaderMutation{
+						// Remove any pre-existing Authorization header first to
+						// guarantee exactly one value. Without this, Envoy's
+						// default append behavior would produce two Authorization
+						// headers if the upstream request already carries one.
+						RemoveHeaders: []string{authorizationHeader},
 						SetHeaders: []*corev3.HeaderValueOption{
 							{
 								Header: &corev3.HeaderValue{
 									Key:      authorizationHeader,
 									RawValue: []byte("Bearer " + token),
 								},
+								AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 							},
 						},
 					},
@@ -249,7 +256,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// EnvoyFilter on this pod intercepts the identity-proxy's own outbound HTTP
 	// via iptables and connects to this socket. Without the socket, Envoy returns
 	// "connection refused" which surfaces as a TCP error on the exchange call.
-	socketDir := "/run/orbit"
+	// Derive the socket directory from cfg.SocketPath so this stays in sync
+	// if the configured path ever changes (e.g. in tests or alternate deploys).
+	socketDir := filepath.Dir(s.cfg.SocketPath)
 	// 0o755: the directory must be world-traversable so that istio-proxy
 	// (UID 1337) can reach the socket file inside it. 0o750 would deny
 	// access to any process outside the socket owner's group.

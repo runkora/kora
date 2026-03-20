@@ -244,28 +244,36 @@ identity-proxy binary
 1. identity-proxy starts.
 2. Connects to SPIRE Workload API socket via go-spiffe.
    Receives current SVID (cert + key) as X509Source.
-3. Performs initial exchange:
-   POST {ORBIT_IDENTITY_SERVICE_URL}/identity/exchange
-   mTLS: X509Source provides client cert automatically on TLS handshake.
+3. Starts HTTP health server on port 9090 immediately.
+   /healthz always returns 200 — it is intentionally NOT gated on token cache
+   state. If /healthz returned 503 until a token was cached, Istio's PostStart
+   hook would block, Envoy's iptables intercept would never be configured, and
+   the exchange call (step 6) would deadlock (connection refused).
+4. Binds the Unix domain socket and starts the gRPC ext_proc server in the
+   background. The gRPC health service starts as NOT_SERVING — Envoy will not
+   send ext_proc traffic until it transitions to SERVING (step 8).
+5. Waits for Envoy to be xDS-ready by polling localhost:15021/healthz/ready.
+   This ensures iptables intercept is active before any outbound call is made.
+6. Performs initial exchange:
+   POST {ORBIT_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
+   where ORBIT_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
+   "http://orbit-identity.orbit-system.svc.cluster.local".
+   The "/api/v1/identity/exchange" suffix is appended by Exchange() —
+   do NOT include it in the env var.
+   mTLS: Envoy intercepts the outbound HTTP call and presents the pod's SPIRE
+   SVID as the mTLS client certificate automatically.
    No request body — the mTLS peer certificate (SVID) is the sole auth signal.
    The identity service reads the XFCC header injected by its Envoy sidecar.
-   Note: the URL base path (e.g. /v1) comes from ORBIT_IDENTITY_SERVICE_URL —
-   implementers must not hardcode the prefix; read it from config.
-4. Identity service validates mTLS peer cert (SVID), looks up principal, issues platform JWT.
-5. If the exchange call fails (identity service unavailable, socket not yet mounted, etc.):
-   Retry with exponential backoff (initial 500ms, max 30s, jitter).
-   Block gRPC server startup until a token is successfully cached.
+7. Identity service validates mTLS peer cert (SVID), looks up principal, issues platform JWT.
+   If the exchange call fails (identity service unavailable, etc.):
+   Retry with exponential backoff (initial 500ms, max 30s).
    If no token is obtained within the pod's startup probe timeout, crash — let
-   the pod restart policy handle recovery. Do not start serving ext_proc requests
-   without a cached token; a missing Authorization header is worse than a pod restart.
-6. identity-proxy caches (token, expiry).
-7. Registers OnX509ContextUpdate callback on X509Source for SVID rotation.
-8. Starts background refresh goroutine (monitors expiry − 60s threshold).
-9. Starts ext_proc gRPC server on Unix socket.
-10. Starts HTTP listener on port 9090 (Prometheus metrics + /healthz).
-    Kubernetes readiness probe: GET /healthz on port 9090.
-    /healthz returns 200 only after a token is successfully cached (step 6).
-    This ensures Envoy does not receive traffic before identity-proxy is ready.
+   the pod restart policy handle recovery.
+8. identity-proxy caches (token, expiry).
+   gRPC health service transitions to SERVING — Envoy ext_proc traffic now flows.
+9. Starts SVID rotation watcher (WatchX509Context callback on X509Source).
+   On new SVID: immediately invalidates cache and re-exchanges.
+10. Starts background refresh goroutine (monitors expiry − 60s threshold).
 ```
 
 From this point, every outbound request from the agent workload is handled in ~100µs: Envoy sends request headers to the Unix socket, identity-proxy reads the cached token under RLock, returns the Authorization header mutation. No network calls in the hot path.
@@ -278,7 +286,7 @@ The background refresh goroutine at `expiry − 60s` acts as a safety net for an
 
 ### Identity Service Endpoint — Gateway Exemption
 
-The identity exchange endpoint (`POST /v1/identity/exchange`) is gateway-exempt: it must be reachable without an existing platform token. The mTLS peer certificate IS the authentication. The identity service's Envoy sidecar must be configured to permit requests to this path without an `Authorization: Bearer` header — the XFCC header injected by Envoy from the validated mTLS peer cert is sufficient for the identity service to perform the lookup and issue the token.
+The identity exchange endpoint (`POST /api/v1/identity/exchange`) is gateway-exempt: it must be reachable without an existing platform token. The mTLS peer certificate IS the authentication. The identity service's Envoy sidecar must be configured to permit requests to this path without an `Authorization: Bearer` header — the XFCC header injected by Envoy from the validated mTLS peer cert is sufficient for the identity service to perform the lookup and issue the token.
 
 All other Orbit platform API paths enforce the presence of a valid platform token at Layer 1 per ADR-0011.
 
@@ -294,7 +302,7 @@ containers:
     image: orbit/identity-proxy:<version>
     env:
       - name: ORBIT_IDENTITY_SERVICE_URL
-        value: https://identity-service.orbit-system.svc.cluster.local
+        value: http://orbit-identity.orbit-system.svc.cluster.local
       - name: SPIFFE_ENDPOINT_SOCKET
         value: unix:///run/secrets/workload-spiffe-uds/socket
     volumeMounts:
@@ -362,10 +370,10 @@ backend/cmd/identity-proxy/
 ├── main.go                    # Wiring: config, X509Source, TokenCache, gRPC server
 internal/identityproxy/
 ├── cache.go                   # TokenCache: RWMutex, get/set, expiry check
-├── exchange.go                # Exchange call: mTLS http.Client, request/response
+├── exchange.go                # Exchange call: plain HTTP client, request/response (Istio handles mTLS)
 ├── refresh.go                 # Background goroutine: expiry monitor + SVID rotation callback
 ├── server.go                  # ext_proc gRPC server: ProcessingRequest handler
-└── server_test.go             # go test: cache, refresh, and gRPC handler unit tests
+└── identityproxy_test.go      # go test: cache, refresh, and gRPC handler unit tests
 ```
 
 ### Envoy Filter Configuration (via Istio EnvoyFilter CRD)
@@ -409,7 +417,7 @@ spec:
         value:
           name: identity_proxy_local
           type: STATIC
-          connect_timeout: 0.25s
+          connect_timeout: 1s
           load_assignment:
             cluster_name: identity_proxy_local
             endpoints:

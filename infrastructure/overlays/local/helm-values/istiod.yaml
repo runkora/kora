@@ -25,9 +25,15 @@ sidecarInjectorWebhook:
       spec:
         containers:
           - name: istio-proxy
+            env:
+              - name: SPIFFE_ENDPOINT_SOCKET
+                value: "unix:///run/secrets/workload-spiffe-uds/socket"
             volumeMounts:
               - name: id-proxy-sock
                 mountPath: /run/orbit
+              - name: workload-socket
+                mountPath: /run/secrets/workload-spiffe-uds
+                readOnly: true
           - name: identity-proxy
             image: orbit-registry:5000/orbit-identity-proxy:latest
             imagePullPolicy: Always
