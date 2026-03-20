@@ -24,9 +24,11 @@ type Config struct {
 	} `yaml:"app"`
 
 	Server struct {
-		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
-		SocketPath          string `yaml:"socketPath"`
-		ReadyTimeoutSecs    int    `yaml:"readyTimeoutSecs"`
+		ShutdownTimeoutSecs   int    `yaml:"shutdownTimeoutSecs"`
+		SocketPath            string `yaml:"socketPath"`
+		ReadyTimeoutSecs      int    `yaml:"readyTimeoutSecs"`
+		HealthAddr            string `yaml:"healthAddr"`
+		EnvoyReadyTimeoutSecs int    `yaml:"envoyReadyTimeoutSecs"`
 	} `yaml:"server"`
 
 	Proxy struct {
@@ -71,6 +73,11 @@ func (c *Config) BackoffInitial() time.Duration {
 // BackoffMax returns the ceiling on retry intervals.
 func (c *Config) BackoffMax() time.Duration {
 	return time.Duration(c.Proxy.BackoffMaxSecs) * time.Second
+}
+
+// EnvoyReadyTimeout returns the maximum time to wait for Envoy to become ready.
+func (c *Config) EnvoyReadyTimeout() time.Duration {
+	return time.Duration(c.Server.EnvoyReadyTimeoutSecs) * time.Second
 }
 
 // Current holds all non-secret configuration for the identity-proxy sidecar.

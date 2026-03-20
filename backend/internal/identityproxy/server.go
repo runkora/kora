@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -41,19 +40,13 @@ import (
 // authorizationHeader is the canonical HTTP header name injected by the proxy.
 const authorizationHeader = "authorization"
 
-// healthPort is the HTTP port for the /healthz readiness endpoint.
-// Istio probes it via the Istio sidecar at /app-health/identity-proxy/readyz.
-const healthPort = ":9090"
-
 // istioReadyURL is the Istio pilot-agent health endpoint that returns 200
 // only after Envoy has received all xDS configuration (listeners, clusters,
 // certificates). We must wait for this before making any outbound calls,
 // otherwise Envoy will RST connections because it has no mTLS client cert yet.
+// Port 15021 is Istio's fixed health port — it is a platform constant, not an
+// operator tunable.
 const istioReadyURL = "http://localhost:15021/healthz/ready"
-
-// istioReadyTimeout is the maximum time we wait for Envoy to become ready
-// before giving up and failing startup.
-const istioReadyTimeout = 60 * time.Second
 
 // Processor implements ExternalProcessorServer.
 // It injects the cached platform JWT as an Authorization header on every
@@ -167,7 +160,6 @@ type Server struct {
 	refresher  *Refresher
 	logger     logging.Logger
 	cfg        Config
-	ready      atomic.Bool   // true once the initial token has been cached
 	envoyReady chan struct{} // closed after waitForEnvoy succeeds; gates Refresher exchange calls
 }
 
@@ -234,7 +226,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Step 1: HTTP health server — must start before everything else so Istio's
 	// readiness probe succeeds while the gRPC socket and token are being set up.
 	httpSrv := &http.Server{
-		Addr:              healthPort,
+		Addr:              s.cfg.HealthAddr,
 		Handler:           http.HandlerFunc(s.handleHealthz),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -249,7 +241,7 @@ func (s *Server) Start(ctx context.Context) error {
 		defer cancel()
 		_ = httpSrv.Shutdown(shutCtx)
 	}()
-	s.logger.Info(ctx, "identity-proxy health server listening", logging.Field{Key: "addr", Value: healthPort})
+	s.logger.Info(ctx, "identity-proxy health server listening", logging.Field{Key: "addr", Value: s.cfg.HealthAddr})
 
 	// Step 2: bind the UDS socket and start the gRPC server.
 	// The socket must exist before the exchange call (step 3) because the
@@ -316,7 +308,6 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Step 5: mark ready.
-	s.ready.Store(true)
 	s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	s.logger.Info(ctx, "identity-proxy ready — serving traffic")
 
@@ -331,7 +322,7 @@ func (s *Server) Start(ctx context.Context) error {
 // This prevents the exchange call from being RST by an un-initialized Envoy.
 func (s *Server) waitForEnvoy(ctx context.Context) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(istioReadyTimeout)
+	deadline := time.Now().Add(s.cfg.EnvoyReadyTimeout)
 
 	s.logger.Info(ctx, "waiting for Envoy to become ready")
 	for {
@@ -349,7 +340,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 		}
 
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s waiting for Envoy to become ready", istioReadyTimeout)
+			return fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
 		}
 
 		select {

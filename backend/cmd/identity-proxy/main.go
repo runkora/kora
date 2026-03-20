@@ -103,27 +103,16 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 		logging.Field{Key: "socket", Value: spiffeSocket},
 	)
 
-	// Open a connection to the SPIRE workload API. NewX509Source blocks until
-	// an initial SVID is delivered or ctx is canceled.
-	source, err := workloadapi.NewX509Source(
-		ctx,
-		workloadapi.WithClientOptions(workloadapi.WithAddr(spiffeSocket)),
-	)
-	if err != nil {
-		return fmt.Errorf("connect to SPIRE workload API: %w", err)
-	}
-	defer source.Close()
-
-	logger.Info(ctx, "SPIRE workload API connected")
-
 	// Translate YAML config into the identityproxy package's Config type.
 	proxyCfg := identityproxy.Config{
-		SocketPath:       cfg.Server.SocketPath,
-		ReadyTimeout:     cfg.ReadyTimeout(),
-		BackoffInitial:   cfg.BackoffInitial(),
-		BackoffMax:       cfg.BackoffMax(),
-		PollInterval:     cfg.PollInterval(),
-		RefreshThreshold: cfg.RefreshThreshold(),
+		SocketPath:        cfg.Server.SocketPath,
+		ReadyTimeout:      cfg.ReadyTimeout(),
+		BackoffInitial:    cfg.BackoffInitial(),
+		BackoffMax:        cfg.BackoffMax(),
+		PollInterval:      cfg.PollInterval(),
+		RefreshThreshold:  cfg.RefreshThreshold(),
+		HealthAddr:        cfg.Server.HealthAddr,
+		EnvoyReadyTimeout: cfg.EnvoyReadyTimeout(),
 	}
 
 	// Wire up the identity-proxy components.

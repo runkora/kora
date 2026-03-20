@@ -3,8 +3,8 @@ package identityproxy
 import "time"
 
 // Config holds the runtime tunables for the identity-proxy sidecar.
-// All values have sensible defaults via DefaultConfig — override only what
-// differs per environment via the YAML config files under cmd/identity-proxy/config/.
+// Values are populated by the service binary from the YAML config files under
+// cmd/identity-proxy/config/. Tests supply values directly via a local helper.
 type Config struct {
 	// SocketPath is the Unix domain socket the gRPC ext_proc server listens on.
 	// Envoy's EnvoyFilter cluster definition must point at the same path.
@@ -26,19 +26,14 @@ type Config struct {
 	PollInterval time.Duration
 
 	// RefreshThreshold is how far before expiry the background goroutine should
-	// proactively re-exchange the token (ADR-0021: expiry − 60 s).
+	// proactively re-exchange the token (ADR-0021: expiry minus 60 s).
 	RefreshThreshold time.Duration
-}
 
-// DefaultConfig returns production-ready defaults matching the values
-// documented in ADR-0021 and encoded in cmd/identity-proxy/config/base.yaml.
-func DefaultConfig() Config {
-	return Config{
-		SocketPath:       "/run/orbit/identity-proxy.sock",
-		ReadyTimeout:     25 * time.Second,
-		BackoffInitial:   500 * time.Millisecond,
-		BackoffMax:       30 * time.Second,
-		PollInterval:     15 * time.Second,
-		RefreshThreshold: 60 * time.Second,
-	}
+	// HealthAddr is the TCP address the HTTP health server listens on.
+	// Istio probes it via the sidecar at /app-health/identity-proxy/readyz.
+	HealthAddr string
+
+	// EnvoyReadyTimeout is the maximum time to wait for Envoy to signal it is
+	// fully initialized (xDS received, mTLS cert loaded) before giving up.
+	EnvoyReadyTimeout time.Duration
 }

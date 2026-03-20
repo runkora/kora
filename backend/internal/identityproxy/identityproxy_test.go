@@ -20,6 +20,22 @@ func discardLogger() logging.Logger {
 	return logging.NewLoggerWithOutput(io.Discard)
 }
 
+// testConfig returns a Config with fast timeouts suitable for unit tests.
+// Values are deliberately shorter than the production settings in base.yaml so
+// tests don't block for seconds waiting for retries or polls.
+func testConfig() Config {
+	return Config{
+		SocketPath:        "/tmp/identity-proxy-test.sock",
+		ReadyTimeout:      5 * time.Second,
+		BackoffInitial:    10 * time.Millisecond,
+		BackoffMax:        100 * time.Millisecond,
+		PollInterval:      50 * time.Millisecond,
+		RefreshThreshold:  60 * time.Second,
+		HealthAddr:        ":19090",
+		EnvoyReadyTimeout: 100 * time.Millisecond,
+	}
+}
+
 // stubExchanger is a test double for tokenExchanger.
 // It succeeds immediately unless failN > 0, in which case it returns an error
 // for the first failN calls and then succeeds.
@@ -171,8 +187,8 @@ func TestProcessor_HandleRequestHeaders_EmptyCache(t *testing.T) {
 func TestServer_WaitForInitialToken_ImmediateSuccess(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{token: "tok-abc"}
-	refresher := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), DefaultConfig())
+	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
+	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -193,8 +209,8 @@ func TestServer_WaitForInitialToken_RetriesAndSucceeds(t *testing.T) {
 	cache := NewTokenCache()
 	// Fail 2 times, then succeed on the 3rd call.
 	exc := &stubExchanger{failN: 2, token: "tok-retry"}
-	refresher := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), DefaultConfig())
+	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
+	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -215,8 +231,8 @@ func TestServer_WaitForInitialToken_ContextCancelled(t *testing.T) {
 	cache := NewTokenCache()
 	// Always fail so waitForInitialToken never exits on its own.
 	exc := &stubExchanger{err: errors.New("always fail")}
-	refresher := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
-	srv := NewServer(cache, exc, refresher, discardLogger(), DefaultConfig())
+	refresher := NewRefresher(cache, exc, discardLogger(), testConfig())
+	srv := NewServer(cache, exc, refresher, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -238,7 +254,7 @@ func TestServer_WaitForInitialToken_ContextCancelled(t *testing.T) {
 func TestRefresher_ExchangeWithBackoff_Success(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{token: "refreshed"}
-	r := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -254,7 +270,7 @@ func TestRefresher_ExchangeWithBackoff_Success(t *testing.T) {
 func TestRefresher_ExchangeWithBackoff_CtxCancelled(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{err: errors.New("permanent")}
-	r := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -279,7 +295,7 @@ func TestRefresher_ExchangeWithBackoff_CtxCancelled(t *testing.T) {
 func TestRefresher_Run_StopsOnCtxCancel(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{token: "bg"}
-	r := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -305,7 +321,7 @@ func TestSVIDWatcher_OnX509ContextUpdate_InvalidatesAndRefreshes(t *testing.T) {
 	cache.Set("old-token", time.Now().Add(5*time.Minute))
 
 	exc := &stubExchanger{token: "new-token"}
-	r := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 	watcher := r.OnSVIDRotation(context.Background())
 
 	// Simulate a SVID rotation (nil context is fine since svidWatcher only
@@ -329,7 +345,7 @@ func TestSVIDWatcher_OnX509ContextUpdate_InvalidatesAndRefreshes(t *testing.T) {
 func TestSVIDWatcher_OnX509ContextWatchError_DoesNotPanic(t *testing.T) {
 	cache := NewTokenCache()
 	exc := &stubExchanger{}
-	r := NewRefresher(cache, exc, discardLogger(), DefaultConfig())
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 	watcher := r.OnSVIDRotation(context.Background())
 
 	// Must not panic or return an error.

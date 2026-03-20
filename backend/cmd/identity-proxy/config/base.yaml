@@ -5,6 +5,8 @@ server:
   shutdownTimeoutSecs: 5
   socketPath: /run/orbit/identity-proxy.sock
   readyTimeoutSecs: 25
+  healthAddr: ":9090"
+  envoyReadyTimeoutSecs: 60
 
 proxy:
   spiffeSocketDefault: unix:///run/secrets/workload-spiffe-uds/socket
