@@ -243,8 +243,7 @@ frontend/src/packages/terra/
 │   │       ├── section.tsx
 │   │       ├── section.stories.tsx
 │   │       └── index.ts
-│   ├── lib/
-│   │   └── utils.ts              # cn() utility (clsx + tailwind-merge)
+│   ├── utils.ts                  # cn() utility (clsx + tailwind-merge)
 │   ├── tokens/
 │   │   ├── tokens.css            # Design token definitions (@theme block)
 │   │   └── tokens.stories.tsx    # Storybook token showcase
@@ -272,7 +271,7 @@ npx shadcn@latest add <component-name>
 
 1. Create the component folder: `src/components/<name>/`
 2. Move the generated file into it and rename to `<name>.tsx`
-3. Fix the import path for `cn` (e.g., `@/lib/utils` → `../../lib/utils`)
+3. Fix the import path for `cn` (e.g., `@/lib/utils` → `../../utils`)
 4. Verify no reference to `shadcn`, `@/components/ui`, or `components.json` remains
 
 If there is no shadcn equivalent, write the component from scratch using Radix UI + Terra tokens directly.
@@ -303,7 +302,7 @@ export {
 } from './components/card';
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './components/tooltip';
 export { PageLayout } from './components/page-layout';
-export { cn } from './lib/utils';
+export { cn } from './utils';
 ```
 
 ### Step 4 — Add a Storybook story
