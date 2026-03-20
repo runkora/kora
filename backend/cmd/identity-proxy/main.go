@@ -32,6 +32,7 @@ import (
 
 	identityProxyConfig "github.com/clear-route/orbit/cmd/identity-proxy/config"
 	"github.com/clear-route/orbit/internal/identityproxy"
+	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
@@ -53,8 +54,10 @@ func mainRun() int {
 	// Observability (tracing + metrics). Failure is non-fatal for a sidecar —
 	// we log the error and continue without telemetry rather than refusing to start.
 	shutdownObs, err := observability.Setup(ctx, observability.Config{
-		ServiceName:    cfg.Observability.ServiceName,
-		ServiceVersion: cfg.App.Version,
+		ServiceName:     cfg.Observability.ServiceName,
+		ServiceVersion:  cfg.App.Version,
+		Environment:     config.Environment(),
+		ShutdownTimeout: cfg.ShutdownTimeout(),
 	})
 	if err != nil {
 		log.Printf("observability setup failed (continuing without telemetry): %v", err)

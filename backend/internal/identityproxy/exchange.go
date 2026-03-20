@@ -7,6 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -41,6 +47,7 @@ type Exchanger struct {
 	identityServiceURL string
 	client             *http.Client
 	logger             logging.Logger
+	tracer             trace.Tracer
 }
 
 // NewExchanger constructs an Exchanger. identityServiceURL must be the
@@ -55,6 +62,7 @@ func NewExchanger(identityServiceURL string, logger logging.Logger) *Exchanger {
 			Timeout: 10 * time.Second,
 		},
 		logger: logger,
+		tracer: otel.Tracer("orbit.identity-proxy"),
 	}
 }
 
@@ -69,28 +77,52 @@ func NewExchanger(identityServiceURL string, logger logging.Logger) *Exchanger {
 //
 // Returns the platform token string and its absolute expiry time.
 func (e *Exchanger) Exchange(ctx context.Context) (token string, expiry time.Time, err error) {
+	ctx, span := e.tracer.Start(ctx, "identityproxy.Exchange",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+	defer span.End()
+
 	url := e.identityServiceURL + "/api/v1/identity/exchange"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", time.Time{}, fmt.Errorf("build exchange request: %w", err)
 	}
+	// Inject W3C traceparent (and tracestate) headers so the identity service's
+	// TracingMiddleware can extract them and attach its server span as a child of
+	// this client span, forming a single end-to-end distributed trace.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
 	resp, err := e.client.Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", time.Time{}, fmt.Errorf("exchange call: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
+
 	if resp.StatusCode != http.StatusOK {
-		return "", time.Time{}, fmt.Errorf("exchange call returned %d", resp.StatusCode)
+		err = fmt.Errorf("exchange call returned %d", resp.StatusCode)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", time.Time{}, err
 	}
 
 	var parsed exchangeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err = json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", time.Time{}, fmt.Errorf("decode exchange response: %w", err)
 	}
 
 	if parsed.AccessToken == "" {
-		return "", time.Time{}, fmt.Errorf("exchange response missing access_token")
+		err = fmt.Errorf("exchange response missing access_token")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", time.Time{}, err
 	}
 
 	// Derive absolute expiry from issued_at + expires_in.
@@ -102,6 +134,12 @@ func (e *Exchanger) Exchange(ctx context.Context) (token string, expiry time.Tim
 		issuedAt = time.Now()
 	}
 	tokenExpiry := issuedAt.Add(time.Duration(parsed.ExpiresIn) * time.Second)
+
+	span.SetAttributes(
+		attribute.Int("token.expires_in", parsed.ExpiresIn),
+		attribute.String("token.expiry", tokenExpiry.UTC().Format(time.RFC3339)),
+	)
+	span.SetStatus(codes.Ok, "")
 
 	e.logger.Info(ctx, "platform token exchanged",
 		logging.Field{Key: "expires_in", Value: parsed.ExpiresIn},

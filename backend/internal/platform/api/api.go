@@ -34,7 +34,7 @@ func (a *api) Server(
 		logging.Field{Key: "port", Value: port},
 	)
 
-	// register all controllers with their base paths
+	// Register all controllers with their base paths.
 	controllerMux := NewMux(ctx, a.logger)
 	for _, controller := range controllers {
 		controllerMux.SetBasePath(controller.GroupedBy())
@@ -42,7 +42,8 @@ func (a *api) Server(
 		controller.Boot(controllerMux)
 	}
 
-	// add a base path for every server route
+	// Build the application handler (controller routes under basePath).
+	var appHandler http.Handler
 	if basePath != "/" {
 		a.logger.Info(ctx, "Setting base path for server",
 			logging.Field{Key: "basePath", Value: basePath},
@@ -51,47 +52,48 @@ func (a *api) Server(
 			fmt.Sprintf("%s/", basePath),
 			http.StripPrefix(basePath, controllerMux),
 		)
+		appHandler = a.mux
 	} else {
-		// if no base path is provided, use the controller mux directly
 		a.logger.Info(ctx, "Setting base path for server",
 			logging.Field{Key: "basePath", Value: "/"},
 		)
-		// this is the default case, no base path
-		a.mux = controllerMux.ServeMux
+		appHandler = controllerMux.ServeMux
 	}
 
-	// Add health check endpoint
-	// Note: Registered directly to mux, so it gets server-level middleware (tracing, logging)
-	// applied when the final handler chain is built below
-	a.mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	// Apply middleware ONLY to application routes.
+	//
+	// The health endpoint is wired on the outer mux below, intentionally
+	// bypassing tracing, logging, and any future metrics middleware.
+	// Kubernetes liveness/readiness probes fire every few seconds and would
+	// otherwise flood logs, traces, and metrics with zero-signal noise.
+	//
+	// defaultMiddleware runs before user-provided middleware and provides a
+	// catch-all for general-purpose concerns (e.g. panic recovery in future).
+	defaultMiddleware := mw.MiddlewareChain()
+	if middleware != nil {
+		appHandler = middleware(appHandler)
+	}
+	appHandler = defaultMiddleware(appHandler)
+
+	// Build the outer mux: health check (no middleware) + all other routes.
+	// http.ServeMux matches more specific patterns first, so "GET /health"
+	// always wins over the "/" catch-all regardless of registration order.
+	outerMux := http.NewServeMux()
+	outerMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(`{"status": "health ok"}`)); err != nil {
-			// Use request context for runtime logging (OTEL trace extraction)
+			// r.Context() has no active span here by design — health is
+			// intentionally outside the tracing middleware.
 			a.logger.Error(r.Context(), "Failed to write health check response",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
 	})
-
-	// default middleware runs before user provided middleware
-	// provides a catch all middleware for general purpose server
-	// Empty for now, but can be used for things like panic recovery, metrics, etc.
-	defaultMiddleware := mw.MiddlewareChain()
-
-	// Build final handler with middleware chain
-	var finalHandler http.Handler = a.mux
-
-	// Apply user-provided middleware first
-	if middleware != nil {
-		finalHandler = middleware(finalHandler)
-	}
-
-	// Apply default middleware last (runs first in execution)
-	finalHandler = defaultMiddleware(finalHandler)
+	outerMux.Handle("/", appHandler)
 
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           finalHandler,
+		Handler:           outerMux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 }

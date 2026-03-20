@@ -28,6 +28,9 @@ import (
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"go.opentelemetry.io/otel"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -159,6 +162,7 @@ type Server struct {
 	exchanger  tokenExchanger
 	refresher  *Refresher
 	logger     logging.Logger
+	tracer     trace.Tracer
 	cfg        Config
 	envoyReady chan struct{} // closed after waitForEnvoy succeeds; gates Refresher exchange calls
 }
@@ -193,6 +197,7 @@ func NewServer(
 		exchanger:  exchanger,
 		refresher:  refresher,
 		logger:     logger,
+		tracer:     otel.Tracer("orbit.identity-proxy"),
 		cfg:        cfg,
 		envoyReady: envoyReady,
 	}
@@ -321,6 +326,11 @@ func (s *Server) Start(ctx context.Context) error {
 // fully initialized (xDS received, certs loaded) or the context is canceled.
 // This prevents the exchange call from being RST by an un-initialized Envoy.
 func (s *Server) waitForEnvoy(ctx context.Context) error {
+	ctx, span := s.tracer.Start(ctx, "identityproxy.WaitForEnvoy",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(s.cfg.EnvoyReadyTimeout)
 
@@ -328,23 +338,31 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, istioReadyURL, nil)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, err.Error())
 			return fmt.Errorf("build request: %w", err)
 		}
 		resp, err := client.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
+				span.SetStatus(otelcodes.Ok, "")
 				s.logger.Info(ctx, "Envoy ready")
 				return nil
 			}
 		}
 
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
+			err = fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, err.Error())
+			return err
 		}
 
 		select {
 		case <-ctx.Done():
+			span.RecordError(ctx.Err())
+			span.SetStatus(otelcodes.Error, ctx.Err().Error())
 			return ctx.Err()
 		case <-time.After(1 * time.Second):
 		}
@@ -369,6 +387,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // transient failures at startup (e.g. identity service not yet ready) are
 // handled gracefully.
 func (s *Server) waitForInitialToken(ctx context.Context) error {
+	ctx, span := s.tracer.Start(ctx, "identityproxy.WaitForInitialToken",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	deadline := time.Now().Add(s.cfg.ReadyTimeout)
 	backoff := s.cfg.BackoffInitial
 
@@ -376,12 +399,17 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 		token, expiry, err := s.exchanger.Exchange(ctx)
 		if err == nil {
 			s.cache.Set(token, expiry)
+			span.SetStatus(otelcodes.Ok, "")
 			s.logger.Info(ctx, "initial token cached")
 			return nil
 		}
 
+		span.RecordError(err)
+
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
+			err = fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
+			span.SetStatus(otelcodes.Error, err.Error())
+			return err
 		}
 
 		s.logger.Warn(ctx, "initial exchange failed, retrying",
@@ -391,6 +419,7 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 
 		select {
 		case <-ctx.Done():
+			span.SetStatus(otelcodes.Error, ctx.Err().Error())
 			return ctx.Err()
 		case <-time.After(backoff):
 		}

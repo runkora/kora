@@ -5,6 +5,10 @@ import (
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -28,6 +32,7 @@ type Refresher struct {
 	cache      *TokenCache
 	exchanger  tokenExchanger
 	logger     logging.Logger
+	tracer     trace.Tracer
 	cfg        Config
 	envoyReady <-chan struct{} // closed by Server once Envoy is ready
 }
@@ -40,6 +45,7 @@ func NewRefresher(cache *TokenCache, exchanger tokenExchanger, logger logging.Lo
 		cache:     cache,
 		exchanger: exchanger,
 		logger:    logger,
+		tracer:    otel.Tracer("orbit.identity-proxy"),
 		cfg:       cfg,
 	}
 }
@@ -81,6 +87,11 @@ func (r *Refresher) OnSVIDRotation(ctx context.Context) workloadapi.X509ContextW
 //
 // It stops retrying only when the call succeeds or ctx is canceled.
 func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
+	ctx, span := r.tracer.Start(ctx, "identityproxy.Refresh",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	// Wait for Envoy to be ready before making any outbound calls.
 	// The channel is closed by Server after waitForEnvoy() returns nil.
 	// Tests leave envoyReady nil, so the select is skipped entirely.
@@ -89,19 +100,25 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 		case <-r.envoyReady:
 			// Envoy is ready — proceed.
 		case <-ctx.Done():
+			span.SetStatus(codes.Error, "context canceled waiting for Envoy")
 			return
 		}
 	}
 
+	attempt := 0
 	backoff := r.cfg.BackoffInitial
 	for {
+		attempt++
 		token, expiry, err := r.exchanger.Exchange(ctx)
 		if err == nil {
 			r.cache.Set(token, expiry)
+			span.SetAttributes(attribute.Int("refresh.attempts", attempt))
+			span.SetStatus(codes.Ok, "")
 			r.logger.Info(ctx, "token cache refreshed via background goroutine")
 			return
 		}
 
+		span.RecordError(err)
 		r.logger.Warn(ctx, "exchange failed, retrying",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "backoff_ms", Value: backoff.Milliseconds()},
@@ -109,6 +126,8 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
+			span.SetAttributes(attribute.Int("refresh.attempts", attempt))
+			span.SetStatus(codes.Error, "context canceled during retry")
 			return
 		case <-time.After(backoff):
 		}
