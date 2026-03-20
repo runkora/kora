@@ -285,7 +285,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 
 # SERVICES is the list of service directories under backend/cmd/.
 # Add a new service here when a new cmd/<service> entrypoint is created.
-SERVICES := identity example
+SERVICES := identity example identity-proxy
 
 .PHONY: docker-build
 docker-build: ## Build all service Docker images (orbit-<service>:latest)

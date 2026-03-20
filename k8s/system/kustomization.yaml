@@ -17,3 +17,4 @@ configMapGenerator:
 
 resources:
   - identity.yaml
+  - destination-rule.yaml

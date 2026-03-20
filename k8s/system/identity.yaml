@@ -22,6 +22,7 @@ spec:
         spiffe.io/component: identity
       annotations:
         inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-identity
       volumes:

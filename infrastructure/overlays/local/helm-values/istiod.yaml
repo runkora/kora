@@ -2,25 +2,71 @@ meshConfig:
   trustDomain: orbit.local
   defaultConfig:
     discoveryAddress: istiod.istio-system.svc:15012
-    proxyMetadata:
-      OUTPUT_CERTS: /var/run/secrets/workload-spiffe-credentials
-      SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
 
 sidecarInjectorWebhook:
   templates:
     spire: |
-      metadata:
-        labels:
-          spiffe.io/spire-managed-identity: "true"
-        spec:
-          containers:
-            - name: istio-proxy
-              volumeMounts:
+      spec:
+        containers:
+          - name: istio-proxy
+            env:
+              - name: SPIFFE_ENDPOINT_SOCKET
+                value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            volumeMounts:
               - name: workload-socket
                 mountPath: /run/secrets/workload-spiffe-uds
                 readOnly: true
-          volumes:
-            - name: workload-socket
-              csi:
-                driver: "csi.spiffe.io"
+        volumes:
+          - name: workload-socket
+            csi:
+              driver: "csi.spiffe.io"
+              readOnly: true
+    identity-proxy: |
+      spec:
+        containers:
+          - name: istio-proxy
+            volumeMounts:
+              - name: id-proxy-sock
+                mountPath: /run/orbit
+          - name: identity-proxy
+            image: orbit-registry:5000/orbit-identity-proxy:latest
+            imagePullPolicy: Always
+            env:
+              - name: APP_ENV
+                value: development
+              - name: ORBIT_IDENTITY_SERVICE_URL
+                value: "http://orbit-identity.orbit-system.svc.cluster.local"
+              - name: SPIFFE_ENDPOINT_SOCKET
+                value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            ports:
+              - name: metrics
+                containerPort: 9090
+                protocol: TCP
+            readinessProbe:
+              httpGet:
+                path: /healthz
+                port: 9090
+              initialDelaySeconds: 5
+              periodSeconds: 5
+              timeoutSeconds: 3
+              failureThreshold: 10
+            resources:
+              requests:
+                cpu: 50m
+                memory: 32Mi
+              limits:
+                cpu: 200m
+                memory: 64Mi
+            volumeMounts:
+              - name: id-proxy-sock
+                mountPath: /run/orbit
+              - name: workload-socket
+                mountPath: /run/secrets/workload-spiffe-uds
                 readOnly: true
+        volumes:
+          - name: id-proxy-sock
+            emptyDir: {}
+          - name: workload-socket
+            csi:
+              driver: "csi.spiffe.io"
+              readOnly: true

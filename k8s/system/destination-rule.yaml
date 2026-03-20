@@ -1,0 +1,13 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: orbit-identity-client-policy
+  namespace: orbit-system
+spec:
+  host: orbit-identity.orbit-system.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - spiffe://orbit.local/system/identity

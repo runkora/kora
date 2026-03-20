@@ -1,0 +1,403 @@
+// Package identityproxy implements an Envoy External Processing (ext_proc)
+// gRPC server that injects a platform Bearer token into every request's
+// Authorization header before it reaches the identity service.
+//
+// Architecture (ADR-0021):
+//
+//	Agent → Envoy sidecar ─gRPC ext_proc─► identity-proxy (this package)
+//	                                              │
+//	                                              ▼
+//	                               TokenCache (in-memory, auto-refreshed)
+//	                                              │
+//	                    ◄──────────────── inject "Authorization: Bearer <token>"
+//
+// The server itself never validates SVIDs or inspects the XFCC header — that is
+// Envoy's job. It only appends the cached platform JWT so downstream services can
+// verify it without knowing about SPIRE.
+package identityproxy
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"sync/atomic"
+	"time"
+
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// authorizationHeader is the canonical HTTP header name injected by the proxy.
+const authorizationHeader = "authorization"
+
+// healthPort is the HTTP port for the /healthz readiness endpoint.
+// Istio probes it via the Istio sidecar at /app-health/identity-proxy/readyz.
+const healthPort = ":9090"
+
+// istioReadyURL is the Istio pilot-agent health endpoint that returns 200
+// only after Envoy has received all xDS configuration (listeners, clusters,
+// certificates). We must wait for this before making any outbound calls,
+// otherwise Envoy will RST connections because it has no mTLS client cert yet.
+const istioReadyURL = "http://localhost:15021/healthz/ready"
+
+// istioReadyTimeout is the maximum time we wait for Envoy to become ready
+// before giving up and failing startup.
+const istioReadyTimeout = 60 * time.Second
+
+// Processor implements ExternalProcessorServer.
+// It injects the cached platform JWT as an Authorization header on every
+// request. The zero-value is not usable — use NewProcessor.
+type Processor struct {
+	ext_procv3.UnimplementedExternalProcessorServer
+
+	cache  *TokenCache
+	logger logging.Logger
+}
+
+// NewProcessor constructs a Processor backed by the given cache.
+func NewProcessor(cache *TokenCache, logger logging.Logger) *Processor {
+	return &Processor{cache: cache, logger: logger}
+}
+
+// Process is the bidirectional streaming RPC called by Envoy for every HTTP
+// request that passes through the ext_proc filter. We intercept request-header
+// messages, inject the Bearer token, and continue.
+func (p *Processor) Process(stream ext_procv3.ExternalProcessor_ProcessServer) error {
+	ctx := stream.Context()
+
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return status.Errorf(codes.Unknown, "recv error: %v", err)
+		}
+
+		switch req.Request.(type) {
+		case *ext_procv3.ProcessingRequest_RequestHeaders:
+			resp := p.handleRequestHeaders(ctx)
+			if sendErr := stream.Send(resp); sendErr != nil {
+				return status.Errorf(codes.Unknown, "send error: %v", sendErr)
+			}
+
+		default:
+			// For all other message types (response headers, body, trailers)
+			// respond with an empty continuation so Envoy keeps processing.
+			if sendErr := stream.Send(&ext_procv3.ProcessingResponse{}); sendErr != nil {
+				return status.Errorf(codes.Unknown, "send error: %v", sendErr)
+			}
+		}
+	}
+}
+
+// handleRequestHeaders reads the cached token and returns a ProcessingResponse
+// that injects the Authorization header into the upstream request.
+func (p *Processor) handleRequestHeaders(ctx context.Context) *ext_procv3.ProcessingResponse {
+	token, _, ok := p.cache.Get()
+	if !ok {
+		p.logger.Info(ctx, "token cache empty — request will proceed without Authorization header")
+		// Return a proper CONTINUE response with the RequestHeaders oneof set.
+		// An empty ProcessingResponse{} (no oneof field) causes Envoy to log
+		// "Spurious response message 0" and treat the ext_proc stream as
+		// errored, returning 503 even when failureModeAllow=true. The exchange
+		// endpoint authenticates via mTLS/XFCC — it does not need a Bearer
+		// token — so CONTINUE with no header mutation is correct behavior
+		// while the cache is being populated on startup or after rotation.
+		return &ext_procv3.ProcessingResponse{
+			Response: &ext_procv3.ProcessingResponse_RequestHeaders{
+				RequestHeaders: &ext_procv3.HeadersResponse{
+					Response: &ext_procv3.CommonResponse{
+						Status: ext_procv3.CommonResponse_CONTINUE,
+					},
+				},
+			},
+		}
+	}
+
+	return &ext_procv3.ProcessingResponse{
+		Response: &ext_procv3.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &ext_procv3.HeadersResponse{
+				Response: &ext_procv3.CommonResponse{
+					HeaderMutation: &ext_procv3.HeaderMutation{
+						SetHeaders: []*corev3.HeaderValueOption{
+							{
+								Header: &corev3.HeaderValue{
+									Key:      authorizationHeader,
+									RawValue: []byte("Bearer " + token),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// tokenExchanger is the minimal interface consumed by Server and Refresher.
+// *Exchanger satisfies it; tests inject a stub.
+type tokenExchanger interface {
+	Exchange(ctx context.Context) (token string, expiry time.Time, err error)
+}
+
+// Server wraps the gRPC server and manages its lifecycle.
+type Server struct {
+	grpc       *grpc.Server
+	health     *health.Server
+	cache      *TokenCache
+	exchanger  tokenExchanger
+	refresher  *Refresher
+	logger     logging.Logger
+	cfg        Config
+	ready      atomic.Bool   // true once the initial token has been cached
+	envoyReady chan struct{} // closed after waitForEnvoy succeeds; gates Refresher exchange calls
+}
+
+// NewServer constructs a Server wired with the given components.
+//
+// It creates an envoyReady channel and injects it into the Refresher so that
+// any SVID-rotation callbacks fired before Envoy is ready will block instead
+// of racing ahead and hitting connection refused on the exchange endpoint.
+func NewServer(
+	cache *TokenCache,
+	exchanger tokenExchanger,
+	refresher *Refresher,
+	logger logging.Logger,
+	cfg Config,
+) *Server {
+	processor := NewProcessor(cache, logger)
+
+	grpcSrv := grpc.NewServer()
+	healthSrv := health.NewServer()
+
+	ext_procv3.RegisterExternalProcessorServer(grpcSrv, processor)
+	healthpb.RegisterHealthServer(grpcSrv, healthSrv)
+
+	envoyReady := make(chan struct{})
+	refresher.envoyReady = envoyReady // same package — direct field access
+
+	return &Server{
+		grpc:       grpcSrv,
+		health:     healthSrv,
+		cache:      cache,
+		exchanger:  exchanger,
+		refresher:  refresher,
+		logger:     logger,
+		cfg:        cfg,
+		envoyReady: envoyReady,
+	}
+}
+
+// Start performs the startup sequence:
+//
+//  1. Starts the HTTP health server on port 9090 immediately. It always returns
+//     200 so Istio's PostStart hook succeeds and iptables intercept is configured
+//     before we attempt the exchange call. Istio probes this via
+//     /app-health/identity-proxy/readyz → localhost:9090/healthz.
+//
+//  2. Binds the Unix domain socket and starts the gRPC ext_proc server in
+//     the background. The socket must exist before step 3 so the
+//     identity-proxy's own outbound exchange call can pass through the
+//     EnvoyFilter without "connection refused" (circular startup dependency).
+//
+//  3. Waits for Envoy to become ready by polling localhost:15021/healthz/ready.
+//     Envoy serves this only after it has received xDS configuration including
+//     its mTLS client certificate from SPIRE. Without this step, any outbound
+//     HTTP call would be RST by Envoy because it has no cert to present.
+//
+//  4. Obtains the initial platform token (exponential backoff up to ReadyTimeout).
+//
+//  5. Marks gRPC health SERVING.
+//
+//  6. Starts the background token-refresh goroutine.
+//
+// Start blocks until ctx is canceled or a fatal error occurs.
+func (s *Server) Start(ctx context.Context) error {
+	// Step 1: HTTP health server — must start before everything else so Istio's
+	// readiness probe succeeds while the gRPC socket and token are being set up.
+	httpSrv := &http.Server{
+		Addr:              healthPort,
+		Handler:           http.HandlerFunc(s.handleHealthz),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.logger.Warn(ctx, "health HTTP server error", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
+	go func() { //nolint:gosec // G118: context.Background intentional — ctx is already canceled here; we need a fresh deadline to drain in-flight health requests.
+		<-ctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutCtx)
+	}()
+	s.logger.Info(ctx, "identity-proxy health server listening", logging.Field{Key: "addr", Value: healthPort})
+
+	// Step 2: bind the UDS socket and start the gRPC server.
+	// The socket must exist before the exchange call (step 3) because the
+	// EnvoyFilter on this pod intercepts the identity-proxy's own outbound HTTP
+	// via iptables and connects to this socket. Without the socket, Envoy returns
+	// "connection refused" which surfaces as a TCP error on the exchange call.
+	socketDir := "/run/orbit"
+	// 0o755: the directory must be world-traversable so that istio-proxy
+	// (UID 1337) can reach the socket file inside it. 0o750 would deny
+	// access to any process outside the socket owner's group.
+	if err := os.MkdirAll(socketDir, 0o755); err != nil { //nolint:gosec // G301: world-traversable required; Envoy (UID 1337) must enter the dir to connect to the socket.
+		return fmt.Errorf("create socket directory: %w", err)
+	}
+	_ = os.Remove(s.cfg.SocketPath)
+
+	lis, err := net.Listen("unix", s.cfg.SocketPath)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.cfg.SocketPath, err)
+	}
+	// net.Listen applies the process umask which typically strips world-write,
+	// leaving the socket at 0o644 or 0o600. Envoy (UID 1337) runs as a
+	// different user, so we must chmod the socket to 0o666 explicitly to
+	// allow it to connect.
+	if err := os.Chmod(s.cfg.SocketPath, 0o666); err != nil {
+		return fmt.Errorf("chmod socket %s: %w", s.cfg.SocketPath, err)
+	}
+
+	grpcErr := make(chan error, 1)
+	go func() {
+		s.logger.Info(ctx, "identity-proxy gRPC server listening",
+			logging.Field{Key: "socket", Value: s.cfg.SocketPath},
+		)
+		grpcErr <- s.grpc.Serve(lis)
+	}()
+
+	go func() {
+		<-ctx.Done()
+		s.health.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+		s.grpc.GracefulStop()
+	}()
+
+	// Step 3: wait for Envoy to be fully configured before making any outbound
+	// calls. Envoy returns 200 on localhost:15021/healthz/ready only after it
+	// has received all xDS configuration (listeners, clusters, and its SPIRE-
+	// issued mTLS certificate). Without this, the exchange call to orbit-identity
+	// is RST by Envoy because it has no client cert to present for mTLS.
+	if err := s.waitForEnvoy(ctx); err != nil {
+		s.grpc.GracefulStop()
+		return fmt.Errorf("waiting for Envoy: %w", err)
+	}
+	// Signal the Refresher that Envoy is ready. Any SVID-rotation goroutines
+	// that fired before this point are now unblocked and will proceed with
+	// the exchange call.
+	close(s.envoyReady)
+
+	// Step 4: obtain the initial token. The Processor returns an empty CONTINUE
+	// for any ext_proc calls arriving before the cache is warm, so the window
+	// where requests go without an Authorization header is brief.
+	if err := s.waitForInitialToken(ctx); err != nil {
+		s.grpc.GracefulStop()
+		return fmt.Errorf("initial token acquisition failed: %w", err)
+	}
+
+	// Step 5: mark ready.
+	s.ready.Store(true)
+	s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	s.logger.Info(ctx, "identity-proxy ready — serving traffic")
+
+	// Step 6: background token refresh.
+	go s.refresher.Run(ctx)
+
+	return <-grpcErr
+}
+
+// waitForEnvoy polls localhost:15021/healthz/ready until Envoy signals it is
+// fully initialized (xDS received, certs loaded) or the context is canceled.
+// This prevents the exchange call from being RST by an un-initialized Envoy.
+func (s *Server) waitForEnvoy(ctx context.Context) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(istioReadyTimeout)
+
+	s.logger.Info(ctx, "waiting for Envoy to become ready")
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, istioReadyURL, nil)
+		if err != nil {
+			return fmt.Errorf("build request: %w", err)
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				s.logger.Info(ctx, "Envoy ready")
+				return nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for Envoy to become ready", istioReadyTimeout)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
+// handleHealthz serves the HTTP health endpoint on port 9090.
+// Always returns 200 — the process is alive and the ext_proc gRPC server is
+// listening. Istio's PostStart hook probes this to determine when it is safe
+// to configure iptables intercept. If we returned 503 until the first token
+// is cached, Envoy would never finish its PostStart hook and the identity-proxy
+// could never reach orbit-identity to exchange the token (circular deadlock).
+// The ext_proc Processor already handles an empty cache gracefully by passing
+// requests through without an Authorization header.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
+// waitForInitialToken blocks until the exchange succeeds or ReadyTimeout is
+// exceeded. It uses the same exponential-backoff logic as Refresher so
+// transient failures at startup (e.g. identity service not yet ready) are
+// handled gracefully.
+func (s *Server) waitForInitialToken(ctx context.Context) error {
+	deadline := time.Now().Add(s.cfg.ReadyTimeout)
+	backoff := s.cfg.BackoffInitial
+
+	for {
+		token, expiry, err := s.exchanger.Exchange(ctx)
+		if err == nil {
+			s.cache.Set(token, expiry)
+			s.logger.Info(ctx, "initial token cached")
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
+		}
+
+		s.logger.Warn(ctx, "initial exchange failed, retrying",
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "backoff_ms", Value: backoff.Milliseconds()},
+		)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > s.cfg.BackoffMax {
+			backoff = s.cfg.BackoffMax
+		}
+	}
+}

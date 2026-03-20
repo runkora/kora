@@ -1,0 +1,17 @@
+app:
+  version: "0.1.0"
+
+server:
+  shutdownTimeoutSecs: 5
+  socketPath: /run/orbit/identity-proxy.sock
+  readyTimeoutSecs: 25
+
+proxy:
+  spiffeSocketDefault: unix:///run/secrets/workload-spiffe-uds/socket
+  pollIntervalSecs: 15
+  refreshThresholdSecs: 60
+  backoffInitialMs: 500
+  backoffMaxSecs: 30
+
+observability:
+  serviceName: orbit-identity-proxy

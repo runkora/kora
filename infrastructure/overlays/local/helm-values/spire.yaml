@@ -19,6 +19,11 @@ spire-server:
             - "spire-server:spire-agent"
 
 spire-agent:
+  sds:
+    enabled: true
+    defaultSVIDName: "default"
+    defaultBundleName: "ROOTCA"
+    defaultAllBundlesName: "ALL"
   nodeAttestor:
     k8sPSAT:
       enabled: true
@@ -27,6 +32,8 @@ spire-agent:
     k8s:
       enabled: true
       skipKubeletVerification: true
+      disableContainerSelectors: true
+      useNewContainerLocator: false
 
 spiffe-csi-driver:
   enabled: true
