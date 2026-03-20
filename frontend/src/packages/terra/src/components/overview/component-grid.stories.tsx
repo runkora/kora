@@ -611,7 +611,7 @@ export const ComponentGrid: Story = {
           <Section heading="Card">
             <Stack direction="vertical" gap="relaxed">
               <Group label="Standard compositions">
-                <Grid cols={3} gap="comfortable">
+                <Grid cols={2} gap="comfortable">
                   {/* Standard card */}
                   <Card>
                     <CardHeader>
@@ -820,8 +820,8 @@ export const ComponentGrid: Story = {
 
               <Rule />
 
-              <Group label="Responsive card grid (3 cols)">
-                <Grid cols={3} gap="comfortable">
+              <Group label="Responsive card grid (2 cols)">
+                <Grid cols={2} gap="comfortable">
                   {[
                     { name: 'apollo-3', status: 'healthy' as const, model: 'orbit-3-turbo' },
                     { name: 'hermes-1', status: 'degraded' as const, model: 'orbit-2' },

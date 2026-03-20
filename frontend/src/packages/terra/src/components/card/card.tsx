@@ -299,7 +299,7 @@ const CardFooter = React.forwardRef<HTMLDivElement, CardFooterProps>(
     <div
       ref={ref}
       className={cn(
-        'flex items-center gap-3 px-6 border-t border-border-subtle mt-auto',
+        'flex flex-wrap items-center gap-3 px-6 border-t border-border-subtle mt-auto',
         compact ? 'py-3' : 'pb-6 pt-0',
         FOOTER_JUSTIFY[justify],
         className,
