@@ -92,9 +92,7 @@ const HEADING_TAG: Record<
 };
 
 export interface HeadingProps
-  extends
-    Omit<React.HTMLAttributes<HTMLElement>, 'color'>,
-    VariantProps<typeof headingVariants> {
+  extends Omit<React.HTMLAttributes<HTMLElement>, 'color'>, VariantProps<typeof headingVariants> {
   /**
    * When true, merges Heading styles into the immediate child element instead
    * of wrapping it. Useful for rendering a heading as a router Link.

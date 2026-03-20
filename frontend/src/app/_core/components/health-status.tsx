@@ -51,9 +51,7 @@ export function HealthStatus() {
               Backend
             </Text>
 
-            {state.status === 'loading' && (
-              <Skeleton shape="line" width="half" size="sm" />
-            )}
+            {state.status === 'loading' && <Skeleton shape="line" width="half" size="sm" />}
 
             {state.status === 'ok' && (
               <Stack direction="horizontal" align="center" gap="snug">
