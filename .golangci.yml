@@ -25,7 +25,7 @@ linters:
     - bodyclose    # enforce resp.Body.Close(); //nolint:bodyclose where intentional
     - noctx        # enforce http.NewRequestWithContext over http.NewRequest
     - errorlint    # enforce errors.Is / errors.As over == comparisons
-    - depguard     # enforce import restrictions per ADR-0007 and ADR-0020
+    - depguard     # enforce import restrictions per ADR-0004, ADR-0020, and ADR-0022
   disable:
     - errcheck
 
@@ -60,15 +60,56 @@ linters:
         - G304  # File inclusion via variable
 
     # gocritic is already enabled above. The ruleguard extension loads our
-    # custom ADR-0007 rules file, which flags:
+    # custom rules file, which enforces the following patterns:
+    #
+    # ADR-0022: OpenTelemetry observability discipline
     #   - span.SetStatus(_, err.Error())         — dynamic local error string
     #   - span.SetStatus(_, ctx.Err().Error())   — dynamic context error string
     #   - attribute.String(_, err.Error())        — raw error in span attribute
     #   - attribute.String(_, ctx.Err().Error())  — raw context err in attribute
     #
-    # These rules enforce the two-signal observability pattern:
-    #   span.RecordError(err)                         // full dynamic detail
-    #   span.SetStatus(codes.Error, errX.Error())     // static sentinel string
+    #   Two-signal pattern required:
+    #     span.RecordError(err)                        // full dynamic detail
+    #     span.SetStatus(codes.Error, errX.Error())    // static sentinel string
+    #
+    #   See docs/adr/0022-opentelemetry-observability-discipline.md
+    #
+    # ADR-0005: HTTP handler discipline (controller-based HTTP routing)
+    #   - json.NewDecoder(r.Body).Decode(...)   — must use api.DecodeJSON instead
+    #     api.DecodeJSON writes a standard error response, records the span
+    #     failure, and emits a structured log line in one call.
+    #
+    #   See docs/adr/0005-controller-based-http-routing.md
+    #
+    # ADR-0003: Error wrapping discipline (repository pattern and code organisation)
+    #   - fmt.Errorf("...: %s", err)            — must use %w to preserve chain
+    #     %s discards the error chain, breaking errors.Is / errors.As for callers.
+    #
+    #   See docs/adr/0003-repository-pattern-and-code-organization.md
+    #
+    # ADR-0020: HTTP client discipline (multi-service backend deployment structure)
+    #   - http.Client{...}                      — must use httpclient.New(...)
+    #     Raw clients bypass OTel span creation, W3C traceparent injection,
+    #     and structured logging. Legitimate exceptions (e.g. OIDC provider
+    #     discovery, infrastructure health pollers) are suppressed via path
+    #     exclusions in this file — not inline //nolint directives.
+    #
+    #   See docs/adr/0020-multi-service-backend-deployment-structure.md
+    #
+    # ADR-0005: HTTP handler discipline (controller-based HTTP routing)
+    #   - http.Error(w, ...)                    — must use api.ErrorResponse instead
+    #     http.Error writes a plain-text body and silently drops the OTel span
+    #     failure recording and the standard JSON error envelope. The only
+    #     legitimate use is in platform/middleware (defensive nil-handler guard),
+    #     which is excluded via a path rule in this file.
+    #
+    #   - w.WriteHeader(code)                   — must use api.JSON or api.ErrorResponse instead
+    #     A bare WriteHeader sets the status code but writes no JSON body,
+    #     records nothing on the OTel span, and emits no structured log line.
+    #     Legitimate exceptions (platform/api/ and platform/middleware/) are
+    #     excluded via path rules in this file.
+    #
+    #   See docs/adr/0005-controller-based-http-routing.md
     gocritic:
       enabled-checks:
         - ruleguard
@@ -76,24 +117,87 @@ linters:
         ruleguard:
           rules: "../rules/orbit_rules.go"
 
-    # depguard enforces ADR-0007 and ADR-0020 import discipline.
+    # depguard enforces import discipline per ADR-0004, ADR-0020, and ADR-0022.
+    #
+    # Rule: no-stdlib-log
+    #   Scope: all packages except cmd/ entrypoints
+    #   Rationale: ADR-0004 mandates the injected logging.Logger for all
+    #   application code. stdlib log and slog drop OTel trace context and
+    #   produce unstructured output. cmd/*/main.go files are excluded because
+    #   they legitimately use log.Fatal for bootstrap panics before the
+    #   structured logger is constructed.
+    #   See docs/adr/0004-dependency-injected-logging.md
     #
     # Rule: no-otel-span-mgmt-in-service-clients
     #   Scope: individual typed service clients (platform/clients/*/client.go)
-    #   Rationale: httpclient.Base owns all span lifecycle — opening, status
-    #   setting, and error recording. Service clients call Base.Do,
-    #   Base.HandleErrorResponse, and Base.RecordError instead. Importing
-    #   otel/codes or otel/trace in a service client means it is managing
-    #   spans it does not own, duplicating work and risking inconsistency.
-    #   The base client (httpclient/base.go) is excluded from this rule
-    #   because it is the legitimate owner of span management.
+    #   Rationale: ADR-0022 requires httpclient.Base to own all span lifecycle
+    #   — opening, status setting, and error recording. Service clients call
+    #   Base.Do, Base.HandleErrorResponse, and Base.RecordError instead.
+    #   Importing otel/codes or otel/trace in a service client means it is
+    #   managing spans it does not own, duplicating work and risking
+    #   inconsistency. The base client (httpclient/base.go) is excluded from
+    #   this rule because it is the legitimate owner of span management.
+    #   See docs/adr/0022-opentelemetry-observability-discipline.md
     #
-    # Rule: no-feature-cross-imports
-    #   Scope: all internal feature packages
-    #   Rationale: ADR-0020 prohibits feature packages from importing each
-    #   other. Cross-cutting concerns must go through platform/.
+    # Rule: no-database-sql
+    #   Scope: all packages except platform/storage/
+    #   Rationale: ADR-0007 mandates pgx/v5 as the exclusive database driver.
+    #   database/sql uses the generic scanner interface which loses pgx-specific
+    #   types (pgtype.UUID, pgtype.Timestamptz, arrays, JSONB) and bypasses
+    #   pgxpool connection pooling. Only platform/storage/ is allowed to import
+    #   pgx directly; feature packages receive *storage.DB which wraps the pool.
+    #   See docs/adr/0007-database-infrastructure-layer.md
+    #
+    # Rule: no-raw-viper
+    #   Scope: all packages except platform/config/
+    #   Rationale: ADR-0006 mandates that all configuration is loaded through
+    #   the typed config.Load[T] / config.MustLoadService[T] generic loaders.
+    #   Importing viper directly in feature or service packages bypasses the
+    #   two-layer YAML merge, exact-key validation (UnmarshalExact), and the
+    #   yaml:"-" secret field protection. All config must go through platform/config/.
+    #   See docs/adr/0006-yaml-file-based-configuration.md
+    #
+    # Rule: no-raw-yaml
+    #   Scope: all packages except platform/config/
+    #   Rationale: ADR-0006 mandates all YAML parsing goes through platform/config/
+    #   so that the two-layer merge, UnmarshalExact validation, and yaml:"-" secret
+    #   field protection are always applied. Importing gopkg.in/yaml.v2 or
+    #   gopkg.in/yaml.v3 directly in feature or service packages means raw YAML is
+    #   parsed without those guarantees, and secret fields may be silently loaded
+    #   from config files instead of environment variables.
+    #   See docs/adr/0006-yaml-file-based-configuration.md
+    #
+    # Rule: no-third-party-routers
+    #   Scope: all packages
+    #   Rationale: ADR-0005 mandates that all HTTP routing is performed through the
+    #   internal api.Mux / api.Controller pattern, which owns middleware chaining,
+    #   OTel span creation, and structured logging. Third-party routers (gin, chi,
+    #   echo, gorilla/mux) bypass this entirely, making it impossible to guarantee
+    #   consistent observability and request lifecycle management.
+    #   See docs/adr/0005-controller-based-http-routing.md
+    #
     depguard:
       rules:
+        no-stdlib-log:
+          # Ban the standard library log and slog packages everywhere except
+          # cmd/ entrypoints. cmd/*/main.go files legitimately use log.Fatal
+          # for bootstrap panics that occur before the structured logger is
+          # constructed (e.g. config load failures, signal handler setup).
+          # All application code under internal/ must use the injected
+          # logging.Logger so that OTel trace IDs are extracted from context
+          # and included in every structured log line.
+          files:
+            - "!**/cmd/**"
+          deny:
+            - pkg: "log"
+              desc: >
+                use the injected logging.Logger instead of stdlib log —
+                stdlib log drops trace context and produces unstructured output.
+            - pkg: "log/slog"
+              desc: >
+                use the injected logging.Logger instead of log/slog —
+                slog drops the OTel trace ID extracted from context.
+
         no-otel-span-mgmt-in-service-clients:
           files:
             # Matches all typed service clients, e.g.:
@@ -105,17 +209,121 @@ linters:
           deny:
             - pkg: "go.opentelemetry.io/otel/codes"
               desc: >
-                ADR-0007: service clients must not manage span status directly.
+                ADR-0022: service clients must not manage span status directly.
                 Use httpclient.Base.HandleErrorResponse and Base.RecordError
                 instead — they set span status and call span.RecordError
                 centrally. Import otel/codes only in httpclient/base.go.
+                See docs/adr/0022-opentelemetry-observability-discipline.md
             - pkg: "go.opentelemetry.io/otel/trace"
               desc: >
-                ADR-0007: service clients must not own span lifecycle.
+                ADR-0022: service clients must not own span lifecycle.
                 Spans are opened and closed by httpclient.Base.Do.
                 If you need to attach domain attributes on success, accept a
                 trace.Span argument or use the ctx returned by Base.Do.
                 Import otel/trace only in httpclient/base.go.
+                See docs/adr/0022-opentelemetry-observability-discipline.md
+
+        no-database-sql:
+          # Ban database/sql everywhere outside the storage platform layer.
+          # Feature packages must use *storage.DB (wraps pgxpool.Pool), not the
+          # generic database/sql scanner. Only platform/storage/ may import pgx
+          # or pgxpool directly — it is the sole legitimate owner of pool lifecycle.
+          files:
+            - "!**/platform/storage/**"
+          deny:
+            - pkg: "database/sql"
+              desc: >
+                ADR-0007: use pgx/v5 via *storage.DB instead of database/sql.
+                database/sql loses pgx-specific types, pgxpool connection pooling,
+                and pipeline support. Feature repositories receive *storage.DB
+                injected at startup — never import pgx or pgxpool directly.
+                See docs/adr/0007-database-infrastructure-layer.md
+
+        no-raw-viper:
+          # Ban github.com/spf13/viper everywhere outside platform/config/.
+          # All configuration loading must go through the typed generic loaders
+          # (config.Load[T], config.MustLoadService[T]) which enforce the
+          # two-layer YAML merge, unknown-key validation, and yaml:"-" secret
+          # field protection. Importing viper directly bypasses all of these.
+          files:
+            - "!**/platform/config/**"
+          deny:
+            - pkg: "github.com/spf13/viper"
+              desc: >
+                ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
+                of importing viper directly. Direct viper usage bypasses the
+                two-layer YAML merge, UnmarshalExact key validation, and yaml:"-"
+                secret field protection enforced by platform/config/.
+                See docs/adr/0006-yaml-file-based-configuration.md
+
+        no-raw-yaml:
+          # Ban gopkg.in/yaml.v2 and gopkg.in/yaml.v3 everywhere outside
+          # platform/config/. All YAML parsing must go through the typed generic
+          # loaders (config.Load[T], config.MustLoadService[T]) which own the
+          # two-layer merge, UnmarshalExact validation, and yaml:"-" secret field
+          # protection. Importing yaml directly means raw documents are decoded
+          # without any of those guarantees.
+          files:
+            - "!**/platform/config/**"
+          deny:
+            - pkg: "gopkg.in/yaml.v2"
+              desc: >
+                ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
+                of importing yaml directly. Direct yaml usage bypasses the two-layer
+                YAML merge, UnmarshalExact key validation, and yaml:"-" secret field
+                protection enforced by platform/config/.
+                See docs/adr/0006-yaml-file-based-configuration.md
+            - pkg: "gopkg.in/yaml.v3"
+              desc: >
+                ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
+                of importing yaml directly. Direct yaml usage bypasses the two-layer
+                YAML merge, UnmarshalExact key validation, and yaml:"-" secret field
+                protection enforced by platform/config/.
+                See docs/adr/0006-yaml-file-based-configuration.md
+
+        no-third-party-routers:
+          # Ban third-party HTTP routers globally. All routing must go through the
+          # internal api.Mux / api.Controller pattern, which owns middleware
+          # chaining, OTel span creation per request, and structured logging.
+          # Third-party routers are invisible to this infrastructure and produce
+          # routes whose requests are never instrumented.
+          deny:
+            - pkg: "github.com/gin-gonic/gin"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of gin. Third-party routers bypass the platform middleware chain,
+                OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
+            - pkg: "github.com/go-chi/chi"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of chi. Third-party routers bypass the platform middleware chain,
+                OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
+            - pkg: "github.com/go-chi/chi/v5"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of chi. Third-party routers bypass the platform middleware chain,
+                OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
+            - pkg: "github.com/labstack/echo"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of echo. Third-party routers bypass the platform middleware chain,
+                OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
+            - pkg: "github.com/labstack/echo/v4"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of echo. Third-party routers bypass the platform middleware chain,
+                OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
+            - pkg: "github.com/gorilla/mux"
+              desc: >
+                ADR-0005: use the internal api.Mux / api.Controller pattern instead
+                of gorilla/mux. Third-party routers bypass the platform middleware
+                chain, OTel span-per-request instrumentation, and structured logging.
+                See docs/adr/0005-controller-based-http-routing.md
 
   exclusions:
     paths:
@@ -126,8 +334,69 @@ linters:
           - errcheck
           - unparam
       # ruleguard reports "empty rule set" on packages where none of our custom
-      # ADR-0007 rules fire (i.e. no OTel span calls exist). This is a known
+      # ADR-0022 rules fire (i.e. no OTel span calls exist). This is a known
       # gocritic/ruleguard quirk — it is not a real violation.
       - linters:
           - gocritic
         text: "ruleguard: execution error: used Run\\(\\) with an empty rule set"
+
+      # platform/api/response.go contains the canonical implementations of
+      # DecodeJSON and JSON — they are permitted to use json.NewDecoder(r.Body)
+      # and w.WriteHeader directly because they ARE the abstractions the rule
+      # is protecting.
+      - path: "internal/platform/api/"
+        linters:
+          - gocritic
+        text: "noRawJsonDecodeRequest"
+
+      # httpclient/base.go is the sole legitimate owner of &http.Client{}.
+      # It is explicitly excluded from the noRawHttpClientLiteral rule because
+      # it IS the abstraction layer that all other clients must go through.
+      - path: "internal/platform/clients/httpclient/"
+        linters:
+          - gocritic
+        text: "noRawHttpClientLiteral"
+
+      # identity/service.go constructs an *http.Client for coreos/go-oidc's
+      # provider discovery and token verification calls. These go to external
+      # IdP endpoints (Dex, Google, etc.) — not to internal platform services.
+      # httpclient.Base is designed for service-to-service calls; coreos/go-oidc
+      # manages its own transport injection (JWKS caching, TLS, timeouts).
+      - path: "internal/identity/service.go"
+        linters:
+          - gocritic
+        text: "noRawHttpClientLiteral"
+
+      # identityproxy/server.go constructs an *http.Client solely for the Istio
+      # readiness health poll (GET http://localhost:15021/healthz/ready). This is
+      # a local loopback liveness check with no distributed tracing requirement;
+      # using httpclient.Base would add OTel spans and structured logging noise
+      # for a pure infrastructure concern.
+      - path: "internal/identityproxy/server.go"
+        linters:
+          - gocritic
+        text: "noRawHttpClientLiteral"
+
+      # platform/middleware/middleware.go uses http.Error in a defensive nil-handler
+      # guard inside MiddlewareChain. This is an infrastructure-layer safety net
+      # that fires before any request context or logger exists, making api.ErrorResponse
+      # impossible to use here. This is the only legitimate use of http.Error in the
+      # codebase; all handler-layer error responses must use api.ErrorResponse.
+      - path: "internal/platform/middleware/"
+        linters:
+          - gocritic
+        text: "noHttpErrorInHandler"
+
+      # platform/api/response.go and platform/middleware/ contain the canonical
+      # implementations that legitimately call w.WriteHeader directly — they ARE
+      # the abstractions that the noDirectWriteHeader rule is protecting. All
+      # handler code outside these packages must use api.JSON or api.ErrorResponse.
+      - path: "internal/platform/api/"
+        linters:
+          - gocritic
+        text: "noDirectWriteHeader"
+
+      - path: "internal/platform/middleware/"
+        linters:
+          - gocritic
+        text: "noDirectWriteHeader"
