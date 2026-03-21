@@ -32,6 +32,7 @@ import (
 
 	identityProxyConfig "github.com/clear-route/orbit/cmd/identity-proxy/config"
 	"github.com/clear-route/orbit/internal/identityproxy"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
@@ -120,11 +121,12 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 
 	// Wire up the identity-proxy components.
 	cache := identityproxy.NewTokenCache()
-	// Exchanger uses plain HTTP — Istio's Envoy sidecar upgrades the outbound
-	// connection to mTLS using the pod's SPIRE SVID automatically. Doing our
-	// own mTLS via go-spiffe would produce a double-TLS situation where Envoy
-	// sees an opaque stream and never injects the XFCC header.
-	exchanger := identityproxy.NewExchanger(identityURL, logger)
+	// The platform identity client uses plain HTTP — Istio's Envoy sidecar
+	// upgrades the outbound connection to mTLS using the pod's SPIRE SVID
+	// automatically. Doing our own mTLS via go-spiffe would produce a
+	// double-TLS situation where Envoy sees an opaque stream and never injects
+	// the XFCC header. See ADR-0020 Service-to-Service Communication.
+	exchanger := identityclient.NewClient(identityURL, logger)
 	refresher := identityproxy.NewRefresher(cache, exchanger, logger, proxyCfg)
 	server := identityproxy.NewServer(cache, exchanger, refresher, logger, proxyCfg)
 
