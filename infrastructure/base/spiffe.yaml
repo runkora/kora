@@ -6,6 +6,12 @@ metadata:
 spec:
   className: spire-server-spire
   spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: istio-system
+  podSelector:
+    matchLabels:
+      app: istio-gateway
   workloadSelectorTemplates:
     - "k8s:ns:istio-system"
     - "k8s:sa:gateway"
@@ -20,6 +26,16 @@ spec:
   podSelector:
     matchLabels:
       spiffe.io/spire-managed-identity: "true"
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - orbit-system
+      - key: orbit.io/role
+        operator: NotIn
+        values:
+          - tenant
 ---
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID

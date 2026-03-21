@@ -177,16 +177,21 @@ spiffe://orbit.acme/system/credential-broker
 - Performs **workload attestation** — when a workload calls the Workload API, the SPIRE Agent inspects the calling process's attributes (namespace, service account, container image, UID, etc.) and matches them against registration entries
 - Manages **SVID rotation** automatically — workloads receive new SVIDs before the current one expires, with no involvement from the workload
 
-**SPIFFE Workload API (consumed by sidecars, not the agent workload directly)**
-- Available on the host's Unix domain socket (e.g. `/run/spire/sockets/agent.sock`)
-- The SPIRE sidecar calls the Workload API to receive and rotate the current SVID bundle, exposing it to Envoy via the SPIFFE SDS API
-- The agent workload itself does not interact with the Workload API — SVID management is entirely a sidecar-layer concern
+**SPIFFE Workload API (consumed by the Envoy sidecar via a CSI-mounted socket)**
+- The SPIRE Agent exposes the Workload API on a Unix domain socket on each node
+- The **SPIRE CSI driver** (a node-level DaemonSet — `spire-spiffe-csi-driver`) mounts the SPIRE Agent socket into each pod as a volume at `/run/secrets/workload-spiffe-uds/socket`
+- The Istio-injected `istio-proxy` (Envoy) sidecar reads the socket directly via the `SPIFFE_ENDPOINT_SOCKET` environment variable — it has native SPIRE integration and obtains SVIDs this way without any intermediary sidecar
+- The agent workload itself does not interact with the Workload API — SVID management is entirely below the application layer
 
-> **Note — two distinct sidecar types per agent pod:** An agent workload in Orbit's Kubernetes deployment will have two sidecars injected alongside it, serving different concerns:
-> 1. **SPIRE sidecar** (this ADR) — manages the SVID lifecycle. Fetches the workload's SVID from the SPIRE Agent on the node, rotates it automatically, and exposes the current SVID to Envoy via the SPIFFE SDS API. The agent workload never sees or manages SVIDs directly.
-> 2. **Envoy sidecar** (ADR-0011) — manages traffic enforcement. Intercepts all inbound and outbound network traffic, enforces mTLS using the SVID obtained from the SPIRE sidecar, performs the SVID-to-platform-token exchange transparently, caches and rotates the platform token, and injects it on outbound requests. The agent workload never manages tokens directly.
+> **Note — actual pod composition per agent pod:** An agent workload in Orbit's Kubernetes deployment has two running containers and one node-level component managing SPIFFE identity:
 >
-> These two sidecars are complementary and non-overlapping in responsibility. The SPIRE sidecar solves "how does this workload hold a cryptographic identity?". The Envoy sidecar solves "how is that identity used to exchange for a scope-bound platform token and enforce policy on every network call?". Agent workload authors interact with neither — both are injected and managed by the platform. **The agent workload is fully identity-unaware: it makes plain HTTP calls and Envoy handles everything below the surface.**
+> 1. **SPIRE CSI driver** (node-level DaemonSet, not a pod sidecar) — mounts the SPIRE Agent's Workload API socket into pods as a volume (`spire-workload-socket`, read-only at `/run/secrets/workload-spiffe-uds/socket`). This is the mechanism by which pods access their SVID without a per-pod SPIFFE Helper container. The CSI driver runs once per node; all pods on that node share access to their node's SPIRE Agent socket through it.
+>
+> 2. **`istio-proxy` sidecar** (ADR-0011, ADR-0015) — the Istio-injected Envoy sidecar. Reads the SPIRE Workload API socket directly via `SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket`. Enforces mTLS on all inbound and outbound traffic using the SVID obtained from the mounted socket. Will delegate outbound request header injection to the identity-proxy via the ext_proc filter once identity-proxy is deployed.
+>
+> 3. **identity-proxy sidecar** (ADR-0021, planned — not yet deployed) — a platform-owned Go binary that connects to the same mounted SPIRE Workload API socket via go-spiffe, exchanges the SVID for a platform JWT, caches the token with a shared-state refresh loop, and injects `Authorization: Bearer` on every outbound request via Envoy's ext_proc protocol. The agent workload never holds or manages tokens directly.
+>
+> There is **no SPIFFE Helper sidecar container** in any pod. The SPIFFE Helper role is fulfilled by the SPIRE CSI driver at the node level. Agent workload authors interact with none of these components — **the agent workload is fully identity-unaware: it makes plain HTTP calls and the platform layer handles everything below the surface.**
 
 ---
 
@@ -405,14 +410,17 @@ X.509 SVID validation in Go uses the `github.com/spiffe/go-spiffe/v2` library, w
 - SPIFFE ID extraction from the SAN extension
 - URI SAN format validation per the SPIFFE standard
 
-### SPIFFE Helper Sidecar
+### SPIRE CSI Driver — Workload API Socket Delivery
 
-The per-pod workload sidecar is the SPIFFE Helper (`spiffe/spiffe-helper`) container image, which connects to the node-level SPIRE Agent (`spiffe/spire-agent`) via the Workload API and can be configured to:
-- Fetch and rotate SVIDs automatically from the SPIRE Agent
-- Expose the current SVID to Envoy via the SPIFFE SDS (Secret Discovery Service) API — this is the primary integration point between the SPIFFE Helper sidecar and the Envoy sidecar
-- Optionally write the current SVID to a well-known path (for environments where SDS is unavailable)
+There is no SPIFFE Helper sidecar container in Orbit pods. Instead, the **SPIRE CSI driver** (`spiffe/spiffe-csi-driver`) runs as a node-level DaemonSet (`spire-spiffe-csi-driver`) and mounts the SPIRE Agent's Workload API socket into each pod as a read-only CSI volume:
 
-The agent workload never consumes the SVID directly. The SPIFFE Helper sidecar's responsibility ends at obtaining the SVID from the SPIRE Agent and exposing it to Envoy via SDS. Orbit should provide a reference pod specification that wires the SPIFFE Helper sidecar, Envoy sidecar, and agent workload container together correctly — agent workload authors should not need to configure either sidecar themselves.
+- **Volume name**: `spire-workload-socket`
+- **Mount path**: `/run/secrets/workload-spiffe-uds/socket` (read-only)
+- **Socket env var**: `SPIFFE_ENDPOINT_SOCKET=unix:///run/secrets/workload-spiffe-uds/socket`
+
+The Istio-injected `istio-proxy` (Envoy) sidecar reads the mounted socket directly — Istio has native SPIRE/SPIFFE integration and obtains SVIDs without an intermediary SDS container. The `identity-proxy` sidecar (ADR-0021) also mounts the same volume to obtain its own SVID source for the platform token exchange.
+
+The agent workload never consumes the SVID directly. SVID management is entirely below the application layer — handled by `istio-proxy` reading the CSI-mounted socket. Orbit provides a reference pod specification that wires the CSI volume mount, `istio-proxy`, and `identity-proxy` together correctly. Agent workload authors do not configure any of these components.
 
 ### Migration Path
 
@@ -450,6 +458,7 @@ If a future compliance requirement mandates per-tenant cryptographic isolation, 
 - [ADR-0008](0008-unified-identity-model.md) — Defines the ATTESTED identity source and the platform session token this ADR implements
 - [ADR-0009](0009-agent-execution-flow-patterns-and-delegation.md) — Delegation and execution flow patterns that build on the agent identity established here
 - [ADR-0011](0011-universal-gateway-policy-enforcement.md) — Defines how SPIFFE SVIDs are used by Envoy sidecars for mTLS enforcement on east-west traffic, and the Envoy SDS integration that consumes SVIDs issued by the SPIRE Agent
+- [ADR-0021](0021-envoy-ext-proc-sidecar-token-injection.md) — Resolves the open implementation question in this ADR: the concrete mechanism by which the sidecar layer performs the SVID-to-platform-token exchange and injects the resulting token on outbound requests, implemented as the identity-proxy Go binary using Envoy's ext_proc filter protocol
 
 ---
 

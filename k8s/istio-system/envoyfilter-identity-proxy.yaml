@@ -1,0 +1,66 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: identity-proxy-ext-proc
+  namespace: istio-system
+spec:
+  # Label-gated: only pods opted in to the identity-proxy sidecar are affected.
+  # EnvoyFilters in istio-system (the root namespace) apply mesh-wide, so any
+  # pod in any namespace that carries this label gets the ext_proc filter
+  # automatically — no per-namespace copy required.
+  workloadSelector:
+    labels:
+      orbit.io/identity-proxy: "enabled"
+  configPatches:
+    # 1. Insert the ext_proc filter into the outbound HTTP connection manager,
+    #    just before the terminal router filter.  Envoy calls the identity-proxy
+    #    for every outbound request and injects the Authorization header before
+    #    the request leaves the pod.
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.ext_proc
+          typedConfig:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+            grpcService:
+              envoyGrpc:
+                clusterName: identity_proxy_local
+            processingMode:
+              requestHeaderMode: SEND
+              responseHeaderMode: SKIP
+              requestBodyMode: NONE
+              responseBodyMode: NONE
+              requestTrailerMode: SKIP
+              responseTrailerMode: SKIP
+            # Fail open: a crashing identity-proxy does not block all outbound
+            # traffic — Kubernetes liveness will restart it independently.
+            failureModeAllow: true
+    # 2. Define the static cluster pointing at the identity-proxy Unix socket.
+    #    Path must match identityproxy.SocketPath (/run/orbit/identity-proxy.sock).
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: identity_proxy_local
+          type: STATIC
+          connectTimeout: 1s
+          http2ProtocolOptions: {}
+          loadAssignment:
+            clusterName: identity_proxy_local
+            endpoints:
+              - lbEndpoints:
+                  - endpoint:
+                      address:
+                        pipe:
+                          path: /run/orbit/identity-proxy.sock

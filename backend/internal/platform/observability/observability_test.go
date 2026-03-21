@@ -50,7 +50,8 @@ func TestSetup(t *testing.T) {
 	}
 }
 
-// TestSetupDevelopmentMode verifies development mode with stdout exporter.
+// TestSetupDevelopmentMode verifies that development mode without an OTLP endpoint
+// configured uses the no-op provider — no stdout trace noise in pod/k9s logs.
 func TestSetupDevelopmentMode(t *testing.T) {
 	ctx := context.Background()
 	cfg := Config{
@@ -70,7 +71,7 @@ func TestSetupDevelopmentMode(t *testing.T) {
 		t.Error("Tracer provider not set")
 	}
 
-	// Note: outputs trace JSON to stdout — expected behaviour for development mode.
+	// No stdout output expected: development without OTLP uses the no-op provider.
 	tracer := tp.Tracer("test")
 	_, span := tracer.Start(ctx, "test-span-development")
 	span.End()
@@ -99,8 +100,9 @@ func TestSetupProductionWithOTLP(t *testing.T) {
 	defer shutdown(ctx)
 }
 
-// TestSetupProductionNoOTLP verifies production falls back to no-op when no OTLP
-// endpoint is configured.
+// TestSetupProductionNoOTLP verifies that any non-local environment without an
+// OTLP endpoint configured falls back to the no-op provider (covers both
+// production misconfiguration and development cluster without a collector).
 func TestSetupProductionNoOTLP(t *testing.T) {
 
 	restore := setPlatformObs("", false, nil)
@@ -268,10 +270,12 @@ func TestPropagatorGlobalSet(t *testing.T) {
 	}
 }
 
-// TestSpanExportWithDevelopment verifies spans are exported in development mode.
+// TestSpanExportWithDevelopment verifies that development mode without an OTLP
+// endpoint uses the no-op provider — spans are created but silently dropped,
+// producing no stdout output in pod logs.
 func TestSpanExportWithDevelopment(t *testing.T) {
 	rate := 1.0
-	restore := setPlatformObs("", false, &rate) // Always sample; no OTLP in dev.
+	restore := setPlatformObs("", false, &rate) // No OTLP endpoint configured.
 	defer restore()
 
 	ctx := context.Background()
@@ -287,7 +291,7 @@ func TestSpanExportWithDevelopment(t *testing.T) {
 	}
 	defer shutdown(ctx)
 
-	// Note: outputs trace JSON to stdout in development mode — expected.
+	// No stdout output expected: development without OTLP uses the no-op provider.
 	tracer := otel.GetTracerProvider().Tracer("test")
 	_, span := tracer.Start(ctx, "test-span-export")
 	span.End()
