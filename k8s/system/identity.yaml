@@ -32,7 +32,7 @@ spec:
             readOnly: true
       containers:
         - name: orbit-identity
-          image: orbit-registry:5000/orbit-identity:latest
+          image: orbit-registry:5001/orbit-identity:latest
           imagePullPolicy: Always
           env:
             - name: APP_ENV

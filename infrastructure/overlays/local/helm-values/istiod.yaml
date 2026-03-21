@@ -35,7 +35,7 @@ sidecarInjectorWebhook:
                 mountPath: /run/secrets/workload-spiffe-uds
                 readOnly: true
           - name: identity-proxy
-            image: orbit-registry:5000/orbit-identity-proxy:latest
+            image: orbit-registry:5001/orbit-identity-proxy:latest
             imagePullPolicy: Always
             env:
               - name: APP_ENV

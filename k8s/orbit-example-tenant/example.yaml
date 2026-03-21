@@ -33,7 +33,7 @@ spec:
       serviceAccountName: orbit-example
       containers:
         - name: orbit-example
-          image: orbit-registry:5000/orbit-example:latest
+          image: orbit-registry:5001/orbit-example:latest
           imagePullPolicy: Always
           env:
             - name: APP_ENV

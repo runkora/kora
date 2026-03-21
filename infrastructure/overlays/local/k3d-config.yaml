@@ -22,7 +22,7 @@ registries:
   create: 
     name: orbit-registry
     host: "0.0.0.0"
-    hostPort: "5000"
+    hostPort: "5001"
 
 # Attach k3d nodes to the same Docker network as docker-compose so that pods
 # running inside k3d can reach orbit-postgres by container hostname without

@@ -296,12 +296,12 @@ docker-build: ## Build all service Docker images (orbit-<service>:latest)
 	done
 
 .PHONY: docker-push
-docker-push: ## Push all service images to local registry (orbit-registry:5000/orbit-<service>:latest)
+docker-push: ## Push all service images to local registry (orbit-registry:5001/orbit-<service>:latest)
 	@for svc in $(SERVICES); do \
 		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
-		docker tag orbit-$$svc:latest localhost:5000/orbit-$$svc:latest; \
-		docker push localhost:5000/orbit-$$svc:latest; \
-		echo "$(COLOR_GREEN)✓ localhost:5000/orbit-$$svc:latest$(COLOR_RESET)"; \
+		docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
+		docker push localhost:5001/orbit-$$svc:latest; \
+		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
 .PHONY: cluster-deploy
@@ -327,8 +327,8 @@ cluster-update-service: ## Build, push and restart a single service (usage: make
 	@echo "$(COLOR_YELLOW)Building orbit-$(SERVICE):latest...$(COLOR_RESET)"
 	@docker build --build-arg SERVICE=$(SERVICE) -t orbit-$(SERVICE):latest -f backend/Dockerfile backend/
 	@echo "$(COLOR_YELLOW)Pushing orbit-$(SERVICE) to local registry...$(COLOR_RESET)"
-	@docker tag orbit-$(SERVICE):latest localhost:5000/orbit-$(SERVICE):latest
-	@docker push localhost:5000/orbit-$(SERVICE):latest
+	@docker tag orbit-$(SERVICE):latest localhost:5001/orbit-$(SERVICE):latest
+	@docker push localhost:5001/orbit-$(SERVICE):latest
 	@echo "$(COLOR_YELLOW)Restarting orbit-$(SERVICE)...$(COLOR_RESET)"
 	@kubectl rollout restart deployment/orbit-$(SERVICE) -n orbit-system
 	@kubectl rollout status deployment/orbit-$(SERVICE) -n orbit-system --timeout=120s
