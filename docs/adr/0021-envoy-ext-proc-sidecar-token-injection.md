@@ -410,6 +410,7 @@ spec:
             grpc_service:
               envoy_grpc:
                 cluster_name: identity_proxy_local
+            failure_mode_allow: true
             processing_mode:
               request_header_mode: SEND
               response_header_mode: SKIP
@@ -436,6 +437,40 @@ spec:
 ```
 
 The filter references `cluster_name: identity_proxy_local`. The second `configPatches` entry above defines that cluster as a static STATIC cluster resolving to the Unix domain socket at `/run/orbit/identity-proxy.sock`. Both patches must be deployed together — the filter patch alone is not deployable.
+
+#### Fail-open posture (`failure_mode_allow: true`)
+
+`failure_mode_allow: true` means that if the identity-proxy process is unavailable (crash, socket not yet bound, OOM kill), Envoy will forward the outbound request **without** calling the ext_proc handler — the `Authorization` header is simply not injected rather than the request being dropped.
+
+This is an explicit, considered choice. The alternative (`failure_mode_allow: false`) would cause Envoy to return a 500 to the agent workload for every outbound request whenever identity-proxy is unavailable, effectively taking down the entire outbound call surface of the pod whenever the sidecar restarts or crashes.
+
+**Why fail-open is correct here:**
+
+1. **Defence-in-depth at the destination.** The orbit-identity service and all other Orbit platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
+
+2. **Startup race.** identity-proxy takes a small but nonzero amount of time to start, connect to SPIRE, and obtain its initial token. During this window, fail-closed would cause the agent workload's first outbound requests to fail with 500s. Fail-open allows those requests to proceed (and fail with 401 at the destination if they need auth), without permanently erroring before the proxy is ready.
+
+3. **Crash recovery.** Kubernetes restarts crashed containers. During the restart window, fail-open limits the blast radius to requests that require authenticated access (which will get 401s) rather than all outbound requests (which would get 500s regardless of whether they need auth).
+
+The consequence is that if identity-proxy is down, requests to endpoints requiring a platform token will fail with 401/403 rather than 500. This is the correct failure mode: it tells the caller "you are not authenticated" rather than "the infrastructure is broken."
+
+### Container Security Context
+
+The identity-proxy container handles SPIFFE SVIDs and cached platform JWTs — it is a high-value target from a security perspective. The Istio sidecar injection template must configure the container with a restrictive security context:
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+```
+
+`readOnlyRootFilesystem: true` is safe because identity-proxy writes nothing to the container filesystem at runtime. The Unix domain socket at `/run/orbit/identity-proxy.sock` and the SPIRE Workload API socket at `/run/secrets/workload-spiffe-uds/socket` are both `emptyDir` or CSI volume mounts — writable at the volume level regardless of the container root filesystem restriction.
+
+The health endpoint port in the sidecar template is named `health` (not `metrics`). No Prometheus `/metrics` scrape endpoint is exposed in this revision. The port name reflects what the endpoint actually serves. Metrics instrumentation is deferred to a follow-on iteration.
 
 ### Migration Path
 
@@ -489,4 +524,4 @@ The identity-proxy binary is a **platform sidecar** — it is owned, built, vers
 
 The choice to have identity-proxy connect to the SPIRE Workload API socket directly via go-spiffe (rather than any intermediary) is intentional. The Workload API is a gRPC streaming protocol with first-class rotation callback support, designed exactly for use cases like this. Using go-spiffe's `X509Source` gives identity-proxy the cleanest possible SVID rotation integration with the least operational coupling — it reads from the same CSI-mounted socket as `istio-proxy`, with no intermediary process in the path.
 
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-04-14

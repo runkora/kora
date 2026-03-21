@@ -45,9 +45,16 @@ sidecarInjectorWebhook:
               - name: SPIFFE_ENDPOINT_SOCKET
                 value: "unix:///run/secrets/workload-spiffe-uds/socket"
             ports:
-              - name: metrics
+              - name: health
                 containerPort: 9090
                 protocol: TCP
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              readOnlyRootFilesystem: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
             readinessProbe:
               httpGet:
                 path: /healthz
