@@ -165,7 +165,8 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 		oauthErr := parseDeviceTokenError(body)
 		if oauthErr != nil {
 			// If it's an OAuthError, include the error code
-			if oe, ok := oauthErr.(*OAuthError); ok {
+			var oe *OAuthError
+			if errors.As(oauthErr, &oe) {
 				return nil, fmt.Errorf("device auth endpoint %s returned %d (%s): %w",
 					s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
 			}
@@ -815,15 +816,19 @@ func recordDeviceAuthError(span trace.Span, err error) {
 		return
 	}
 	span.RecordError(err)
-	if errors.Is(err, ErrSlowDown) {
+	switch {
+	case errors.Is(err, ErrSlowDown):
 		span.SetStatus(codes.Error, "slow_down")
-	} else if errors.Is(err, ErrAccessDenied) {
+	case errors.Is(err, ErrAccessDenied):
 		span.SetStatus(codes.Error, "access_denied")
-	} else if errors.Is(err, ErrDeviceCodeExpired) {
+	case errors.Is(err, ErrDeviceCodeExpired):
 		span.SetStatus(codes.Error, "expired_token")
-	} else if oe, ok := err.(*OAuthError); ok {
-		span.SetAttributes(attribute.String("oauth.error", oe.Code))
-		span.SetStatus(codes.Error, oe.Code)
+	default:
+		var oe *OAuthError
+		if errors.As(err, &oe) {
+			span.SetAttributes(attribute.String("oauth.error", oe.Code))
+			span.SetStatus(codes.Error, oe.Code)
+		}
 	}
 }
 

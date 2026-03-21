@@ -18,6 +18,7 @@ package identityproxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -42,6 +43,17 @@ import (
 
 // authorizationHeader is the canonical HTTP header name injected by the proxy.
 const authorizationHeader = "authorization"
+
+// Sentinel error descriptions used as static span status strings.
+// These are intentionally non-dynamic so that raw network strings, internal
+// hostnames, or context messages never appear in telemetry status fields
+// (see ADR-0007). Full error detail is captured via span.RecordError.
+var (
+	errBuildRequest        = errors.New("failed to build request")
+	errEnvoyReadyTimeout   = errors.New("timed out waiting for Envoy to become ready")
+	errContextCanceled     = errors.New("context canceled")
+	errInitialTokenTimeout = errors.New("timed out waiting for initial token")
+)
 
 // istioReadyURL is the Istio pilot-agent health endpoint that returns 200
 // only after Envoy has received all xDS configuration (listeners, clusters,
@@ -74,7 +86,7 @@ func (p *Processor) Process(stream ext_procv3.ExternalProcessor_ProcessServer) e
 
 	for {
 		req, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -264,7 +276,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	_ = os.Remove(s.cfg.SocketPath)
 
-	lis, err := net.Listen("unix", s.cfg.SocketPath)
+	lc := net.ListenConfig{}
+	lis, err := lc.Listen(ctx, "unix", s.cfg.SocketPath)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", s.cfg.SocketPath, err)
 	}
@@ -339,7 +352,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, istioReadyURL, nil)
 		if err != nil {
 			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, err.Error())
+			span.SetStatus(otelcodes.Error, errBuildRequest.Error())
 			return fmt.Errorf("build request: %w", err)
 		}
 		resp, err := client.Do(req)
@@ -355,14 +368,14 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
 			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, err.Error())
+			span.SetStatus(otelcodes.Error, errEnvoyReadyTimeout.Error())
 			return err
 		}
 
 		select {
 		case <-ctx.Done():
 			span.RecordError(ctx.Err())
-			span.SetStatus(otelcodes.Error, ctx.Err().Error())
+			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
 			return ctx.Err()
 		case <-time.After(1 * time.Second):
 		}
@@ -408,7 +421,7 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
-			span.SetStatus(otelcodes.Error, err.Error())
+			span.SetStatus(otelcodes.Error, errInitialTokenTimeout.Error())
 			return err
 		}
 
@@ -419,7 +432,7 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 
 		select {
 		case <-ctx.Done():
-			span.SetStatus(otelcodes.Error, ctx.Err().Error())
+			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
 			return ctx.Err()
 		case <-time.After(backoff):
 		}

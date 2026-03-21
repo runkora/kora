@@ -195,10 +195,10 @@ func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentine
 //	if parsed.Token == "" {
 //	    return c.RecordError(span, ErrMissingToken)
 //	}
-func (b *Base) RecordError(span trace.Span, err error) error {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
-	return err
+func (b *Base) RecordError(span trace.Span, sentinel error) error {
+	span.RecordError(sentinel)
+	span.SetStatus(codes.Error, sentinel.Error())
+	return sentinel
 }
 
 // ReadErrorBody reads up to 512 bytes from resp.Body, closes it, records the
@@ -276,7 +276,7 @@ func (b *Base) Do(
 	// server span as a child of this client span, forming a single end-to-end trace.
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
-	resp, err := b.httpClient.Do(req) //nolint:bodyclose,gosec // caller owns resp.Body; URL is caller-supplied and validated upstream
+	resp, err := b.httpClient.Do(req) //nolint:gosec // G107: URL is caller-supplied and validated upstream
 	if err != nil {
 		// RecordError captures the full error event (message + stack trace if
 		// available). SetStatus uses a static description so raw network error

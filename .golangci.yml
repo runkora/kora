@@ -16,15 +16,18 @@ linters:
     - revive
     - gosec
     - goconst
-    - gocritic
+    - gocritic     # includes ruleguard — see settings.gocritic below
     - gocyclo
     - nolintlint
     - unconvert
     - unparam
     - whitespace
+    - bodyclose    # enforce resp.Body.Close(); //nolint:bodyclose where intentional
+    - noctx        # enforce http.NewRequestWithContext over http.NewRequest
+    - errorlint    # enforce errors.Is / errors.As over == comparisons
+    - depguard     # enforce import restrictions per ADR-0007 and ADR-0020
   disable:
     - errcheck
-    - bodyclose
 
   settings:
     errcheck:
@@ -56,6 +59,64 @@ linters:
         - G302  # File permissions
         - G304  # File inclusion via variable
 
+    # gocritic is already enabled above. The ruleguard extension loads our
+    # custom ADR-0007 rules file, which flags:
+    #   - span.SetStatus(_, err.Error())         — dynamic local error string
+    #   - span.SetStatus(_, ctx.Err().Error())   — dynamic context error string
+    #   - attribute.String(_, err.Error())        — raw error in span attribute
+    #   - attribute.String(_, ctx.Err().Error())  — raw context err in attribute
+    #
+    # These rules enforce the two-signal observability pattern:
+    #   span.RecordError(err)                         // full dynamic detail
+    #   span.SetStatus(codes.Error, errX.Error())     // static sentinel string
+    gocritic:
+      enabled-checks:
+        - ruleguard
+      settings:
+        ruleguard:
+          rules: "../rules/orbit_rules.go"
+
+    # depguard enforces ADR-0007 and ADR-0020 import discipline.
+    #
+    # Rule: no-otel-span-mgmt-in-service-clients
+    #   Scope: individual typed service clients (platform/clients/*/client.go)
+    #   Rationale: httpclient.Base owns all span lifecycle — opening, status
+    #   setting, and error recording. Service clients call Base.Do,
+    #   Base.HandleErrorResponse, and Base.RecordError instead. Importing
+    #   otel/codes or otel/trace in a service client means it is managing
+    #   spans it does not own, duplicating work and risking inconsistency.
+    #   The base client (httpclient/base.go) is excluded from this rule
+    #   because it is the legitimate owner of span management.
+    #
+    # Rule: no-feature-cross-imports
+    #   Scope: all internal feature packages
+    #   Rationale: ADR-0020 prohibits feature packages from importing each
+    #   other. Cross-cutting concerns must go through platform/.
+    depguard:
+      rules:
+        no-otel-span-mgmt-in-service-clients:
+          files:
+            # Matches all typed service clients, e.g.:
+            #   internal/platform/clients/identity/client.go
+            #   internal/platform/clients/billing/client.go
+            # Excludes the base client (httpclient/base.go) because it is
+            # the legitimate owner of span lifecycle management.
+            - "**/platform/clients/*/client.go"
+          deny:
+            - pkg: "go.opentelemetry.io/otel/codes"
+              desc: >
+                ADR-0007: service clients must not manage span status directly.
+                Use httpclient.Base.HandleErrorResponse and Base.RecordError
+                instead — they set span status and call span.RecordError
+                centrally. Import otel/codes only in httpclient/base.go.
+            - pkg: "go.opentelemetry.io/otel/trace"
+              desc: >
+                ADR-0007: service clients must not own span lifecycle.
+                Spans are opened and closed by httpclient.Base.Do.
+                If you need to attach domain attributes on success, accept a
+                trace.Span argument or use the ctx returned by Base.Do.
+                Import otel/trace only in httpclient/base.go.
+
   exclusions:
     paths:
       - ".*_test\\.go$"
@@ -64,7 +125,9 @@ linters:
         linters:
           - errcheck
           - unparam
-
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
+      # ruleguard reports "empty rule set" on packages where none of our custom
+      # ADR-0007 rules fire (i.e. no OTel span calls exist). This is a known
+      # gocritic/ruleguard quirk — it is not a real violation.
+      - linters:
+          - gocritic
+        text: "ruleguard: execution error: used Run\\(\\) with an empty rule set"

@@ -121,7 +121,7 @@ We need to define:
 
 **Description:** A standard Go binary implementing Envoy's External Processing gRPC protocol (`envoy.service.ext_proc.v3`). It runs as a dedicated container in the agent pod, communicates with Envoy via a Unix domain socket (local gRPC — sub-millisecond round-trip), and handles token caching, exchange, and injection entirely within a single Go process.
 
-The binary connects directly to the SPIRE Workload API socket (shared mount within the pod) using `go-spiffe`'s `workloadapi.NewX509Source()`. This gives it a live, auto-rotating SVID source with a callback API for rotation events. It uses the X509Source to build an mTLS `http.Client` for the exchange call — standard Go TLS configuration, no manual certificate management.
+The binary connects to the SPIRE Workload API socket (shared mount within the pod) using `go-spiffe`'s `workloadapi.WatchX509Context()`. This provides a live SVID rotation callback — whenever the SPIRE Agent delivers a new SVID, identity-proxy is notified and re-exchanges immediately. The exchange call to the identity service is made via a typed platform HTTP client (`internal/platform/clients/identity/`) using plain HTTP — Istio's Envoy sidecar transparently upgrades the outbound connection to mTLS using the pod's SPIRE SVID. Performing manual mTLS in-process would produce a double-TLS situation where Envoy sees an opaque TCP stream and never injects the XFCC header that the identity service reads to establish the caller's principal (see ADR-0020 §Service-to-Service Communication).
 
 Token state is held in a single shared struct behind a `sync.RWMutex`. A background goroutine monitors expiry and re-exchanges proactively. SVID rotation callbacks trigger immediate re-exchange. All concurrent outbound requests from the pod read from the same cache.
 
@@ -132,7 +132,7 @@ Token state is held in a single shared struct behind a `sync.RWMutex`. A backgro
 - SVID rotation handled via `go-spiffe` callback — re-exchange happens immediately when the SVID rotates, not on the next expiry cycle
 - Full integration with Orbit's logging, OTel tracing, metrics, and config packages
 - Binary lives in `backend/cmd/identity-proxy/` — same monorepo, same build pipeline, same patterns as all other Orbit services
-- Can share types from `internal/identity/` (token models, principal types) directly
+- Exchange HTTP call made via a typed platform client (`internal/platform/clients/identity/`) per ADR-0020 — wire types owned by the client, not imported from the identity service package; Istio handles mTLS transparently
 - Testable with `go test` — the gRPC server, cache logic, and refresh loop are all standard Go constructs
 - Per-request overhead is a Unix domain socket gRPC call — ~50–100µs, negligible for the agent workload profile (LLM calls, tool APIs, platform APIs all operate in the millisecond-to-second range)
 
@@ -206,14 +206,16 @@ The extra container per pod is the honest cost of this approach and is accepted.
 ```
 identity-proxy binary
 │
-├── workloadapi.X509Source (go-spiffe)
-│     Live SVID source connected to SPIRE Workload API socket.
-│     Auto-rotates. Triggers OnX509ContextUpdate callback on rotation.
+├── workloadapi.WatchX509Context (go-spiffe)
+│     Watches SPIRE Workload API socket for SVID rotation events.
+│     Triggers OnX509ContextUpdate callback on each new SVID delivery.
 │
-├── mTLS http.Client
-│     Backed by X509Source — automatically uses the current SVID cert+key.
-│     Verifies identity service against SPIRE trust bundle.
-│     Used exclusively for POST /v1/identity/exchange calls.
+├── identityclient.Client  (internal/platform/clients/identity/)
+│     Typed platform HTTP client for POST /api/v1/identity/exchange.
+│     Uses plain HTTP — Istio's Envoy sidecar transparently upgrades the
+│     outbound connection to mTLS using the pod's SPIRE SVID. Manual mTLS
+│     is intentionally avoided: doing so would produce a double-TLS stream
+│     that Envoy cannot inspect, blocking XFCC header injection (ADR-0020).
 │
 ├── TokenCache
 │     sync.RWMutex-protected struct: { token string, expiry time.Time }
@@ -326,7 +328,7 @@ Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWe
 - Third-party agents, MCP servers, and open-source frameworks are fully supported with zero modification — they make plain HTTP calls and the sidecar layer handles everything
 - Single shared token cache across all Envoy workers eliminates redundant exchange calls on startup and under concurrency
 - SVID rotation is handled proactively via go-spiffe's callback API — the token is always bound to the current SVID with no gap window
-- The implementation is standard Go: full stdlib, real goroutines, `go test`, Orbit's logging and OTel packages, shared types from `internal/identity/`
+- The implementation is standard Go: full stdlib, real goroutines, `go test`, Orbit's logging and OTel packages, platform-layer service clients per ADR-0020
 - Operational observability is identical to all other Orbit services — structured logs, distributed traces, Prometheus metrics
 - The binary lives in the Orbit monorepo under `backend/cmd/identity-proxy/` and is owned, built, and versioned by the platform team
 
@@ -367,13 +369,17 @@ The `/envoy` sub-module at v1.37.0 pins to grpc v1.78.0 which matches the existi
 
 ```
 backend/cmd/identity-proxy/
-├── main.go                    # Wiring: config, X509Source, TokenCache, gRPC server
+├── main.go                          # Wiring: config, identity client, TokenCache, gRPC server
 internal/identityproxy/
-├── cache.go                   # TokenCache: RWMutex, get/set, expiry check
-├── exchange.go                # Exchange call: plain HTTP client, request/response (Istio handles mTLS)
-├── refresh.go                 # Background goroutine: expiry monitor + SVID rotation callback
-├── server.go                  # ext_proc gRPC server: ProcessingRequest handler
-└── identityproxy_test.go      # go test: cache, refresh, and gRPC handler unit tests
+├── cache.go                         # TokenCache: RWMutex, get/set, expiry check
+├── config.go                        # Runtime tunables (timeouts, backoff, socket path)
+├── refresh.go                       # Background goroutine: expiry monitor + SVID rotation callback
+├── server.go                        # ext_proc gRPC server: ProcessingRequest handler
+└── identityproxy_test.go            # go test: cache, refresh, and gRPC handler unit tests
+internal/platform/clients/identity/
+└── client.go                        # Typed HTTP client for POST /api/v1/identity/exchange
+                                     # ADR-0020 compliant: wire types owned by the client,
+                                     # not imported from internal/identity/; Istio handles mTLS
 ```
 
 ### Envoy Filter Configuration (via Istio EnvoyFilter CRD)
