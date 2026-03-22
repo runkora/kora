@@ -9,15 +9,32 @@ This document defines the canonical code organization for the Orbit backend. It 
 ```
 orbit/
 ├── backend/
-│   ├── cmd/
-│   │   └── orbit/                        # Single binary entrypoint
-│   │       ├── main.go                   # Application wiring: init, register, serve
+│   ├── cmd/                              # One subdirectory per deployable binary (ADR-0020)
+│   │   ├── orbit/                        # Main API server
+│   │   │   ├── main.go                   # Application wiring: init, register, serve
+│   │   │   └── config/
+│   │   │       ├── config.go             # AppConfig struct (server port, OTLP, sampling)
+│   │   │       ├── config_test.go
+│   │   │       ├── local.yaml
+│   │   │       ├── development.yaml
+│   │   │       └── production.yaml
+│   │   │
+│   │   ├── identity/                     # Standalone identity service binary
+│   │   │   ├── main.go
+│   │   │   └── config/
+│   │   │       ├── config.go
+│   │   │       └── local.yaml
+│   │   │
+│   │   ├── identity-proxy/               # Envoy ext_proc sidecar (ADR-0021)
+│   │   │   ├── main.go                   # Wires identityproxy.Server + identity platform client
+│   │   │   └── config/
+│   │   │       ├── config.go             # IdentityProxyConfig (socket path, SPIFFE socket, service URL)
+│   │   │       └── base.yaml
+│   │   │
+│   │   └── example/                      # Reference binary (not production)
+│   │       ├── main.go
 │   │       └── config/
-│   │           ├── config.go             # AppConfig struct (server port, OTLP, sampling)
-│   │           ├── config_test.go
-│   │           ├── local.yaml
-│   │           ├── development.yaml
-│   │           └── production.yaml
+│   │           └── config.go
 │   │
 │   ├── internal/
 │   │   ├── platform/                     # Cross-cutting infrastructure (never imports features)
@@ -27,6 +44,12 @@ orbit/
 │   │   │   │   ├── mux.go                # HTTP multiplexer + route registration
 │   │   │   │   ├── error.go              # APIError type + standard error codes
 │   │   │   │   └── response.go           # Typed response helpers
+│   │   │   │
+│   │   │   ├── clients/                  # Typed service-to-service HTTP clients (ADR-0020)
+│   │   │   │   ├── httpclient/
+│   │   │   │   │   └── base.go           # Base HTTP client: OTel span, W3C trace injection, structured logging
+│   │   │   │   └── identity/
+│   │   │   │       └── client.go         # Identity service client — token exchange, sentinel errors
 │   │   │   │
 │   │   │   ├── config/
 │   │   │   │   └── config.go             # config.Load[T]() generic YAML loader
@@ -72,6 +95,13 @@ orbit/
 │   │   │       ├── local.yaml            # issuerUrl: http://dex.orbit.local:5556/dex
 │   │   │       ├── development.yaml
 │   │   │       └── production.yaml
+│   │   │
+│   │   ├── identityproxy/                # Envoy ext_proc sidecar feature package (implemented, ADR-0021)
+│   │   │   ├── server.go                 # ExternalProcessorServer: header inspection, token injection
+│   │   │   ├── cache.go                  # Thread-safe in-memory token cache with TTL
+│   │   │   ├── refresh.go                # Background token refresh loop
+│   │   │   ├── config.go                 # IdentityProxyConfig struct
+│   │   │   └── identityproxy_test.go
 │   │   │
 │   │   ├── agents/                       # (planned) Agent registration, identity binding, autonomy levels
 │   │   │   ├── models.go
@@ -306,7 +336,42 @@ type redisJTIBlocklistRepository struct {
 }
 ```
 
-### 5. Configuration via `config.Load[T any]()`
+### 5. Service-to-Service Calls via Platform Clients (ADR-0020)
+
+All outbound HTTP calls to other Orbit services go through typed clients in `internal/platform/clients/{service}/client.go`. Each client embeds `httpclient.Base`, which automatically:
+- Opens an OTel `SpanKindClient` span
+- Injects W3C `traceparent`/`tracestate` headers into every request
+- Sets standard semantic convention attributes (`http.request.method`, `url.full`, `http.response.status_code`)
+- Captures upstream error bodies in the `error.upstream_body` span attribute
+- Emits a structured log line for every transport outcome
+
+```go
+// internal/platform/clients/identity/client.go
+type Client struct {
+    base    *httpclient.Base
+    baseURL string
+}
+
+func (c *Client) Exchange(ctx context.Context, svid string) (*TokenResponse, error) {
+    req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/identity/exchange", body)
+    _, span, resp, err := c.base.Do(ctx, "identity.exchange", req)
+    defer span.End()
+    // ...
+}
+```
+
+**Never construct `http.Client{}` directly** in feature or service code. The `noRawHttpClientLiteral` lint rule enforces this.
+
+New service clients follow this layout:
+```
+internal/platform/clients/
+└── {service}/
+    └── client.go     # Typed client: struct, constructor, methods, sentinel errors
+```
+
+Wire the client into the binary's `main.go` via the constructor — never share raw HTTP clients across packages.
+
+### 6. Configuration via `config.Load[T any]()`
 
 Configuration is environment-aware YAML, loaded at startup. Each component has its own config directory with one file per environment:
 
@@ -326,7 +391,7 @@ cfg, err := config.Load[identity.Config]("internal/identity/config", config.Envi
 
 **Secrets never appear in YAML.** Any secret field on a config struct must be tagged `yaml:"-"` and loaded separately via `os.Getenv`. See [docs/configuration/secrets.md](configuration/secrets.md) for the full reference.
 
-### 6. Storage Config is Unified
+### 7. Storage Config is Unified
 
 Storage configuration uses a single two-level YAML structure — both PostgreSQL and Redis live in the same environment file:
 
@@ -344,7 +409,7 @@ redis:
 
 `storage.LoadStorageConfig()` parses the unified config and returns a `StorageConfig` with both `Postgres` and `Redis` sub-configs. Environment variable overrides (`DATABASE_URL`, `REDIS_ADDR`, etc.) are applied after YAML parsing inside `loadPostgresConfig` and `loadRedisConfig`.
 
-### 7. Migrations via Goose
+### 8. Migrations via Goose
 
 SQL migrations live in `internal/platform/storage/migrations/` and use Goose annotations:
 
@@ -370,9 +435,11 @@ This ensures correct timestamp ordering and Goose-compatible format.
 
 ---
 
-## Application Entry Point
+## Application Entry Points
 
-`backend/cmd/orbit/main.go` is the only wiring file. It:
+The backend compiles to multiple binaries (ADR-0020). Each binary under `backend/cmd/` has its own `main.go` wiring file. All binaries share `backend/internal/platform/` but are otherwise fully independent.
+
+### `cmd/orbit` — Main API server
 
 1. Loads `AppConfig` (server port, OTLP endpoint, sampling rate)
 2. Initializes `observability` (TracerProvider, MeterProvider)
@@ -382,7 +449,23 @@ This ensures correct timestamp ordering and Goose-compatible format.
 6. Constructs the `api.Mux`, registers each feature's `Controller`
 7. Starts the HTTP server
 
-There are no subcommands (`server`, `worker`, `gateway`). The binary runs a single mode. Deployment topology (running components separately) is a future concern addressed when the scale justification exists.
+### `cmd/identity-proxy` — Envoy ext_proc sidecar (ADR-0021)
+
+1. Loads `IdentityProxyConfig` (Unix socket path, SPIFFE socket, identity service URL)
+2. Initializes `observability`
+3. Builds an `identity.Client` (platform typed HTTP client) backed by `httpclient.Base`
+4. Creates the `identityproxy.Server` — a gRPC ext_proc server that intercepts outbound agent calls and injects a platform Bearer token
+5. Polls `http://localhost:15021/healthz/ready` until Envoy/Istio xDS configuration is fully received
+6. Watches SPIFFE SVID rotations and invalidates the token cache on each new SVID
+7. Serves the gRPC ext_proc stream on a Unix domain socket
+
+### `cmd/identity` — Standalone identity service
+
+Runs the identity feature as a standalone HTTP binary for deployments where the main `orbit` binary is split by topology.
+
+### Adding a new binary
+
+Create `cmd/{name}/` with its own `main.go` and `config/` subdirectory. Import only from `internal/platform/` and the feature packages the binary owns. Never import across binary entry-point boundaries — cross-cutting concerns belong in `internal/platform/`.
 
 ---
 
@@ -424,15 +507,23 @@ type Mux struct { ... }
 func (m *Mux) Register(c Controller)
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
-// JSON helpers — used in handlers
-func JSON(w http.ResponseWriter, status int, v any) error
-func DecodeJSON(r *http.Request, v any) error
+// JSON response writer — writes status + JSON body, records OTel span outcome, structured log
+func JSON(ctx context.Context, w http.ResponseWriter, logger logging.Logger, status int, body any)
 
-// Errors — return these from handlers
-func BadRequest(code, message string) *APIError
-func Unauthorized(code, message string) *APIError
-func NotFound(code, message string) *APIError
-func InternalError() *APIError
+// Request decoder — decodes JSON body into dest; writes 400 + returns false on failure
+func DecodeJSON(ctx context.Context, r *http.Request, w http.ResponseWriter, logger logging.Logger, dest any) bool
+
+// Error response — writes JSON error envelope, sets span status, structured log
+func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Logger, apiErr *APIError, underlyingErr error)
+
+// APIError constructors — all accept optional details map for structured context
+func NotFoundError(code, message string, details map[string]any) *APIError
+func ValidationError(code, message string, details map[string]any) *APIError
+func BadRequestError(code, message string, details map[string]any) *APIError
+func ConflictError(code, message string, details map[string]any) *APIError
+func UnauthorizedError(code, message string, details map[string]any) *APIError
+func ForbiddenError(code, message string, details map[string]any) *APIError
+func InternalError(code, message string, details map[string]any) *APIError
 ```
 
 ### `internal/platform/logging`
@@ -458,6 +549,34 @@ Construct a logger in `main.go` and inject it into every service:
 logger := logging.NewZerolog(os.Stdout, logging.LevelInfo)
 svc := identity.NewService(db, redis, logger, cfg)
 ```
+
+### `internal/platform/clients/httpclient`
+
+Base HTTP client used by all typed service-to-service clients (ADR-0020, ADR-0022):
+
+```go
+// Construct a base client — tracerName scopes OTel spans, timeout applied per-request
+func New(tracerName string, logger logging.Logger, timeout time.Duration) *Base
+
+// Execute an outbound request — opens SpanKindClient span, injects W3C traceparent/tracestate,
+// sets http.request.method + url.full attributes, returns span for the caller to close
+func (b *Base) Do(ctx context.Context, spanName string, req *http.Request) (context.Context, trace.Span, *http.Response, error)
+
+// Encode a value as JSON into an io.Reader for use as a request body
+func (b *Base) EncodeJSON(body any) (io.Reader, error)
+
+// Decode a 2xx response body into dest; records error on span if decode fails
+func (b *Base) DecodeJSON(span trace.Span, resp *http.Response, dest any) error
+
+// Handle a non-2xx response — reads body (≤512 bytes), sets error.upstream_body span attribute,
+// records error on span, returns wrapped sentinel
+func (b *Base) HandleErrorResponse(span trace.Span, resp *http.Response, sentinel error) error
+
+// Record an application-level error on the span with a static sentinel description
+func (b *Base) RecordError(span trace.Span, sentinel error) error
+```
+
+Typed clients in `internal/platform/clients/{service}/client.go` embed `*httpclient.Base` and call `b.Do` for all outbound requests. They define their own sentinel errors and wire types. They must **not** import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly — span lifecycle is owned by `httpclient.Base`.
 
 ### `internal/platform/storage`
 
@@ -507,7 +626,7 @@ To prevent common mistakes:
 - **No global logger** — no `log.Println`, no package-level `var logger = ...`; inject `*logging.Logger` everywhere
 - **No `internal/models/` package** — shared domain types do not exist; each feature owns its models
 - **No `internal/server/router.go`** — there is no central route registry; features self-register via `Controller.Boot()`
-- **No `commands/` subdir in `cmd/orbit/`** — no subcommands; `main.go` runs one mode
+- **No subcommands inside a binary** — each `cmd/` entry point runs exactly one mode; multi-mode deployment is achieved via separate binaries under `cmd/`, not subcommands
 - **No `providers/` subdirectory in features** — OIDC and external integrations live in `service.go`
 - **No hand-written migration files** — always use `make migrate-create name=X`
 - **No secrets in YAML** — use `yaml:"-"` tags and `os.Getenv`; see `docs/configuration/secrets.md`
@@ -522,5 +641,8 @@ To prevent common mistakes:
 - [ADR-0006](adr/0006-yaml-file-based-configuration.md) — YAML configuration system
 - [ADR-0007](adr/0007-database-infrastructure-layer.md) — Database infrastructure layer
 - [ADR-0017](adr/0017-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC abstraction and local Dex setup
+- [ADR-0020](adr/0020-multi-service-backend-deployment-structure.md) — Multi-binary deployment model and typed platform clients
+- [ADR-0021](adr/0021-envoy-ext-proc-sidecar-token-injection.md) — Envoy ext_proc sidecar for agent token injection
+- [ADR-0022](adr/0022-opentelemetry-observability-discipline.md) — OpenTelemetry observability discipline
 - [docs/configuration/secrets.md](configuration/secrets.md) — Secret management reference
 - [docs/guides/local-development.md](guides/local-development.md) — Local setup walkthrough

@@ -143,9 +143,9 @@ See [tracing.md](tracing.md) for detailed usage patterns.
 
 Orbit uses **W3C TraceContext** standard for trace propagation:
 
-1. **Incoming requests**: TracingMiddleware extracts trace context from `traceparent` header
-2. **Downstream calls**: Use the request context when making HTTP calls to propagate traces
-3. **Cross-service**: Trace context flows automatically across service boundaries
+1. **Incoming requests**: `TracingMiddleware` extracts trace context from the `traceparent` header and starts a `SpanKindServer` span
+2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span — never do this manually
+3. **Cross-service**: Trace context flows automatically across all service boundaries via the platform client layer
 
 Example propagation header:
 ```
@@ -195,11 +195,14 @@ As a control plane for autonomous agents, observability is critical:
 
 ✅ **Completed**:
 - OpenTelemetry setup and configuration
-- HTTP request tracing via middleware
-- Automatic log-trace correlation
-- W3C TraceContext propagation
+- HTTP request tracing via middleware (`SpanKindServer` span per inbound request)
+- Automatic log-trace correlation (`trace_id`/`span_id` on every log line)
+- W3C TraceContext propagation on all inbound and outbound calls
 - Development and production modes
 - OTLP exporter support
+- Service-to-service client tracing via `httpclient.Base.Do()` (`SpanKindClient` child spans with OTel HTTP semantic conventions)
+- Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
+- ADR-0022 lint rules enforcing static span status descriptions and correct `RecordError` usage
 
 🚧 **Future Enhancements**:
 - Database query tracing
@@ -266,5 +269,6 @@ curl http://localhost:6069/api/v1/example/hello/world
 - **[tracing.md](tracing.md)** - Distributed tracing deep dive
 - **[logging.md](logging.md)** - Structured logging guide
 - [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../adr/0004-dependency-injected-logging.md)
+- [ADR-0022: OpenTelemetry Observability Discipline](../adr/0022-opentelemetry-observability-discipline.md)
 - [OpenTelemetry Go Documentation](https://opentelemetry.io/docs/instrumentation/go/)
 - [W3C TraceContext Specification](https://www.w3.org/TR/trace-context/)

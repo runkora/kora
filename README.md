@@ -102,7 +102,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Development Status
 
-Orbit is in **active early development**. The identity layer (OIDC federation, device auth, session management, JWT issuance/revocation), platform infrastructure (HTTP routing, structured logging, OpenTelemetry, PostgreSQL, Redis), and local development environment are fully implemented. Agent execution, policy enforcement, credential brokering, and the event spine are designed and under active development.
+Orbit is in **active early development**. The following are fully implemented: identity layer (OIDC federation, Device Authorization Grant, SPIFFE SVID exchange, session management, JWT issuance and revocation), the Envoy ext_proc token injection sidecar (`cmd/identity-proxy`), service-to-service typed HTTP clients with W3C trace propagation, platform infrastructure (HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL, Redis), and the local development environment. Policy enforcement, agent execution, credential brokering, and the event spine are designed and under active development.
 
 ## Getting Started
 
@@ -149,7 +149,7 @@ For a detailed walkthrough see the **[Local Development Guide](docs/guides/local
 - `make setup` — Install development tools and git hooks
 - `make env` — Copy `.env.example` → `.env`
 - `make gen-signing-key` — Regenerate RSA signing key at `secrets/signing.key` (auto-run by `dev-up` on first run)
-- `make dex-env` — Regenerate Dex credentials with default password (auto-run by `dev-up` on first run)
+- `make dex-env` — Bootstrap `config/dex/.env` with the default dev password, no-op if already exists (auto-run by `dev-up` on first run)
 - `make dex-hash password=X` — Generate Dex credentials with a custom password
 
 **Backing Services (Tier 1)**
@@ -165,7 +165,7 @@ For a detailed walkthrough see the **[Local Development Guide](docs/guides/local
 **Development**
 - `make dev` — Start backend with hot-reload
 - `make auth-device` — Authenticate via Device Authorization Grant
-- `make build` — Build binary to `.bin/orbit`
+- `make build` — Build all service binaries (`orbit`, `identity`, `identity-proxy`) to `.bin/`
 
 **Testing & Quality**
 - `make check` — Run `go vet`, `golangci-lint`, `gitleaks`, and tests

@@ -201,20 +201,42 @@ func ProcessAgentRequest(ctx context.Context, req *AgentRequest) error {
 
 ### Propagating to Downstream Services
 
-```go
-import (
-    "go.opentelemetry.io/otel"
-    "go.opentelemetry.io/otel/propagation"
-)
+**Never manually inject trace headers or construct `http.Client{}`.** All service-to-service calls must use a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`. The base client automatically:
+- Injects `traceparent` / `tracestate` W3C headers via `otel.GetTextMapPropagator().Inject(...)`
+- Opens a `SpanKindClient` child span with the correct OTel HTTP semantic convention attributes
+- Records upstream error bodies in the `error.upstream_body` span attribute
 
+```go
+// CORRECT — use a typed platform client
+type MyServiceClient struct {
+    base    *httpclient.Base
+    baseURL string
+}
+
+func (c *MyServiceClient) Fetch(ctx context.Context, id string) (*Result, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/resource/"+id, nil)
+    if err != nil {
+        return nil, fmt.Errorf("build request: %w", err)
+    }
+    _, span, resp, err := c.base.Do(ctx, "myservice.fetch", req)
+    defer span.End()
+    if err != nil {
+        return nil, err
+    }
+    var result Result
+    if err := c.base.DecodeJSON(span, resp, &result); err != nil {
+        return nil, err
+    }
+    return &result, nil
+}
+
+// WRONG — banned by noRawHttpClientLiteral lint rule
 func CallExternalAPI(ctx context.Context, url string) error {
     req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-    
-    // Inject trace context into outgoing request
     otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
-    
     resp, err := http.DefaultClient.Do(req)
-    // ... handle response
+    _ = resp
+    return err
 }
 ```
 
@@ -288,9 +310,11 @@ Spans are batched before export:
 
 ### Current
 
-✅ **HTTP Requests**: Automatic span per request
-✅ **Logging**: Automatic trace_id/span_id correlation
-✅ **W3C TraceContext**: Standard trace propagation
+✅ **HTTP Requests**: Automatic `SpanKindServer` span per inbound request via tracing middleware
+✅ **Logging**: Automatic `trace_id`/`span_id` correlation on every log line
+✅ **W3C TraceContext**: Standard `traceparent`/`tracestate` propagation on all inbound and outbound calls
+✅ **Service-to-service clients**: `httpclient.Base.Do()` opens a `SpanKindClient` child span and injects W3C headers automatically
+✅ **Upstream error bodies**: Non-2xx responses from upstream services are captured in the `error.upstream_body` span attribute
 
 ### Planned
 
@@ -317,6 +341,10 @@ Spans are batched before export:
 ❌ Create deeply nested span hierarchies (>10 levels)
 ❌ Forget to call `span.End()` (use defer)
 ❌ Sample 100% in production (too expensive)
+❌ Use `err.Error()` or `ctx.Err().Error()` inside `span.SetStatus(codes.Error, ...)` — use a package-level sentinel string (ADR-0022, enforced by `spanSetStatusLocalErr` lint rule)
+❌ Use `err.Error()` inside `attribute.String(...)` — use `span.RecordError(err)` for dynamic error context instead (ADR-0022, enforced by `spanAttrStringLocalErr` lint rule)
+❌ Manually call `otel.GetTextMapPropagator().Inject(...)` on outbound requests — use `httpclient.Base.Do()` (ADR-0020)
+❌ Import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` in typed service clients — the base client owns that lifecycle (ADR-0022, enforced by `no-otel-span-mgmt-in-service-clients`)
 
 ## Related Documentation
 
