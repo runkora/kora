@@ -60,15 +60,24 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	}
 
 	// Create appropriate trace exporter based on environment and platform config.
+	//
+	// Priority order:
+	//  1. Explicit OTLP endpoint — always used when configured, regardless of
+	//     environment. This lets any environment (including development) ship to
+	//     a real collector (e.g. Jaeger in a k3d cluster) without changing code.
+	//  2. local — stdout exporter, useful for terminal-based development on a laptop.
+	//  3. Everything else without OTLP — no-op provider. Covers the development
+	//     cluster (APP_ENV=development) until a collector is deployed, and any
+	//     production misconfiguration. Zero noise, zero spans written to pod logs.
 	var exporter sdktrace.SpanExporter
 
 	switch {
-	case cfg.Environment == "local" || cfg.Environment == "development":
-		exporter, err = createStdoutExporter()
 	case DefaultConfig.OTLPEndpoint != "":
 		exporter, err = createOTLPExporter(ctx, DefaultConfig.OTLPEndpoint, DefaultConfig.OTLPInsecure)
+	case cfg.Environment == "local":
+		exporter, err = createStdoutExporter()
 	default:
-		// Production without OTLP configured: use no-op provider.
+		// No OTLP endpoint configured and not running locally: use no-op provider.
 		return createNoOpProvider(res), nil
 	}
 

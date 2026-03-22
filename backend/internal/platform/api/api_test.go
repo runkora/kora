@@ -391,11 +391,13 @@ func TestServerMiddlewareWithNilController(t *testing.T) {
 	}
 }
 
-// TestServerUserMiddlewareWithHealthCheck verifies server middleware applies to health check
-func TestServerUserMiddlewareWithHealthCheck(t *testing.T) {
+// TestHealthCheckBypassesMiddleware verifies that the health endpoint is intentionally
+// exempt from server-level middleware (tracing, logging, metrics). Kubernetes probes
+// fire every few seconds and would otherwise flood observability pipelines with noise.
+func TestHealthCheckBypassesMiddleware(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.NewLogger()
-	api := NewAPI(ctx, logger)
+	a := NewAPI(ctx, logger)
 
 	middlewareCalled := false
 	serverMiddleware := func(next http.Handler) http.Handler {
@@ -405,19 +407,53 @@ func TestServerUserMiddlewareWithHealthCheck(t *testing.T) {
 		})
 	}
 
-	server := api.Server(ctx, 8080, "/", serverMiddleware)
+	server := a.Server(ctx, 8080, "/", serverMiddleware)
 
 	req := httptest.NewRequest("GET", "/health", nil)
 	rec := httptest.NewRecorder()
 
 	server.Handler.ServeHTTP(rec, req)
 
-	if !middlewareCalled {
-		t.Error("Server middleware was not called for health check")
-	}
-
+	// Health check must succeed.
 	if rec.Code != http.StatusOK {
 		t.Errorf("Health check status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	// Server middleware must NOT be invoked for /health — this is the key invariant.
+	if middlewareCalled {
+		t.Error("Server middleware must not be called for /health (probe noise suppression)")
+	}
+}
+
+// TestServerMiddlewareAppliedToAppRoutes verifies that server-level middleware
+// IS still applied to real application routes even though /health bypasses it.
+func TestServerMiddlewareAppliedToAppRoutes(t *testing.T) {
+	ctx := context.Background()
+	logger := logging.NewLogger()
+	a := NewAPI(ctx, logger)
+
+	middlewareCalled := false
+	serverMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			middlewareCalled = true
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	controller := &mockController{basePath: "/users"}
+	server := a.Server(ctx, 8080, "/api", serverMiddleware, controller)
+
+	req := httptest.NewRequest("GET", "/api/users/test", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("App route status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !middlewareCalled {
+		t.Error("Server middleware was not called for app route")
 	}
 }
 

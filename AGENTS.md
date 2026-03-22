@@ -11,7 +11,7 @@ Orbit is the **control plane for AI agents** — not a framework, not a model ro
 - **Event Spine** = Neural signaling (awareness & feedback)
 - **Autonomy Levels** = Brain stem vs cortex (decision hierarchy)
 
-**Development Status**: Active early development. The identity layer, platform infrastructure, and local development environment are fully implemented. See `docs/` for ADRs covering all major architectural decisions.
+**Development Status**: Active early development. The identity layer, platform infrastructure, local development environment, and identity-proxy sidecar are fully implemented. See `docs/` for ADRs covering all major architectural decisions.
 
 ## Product Development Workflow
 
@@ -66,25 +66,95 @@ make auth-device       # Device Authorization Grant against local Dex
                        # token saved to /tmp/orbit_credentials.json
 ```
 
-**Key conventions an agent must follow when modifying this codebase:**
+**Run the full quality gate before committing:**
 
+```bash
+make check             # fmt + vet + lint (golangci-lint) + secret scan + tests
+```
+
+All PRs must pass `make check` with zero issues.
+
+## Key Conventions
+
+An agent **must** follow these conventions when modifying this codebase. Each convention is enforced by a linting rule — violations will fail `make check`.
+
+### Data & Storage
 - **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
-- **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`
-- **No global loggers**: Inject `*logging.Logger` into structs; all log calls take `ctx context.Context` as first argument
-- **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields
+- **No `database/sql`**: Use `pgx/v5` exclusively. `errors.Is(err, pgx.ErrNoRows)` for not-found checks.
 - **No hand-written migrations**: Generate with `make migrate-create name=X` (Goose format)
-- **Cross-cutting code lives in `internal/platform/`**: Feature packages must not import each other
-- **Config uses `config.Load[T any]`**: Environment-specific YAML loaded by `APP_ENV` value
-- **ADR before implementation**: Significant architectural decisions require an ADR in `docs/adr/` before code is written
+
+### HTTP & Routing
+- **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`. No gin, chi, echo, or gorilla/mux.
+- **No raw JSON decoding**: Use `api.DecodeJSON(ctx, r, w, logger, &req)` in handlers — never `json.NewDecoder(r.Body).Decode(...)`.
+- **No raw response writing**: Use `api.JSON(...)` and `api.ErrorResponse(...)` — never `w.WriteHeader(code)` or `http.Error(w, ...)` directly in handlers.
+- **No raw HTTP clients**: Service-to-service HTTP calls must use a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`. Never instantiate `http.Client{}` directly in feature or service code.
+
+### Logging
+- **No global loggers**: Inject `*logging.Logger` into structs; all log calls take `ctx context.Context` as first argument.
+- **No stdlib log**: Never use `log`, `log/slog`, or `fmt.Print*` for logging. Use the injected `*logging.Logger`.
+
+### Configuration
+- **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields.
+- **Config uses `config.Load[T any]`**: Environment-specific YAML loaded by `APP_ENV` value. No raw viper, no raw yaml library imports outside `platform/config/`.
+
+### Errors & Observability
+- **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)` — never `%s` for error wrapping.
+- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string — never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
+- **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly — the `httpclient.Base` handles all span lifecycle.
+
+### Code Structure
+- **Cross-cutting code lives in `internal/platform/`**: Feature packages must not import each other.
+- **ADR before implementation**: Significant architectural decisions require an ADR in `docs/adr/` before code is written.
+
+## Automated Enforcement
+
+All conventions above are mechanically enforced. Do not add inline `//nolint` directives — exceptions are managed centrally via path-scoped exclusions in `.golangci.yml`.
+
+**Tier 1 — AST rules** (`rules/orbit_rules.go`, enforced via `gocritic/ruleguard`):
+
+| Rule | What it bans |
+|------|-------------|
+| `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())` |
+| `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())` |
+| `spanAttrStringLocalErr` | `attribute.String(_, err.Error())` |
+| `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())` |
+| `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` in handlers |
+| `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)` |
+| `noRawHttpClientLiteral` | `http.Client{...}` literal construction |
+| `noHttpErrorInHandler` | `http.Error(w, ...)` in handlers |
+| `noDirectWriteHeader` | `w.WriteHeader(code)` in handlers |
+
+**Tier 2 — Import bans** (`depguard` in `.golangci.yml`):
+
+| Rule | What it bans |
+|------|-------------|
+| `no-stdlib-log` | `log`, `log/slog` |
+| `no-otel-span-mgmt-in-service-clients` | `otel/codes`, `otel/trace` inside typed clients |
+| `no-database-sql` | `database/sql` |
+| `no-raw-viper` | `github.com/spf13/viper` |
+| `no-raw-yaml` | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3` |
+| `no-third-party-routers` | `gin`, `chi`, `echo`, `gorilla/mux` |
+
+See `rules/README.md` for full rationale and exception policy.
 
 ## Code Organization
 
-Orbit follows a **feature-based architecture** with the repository pattern for data access. See the following documents for complete details:
+Orbit follows a **feature-based architecture** with the repository pattern for data access and a multi-binary deployment model. See the following documents for complete details:
 
 - **[docs/code-organization.md](docs/code-organization.md)** - Complete directory structure and package organization
-- **[docs/adr/0003-repository-pattern-and-code-organization.md](docs/adr/0003-repository-pattern-and-code-organization.md)** - Architectural decisions and rationale
+- **[docs/adr/0003-repository-pattern-and-code-organization.md](docs/adr/0003-repository-pattern-and-code-organization.md)** - Repository pattern and feature structure
+- **[docs/adr/0020-multi-service-backend-deployment-structure.md](docs/adr/0020-multi-service-backend-deployment-structure.md)** - Multi-binary deployment model
 
 ### Key Principles
+
+**Multi-binary deployment**: The backend compiles to multiple binaries under `backend/cmd/`. Each binary has its own `main.go` and `config/` directory. All binaries share the `backend/internal/platform/` layer.
+
+| Binary | Path | Purpose |
+|--------|------|---------|
+| `orbit` | `cmd/orbit/` | Main API server — identity, sessions, future features |
+| `identity` | `cmd/identity/` | Standalone identity service |
+| `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar — injects platform tokens into agent outbound calls |
+| `example` | `cmd/example/` | Reference implementation (not production) |
 
 **Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
 - Repository interface (storage contract)
@@ -93,7 +163,9 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 - HTTP handlers
 - Feature-specific types
 
-**Storage Infrastructure**: The `internal/platform/storage/` package provides database infrastructure (Postgres pool, Redis client, migrations) but never imports feature packages. Dependency flow is always: Features → Storage.
+**Platform Clients**: Service-to-service HTTP calls go through typed clients in `internal/platform/clients/{service}/client.go`. Each client embeds `httpclient.Base` which automatically handles W3C trace propagation, OTel span lifecycle, and structured logging. Feature packages never construct raw `http.Client` instances.
+
+**Storage Infrastructure**: The `internal/platform/storage/` package provides database infrastructure (Postgres pool, Redis client, migrations) but never imports feature packages. Dependency flow is always: Features → Platform.
 
 **"DDD-lite" Approach**: We use valuable Domain-Driven Design concepts (bounded contexts, repository pattern, ubiquitous language) while staying idiomatic to Go. We skip strict DDD ceremony (deep layering, aggregate roots, value objects) in favor of flat packages and explicit code.
 
@@ -107,8 +179,6 @@ internal/{feature}/
 └── models.go        # Feature-specific types
 ```
 
-This structure enables feature teams to work independently while maintaining clear separation of concerns.
-
 ## Design Principles
 
 When contributing code or architecture:
@@ -116,10 +186,10 @@ When contributing code or architecture:
 1. **Security First**: Every component designed with security as primary concern
 2. **Identity-Driven**: All actions tied to verified identities
 3. **Policy-Governed**: Policies enforced *before* execution, not after
-4. **Observable**: Complete visibility into agent behavior
+4. **Observable**: Complete visibility into agent behavior — distributed tracing, structured logging, log-trace correlation
 5. **Extensible**: Pluggable integrations for models, tools, identity providers
 6. **Production-Grade**: Built for enterprise reliability and scale
-7. **Open Standards**: OPA for policy, OIDC/SAML for identity, MCP for tools
+7. **Open Standards**: OPA for policy, OIDC/SPIFFE for identity, MCP for tools, OpenTelemetry for observability
 
 ## Security Guidelines
 
@@ -150,23 +220,23 @@ See `SECURITY.md` for vulnerability reporting.
 
 3. **Implement**: Only after PRD and ADR approval
    - Write tests for all new code
-   - Follow Go standards: `gofmt`, `golint`, idiomatic Go
+   - Follow Go standards: `gofmt`, idiomatic Go
+   - Run `make check` and fix all issues before opening a PR
    - Reference PRD and ADR in commit messages and PR descriptions
-   - Request security review for security-critical changes
 
 ### For Bug Fixes or Minor Changes:
 
 1. **Document**: Create an issue describing the problem
 2. **Implement**: Fix with tests and documentation updates
-3. **Review**: Submit PR with clear description
+3. **Review**: Run `make check`, then open a PR with a clear description
 
 ## Testing Strategy
 
-- **Unit tests**: Test individual components in isolation
-- **Integration tests**: Test component interactions
+- **Unit tests**: Test individual components in isolation using table-driven tests
+- **Integration tests**: Test component interactions (repository implementations against a real Postgres instance)
 - **E2E tests**: Test full agent workflows through Orbit
 - **Security tests**: Validate policy enforcement and credential isolation
-- **Performance tests**: Ensure scalability of control plane
+- **No dedicated lint-rule unit tests**: Custom `golangci-lint` rules are validated empirically via `make check` — no `analysistest` harness to keep `backend/go.mod` lean
 
 ## Implementation Principles
 
@@ -174,46 +244,24 @@ When implementing Orbit components:
 
 - **Policy Evaluation**: Always evaluate policies before executing actions, not after
 - **Event Emission**: Emit structured events for all significant actions and decisions
-- **Credential Brokering**: Never expose raw credentials to agents - use scoped, temporary access
-- **Identity Context**: Carry identity context through the entire execution chain
+- **Credential Brokering**: Never expose raw credentials to agents — use scoped, temporary access
+- **Identity Context**: Carry identity context through the entire execution chain via `context.Context`
 - **Repository Pattern**: Define repository interfaces in feature packages, implement with PostgreSQL in the same package
-- **Feature Independence**: Features should not import each other - share only through well-defined contracts
+- **Feature Independence**: Features must not import each other — share only through `internal/platform/`
 - **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
+- **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
 
 See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
-
-## Frontend Rules
-
-- **`server-only` guard**: Every server-side module must have `import "server-only"` after its JSDoc block, before any other imports. This includes all modules under `frontend/src/server/` **and** all route handlers under `frontend/src/app/api/`. Explicit labelling is preferred over relying on framework file-location conventions.
-- **BFF boundary**: Only `src/app/api/` route handlers may import from `@/server/`. Pages and components must fetch via `/api/*`.
-
-## Templates and Documentation
-
-### PRD Template
-When creating a new feature PRD, use `docs/prd/template.md`. The template includes:
-- Problem statement and user pain points
-- Goals, success metrics, and non-goals
-- User stories with acceptance criteria
-- Proposed solution and key components
-- Requirements (functional and non-functional)
-- Dependencies, risks, and timeline
-
-### ADR Template
-When creating an ADR, use `docs/adr/template.md`. The template includes:
-- Context and problem statement
-- Decision drivers and considered options
-- Decision rationale and consequences
-- Implementation notes and validation criteria
-- Related decisions and references
-
-Both templates are designed to facilitate collaboration between agents and humans in the product development process.
 
 ## Current Focus Areas
 
 ### Implemented
 
 - **Identity layer**: Provider-agnostic OIDC federation (RFC 8628 Device Authorization Grant), SPIFFE SVID exchange endpoint, session management, JWT issuance and revocation (JTI blocklist via Redis)
-- **Platform infrastructure**: HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
+- **Identity-proxy sidecar**: Envoy ext_proc binary that intercepts outbound agent HTTP calls and injects a platform Bearer token; SPIFFE SVID-triggered cache invalidation; waits for Istio/Envoy xDS readiness before accepting connections
+- **Platform infrastructure**: HTTP controller routing, structured logging, OpenTelemetry (tracing + log correlation), PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
+- **Platform HTTP clients**: `httpclient.Base` provides automatic W3C trace propagation, OTel span lifecycle, and structured transport logging for all service-to-service calls
+- **Automated lint enforcement**: 9 custom AST rules (`rules/orbit_rules.go`) + 6 import-ban rules (`.golangci.yml`) covering ADRs 0003–0022
 - **Local development environment**: Dex OIDC provider via Docker Compose, signing key generation, `make auth-device` CLI flow
 
 ### Next Priorities
@@ -223,13 +271,11 @@ Both templates are designed to facilitate collaboration between agents and human
 3. **Credential broker**: Scoped just-in-time credential provisioning, Vault integration
 4. **Event spine**: Structured event emission and routing
 
-The next ADRs in the sequence are **ADR-0013** (MCP server registration and governance) and **ADR-0014** (scope-gated tool exposure).
-
-Check open issues and project boards for specific tasks.
+The next ADRs in the sequence are **ADR-0023** onward. Check open issues and project boards for specific tasks.
 
 ## Getting Help
 
-- **Architecture questions**: Open a discussion or issue
+- **Architecture questions**: Open a discussion or issue referencing the relevant ADR
 - **Security concerns**: See `SECURITY.md` for private reporting
 - **General questions**: Use GitHub Discussions
 

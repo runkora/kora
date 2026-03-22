@@ -117,7 +117,7 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := c.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		if err == ErrUserNotFound {
+		if errors.Is(err, ErrUserNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "user not found", map[string]any{
 				"user_id": userID,
 			})

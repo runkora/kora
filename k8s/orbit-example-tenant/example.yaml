@@ -20,24 +20,24 @@ spec:
         app: orbit-example
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/agent: example
+        orbit.io/identity-proxy: "enabled"
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
+        # Inject Istio sidecar + SPIRE socket mount + identity-proxy sidecar.
+        # The identity-proxy template also patches istio-proxy to mount the
+        # shared /run/orbit emptyDir so Envoy can reach the ext_proc socket.
+        inject.istio.io/templates: "sidecar,identity-proxy"
+        # Hold the app until istio-proxy is ready to avoid Postgres connect
+        # failures on pod startup (iptables intercepts before Envoy is ready).
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-example
-      volumes:
-        - name: spire-workload-socket
-          csi:
-            driver: csi.spiffe.io
-            readOnly: true
       containers:
         - name: orbit-example
-          image: orbit-registry:5000/orbit-example:latest
+          image: orbit-registry:5001/orbit-example:latest
           imagePullPolicy: Always
           env:
             - name: APP_ENV
               value: development
-            - name: SPIFFE_ENDPOINT_SOCKET
-              value: unix:///run/secrets/workload-spiffe-uds/socket
           ports:
             - name: http
               containerPort: 8081
@@ -68,10 +68,6 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
-          volumeMounts:
-            - name: spire-workload-socket
-              mountPath: /run/secrets/workload-spiffe-uds
-              readOnly: true
 ---
 apiVersion: v1
 kind: Service

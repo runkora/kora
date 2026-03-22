@@ -260,16 +260,20 @@ With Orbit, organizations can:
 | Component | Technology | Status |
 |---|---|---|
 | **Language** | Go 1.26 | Implemented |
-| **HTTP layer** | Custom controller-based router (`internal/platform/api`) | Implemented |
+| **HTTP layer** | Custom controller-based router (`internal/platform/api`) — ADR-0005 | Implemented |
 | **Identity / Auth** | `go-oidc/v3` + `golang.org/x/oauth2` — provider-agnostic OIDC | Implemented |
-| **Workload identity** | SPIFFE/SPIRE with SVID-to-platform-token exchange | Designed (ADR-0010) |
+| **Workload identity** | SPIFFE/SPIRE SVIDs exchanged for Orbit platform tokens via `/api/v1/identity/exchange` | Implemented (ADR-0010) |
+| **Token injection sidecar** | Envoy ext_proc gRPC sidecar (`cmd/identity-proxy`) — injects Bearer token into outbound agent requests | Implemented (ADR-0021) |
+| **Service-to-service clients** | Typed HTTP clients in `internal/platform/clients/` with OTel trace propagation built in | Implemented (ADR-0020) |
 | **Policy Engine** | Open Policy Agent (OPA) | Designed (ADR-0011) |
-| **Primary storage** | PostgreSQL via `pgx/v5` (no ORM) | Implemented |
+| **Primary storage** | PostgreSQL via `pgx/v5` (no ORM) — ADR-0007 | Implemented |
 | **Session cache / revocation** | Redis via `go-redis/v9` | Implemented |
 | **Service mesh** | Istio + Envoy sidecars | Designed (ADR-0015) |
 | **Network enforcement** | Cilium (CI/staging) + Kubernetes NetworkPolicy (local) | Designed (ADR-0015) |
-| **Observability** | OpenTelemetry (traces + metrics) | Implemented |
-| **Logging** | Structured, dependency-injected logger (`internal/platform/logging`) | Implemented |
+| **Observability** | OpenTelemetry (traces + metrics) with OTel HTTP semantic conventions — ADR-0022 | Implemented |
+| **Logging** | Structured, dependency-injected logger (`internal/platform/logging`) — ADR-0004 | Implemented |
+| **Configuration** | Environment-aware YAML via `config.Load[T]()`, secrets via `os.Getenv` only — ADR-0006 | Implemented |
+| **Static analysis** | `golangci-lint` with custom `ruleguard` + `depguard` rules enforcing all ADRs | Implemented |
 | **Local dev cluster** | k3d | Designed (ADR-0016) |
 | **Local identity provider** | Dex (Docker Compose, port 5556) | Implemented |
 | **Events** | Structured event spine | Planned |
@@ -277,7 +281,21 @@ With Orbit, organizations can:
 
 ## Development Status
 
-Orbit is in **active early development**. The identity layer, platform infrastructure, and local development environment are fully implemented. Agent execution, policy enforcement, credential brokering, and the event spine are designed via ADRs and under active development.
+Orbit is in **active early development**.
+
+**Fully implemented:**
+- Identity layer — human OIDC federation (Device Authorization Grant), SPIFFE SVID exchange, session management, JWT issuance and revocation
+- Envoy ext_proc token injection sidecar (`cmd/identity-proxy`) — transparent Bearer token injection for outbound agent calls
+- Platform infrastructure — HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
+- Service-to-service typed HTTP clients with W3C trace propagation baked in
+- Custom static analysis rules enforcing every architectural ADR at lint time
+- Local development environment — Dex OIDC provider, signing key generation, `make auth-device` CLI flow
+
+**Designed (ADR exists, implementation pending):**
+- Policy engine — OPA integration, RBAC/PBAC enforcement (ADR-0011)
+- Agent execution — agent identity registration, run orchestration, execution state management (ADR planned)
+- Credential broker — scoped just-in-time credential provisioning, Vault integration (ADR planned)
+- Event spine — structured event emission and routing (ADR planned)
 
 ## Contributing
 
