@@ -92,8 +92,11 @@ export interface ProgressProps
  */
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
   ({ className, variant, size, value, max = 100, label, showValue = false, ...props }, ref) => {
-    const clamped = Math.min(Math.max(value, 0), max);
-    const pct = (clamped / max) * 100;
+    // Guard against max ≤ 0 (would produce Infinity/NaN in pct calculation and
+    // invalid ARIA values). Fall back to the prop default of 100.
+    const safeMax = max > 0 ? max : 100;
+    const clamped = Math.min(Math.max(value, 0), safeMax);
+    const pct = (clamped / safeMax) * 100;
 
     return (
       <div ref={ref} className={cn('flex items-center gap-3', className)} {...props}>
@@ -103,7 +106,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
           aria-label={label}
           aria-valuenow={clamped}
           aria-valuemin={0}
-          aria-valuemax={max}
+          aria-valuemax={safeMax}
           className={cn(
             'relative flex-1 overflow-hidden rounded-full bg-surface-overlay',
             // Track height mirrors fill height
