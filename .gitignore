@@ -96,3 +96,7 @@ dist/
 # helm
 charts/**/charts/
 Chart.lock
+infrastructure/overlays/*/charts
+
+# Git
+.worktrees/

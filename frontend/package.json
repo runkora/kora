@@ -13,6 +13,7 @@
   "dependencies": {
     "@orbit/terra": "workspace:*",
     "lucide-react": "^0.511.0",
+    "iron-session": "^8.0.4",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
