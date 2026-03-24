@@ -25,7 +25,7 @@ The Go backend identity service (`ADR-0017`) implements the OAuth 2.0 Device Aut
 The current gaps, by layer:
 
 **Backend (`backend/internal/identity/handlers.go`):**
-- No `GET /identity/login` endpoint to initiate a browser redirect flow
+- No `POST /identity/login` endpoint to initiate a browser redirect flow
 - No `authorization_code` grant type case in `handleSession`
 - No PKCE verifier or OAuth state parameter storage
 - No callback redirect URI registration or validation
@@ -171,7 +171,7 @@ graph LR
     Redis["Redis"]
 
     Browser -->|"requests + session cookie"| BFF
-    BFF -->|"GET /identity/login\nPOST /identity/session\nPOST /identity/revoke"| Backend
+    BFF -->|"POST /identity/login\nPOST /identity/session\nPOST /identity/revoke"| Backend
     Backend -->|"GET /authorize\nPOST /token"| OIDC
     Backend <-->|"PKCE state\n(TTL 15 min)"| Redis
     BFF -.->|"HttpOnly encrypted cookie\n(opaque to browser JS)"| Browser
@@ -204,7 +204,7 @@ sequenceDiagram
 
     User->>Browser: Click "Sign in" on /login page
     Browser->>BFF: POST /api/auth/login
-    BFF->>Backend: GET /identity/login
+    BFF->>Backend: POST /identity/login
     Backend->>Backend: Generate PKCE pair + state<br/>Store verifier in Redis (TTL 15 min)
     Backend-->>BFF: { authorization_url }
     BFF->>BFF: Store next=/dashboard in<br/>short-lived HttpOnly cookie
@@ -251,8 +251,8 @@ All OIDC-sensitive logic — PKCE verifier generation, state token management, c
 
 This means the backend grows two new endpoints:
 
-- **`GET /identity/login`** — accepts a `redirect_uri`; generates a PKCE code pair and an opaque `state` token; stores the verifier and state in Redis (TTL 15 minutes); returns the fully-constructed OIDC authorization URL for the BFF to redirect to.
-- **`authorization_code` grant type in `POST /identity/session`** — accepts `code`, `state`, and `redirect_uri`; looks up the state in Redis; exchanges the code at the OIDC provider's token endpoint using the stored verifier; issues an Orbit platform JWT; returns the same `SessionResponse` shape as the device code grant.
+- **`POST /identity/login`** — request body: `{ "redirect_uri": "<callback URL>" }`. Generates a PKCE code pair and an opaque `state` token (32 bytes, `crypto/rand`, base64url-encoded — 256-bit entropy; PKCE verifier 32–96 bytes per RFC 7636 §4.1). Stores verifier in Redis keyed by `state` (TTL 15 minutes). Returns: `{ "authorization_url": "<fully-constructed provider /authorize URL>" }`. The `redirect_uri` is config-driven in the Go backend; the value passed by the BFF must match it exactly. Redis payload schema: `{ "verifier": "<base64url PKCE verifier>" }` — the `next` destination is a BFF concern and is stored in a separate short-lived HttpOnly cookie by the BFF before the redirect, not in Redis.
+- **`authorization_code` grant type in `POST /identity/session`** — request body: `{ "grant_type": "authorization_code", "code": "<auth code>", "state": "<opaque state>" }`. The `redirect_uri` used in the token exchange is config-driven in the Go backend — it is not accepted from the BFF caller. The backend looks up `state` in Redis to retrieve the PKCE verifier, then calls the OIDC provider's token endpoint. On success, issues an Orbit platform JWT and returns the standard `SessionResponse` shape (`access_token`, `refresh_token`, `expires_in`, `issued_at`). The Redis key for `state` is deleted after a single successful exchange.
 
 The BFF does not implement any PKCE logic and does not talk to the OIDC provider directly. It calls the Go backend for both the authorize redirect URL and the token exchange.
 
@@ -266,7 +266,7 @@ This keeps all OIDC and credential material server-side within the Go service, c
 2. Middleware detects no session cookie → redirects to `/login?next=/dashboard`
 3. Login page renders with a "Sign in" button
 4. Operator clicks the button → browser POSTs to `/api/auth/login`
-5. BFF calls `GET /identity/login` → backend generates PKCE pair and state, stores in Redis, returns authorization URL
+5. BFF calls `POST /identity/login` → backend generates PKCE pair and state, stores in Redis, returns authorization URL
 6. BFF stores the `next` destination in a short-lived HttpOnly cookie
 7. BFF responds with a redirect to the OIDC provider's authorization URL
 8. Operator authenticates at the OIDC provider (enters credentials on the IdP login page)
@@ -293,13 +293,21 @@ This keeps all OIDC and credential material server-side within the Go service, c
 ### Key Components
 
 - **`middleware.ts`** — Edge-compatible middleware that checks for a valid session cookie on every request. Redirects unauthenticated requests to `/login?next=<path>`. Validates the `next` parameter on redirect to prevent open redirect (must be a relative path present in `APP_ROUTES`). Performs token expiry check and triggers inline refresh if needed.
-- **`src/server/session.ts`** — Server-only session read/write helpers for encrypted cookie management. Wraps the session cookie lifecycle; never called from client components.
-- **`POST /api/auth/login`** — BFF route that calls `GET /identity/login`, stores the `next` destination cookie, and redirects the browser to the returned authorization URL.
-- **`GET /api/auth/callback`** — BFF route that calls `POST /identity/session` with `grant_type=authorization_code`. Creates the encrypted session cookie on success. Validates that `state` is present before calling the backend.
+- **`src/server/session.ts`** — Server-only session read/write helpers for encrypted cookie management. Wraps the session cookie lifecycle; never called from client components. Session payload schema:
+  ```typescript
+  interface SessionPayload {
+    user: { sub: string; email: string; name: string };
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number; // Unix seconds — used by middleware to decide whether to refresh
+  }
+  ```
+- **`POST /api/auth/login`** — BFF route that calls `POST /identity/login`, stores the `next` destination cookie, and redirects the browser to the returned authorization URL.
+- **`GET /api/auth/callback`** — BFF route that handles the OIDC provider redirect. On error (provider returns `?error=<code>&error_description=<msg>`): clears any `next` cookie and redirects to `/login?error=<code>`. On success: validates that `state` is present (missing or mismatched → `400`), calls `POST /identity/session` with `grant_type=authorization_code`, sets the encrypted session cookie, clears the `next` cookie, and redirects to the `next` destination (or `/` if absent). The login page reads the `error` query parameter and renders an appropriate message to the operator.
 - **`GET /api/auth/session`** — BFF route that returns non-sensitive user info (name, email, expiry) from the decrypted session. Returns `401` if no session.
 - **`POST /api/auth/logout`** — BFF route that revokes the token and clears the session cookie.
 - **`src/app/login/page.tsx`** — Login page component with a single "Sign in" button that POSTs to `/api/auth/login`.
-- **Backend identity service** (`backend/internal/identity/`) — Extended with `GET /identity/login` and `authorization_code` grant type in `POST /identity/session`.
+- **Backend identity service** (`backend/internal/identity/`) — Extended with `POST /identity/login` and `authorization_code` grant type in `POST /identity/session`.
 - **`BFF_SESSION_SECRET`** — Already wired in `src/server/config.ts`; must be set in the local `.env` file (minimum 32 characters).
 - **OIDC provider** (`orbit-local` client) — Must have `redirectURIs` updated to include the callback URL (see OQ-03).
 
@@ -316,7 +324,7 @@ This keeps all OIDC and credential material server-side within the Go service, c
 - Logout with backend token revocation (`POST /identity/revoke`)
 - `GET /api/auth/session` endpoint for client-side user display information (name, email)
 - Post-login redirect preservation via validated `next` parameter
-- `GET /identity/login` and `authorization_code` grant type additions to the Go identity service
+- `POST /identity/login` and `authorization_code` grant type additions to the Go identity service
 - PKCE state and code verifier storage in Redis (Go identity service; TTL 15 minutes)
 - Local development end-to-end via `make dev-up`, no additional setup
 
@@ -345,9 +353,9 @@ This keeps all OIDC and credential material server-side within the Go service, c
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `GET /identity/login` Go backend endpoint: generates PKCE pair and `state`, stores verifier in Redis (TTL 15 min), returns the OIDC provider authorization URL
+- [ ] `POST /identity/login` Go backend endpoint: generates PKCE pair and `state` (32 bytes, `crypto/rand`, base64url); stores verifier in Redis (TTL 15 min); returns `{ "authorization_url": "..." }`
 - [ ] `authorization_code` grant type in `POST /identity/session`: validates `state` against Redis, exchanges code with OIDC provider, issues Orbit platform JWT
-- [ ] `POST /api/auth/login` BFF route: calls `GET /identity/login`, stores `next` destination in short-lived HttpOnly cookie, redirects browser to provider
+- [ ] `POST /api/auth/login` BFF route: calls `POST /identity/login`, stores `next` destination in short-lived HttpOnly cookie, redirects browser to provider
 - [ ] `GET /api/auth/callback` BFF route: validates `state` presence, calls `POST /identity/session`, sets encrypted session cookie, clears `next` cookie, redirects to destination
 - [ ] `GET /api/auth/session` BFF route: returns non-sensitive user identity (name, email) from the decrypted session; returns `401` if no session
 - [ ] `POST /api/auth/logout` BFF route: calls `POST /identity/revoke`, clears session cookie, redirects to `/login`
@@ -374,6 +382,7 @@ This keeps all OIDC and credential material server-side within the Go service, c
 - CSRF protection enforced via the PKCE `state` parameter — a callback with a mismatched or missing `state` must be rejected with `400`
 - The `next` redirect parameter must be validated against `APP_ROUTES` before use to prevent open redirect attacks
 - The PKCE code verifier must be generated and validated entirely within the Go identity service; it must never cross the BFF boundary
+- The session management library used by `src/server/session.ts` must be compatible with the Next.js Edge Runtime — it must rely on the Web Crypto API only and must not import any Node.js built-in modules. Library selection is deferred to ADR-0023.
 
 **Performance:**
 - Token refresh adds at most one additional backend round-trip per expiry event; subsequent requests within the new token window are not affected
@@ -393,7 +402,7 @@ This keeps all OIDC and credential material server-side within the Go service, c
 
 ### Internal Dependencies
 
-- **Go identity service** (`backend/internal/identity/`) — requires two new additions: `GET /identity/login` endpoint and `authorization_code` grant type in `POST /identity/session`. Status: not yet implemented; tracked as Phase 1 backend work.
+- **Go identity service** (`backend/internal/identity/`) — requires two new additions: `POST /identity/login` endpoint and `authorization_code` grant type in `POST /identity/session`. Status: not yet implemented; tracked as Phase 1 backend work.
 - **Redis** — already deployed as part of the identity service for the JTI blocklist. Reused for PKCE state storage (new key namespace, 15-minute TTL). Status: available.
 - **`APP_ROUTES`** (`frontend/src/`) — `/login` is already registered; used by middleware and callback handler to validate the `next` redirect parameter. Status: available.
 - **`BFF_SESSION_SECRET`** environment variable — already defined in `src/server/config.ts`. Must be set in the local `.env` file (minimum 32 characters). Status: available; no code changes required.
@@ -415,6 +424,7 @@ This keeps all OIDC and credential material server-side within the Go service, c
 | Open redirect via `next` parameter | High | Medium | Validate `next` is a relative path belonging to `APP_ROUTES` before redirecting |
 | PKCE verifier stored in insecure location | High | Low | Verifier stored in Redis server-side in the Go backend — never touches the browser |
 | Session cookie readable by client JS | High | Low | Enforce `HttpOnly` on all session cookies; no exceptions |
+| CSRF on `POST /api/auth/logout` | Low | Low | `SameSite=Lax` does not block cross-site `fetch`/`XHR` POST requests. Forcing a sign-out grants the attacker nothing — the session is cleared but no data is exfiltrated or modified. Risk accepted for this phase; a CSRF token on logout is explicitly deferred to a later phase. |
 | `redirect_uri` mismatch breaking local dev | Medium | Medium | Document exact callback URL; add it to `config/dex/config.yaml` as part of implementation |
 | Backend not ready (new endpoints not yet implemented) | Medium | Medium | Frontend and backend changes tracked together; frontend gated behind feature flag until backend is ready |
 | Edge Runtime incompatibility in middleware | Medium | Low | Prefer a session library built on the Web Crypto API, which is natively available in the Edge Runtime |
@@ -459,19 +469,19 @@ Store session data in Redis or Postgres keyed by a session ID, rather than an en
 
 **Question:** Should the BFF talk directly to the OIDC provider for the Authorization Code Flow, or should the Go backend own the full flow?
 
-**Decision:** The Go backend owns the full flow. A new `GET /identity/login` endpoint and an `authorization_code` grant type in `POST /identity/session` will be added to the identity service. The BFF calls the Go backend to obtain the authorization redirect URL and to exchange the authorization code for tokens — it never communicates with the OIDC provider directly.
+**Decision:** The Go backend owns the full flow. A new `POST /identity/login` endpoint and an `authorization_code` grant type in `POST /identity/session` will be added to the identity service. The BFF calls the Go backend to obtain the authorization redirect URL and to exchange the authorization code for tokens — it never communicates with the OIDC provider directly.
 
 **Rationale:** All OIDC-sensitive logic (PKCE verifier generation, state management, code exchange, token issuance) stays within the identity service. This is consistent with the existing architecture — the BFF is a thin orchestration layer, not an OIDC client — and ensures that future provider changes require updates only in the Go backend.
 
 ---
 
-### OQ-02 — PKCE state and code verifier storage mechanism
+### OQ-02 — PKCE state and code verifier storage mechanism ✅ Resolved
 
 **Question:** During the OAuth round-trip, the PKCE code verifier and `state` parameter must be stored somewhere between the authorization redirect and the callback. Where should they live?
 
-**Background:** The `state` parameter is a random, single-use token that prevents CSRF attacks (it must match the value sent in the initial authorization request). The `code_verifier` is the PKCE secret that proves the callback originated from the same client that generated the challenge. Both must survive the browser round-trip to the OIDC provider and back — typically 5–30 seconds.
+**Decision:** Option A — the Go backend stores the PKCE verifier in Redis, keyed by the opaque `state` value (TTL 15 minutes). The verifier is generated and validated entirely within the Go identity service; it never crosses the BFF boundary. Redis is already present for the JTI blocklist. This is consistent with OQ-01: since the backend owns the Authorization Code Flow, it also owns the PKCE state machine.
 
-**Option comparison:**
+**Options considered (for ADR reference):**
 
 | | Option A: Go backend (Redis) | Option B: BFF short-lived HttpOnly cookie | Option C: Encrypted state parameter (JWE) |
 |---|---|---|---|
@@ -484,28 +494,13 @@ Store session data in Redis or Postgres keyed by a session ID, rather than an en
 | **Failure mode** | Redis unavailable → auth fails | Cookie cleared by browser → auth fails with no recovery | Malformed state → 400; no external dependency |
 | **Fit with OQ-01 decision** | ✅ Natural fit — backend owns all auth state, verifier never touches BFF | ⚠️ Requires BFF to hold and transmit the raw verifier | ✅ Stateless and backend-owned, but adds crypto complexity |
 
-**Recommendation:** Option A (Go backend / Redis). Since OQ-01 establishes that the backend owns the Authorization Code Flow, having the backend also own the PKCE verifier storage is the consistent choice. The verifier is generated and validated entirely within the Go identity service and never crosses the BFF boundary. Redis is already present for the JTI blocklist.
-
-**Status:** Pending confirmation — recommendation is Option A, to be ratified in the ADR.
-
 ---
 
 ### OQ-03 — OIDC provider `redirect_uri` registration ✅ Resolved
 
 **Question:** Does the local OIDC provider configuration need to be updated to support the Authorization Code Flow?
 
-**Decision:** Yes. The Authorization Code Flow requires the callback URL to be registered in the OIDC provider's client configuration. The current `orbit-local` client in `config/dex/config.yaml` has no `redirectURIs` field — the Device Authorization Grant does not use one. The callback URL `http://localhost:3000/api/auth/callback` must be added:
-
-```yaml
-staticClients:
-  - id: orbit-local
-    name: "Orbit (local dev)"
-    public: true
-    redirectURIs:
-      - "http://localhost:3000/api/auth/callback"
-```
-
-This change must be committed alongside the backend and frontend changes so that `make dev-up` works end-to-end. Production and staging environments require equivalent registration in the configured provider.
+**Decision:** Yes. Add `http://localhost:3000/api/auth/callback` to the `redirectURIs` list in `config/dex/config.yaml` under the `orbit-local` static client. This change ships alongside the backend and frontend implementation. Production and staging providers require equivalent callback URL registration.
 
 ---
 
@@ -523,7 +518,7 @@ This change must be committed alongside the backend and frontend changes so that
 
 **Question:** The Go backend's device flow requires a `tenant_id`. Does the Authorization Code Flow also require one, and how does the browser obtain it?
 
-**Decision:** The browser-based Authorization Code Flow does not use the Device Authorization Grant tenant resolution path. The tenant ID will be a single hardcoded value for now, supplied by the backend's `GET /identity/login` endpoint internally — the BFF does not need to know about or pass a tenant ID. A pre-login tenant picker UI is explicitly out of scope for this PRD.
+**Decision:** The browser-based Authorization Code Flow does not use the Device Authorization Grant tenant resolution path. The tenant ID will be a single hardcoded value for now, supplied by the backend's `POST /identity/login` endpoint internally — the BFF does not need to know about or pass a tenant ID. A pre-login tenant picker UI is explicitly out of scope for this PRD.
 
 ---
 
@@ -546,7 +541,7 @@ This change must be committed alongside the backend and frontend changes so that
 - ~~Resolve all open questions (OQ-01 through OQ-06)~~ ✅ In progress
 - Write ADR-0023 (browser auth flow architecture)
 - Update `config/dex/config.yaml` with callback redirect URI
-- Implement backend changes: `GET /identity/login` + `authorization_code` grant in `POST /identity/session`
+- Implement backend changes: `POST /identity/login` + `authorization_code` grant in `POST /identity/session`
 
 **Phase 2: BFF Auth Routes and Session Layer**
 - Implement `src/server/session.ts` — encrypted session read/write
