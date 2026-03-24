@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -649,5 +650,251 @@ func TestPollDeviceAuth_NoOIDC(t *testing.T) {
 	})
 	if !errors.Is(err, ErrOIDCNotConfigured) {
 		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+// ── InitiateLogin ─────────────────────────────────────────────────────────────
+
+func TestInitiateLogin_NoOIDC(t *testing.T) {
+	svc, _, _, _ := newFullTestService(t)
+	_, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "tenant-1"})
+	if !errors.Is(err, ErrOIDCNotConfigured) {
+		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+func TestInitiateLogin_Success_ReturnsAuthURL(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	resp, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("InitiateLogin: %v", err)
+	}
+	if resp.AuthorizationURL == "" {
+		t.Fatal("expected non-empty authorization_url")
+	}
+
+	u, err := url.Parse(resp.AuthorizationURL)
+	if err != nil {
+		t.Fatalf("parse authorization_url: %v", err)
+	}
+	q := u.Query()
+
+	if got := q.Get("response_type"); got != "code" {
+		t.Errorf("response_type: got %q, want %q", got, "code")
+	}
+	if got := q.Get("code_challenge_method"); got != "S256" {
+		t.Errorf("code_challenge_method: got %q, want %q", got, "S256")
+	}
+	if q.Get("code_challenge") == "" {
+		t.Error("expected non-empty code_challenge")
+	}
+	if q.Get("state") == "" {
+		t.Error("expected non-empty state")
+	}
+	if got := q.Get("client_id"); got != "test-client" {
+		t.Errorf("client_id: got %q, want %q", got, "test-client")
+	}
+	if q.Get("redirect_uri") == "" {
+		t.Error("expected non-empty redirect_uri")
+	}
+}
+
+func TestInitiateLogin_Success_VerifierStoredInPKCE(t *testing.T) {
+	// After InitiateLogin the PKCE verifier must be stored in the repo under
+	// the same state key that appears in the authorization URL.
+	issuer, _ := newOIDCTestServer(t)
+	pkceRepo := newMockPKCERepo()
+	svc := newTestServiceWithOIDCAndPKCE(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		pkceRepo,
+	)
+
+	resp, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("InitiateLogin: %v", err)
+	}
+
+	u, err := url.Parse(resp.AuthorizationURL)
+	if err != nil {
+		t.Fatalf("parse authorization_url: %v", err)
+	}
+	state := u.Query().Get("state")
+	if state == "" {
+		t.Fatal("state is empty in authorization_url")
+	}
+
+	pkceRepo.mu.Lock()
+	_, stored := pkceRepo.verifiers[state]
+	pkceRepo.mu.Unlock()
+
+	if !stored {
+		t.Errorf("no PKCE verifier stored for state %q", state)
+	}
+}
+
+func TestInitiateLogin_Success_UniqueStatePerCall(t *testing.T) {
+	// Each call must produce a distinct state token.
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	r1, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "t1"})
+	if err != nil {
+		t.Fatalf("first InitiateLogin: %v", err)
+	}
+	r2, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "t1"})
+	if err != nil {
+		t.Fatalf("second InitiateLogin: %v", err)
+	}
+
+	u1, _ := url.Parse(r1.AuthorizationURL)
+	u2, _ := url.Parse(r2.AuthorizationURL)
+	s1 := u1.Query().Get("state")
+	s2 := u2.Query().Get("state")
+
+	if s1 == s2 {
+		t.Errorf("two InitiateLogin calls produced identical state values: %q", s1)
+	}
+}
+
+func TestInitiateLogin_StoreError(t *testing.T) {
+	// If Redis is unavailable, InitiateLogin must surface the error rather than
+	// returning a URL whose state will never be resolved.
+	issuer, _ := newOIDCTestServer(t)
+	pkceRepo := newMockPKCERepo()
+	pkceRepo.storeErr = errors.New("redis connection refused")
+	svc := newTestServiceWithOIDCAndPKCE(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		pkceRepo,
+	)
+
+	_, err := svc.InitiateLogin(context.Background(), LoginRequest{TenantID: "tenant-1"})
+	if err == nil {
+		t.Fatal("expected error when PKCE store fails")
+	}
+}
+
+// ── ExchangeAuthorizationCode ─────────────────────────────────────────────────
+
+func TestExchangeAuthorizationCode_NoOIDC(t *testing.T) {
+	svc, _, _, _ := newFullTestService(t)
+	_, err := svc.ExchangeAuthorizationCode(context.Background(), SessionRequest{
+		TenantID:  "tenant-1",
+		GrantType: "authorization_code",
+		Code:      "some-code",
+		State:     "some-state",
+	})
+	if !errors.Is(err, ErrOIDCNotConfigured) {
+		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+func TestExchangeAuthorizationCode_StateMismatch(t *testing.T) {
+	// A state value not present in the PKCE store must return ErrStateMismatch.
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	_, err := svc.ExchangeAuthorizationCode(context.Background(), SessionRequest{
+		TenantID:  "tenant-1",
+		GrantType: "authorization_code",
+		Code:      "any-code",
+		State:     "nonexistent-state",
+	})
+	if !errors.Is(err, ErrStateMismatch) {
+		t.Errorf("expected ErrStateMismatch, got %v", err)
+	}
+}
+
+func TestExchangeAuthorizationCode_VerifierConsumedAfterExchange(t *testing.T) {
+	// GetVerifier is single-use: after exchange the state must no longer exist.
+	issuer, setResp := newOIDCTestServer(t)
+	// Token endpoint returns an error (no id_token available in test server) —
+	// that is fine; we only want to verify the PKCE store was consumed.
+	setResp(http.StatusBadRequest, `{"error":"invalid_grant"}`)
+	pkceRepo := newMockPKCERepo()
+	svc := newTestServiceWithOIDCAndPKCE(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		pkceRepo,
+	)
+
+	// Seed a verifier manually.
+	const state = "test-state-consume"
+	pkceRepo.mu.Lock()
+	pkceRepo.verifiers[state] = "dGVzdHZlcmlmaWVy"
+	pkceRepo.mu.Unlock()
+
+	// The exchange will fail at the token endpoint — but the verifier must be
+	// consumed (deleted) before that error is returned.
+	_, _ = svc.ExchangeAuthorizationCode(context.Background(), SessionRequest{
+		TenantID:  "tenant-1",
+		GrantType: "authorization_code",
+		Code:      "any-code",
+		State:     state,
+	})
+
+	pkceRepo.mu.Lock()
+	_, stillPresent := pkceRepo.verifiers[state]
+	pkceRepo.mu.Unlock()
+
+	if stillPresent {
+		t.Error("PKCE verifier was not consumed after exchange attempt")
+	}
+}
+
+func TestExchangeAuthorizationCode_TokenEndpointError(t *testing.T) {
+	// An OAuth error from the token endpoint must be propagated, not swallowed.
+	issuer, setResp := newOIDCTestServer(t)
+	setResp(http.StatusBadRequest, `{"error":"invalid_grant"}`)
+	pkceRepo := newMockPKCERepo()
+	svc := newTestServiceWithOIDCAndPKCE(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		pkceRepo,
+	)
+
+	const state = "test-state-err"
+	pkceRepo.mu.Lock()
+	pkceRepo.verifiers[state] = "dGVzdHZlcmlmaWVy"
+	pkceRepo.mu.Unlock()
+
+	_, err := svc.ExchangeAuthorizationCode(context.Background(), SessionRequest{
+		TenantID:  "tenant-1",
+		GrantType: "authorization_code",
+		Code:      "bad-code",
+		State:     state,
+	})
+	if err == nil {
+		t.Fatal("expected error from token endpoint failure")
+	}
+}
+
+func TestExchangeAuthorizationCode_GetVerifierError(t *testing.T) {
+	// A non-not-found error from the PKCE store (e.g. Redis down) must be
+	// propagated as-is rather than mapped to ErrStateMismatch.
+	issuer, _ := newOIDCTestServer(t)
+	pkceRepo := newMockPKCERepo()
+	pkceRepo.getErr = errors.New("redis unavailable")
+	svc := newTestServiceWithOIDCAndPKCE(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		pkceRepo,
+	)
+
+	_, err := svc.ExchangeAuthorizationCode(context.Background(), SessionRequest{
+		TenantID:  "tenant-1",
+		GrantType: "authorization_code",
+		Code:      "any-code",
+		State:     "any-state",
+	})
+	if err == nil {
+		t.Fatal("expected error from PKCE store failure")
+	}
+	if errors.Is(err, ErrStateMismatch) {
+		t.Error("Redis error must not be mapped to ErrStateMismatch")
 	}
 }
