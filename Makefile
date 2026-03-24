@@ -525,6 +525,17 @@ frontend-clean: ## Remove frontend build artifacts and installed dependencies
 	@rm -rf $(FRONTEND_DIR)/.next $(FRONTEND_DIR)/node_modules
 	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
 
+.PHONY: frontend-storybook
+frontend-storybook: ## Start Terra design system Storybook (port 6006)
+	@echo "$(COLOR_YELLOW)Starting Terra Storybook...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra storybook
+
+.PHONY: frontend-storybook-build
+frontend-storybook-build: ## Build Terra Storybook as a static site
+	@echo "$(COLOR_YELLOW)Building Terra Storybook...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra build-storybook
+	@echo "$(COLOR_GREEN)✓ Terra Storybook built$(COLOR_RESET)"
+
 # ===========================================
 # Cleanup
 # ===========================================
