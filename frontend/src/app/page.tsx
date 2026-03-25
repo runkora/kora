@@ -2,11 +2,12 @@
  * Orbit — root landing page.
  *
  * Temporary placeholder until the real dashboard is built.
- * The HealthStatus component fetches via the BFF /api/example/health route
+ * The HealthStatus component fetches via the BFF /api/identity/health route
  * so the browser never communicates with the Go backend directly.
  */
 import { Page } from '@core/components/page';
 import { HealthStatus } from '@core/components/health-status';
+import { LogoutButton } from '@core/components/logout-button';
 import { Badge, Heading, Stack, Text } from '@orbit/terra';
 
 export default function RootPage() {
@@ -40,6 +41,9 @@ export default function RootPage() {
 
         {/* Backend connection status */}
         <HealthStatus />
+
+        {/* Session controls */}
+        <LogoutButton />
       </Stack>
     </Page>
   );

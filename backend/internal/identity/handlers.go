@@ -34,9 +34,11 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST   /identity/device                 Initiate a Device Authorization Grant flow.
 //	POST   /identity/session                Complete device flow poll, exchange authorization code, or refresh token.
 //	POST   /identity/exchange               Exchange a SPIFFE SVID for a platform session token.
+//	GET    /identity/health                 Liveness check.
 //	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
 func (c *Controller) Boot(mux *api.Mux) {
+	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /login", c.handleLogin)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
 	mux.Handle("POST /session", c.handleSession)
@@ -311,6 +313,14 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleHealth returns a simple liveness response for the identity service.
+func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]string{
+		"status":  "healthy",
+		"service": "orbit-identity",
+	})
 }
 
 // handleJWKS returns the public key set used to verify platform tokens.

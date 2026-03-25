@@ -1,9 +1,8 @@
 /**
- * BFF route: GET /api/example/health
+ * BFF route: GET /api/identity/health
  *
- * Proxies the Go backend health check server-side so the browser never
- * communicates with the Go API directly. Auth headers and credentials can
- * be injected here before forwarding.
+ * Proxies the identity service health check server-side so the browser never
+ * communicates with the Go API directly.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
@@ -12,7 +11,7 @@ import type { HealthResponse } from '@/shared/api';
 
 export async function GET() {
   try {
-    const data = await orbitClient.get<HealthResponse>('/example/health');
+    const data = await orbitClient.get<HealthResponse>('/identity/health');
     return NextResponse.json({ data });
   } catch (err) {
     if (err instanceof ApiError) {
@@ -22,7 +21,7 @@ export async function GET() {
       );
     }
     const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
-    console.error(`[api/example/health] ${isTimeout ? 'timeout' : 'unexpected error'}:`, err);
+    console.error(`[api/identity/health] ${isTimeout ? 'timeout' : 'unexpected error'}:`, err);
     return NextResponse.json(
       {
         error: {

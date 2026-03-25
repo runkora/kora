@@ -1,15 +1,34 @@
 /**
- * Login page.
+ * /auth — OIDC sign-in entry point.
  *
- * Presents a single "Sign in" call-to-action. Clicking the button POSTs to
- * the BFF `/api/auth/login` route which redirects the browser to the OIDC
- * provider's authorization endpoint — no credentials are handled client-side.
+ * Provider-agnostic: no username/password fields, no branded identity-provider
+ * buttons. A single "Continue" CTA redirects the browser to the BFF auth
+ * initiation endpoint, which constructs the OIDC authorization request and
+ * redirects to the configured identity provider.
+ *
+ * BFF route: /api/auth/login  (Next.js API route → Go identity service)
+ *
+ * Page variant "centered" gives a full-viewport, vertically and horizontally
+ * centred layout with no sidebar or header chrome — the correct frame for
+ * auth, onboarding, and error pages (see Page component, page.tsx).
  *
  * Supports an optional `?error` query parameter for displaying provider or
  * server error codes returned after a failed OIDC round-trip.
  * Supports an optional `?next` query parameter that is forwarded to the BFF
  * so the post-login redirect is preserved across the OIDC round-trip.
  */
+import { Page } from '@core/components/page';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Stack,
+  Text,
+} from '@orbit/terra';
 
 const ERROR_MESSAGES: Record<string, string> = {
   server_error: 'An error occurred. Please try again.',
@@ -36,43 +55,64 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const message = errorMessage(errorCode);
 
   // Build the action URL with a `next` parameter so the BFF can forward it.
-  const actionUrl = next
-    ? `/api/auth/login?next=${encodeURIComponent(next)}`
-    : '/api/auth/login';
+  const actionUrl = next ? `/api/auth/login?next=${encodeURIComponent(next)}` : '/api/auth/login'; // TODO: replace inlines with route constants
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-950 text-white">
-      <div className="flex flex-col items-center gap-8 text-center">
-        {/* Wordmark */}
-        <div className="flex flex-col items-center gap-2">
-          <h1 className="text-5xl font-bold tracking-tight">Orbit</h1>
-          <p className="text-gray-400 text-lg">Control plane for autonomous AI agents.</p>
-        </div>
+    <Page variant="centered">
+      {/*
+       * Stack constrains the card to max-w-sm (384px) while remaining full-width
+       * on narrow viewports via w-full. Horizontal padding prevents the card from
+       * touching the screen edges on mobile.
+       */}
+      <Stack maxWidth="card">
+        <Card>
+          <CardHeader>
+            {/* Eyebrow — product name, not a heading landmark */}
+            <Text size="caption" weight="strong" transform="uppercase" color="subtle">
+              Orbit
+            </Text>
 
-        {/* Error message (shown only after a failed OIDC round-trip) */}
-        {message && (
-          <div
-            role="alert"
-            className="rounded-md border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-300"
-          >
-            {message}
-          </div>
-        )}
+            {/* h4 via CardTitle's Heading variant="label" — correct for a card */}
+            <CardTitle>Sign in</CardTitle>
 
-        {/* Sign-in card */}
-        <div className="flex flex-col items-center gap-4 rounded-xl border border-white/10 bg-white/5 px-10 py-8 shadow-xl backdrop-blur-sm">
-          <p className="text-gray-300 text-sm">Sign in with your organization account.</p>
+            <CardDescription>
+              You&apos;ll be redirected to your organisation&apos;s identity provider to complete
+              sign-in.
+            </CardDescription>
+          </CardHeader>
 
-          <form method="POST" action={actionUrl}>
-            <button
-              type="submit"
-              className="rounded-lg bg-white px-6 py-2.5 text-sm font-semibold text-gray-900 shadow transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-white/50"
-            >
-              Sign in
-            </button>
-          </form>
-        </div>
-      </div>
-    </main>
+          <CardContent>
+            {/* Error banner — shown only after a failed OIDC round-trip */}
+            {message && (
+              // eslint-disable-next-line local/no-raw-div
+              <div
+                role="alert"
+                className="mb-4 rounded-md border border-red-500/40 bg-red-950/40 px-3 py-2"
+              >
+                <Text size="caption" color="status-error">
+                  {message}
+                </Text>
+              </div>
+            )}
+
+            {/*
+             * asChild renders the Button styles on the <a> tag directly so the
+             * browser handles the navigation without JavaScript. fullWidth makes
+             * the anchor fill the card content column.
+             */}
+            <Button asChild fullWidth>
+              <a href={actionUrl}>Continue</a>
+            </Button>
+          </CardContent>
+
+          {/* CardFooter already applies border-t border-border-subtle */}
+          <CardFooter compact justify="center">
+            <Text size="caption" color="subtle" align="center">
+              Single sign-on via OpenID Connect
+            </Text>
+          </CardFooter>
+        </Card>
+      </Stack>
+    </Page>
   );
 }

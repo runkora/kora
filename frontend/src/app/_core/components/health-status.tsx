@@ -17,7 +17,7 @@ export function HealthStatus() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/example/health', { signal: controller.signal })
+    fetch('/api/identity/health', { signal: controller.signal })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok || body.error) {

@@ -38,9 +38,7 @@ interface BackendSessionResponse {
  * `process.env.ORBIT_API_URL` is available in Edge Runtime — it is a
  * server-side env var read at request time, not baked in at build time.
  */
-async function tryRefresh(
-  refreshToken: string,
-): Promise<BackendSessionResponse | null> {
+async function tryRefresh(refreshToken: string): Promise<BackendSessionResponse | null> {
   const apiBase = process.env.ORBIT_API_URL?.replace(/\/$/, '');
   if (!apiBase) return null;
 
@@ -81,11 +79,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const response = NextResponse.next();
   const sessionOptions = getSessionOptions();
 
-  const session = await getIronSession<SessionPayload>(
-    request,
-    response,
-    sessionOptions,
-  );
+  const session = await getIronSession<SessionPayload>(request, response, sessionOptions);
 
   // 3. No valid session — redirect to login, preserving the destination path.
   if (!session.user || !session.accessToken) {
