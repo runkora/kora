@@ -17,6 +17,7 @@
  * Supports an optional `?next` query parameter that is forwarded to the BFF
  * so the post-login redirect is preserved across the OIDC round-trip.
  */
+import { ApiRoute } from '@core/routing/api-routes';
 import { Page } from '@core/components/page';
 import {
   Button,
@@ -25,10 +26,14 @@ import {
   CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
+  Heading,
   Stack,
   Text,
 } from '@orbit/terra';
+
+interface LoginPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
 
 const ERROR_MESSAGES: Record<string, string> = {
   server_error: 'An error occurred. Please try again.',
@@ -43,10 +48,6 @@ function errorMessage(code: string | null): string | null {
   return ERROR_MESSAGES[code] ?? 'Sign-in failed. Please try again.';
 }
 
-interface LoginPageProps {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const errorCode = typeof params.error === 'string' ? params.error : null;
@@ -55,7 +56,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const message = errorMessage(errorCode);
 
   // Build the action URL with a `next` parameter so the BFF can forward it.
-  const actionUrl = next ? `/api/auth/login?next=${encodeURIComponent(next)}` : '/api/auth/login'; // TODO: replace inlines with route constants
+  const actionUrl = ApiRoute.login.POST(next ? { next } : undefined);
 
   return (
     <Page variant="centered">
@@ -68,13 +69,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <Card>
           <CardHeader>
             {/* Eyebrow — product name, not a heading landmark */}
-            <Text size="caption" weight="strong" transform="uppercase" color="subtle">
+            <Heading variant="title" color="muted">
               Orbit
-            </Text>
-
-            {/* h4 via CardTitle's Heading variant="label" — correct for a card */}
-            <CardTitle>Sign in</CardTitle>
-
+            </Heading>
             <CardDescription>
               You&apos;ll be redirected to your organisation&apos;s identity provider to complete
               sign-in.
@@ -96,13 +93,18 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             )}
 
             {/*
-             * asChild renders the Button styles on the <a> tag directly so the
-             * browser handles the navigation without JavaScript. fullWidth makes
-             * the anchor fill the card content column.
+             * Native form POST — no JavaScript required. The browser submits
+             * to /api/auth/login (with optional ?next=), the BFF calls the Go
+             * identity service, and the 302 redirect to the OIDC provider is
+             * followed natively. This gives correct POST semantics for a
+             * state-changing action, browser-native navigation feedback, and
+             * full keyboard + screen-reader accessibility without any JS.
              */}
-            <Button asChild fullWidth>
-              <a href={actionUrl}>Continue</a>
-            </Button>
+            <form method="POST" action={actionUrl}>
+              <Button type="submit" shape="pill" fullWidth>
+                Sign In
+              </Button>
+            </form>
           </CardContent>
 
           {/* CardFooter already applies border-t border-border-subtle */}

@@ -68,7 +68,7 @@
   --terra-raw-accent-fg: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
 
   /* Status — semantic signal colours; independent of the neutral/accent seeds */
-  --terra-raw-healthy: #8ae250;
+  --terra-raw-healthy: #9ce37d;
   --terra-raw-degraded: #ffd046;
   --terra-raw-error: #ef4444;
   --terra-raw-idle: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));

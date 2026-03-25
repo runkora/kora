@@ -114,11 +114,11 @@ export interface ButtonProps
   asChild?: boolean;
 
   /**
-   * When true, the button stretches to fill its container and aligns its
-   * content to the left — the standard layout for sidebar navigation buttons
-   * and full-width form actions.
+   * When true, the button stretches to fill its container. Content remains
+   * centred (the default). For left-aligned content (e.g. sidebar navigation
+   * buttons) combine with `className="justify-start"`.
    *
-   * Equivalent to adding `w-full justify-start` without reaching for `className`.
+   * Equivalent to adding `w-full` without reaching for `className`.
    *
    * ```tsx
    * <Button variant="outline" fullWidth>
@@ -139,7 +139,7 @@ export interface ButtonProps
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
  * a router link. Use `fullWidth` to stretch the button across its container
- * with left-aligned content (e.g. sidebar navigation buttons).
+ * (content stays centred); add `className="justify-start"` for left-aligned nav buttons.
  *
  * ```tsx
  * <Button>Deploy agent</Button>
@@ -158,11 +158,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         ref={ref}
-        className={cn(
-          buttonVariants({ variant, size, shape }),
-          fullWidth && 'w-full justify-start',
-          className,
-        )}
+        className={cn(buttonVariants({ variant, size, shape }), fullWidth && 'w-full', className)}
         {...props}
       />
     );
