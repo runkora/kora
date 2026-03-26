@@ -1,0 +1,56 @@
+# =============================================================================
+# Orbit Tenant Registry — local development
+# =============================================================================
+#
+# This file is committed to the repository and pre-wired for the local Dex
+# OIDC provider. It is loaded at startup via the ORBIT_TENANTS_CONFIG
+# environment variable:
+#
+#   ORBIT_TENANTS_CONFIG=./config/tenants.yaml   (make dev / air hot-reload)
+#   ORBIT_TENANTS_CONFIG=/etc/orbit/tenants.yaml  (cluster — mounted ConfigMap)
+#
+# For cluster deployments, sync this file to the orbit-tenants ConfigMap:
+#   kubectl create configmap orbit-tenants \
+#     --from-file=tenants.yaml=config/tenants.yaml \
+#     -n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+#
+# DO NOT put secrets in this file. Tenant OIDC client secrets are injected
+# at runtime from environment variables named by the `clientSecretEnv` field.
+# The local Dex client is a public client — no secret is required. The env
+# var below will be empty, which is the correct behaviour for a public client.
+#
+# Ref: ADR-0023 (tenant registration and OIDC provider binding)
+# =============================================================================
+
+version: "v1"
+
+tenants:
+  - id: "local"
+    displayName: "Orbit Local Dev"
+    state: "active"
+    oidc:
+      # Local Dex OIDC provider — started by: make dev-up
+      # Issuer discovery: http://dex.orbit.local:5556/dex/.well-known/openid-configuration
+      #
+      # Dex must be reachable at this URL from the identity service process.
+      # In make dev (host process): add to /etc/hosts —
+      #   127.0.0.1  dex.orbit.local
+      # In cluster (k3d): CoreDNS is patched by dev-cluster-up.sh to resolve
+      #   dex.orbit.local → Docker bridge gateway IP.
+      issuerURL: "http://dex.orbit.local:5556/dex"
+      clientID: "orbit-local"
+      # orbit-local is a public Dex client — no client secret is required.
+      # The env var below will be empty string at runtime, which is correct.
+      # See config/dex/config.yaml: staticClients[0].public: true
+      clientSecretEnv: "ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET"
+      scopes:
+        - openid
+        - profile
+        - email
+      # No claimBinding — any user authenticated by the local Dex instance is
+      # a member of this tenant. In production, add a claimBinding to restrict
+      # membership to a specific org, group, or hosted domain.
+      # Example:
+      #   claimBinding:
+      #     claim: "email"
+      #     value: "dev@orbit.local"

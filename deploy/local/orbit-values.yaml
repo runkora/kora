@@ -1,0 +1,65 @@
+# =============================================================================
+# orbit chart — local development values
+# =============================================================================
+#
+# Used with the k3d-based local cluster (make cluster-up).
+# Install:
+#   helm upgrade --install orbit ./charts/orbit \
+#     -f deploy/local/orbit-values.yaml
+#
+# Requires orbit-platform to be installed first:
+#   helm upgrade --install orbit-platform ./charts/orbit-platform \
+#     -f deploy/local/platform-values.yaml
+#
+# Trust domain must match platform-values.yaml and the SPIRE server config.
+# =============================================================================
+
+global:
+  trustDomain: "orbit.local"
+  # Force pull from local k3d registry on every pod start.
+  # Local registry images are not content-addressed — Always ensures the
+  # cluster always runs the freshest locally-built image.
+  imagePullPolicy: Always
+
+identity:
+  image:
+    # Local k3d registry — built by: make build-backend && make push-local
+    repository: orbit-registry:5001/orbit-identity
+    tag: latest
+
+  replicas: 1
+
+  # APP_ENV controls which config YAML is loaded at startup.
+  # "local" maps to backend/internal/identity/config/local.yaml.
+  appEnv: local
+
+  config:
+    tenantsConfigPath: "/etc/orbit/tenants.yaml"
+
+  # ConfigMap containing the tenant registry YAML (config/tenants.yaml).
+  # Created by: kubectl create configmap orbit-tenants \
+  #   --from-file=tenants.yaml=config/tenants.yaml -n orbit-system
+  # Or via the GitOps-compatible pattern:
+  #   --set identity.existingTenantsConfigMap=orbit-tenants
+  existingTenantsConfigMap: orbit-tenants
+
+  # Secret containing DB_PASSWORD, REDIS_PASSWORD, JWT_SIGNING_KEY, and
+  # optionally ORBIT_OIDC_CLIENT_SECRET for tenant OIDC providers.
+  # Created by: make cluster-secrets (runs scripts/cluster/create-secrets.sh)
+  existingSecret: orbit-secrets
+
+  # ConfigMap containing non-secret env vars (DB_HOST, DB_NAME, REDIS_HOST, etc.).
+  # Created by the chart itself or manually — see deploy/local/README.md.
+  existingConfigMap: orbit-config
+
+platform:
+  namespaces:
+    system: orbit-system
+    tenants:
+      - orbit-example-tenant
+
+  spiffe:
+    enabled: true
+
+networkPolicy:
+  enabled: true

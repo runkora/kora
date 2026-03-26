@@ -1,0 +1,123 @@
+# =============================================================================
+# Orbit example tenant workload — local development fixture
+# =============================================================================
+#
+# This manifest is NOT managed by the orbit or orbit-platform Helm charts.
+# It is a local-only fixture demonstrating a tenant agent workload with full
+# Orbit platform integration:
+#   - SPIFFE identity via SPIRE (spiffe.io/agent: example label)
+#   - Identity-proxy sidecar (mandatory platform trust enforcement, orbit.io/identity-proxy: enabled)
+#   - Platform Bearer token injected on outbound requests by the sidecar
+#   - Istio mTLS for all service-to-service traffic
+#
+# Apply manually:
+#   kubectl apply -f deploy/local/fixtures/orbit-example-tenant.yaml
+#
+# This file MUST NOT be committed to a production deployment repo without
+# replacing orbit-registry:5001 with a real image registry and removing
+# imagePullPolicy: Always.
+#
+# In a production GitOps setup, the operator provides their own workload
+# manifests. This fixture exists solely to validate the local dev environment.
+#
+# Namespace: orbit-example-tenant
+# Created by: orbit-platform chart (deploy/local/platform-values.yaml →
+#             namespaces.tenants: [orbit-example-tenant])
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orbit-example
+  namespace: orbit-example-tenant
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-example
+  namespace: orbit-example-tenant
+  labels:
+    app: orbit-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orbit-example
+  template:
+    metadata:
+      labels:
+        app: orbit-example
+        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
+        # orbit-tenant-agent to issue:
+        #   spiffe://orbit.local/tenant/orbit-example-tenant/agent/example
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/agent: example
+        # Required on all Orbit platform agent pods. This label activates the
+        # identity-proxy EnvoyFilter (charts/orbit/templates/identity-proxy/envoyfilter.yaml)
+        # which is the mandatory trust enforcement point: it intercepts every outbound
+        # HTTP call and injects the platform Bearer token derived from the pod's SVID.
+        orbit.io/identity-proxy: "enabled"
+      annotations:
+        # Inject Istio sidecar + SPIRE socket mount + identity-proxy sidecar.
+        # The identity-proxy template patches istio-proxy to mount the shared
+        # /run/orbit emptyDir so Envoy can reach the ext_proc Unix socket.
+        # Ref: ADR-0021 (ext_proc sidecar token exchange)
+        inject.istio.io/templates: "sidecar,spire,identity-proxy"
+        # Hold the application container until Envoy is ready to avoid
+        # connection failures on startup (iptables intercepts before Envoy).
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+    spec:
+      serviceAccountName: orbit-example
+      containers:
+        - name: orbit-example
+          image: orbit-registry:5001/orbit-example:latest
+          imagePullPolicy: Always
+          env:
+            - name: APP_ENV
+              value: local
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: orbit-config
+            - secretRef:
+                name: orbit-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-example
+  namespace: orbit-example-tenant
+spec:
+  selector:
+    app: orbit-example
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8081
+      protocol: TCP

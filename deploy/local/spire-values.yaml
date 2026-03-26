@@ -9,7 +9,7 @@ spire-server:
       clusterSPIFFEIDs:
         default:
           enabled: false
-          
+
   nodeAttestor:
     k8sPSAT:
       enabled: true

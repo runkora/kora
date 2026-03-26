@@ -1,0 +1,19 @@
+# =============================================================================
+# deploy/local/helmfile-env.yaml — Local dev environment bindings for helmfile
+# =============================================================================
+#
+# Referenced by helmfile.yaml under environments.local.values.
+# Points each release at its local k3d values override file.
+#
+# To use:
+#   helmfile apply --environment local
+# =============================================================================
+
+spire:
+  valuesFile: deploy/local/spire-values.yaml
+
+istiod:
+  valuesFile: deploy/local/istio-values.yaml
+
+orbitPlatform:
+  valuesFile: deploy/local/platform-values.yaml

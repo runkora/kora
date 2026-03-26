@@ -1,0 +1,47 @@
+# =============================================================================
+# orbit-platform chart — local development values
+# =============================================================================
+#
+# This chart now only manages cluster-scoped Orbit resources:
+#   - Namespaces (orbit-system, istio-system, spire-server)
+#   - ClusterSPIFFEIDs (workload identity grants)
+#   - NetworkPolicies (default-deny + explicit allow rules)
+#
+# SPIRE and Istio are installed as SEPARATE Helm releases — see:
+#   deploy/local/spire-values.yaml   (helm release: spire, ns: spire-server)
+#   deploy/local/istio-values.yaml   (helm release: istiod, ns: istio-system)
+#
+# The Makefile cluster-platform target orchestrates the full install sequence.
+# =============================================================================
+
+global:
+  # Trust domain must match:
+  #   - deploy/local/spire-values.yaml  global.spire.trustDomain
+  #   - deploy/local/istio-values.yaml  meshConfig.trustDomain
+  #   - deploy/local/orbit-values.yaml  global.trustDomain
+  trustDomain: "orbit.local"
+
+namespaces:
+  system: orbit-system
+  # Tenant namespaces that orbit-platform creates with Istio injection,
+  # SPIRE attestation, and orbit.io/role=tenant labels.
+  tenants:
+    - orbit-example-tenant
+
+# Allow orbit-system pods to reach Docker-hosted services (Postgres, Redis).
+# In local k3d development, orbit-postgres and orbit-redis run as Docker Compose
+# containers on the orbit-network subnet (172.24.0.0/16). host.k3d.internal
+# resolves to 172.24.0.1 (the Docker network gateway) for Redis access.
+networkPolicy:
+  externalServices:
+    # orbit-network subnet — covers orbit-postgres (172.24.0.4), Dex (172.24.0.1:5556), and the Docker gateway
+    - cidr: 172.24.0.0/16
+      ports:
+        - 5432
+        - 6379
+        - 5556
+    # host.k3d.internal resolves to 192.168.5.2 (Docker Desktop internal gateway)
+    # Required for Redis access from k3d pods
+    - cidr: 192.168.5.0/24
+      ports:
+        - 6379

@@ -144,6 +144,29 @@ check-tool-versions: ## Verify installed tool versions match pinned versions in 
 	else \
 		echo "  $(COLOR_BLUE)ℹ air: installed=$${INSTALLED:-none}  expected=$(AIR_VERSION) — run: make install-tools$(COLOR_RESET)"; \
 	fi
+	@. scripts/cluster/versions.env && \
+	INSTALLED=$$(helmfile version 2>/dev/null | grep -E '^\s+Version' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	EXPECTED=$$(echo "$${HELMFILE_VERSION}" | sed 's/^v//'); \
+	if [ "$$INSTALLED" = "$$EXPECTED" ]; then \
+		echo "  $(COLOR_GREEN)✓ helmfile v$$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ helmfile: installed=$${INSTALLED:-none}  expected=$$EXPECTED — run: make install-tools-cluster$(COLOR_RESET)"; \
+	fi
+	@. scripts/cluster/versions.env && \
+	INSTALLED=$$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$${HELM_VERSION}" ]; then \
+		echo "  $(COLOR_GREEN)✓ helm $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ helm: installed=$${INSTALLED:-none}  expected=$${HELM_VERSION} — run: make install-tools-cluster$(COLOR_RESET)"; \
+	fi
+	@. scripts/cluster/versions.env && \
+	INSTALLED=$$(helm diff version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	EXPECTED=$$(echo "$${HELM_DIFF_VERSION}" | sed 's/^v//'); \
+	if [ "$$INSTALLED" = "$$EXPECTED" ]; then \
+		echo "  $(COLOR_GREEN)✓ helm-diff v$$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ helm-diff: installed=$${INSTALLED:-none}  expected=$$EXPECTED — run: make install-tools-cluster$(COLOR_RESET)"; \
+	fi
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod dependencies
@@ -268,7 +291,7 @@ dev-down-clean: ## Stop Postgres + Redis and remove volumes
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istioctl not required, Istio runs via Helm
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
@@ -304,15 +327,92 @@ docker-push: ## Push all service images to local registry (orbit-registry:5001/o
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
+.PHONY: cluster-platform
+cluster-platform: ## Install/upgrade platform layer (SPIRE + Istio + cluster resources) via Helmfile
+	@echo "$(COLOR_YELLOW)Installing platform layer via Helmfile (environment: local)...$(COLOR_RESET)"
+	@# Pre-create orbit-system with Istio + SPIRE labels so Helm can store its
+	@# release secret before the chart's namespaces.yaml template is applied.
+	@# kubectl apply is idempotent — safe on first install and on upgrades.
+	@kubectl apply -f deploy/local/orbit-system-namespace.yaml
+	@helmfile sync --environment local
+	@echo "$(COLOR_YELLOW)Waiting for SPIRE agents + Istio control plane to be ready...$(COLOR_RESET)"
+	@kubectl rollout status daemonset/spire-agent -n spire-server --timeout=180s
+	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
+	@echo "$(COLOR_GREEN)✓ Platform layer ready (SPIRE + Istio + cluster resources)$(COLOR_RESET)"
+
+.PHONY: cluster-platform-diff
+cluster-platform-diff: ## Dry-run diff of platform layer changes (helmfile diff)
+	@helmfile diff --environment local
+
 .PHONY: cluster-deploy
-cluster-deploy: docker-build docker-push ## Apply k8s manifests and secrets to the local k3d cluster (does NOT build or restart)
+cluster-deploy: docker-build docker-push ## Build, push and deploy Orbit services to the local k3d cluster via Helm
 	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Syncing platform namespaces (orbit-platform chart)...$(COLOR_RESET)"
+	@helm upgrade --install orbit-platform charts/orbit-platform \
+		-f deploy/local/platform-values.yaml \
+		--namespace orbit-system --create-namespace \
+		--timeout 60s 2>&1
 	@bash scripts/cluster/create-secrets.sh
-	@kustomize build k8s | kubectl apply -f -
+	@echo "$(COLOR_YELLOW)Syncing tenant registry ConfigMap...$(COLOR_RESET)"
+	@kubectl create configmap orbit-tenants \
+		--from-file=tenants.yaml=config/tenants.yaml \
+		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap (non-secret env vars)...$(COLOR_RESET)"
+	@kubectl create configmap orbit-config \
+		--from-literal=DB_HOST=orbit-postgres \
+		--from-literal=DB_NAME=orbit \
+		--from-literal=DB_PORT=5432 \
+		--from-literal=DB_USER=orbit \
+		--from-literal=REDIS_HOST=host.k3d.internal \
+		--from-literal=REDIS_PORT=6379 \
+		--from-literal=ORBIT_OIDC_CLIENT_ID=orbit-local \
+		--from-literal=ORBIT_OIDC_ISSUER_URL=http://dex.orbit.local:5556/dex \
+		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap for orbit-example-tenant...$(COLOR_RESET)"
+	@kubectl create configmap orbit-config \
+		--from-literal=DB_HOST=orbit-postgres \
+		--from-literal=DB_NAME=orbit \
+		--from-literal=DB_PORT=5432 \
+		--from-literal=DB_USER=orbit \
+		-n orbit-example-tenant --dry-run=client -o yaml | kubectl apply -f -
+	@helm upgrade --install orbit charts/orbit \
+		-f deploy/local/orbit-values.yaml \
+		--namespace orbit-system --create-namespace \
+		--timeout 120s --wait
+	@echo "$(COLOR_YELLOW)Applying local fixtures (example tenant)...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/fixtures/
 	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push cluster-deploy ## Build, push, re-apply manifests and restart ALL services in the cluster
+cluster-update: docker-build docker-push ## Build, push and upgrade Orbit services in the cluster (Helm upgrade + rollout restart)
+	@echo "$(COLOR_YELLOW)Upgrading Orbit services in cluster...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh
+	@echo "$(COLOR_YELLOW)Syncing tenant registry ConfigMap...$(COLOR_RESET)"
+	@kubectl create configmap orbit-tenants \
+		--from-file=tenants.yaml=config/tenants.yaml \
+		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap (non-secret env vars)...$(COLOR_RESET)"
+	@kubectl create configmap orbit-config \
+		--from-literal=DB_HOST=orbit-postgres \
+		--from-literal=DB_NAME=orbit \
+		--from-literal=DB_PORT=5432 \
+		--from-literal=DB_USER=orbit \
+		--from-literal=REDIS_HOST=host.k3d.internal \
+		--from-literal=REDIS_PORT=6379 \
+		--from-literal=ORBIT_OIDC_CLIENT_ID=orbit-local \
+		--from-literal=ORBIT_OIDC_ISSUER_URL=http://dex.orbit.local:5556/dex \
+		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap for orbit-example-tenant...$(COLOR_RESET)"
+	@kubectl create configmap orbit-config \
+		--from-literal=DB_HOST=orbit-postgres \
+		--from-literal=DB_NAME=orbit \
+		--from-literal=DB_PORT=5432 \
+		--from-literal=DB_USER=orbit \
+		-n orbit-example-tenant --dry-run=client -o yaml | kubectl apply -f -
+	@helm upgrade --install orbit charts/orbit \
+		-f deploy/local/orbit-values.yaml \
+		--namespace orbit-system \
+		--timeout 120s --wait
 	@echo "$(COLOR_YELLOW)Restarting all deployments to pick up new images...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
 	@kubectl rollout restart deployment -n orbit-example-tenant 2>/dev/null || true

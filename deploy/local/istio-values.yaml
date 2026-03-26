@@ -10,6 +10,8 @@ sidecarInjectorWebhook:
         containers:
           - name: istio-proxy
             env:
+              - name: PILOT_CERT_PROVIDER
+                value: "spire"
               - name: SPIFFE_ENDPOINT_SOCKET
                 value: "unix:///run/secrets/workload-spiffe-uds/socket"
             volumeMounts:

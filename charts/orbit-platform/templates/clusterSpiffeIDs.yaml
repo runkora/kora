@@ -1,0 +1,124 @@
+# ClusterSPIFFEID resources for Orbit's SPIFFE identity grant model.
+#
+# These define the SPIFFE ID templates assigned to workloads by the SPIRE
+# controller manager. The identity paths follow the Orbit SPIFFE URI scheme
+# documented in ADR-0018 and ADR-0019:
+#
+#   Istio gateway:     spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>
+#   Istio sidecar:     spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>
+#   System component:  spiffe://<trust-domain>/system/<component-label>
+#   Tenant service:    spiffe://<trust-domain>/tenant/<namespace>/service/<service-label>
+#   Tenant agent:      spiffe://<trust-domain>/tenant/<namespace>/agent/<agent-label>
+#
+# The className "spire-server-spire" matches the SPIRE server release name
+# deployed by the spire sub-chart (releaseName: spire, server component: spire-server).
+#
+# Ref: ADR-0018 (SPIFFE identity grants), ADR-0019 (tenant isolation)
+{{- $trustDomain := include "orbit-platform.trustDomain" . }}
+---
+# Istio gateway pods need a SPIFFE identity so that the service mesh can
+# authenticate them in mTLS peer auth. Scoped to istio-system namespace only.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: istio-gateway
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-server-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/ns/{{ `{{ .PodMeta.Namespace }}` }}/sa/{{ `{{ .PodSpec.ServiceAccountName }}` }}"
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: istio-system
+  podSelector:
+    matchLabels:
+      app: istio-gateway
+  workloadSelectorTemplates:
+    - "k8s:ns:istio-system"
+    - "k8s:sa:gateway"
+---
+# Istio sidecar proxies injected into non-system, non-tenant namespaces.
+# Scoped by exclusion: does NOT match orbit-system or any orbit.io/role=tenant namespace —
+# those are covered by the orbit-system-component and orbit-tenant-* IDs below.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: istio-sidecar
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-server-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/ns/{{ `{{ .PodMeta.Namespace }}` }}/sa/{{ `{{ .PodSpec.ServiceAccountName }}` }}"
+  podSelector:
+    matchLabels:
+      spiffe.io/spire-managed-identity: "true"
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - {{ include "orbit-platform.systemNamespace" . }}
+      - key: orbit.io/role
+        operator: NotIn
+        values:
+          - tenant
+---
+# Orbit system components (identity service, etc.) in orbit-system namespace.
+# SPIFFE ID path: spiffe://<trust-domain>/system/<component>
+# The component name is taken from the pod label: spiffe.io/component=<name>
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: orbit-system-component
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-server-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/system/{{ `{{ index .PodMeta.Labels \"spiffe.io/component\" }}` }}"
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ include "orbit-platform.systemNamespace" . }}
+  podSelector:
+    matchExpressions:
+      - key: spiffe.io/component
+        operator: Exists
+---
+# Tenant service workloads: long-running services in a tenant namespace.
+# SPIFFE ID path: spiffe://<trust-domain>/tenant/<namespace>/service/<service>
+# The service name is taken from the pod label: spiffe.io/service=<name>
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: orbit-tenant-service
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-server-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/service/{{ `{{ index .PodMeta.Labels \"spiffe.io/service\" }}` }}"
+  namespaceSelector:
+    matchLabels:
+      orbit.io/role: tenant
+  podSelector:
+    matchExpressions:
+      - key: spiffe.io/service
+        operator: Exists
+---
+# Tenant agent workloads: autonomous agents run inside tenant namespaces.
+# SPIFFE ID path: spiffe://<trust-domain>/tenant/<namespace>/agent/<agent>
+# The agent name is taken from the pod label: spiffe.io/agent=<name>
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: orbit-tenant-agent
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-server-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"spiffe.io/agent\" }}` }}"
+  namespaceSelector:
+    matchLabels:
+      orbit.io/role: tenant
+  podSelector:
+    matchExpressions:
+      - key: spiffe.io/agent
+        operator: Exists

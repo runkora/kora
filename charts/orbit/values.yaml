@@ -1,0 +1,94 @@
+# =============================================================================
+# orbit chart — default values
+# =============================================================================
+#
+# These are the production-safe defaults. Override per-environment via a
+# values file passed with -f, or with --set for individual fields.
+#
+# Local dev example:
+#   helm upgrade --install orbit ./charts/orbit \
+#     -f deploy/local/orbit-values.yaml
+#
+# Operator example (GitOps / separate deployment repo):
+#   helm upgrade --install orbit oci://ghcr.io/orbit-sh/charts/orbit \
+#     --version 0.1.0 \
+#     -f my-org/orbit-values.yaml \
+#     --set global.trustDomain=my-org.internal
+# =============================================================================
+
+# -- Global values shared across all templates.
+global:
+  # Trust domain for SPIFFE SVIDs and Istio mTLS.
+  # Must match global.trustDomain set in the orbit-platform chart.
+  trustDomain: "cluster.local"
+
+  # Image pull policy applied to all Orbit service containers.
+  # Use IfNotPresent for production and staging; Always for local dev registries.
+  imagePullPolicy: IfNotPresent
+
+# -- Identity service configuration.
+identity:
+  # Container image for the orbit-identity service.
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-identity"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  # Number of identity service replicas.
+  replicas: 1
+
+  # Resource requests and limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Application environment passed as APP_ENV env var.
+  # Valid values: development, local, production
+  appEnv: production
+
+  # Path inside the container where the tenant registry YAML is mounted.
+  # The ORBIT_TENANTS_CONFIG env var is set to this path.
+  # Must match the mountPath of the tenantsConfigMap volume below.
+  config:
+    tenantsConfigPath: "/etc/orbit/tenants.yaml"
+
+  # Name of an existing ConfigMap containing the tenant registry YAML.
+  # The ConfigMap must have a key "tenants.yaml".
+  # When set, the chart mounts this ConfigMap at config.tenantsConfigPath.
+  # When empty, no tenants volume is mounted — ORBIT_TENANTS_CONFIG must be
+  # provided via existingSecret or another mechanism.
+  existingTenantsConfigMap: ""
+
+  # Name of an existing Secret containing environment variables for the
+  # identity service (DB_PASSWORD, REDIS_PASSWORD, JWT_SIGNING_KEY, etc.).
+  # When set, the Secret is mounted as envFrom.
+  # When empty, no secret envFrom is mounted — supply env vars another way.
+  existingSecret: ""
+
+  # Name of an existing ConfigMap containing non-secret environment variables
+  # (DB_HOST, DB_NAME, REDIS_HOST, ORBIT_OIDC_ISSUER_URL, etc.).
+  # When set, the ConfigMap is mounted as envFrom.
+  existingConfigMap: ""
+
+# -- Platform namespace configuration.
+# Must match the namespaces configured in the orbit-platform chart.
+platform:
+  namespaces:
+    # The system namespace where Orbit core services are deployed.
+    system: "orbit-system"
+    # Tenant namespaces managed by this Orbit installation.
+    # Used to configure DestinationRules and cross-namespace policies.
+    tenants: []
+
+  # SPIFFE configuration for DestinationRule SAN validation.
+  spiffe:
+    enabled: true
+
+# -- NetworkPolicy toggle.
+# Should match the value used in the orbit-platform chart.
+networkPolicy:
+  enabled: true

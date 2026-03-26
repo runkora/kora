@@ -1,0 +1,26 @@
+# =============================================================================
+# deploy/versions.yaml — Pinned Helm chart versions for Orbit platform releases
+# =============================================================================
+#
+# Referenced by helmfile.yaml as the base values layer for all environments.
+# Override in your environment's helmfile-env.yaml if you need a different version.
+#
+# To upgrade a dependency:
+#   1. Update the version here
+#   2. Run: helmfile diff --environment <env>   to preview changes
+#   3. Run: helmfile apply --environment <env>  to apply
+# =============================================================================
+
+versions:
+  spire_crds_chart: "0.5.0"
+  spire_chart: "0.28.3"
+  istio_chart: "1.29.1"
+
+# Values file overrides for each release — empty means "use chart defaults only".
+# Environments set these to point at environment-specific override files.
+spire:
+  valuesFile: ""
+istiod:
+  valuesFile: ""
+orbitPlatform:
+  valuesFile: ""

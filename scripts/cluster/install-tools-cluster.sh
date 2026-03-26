@@ -3,14 +3,16 @@
 # install-tools-cluster.sh — Install cluster tooling for local dev environment
 #
 # Installs (if not already present at the correct version):
-#   - k3d    >= 5.6   (local k3s cluster manager)
-#   - kubectl >= 1.29  (Kubernetes CLI)
-#   - helm   >= 3.14  (Kubernetes package manager — used for Istio + SPIRE)
+#   - k3d        >= 5.6   (local k3s cluster manager)
+#   - kubectl    >= 1.29  (Kubernetes CLI)
+#   - helm       >= 3.14  (Kubernetes package manager — used for Istio + SPIRE)
+#   - helmfile   >= 0.169 (multi-release Helm orchestrator — primary operator install interface)
+#   - helm-diff  >= 3.9   (Helm plugin — required by helmfile diff / make cluster-platform-diff)
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
 #
 # Note: istioctl is NOT required. Istio is installed via helm (istio/base +
-# istio/istiod) so no additional CLI tooling is needed beyond helm.
+# istio/istiod) so no additional CLI tooling is needed beyond helm + helmfile.
 # =============================================================================
 set -euo pipefail
 
@@ -30,7 +32,7 @@ already() { echo -e "${GREEN}✓ $* already installed at correct version — ski
 
 # Prefer GOPATH/bin when Go is available so cluster tools share the same
 # PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
-if command -v go &>/dev/null; then
+if command -v go >/dev/null; then
   INSTALL_DIR="$(go env GOPATH)/bin"
 else
   INSTALL_DIR="${HOME}/.local/bin"
@@ -51,8 +53,8 @@ esac
 
 # ── k3d ──────────────────────────────────────────────────────────────────────
 step "k3d ${K3D_VERSION}"
-if command -v k3d &>/dev/null; then
-  INSTALLED="$(k3d version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if command -v k3d >/dev/null; then
+  INSTALLED="$(k3d version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   if [ "${INSTALLED}" = "${K3D_VERSION}" ]; then
     already "k3d ${INSTALLED}"
   else
@@ -73,8 +75,8 @@ fi
 
 # ── kubectl ───────────────────────────────────────────────────────────────────
 step "kubectl ${KUBECTL_VERSION}"
-if command -v kubectl &>/dev/null; then
-  INSTALLED="$(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}')"
+if command -v kubectl >/dev/null; then
+  INSTALLED="$(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}' || true)"
   if [ "${INSTALLED}" = "${KUBECTL_VERSION}" ]; then
     already "kubectl ${INSTALLED}"
   else
@@ -99,8 +101,8 @@ fi
 # Note: if Istio v1.22+ renames its asset prefix from 'osx' to 'darwin', only
 # the istio download URL would need updating — helm is unaffected.
 step "helm ${HELM_VERSION}"
-if command -v helm &>/dev/null; then
-  INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if command -v helm >/dev/null; then
+  INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   if [ "${INSTALLED}" = "${HELM_VERSION}" ]; then
     already "helm ${INSTALLED}"
   else
@@ -121,26 +123,60 @@ else
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
 fi
 
-# ── kustomize ─────────────────────────────────────────────────────────────────
-step "kustomize ${KUSTOMIZE_VERSION}"
-if command -v kustomize &>/dev/null; then
-  INSTALLED="$(kustomize version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "${INSTALLED}" = "${KUSTOMIZE_VERSION}" ]; then
-    already "kustomize ${INSTALLED}"
+# ── helmfile ──────────────────────────────────────────────────────────────────
+# Helmfile orchestrates multiple Helm releases with correct namespace placement
+# and install ordering. It is the primary operator install interface for Orbit.
+# Operators run: helmfile apply --environment <env>
+# Local dev runs: helmfile apply --environment local   (or: make cluster-platform)
+step "helmfile ${HELMFILE_VERSION}"
+if command -v helmfile >/dev/null; then
+  INSTALLED="$(helmfile version 2>/dev/null | grep -E '^\s+Version' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ "${INSTALLED}" = "${HELMFILE_VERSION#v}" ]; then
+    already "helmfile ${INSTALLED}"
   else
-    warn "kustomize ${INSTALLED} is installed but ${KUSTOMIZE_VERSION} is required — reinstalling"
+    warn "helmfile ${INSTALLED} is installed but ${HELMFILE_VERSION#v} is required — reinstalling"
     curl -sSfL \
-      "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
-      | tar -xz -C /tmp
-    mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
-    ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
+      "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_VERSION#v}_${OS}_${ARCH_HELM}.tar.gz" \
+      | tar -xz -C /tmp helmfile
+    mv "/tmp/helmfile" "${INSTALL_DIR}/helmfile"
+    ok "helmfile ${HELMFILE_VERSION} installed → ${INSTALL_DIR}/helmfile"
   fi
 else
   curl -sSfL \
-    "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
-    | tar -xz -C /tmp
-  mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
-  ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
+    "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${HELMFILE_VERSION#v}_${OS}_${ARCH_HELM}.tar.gz" \
+    | tar -xz -C /tmp helmfile
+  mv "/tmp/helmfile" "${INSTALL_DIR}/helmfile"
+  ok "helmfile ${HELMFILE_VERSION} installed → ${INSTALL_DIR}/helmfile"
+fi
+
+# ── helm-diff plugin ──────────────────────────────────────────────────────────
+# Required by helmfile for `helmfile diff` / `make cluster-platform-diff`.
+# Installs as a Helm plugin rather than a standalone binary.
+# If an incompatible version is present (e.g. built for a newer Helm), the
+# plugin directory must be force-removed because `helm plugin remove` fails
+# when the plugin.yaml is malformed for the current Helm version.
+step "helm-diff plugin ${HELM_DIFF_VERSION}"
+HELM_DIFF_PLUGIN_DIR="${HOME}/Library/helm/plugins/helm-diff"
+# On Linux, helm plugins live under ${HOME}/.local/share/helm/plugins/
+if [ "${OS}" = "linux" ]; then
+  HELM_DIFF_PLUGIN_DIR="${HOME}/.local/share/helm/plugins/helm-diff"
+fi
+INSTALLED_DIFF=""
+if helm diff version &>/dev/null 2>&1; then
+  INSTALLED_DIFF="$(helm diff version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+fi
+if [ "${INSTALLED_DIFF}" = "${HELM_DIFF_VERSION#v}" ]; then
+  already "helm-diff ${INSTALLED_DIFF}"
+else
+  if [ -n "${INSTALLED_DIFF}" ]; then
+    warn "helm-diff ${INSTALLED_DIFF} is installed but ${HELM_DIFF_VERSION#v} is required — reinstalling"
+  fi
+  # Force-remove the plugin directory — `helm plugin remove` fails when the
+  # plugin manifest is incompatible with the current Helm binary.
+  rm -rf "${HELM_DIFF_PLUGIN_DIR}"
+  helm plugin install https://github.com/databus23/helm-diff \
+    --version "${HELM_DIFF_VERSION}" 2>&1 | grep -v "^$" || true
+  ok "helm-diff ${HELM_DIFF_VERSION} installed"
 fi
 
 echo ""
