@@ -1,12 +1,13 @@
 /**
- * /auth — OIDC sign-in entry point.
+ * /login — OIDC sign-in entry point.
  *
  * Provider-agnostic: no username/password fields, no branded identity-provider
- * buttons. A single "Continue" CTA redirects the browser to the BFF auth
- * initiation endpoint, which constructs the OIDC authorization request and
- * redirects to the configured identity provider.
+ * buttons. A single "Sign In" CTA triggers the browser-side OIDC client to
+ * initiate an Authorization Code Flow with PKCE, redirecting the browser
+ * directly to the configured identity provider.
  *
- * BFF route: /api/auth/login  (Next.js API route → Go identity service)
+ * The post-login destination (`next`) is forwarded inside the OIDC `state`
+ * parameter so the callback page can restore it after the provider round-trip.
  *
  * Page variant "centered" gives a full-viewport, vertically and horizontally
  * centred layout with no sidebar or header chrome — the correct frame for
@@ -14,13 +15,10 @@
  *
  * Supports an optional `?error` query parameter for displaying provider or
  * server error codes returned after a failed OIDC round-trip.
- * Supports an optional `?next` query parameter that is forwarded to the BFF
- * so the post-login redirect is preserved across the OIDC round-trip.
+ * Supports an optional `?next` query parameter forwarded to the OIDC state.
  */
-import { ApiRoute } from '@core/routing/api-routes';
 import { Page } from '@core/components/page';
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
@@ -30,6 +28,8 @@ import {
   Stack,
   Text,
 } from '@orbit/terra';
+
+import { SignInButton } from './_components/sign-in-button';
 
 interface LoginPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -51,12 +51,9 @@ function errorMessage(code: string | null): string | null {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const errorCode = typeof params.error === 'string' ? params.error : null;
-  const next = typeof params.next === 'string' ? params.next : '';
+  const next = typeof params.next === 'string' ? params.next : '/';
 
   const message = errorMessage(errorCode);
-
-  // Build the action URL with a `next` parameter so the BFF can forward it.
-  const actionUrl = ApiRoute.login.POST(next ? { next } : undefined);
 
   return (
     <Page variant="centered">
@@ -93,18 +90,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             )}
 
             {/*
-             * Native form POST — no JavaScript required. The browser submits
-             * to /api/auth/login (with optional ?next=), the BFF calls the Go
-             * identity service, and the 302 redirect to the OIDC provider is
-             * followed natively. This gives correct POST semantics for a
-             * state-changing action, browser-native navigation feedback, and
-             * full keyboard + screen-reader accessibility without any JS.
+             * SignInButton calls signinRedirect() on the browser-side OIDC
+             * client. The `next` destination is encoded in the OIDC state so
+             * the callback page can restore it after the provider round-trip.
              */}
-            <form method="POST" action={actionUrl}>
-              <Button type="submit" shape="pill" fullWidth>
-                Sign In
-              </Button>
-            </form>
+            <SignInButton next={next} />
           </CardContent>
 
           {/* CardFooter already applies border-t border-border-subtle */}

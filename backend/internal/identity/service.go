@@ -54,14 +54,13 @@ type tenantOIDCState struct {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 // Service implements the identity business logic: federated OIDC authentication
-// via the Device Authorization Grant and Authorization Code flow with PKCE,
+// via the Device Authorization Grant and oidc_id_token browser flow,
 // SPIFFE SVID exchange, JWT issuance, session management, and token revocation.
 type Service struct {
 	cfg           *Config
 	sessions      SessionRepository
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
-	pkce          PKCERepository
 	logger        logging.Logger
 	tracer        trace.Tracer
 
@@ -115,7 +114,6 @@ func NewService(
 	sessions SessionRepository,
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
-	pkce PKCERepository,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
 ) (*Service, error) {
@@ -124,7 +122,6 @@ func NewService(
 		sessions:      sessions,
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
-		pkce:          pkce,
 		extractor:     extractor,
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
@@ -390,89 +387,33 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	return s.createSession(ctx, principal)
 }
 
-// ─── Federated authentication: authorization code flow with PKCE ─────────────
+// ─── Federated authentication: browser id_token flow ────────────────────────
 
-// InitiateLogin begins an Authorization Code flow. It generates a
-// cryptographically random state token and PKCE code verifier, stores the
-// verifier in Redis (keyed by state, TTL from config), and returns a fully-
-// constructed OIDC authorization URL for the BFF to redirect the browser to.
-func (s *Service) InitiateLogin(ctx context.Context, req LoginRequest) (*LoginResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.InitiateLogin",
-		trace.WithAttributes(
-			attribute.String("tenant_id", req.TenantID),
-		),
-	)
-	defer span.End()
-
-	if err := s.requireOIDC(); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured")
-		return nil, err
+// resolveDisplayName returns the first non-empty value from the ordered
+// candidate fields: name → preferred_username → email → sub. The subject
+// identifier is always non-empty and acts as the final fallback.
+func resolveDisplayName(name, preferredUsername, email, sub string) string {
+	for _, v := range []string{name, preferredUsername, email, sub} {
+		if v != "" {
+			return v
+		}
 	}
-	if s.oidcMeta.AuthorizationEndpoint == "" {
-		err := fmt.Errorf("OIDC provider does not advertise authorization_endpoint")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "authorization_endpoint missing")
-		return nil, err
-	}
-
-	// Generate a cryptographically random opaque state value (256-bit entropy).
-	state, err := generateOpaqueToken()
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "state generation failed")
-		return nil, fmt.Errorf("generate state: %w", err)
-	}
-
-	// Generate PKCE code verifier: 32 random bytes → base64url (no padding).
-	// RFC 7636 §4.1 requires 43–128 characters; 32 bytes → 43 chars exactly.
-	verifierBytes := make([]byte, 32)
-	if _, err := rand.Read(verifierBytes); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "PKCE verifier generation failed")
-		return nil, fmt.Errorf("generate PKCE verifier: %w", err)
-	}
-	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
-
-	// Compute S256 challenge: BASE64URL(SHA-256(verifier)).
-	h := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(h[:])
-
-	// Persist verifier in Redis. Single-use: retrieved with GetDel on callback.
-	ttl := time.Duration(s.cfg.Token.PKCEStateTTLMinutes) * time.Minute
-	if err := s.pkce.StoreVerifier(ctx, state, verifier, ttl); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "PKCE state storage failed")
-		return nil, fmt.Errorf("store PKCE verifier: %w", err)
-	}
-
-	scopes := s.cfg.OIDC.Scopes
-	if len(scopes) == 0 {
-		scopes = []string{"openid", "profile", "email"}
-	}
-
-	params := url.Values{
-		"response_type":         {"code"},
-		"client_id":             {s.cfg.OIDC.ClientID},
-		"redirect_uri":          {s.cfg.OIDC.RedirectURI},
-		"scope":                 {strings.Join(scopes, " ")},
-		"state":                 {state},
-		"code_challenge":        {challenge},
-		"code_challenge_method": {"S256"},
-	}
-	authURL := s.oidcMeta.AuthorizationEndpoint + "?" + params.Encode()
-
-	span.SetStatus(codes.Ok, "authorization URL built")
-	return &LoginResponse{AuthorizationURL: authURL}, nil
+	return sub
 }
 
-// ExchangeAuthorizationCode completes the Authorization Code flow. It
-// validates the state, retrieves and deletes the stored PKCE verifier, exchanges
-// the code at the token endpoint, verifies the ID token, and creates a session.
-func (s *Service) ExchangeAuthorizationCode(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.ExchangeAuthorizationCode",
+// ExchangeIDToken handles the "oidc_id_token" grant type. The browser OIDC
+// client (oidc-client-ts) completes PKCE in the browser and hands the resulting
+// id_token to the BFF, which forwards it here. The backend verifies the token
+// cryptographically via JWKS (go-oidc), extracts standard claims, and issues an
+// Orbit platform session token + refresh token.
+//
+// This is the preferred browser auth path: the OIDC token never leaves the
+// browser-to-backend channel, no PKCE state is stored server-side, and the
+// Orbit JWT is sealed into an HttpOnly iron-session cookie by the BFF.
+func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
 		trace.WithAttributes(
-			attribute.String("grant_type", "authorization_code"),
+			attribute.String("grant_type", "oidc_id_token"),
 			attribute.String("tenant_id", req.TenantID),
 		),
 	)
@@ -484,82 +425,21 @@ func (s *Service) ExchangeAuthorizationCode(ctx context.Context, req SessionRequ
 		return nil, err
 	}
 
-	if req.State == "" || req.Code == "" {
-		err := fmt.Errorf("state and code are required for authorization_code grant")
+	if req.IDToken == "" {
+		err := fmt.Errorf("id_token is required for oidc_id_token grant")
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "missing state or code")
-		return nil, err
+		span.SetStatus(codes.Error, "missing id_token")
+		return nil, ErrIDTokenInvalid
 	}
 
-	// Retrieve and atomically delete the PKCE verifier (single-use).
-	verifier, err := s.pkce.GetVerifier(ctx, req.State)
-	if err != nil {
-		if errors.Is(err, ErrPKCEStateNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "PKCE state not found or expired")
-			return nil, ErrStateMismatch
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "PKCE state lookup failed")
-		return nil, fmt.Errorf("get PKCE verifier: %w", err)
-	}
-
-	// Exchange the authorization code at the token endpoint.
-	formVals := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {req.Code},
-		"redirect_uri":  {s.cfg.OIDC.RedirectURI},
-		"client_id":     {s.cfg.OIDC.ClientID},
-		"code_verifier": {verifier},
-	}
-	if s.cfg.OIDC.ClientSecret != "" {
-		formVals.Set("client_secret", s.cfg.OIDC.ClientSecret)
-	}
-
-	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token endpoint request failed")
-		return nil, fmt.Errorf("exchange code at token endpoint %s: %w", s.oidcMeta.TokenEndpoint, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read token response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
-		if oauthErr := parseDeviceTokenError(body); oauthErr != nil {
-			span.RecordError(oauthErr)
-			span.SetStatus(codes.Error, "authorization code exchange error")
-			return nil, fmt.Errorf("code exchange: %w", oauthErr)
-		}
-		unexpectedErr := fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
-		span.RecordError(unexpectedErr)
-		span.SetStatus(codes.Error, "unexpected status from token endpoint")
-		return nil, unexpectedErr
-	}
-
-	var tokenResp struct {
-		IDToken string `json:"id_token"`
-	}
-	if err = json.Unmarshal(body, &tokenResp); err != nil {
-		return nil, fmt.Errorf("decode token response: %w", err)
-	}
-	if tokenResp.IDToken == "" {
-		return nil, fmt.Errorf("token endpoint response missing id_token")
-	}
-
-	// Verify the ID token signature + claims with go-oidc.
+	// Verify the id_token signature and standard claims (iss, aud, exp) via JWKS.
 	idToken, err := s.oidcProvider.Verifier(&gooidc.Config{
 		ClientID: s.cfg.OIDC.ClientID,
-	}).Verify(ctx, tokenResp.IDToken)
+	}).Verify(ctx, req.IDToken)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "id_token verification failed")
-		return nil, fmt.Errorf("verify id token: %w", err)
+		return nil, fmt.Errorf("%w: %s", ErrIDTokenInvalid, err.Error())
 	}
 
 	var claims struct {
@@ -571,7 +451,7 @@ func (s *Service) ExchangeAuthorizationCode(ctx context.Context, req SessionRequ
 	if err := idToken.Claims(&claims); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "claims extraction failed")
-		return nil, fmt.Errorf("extract id token claims: %w", err)
+		return nil, fmt.Errorf("extract id_token claims: %w", err)
 	}
 
 	span.SetAttributes(
@@ -594,19 +474,8 @@ func (s *Service) ExchangeAuthorizationCode(ctx context.Context, req SessionRequ
 		},
 	}
 
+	span.SetStatus(codes.Ok, "id_token verified, creating session")
 	return s.createSession(ctx, principal)
-}
-
-// resolveDisplayName returns the first non-empty value from the ordered
-// candidate fields: name → preferred_username → email → sub. The subject
-// identifier is always non-empty and acts as the final fallback.
-func resolveDisplayName(name, preferredUsername, email, sub string) string {
-	for _, v := range []string{name, preferredUsername, email, sub} {
-		if v != "" {
-			return v
-		}
-	}
-	return sub
 }
 
 // RefreshSession exchanges a valid refresh token for a new access token and

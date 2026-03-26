@@ -128,7 +128,6 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	sessionRepo := identity.NewPostgresSessionRepository(db.Pool())
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
-	pkce := identity.NewRedisPKCERepository(redis.Client())
 
 	// XFCCPrincipalExtractor reads the Envoy-injected x-forwarded-client-cert
 	// header after mTLS termination. In local development, callers simply set
@@ -142,7 +141,6 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		sessionRepo,
 		refreshRepo,
 		blocklist,
-		pkce,
 		extractor,
 		logger,
 	)

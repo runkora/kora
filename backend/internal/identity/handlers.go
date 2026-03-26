@@ -30,16 +30,14 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 // Route map:
 //
-//	POST   /identity/login                  Begin an Authorization Code + PKCE flow; returns authorization_url.
 //	POST   /identity/device                 Initiate a Device Authorization Grant flow.
-//	POST   /identity/session                Complete device flow poll, exchange authorization code, or refresh token.
+//	POST   /identity/session                Complete device flow poll, present id_token, or refresh token.
 //	POST   /identity/exchange               Exchange a SPIFFE SVID for a platform session token.
 //	GET    /identity/health                 Liveness check.
 //	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
-	mux.Handle("POST /login", c.handleLogin)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
@@ -48,49 +46,6 @@ func (c *Controller) Boot(mux *api.Mux) {
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
-
-// handleLogin begins an Authorization Code + PKCE flow. It generates a
-// cryptographically random state value and PKCE code verifier, stores the
-// verifier in Redis, and returns the OIDC authorization URL for the BFF to
-// redirect the browser to.
-//
-// Request body:  { "tenant_id": "..." }
-// Response body: { "authorization_url": "https://..." }
-func (c *Controller) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var req LoginRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
-		return
-	}
-
-	if req.TenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required", map[string]any{
-			"field": "tenant_id",
-		})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
-	resp, err := c.svc.InitiateLogin(ctx, req)
-	if err != nil {
-		if errors.Is(err, ErrOIDCNotConfigured) {
-			apiErr := api.BadRequestError("oidc_not_configured",
-				"federated authentication is not configured for this environment", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to initiate login", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-		return
-	}
-
-	c.logger.Info(ctx, "authorization code flow initiated",
-		logging.Field{Key: "tenant_id", Value: req.TenantID},
-	)
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
-}
 
 // handleInitiateDeviceAuth starts a Device Authorization Grant flow.
 // The caller receives a user_code and verification_uri to present to the user,
@@ -131,12 +86,12 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
-// handleSession handles Device Authorization Grant polling, Authorization Code
-// exchange, and refresh token rotation.
+// handleSession handles Device Authorization Grant polling, OIDC id_token
+// handoff, and refresh token rotation.
 //
 // Supported grant_type values:
 //   - "urn:ietf:params:oauth:grant-type:device_code" — poll the upstream OIDC provider
-//   - "authorization_code"                           — exchange code + PKCE verifier for a session
+//   - "oidc_id_token"                                — browser presents a verified id_token; backend issues an Orbit session
 //   - "refresh_token"                                — rotate a human session refresh token
 func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -169,22 +124,22 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err = c.svc.PollDeviceAuth(ctx, req)
 
-	case "authorization_code":
-		if req.Code == "" {
-			apiErr := api.ValidationError(api.ErrCodeMissingField, "code is required for authorization_code grant", map[string]any{
-				"field": "code",
+	case "oidc_id_token":
+		if req.IDToken == "" {
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "id_token is required for oidc_id_token grant", map[string]any{
+				"field": "id_token",
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if req.State == "" {
-			apiErr := api.ValidationError(api.ErrCodeMissingField, "state is required for authorization_code grant", map[string]any{
-				"field": "state",
+		if req.TenantID == "" {
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required for oidc_id_token grant", map[string]any{
+				"field": "tenant_id",
 			})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		resp, err = c.svc.ExchangeAuthorizationCode(ctx, req)
+		resp, err = c.svc.ExchangeIDToken(ctx, req)
 
 	case "refresh_token":
 		if req.RefreshToken == "" {
@@ -199,7 +154,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	case "":
 		apiErr := api.ValidationError(api.ErrCodeMissingField, "grant_type is required", map[string]any{
 			"field":           "grant_type",
-			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "authorization_code", "refresh_token"},
+			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "oidc_id_token", "refresh_token"},
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
@@ -207,7 +162,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported grant_type", map[string]any{
 			"grant_type":      req.GrantType,
-			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "authorization_code", "refresh_token"},
+			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "oidc_id_token", "refresh_token"},
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
@@ -374,12 +329,10 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 			"federated authentication is not configured for this environment", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 
-	// Authorization code flow errors.
-	case errors.Is(err, ErrStateMismatch):
-		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "state mismatch — PKCE state not found, expired, or already used", map[string]any{
-			"field": "state",
-		})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	// OIDC id_token grant errors.
+	case errors.Is(err, ErrIDTokenInvalid):
+		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "id_token verification failed — token may be expired, tampered with, or issued by an unexpected provider", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 
 	// Refresh token errors.
 	case errors.Is(err, ErrRefreshTokenNotFound), errors.Is(err, ErrRefreshTokenRevoked):

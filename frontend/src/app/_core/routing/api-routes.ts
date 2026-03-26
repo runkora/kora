@@ -15,11 +15,11 @@
  * @example
  *   import { ApiRoute } from '@core/routing/api-routes';
  *
- *   // With optional parameter
- *   <form action={ApiRoute.login.POST({ next: '/dashboard' })}>
- *
  *   // Without parameter
- *   <form action={ApiRoute.logout.POST()}>
+ *   fetch(ApiRoute.logout.POST(), { method: 'POST' });
+ *
+ *   // With body
+ *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
 // ── Auth routes ───────────────────────────────────────────────────────────────
@@ -27,26 +27,6 @@
 const AUTH_BASE = '/api/auth' as const;
 
 export const ApiRoute = {
-  /**
-   * `/api/auth/login`
-   *
-   * Initiates the OIDC Authorization Code flow with PKCE. The BFF calls the
-   * Go identity service, stores a short-lived `orbit_next` cookie, and issues
-   * a 302 redirect to the provider's authorization endpoint.
-   */
-  login: {
-    /**
-     * @param params.next - Optional post-login redirect path. Must be a safe
-     *   relative path; absolute URLs are rejected server-side.
-     */
-    POST: (params?: { next?: string }): string => {
-      if (params?.next) {
-        return `${AUTH_BASE}/login?next=${encodeURIComponent(params.next)}`;
-      }
-      return `${AUTH_BASE}/login`;
-    },
-  },
-
   /**
    * `/api/auth/logout`
    *
@@ -58,22 +38,16 @@ export const ApiRoute = {
   },
 
   /**
-   * `/api/auth/callback`
-   *
-   * OIDC Authorization Code callback. Called by the identity provider after
-   * the user authenticates — not typically constructed manually.
-   */
-  callback: {
-    GET: (): `${typeof AUTH_BASE}/callback` => `${AUTH_BASE}/callback`,
-  },
-
-  /**
    * `/api/auth/session`
    *
-   * Returns the public (non-sensitive) portion of the current session for
-   * client components that need to know who is logged in.
+   * POST — called by the OIDC callback page with `{ id_token }` to exchange
+   *        the provider id_token for an Orbit session cookie.
+   *
+   * GET  — returns the public (non-sensitive) portion of the current session
+   *        for client components that need to know who is logged in.
    */
   session: {
+    POST: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
     GET: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
   },
 } as const;
@@ -85,7 +59,6 @@ export const ApiRoute = {
  * of a direct `ApiRoute.*.*()` call.
  */
 export type ApiRoutePath =
-  | ReturnType<(typeof ApiRoute)['login']['POST']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
-  | ReturnType<(typeof ApiRoute)['callback']['GET']>
+  | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>;

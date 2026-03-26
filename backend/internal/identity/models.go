@@ -125,35 +125,21 @@ type DeviceAuthResponse struct {
 	Interval        int    `json:"interval"`
 }
 
-// LoginRequest is the body for POST /identity/login.
-// Initiates the Authorization Code flow with PKCE on behalf of the BFF.
-type LoginRequest struct {
-	// TenantID scopes the resulting session.
-	TenantID string `json:"tenant_id"`
-}
-
-// LoginResponse is returned by POST /identity/login.
-// The BFF must redirect the user-agent to AuthorizationURL to begin authentication.
-type LoginResponse struct {
-	// AuthorizationURL is the fully-formed OIDC authorization endpoint URL
-	// including response_type, client_id, redirect_uri, scope, state,
-	// code_challenge, and code_challenge_method parameters.
-	AuthorizationURL string `json:"authorization_url"`
-}
-
 // SessionRequest is the body for POST /identity/session.
 // Supports three grant types:
 //   - "urn:ietf:params:oauth:grant-type:device_code" — device flow poll
-//   - "refresh_token" — refresh an existing human session
-//   - "authorization_code" — exchange an OIDC callback code for a platform session
+//   - "refresh_token"                                — refresh an existing human session
+//   - "oidc_id_token"                                — browser presents a verified id_token; backend validates and issues an Orbit session
 type SessionRequest struct {
 	GrantType    string `json:"grant_type"`
 	TenantID     string `json:"tenant_id"`
 	DeviceCode   string `json:"device_code,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
-	// Code and State are used for the authorization_code grant type.
-	Code  string `json:"code,omitempty"`
-	State string `json:"state,omitempty"`
+	// IDToken is used for the oidc_id_token grant type.
+	// The browser OIDC client (oidc-client-ts) performs PKCE in the browser and
+	// presents the resulting id_token here. The backend verifies it via JWKS and
+	// issues an Orbit platform session token.
+	IDToken string `json:"id_token,omitempty"`
 }
 
 // SessionResponse is returned on successful session creation.
@@ -203,7 +189,5 @@ var (
 	ErrAccessDenied             = errors.New("access_denied")
 	ErrDeviceCodeExpired        = errors.New("device code expired or not found")
 	ErrUnsupportedTokenType     = errors.New("unsupported token type")
-	ErrPKCEStateNotFound        = errors.New("pkce state not found or expired")
-	ErrInvalidAuthorizationCode = errors.New("invalid or expired authorization code")
-	ErrStateMismatch            = errors.New("state parameter mismatch")
+	ErrIDTokenInvalid           = errors.New("id_token failed verification")
 )

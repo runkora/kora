@@ -17,11 +17,14 @@ export type AppRoute = (typeof APP_ROUTES)[keyof typeof APP_ROUTES];
 /** Public paths that do not require authentication. */
 export const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   APP_ROUTES.login,
-  // BFF auth routes are always public — they initiate or complete the flow.
-  '/api/auth/login',
-  '/api/auth/callback',
-  '/api/auth/logout',
+  // OIDC callback page — receives the code/state from the provider and
+  // completes the browser-side token exchange before posting to the BFF.
+  '/auth/callback',
+  // BFF session endpoint — POST (seal session) and GET (read session) are
+  // both public because they are called during and after the auth flow.
   '/api/auth/session',
+  // Logout is always reachable so an expired session can still be cleared.
+  '/api/auth/logout',
 ]);
 
 /**

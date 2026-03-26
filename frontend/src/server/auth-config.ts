@@ -39,15 +39,6 @@ export interface SessionPayload {
 /** Name of the sealed iron-session cookie. */
 export const SESSION_COOKIE_NAME = 'orbit_session';
 
-/**
- * Name of the short-lived HttpOnly cookie that preserves the post-login
- * redirect destination across the OIDC round-trip.
- */
-export const NEXT_COOKIE_NAME = 'orbit_next';
-
-/** Lifetime of the `orbit_next` cookie in seconds. */
-export const NEXT_COOKIE_MAX_AGE_SECONDS = 600; // 10 minutes
-
 // ── Session options factory ───────────────────────────────────────────────────
 
 /**
