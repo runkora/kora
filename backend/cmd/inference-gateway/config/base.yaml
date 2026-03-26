@@ -1,0 +1,34 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8081
+  basePath: /v1
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: orbit-inference-gateway
+
+token:
+  # In-cluster default — keys fetched from the identity service JWKS endpoint.
+  # No private key is distributed to this service.
+  # Override via ORBIT_TOKEN_JWKS_URL env var for local development.
+  jwksUrl: http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
+  issuer: orbit
+  audience: orbit-platform
+
+providers:
+  bedrock:
+    enabled: false
+    region: us-east-1
+  vertexAI:
+    enabled: false
+    projectId: ""
+    location: us-central1
+  azure:
+    enabled: false
+    endpoint: ""
+
+pricing:
+  refreshIntervalSecs: 3600
+  pricingFilePath: ""

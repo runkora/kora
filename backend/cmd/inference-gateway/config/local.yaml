@@ -1,0 +1,8 @@
+providers:
+  bedrock:
+    enabled: true
+    region: us-east-1
+  vertexAI:
+    enabled: false
+  azure:
+    enabled: false

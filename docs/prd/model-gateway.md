@@ -1,8 +1,15 @@
 # Model Gateway - Product Requirements Document
 
-**Status:** Approved  
+> ⚠️ **RETIRED — Superseded by [`docs/prd/inference-gateway.md`](inference-gateway.md)**  
+> This document is archived for historical reference only. All active requirements,  
+> design decisions, and implementation guidance live in the Inference Gateway PRD.  
+> **Do not update this document.**
+
+**Status:** Retired  
 **Created:** 2025-01-26  
 **Last Updated:** 2025-01-27  
+**Retired:** 2025-07-14  
+**Superseded By:** [`docs/prd/inference-gateway.md`](inference-gateway.md)  
 **Owner:** Orbit Core Team  
 **Stakeholders:** Orbit Core Team, Agent Developers, Enterprise Users
 

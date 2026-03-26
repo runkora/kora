@@ -86,6 +86,16 @@ func ForbiddenError(code, message string, details map[string]any) *APIError {
 	}
 }
 
+// ServiceUnavailableError creates a 503 Service Unavailable error
+func ServiceUnavailableError(code, message string, details map[string]any) *APIError {
+	return &APIError{
+		Code:       code,
+		Message:    message,
+		Details:    details,
+		StatusCode: http.StatusServiceUnavailable,
+	}
+}
+
 // InternalError creates a 500 Internal Server Error
 func InternalError(code, message string, details map[string]any) *APIError {
 	return &APIError{
