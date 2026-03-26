@@ -35,6 +35,7 @@ build/
 
 # Environment and configuration files
 .env
+.env.backup
 .env.local
 .env.*.local
 *.local

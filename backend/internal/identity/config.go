@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ func LoadConfig() (*Config, error) {
 		cfg.Token.RefreshTokenTTLDays = 30
 	}
 	if cfg.Token.Audience == "" {
-		cfg.Token.Audience = "orbit-platform"
+		cfg.Token.Audience = token.DefaultAudience
 	}
 
 	return cfg, nil

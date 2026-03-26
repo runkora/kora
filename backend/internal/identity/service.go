@@ -29,6 +29,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ─── Internal OIDC provider metadata ─────────────────────────────────────────
@@ -770,7 +771,7 @@ func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, 
 			Audience:  jwt.ClaimStrings{s.cfg.Token.Audience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-			Issuer:    "orbit",
+			Issuer:    token.DefaultIssuer,
 		},
 		Orbit: OrbitClaims{
 			SessionID:      sessionID,

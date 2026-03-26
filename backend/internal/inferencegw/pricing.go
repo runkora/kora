@@ -9,7 +9,7 @@ import "context"
 // Implementations must be safe for concurrent use.
 type PricingCache interface {
 	// Start launches the background refresh goroutine. It runs until ctx is
-	// cancelled. Callers should invoke this once at service startup and pass
+	// canceled. Callers should invoke this once at service startup and pass
 	// the service-scoped context so shutdown is coordinated automatically.
 	Start(ctx context.Context)
 

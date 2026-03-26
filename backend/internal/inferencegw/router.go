@@ -29,10 +29,10 @@ type RouteTarget struct {
 // targets. The service layer tries targets in order, retrying within each target
 // up to MaxAttemptsPerTarget times, bounded by MaxTotalAttempts overall.
 type RoutingEngine struct {
-	connectors          map[ProviderName]ProviderConnector
-	pricing             PricingCache
+	connectors           map[ProviderName]ProviderConnector
+	pricing              PricingCache
 	maxAttemptsPerTarget int
-	maxTotalAttempts    int
+	maxTotalAttempts     int
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
@@ -42,10 +42,10 @@ func NewRoutingEngine(
 	pricing PricingCache,
 ) *RoutingEngine {
 	return &RoutingEngine{
-		connectors:          connectors,
-		pricing:             pricing,
+		connectors:           connectors,
+		pricing:              pricing,
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
-		maxTotalAttempts:    defaultMaxTotalAttempts,
+		maxTotalAttempts:     defaultMaxTotalAttempts,
 	}
 }
 

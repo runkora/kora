@@ -3,28 +3,56 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// ─── Dialect interfaces ───────────────────────────────────────────────────────
+
+// OpenAIConnector is the OpenAI-compatible dialect surface of a provider.
+// It is invoked when the client speaks the OpenAI Chat Completions API
+// (POST /v1/chat/completions). The router/handler layer selects this dialect
+// based on the endpoint the client called — never based on model name.
+type OpenAIConnector interface {
+	ChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
+	ChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
+}
+
+// AnthropicConnector is the Anthropic Messages API dialect surface of a provider.
+// It is invoked when the client speaks the Anthropic Messages API
+// (POST /v1/messages). The router/handler layer selects this dialect
+// based on the endpoint the client called — never based on model name.
+type AnthropicConnector interface {
+	AnthropicChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
+	AnthropicChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
+}
 
 // ─── ProviderConnector ────────────────────────────────────────────────────────
 
-// ProviderConnector is the abstraction over a cloud AI provider.
-// Each enabled provider (Bedrock, Vertex AI, Azure) has exactly one
-// implementation. Pricing is handled by PricingCache — not by connectors.
+// ProviderConnector is the full abstraction over a cloud AI provider.
+// Every provider (Bedrock, Vertex AI, Azure) implements both dialect interfaces.
+// Providers that cannot support a dialect return ErrDialectNotSupported.
+//
+// Dialect selection is the responsibility of the HTTP handler and service layer.
+// Connectors never inspect the model name to decide which dialect to invoke.
 type ProviderConnector interface {
 	// Name returns the canonical provider identifier.
 	Name() ProviderName
 
-	// ChatCompletion sends a non-streaming inference request and returns
-	// the complete response. Usage stats are embedded in the response;
-	// the service layer writes an InferenceUsageRecord.
-	ChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
+	OpenAIConnector
+	AnthropicConnector
+}
 
-	// ChatCompletionStream sends a streaming inference request. The connector
-	// writes ChatCompletionChunk values to the returned channel until the
-	// stream is exhausted or the context is cancelled. Errors encountered
-	// mid-stream are sent on the error channel, then both channels are closed.
-	// The caller must always drain both channels (or cancel the context).
-	ChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, <-chan error)
+// ─── ConnectorFactory ────────────────────────────────────────────────────────
+
+// ConnectorFactory creates a ProviderConnector from environment-sourced config.
+// Each provider package exports a Factory struct that implements this interface.
+//
+// Build returns (nil, nil) when the provider is disabled (env var not set),
+// allowing main.go to skip registration without treating it as an error.
+type ConnectorFactory interface {
+	Name() ProviderName
+	Build(logger logging.Logger) (ProviderConnector, error)
 }
 
 // ─── ConnectorError ──────────────────────────────────────────────────────────

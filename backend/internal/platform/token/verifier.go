@@ -22,6 +22,14 @@ type Verifier struct {
 	inner *gooidc.IDTokenVerifier
 }
 
+// NewVerifierFromConfig constructs a Verifier from a Config loaded via
+// LoadConfig(). This is the preferred constructor — services should call:
+//
+//	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
+func NewVerifierFromConfig(ctx context.Context, cfg Config) *Verifier {
+	return NewVerifier(ctx, cfg.JWKSURL, cfg.Issuer, cfg.Audience)
+}
+
 // NewVerifier constructs a Verifier that fetches keys from jwksURL and
 // enforces issuer and audience claims on every token it verifies.
 //

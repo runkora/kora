@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -19,6 +18,7 @@ import (
 var tracer = otel.Tracer("inferencegw")
 
 // principal carries the extracted identity context for a single request.
+// Populated from the verified PlatformClaims stored in context by AuthMiddleware.
 type principal struct {
 	TenantID       string
 	PrincipalID    string
@@ -29,13 +29,14 @@ type principal struct {
 // Service is the inference gateway service layer.
 // It orchestrates policy evaluation, routing, provider calls,
 // and usage attribution for every inference request.
+// Auth is handled upstream by AuthMiddleware — the service reads
+// the verified principal from context, never from raw headers.
 type Service struct {
-	policy        PolicyEvaluator
-	router        *RoutingEngine
-	pricing       PricingCache
-	usage         InferenceUsageRepository
-	tokenVerifier *token.Verifier
-	logger        logging.Logger
+	policy  PolicyEvaluator
+	router  *RoutingEngine
+	pricing PricingCache
+	usage   InferenceUsageRepository
+	logger  logging.Logger
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -44,23 +45,21 @@ func NewService(
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
-	tokenVerifier *token.Verifier,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:        policy,
-		router:        router,
-		pricing:       pricing,
-		usage:         usage,
-		tokenVerifier: tokenVerifier,
-		logger:        logger,
+		policy:  policy,
+		router:  router,
+		pricing: pricing,
+		usage:   usage,
+		logger:  logger,
 	}
 }
 
 // ─── ChatCompletion (non-streaming) ──────────────────────────────────────────
 
 // ChatCompletion handles a non-streaming inference request end-to-end:
-//  1. Parse the bearer token → extract principal context.
+//  1. Read the verified principal from context (placed there by AuthMiddleware).
 //  2. Evaluate policy.
 //  3. Route to provider(s).
 //  4. Call provider, retrying/failing-over on retryable errors.
@@ -68,12 +67,13 @@ func NewService(
 //  6. Return normalised response.
 func (s *Service) ChatCompletion(
 	ctx context.Context,
-	rawAuthHeader string,
+	dialect APIDialect,
 	req ChatCompletionRequest,
 ) (ChatCompletionResponse, error) {
 	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletion",
 		trace.WithAttributes(
 			attribute.String("model", req.Model),
+			attribute.String("dialect", string(dialect)),
 			attribute.Bool("stream", false),
 		),
 	)
@@ -81,8 +81,8 @@ func (s *Service) ChatCompletion(
 
 	start := time.Now()
 
-	// ── 1. Extract principal ──────────────────────────────────────────────────
-	p, err := s.extractPrincipal(ctx, rawAuthHeader)
+	// ── 1. Extract principal from context ─────────────────────────────────────
+	p, err := principalFromClaims(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
@@ -99,7 +99,7 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, req, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -114,7 +114,7 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, req, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
 		return ChatCompletionResponse{}, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
 	}
 	if !decision.Allowed {
@@ -123,63 +123,12 @@ func (s *Service) ChatCompletion(
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, req, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return ChatCompletionResponse{}, ErrPolicyDenied
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	var (
-		resp          ChatCompletionResponse
-		callErr       error
-		usedTarget    *RouteTarget
-		retryCount    int
-		totalAttempts int
-	)
-
-	for _, target := range targets {
-		if totalAttempts >= s.router.MaxTotalAttempts() {
-			break
-		}
-
-		connector, ok := s.router.Connector(target.Provider)
-		if !ok {
-			continue
-		}
-
-		for attempt := 0; attempt < s.router.MaxAttemptsPerTarget(); attempt++ {
-			totalAttempts++
-			if totalAttempts > s.router.MaxTotalAttempts() {
-				break
-			}
-
-			callReq := req
-			callReq.Model = target.ModelID
-
-			resp, callErr = connector.ChatCompletion(ctx, callReq)
-			if callErr == nil {
-				t := target // capture loop variable
-				usedTarget = &t
-				break
-			}
-
-			retryCount++
-			var connErr *ConnectorError
-			if !errors.As(callErr, &connErr) || !connErr.Retryable {
-				// Non-retryable — advance to next target in the chain.
-				break
-			}
-
-			s.logger.Info(ctx, "retrying after retryable provider error",
-				logging.Field{Key: "provider", Value: string(target.Provider)},
-				logging.Field{Key: "attempt", Value: attempt + 1},
-				logging.Field{Key: "error_code", Value: connErr.Code},
-			)
-		}
-
-		if callErr == nil {
-			break
-		}
-	}
+	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, dialect, req)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -187,7 +136,7 @@ func (s *Service) ChatCompletion(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, req, nthProvider(targets, 0), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets, 0), &strategy, UsageStatusProviderError, errCode, latencyMS)
 		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -200,7 +149,7 @@ func (s *Service) ChatCompletion(
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
-		APIDialect:       DialectOpenAI,
+		APIDialect:       dialect,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
 		RoutingStrategy:  &strategy,
@@ -215,8 +164,6 @@ func (s *Service) ChatCompletion(
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
-		// Usage write failure is logged but not surfaced to the caller —
-		// the inference response was successful.
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
@@ -232,22 +179,22 @@ func (s *Service) ChatCompletion(
 // ChatCompletionStream handles a streaming inference request.
 // The handler is responsible for writing SSE frames; this method returns a
 // channel that emits chunks and closes when the stream is done.
-// On mid-stream error a final *ConnectorError is sent before the channel closes.
+// On mid-stream error a final chunk with Err set is sent before the channel closes.
 func (s *Service) ChatCompletionStream(
 	ctx context.Context,
-	rawAuthHeader string,
+	dialect APIDialect,
 	req ChatCompletionRequest,
 ) (<-chan ChatCompletionChunk, error) {
 	start := time.Now()
 
-	p, err := s.extractPrincipal(ctx, rawAuthHeader)
+	p, err := principalFromClaims(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
 	targets, strategy, err := s.router.RouteRequest(ctx, req)
 	if err != nil {
-		s.writeFailedUsage(ctx, p, req, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -259,11 +206,11 @@ func (s *Service) ChatCompletionStream(
 		ModelID:       targets[0].ModelID,
 	})
 	if err != nil {
-		s.writeFailedUsage(ctx, p, req, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
 		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
 	}
 	if !decision.Allowed {
-		s.writeFailedUsage(ctx, p, req, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, ErrPolicyDenied
 	}
 
@@ -283,7 +230,7 @@ func (s *Service) ChatCompletionStream(
 		callReq := req
 		callReq.Model = target.ModelID
 
-		upstream, callErr = connector.ChatCompletionStream(ctx, callReq)
+		upstream, callErr = dialectStream(connector, dialect, ctx, callReq)
 		if callErr == nil {
 			t := target
 			usedTarget = &t
@@ -292,7 +239,7 @@ func (s *Service) ChatCompletionStream(
 	}
 
 	if callErr != nil || usedTarget == nil {
-		s.writeFailedUsage(ctx, p, req, nthProvider(targets, 0), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets, 0), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -300,6 +247,10 @@ func (s *Service) ChatCompletionStream(
 	out := make(chan ChatCompletionChunk, 16)
 	capturedTarget := usedTarget
 	capturedStrategy := strategy
+
+	// Detach from the request context so the goroutine survives client disconnect,
+	// but preserve trace/baggage values via WithoutCancel.
+	writeCtx := context.WithoutCancel(ctx)
 
 	go func() {
 		defer close(out)
@@ -322,7 +273,7 @@ func (s *Service) ChatCompletionStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
-			APIDialect:       DialectOpenAI,
+			APIDialect:       dialect,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
 			RoutingStrategy:  &capturedStrategy,
@@ -335,7 +286,6 @@ func (s *Service) ChatCompletionStream(
 			CreatedAt:        time.Now().UTC(),
 		}
 
-		writeCtx := context.Background() // request context may be cancelled at this point
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
@@ -347,32 +297,16 @@ func (s *Service) ChatCompletionStream(
 	return out, nil
 }
 
-// ─── extractPrincipal ─────────────────────────────────────────────────────────
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
-// extractPrincipal parses the Authorization: Bearer header and returns the
-// principal context encoded in the platform JWT's OrbitClaims.
-//
-// The token is parsed directly from internal/platform/token — no import of
-// the identity feature package — preserving ADR-0003 cross-feature isolation.
-//
-// In production, Envoy (Layer 1) has already validated the JWT signature,
-// expiry, and JTI blocklist before the request reaches this service.
-// This call is a lightweight second parse to extract claims.
-//
-// In local Tier-1 development (no cluster, no Envoy), this is the sole
-// validation path. Obtain a real token via `make auth-device`.
-func (s *Service) extractPrincipal(ctx context.Context, rawAuthHeader string) (principal, error) {
-	raw := strings.TrimPrefix(rawAuthHeader, "Bearer ")
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return principal{}, fmt.Errorf("missing bearer token")
+// principalFromClaims reads the verified PlatformClaims stored in context by
+// AuthMiddleware and extracts the principal identity fields.
+// Returns an error if AuthMiddleware has not run (i.e. claims are absent).
+func principalFromClaims(ctx context.Context) (principal, error) {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return principal{}, fmt.Errorf("no verified claims in context: AuthMiddleware may not have run")
 	}
-
-	claims, err := s.tokenVerifier.Verify(ctx, raw)
-	if err != nil {
-		return principal{}, fmt.Errorf("verify platform token: %w", err)
-	}
-
 	return principal{
 		TenantID:       claims.Orbit.TenantID,
 		PrincipalID:    claims.Subject,
@@ -381,12 +315,11 @@ func (s *Service) extractPrincipal(ctx context.Context, rawAuthHeader string) (p
 	}, nil
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
 func (s *Service) writeFailedUsage(
 	ctx context.Context,
 	p principal,
 	req ChatCompletionRequest,
+	dialect APIDialect,
 	provider *ProviderName,
 	strategy *RoutingStrategy,
 	status UsageStatus,
@@ -403,7 +336,7 @@ func (s *Service) writeFailedUsage(
 		TenantID:        p.TenantID,
 		PrincipalID:     p.PrincipalID,
 		PrincipalType:   p.PrincipalType,
-		APIDialect:      DialectOpenAI,
+		APIDialect:      dialect,
 		Provider:        provider,
 		ModelID:         req.Model,
 		RoutingStrategy: strategy,
@@ -431,10 +364,87 @@ func extractErrorCode(err error) string {
 	return "UNKNOWN"
 }
 
+// callWithFailover iterates targets, retrying retryable errors up to the engine limits.
+func (s *Service) callWithFailover(
+	ctx context.Context,
+	targets []RouteTarget,
+	dialect APIDialect,
+	req ChatCompletionRequest,
+) (resp ChatCompletionResponse, usedTarget *RouteTarget, retryCount int, callErr error) {
+	totalAttempts := 0
+	for _, target := range targets {
+		if totalAttempts >= s.router.MaxTotalAttempts() {
+			break
+		}
+		connector, ok := s.router.Connector(target.Provider)
+		if !ok {
+			continue
+		}
+		for attempt := 0; attempt < s.router.MaxAttemptsPerTarget(); attempt++ {
+			totalAttempts++
+			if totalAttempts > s.router.MaxTotalAttempts() {
+				break
+			}
+			callReq := req
+			callReq.Model = target.ModelID
+			resp, callErr = dialectCall(connector, dialect, ctx, callReq)
+			if callErr == nil {
+				t := target
+				usedTarget = &t
+				return
+			}
+			retryCount++
+			var connErr *ConnectorError
+			if !errors.As(callErr, &connErr) || !connErr.Retryable {
+				break
+			}
+			s.logger.Info(ctx, "retrying after retryable provider error",
+				logging.Field{Key: "provider", Value: string(target.Provider)},
+				logging.Field{Key: "attempt", Value: attempt + 1},
+				logging.Field{Key: "error_code", Value: connErr.Code},
+			)
+		}
+		if callErr == nil {
+			break
+		}
+	}
+	return
+}
+
 func nthProvider(targets []RouteTarget, n int) *ProviderName {
 	if n < len(targets) {
 		p := targets[n].Provider
 		return &p
 	}
 	return nil
+}
+
+// ─── dialect dispatch helpers ─────────────────────────────────────────────────
+
+// dialectCall invokes the correct non-streaming connector method for the given
+// dialect. The connector is never responsible for making this decision.
+func dialectCall(
+	c ProviderConnector,
+	dialect APIDialect,
+	ctx context.Context,
+	req ChatCompletionRequest,
+) (ChatCompletionResponse, error) {
+	if dialect == DialectAnthropic {
+		return c.AnthropicChatCompletion(ctx, req)
+	}
+	return c.ChatCompletion(ctx, req)
+}
+
+// dialectStream invokes the correct streaming connector method for the given
+// dialect. The connector is never responsible for making this decision.
+func dialectStream(
+	c ProviderConnector,
+	dialect APIDialect,
+	ctx context.Context,
+	req ChatCompletionRequest,
+) (<-chan ChatCompletionChunk, error) {
+	if dialect == DialectAnthropic {
+		return c.AnthropicChatCompletionStream(ctx, req)
+	}
+	return c.ChatCompletionStream(ctx, req)
 }

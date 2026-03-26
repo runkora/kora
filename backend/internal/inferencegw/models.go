@@ -42,7 +42,7 @@ const (
 	StrategyLowestCost RoutingStrategy = "lowest_cost"
 	// StrategyFailoverChain tries providers in priority order, advancing on error.
 	StrategyFailoverChain RoutingStrategy = "failover_chain"
-	// StrategyExplicit honours the model field in the request exactly.
+	// StrategyExplicit honors the model field in the request exactly.
 	StrategyExplicit RoutingStrategy = "explicit"
 )
 
@@ -113,7 +113,11 @@ type ChatCompletionChunk struct {
 	// Usage is populated on the final chunk by providers that support
 	// streaming token counts (e.g. Bedrock, Vertex AI).
 	// Earlier chunks carry zero values.
-	Usage UsageStats `json:"usage,omitempty"`
+	Usage UsageStats `json:"usage"`
+	// Err is non-nil when the stream encountered an error and must be closed.
+	// Connectors send a terminal chunk with Err set rather than returning an
+	// error from the channel itself.
+	Err error `json:"-"`
 }
 
 // ─── Usage record ────────────────────────────────────────────────────────────
@@ -137,7 +141,7 @@ type InferenceUsageRecord struct {
 	PrincipalID      string
 	PrincipalType    string
 	APIDialect       APIDialect
-	Provider         *ProviderName   // nil when routing failed
+	Provider         *ProviderName // nil when routing failed
 	ModelID          string
 	RoutingStrategy  *RoutingStrategy // nil when routing failed
 	PromptTokens     int
@@ -168,10 +172,11 @@ type InferenceUsageFilter struct {
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
-	ErrPolicyDenied       = errors.New("inference request denied by policy")
-	ErrNoProvidersEnabled = errors.New("no providers enabled")
-	ErrRoutingFailed      = errors.New("routing failed: no suitable provider/model found")
-	ErrProviderError      = errors.New("provider returned an error")
-	ErrInvalidRequest     = errors.New("invalid inference request")
-	ErrTokenParseFailed   = errors.New("failed to parse platform token")
+	ErrPolicyDenied          = errors.New("inference request denied by policy")
+	ErrNoProvidersEnabled    = errors.New("no providers enabled")
+	ErrProviderNotConfigured = errors.New("provider is not enabled or configured")
+	ErrRoutingFailed         = errors.New("routing failed: no suitable provider/model found")
+	ErrProviderError         = errors.New("provider returned an error")
+	ErrInvalidRequest        = errors.New("invalid inference request")
+	ErrTokenParseFailed      = errors.New("failed to parse platform token")
 )

@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -215,5 +216,5 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 }
 
 func isNoRows(err error) bool {
-	return err == pgx.ErrNoRows
+	return errors.Is(err, pgx.ErrNoRows)
 }
