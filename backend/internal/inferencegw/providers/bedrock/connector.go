@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	awsbedrock "github.com/anthropics/anthropic-sdk-go/bedrock"
@@ -14,6 +15,7 @@ import (
 	openaiopt "github.com/openai/openai-go/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -107,9 +109,13 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 		return nil, fmt.Errorf("bedrock: load AWS config: %w", err)
 	}
 
-	openaiEndpoint := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/", cfg.Region)
+	// OpenAI-compatible Bedrock endpoint — requires SigV4 signing on every request.
+	// We provide a signed *http.Client via httpclient.NewHTTPClient so the openai-go
+	// SDK never needs to know about AWS auth.
+	openaiEndpoint := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/openai/v1", cfg.Region)
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
+		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second, newSigV4Transport(awsCfg))),
 	)
 
 	anthropicClient := anthropic.NewClient(

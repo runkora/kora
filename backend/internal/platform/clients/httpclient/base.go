@@ -103,6 +103,22 @@ func New(tracerName string, logger logging.Logger, timeout time.Duration) *Base 
 	}
 }
 
+// NewHTTPClient constructs a plain *http.Client with the given timeout and
+// transport. Use this when you need a raw *http.Client to pass to a third-party
+// SDK (e.g. openai-go, anthropic-sdk-go) that manages its own request lifecycle
+// and cannot embed httpclient.Base.
+//
+// The transport is typically a custom http.RoundTripper that handles
+// provider-specific auth (e.g. SigV4 signing for AWS Bedrock). Pass nil to use
+// http.DefaultTransport.
+func NewHTTPClient(timeout time.Duration, transport http.RoundTripper) *http.Client {
+	c := &http.Client{Timeout: timeout}
+	if transport != nil {
+		c.Transport = transport
+	}
+	return c
+}
+
 // Logger returns the structured logger so service-specific methods can emit
 // log lines without reaching outside the embedded Base.
 func (b *Base) Logger() logging.Logger { return b.logger }
