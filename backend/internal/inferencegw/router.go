@@ -98,6 +98,52 @@ func (r *RoutingEngine) RouteRequest(
 	}
 }
 
+// ListModels queries every enabled connector concurrently and aggregates
+// the results into a deduplicated list of ProviderModels.
+func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error) {
+	if len(r.connectors) == 0 {
+		return nil, ErrNoProvidersEnabled
+	}
+
+	type result struct {
+		provider ProviderName
+		ids      []string
+		err      error
+	}
+
+	ch := make(chan result, len(r.connectors))
+	for _, c := range r.connectors {
+		go func() {
+			ids, err := c.ListModels(ctx)
+			ch <- result{provider: c.Name(), ids: ids, err: err}
+		}()
+	}
+
+	var models []ProviderModel
+	var firstErr error
+	for range r.connectors {
+		res := <-ch
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("list models from %s: %w", res.provider, res.err)
+			}
+			continue
+		}
+		for _, id := range res.ids {
+			models = append(models, ProviderModel{Provider: res.provider, ModelID: id})
+		}
+	}
+
+	// Return partial results if at least one provider succeeded.
+	if len(models) > 0 {
+		return models, nil
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, ErrNoProvidersEnabled
+}
+
 // ─── strategy implementations ─────────────────────────────────────────────────
 
 // lowestCostTargets returns all enabled provider/model pairs sorted ascending

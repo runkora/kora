@@ -115,21 +115,26 @@ type modelObject struct {
 	OwnedBy string `json:"owned_by"`
 }
 
-// handleListModels returns a list of available models drawn from the PricingCache.
+// handleListModels queries all enabled provider connectors for their live model
+// lists and returns the aggregated results in OpenAI list format.
 // Auth is enforced by AuthMiddleware — this handler runs only for verified principals.
 func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	pricings := c.svc.pricing.All()
-	now := time.Now().Unix()
+	models, err := c.svc.ListModels(ctx)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
 
-	data := make([]modelObject, 0, len(pricings))
-	for _, p := range pricings {
+	now := time.Now().Unix()
+	data := make([]modelObject, 0, len(models))
+	for _, m := range models {
 		data = append(data, modelObject{
-			ID:      fmt.Sprintf("%s/%s", p.Provider, p.ModelID),
+			ID:      fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
 			Object:  "model",
 			Created: now,
-			OwnedBy: string(p.Provider),
+			OwnedBy: string(m.Provider),
 		})
 	}
 

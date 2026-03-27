@@ -110,6 +110,19 @@ func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderVertexAI
 }
 
+// ListModels returns the live list of model IDs from the Vertex AI OpenAI-compatible endpoint.
+func (c *Connector) ListModels(ctx context.Context) ([]string, error) {
+	iter := c.openaiClient.Models.ListAutoPaging(ctx)
+	var ids []string
+	for iter.Next() {
+		ids = append(ids, iter.Current().ID)
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("vertexai: list models: %w", err)
+	}
+	return ids, nil
+}
+
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
 func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
 	return c.openaiChatCompletion(ctx, req)

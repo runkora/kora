@@ -17,10 +17,10 @@ import (
 // This allows the openai-go SDK to talk to Bedrock's OpenAI-compatible
 // endpoint without any knowledge of AWS auth.
 type sigV4Transport struct {
-	signer  *v4.Signer
-	creds   aws.CredentialsProvider
-	region  string
-	inner   http.RoundTripper
+	signer *v4.Signer
+	creds  aws.CredentialsProvider
+	region string
+	inner  http.RoundTripper
 }
 
 func newSigV4Transport(awsCfg aws.Config) http.RoundTripper {

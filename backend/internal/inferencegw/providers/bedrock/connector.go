@@ -8,9 +8,12 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	awsbedrock "github.com/anthropics/anthropic-sdk-go/bedrock"
+	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	bedrockSDK "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	openai "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
 
@@ -82,6 +85,7 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 type Connector struct {
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
+	bedrockClient   *bedrockSDK.Client
 	logger          logging.Logger
 }
 
@@ -110,27 +114,87 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	}
 
 	// OpenAI-compatible Bedrock endpoint — requires SigV4 signing on every request.
-	// We provide a signed *http.Client via httpclient.NewHTTPClient so the openai-go
-	// SDK never needs to know about AWS auth.
+	// The tracing transport wraps SigV4 so every call gets an OTel client span
+	// and W3C traceparent injection before SigV4 signs the final headers.
 	openaiEndpoint := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/openai/v1", cfg.Region)
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
-		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second, newSigV4Transport(awsCfg))),
+		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.bedrock-openai", newSigV4Transport(awsCfg)),
+		)),
 	)
 
+	// Anthropic Messages API on Bedrock — SigV4 is handled by the SDK's bedrockMiddleware
+	// (applied via WithConfig), so the tracing transport wraps http.DefaultTransport only.
+	// This gives us OTel client spans + W3C traceparent on every Anthropic call without
+	// interfering with the SDK's auth middleware chain.
 	anthropicClient := anthropic.NewClient(
 		awsbedrock.WithConfig(awsCfg),
+		anthropicOption.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+		)),
 	)
+
+	bedrockClient := bedrockSDK.NewFromConfig(awsCfg)
 
 	return &Connector{
 		openaiClient:    &openaiClient,
 		anthropicClient: &anthropicClient,
+		bedrockClient:   bedrockClient,
 		logger:          logger,
 	}, nil
 }
 
 func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderBedrock
+}
+
+// ListModels returns the combined list of foundation model IDs and system-defined
+// cross-region inference profile IDs from the Bedrock management API.
+//
+// Foundation models are returned as bare IDs (e.g. "anthropic.claude-3-5-sonnet-20241022-v2:0")
+// and work with on-demand throughput. System-defined inference profiles are returned as
+// region-prefixed IDs (e.g. "us.anthropic.claude-sonnet-4-6") and are required for newer
+// Claude models that do not support on-demand throughput. The prefix is region-specific:
+// us-east-1/us-west-2 produce "us.", eu-* produce "eu.", ap-* produce "ap.".
+func (c *Connector) ListModels(ctx context.Context) ([]string, error) {
+	// Foundation models — on-demand throughput, no inference profile required.
+	fmOut, err := c.bedrockClient.ListFoundationModels(ctx, &bedrockSDK.ListFoundationModelsInput{})
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: list foundation models: %w", err)
+	}
+	ids := make([]string, 0, len(fmOut.ModelSummaries)+32)
+	for _, m := range fmOut.ModelSummaries {
+		if m.ModelId != nil {
+			ids = append(ids, *m.ModelId)
+		}
+	}
+
+	// System-defined cross-region inference profiles — required for newer models.
+	// The API is paginated; we iterate until NextToken is empty.
+	var nextToken *string
+	for {
+		ipOut, err := c.bedrockClient.ListInferenceProfiles(ctx, &bedrockSDK.ListInferenceProfilesInput{
+			TypeEquals: bedrockSDKtypes.InferenceProfileTypeSystemDefined,
+			NextToken:  nextToken,
+		})
+		if err != nil {
+			// Non-fatal: some accounts/regions may not have inference profiles configured.
+			c.logger.Warn(ctx, "bedrock: list inference profiles skipped", logging.Field{Key: "error", Value: err})
+			break
+		}
+		for _, p := range ipOut.InferenceProfileSummaries {
+			if p.InferenceProfileId != nil {
+				ids = append(ids, *p.InferenceProfileId)
+			}
+		}
+		if ipOut.NextToken == nil || *ipOut.NextToken == "" {
+			break
+		}
+		nextToken = ipOut.NextToken
+	}
+
+	return ids, nil
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.

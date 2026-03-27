@@ -24,11 +24,11 @@ func ToOpenAIParams(req inferencegw.ChatCompletionRequest) openai.ChatCompletion
 	for _, m := range req.Messages {
 		switch m.Role {
 		case "system":
-			messages = append(messages, openai.SystemMessage(m.Content))
+			messages = append(messages, openai.SystemMessage(m.Content.String()))
 		case "assistant":
-			messages = append(messages, openai.AssistantMessage(m.Content))
+			messages = append(messages, openai.AssistantMessage(m.Content.String()))
 		default:
-			messages = append(messages, openai.UserMessage(m.Content))
+			messages = append(messages, openai.UserMessage(m.Content.String()))
 		}
 	}
 
@@ -56,7 +56,7 @@ func FromOpenAIResponse(resp *openai.ChatCompletion) inferencegw.ChatCompletionR
 			FinishReason: ch.FinishReason,
 			Message: inferencegw.ChatMessage{
 				Role:    string(ch.Message.Role),
-				Content: ch.Message.Content,
+				Content: inferencegw.MessageContent(ch.Message.Content),
 			},
 		})
 	}
@@ -158,14 +158,14 @@ func ToAnthropicParams(req inferencegw.ChatCompletionRequest) anthropic.MessageN
 	for _, m := range req.Messages {
 		switch m.Role {
 		case "system":
-			systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content})
+			systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content.String()})
 		case "assistant":
 			messages = append(messages, anthropic.NewAssistantMessage(
-				anthropic.NewTextBlock(m.Content),
+				anthropic.NewTextBlock(m.Content.String()),
 			))
 		default:
 			messages = append(messages, anthropic.NewUserMessage(
-				anthropic.NewTextBlock(m.Content),
+				anthropic.NewTextBlock(m.Content.String()),
 			))
 		}
 	}
@@ -201,7 +201,7 @@ func FromAnthropicMessage(msg *anthropic.Message) inferencegw.ChatCompletionResp
 				FinishReason: string(msg.StopReason),
 				Message: inferencegw.ChatMessage{
 					Role:    "assistant",
-					Content: content.String(),
+					Content: inferencegw.MessageContent(content.String()),
 				},
 			},
 		},

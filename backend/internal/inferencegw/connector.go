@@ -27,6 +27,14 @@ type AnthropicConnector interface {
 	AnthropicChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
 }
 
+// ─── ProviderModel ───────────────────────────────────────────────────────────
+
+// ProviderModel is a model returned by a live provider listing.
+type ProviderModel struct {
+	Provider ProviderName
+	ModelID  string
+}
+
 // ─── ProviderConnector ────────────────────────────────────────────────────────
 
 // ProviderConnector is the full abstraction over a cloud AI provider.
@@ -38,6 +46,10 @@ type AnthropicConnector interface {
 type ProviderConnector interface {
 	// Name returns the canonical provider identifier.
 	Name() ProviderName
+
+	// ListModels returns the live list of model IDs available on this provider.
+	// Returned IDs are bare (no provider/ prefix).
+	ListModels(ctx context.Context) ([]string, error)
 
 	OpenAIConnector
 	AnthropicConnector

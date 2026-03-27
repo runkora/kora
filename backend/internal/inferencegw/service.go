@@ -56,6 +56,14 @@ func NewService(
 	}
 }
 
+// ─── ListModels ───────────────────────────────────────────────────────────────
+
+// ListModels queries all enabled provider connectors for their live model lists
+// and returns the aggregated results.
+func (s *Service) ListModels(ctx context.Context) ([]ProviderModel, error) {
+	return s.router.ListModels(ctx)
+}
+
 // ─── ChatCompletion (non-streaming) ──────────────────────────────────────────
 
 // ChatCompletion handles a non-streaming inference request end-to-end:

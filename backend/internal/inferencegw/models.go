@@ -5,7 +5,9 @@
 package inferencegw
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -48,10 +50,48 @@ const (
 
 // ─── Request / response ──────────────────────────────────────────────────────
 
+// MessageContent holds the content field of a ChatMessage.
+// The OpenAI API allows content to be either a plain string or an array
+// of typed content parts (e.g. [{"type":"text","text":"..."}] for multi-modal).
+// We normalise both forms to a plain string so connectors never see the array form.
+type MessageContent string
+
+// UnmarshalJSON accepts either a JSON string or an array of content-part objects.
+// Content parts of type "text" are concatenated; other types (image_url, etc.)
+// are currently skipped — gateway is text-only in the MVP.
+func (c *MessageContent) UnmarshalJSON(b []byte) error {
+	// Fast path: plain string.
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*c = MessageContent(s)
+		return nil
+	}
+
+	// Slow path: array of content-part objects.
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(b, &parts); err != nil {
+		return err
+	}
+	var sb strings.Builder
+	for _, p := range parts {
+		if p.Type == "text" {
+			sb.WriteString(p.Text)
+		}
+	}
+	*c = MessageContent(sb.String())
+	return nil
+}
+
+// String returns the plain-text content.
+func (c MessageContent) String() string { return string(c) }
+
 // ChatMessage is a single message in a chat conversation.
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string         `json:"role"`
+	Content MessageContent `json:"content"`
 }
 
 // ChatCompletionRequest is the normalised internal request type.

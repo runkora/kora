@@ -18,14 +18,14 @@ type anthropicMessageRequest struct {
 	Model       string         `json:"model"`
 	MaxTokens   int            `json:"max_tokens"`
 	Messages    []anthropicMsg `json:"messages"`
-	System      string         `json:"system,omitempty"`
+	System      MessageContent `json:"system,omitempty"`
 	Stream      bool           `json:"stream,omitempty"`
 	Temperature *float64       `json:"temperature,omitempty"`
 }
 
 type anthropicMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string         `json:"role"`
+	Content MessageContent `json:"content"`
 }
 
 // anthropicMessageResponse is the non-streaming POST /messages response.
@@ -306,7 +306,7 @@ func internalResponseToAnthropic(resp ChatCompletionResponse) anthropicMessageRe
 	stopReason := "end_turn"
 
 	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content
+		content = resp.Choices[0].Message.Content.String()
 		if resp.Choices[0].FinishReason != "" {
 			stopReason = mapToAnthropicStopReason(resp.Choices[0].FinishReason)
 		}
