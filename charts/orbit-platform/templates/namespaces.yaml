@@ -4,9 +4,9 @@
 #   orbit-system          — Orbit control-plane services (identity, etc.)
 #   <tenant namespaces>   — one per entry in .Values.namespaces.tenants
 #
-# istio-system and spire-server are created by --create-namespace in their
-# respective helm upgrade --install calls (see Makefile cluster-platform target)
-# and are NOT managed here to avoid cross-release ownership conflicts.
+# istio-system and spire-system are created by the orbit-operator via
+# client-go CreateOrUpdate before each Helm release install, and are NOT
+# managed here to avoid cross-release ownership conflicts.
 #
 # Uses lookup to make creation idempotent.
 
@@ -28,7 +28,11 @@ metadata:
 {{- end }}
 
 {{- /* ── tenant namespaces ───────────────────────────────────────────── */}}
+{{- /* Use lookup guard: tenant namespaces may already exist (created by the   */}}
+{{- /* orbit-operator TenantReconciler). Helm cannot import externally-managed  */}}
+{{- /* namespaces, so we skip creation when the namespace already exists.       */}}
 {{- range .Values.namespaces.tenants }}
+{{- if not (lookup "v1" "Namespace" "" .) }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -42,4 +46,5 @@ metadata:
     # The orbit.io/role=tenant label is used by ClusterSPIFFEID selectors to
     # distinguish tenant workload identity paths from system component paths.
     orbit.io/role: tenant
+{{- end }}
 {{- end }}

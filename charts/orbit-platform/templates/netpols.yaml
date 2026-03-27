@@ -5,9 +5,9 @@
 # - Explicit allow rules for: DNS, Istio mesh sidecar ports, istiod xDS,
 #   and Kubernetes API (for any controller/webhook needs)
 #
-# SPIRE runs in its own namespace (spire-server) and is NOT governed by these
+# SPIRE runs in its own namespace (spire-system) and is NOT governed by these
 # policies. Workload SVIDs are delivered via CSI-mounted Unix domain socket —
-# no network path from orbit-system to spire-server is required.
+# no network path from orbit-system to spire-system is required.
 #
 # Disable entirely for environments where the CNI does not enforce NetworkPolicy:
 #   --set networkPolicy.enabled=false

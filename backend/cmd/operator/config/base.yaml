@@ -1,0 +1,12 @@
+app:
+  version: "0.1.0"
+
+operator:
+  namespace: orbit-system
+  chartDir: /etc/orbit/charts
+  leaderElection: true
+  syncPeriodSecs: 300
+  shutdownTimeoutSecs: 30
+
+observability:
+  serviceName: orbit-operator

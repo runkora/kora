@@ -10,8 +10,8 @@
 #   Tenant service:    spiffe://<trust-domain>/tenant/<namespace>/service/<service-label>
 #   Tenant agent:      spiffe://<trust-domain>/tenant/<namespace>/agent/<agent-label>
 #
-# The className "spire-server-spire" matches the SPIRE server release name
-# deployed by the spire sub-chart (releaseName: spire, server component: spire-server).
+# The className "spire-system-spire" matches the SPIRE controller manager's configured
+# className (set in the controller-manager-config.yaml ConfigMap, field: className).
 #
 # Ref: ADR-0018 (SPIFFE identity grants), ADR-0019 (tenant isolation)
 {{- $trustDomain := include "orbit-platform.trustDomain" . }}
@@ -25,7 +25,7 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  className: spire-server-spire
+  className: spire-system-spire
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/ns/{{ `{{ .PodMeta.Namespace }}` }}/sa/{{ `{{ .PodSpec.ServiceAccountName }}` }}"
   namespaceSelector:
     matchLabels:
@@ -47,7 +47,7 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  className: spire-server-spire
+  className: spire-system-spire
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/ns/{{ `{{ .PodMeta.Namespace }}` }}/sa/{{ `{{ .PodSpec.ServiceAccountName }}` }}"
   podSelector:
     matchLabels:
@@ -73,7 +73,7 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  className: spire-server-spire
+  className: spire-system-spire
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/system/{{ `{{ index .PodMeta.Labels \"spiffe.io/component\" }}` }}"
   namespaceSelector:
     matchLabels:
@@ -93,7 +93,7 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  className: spire-server-spire
+  className: spire-system-spire
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/service/{{ `{{ index .PodMeta.Labels \"spiffe.io/service\" }}` }}"
   namespaceSelector:
     matchLabels:
@@ -113,7 +113,7 @@ metadata:
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
 spec:
-  className: spire-server-spire
+  className: spire-system-spire
   spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"spiffe.io/agent\" }}` }}"
   namespaceSelector:
     matchLabels:

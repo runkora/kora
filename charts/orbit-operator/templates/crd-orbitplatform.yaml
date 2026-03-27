@@ -1,0 +1,179 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: orbitplatforms.orbit.io
+  labels:
+    {{- include "orbit-operator.labels" . | nindent 4 }}
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: orbit.io
+  names:
+    kind: OrbitPlatform
+    listKind: OrbitPlatformList
+    plural: orbitplatforms
+    singular: orbitplatform
+    shortNames:
+      - op
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Version
+          type: string
+          jsonPath: .status.version
+        - name: Tenants
+          type: integer
+          jsonPath: .status.tenantCount
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: OrbitPlatform declares the desired state of the entire Orbit
+            platform. One instance per cluster, conventionally named "orbit".
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - version
+                - trustDomain
+              properties:
+                version:
+                  description: Orbit chart version to install (semver).
+                  type: string
+                  pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+                trustDomain:
+                  description: SPIFFE trust domain. Must be consistent across SPIRE,
+                    the identity service, and all tenant workloads.
+                  type: string
+                  minLength: 1
+                spire:
+                  description: SPIRE installation control.
+                  type: object
+                  properties:
+                    enabled:
+                      description: Whether the operator installs and manages SPIRE.
+                      type: boolean
+                      default: true
+                istio:
+                  description: Istio installation control.
+                  type: object
+                  properties:
+                    enabled:
+                      description: Whether the operator installs and manages Istio.
+                      type: boolean
+                      default: true
+                secrets:
+                  description: References the pre-existing Secret with platform credentials.
+                  type: object
+                  properties:
+                    platformSecretRef:
+                      description: Secret containing DB_PASSWORD, REDIS_PASSWORD,
+                        ORBIT_TOKEN_SIGNING_KEY.
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                config:
+                  description: Non-secret platform infrastructure configuration.
+                  type: object
+                  properties:
+                    db:
+                      type: object
+                      properties:
+                        host:
+                          type: string
+                        name:
+                          type: string
+                        port:
+                          type: integer
+                          default: 5432
+                        user:
+                          type: string
+                    redis:
+                      type: object
+                      properties:
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                          default: 6379
+                upgradeStrategy:
+                  description: Controls how the operator handles chart version upgrades.
+                  type: object
+                  properties:
+                    mode:
+                      description: "Explicit: operator upgrades only when spec.version
+                        changes. Automatic: operator applies patch-level upgrades
+                        automatically."
+                      type: string
+                      enum:
+                        - Explicit
+                        - Automatic
+                      default: Explicit
+                platformValues:
+                  description: Raw Helm values merged into the orbit-platform chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                orbitValues:
+                  description: Raw Helm values merged into the orbit chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                version:
+                  type: string
+                tenantCount:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                lastSyncTime:
+                  type: string
+                  format: date-time

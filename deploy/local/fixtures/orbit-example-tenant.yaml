@@ -26,6 +26,17 @@
 # =============================================================================
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-config
+  namespace: orbit-example-tenant
+data:
+  DB_HOST: orbit-postgres
+  DB_NAME: orbit
+  DB_PORT: "5432"
+  DB_USER: orbit
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: orbit-example
@@ -81,7 +92,7 @@ spec:
               protocol: TCP
           envFrom:
             - configMapRef:
-                name: orbit-config
+                name: example-config
             - secretRef:
                 name: orbit-secrets
           livenessProbe:

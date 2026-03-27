@@ -1,0 +1,20 @@
+# Local k3d overrides for the orbit-operator Helm chart.
+# The operator manages all chart installs (SPIRE, Istio, orbit-platform, orbit).
+
+image:
+  repository: orbit-registry:5001/orbit-operator
+  tag: latest
+  pullPolicy: Always
+
+# Use APP_ENV=development for the in-cluster pod:
+# - loads cmd/operator/config/development.yaml (leaderElection: false)
+# - does NOT override chartDir, so charts are read from /etc/orbit/charts (baked into image)
+# APP_ENV=local is for running the binary directly outside the container (local.yaml overrides chartDir: ../charts).
+appEnv: development
+
+# chartDir is intentionally omitted — the production default (/etc/orbit/charts)
+# is correct for the container image. The Dockerfile.operator copies charts there.
+
+leaderElection: false
+
+logLevel: debug

@@ -1,0 +1,38 @@
+# OrbitPlatform CR for local k3d development.
+#
+# Apply this after `make cluster-operator` to trigger the full platform install:
+#   spire-crds → spire → istio-base → istiod → gateway → orbit-platform → orbit
+#
+# The operator reads deploy/local/spire-values.yaml, istio-values.yaml,
+# platform-values.yaml, and orbit-values.yaml from disk (via ChartDir/..deploy/local/).
+apiVersion: orbit.io/v1alpha1
+kind: OrbitPlatform
+metadata:
+  name: orbit
+spec:
+  version: "0.1.0"
+  trustDomain: orbit.local
+
+  spire:
+    enabled: true
+
+  istio:
+    enabled: true
+
+  secrets:
+    platformSecretRef:
+      name: orbit-secrets
+      namespace: orbit-system
+
+  config:
+    db:
+      host: orbit-postgres
+      name: orbit
+      port: 5432
+      user: orbit
+    redis:
+      host: host.k3d.internal
+      port: 6379
+
+  upgradeStrategy:
+    mode: Explicit

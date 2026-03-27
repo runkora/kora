@@ -1,23 +1,27 @@
 # =============================================================================
-# helmfile.yaml — Orbit Platform Install Manifest
+# helmfile.yaml — Reference / Escape-Hatch Install Manifest
 # =============================================================================
 #
-# This is the primary operator install interface for the Orbit platform layer.
-# It installs SPIRE, Istio, and the orbit-platform cluster resources
-# (ClusterSPIFFEIDs, NetworkPolicies) as separate, correctly-namespaced Helm
-# releases with proper ordering.
+# NOTE: This file is NOT the primary install path for local development.
+# The orbit-operator (make cluster-operator + kubectl apply deploy/local/orbit-platform.yaml)
+# is the canonical way to install and manage the full platform stack.
+#
+# Helmfile is retained as a reference implementation and escape hatch for:
+#   - Manual inspection of individual releases (helmfile diff)
+#   - Emergency recovery when the operator is unavailable
+#   - CI environments that do not run the operator
 #
 # WHY NOT A SINGLE HELM CHART?
 # ─────────────────────────────
 # Istio and SPIRE chart templates hardcode their own namespaces (istio-system,
-# spire-server) for ServiceAccounts, ClusterRoleBindings, and webhooks. If
+# spire-system) for ServiceAccounts, ClusterRoleBindings, and webhooks. If
 # installed as sub-charts of a parent chart in a different namespace (e.g.
 # orbit-system), the ServiceAccount and Deployment land in different namespaces
-# and pods fail to start. Helmfile solves this by orchestrating multiple
-# independent releases with correct namespace placement and install ordering.
+# and pods fail to start. The operator solves this by driving each release
+# independently into its canonical namespace with correct ordering.
 #
-# USAGE
-# ─────
+# USAGE (escape hatch only)
+# ─────────────────────────
 #   helmfile apply --environment local       # install / upgrade everything
 #   helmfile diff  --environment local       # dry-run diff
 #   helmfile destroy --environment local     # tear down all releases
@@ -81,7 +85,7 @@ releases:
   # guarantee does NOT apply when bundled as a sub-chart. Installing it first
   # as a standalone release ensures CRDs exist before spire reconciles them.
   - name: spire-crds
-    namespace: spire-server
+    namespace: spire-system
     createNamespace: true
     chart: spiffe/spire-crds
     version: {{ .Values.versions.spire_crds_chart | quote }}
@@ -89,17 +93,17 @@ releases:
     waitForJobs: true
 
   # ── SPIRE ──────────────────────────────────────────────────────────────────
-  # Release name "spire" in namespace "spire-server" is load-bearing:
+  # Release name "spire" in namespace "spire-system" is load-bearing:
   # the SPIRE controller manager derives ClusterSPIFFEID className as
-  # "<namespace>-<release>" = "spire-server-spire". All ClusterSPIFFEID
+  # "<namespace>-<release>" = "spire-system-spire". All ClusterSPIFFEID
   # resources in charts/orbit-platform/templates/ reference this className.
   # Do NOT change the release name or namespace without updating those resources.
   - name: spire
-    namespace: spire-server
+    namespace: spire-system
     chart: spiffe/spire
     version: {{ .Values.versions.spire_chart | quote }}
     needs:
-      - spire-server/spire-crds
+      - spire-system/spire-crds
     wait: true
     timeout: 180
     values:
@@ -153,7 +157,7 @@ releases:
     namespace: orbit-system
     chart: charts/orbit-platform
     needs:
-      - spire-server/spire
+      - spire-system/spire
       - istio-system/istiod
     values:
 {{- if .Values.orbitPlatform.valuesFile }}

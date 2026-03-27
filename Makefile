@@ -327,93 +327,63 @@ docker-push: ## Push all service images to local registry (orbit-registry:5001/o
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
-.PHONY: cluster-platform
-cluster-platform: ## Install/upgrade platform layer (SPIRE + Istio + cluster resources) via Helmfile
-	@echo "$(COLOR_YELLOW)Installing platform layer via Helmfile (environment: local)...$(COLOR_RESET)"
-	@# Pre-create orbit-system with Istio + SPIRE labels so Helm can store its
-	@# release secret before the chart's namespaces.yaml template is applied.
-	@# kubectl apply is idempotent — safe on first install and on upgrades.
-	@kubectl apply -f deploy/local/orbit-system-namespace.yaml
-	@helmfile sync --environment local
-	@echo "$(COLOR_YELLOW)Waiting for SPIRE agents + Istio control plane to be ready...$(COLOR_RESET)"
-	@kubectl rollout status daemonset/spire-agent -n spire-server --timeout=180s
-	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
-	@echo "$(COLOR_GREEN)✓ Platform layer ready (SPIRE + Istio + cluster resources)$(COLOR_RESET)"
+.PHONY: docker-build-operator
+docker-build-operator: ## Build the orbit-operator Docker image (uses Dockerfile.operator — bakes charts into image)
+	@echo "$(COLOR_YELLOW)Building orbit-operator:latest...$(COLOR_RESET)"
+	@docker build -t orbit-operator:latest -f Dockerfile.operator .
+	@echo "$(COLOR_GREEN)✓ orbit-operator:latest$(COLOR_RESET)"
 
-.PHONY: cluster-platform-diff
-cluster-platform-diff: ## Dry-run diff of platform layer changes (helmfile diff)
-	@helmfile diff --environment local
+.PHONY: docker-push-operator
+docker-push-operator: ## Push orbit-operator image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-operator to local registry...$(COLOR_RESET)"
+	@docker tag orbit-operator:latest localhost:5001/orbit-operator:latest
+	@docker push localhost:5001/orbit-operator:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
+
+.PHONY: cluster-operator
+cluster-operator: docker-build-operator docker-push-operator ## Install the Orbit operator — it installs SPIRE, Istio, and all Orbit services
+	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
+	@# Pre-create orbit-system with SPIRE + Istio labels so the operator can store
+	@# Helm release Secrets here before SPIRE/Istio are installed.
+	@kubectl apply -f deploy/local/orbit-system-namespace.yaml
+	@helm upgrade --install orbit-operator charts/orbit-operator \
+		-f deploy/local/operator-values.yaml \
+		--namespace orbit-operator --create-namespace \
+		--timeout 60s --wait
+	@echo "$(COLOR_YELLOW)Applying platform and tenant CRs...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/orbit-platform.yaml
+	@kubectl apply -f deploy/local/tenants/local.yaml
+	@echo "$(COLOR_YELLOW)Waiting for SPIRE agents + Istio control plane (operator is installing)...$(COLOR_RESET)"
+	@kubectl rollout status daemonset/spire-agent -n spire-system --timeout=300s
+	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
+	@echo "$(COLOR_GREEN)✓ Orbit operator deployed — SPIRE and Istio are ready$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Run 'make cluster-deploy' to create secrets and apply workload fixtures.$(COLOR_RESET)"
+
+.PHONY: cluster-update-operator
+cluster-update-operator: docker-build-operator docker-push-operator ## Rebuild and redeploy the operator (e.g. after changing reconciler logic)
+	@echo "$(COLOR_YELLOW)Upgrading Orbit operator...$(COLOR_RESET)"
+	@helm upgrade --install orbit-operator charts/orbit-operator \
+		-f deploy/local/operator-values.yaml \
+		--namespace orbit-operator \
+		--timeout 60s --wait
+	@kubectl rollout restart deployment/orbit-operator -n orbit-operator
+	@kubectl rollout status deployment/orbit-operator -n orbit-operator --timeout=60s
+	@echo "$(COLOR_GREEN)✓ orbit-operator updated$(COLOR_RESET)"
 
 .PHONY: cluster-deploy
-cluster-deploy: docker-build docker-push ## Build, push and deploy Orbit services to the local k3d cluster via Helm
+cluster-deploy: docker-build docker-push ## Build service images, create secrets, and apply fixtures (operator handles Helm installs)
 	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)Syncing platform namespaces (orbit-platform chart)...$(COLOR_RESET)"
-	@helm upgrade --install orbit-platform charts/orbit-platform \
-		-f deploy/local/platform-values.yaml \
-		--namespace orbit-system --create-namespace \
-		--timeout 60s 2>&1
+	@echo "$(COLOR_YELLOW)Creating platform secrets (orbit-secrets)...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh
-	@echo "$(COLOR_YELLOW)Syncing tenant registry ConfigMap...$(COLOR_RESET)"
-	@kubectl create configmap orbit-tenants \
-		--from-file=tenants.yaml=config/tenants.yaml \
-		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap (non-secret env vars)...$(COLOR_RESET)"
-	@kubectl create configmap orbit-config \
-		--from-literal=DB_HOST=orbit-postgres \
-		--from-literal=DB_NAME=orbit \
-		--from-literal=DB_PORT=5432 \
-		--from-literal=DB_USER=orbit \
-		--from-literal=REDIS_HOST=host.k3d.internal \
-		--from-literal=REDIS_PORT=6379 \
-		--from-literal=ORBIT_OIDC_CLIENT_ID=orbit-local \
-		--from-literal=ORBIT_OIDC_ISSUER_URL=http://dex.orbit.local:5556/dex \
-		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap for orbit-example-tenant...$(COLOR_RESET)"
-	@kubectl create configmap orbit-config \
-		--from-literal=DB_HOST=orbit-postgres \
-		--from-literal=DB_NAME=orbit \
-		--from-literal=DB_PORT=5432 \
-		--from-literal=DB_USER=orbit \
-		-n orbit-example-tenant --dry-run=client -o yaml | kubectl apply -f -
-	@helm upgrade --install orbit charts/orbit \
-		-f deploy/local/orbit-values.yaml \
-		--namespace orbit-system --create-namespace \
-		--timeout 120s --wait
-	@echo "$(COLOR_YELLOW)Applying local fixtures (example tenant)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Applying local fixtures (example tenant workload)...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
-	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Waiting for orbit-identity to be ready...$(COLOR_RESET)"
+	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
+	@echo "$(COLOR_GREEN)✓ Orbit services deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push ## Build, push and upgrade Orbit services in the cluster (Helm upgrade + rollout restart)
-	@echo "$(COLOR_YELLOW)Upgrading Orbit services in cluster...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh
-	@echo "$(COLOR_YELLOW)Syncing tenant registry ConfigMap...$(COLOR_RESET)"
-	@kubectl create configmap orbit-tenants \
-		--from-file=tenants.yaml=config/tenants.yaml \
-		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap (non-secret env vars)...$(COLOR_RESET)"
-	@kubectl create configmap orbit-config \
-		--from-literal=DB_HOST=orbit-postgres \
-		--from-literal=DB_NAME=orbit \
-		--from-literal=DB_PORT=5432 \
-		--from-literal=DB_USER=orbit \
-		--from-literal=REDIS_HOST=host.k3d.internal \
-		--from-literal=REDIS_PORT=6379 \
-		--from-literal=ORBIT_OIDC_CLIENT_ID=orbit-local \
-		--from-literal=ORBIT_OIDC_ISSUER_URL=http://dex.orbit.local:5556/dex \
-		-n orbit-system --dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_YELLOW)Syncing orbit-config ConfigMap for orbit-example-tenant...$(COLOR_RESET)"
-	@kubectl create configmap orbit-config \
-		--from-literal=DB_HOST=orbit-postgres \
-		--from-literal=DB_NAME=orbit \
-		--from-literal=DB_PORT=5432 \
-		--from-literal=DB_USER=orbit \
-		-n orbit-example-tenant --dry-run=client -o yaml | kubectl apply -f -
-	@helm upgrade --install orbit charts/orbit \
-		-f deploy/local/orbit-values.yaml \
-		--namespace orbit-system \
-		--timeout 120s --wait
-	@echo "$(COLOR_YELLOW)Restarting all deployments to pick up new images...$(COLOR_RESET)"
+cluster-update: docker-build docker-push ## Rebuild service images and restart deployments
+	@echo "$(COLOR_YELLOW)Updating Orbit services in cluster...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
 	@kubectl rollout restart deployment -n orbit-example-tenant 2>/dev/null || true
 	@echo "$(COLOR_YELLOW)Waiting for rollouts to complete...$(COLOR_RESET)"

@@ -1,0 +1,156 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: orbittenants.orbit.io
+  labels:
+    {{- include "orbit-operator.labels" . | nindent 4 }}
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: orbit.io
+  names:
+    kind: OrbitTenant
+    listKind: OrbitTenantList
+    plural: orbittenants
+    singular: orbittenant
+    shortNames:
+      - ot
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Tenant ID
+          type: string
+          jsonPath: .spec.tenantId
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Namespace
+          type: string
+          jsonPath: .spec.namespace
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: OrbitTenant declares a tenant in the Orbit platform.
+            The operator creates the tenant namespace and registers the tenant
+            in the orbit-tenants ConfigMap consumed by the identity service.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - tenantId
+                - displayName
+                - namespace
+                - oidc
+              properties:
+                tenantId:
+                  description: Stable, unique identifier for the tenant. Used as
+                    the tenant ID in SPIFFE IDs and the identity service registry.
+                  type: string
+                  minLength: 1
+                  maxLength: 63
+                  pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+                displayName:
+                  description: Human-readable tenant display name.
+                  type: string
+                  minLength: 1
+                namespace:
+                  description: Kubernetes namespace for tenant workloads. The operator
+                    creates this namespace with the required Istio and SPIRE labels.
+                  type: string
+                  minLength: 1
+                active:
+                  description: Whether the tenant is active. Inactive tenants are
+                    excluded from the identity service registry. Default true.
+                  type: boolean
+                  default: true
+                oidc:
+                  description: OIDC provider configuration for this tenant.
+                  type: object
+                  required:
+                    - issuerURL
+                    - clientID
+                  properties:
+                    issuerURL:
+                      description: OIDC issuer URL. Must be reachable from the
+                        identity service.
+                      type: string
+                    clientID:
+                      description: OIDC client ID registered with the provider.
+                      type: string
+                    clientSecretRef:
+                      description: Reference to a Secret containing the OIDC client
+                        secret in key "clientSecret". Optional for public clients.
+                      type: object
+                      required:
+                        - name
+                        - namespace
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    scopes:
+                      description: Additional OIDC scopes to request. "openid" is
+                        always included.
+                      type: array
+                      items:
+                        type: string
+                      default:
+                        - openid
+                        - profile
+                        - email
+                deleteNamespaceOnRemoval:
+                  description: Whether to delete the tenant namespace when the
+                    OrbitTenant CR is deleted. Default false — namespace is retained
+                    to avoid accidental data loss.
+                  type: boolean
+                  default: false
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                registeredAt:
+                  type: string
+                  format: date-time

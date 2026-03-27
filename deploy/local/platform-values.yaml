@@ -3,15 +3,15 @@
 # =============================================================================
 #
 # This chart now only manages cluster-scoped Orbit resources:
-#   - Namespaces (orbit-system, istio-system, spire-server)
+#   - Namespaces (orbit-system, istio-system, spire-system)
 #   - ClusterSPIFFEIDs (workload identity grants)
 #   - NetworkPolicies (default-deny + explicit allow rules)
 #
-# SPIRE and Istio are installed as SEPARATE Helm releases — see:
-#   deploy/local/spire-values.yaml   (helm release: spire, ns: spire-server)
+# SPIRE and Istio are managed by the orbit-operator — see:
+#   deploy/local/spire-values.yaml   (helm release: spire, ns: spire-system)
 #   deploy/local/istio-values.yaml   (helm release: istiod, ns: istio-system)
 #
-# The Makefile cluster-platform target orchestrates the full install sequence.
+# The orbit-operator reconciles the full install sequence driven by OrbitPlatform CR.
 # =============================================================================
 
 global:

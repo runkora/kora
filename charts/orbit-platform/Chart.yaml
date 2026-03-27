@@ -28,8 +28,8 @@ maintainers:
 # (.Release.Namespace), preventing pod creation.
 #
 # The correct pattern (restored from the original working kustomization) is:
-#   spire-crds  → spire-server namespace, release spire-crds
-#   spire       → spire-server namespace, release spire       (className: spire-server-spire)
+#   spire-crds  → spire-system namespace, release spire-crds
+#   spire       → spire-system namespace, release spire       (className: spire-system-spire)
 #   istio-base  → istio-system namespace, release istio-base
 #   istiod      → istio-system namespace, release istiod
 #   gateway     → istio-system namespace, release gateway
