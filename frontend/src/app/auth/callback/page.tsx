@@ -25,8 +25,8 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { getUserManager } from '@/lib/oidc-client';
-import { isSafeRedirectPath } from '@/shared/routes';
+import { getUserManager } from '@orbit/lib/oidc-client';
+import { isSafeRedirectPath } from '@orbit/lib/routing';
 
 export default function CallbackPage() {
   const router = useRouter();

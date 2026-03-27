@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { Button, Text } from '@orbit/terra';
 
-import { getUserManager } from '@/lib/oidc-client';
+import { getUserManager } from '@orbit/lib/oidc-client';
 
 interface SignInButtonProps {
   /** Validated relative path to redirect to after sign-in. Defaults to '/'. */

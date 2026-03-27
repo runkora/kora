@@ -6,8 +6,8 @@
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { orbitClient, ApiError } from '@/server/client';
-import type { HealthResponse } from '@/shared/api';
+import { orbitClient, ApiError } from '@orbit/server/client';
+import type { HealthResponse } from '@orbit/shared/api';
 
 export async function GET() {
   try {

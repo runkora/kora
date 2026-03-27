@@ -1,7 +1,6 @@
 import * as React from 'react';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '../../utils';
 
 const separatorVariants = cva('shrink-0 bg-border-subtle', {
   variants: {
@@ -60,8 +59,8 @@ export type SeparatorProps = Omit<
  * `aria-orientation` support.
  *
  * Use the `span` prop to control what fraction of the parent container the
- * line occupies. Sizing is always proportional — no raw `className` escape
- * hatch is exposed.
+ * line occupies. Sizing is always proportional — expressed through design
+ * tokens, not raw `className`.
  *
  * Uses `bg-border-subtle` so it reads as a structural boundary without
  * competing with content — consistent with ADR SD-3 (no shadow tokens).
@@ -80,7 +79,7 @@ const Separator = React.forwardRef<
     ref={ref}
     decorative={decorative}
     orientation={orientation}
-    className={cn(separatorVariants({ orientation, span }))}
+    className={separatorVariants({ orientation, span })}
     {...props}
   />
 ));

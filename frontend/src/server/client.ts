@@ -6,7 +6,7 @@
  */
 import 'server-only';
 
-import { config } from '@/server/config';
+import { config } from './config';
 
 // ---------------------------------------------------------------------------
 // Error types

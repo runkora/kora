@@ -115,8 +115,9 @@ export interface ButtonProps
 
   /**
    * When true, the button stretches to fill its container. Content remains
-   * centred (the default). For left-aligned content (e.g. sidebar navigation
-   * buttons) combine with `className="justify-start"`.
+   * centred (the default). For left-aligned content wrap the button in a
+   * layout element — avoid passing `className` directly to `<Button>` outside
+   * the Terra package, which is blocked by the `no-terra-classname` ESLint rule.
    *
    * Equivalent to adding `w-full` without reaching for `className`.
    *
@@ -139,7 +140,8 @@ export interface ButtonProps
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
  * a router link. Use `fullWidth` to stretch the button across its container
- * (content stays centred); add `className="justify-start"` for left-aligned nav buttons.
+ * (content stays centred); wrap in a layout element for left-aligned content
+ * (do not pass `className` to `<Button>` outside the Terra package).
  *
  * ```tsx
  * <Button>Deploy agent</Button>

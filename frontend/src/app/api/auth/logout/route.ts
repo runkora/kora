@@ -16,9 +16,9 @@ import 'server-only';
 
 import { type NextRequest } from 'next/server';
 
-import { config } from '@/server/config';
-import { getSession } from '@/server/session';
-import { APP_ROUTES } from '@/shared/routes';
+import { config } from '@orbit/server/config';
+import { getSession } from '@orbit/server/session';
+import { APP_ROUTES } from '@orbit/lib/routing';
 
 async function revokeToken(
   revokeUrl: string,

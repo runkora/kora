@@ -7,7 +7,7 @@
  * backend directly.
  */
 import { useEffect, useState } from 'react';
-import type { HealthResponse } from '@/shared/api';
+import type { HealthResponse } from '@orbit/shared/api';
 import { Badge, Card, CardContent, Code, Skeleton, Stack, Text } from '@orbit/terra';
 
 type State = { status: 'loading' } | { status: 'ok'; data: HealthResponse } | { status: 'error' };

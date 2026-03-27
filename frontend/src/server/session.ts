@@ -10,10 +10,10 @@ import 'server-only';
 import { getIronSession, type IronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 
-import { getSessionOptions, type SessionPayload } from '@/server/auth-config';
+import { getSessionOptions, type SessionPayload } from '@orbit/server/auth-config';
 
 // Re-export the payload type so callers only need one import.
-export type { SessionPayload } from '@/server/auth-config';
+export type { SessionPayload } from '@orbit/server/auth-config';
 
 // ── Core helper ───────────────────────────────────────────────────────────────
 

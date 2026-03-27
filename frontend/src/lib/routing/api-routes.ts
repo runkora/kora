@@ -13,7 +13,7 @@
  * call site that references the deleted route.
  *
  * @example
- *   import { ApiRoute } from '@core/routing/api-routes';
+ *   import { ApiRoute } from '@orbit/lib/routing';
  *
  *   // Without parameter
  *   fetch(ApiRoute.logout.POST(), { method: 'POST' });
@@ -22,11 +22,24 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
-// ── Auth routes ───────────────────────────────────────────────────────────────
+// ── Base segments ─────────────────────────────────────────────────────────────
 
 const AUTH_BASE = '/api/auth' as const;
+const API_BASE = '/api' as const;
+
+// ── Route registry ────────────────────────────────────────────────────────────
 
 export const ApiRoute = {
+  /**
+   * `/api/health`
+   *
+   * Reachable without a session — used by monitoring and load-balancer health
+   * checks that arrive through the Istio gateway.
+   */
+  health: {
+    GET: (): `${typeof API_BASE}/health` => `${API_BASE}/health`,
+  },
+
   /**
    * `/api/auth/logout`
    *
@@ -59,6 +72,7 @@ export const ApiRoute = {
  * of a direct `ApiRoute.*.*()` call.
  */
 export type ApiRoutePath =
+  | ReturnType<(typeof ApiRoute)['health']['GET']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>;

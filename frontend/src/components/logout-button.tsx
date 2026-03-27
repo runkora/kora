@@ -10,6 +10,7 @@
  */
 import { useState } from 'react';
 import { Button } from '@orbit/terra';
+import { LoaderCircle, LogOut } from 'lucide-react';
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -26,8 +27,14 @@ export function LogoutButton() {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={() => void handleLogout()} disabled={pending}>
-      {pending ? 'Signing out\u2026' : 'Sign out'}
+    <Button
+      aria-label="Logout"
+      variant="ghost"
+      size="sm"
+      onClick={() => void handleLogout()}
+      disabled={pending}
+    >
+      {pending ? <LoaderCircle /> : <LogOut />}
     </Button>
   );
 }

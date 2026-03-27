@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 
@@ -70,7 +69,10 @@ const navItemVariants = cva(
 );
 
 export interface NavItemProps
-  extends React.HTMLAttributes<HTMLElement>, VariantProps<typeof navItemVariants> {
+  extends
+    React.HTMLAttributes<HTMLElement>,
+    React.RefAttributes<HTMLElement>,
+    VariantProps<typeof navItemVariants> {
   /**
    * Optional icon rendered before the label. Accepts any React element —
    * best paired with a Lucide icon sized to the NavItem's `size` variant.
@@ -84,12 +86,19 @@ export interface NavItemProps
   badge?: React.ReactNode;
 
   /**
-   * When true, applies NavItem styles to the immediate child element rather
-   * than rendering a `<button>`. Use with Next.js `<Link>` for routing.
+   * When true, merges NavItem styles into the immediate child element and
+   * composes icon + label + badge as that child's content. Use with Next.js
+   * `<Link>` or `<a>` for client-side routing.
+   *
+   * NOTE: We do NOT use Radix `Slot` here because Slot calls
+   * `React.Children.only` on NavItem's children, which throws when we render
+   * the icon-span / label-span / badge-span triple. Instead we use
+   * `React.cloneElement` directly so that all three children can be composed
+   * freely while still delegating the root element to the caller.
    *
    * ```tsx
-   * <NavItem asChild state="active">
-   *   <Link href="/agents">Agents</Link>
+   * <NavItem state="active" asChild>
+   *   <a href="/agents">Agents</a>
    * </NavItem>
    * ```
    */
@@ -100,8 +109,8 @@ export interface NavItemProps
  * NavItem
  *
  * A sidebar navigation entry that carries icon, label, optional badge, and
- * active-state styling. Use `asChild` with Next.js `<Link>` to preserve
- * client-side routing while applying the full NavItem appearance.
+ * active-state styling. Use `asChild` with Next.js `<Link>` or `<a>` to
+ * preserve client-side routing while applying the full NavItem appearance.
  *
  * The three states — `default`, `active`, `disabled` — map to the route's
  * relationship to the current location and its availability.
@@ -113,7 +122,7 @@ export interface NavItemProps
  *
  * ```tsx
  * <NavItem icon={<CpuIcon />} state="active" asChild>
- *   <Link href="/agents">Agents</Link>
+ *   <a href="/agents">Agents</a>
  * </NavItem>
  * ```
  *
@@ -129,38 +138,74 @@ export interface NavItemProps
  * <NavItem icon={<KeyIcon />} badge={3}>Credentials</NavItem>
  * ```
  */
-const NavItem = React.forwardRef<HTMLElement, NavItemProps>(
-  ({ className, state, size, icon, badge, asChild = false, children, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button';
+function NavItem({
+  className,
+  state,
+  size,
+  icon,
+  badge,
+  asChild = false,
+  children,
+  ref,
+  ...props
+}: NavItemProps) {
+  const itemClass = cn(navItemVariants({ state, size }), className);
 
-    return (
-      <Comp
-        ref={ref as React.Ref<HTMLButtonElement>}
-        className={cn(navItemVariants({ state, size }), className)}
-        {...props}
-      >
-        {icon && (
-          <span aria-hidden="true" className="shrink-0">
-            {icon}
-          </span>
-        )}
-        <span className="flex-1 truncate">{children}</span>
-        {badge !== undefined && badge !== null && (
-          <span
-            aria-label={`${badge} items`}
-            className={cn(
-              'ml-auto shrink-0 rounded-full px-1.5 py-0.5',
-              'min-w-[1.25rem] text-center text-[10px] font-semibold leading-none tabular-nums',
-              state === 'active' ? 'bg-accent/20 text-accent' : 'bg-surface-overlay text-muted',
-            )}
-          >
-            {badge}
-          </span>
-        )}
-      </Comp>
-    );
-  },
-);
+  // Composes icon + label + badge around a given label node.
+  const composeContent = (label: React.ReactNode) => (
+    <>
+      {icon && (
+        <span aria-hidden="true" className="shrink-0">
+          {icon}
+        </span>
+      )}
+      <span className="flex-1 truncate">{label}</span>
+      {badge !== undefined && badge !== null && (
+        <span
+          aria-label={`${badge} items`}
+          className={cn(
+            'ml-auto shrink-0 rounded-full px-1.5 py-0.5',
+            'min-w-[1.25rem] text-center text-[10px] font-semibold leading-none tabular-nums',
+            state === 'active' ? 'bg-accent/20 text-accent' : 'bg-surface-overlay text-muted',
+          )}
+        >
+          {badge}
+        </span>
+      )}
+    </>
+  );
+
+  // asChild: clone the single child, merge NavItem classes onto it, and
+  // replace its children with the composed icon+label+badge content.
+  // We avoid Radix Slot because Slot.render calls React.Children.only on
+  // NavItem's own children — which throws when icon/label/badge are present
+  // as three separate nodes.
+  //
+  // Note: `ref` is intentionally not forwarded in asChild mode — passing a
+  // React.Ref value into cloneElement triggers the react-hooks/refs lint rule
+  // ("cannot access refs during render"). In asChild mode the consumer owns
+  // the element and can attach their own ref to it directly.
+  if (asChild) {
+    const child = React.Children.only(children) as React.ReactElement<
+      React.HTMLAttributes<HTMLElement>
+    >;
+    return React.cloneElement(child, {
+      className: cn(itemClass, child.props.className),
+      ...(props as React.HTMLAttributes<HTMLElement>),
+      children: composeContent(child.props.children),
+    });
+  }
+
+  return (
+    <button
+      ref={ref as React.Ref<HTMLButtonElement>}
+      className={itemClass}
+      {...(props as React.HTMLAttributes<HTMLButtonElement>)}
+    >
+      {composeContent(children)}
+    </button>
+  );
+}
 
 NavItem.displayName = 'NavItem';
 

@@ -19,8 +19,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@core/*": ["./src/app/_core/*"]
+      "@orbit/*": ["./src/*"]
     }
   },
   "include": [

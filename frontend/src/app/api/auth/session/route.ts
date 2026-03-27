@@ -23,9 +23,9 @@
  */
 import 'server-only';
 
-import { config } from '@/server/config';
-import { getSession, isSessionValid } from '@/server/session';
-import type { SessionPayload, SessionUser } from '@/server/auth-config';
+import { config } from '@orbit/server/config';
+import { getSession, isSessionValid } from '@orbit/server/session';
+import type { SessionPayload, SessionUser } from '@orbit/server/auth-config';
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -56,8 +56,13 @@ interface OrbitJwtPayload {
 function decodeJwtPayload(token: string): OrbitJwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT structure');
-  // atob is available in both Node ≥16 and the Edge Runtime.
-  const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+  // Normalise base64url → base64: swap alphabet chars then restore padding.
+  // JWT segments omit `=` padding; atob throws if length is not divisible by 4.
+  const base64 = parts[1]
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
+  const json = atob(base64);
   return JSON.parse(json) as OrbitJwtPayload;
 }
 

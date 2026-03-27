@@ -19,8 +19,8 @@
 import { getIronSession } from 'iron-session';
 import { type NextRequest, NextResponse } from 'next/server';
 
-import { getSessionOptions, type SessionPayload } from '@/server/auth-config';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@/shared/routes';
+import { getSessionOptions, type SessionPayload } from '@orbit/server/auth-config';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
 
@@ -49,7 +49,9 @@ async function tryRefresh(refreshToken: string): Promise<BackendSessionResponse 
       body: JSON.stringify({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        // tenant_id is required by the backend; included in the existing session.
+        // tenant_id is required by the backend. Hardcoded to 'default' for the
+        // current single-tenant deployment; extend SessionPayload with tenantId
+        // and read it here when multi-tenancy is introduced.
         tenant_id: 'default',
       }),
       cache: 'no-store',
@@ -63,9 +65,9 @@ async function tryRefresh(refreshToken: string): Promise<BackendSessionResponse 
   }
 }
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Proxy ────────────────────────────────────────────────────────────────
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // 1. Skip public paths — no session check required.
@@ -99,12 +101,20 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     if (!refreshed) {
       // Refresh failed — destroy the stale session and redirect to login.
+      // iron-session writes the cookie-clearing Set-Cookie header onto the
+      // `response` object it was bound to. We copy those cookies onto the
+      // redirect so the browser actually receives the delete instruction
+      // and the stale cookie is cleared (preventing a redirect loop).
       session.destroy();
       const loginUrl = new URL(APP_ROUTES.login, request.url);
       if (isSafeRedirectPath(pathname)) {
         loginUrl.searchParams.set('next', pathname);
       }
-      return NextResponse.redirect(loginUrl);
+      const loginRedirect = NextResponse.redirect(loginUrl);
+      for (const cookie of response.cookies.getAll()) {
+        loginRedirect.cookies.set(cookie);
+      }
+      return loginRedirect;
     }
 
     // Update the session in place — iron-session writes the sealed cookie into

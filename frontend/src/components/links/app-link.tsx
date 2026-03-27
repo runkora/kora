@@ -1,6 +1,6 @@
 import NextLink from 'next/link';
 import { Anchor, type AnchorProps } from '@orbit/terra';
-import { type AppRoute } from '@core/routing/routes';
+import { type AppRoute } from '@orbit/lib/routing/routes';
 
 type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;
@@ -10,7 +10,7 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
    * Must be a value from the `APP_ROUTES` registry in `routes.ts`.
    * Passing an unlisted path is a TypeScript error.
    *
-   * @example to="/dashboard"
+   * @example to="/chat"
    */
   to: AppRoute;
 };
@@ -28,7 +28,7 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  * For external links, use `ExternalLink` instead.
  *
  * @example
- *   <AppLink to="/dashboard">Dashboard</AppLink>
+ *   <AppLink to="/chat">Chat</AppLink>
  *
  * @example Compact secondary form link
  *   <AppLink size="sm" to="/forgot-password">Forgot password?</AppLink>
