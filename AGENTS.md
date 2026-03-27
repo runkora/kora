@@ -66,6 +66,42 @@ make auth-device       # Device Authorization Grant against local Dex
                        # token saved to /tmp/orbit_credentials.json
 ```
 
+**Calling authenticated Orbit APIs (curl):**
+
+Tokens are saved to `/tmp/orbit_credentials.json` by `make auth-device`. The `$ORBIT_TOKEN` environment variable is **not** available in subprocess shells — always read the token inline:
+
+```bash
+# Standard pattern for any authenticated API call
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8081/v1/models
+
+# POST example (inference gateway)
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
+  http://localhost:8081/v1/chat/completions | jq .
+```
+
+**Service ports (local dev):**
+| Service | Port |
+|---------|------|
+| Main API (`orbit`) | `8080` |
+| Inference Gateway | `8081` |
+
+**If you get `{"code":"unauthorized","message":"invalid or expired platform token"}` (token expired after ~1 hour):**
+
+```bash
+REFRESH=$(jq -r '.refresh_token' /tmp/orbit_credentials.json) && \
+  curl -s -X POST http://localhost:8080/api/v1/identity/session \
+  -H "Content-Type: application/json" \
+  -d "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"$REFRESH\"}" \
+  | tee /tmp/orbit_credentials.json
+```
+
+This rotates both tokens and writes the new credentials back to `/tmp/orbit_credentials.json`. If the refresh token itself is expired, run `make auth-device` again to start a fresh session.
+
 **Run the full quality gate before committing:**
 
 ```bash
@@ -252,27 +288,6 @@ When implementing Orbit components:
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
 
 See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
-
-## Current Focus Areas
-
-### Implemented
-
-- **Identity layer**: Provider-agnostic OIDC federation (RFC 8628 Device Authorization Grant), SPIFFE SVID exchange endpoint, session management, JWT issuance and revocation (JTI blocklist via Redis)
-- **Identity-proxy sidecar**: Envoy ext_proc binary that intercepts outbound agent HTTP calls and injects a platform Bearer token; SPIFFE SVID-triggered cache invalidation; waits for Istio/Envoy xDS readiness before accepting connections
-- **Platform infrastructure**: HTTP controller routing, structured logging, OpenTelemetry (tracing + log correlation), PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
-- **Platform HTTP clients**: `httpclient.Base` provides automatic W3C trace propagation, OTel span lifecycle, and structured transport logging for all service-to-service calls
-- **Automated lint enforcement**: 9 custom AST rules (`rules/orbit_rules.go`) + 6 import-ban rules (`.golangci.yml`) covering ADRs 0003–0022
-- **Local development environment**: Dex OIDC provider via Docker Compose, signing key generation, `make auth-device` CLI flow
-
-### Next Priorities
-
-1. **Policy engine**: OPA integration, RBAC/PBAC enforcement (see ADR-0011)
-2. **Agent execution**: Agent identity registration, run orchestration, execution state management
-3. **Credential broker**: Scoped just-in-time credential provisioning, Vault integration
-4. **Event spine**: Structured event emission and routing
-
-The next ADRs in the sequence are **ADR-0023** onward. Check open issues and project boards for specific tasks.
-
 ## Getting Help
 
 - **Architecture questions**: Open a discussion or issue referencing the relevant ADR
