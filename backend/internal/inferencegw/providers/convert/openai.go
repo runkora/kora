@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
@@ -61,8 +62,15 @@ func FromOpenAIResponse(resp *openai.ChatCompletion) inferencegw.ChatCompletionR
 		})
 	}
 
+	created := resp.Created
+	if created == 0 {
+		created = time.Now().Unix()
+	}
+
 	return inferencegw.ChatCompletionResponse{
 		ID:      resp.ID,
+		Object:  "chat.completion",
+		Created: created,
 		Model:   resp.Model,
 		Choices: choices,
 		Usage: inferencegw.UsageStats{
@@ -193,12 +201,14 @@ func FromAnthropicMessage(msg *anthropic.Message) inferencegw.ChatCompletionResp
 	}
 
 	return inferencegw.ChatCompletionResponse{
-		ID:    msg.ID,
-		Model: msg.Model,
+		ID:      msg.ID,
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   msg.Model,
 		Choices: []inferencegw.ChatCompletionChoice{
 			{
 				Index:        0,
-				FinishReason: string(msg.StopReason),
+				FinishReason: mapAnthropicStopReason(msg.StopReason),
 				Message: inferencegw.ChatMessage{
 					Role:    "assistant",
 					Content: inferencegw.MessageContent(content.String()),
@@ -238,7 +248,7 @@ func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw
 		}, true
 
 	case "message_delta":
-		fr := string(event.Delta.StopReason)
+		fr := mapAnthropicStopReason(event.Delta.StopReason)
 		return inferencegw.ChatCompletionChunk{
 			Choices: []struct {
 				Index        int                     `json:"index"`
@@ -263,6 +273,22 @@ func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw
 	}
 
 	return inferencegw.ChatCompletionChunk{}, false
+}
+
+// mapAnthropicStopReason translates Anthropic stop reasons to OpenAI finish_reason values.
+func mapAnthropicStopReason[T ~string](reason T) string {
+	switch string(reason) {
+	case "end_turn":
+		return "stop"
+	case "max_tokens":
+		return "length"
+	case "stop_sequence":
+		return "stop"
+	case "tool_use":
+		return "tool_calls"
+	default:
+		return "stop"
+	}
 }
 
 // MapAnthropicError converts an anthropic-sdk-go error to a ConnectorError.

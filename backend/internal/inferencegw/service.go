@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
@@ -144,7 +145,7 @@ func (s *Service) ChatCompletion(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets, 0), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
 		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -286,7 +287,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets, 0), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -482,12 +483,308 @@ func (s *Service) callWithFailover(
 	return
 }
 
-func nthProvider(targets []RouteTarget, n int) *ProviderName {
-	if n < len(targets) {
-		p := targets[n].Provider
+func nthProvider(targets []RouteTarget) *ProviderName {
+	if len(targets) > 0 {
+		p := targets[0].Provider
 		return &p
 	}
 	return nil
+}
+
+// ─── AnthropicMessages (zero-translation, non-streaming) ─────────────────────
+
+// AnthropicMessages handles a non-streaming POST /v1/messages request using the
+// zero-translation path: params and response are native Anthropic SDK types.
+// Policy evaluation and usage attribution still apply.
+func (s *Service) AnthropicMessages(
+	ctx context.Context,
+	params anthropic.MessageNewParams,
+) (*anthropic.Message, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.AnthropicMessages",
+		trace.WithAttributes(
+			attribute.String("model", params.Model),
+			attribute.Bool("stream", false),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	// Route using a minimal request carrying just the model name.
+	routeReq := ChatCompletionRequest{Model: params.Model}
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+		TenantID:      p.TenantID,
+		PrincipalID:   p.PrincipalID,
+		PrincipalType: p.PrincipalType,
+		Provider:      targets[0].Provider,
+		ModelID:       targets[0].ModelID,
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
+	}
+	if !decision.Allowed {
+		s.logger.Info(ctx, "inference request denied by policy",
+			logging.Field{Key: "reason", Value: decision.Reason},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, ErrPolicyDenied
+	}
+
+	// Try targets in order; no retry loop needed for non-streaming (connector handles
+	// Bedrock's internal streaming transparently).
+	var (
+		msg        *anthropic.Message
+		callErr    error
+		usedTarget *RouteTarget
+	)
+	for _, target := range targets {
+		connector, ok := s.router.Connector(target.Provider)
+		if !ok {
+			continue
+		}
+		callParams := params
+		callParams.Model = target.ModelID
+		msg, callErr = connector.AnthropicMessages(ctx, callParams)
+		if callErr == nil {
+			t := target
+			usedTarget = &t
+			break
+		}
+		var connErr *ConnectorError
+		if !errors.As(callErr, &connErr) || !connErr.Retryable {
+			break
+		}
+	}
+
+	latencyMS := int(time.Since(start).Milliseconds())
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), latencyMS)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	promptTokens := int(msg.Usage.InputTokens)
+	completionTokens := int(msg.Usage.OutputTokens)
+	pricing := usedTarget.Pricing
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+
+	rec := InferenceUsageRecord{
+		ID:               uuid.NewString(),
+		TenantID:         p.TenantID,
+		PrincipalID:      p.PrincipalID,
+		PrincipalType:    p.PrincipalType,
+		APIDialect:       DialectAnthropic,
+		Provider:         &usedTarget.Provider,
+		ModelID:          usedTarget.ModelID,
+		RoutingStrategy:  &strategy,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      promptTokens + completionTokens,
+		EstimatedCostUSD: estimatedCost,
+		Status:           UsageStatusSuccess,
+		LatencyMS:        latencyMS,
+		CreatedAt:        time.Now().UTC(),
+	}
+
+	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+		s.logger.Error(ctx, "failed to write inference usage record",
+			logging.Field{Key: "error", Value: writeErr.Error()},
+			logging.Field{Key: "usage_id", Value: rec.ID},
+		)
+	}
+
+	span.SetStatus(codes.Ok, "")
+	return msg, nil
+}
+
+// ─── AnthropicMessagesStream (zero-translation, streaming) ───────────────────
+
+// AnthropicMessagesStream handles a streaming POST /v1/messages request using
+// the zero-translation path. Raw SDK stream events are forwarded to the caller;
+// usage is attributed after the stream closes by accumulating the full message.
+func (s *Service) AnthropicMessagesStream(
+	ctx context.Context,
+	params anthropic.MessageNewParams,
+) (<-chan AnthropicStreamEvent, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.AnthropicMessagesStream",
+		trace.WithAttributes(
+			attribute.String("model", params.Model),
+			attribute.Bool("stream", true),
+		),
+	)
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		span.End()
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	routeReq := ChatCompletionRequest{Model: params.Model}
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+		TenantID:      p.TenantID,
+		PrincipalID:   p.PrincipalID,
+		PrincipalType: p.PrincipalType,
+		Provider:      targets[0].Provider,
+		ModelID:       targets[0].ModelID,
+	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
+	}
+	if !decision.Allowed {
+		s.logger.Info(ctx, "streaming anthropic request denied by policy",
+			logging.Field{Key: "reason", Value: decision.Reason},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, ErrPolicyDenied
+	}
+
+	var (
+		upstream   <-chan AnthropicStreamEvent
+		callErr    error
+		usedTarget *RouteTarget
+	)
+	for _, target := range targets {
+		connector, ok := s.router.Connector(target.Provider)
+		if !ok {
+			continue
+		}
+		callParams := params
+		callParams.Model = target.ModelID
+		upstream, callErr = connector.AnthropicMessagesStream(ctx, callParams)
+		if callErr == nil {
+			t := target
+			usedTarget = &t
+			break
+		}
+	}
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	out := make(chan AnthropicStreamEvent, 16)
+	capturedTarget := usedTarget
+	capturedStrategy := strategy
+	writeCtx := context.WithoutCancel(ctx)
+
+	go func() {
+		defer span.End()
+		defer close(out)
+
+		var (
+			accumulated anthropic.Message
+			streamErr   error
+		)
+
+		for ev := range upstream {
+			if ev.Err != nil {
+				streamErr = ev.Err
+				out <- ev
+				break
+			}
+			// Accumulate for usage tracking; ignore accumulation errors (non-fatal).
+			_ = accumulated.Accumulate(ev.Event)
+			out <- ev
+		}
+
+		latencyMS := int(time.Since(start).Milliseconds())
+
+		if streamErr != nil {
+			span.RecordError(streamErr)
+			span.SetStatus(codes.Error, ErrProviderError.Error())
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			return
+		}
+
+		span.SetStatus(codes.Ok, "")
+
+		promptTokens := int(accumulated.Usage.InputTokens)
+		completionTokens := int(accumulated.Usage.OutputTokens)
+		pricing := capturedTarget.Pricing
+		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+
+		rec := InferenceUsageRecord{
+			ID:               uuid.NewString(),
+			TenantID:         p.TenantID,
+			PrincipalID:      p.PrincipalID,
+			PrincipalType:    p.PrincipalType,
+			APIDialect:       DialectAnthropic,
+			Provider:         &capturedTarget.Provider,
+			ModelID:          capturedTarget.ModelID,
+			RoutingStrategy:  &capturedStrategy,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
+			EstimatedCostUSD: estimatedCost,
+			Status:           UsageStatusSuccess,
+			LatencyMS:        latencyMS,
+			CreatedAt:        time.Now().UTC(),
+		}
+
+		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+			s.logger.Error(writeCtx, "failed to write streaming anthropic usage record",
+				logging.Field{Key: "error", Value: writeErr.Error()},
+				logging.Field{Key: "usage_id", Value: rec.ID},
+			)
+		}
+	}()
+
+	return out, nil
 }
 
 // ─── dialect dispatch helpers ─────────────────────────────────────────────────

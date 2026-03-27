@@ -5,125 +5,82 @@ import (
 	"fmt"
 	"net/http"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// ─── Anthropic Messages API wire types ───────────────────────────────────────
+// ─── Request envelope ─────────────────────────────────────────────────────────
 
-// anthropicMessageRequest is the POST /messages request body as defined by the
-// Anthropic Messages API. Content is a string for MVP; complex content-block
-// arrays are not yet supported.
-type anthropicMessageRequest struct {
-	Model       string         `json:"model"`
-	MaxTokens   int            `json:"max_tokens"`
-	Messages    []anthropicMsg `json:"messages"`
-	System      MessageContent `json:"system,omitempty"`
-	Stream      bool           `json:"stream,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
+// messagesEnvelope wraps anthropic.MessageNewParams to additionally capture
+// the stream boolean that the Anthropic wire protocol includes in the request
+// body. MessageNewParams is an outbound SDK type and does not model stream;
+// we decode both from the same raw bytes via a custom UnmarshalJSON.
+type messagesEnvelope struct {
+	Params anthropic.MessageNewParams
+	Stream bool
 }
 
-type anthropicMsg struct {
-	Role    string         `json:"role"`
-	Content MessageContent `json:"content"`
-}
-
-// anthropicMessageResponse is the non-streaming POST /messages response.
-type anthropicMessageResponse struct {
-	ID           string                  `json:"id"`
-	Type         string                  `json:"type"`
-	Role         string                  `json:"role"`
-	Content      []anthropicContentBlock `json:"content"`
-	Model        string                  `json:"model"`
-	StopReason   string                  `json:"stop_reason"`
-	StopSequence *string                 `json:"stop_sequence"`
-	Usage        anthropicUsage          `json:"usage"`
-}
-
-type anthropicContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
-// ─── Streaming SSE event types ────────────────────────────────────────────────
-
-type anthropicMessageStartEvent struct {
-	Type    string                   `json:"type"`
-	Message anthropicMessageStartMsg `json:"message"`
-}
-
-type anthropicMessageStartMsg struct {
-	ID      string         `json:"id"`
-	Type    string         `json:"type"`
-	Role    string         `json:"role"`
-	Content []struct{}     `json:"content"`
-	Model   string         `json:"model"`
-	Usage   anthropicUsage `json:"usage"`
-}
-
-type anthropicMessageDeltaEvent struct {
-	Type  string                `json:"type"`
-	Delta anthropicMessageDelta `json:"delta"`
-	Usage anthropicUsage        `json:"usage"`
-}
-
-type anthropicMessageDelta struct {
-	StopReason   string  `json:"stop_reason"`
-	StopSequence *string `json:"stop_sequence"`
+func (e *messagesEnvelope) UnmarshalJSON(b []byte) error {
+	if err := e.Params.UnmarshalJSON(b); err != nil {
+		return err
+	}
+	// Extract the stream flag from the same bytes without re-parsing everything.
+	var raw struct {
+		Stream bool `json:"stream"`
+	}
+	_ = json.Unmarshal(b, &raw)
+	e.Stream = raw.Stream
+	return nil
 }
 
 // ─── POST /messages ───────────────────────────────────────────────────────────
 
-// handleMessages handles the Anthropic Messages API dialect.
-// Auth: the Orbit Gateway (Envoy, Layer 1) promotes x-api-key →
-// Authorization: Bearer on this path before the request reaches the service.
-// In local Tier-1 development (no Envoy), callers may send either header;
-// x-api-key is accepted and normalised to a bearer token string here.
+// handleMessages handles POST /v1/messages (Anthropic Messages API dialect).
+//
+// The request is decoded directly into anthropic.MessageNewParams (the native
+// Anthropic SDK type) so no information is lost in translation. The response is
+// the native *anthropic.Message serialized as-is — no intermediate conversion.
+//
+// Auth: Envoy at the edge promotes x-api-key → Authorization: Bearer on this
+// path before the request reaches the service. In local tier-1 development
+// (no Envoy) callers may send either header; AuthMiddleware handles both.
 func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req anthropicMessageRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+	var env messagesEnvelope
+	if !api.DecodeJSON(ctx, r, w, c.logger, &env) {
 		return
 	}
 
-	internalReq := anthropicRequestToInternal(req)
-
-	if req.Stream {
-		c.handleMessagesStream(w, r, internalReq)
+	if env.Stream {
+		c.handleMessagesStream(w, r, env.Params)
 		return
 	}
 
-	resp, err := c.svc.ChatCompletion(ctx, DialectAnthropic, internalReq)
+	msg, err := c.svc.AnthropicMessages(ctx, env.Params)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, internalResponseToAnthropic(resp))
+	api.JSON(ctx, w, c.logger, http.StatusOK, msg)
 }
 
 // handleMessagesStream writes a streaming Anthropic Messages API SSE response.
-// Events emitted (in order): message_start, content_block_start,
-// content_block_delta (×N), content_block_stop, message_delta, message_stop.
-// On mid-stream provider error an error event is emitted before the
-// connection is closed.
+// Raw SDK stream events are forwarded verbatim — the SDK's own MarshalJSON
+// produces exactly the Anthropic wire format, so no conversion is needed.
 func (c *Controller) handleMessagesStream(
 	w http.ResponseWriter,
 	r *http.Request,
-	req ChatCompletionRequest,
+	params anthropic.MessageNewParams,
 ) {
 	ctx := r.Context()
 
-	chunks, err := c.svc.ChatCompletionStream(ctx, DialectAnthropic, req)
+	events, err := c.svc.AnthropicMessagesStream(ctx, params)
 	if err != nil {
-		apiErr := inferenceErrorResponse(err)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
 	}
 
@@ -134,13 +91,9 @@ func (c *Controller) handleMessagesStream(
 
 	flusher, canFlush := w.(http.Flusher)
 
-	writeEvent := func(eventType string, payload any) error {
-		data, jsonErr := json.Marshal(payload)
-		if jsonErr != nil {
-			return fmt.Errorf("marshal anthropic sse event %s: %w", eventType, jsonErr)
-		}
+	writeSSE := func(eventType string, data []byte) error {
 		if _, writeErr := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data); writeErr != nil {
-			return fmt.Errorf("write anthropic sse event %s: %w", eventType, writeErr)
+			return fmt.Errorf("write anthropic sse %s: %w", eventType, writeErr)
 		}
 		if canFlush {
 			flusher.Flush()
@@ -148,199 +101,31 @@ func (c *Controller) handleMessagesStream(
 		return nil
 	}
 
-	state := &anthropicStreamState{writeEvent: writeEvent}
-
-	for chunk := range chunks {
-		if chunk.Err != nil {
-			_ = writeEvent("error", map[string]any{
+	for ev := range events {
+		if ev.Err != nil {
+			errData, _ := json.Marshal(map[string]any{
 				"type": "error",
 				"error": map[string]string{
 					"type":    "provider_error",
-					"message": chunk.Err.Error(),
+					"message": ev.Err.Error(),
 				},
 			})
+			_ = writeSSE("error", errData)
 			return
 		}
 
-		if err := state.processChunk(chunk); err != nil {
-			c.logger.Error(ctx, "anthropic sse error", logging.Field{Key: "error", Value: err.Error()})
+		data, marshalErr := json.Marshal(ev.Event)
+		if marshalErr != nil {
+			c.logger.Error(ctx, "anthropic sse: marshal error",
+				logging.Field{Key: "error", Value: marshalErr.Error()},
+			)
 			return
 		}
-	}
-}
-
-// ─── Stream state ─────────────────────────────────────────────────────────────
-
-// anthropicStreamState tracks SSE emission state across chunks for a single
-// Anthropic Messages streaming response. All mutations are single-goroutine.
-type anthropicStreamState struct {
-	headerSent     bool
-	blockStartSent bool
-	messageID      string
-	model          string
-	inputTokens    int
-	writeEvent     func(eventType string, payload any) error
-}
-
-func (s *anthropicStreamState) processChunk(chunk ChatCompletionChunk) error {
-	s.accumulate(chunk)
-
-	if err := s.emitHeaderOnce(); err != nil {
-		return err
-	}
-
-	for _, ch := range chunk.Choices {
-		if err := s.processChoice(ch.Index, ch.Delta.Content, ch.FinishReason, chunk.Usage.CompletionTokens); err != nil {
-			return err
+		if writeErr := writeSSE(ev.Event.Type, data); writeErr != nil {
+			c.logger.Error(ctx, "anthropic sse: write error",
+				logging.Field{Key: "error", Value: writeErr.Error()},
+			)
+			return
 		}
-	}
-	return nil
-}
-
-func (s *anthropicStreamState) accumulate(chunk ChatCompletionChunk) {
-	if s.messageID == "" && chunk.ID != "" {
-		s.messageID = chunk.ID
-	}
-	if s.model == "" && chunk.Model != "" {
-		s.model = chunk.Model
-	}
-	if chunk.Usage.PromptTokens > 0 {
-		s.inputTokens += chunk.Usage.PromptTokens
-	}
-}
-
-func (s *anthropicStreamState) emitHeaderOnce() error {
-	if s.headerSent {
-		return nil
-	}
-	if err := s.writeEvent("message_start", anthropicMessageStartEvent{
-		Type: "message_start",
-		Message: anthropicMessageStartMsg{
-			ID:      s.messageID,
-			Type:    "message",
-			Role:    "assistant",
-			Content: []struct{}{},
-			Model:   s.model,
-			Usage:   anthropicUsage{InputTokens: s.inputTokens},
-		},
-	}); err != nil {
-		return err
-	}
-	s.headerSent = true
-	return nil
-}
-
-func (s *anthropicStreamState) processChoice(index int, content string, finishReason *string, outputTokens int) error {
-	if content != "" && !s.blockStartSent {
-		if err := s.writeEvent("content_block_start", map[string]any{
-			"type":          "content_block_start",
-			"index":         0,
-			"content_block": map[string]string{"type": "text", "text": ""},
-		}); err != nil {
-			return err
-		}
-		s.blockStartSent = true
-	}
-
-	if content != "" {
-		if err := s.writeEvent("content_block_delta", map[string]any{
-			"type":  "content_block_delta",
-			"index": index,
-			"delta": map[string]string{"type": "text_delta", "text": content},
-		}); err != nil {
-			return err
-		}
-	}
-
-	if finishReason != nil && *finishReason != "" {
-		return s.emitFinish(*finishReason, outputTokens)
-	}
-	return nil
-}
-
-func (s *anthropicStreamState) emitFinish(finishReason string, outputTokens int) error {
-	if s.blockStartSent {
-		if err := s.writeEvent("content_block_stop", map[string]any{
-			"type": "content_block_stop", "index": 0,
-		}); err != nil {
-			return err
-		}
-	}
-	if err := s.writeEvent("message_delta", anthropicMessageDeltaEvent{
-		Type:  "message_delta",
-		Delta: anthropicMessageDelta{StopReason: mapToAnthropicStopReason(finishReason)},
-		Usage: anthropicUsage{OutputTokens: outputTokens},
-	}); err != nil {
-		return err
-	}
-	return s.writeEvent("message_stop", map[string]string{"type": "message_stop"})
-}
-
-// ─── Request / response conversion ───────────────────────────────────────────
-
-// anthropicRequestToInternal converts an Anthropic Messages API request to the
-// normalised Orbit domain type. The top-level system prompt is injected as the
-// first message with role "system".
-func anthropicRequestToInternal(req anthropicMessageRequest) ChatCompletionRequest {
-	msgs := make([]ChatMessage, 0, len(req.Messages)+1)
-
-	if req.System != "" {
-		msgs = append(msgs, ChatMessage{Role: "system", Content: req.System})
-	}
-	for _, m := range req.Messages {
-		msgs = append(msgs, ChatMessage(m))
-	}
-
-	return ChatCompletionRequest{
-		Model:       req.Model,
-		Messages:    msgs,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-	}
-}
-
-// internalResponseToAnthropic converts a normalised Orbit response to the
-// Anthropic Messages API response shape.
-func internalResponseToAnthropic(resp ChatCompletionResponse) anthropicMessageResponse {
-	content := ""
-	stopReason := "end_turn"
-
-	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content.String()
-		if resp.Choices[0].FinishReason != "" {
-			stopReason = mapToAnthropicStopReason(resp.Choices[0].FinishReason)
-		}
-	}
-
-	return anthropicMessageResponse{
-		ID:   resp.ID,
-		Type: "message",
-		Role: "assistant",
-		Content: []anthropicContentBlock{
-			{Type: "text", Text: content},
-		},
-		Model:      resp.Model,
-		StopReason: stopReason,
-		Usage: anthropicUsage{
-			InputTokens:  resp.Usage.PromptTokens,
-			OutputTokens: resp.Usage.CompletionTokens,
-		},
-	}
-}
-
-// mapToAnthropicStopReason converts OpenAI finish reason strings to their
-// Anthropic Messages API equivalents.
-func mapToAnthropicStopReason(reason string) string {
-	switch reason {
-	case "stop":
-		return "end_turn"
-	case "length":
-		return "max_tokens"
-	case "tool_calls":
-		return "tool_use"
-	case "content_filter":
-		return "stop_sequence"
-	default:
-		return "end_turn"
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -18,13 +20,33 @@ type OpenAIConnector interface {
 	ChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
 }
 
+// AnthropicStreamEvent wraps a raw Anthropic SDK stream event with an optional
+// error.  On a mid-stream provider error Err is non-nil and Event is the zero
+// value; callers must check Err before using Event.
+// This mirrors the ChatCompletionChunk.Err pattern used on the OpenAI path.
+type AnthropicStreamEvent struct {
+	Event anthropic.MessageStreamEventUnion
+	Err   error
+}
+
 // AnthropicConnector is the Anthropic Messages API dialect surface of a provider.
 // It is invoked when the client speaks the Anthropic Messages API
 // (POST /v1/messages). The router/handler layer selects this dialect
 // based on the endpoint the client called — never based on model name.
 type AnthropicConnector interface {
+	// AnthropicChatCompletion is the normalised path used internally for failover
+	// and metrics: request/response types are the Orbit domain types.
 	AnthropicChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
 	AnthropicChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
+
+	// AnthropicMessages is the zero-translation path for the /v1/messages
+	// endpoint. Request and response are native Anthropic SDK types so no
+	// information is lost in transit.
+	AnthropicMessages(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error)
+	// AnthropicMessagesStream returns a channel of raw SDK stream events.
+	// Mid-stream errors are communicated via AnthropicStreamEvent.Err; the
+	// channel is always closed when the stream ends (error or not).
+	AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error)
 }
 
 // ─── ProviderModel ───────────────────────────────────────────────────────────
