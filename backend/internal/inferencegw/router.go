@@ -40,6 +40,11 @@ type RoutingEngine struct {
 	// swap, so RouteRequest reads are never blocked — not even briefly — by a
 	// concurrent ListModels write.
 	aliasTable atomic.Pointer[map[string]string]
+
+	// modelCatalog holds the full list of ProviderModels returned by the last
+	// successful ListModels call. Used by lowestCostTargets and failoverChain
+	// so those strategies work without a populated pricing cache.
+	modelCatalog atomic.Pointer[[]ProviderModel]
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
@@ -159,6 +164,7 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 			}
 		}
 		r.aliasTable.Store(&newTable)
+		r.modelCatalog.Store(&models)
 
 		return models, nil
 	}
@@ -186,23 +192,31 @@ func (r *RoutingEngine) resolveAlias(model string) string {
 
 // lowestCostTargets returns all enabled provider/model pairs sorted ascending
 // by the estimated cost to process a 1k-token prompt + 1k-token completion
-// (a representative unit for comparison purposes).
+// (a representative unit for comparison purposes). When pricing data is
+// unavailable (nop cache) the sort is a no-op and all models are returned in
+// catalog order.
 func (r *RoutingEngine) lowestCostTargets() ([]RouteTarget, error) {
 	if len(r.connectors) == 0 {
 		return nil, ErrNoProvidersEnabled
 	}
 
-	pricings := r.pricing.All()
-	targets := make([]RouteTarget, 0, len(pricings))
+	catalog := r.modelCatalog.Load()
+	if catalog == nil || len(*catalog) == 0 {
+		return nil, ErrNoProvidersEnabled
+	}
 
-	for _, mp := range pricings {
-		if _, ok := r.connectors[mp.Provider]; !ok {
-			continue // provider not enabled
+	targets := make([]RouteTarget, 0, len(*catalog))
+	for _, m := range *catalog {
+		if _, ok := r.connectors[m.Provider]; !ok {
+			continue
 		}
+		pricing, _ := r.pricing.Price(m.Provider, m.ModelID)
+		pricing.Provider = m.Provider
+		pricing.ModelID = m.ModelID
 		targets = append(targets, RouteTarget{
-			Provider: mp.Provider,
-			ModelID:  mp.ModelID,
-			Pricing:  mp,
+			Provider: m.Provider,
+			ModelID:  m.ModelID,
+			Pricing:  pricing,
 		})
 	}
 
@@ -211,6 +225,7 @@ func (r *RoutingEngine) lowestCostTargets() ([]RouteTarget, error) {
 	}
 
 	// Insertion-sort by representative cost (small list — O(n²) is fine).
+	// When pricing is unavailable all costs are 0 and order is preserved.
 	unitCost := func(t RouteTarget) float64 { return t.Pricing.EstimatedCostUSD(1000, 1000) }
 	for i := 1; i < len(targets); i++ {
 		for j := i; j > 0 && unitCost(targets[j]) < unitCost(targets[j-1]); j-- {
@@ -248,21 +263,30 @@ func (r *RoutingEngine) explicitTarget(model string) (RouteTarget, error) {
 
 // failoverChain returns enabled providers in canonical priority order.
 // Priority: Bedrock → Vertex AI → Azure.
+// Picks the first model from the live catalog for each provider.
 func (r *RoutingEngine) failoverChain() ([]RouteTarget, error) {
 	priority := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
+
+	catalog := r.modelCatalog.Load()
 
 	targets := make([]RouteTarget, 0, len(priority))
 	for _, p := range priority {
 		if _, ok := r.connectors[p]; !ok {
 			continue
 		}
-		// Pick the first (cheapest) model available for this provider.
-		for _, mp := range r.pricing.All() {
-			if mp.Provider == p {
+		if catalog == nil {
+			continue
+		}
+		// Pick the first model available for this provider from the live catalog.
+		for _, m := range *catalog {
+			if m.Provider == p {
+				pricing, _ := r.pricing.Price(p, m.ModelID)
+				pricing.Provider = p
+				pricing.ModelID = m.ModelID
 				targets = append(targets, RouteTarget{
 					Provider: p,
-					ModelID:  mp.ModelID,
-					Pricing:  mp,
+					ModelID:  m.ModelID,
+					Pricing:  pricing,
 				})
 				break
 			}

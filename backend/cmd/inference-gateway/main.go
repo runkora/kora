@@ -123,7 +123,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	}
 
 	// ── Domain layer ──────────────────────────────────────────────────────────
-	pricing := inferencegw.DefaultPricing()
+	pricing := inferencegw.NewNopPricingCache()
 	router := inferencegw.NewRoutingEngine(connectors, pricing)
 	policy := &inferencegw.AllowAllPolicyEvaluator{}
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
