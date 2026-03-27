@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	anthropicopt "github.com/anthropics/anthropic-sdk-go/option"
 	anthropicvertex "github.com/anthropics/anthropic-sdk-go/vertex"
 	openai "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -92,11 +95,19 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
 		openaiopt.WithAPIKey("vertex"), // auth handled by ADC transport
+		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.vertexai-openai", nil),
+		)),
 	)
 
 	// Anthropic client with Vertex transport — uses Application Default Credentials.
+	// The tracing transport wraps the ADC transport injected by WithGoogleAuth so
+	// every call gets an OTel client span + W3C traceparent without disrupting auth.
 	anthropicClient := anthropic.NewClient(
 		anthropicvertex.WithGoogleAuth(context.Background(), cfg.Location, cfg.ProjectID),
+		anthropicopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.vertexai-anthropic", nil),
+		)),
 	)
 
 	return &Connector{

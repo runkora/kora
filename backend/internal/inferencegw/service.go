@@ -188,24 +188,50 @@ func (s *Service) ChatCompletion(
 // The handler is responsible for writing SSE frames; this method returns a
 // channel that emits chunks and closes when the stream is done.
 // On mid-stream error a final chunk with Err set is sent before the channel closes.
+//
+// The OTel span started here lives until the goroutine finishes draining the
+// upstream channel — it covers the full streaming lifecycle, not just setup.
 func (s *Service) ChatCompletionStream(
 	ctx context.Context,
 	dialect APIDialect,
 	req ChatCompletionRequest,
 ) (<-chan ChatCompletionChunk, error) {
+	// Span must be ended manually (not via defer) because it outlives the
+	// function — it is closed inside the goroutine once the stream drains.
+	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletionStream",
+		trace.WithAttributes(
+			attribute.String("model", req.Model),
+			attribute.String("dialect", string(dialect)),
+			attribute.Bool("stream", true),
+		),
+	)
 	start := time.Now()
 
+	// ── 1. Extract principal from context ─────────────────────────────────────
 	p, err := principalFromClaims(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		span.End()
 		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	// ── 2. Route request ──────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		span.End()
 		s.writeFailedUsage(ctx, p, req, dialect, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
+	// ── 3. Policy check ───────────────────────────────────────────────────────
 	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
 		TenantID:      p.TenantID,
 		PrincipalID:   p.PrincipalID,
@@ -214,14 +240,24 @@ func (s *Service) ChatCompletionStream(
 		ModelID:       targets[0].ModelID,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
 		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
 		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
 	}
 	if !decision.Allowed {
+		s.logger.Info(ctx, "streaming inference request denied by policy",
+			logging.Field{Key: "reason", Value: decision.Reason},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
 		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, ErrPolicyDenied
 	}
 
+	// ── 4. Open stream from provider ──────────────────────────────────────────
 	// Try providers in order until one accepts the stream.
 	var (
 		upstream   <-chan ChatCompletionChunk
@@ -247,25 +283,37 @@ func (s *Service) ChatCompletionStream(
 	}
 
 	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		span.End()
 		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets, 0), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
+	// ── 5. Proxy stream + write usage ─────────────────────────────────────────
 	// Proxy the upstream channel, accumulating token counts for usage attribution.
 	out := make(chan ChatCompletionChunk, 16)
 	capturedTarget := usedTarget
 	capturedStrategy := strategy
 
-	// Detach from the request context so the goroutine survives client disconnect,
-	// but preserve trace/baggage values via WithoutCancel.
+	// writeCtx is detached from the request context so the goroutine survives
+	// client disconnect, but preserves trace/baggage values via WithoutCancel.
+	// The span itself is ended inside the goroutine — it must outlive the HTTP handler.
 	writeCtx := context.WithoutCancel(ctx)
 
 	go func() {
+		defer span.End()
 		defer close(out)
 
-		var promptTokens, completionTokens, totalTokens int
+		var (
+			promptTokens, completionTokens, totalTokens int
+			streamErr                                   error
+		)
 
 		for chunk := range upstream {
+			if chunk.Err != nil {
+				streamErr = chunk.Err
+			}
 			promptTokens += chunk.Usage.PromptTokens
 			completionTokens += chunk.Usage.CompletionTokens
 			totalTokens += chunk.Usage.TotalTokens
@@ -273,6 +321,21 @@ func (s *Service) ChatCompletionStream(
 		}
 
 		latencyMS := int(time.Since(start).Milliseconds())
+
+		// totalTokens may be zero when the provider (e.g. Anthropic) emits input
+		// and output token counts in separate events rather than a combined total.
+		// Compute it from the parts so the usage record is always populated.
+		if totalTokens == 0 {
+			totalTokens = promptTokens + completionTokens
+		}
+
+		if streamErr != nil {
+			span.RecordError(streamErr)
+			span.SetStatus(codes.Error, ErrProviderError.Error())
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+
 		pricing := capturedTarget.Pricing
 		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
 

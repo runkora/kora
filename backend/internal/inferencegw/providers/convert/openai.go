@@ -254,6 +254,8 @@ func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw
 
 	case "message_start":
 		return inferencegw.ChatCompletionChunk{
+			ID:    event.Message.ID,
+			Model: event.Message.Model,
 			Usage: inferencegw.UsageStats{
 				PromptTokens: int(event.Message.Usage.InputTokens),
 			},

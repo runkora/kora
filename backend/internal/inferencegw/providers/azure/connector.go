@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	anthropicopt "github.com/anthropics/anthropic-sdk-go/option"
 	openai "github.com/openai/openai-go"
 	azureopenai "github.com/openai/openai-go/azure"
+	openaiopt "github.com/openai/openai-go/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -101,11 +104,17 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	openaiClient := openai.NewClient(
 		azureopenai.WithEndpoint(cfg.Endpoint, cfg.APIVersion),
 		azureopenai.WithAPIKey(cfg.APIKey),
+		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.azure-openai", nil),
+		)),
 	)
 
 	anthropicClient := anthropic.NewClient(
 		anthropicopt.WithBaseURL(cfg.AnthropicEndpoint),
 		anthropicopt.WithHeader("api-key", cfg.APIKey),
+		anthropicopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+			httpclient.NewTracingTransport("orbit.azure-anthropic", nil),
+		)),
 	)
 
 	return &Connector{
