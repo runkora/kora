@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -129,17 +130,45 @@ func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderAzure
 }
 
-// ListModels returns the live list of model IDs from the Azure OpenAI endpoint.
-func (c *Connector) ListModels(ctx context.Context) ([]string, error) {
+// ListModels returns the live list of models from the Azure OpenAI endpoint.
+// Each model carries a display name auto-generated from the model ID. Azure does
+// not expose a separate inference profile concept, so no deduplication is needed.
+func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	iter := c.openaiClient.Models.ListAutoPaging(ctx)
-	var ids []string
+	var models []inferencegw.ProviderModel
 	for iter.Next() {
-		ids = append(ids, iter.Current().ID)
+		id := iter.Current().ID
+		models = append(models, inferencegw.ProviderModel{
+			Provider:    inferencegw.ProviderAzure,
+			ModelID:     id,
+			DisplayName: displayNameFromID(id),
+		})
 	}
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("azure: list models: %w", err)
 	}
-	return ids, nil
+	return models, nil
+}
+
+// displayNameFromID produces a human-readable label from an Azure model ID slug.
+// e.g. "gpt-4o" → "Gpt 4O", "gpt-4o-mini" → "Gpt 4O Mini".
+// This is intentionally simple — operator curation will improve names later.
+func displayNameFromID(id string) string {
+	if id == "" {
+		return id
+	}
+	parts := splitSlug(id)
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// splitSlug breaks a model ID on hyphens and underscores.
+func splitSlug(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == '-' || r == '_' })
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.

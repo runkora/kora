@@ -128,6 +128,17 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	policy := &inferencegw.AllowAllPolicyEvaluator{}
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 
+	// Warm the alias table before accepting traffic so that alias routing
+	// (e.g. "bedrock/claude-sonnet") works from the very first request.
+	// A failure here is non-fatal — aliases will resolve after the first
+	// successful GET /v1/models call.
+	if _, err := router.ListModels(ctx); err != nil {
+		logger.Warn(ctx, "startup model warm-up failed — alias routing unavailable until next /v1/models call",
+			logging.Field{Key: "error", Value: err})
+	} else {
+		logger.Info(ctx, "model catalog warm-up complete")
+	}
+
 	svc := inferencegw.NewService(policy, router, pricing, usageRepo, logger)
 
 	return []api.Controller{

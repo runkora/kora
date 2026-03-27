@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 const (
@@ -33,6 +34,12 @@ type RoutingEngine struct {
 	pricing              PricingCache
 	maxAttemptsPerTarget int
 	maxTotalAttempts     int
+
+	// aliasTable maps "provider/alias" → "provider/canonicalModelID".
+	// It is rebuilt on every successful ListModels call via an atomic pointer
+	// swap, so RouteRequest reads are never blocked — not even briefly — by a
+	// concurrent ListModels write.
+	aliasTable atomic.Pointer[map[string]string]
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
@@ -86,7 +93,12 @@ func (r *RoutingEngine) RouteRequest(
 		return targets, StrategyFailoverChain, err
 
 	case strings.Contains(req.Model, "/"):
-		target, err := r.explicitTarget(req.Model)
+		// Resolve clean aliases (e.g. "bedrock/claude-sonnet-4-6") to their
+		// canonical routing IDs (e.g. "bedrock/us.anthropic.claude-sonnet-4-6")
+		// before handing off to explicitTarget. If the model is already
+		// canonical or unknown, resolveAlias returns it unchanged.
+		resolved := r.resolveAlias(req.Model)
+		target, err := r.explicitTarget(resolved)
 		if err != nil {
 			return nil, StrategyExplicit, err
 		}
@@ -107,15 +119,15 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 
 	type result struct {
 		provider ProviderName
-		ids      []string
+		models   []ProviderModel
 		err      error
 	}
 
 	ch := make(chan result, len(r.connectors))
 	for _, c := range r.connectors {
 		go func() {
-			ids, err := c.ListModels(ctx)
-			ch <- result{provider: c.Name(), ids: ids, err: err}
+			ms, err := c.ListModels(ctx)
+			ch <- result{provider: c.Name(), models: ms, err: err}
 		}()
 	}
 
@@ -129,19 +141,45 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 			}
 			continue
 		}
-		for _, id := range res.ids {
-			models = append(models, ProviderModel{Provider: res.provider, ModelID: id})
-		}
+		models = append(models, res.models...)
 	}
 
 	// Return partial results if at least one provider succeeded.
 	if len(models) > 0 {
+		// Rebuild the alias lookup table from the live model catalog.
+		// Key: "provider/alias", Value: "provider/canonicalModelID".
+		newTable := make(map[string]string, len(models)*3)
+		for _, m := range models {
+			canonicalKey := string(m.Provider) + "/" + m.ModelID
+			for _, alias := range m.Aliases {
+				aliasKey := string(m.Provider) + "/" + alias
+				if aliasKey != canonicalKey {
+					newTable[aliasKey] = canonicalKey
+				}
+			}
+		}
+		r.aliasTable.Store(&newTable)
+
 		return models, nil
 	}
 	if firstErr != nil {
 		return nil, firstErr
 	}
 	return nil, ErrNoProvidersEnabled
+}
+
+// resolveAlias translates a potentially-aliased "provider/model" string to
+// the canonical "provider/canonicalModelID" form. Returns the input unchanged
+// if it is not in the alias table (i.e. it is already canonical or unknown).
+func (r *RoutingEngine) resolveAlias(model string) string {
+	tbl := r.aliasTable.Load()
+	if tbl == nil {
+		return model
+	}
+	if resolved, ok := (*tbl)[model]; ok {
+		return resolved
+	}
+	return model
 }
 
 // ─── strategy implementations ─────────────────────────────────────────────────

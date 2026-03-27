@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -149,62 +151,183 @@ func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderBedrock
 }
 
-// ListModels returns the combined list of foundation model IDs and system-defined
-// cross-region inference profile IDs from the Bedrock management API.
-//
-// Foundation models are returned as bare IDs (e.g. "anthropic.claude-3-5-sonnet-20241022-v2:0")
-// and work with on-demand throughput. System-defined inference profiles are returned as
-// region-prefixed IDs (e.g. "us.anthropic.claude-sonnet-4-6") and are required for newer
-// Claude models that do not support on-demand throughput. The prefix is region-specific:
-// us-east-1/us-west-2 produce "us.", eu-* produce "eu.", ap-* produce "ap.".
-func (c *Connector) ListModels(ctx context.Context) ([]string, error) {
-	// Foundation models — on-demand throughput, no inference profile required.
-	fmOut, err := c.bedrockClient.ListFoundationModels(ctx, &bedrockSDK.ListFoundationModelsInput{})
-	if err != nil {
-		return nil, fmt.Errorf("bedrock: list foundation models: %w", err)
-	}
-	ids := make([]string, 0, len(fmOut.ModelSummaries)+32)
-	for _, m := range fmOut.ModelSummaries {
-		if m.ModelId != nil {
-			ids = append(ids, *m.ModelId)
-		}
-	}
+// fmEntry holds data from a ListFoundationModels summary.
+type fmEntry struct {
+	name string // human-readable name from the API (e.g. "Claude 3 Sonnet")
+}
 
-	// System-defined cross-region inference profiles — required for newer models.
-	// The API is paginated; we iterate until NextToken is empty.
+// profileEntry holds data from a ListInferenceProfiles summary.
+type profileEntry struct {
+	id   string // canonical profile ID (e.g. "apac.anthropic.claude-3-haiku-20240307-v1:0")
+	name string // human-readable name from the API (e.g. "APAC Anthropic Claude 3 Haiku")
+}
+
+// ListModels returns the models that can be invoked via on-demand (pay-per-token)
+// throughput. It deduplicates models that appear both as a foundation model ID
+// and as an inference profile ID, always preferring the profile ID (which is
+// what the Bedrock OpenAI-compatible endpoint requires for many newer models).
+//
+// Algorithm:
+//  1. Fetch all foundation models; keep only those with ON_DEMAND throughput support.
+//     Note: ModelLifecycleStatus is not populated in all regions (returns empty in
+//     ap-southeast-2), so we do NOT filter on lifecycle status.
+//  2. Fetch all system-defined cross-region inference profiles (paginated).
+//  3. For each profile, strip its region prefix (apac., au., global., us., …) to
+//     find the base FM ID. When a match is found in the on-demand set, the profile
+//     ID replaces the raw FM ID so callers get the routable form.
+//  4. Return the merged, deduplicated list with real display names from the API.
+func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
+	activeFMs, excludedFMs, err := c.listOnDemandFMs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profilesByBase := c.listSystemProfiles(ctx)
+	return mergeModels(activeFMs, excludedFMs, profilesByBase), nil
+}
+
+// listOnDemandFMs fetches all foundation models that support ON_DEMAND throughput.
+// ModelLifecycleStatus is intentionally not checked — it is unpopulated in some
+// regions (returns empty string in ap-southeast-2).
+// listOnDemandFMs fetches all foundation models that support ON_DEMAND throughput.
+// Returns two maps: activeFMs (passed all filters) and excludedFMs (rejected as LEGACY).
+// ModelLifecycle nil is treated as active (field is unpopulated in some regions, e.g. ap-southeast-2).
+func (c *Connector) listOnDemandFMs(ctx context.Context) (activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, err error) {
+	out, err := c.bedrockClient.ListFoundationModels(ctx, &bedrockSDK.ListFoundationModelsInput{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("bedrock: list foundation models: %w", err)
+	}
+	activeFMs = make(map[string]fmEntry, len(out.ModelSummaries))
+	excludedFMs = make(map[string]struct{}, 8)
+	for _, m := range out.ModelSummaries {
+		if m.ModelId == nil {
+			continue
+		}
+		if !slices.Contains(m.InferenceTypesSupported, bedrockSDKtypes.InferenceTypeOnDemand) {
+			continue
+		}
+		// Exclude models explicitly marked LEGACY by AWS and track their IDs so that
+		// any inference profiles pointing back to the same base FM are also suppressed.
+		if m.ModelLifecycle != nil && m.ModelLifecycle.Status == bedrockSDKtypes.FoundationModelLifecycleStatusLegacy {
+			excludedFMs[*m.ModelId] = struct{}{}
+			continue
+		}
+		name := ""
+		if m.ModelName != nil {
+			name = *m.ModelName
+		}
+		activeFMs[*m.ModelId] = fmEntry{name: name}
+	}
+	return activeFMs, excludedFMs, nil
+}
+
+// listSystemProfiles fetches all system-defined cross-region inference profiles
+// (paginated) and returns a map of base FM ID → profileEntry. When a base FM
+// has multiple regional profiles, only the first one returned by the API is kept.
+func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEntry {
+	result := make(map[string]profileEntry, 64)
 	var nextToken *string
 	for {
-		ipOut, err := c.bedrockClient.ListInferenceProfiles(ctx, &bedrockSDK.ListInferenceProfilesInput{
+		out, err := c.bedrockClient.ListInferenceProfiles(ctx, &bedrockSDK.ListInferenceProfilesInput{
 			TypeEquals: bedrockSDKtypes.InferenceProfileTypeSystemDefined,
 			NextToken:  nextToken,
 		})
 		if err != nil {
-			// Non-fatal: some accounts/regions may not have inference profiles configured.
-			c.logger.Warn(ctx, "bedrock: list inference profiles skipped", logging.Field{Key: "error", Value: err})
-			break
+			// Non-fatal: some accounts or regions have no inference profiles.
+			c.logger.Warn(ctx, "bedrock: list inference profiles skipped",
+				logging.Field{Key: "error", Value: err})
+			return result
 		}
-		for _, p := range ipOut.InferenceProfileSummaries {
-			if p.InferenceProfileId != nil {
-				ids = append(ids, *p.InferenceProfileId)
+		for _, p := range out.InferenceProfileSummaries {
+			if p.InferenceProfileId == nil {
+				continue
 			}
+			profileID := *p.InferenceProfileId
+			baseID := stripRegionPrefix(profileID)
+			if _, exists := result[baseID]; exists {
+				continue // keep only the first profile per base FM
+			}
+			name := ""
+			if p.InferenceProfileName != nil {
+				name = *p.InferenceProfileName
+			}
+			result[baseID] = profileEntry{id: profileID, name: name}
 		}
-		if ipOut.NextToken == nil || *ipOut.NextToken == "" {
-			break
+		if out.NextToken == nil || *out.NextToken == "" {
+			return result
 		}
-		nextToken = ipOut.NextToken
+		nextToken = out.NextToken
+	}
+}
+
+// mergeModels combines on-demand foundation models and inference profiles into a
+// deduplicated []ProviderModel list. Where a profile exists for a given FM, the
+// profile ID (routable form) is used as the canonical ID rather than the raw FM ID.
+func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, profilesByBase map[string]profileEntry) []inferencegw.ProviderModel {
+	seen := make(map[string]bool, len(activeFMs))
+	models := make([]inferencegw.ProviderModel, 0, len(activeFMs))
+
+	for fmID, fm := range activeFMs {
+		canonicalID := fmID
+		// Use the routable profile ID when available. We keep the FM's ModelName
+		// (cleaner than the profile name which includes the region, e.g.
+		// "APAC Anthropic Claude 3 Haiku" vs "Claude 3 Haiku").
+		if profile, ok := profilesByBase[fmID]; ok {
+			canonicalID = profile.id
+		}
+		if seen[canonicalID] {
+			continue
+		}
+		seen[canonicalID] = true
+		models = append(models, buildProviderModel(canonicalID, fm.name))
 	}
 
-	return ids, nil
+	// Include profiles whose base FM is not in activeFMs
+	// (e.g. a model exposed via profiles before it appears in ListFoundationModels).
+	// Skip profiles whose base FM was explicitly excluded as LEGACY.
+	for baseID, profile := range profilesByBase {
+		if _, inActive := activeFMs[baseID]; inActive {
+			continue // already handled above
+		}
+		if _, excluded := excludedFMs[baseID]; excluded {
+			continue // base FM is LEGACY — suppress its profiles too
+		}
+		if seen[profile.id] {
+			continue
+		}
+		seen[profile.id] = true
+		models = append(models, buildProviderModel(profile.id, profile.name))
+	}
+
+	return models
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
+// Bedrock is a multi-endpoint provider: Anthropic models must be called via the
+// Anthropic Messages API (anthropicClient) even when the caller used the OpenAI
+// dialect — the OpenAI-compatible Bedrock endpoint does not support them.
+// All other model families are routed to the OpenAI-compatible endpoint (openaiClient).
 func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
+	if isAnthropicModel(req.Model) {
+		return c.anthropicChatCompletion(ctx, req)
+	}
 	return c.openaiChatCompletion(ctx, req)
 }
 
 // ChatCompletionStream opens a streaming request via the OpenAI-compatible dialect.
+// As with ChatCompletion, Anthropic models are transparently redirected to the
+// Anthropic Messages streaming API regardless of the caller's dialect choice.
 func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
+	if isAnthropicModel(req.Model) {
+		return c.anthropicChatCompletionStream(ctx, req)
+	}
 	return c.openaiChatCompletionStream(ctx, req)
+}
+
+// isAnthropicModel reports whether the given model ID belongs to the Anthropic
+// family. It matches bare IDs ("anthropic.claude-…") and all cross-region
+// inference profile prefixes ("us.anthropic.…", "apac.anthropic.…", etc.).
+func isAnthropicModel(id string) bool {
+	return strings.Contains(id, "anthropic.")
 }
 
 // AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.

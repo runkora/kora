@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -121,17 +122,39 @@ func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderVertexAI
 }
 
-// ListModels returns the live list of model IDs from the Vertex AI OpenAI-compatible endpoint.
-func (c *Connector) ListModels(ctx context.Context) ([]string, error) {
+// ListModels returns the live list of models from the Vertex AI OpenAI-compatible endpoint.
+// Each model carries a display name auto-generated from the model ID. Vertex AI does
+// not expose a separate inference profile concept, so no deduplication is needed.
+func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	iter := c.openaiClient.Models.ListAutoPaging(ctx)
-	var ids []string
+	var models []inferencegw.ProviderModel
 	for iter.Next() {
-		ids = append(ids, iter.Current().ID)
+		id := iter.Current().ID
+		models = append(models, inferencegw.ProviderModel{
+			Provider:    inferencegw.ProviderVertexAI,
+			ModelID:     id,
+			DisplayName: displayNameFromID(id),
+		})
 	}
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("vertexai: list models: %w", err)
 	}
-	return ids, nil
+	return models, nil
+}
+
+// displayNameFromID produces a human-readable label from a Vertex AI model ID slug.
+// e.g. "gemini-2-5-pro" → "Gemini 2 5 Pro".
+func displayNameFromID(id string) string {
+	if id == "" {
+		return id
+	}
+	parts := strings.FieldsFunc(id, func(r rune) bool { return r == '-' || r == '_' })
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.

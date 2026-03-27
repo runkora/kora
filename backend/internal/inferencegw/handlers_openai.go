@@ -109,10 +109,12 @@ type modelsResponse struct {
 }
 
 type modelObject struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
+	ID          string   `json:"id"`
+	Object      string   `json:"object"`
+	Created     int64    `json:"created"`
+	OwnedBy     string   `json:"owned_by"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
 }
 
 // handleListModels queries all enabled provider connectors for their live model
@@ -130,11 +132,19 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(models))
 	for _, m := range models {
+		// Build provider-prefixed aliases so clients can use them as drop-in
+		// model IDs in chat completion requests (e.g. "bedrock/claude-3-haiku").
+		var prefixedAliases []string
+		for _, a := range m.Aliases {
+			prefixedAliases = append(prefixedAliases, fmt.Sprintf("%s/%s", m.Provider, a))
+		}
 		data = append(data, modelObject{
-			ID:      fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
-			Object:  "model",
-			Created: now,
-			OwnedBy: string(m.Provider),
+			ID:          fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
+			Object:      "model",
+			Created:     now,
+			OwnedBy:     string(m.Provider),
+			DisplayName: m.DisplayName,
+			Aliases:     prefixedAliases,
 		})
 	}
 

@@ -31,8 +31,25 @@ type AnthropicConnector interface {
 
 // ProviderModel is a model returned by a live provider listing.
 type ProviderModel struct {
+	// Provider is the connector that owns this model.
 	Provider ProviderName
-	ModelID  string
+
+	// ModelID is the canonical working ID passed to the provider on invocation.
+	// No provider/ prefix. For Bedrock this is the inference profile ID where one
+	// exists (e.g. "us.anthropic.claude-sonnet-4-6"), not the bare foundation
+	// model ID.
+	ModelID string
+
+	// DisplayName is a human-readable label suitable for UIs.
+	// e.g. "Claude Sonnet 4.6", "Llama 3.3 70B Instruct".
+	// Auto-generated from ModelID when no curated name is available.
+	DisplayName string
+
+	// Aliases are stable, clean identifiers that resolve to this model.
+	// No provider/ prefix; clients may use "provider/alias" in requests.
+	// e.g. ["claude-sonnet-4-6", "anthropic.claude-sonnet-4-6"].
+	// Operator-curated aliases will be merged in by the routing engine.
+	Aliases []string
 }
 
 // ─── ProviderConnector ────────────────────────────────────────────────────────
@@ -47,9 +64,11 @@ type ProviderConnector interface {
 	// Name returns the canonical provider identifier.
 	Name() ProviderName
 
-	// ListModels returns the live list of model IDs available on this provider.
-	// Returned IDs are bare (no provider/ prefix).
-	ListModels(ctx context.Context) ([]string, error)
+	// ListModels returns the live list of usable models available on this provider.
+	// Each entry carries a canonical ModelID (no provider/ prefix), a human-readable
+	// DisplayName, and zero or more clean Aliases that the routing engine will
+	// register for alias resolution.
+	ListModels(ctx context.Context) ([]ProviderModel, error)
 
 	OpenAIConnector
 	AnthropicConnector
