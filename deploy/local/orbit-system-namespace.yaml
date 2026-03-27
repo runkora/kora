@@ -1,8 +1,8 @@
 # Pre-bootstrap manifest for orbit-system namespace.
 #
-# Applied by `make cluster-platform` BEFORE helmfile runs so that Helm can
-# store its release secret in the namespace. The orbit-platform chart's own
-# namespaces.yaml template then applies the full label set idempotently.
+# Applied by `make cluster-operator` BEFORE the operator Helm chart is installed
+# so that Helm can store its release secret in the namespace. The orbit-platform
+# chart's own namespaces.yaml template then applies the full label set idempotently.
 #
 # Labels here intentionally match the chart template so kubectl apply is a
 # no-op on upgrades:

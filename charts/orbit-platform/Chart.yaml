@@ -3,8 +3,8 @@ name: orbit-platform
 description: >
   Orbit cluster-level resources — namespaces, ClusterSPIFFEIDs, and NetworkPolicies.
   This is a thin chart that manages Orbit's cluster-scoped configuration only.
-  SPIRE and Istio are installed as SEPARATE Helm releases (see cluster-platform
-  Makefile target and deploy/local/spire-values.yaml + istio-values.yaml).
+  SPIRE and Istio are installed as SEPARATE Helm releases, driven by the
+  orbit-operator (see deploy/local/spire-values.yaml + istio-values.yaml).
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -17,23 +17,15 @@ keywords:
 
 maintainers:
   - name: Orbit Platform Team
-
-# No sub-chart dependencies.
 #
-# SPIRE and Istio are intentionally NOT sub-charts here. Both chart families
-# hardcode their component namespaces (spire-server, istio-system) inside their
-# templates. Installing them as sub-charts of a parent release bound to
-# orbit-system causes fatal namespace splits: e.g. the istiod ServiceAccount
-# lands in istio-system while the Deployment lands in orbit-system
-# (.Release.Namespace), preventing pod creation.
-#
-# The correct pattern (restored from the original working kustomization) is:
-#   spire-crds  → spire-system namespace, release spire-crds
-#   spire       → spire-system namespace, release spire       (className: spire-system-spire)
-#   istio-base  → istio-system namespace, release istio-base
-#   istiod      → istio-system namespace, release istiod
-#   gateway     → istio-system namespace, release gateway
+# The orbit-operator installs each release separately in the correct order:
+#   spire-crds     → spire-system namespace, release spire-crds
+#   spire          → spire-system namespace, release spire  (className: spire-system-spire)
+#   istio-base     → istio-system namespace, release istio-base
+#   istiod         → istio-system namespace, release istiod
+#   gateway        → istio-system namespace, release gateway
 #   orbit-platform → orbit-system namespace (this chart, cluster resources only)
+#   orbit          → orbit-system namespace (identity service + sidecar)
 #
-# See: Makefile cluster-platform target, deploy/local/spire-values.yaml,
-#      deploy/local/istio-values.yaml
+# See: deploy/local/orbit-platform.yaml (OrbitPlatform CR),
+#      deploy/local/spire-values.yaml, deploy/local/istio-values.yaml

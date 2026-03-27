@@ -2,16 +2,12 @@
 # orbit chart — local development values
 # =============================================================================
 #
-# Used with the k3d-based local cluster (make cluster-up).
-# Install:
+# Applied automatically by the orbit-operator when reconciling the OrbitPlatform CR.
+# To install manually (escape hatch):
 #   helm upgrade --install orbit ./charts/orbit \
-#     -f deploy/local/orbit-values.yaml
+#     -f deploy/local/orbit-values.yaml -n orbit-system
 #
-# Requires orbit-platform to be installed first:
-#   helm upgrade --install orbit-platform ./charts/orbit-platform \
-#     -f deploy/local/platform-values.yaml
-#
-# Trust domain must match platform-values.yaml and the SPIRE server config.
+# Trust domain must match platform-values.yaml and spire-values.yaml.
 # =============================================================================
 
 global:
@@ -23,7 +19,7 @@ global:
 
 identity:
   image:
-    # Local k3d registry — built by: make build-backend && make push-local
+    # Local k3d registry — built by: make docker-push
     repository: orbit-registry:5001/orbit-identity
     tag: latest
 

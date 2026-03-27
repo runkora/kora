@@ -1,86 +1,79 @@
 # Orbit Local Cluster — Deploy
 
-This directory contains the Helm values files and local fixtures needed to
-install Orbit into the k3d local development cluster (`make cluster-up`).
+This directory contains Helm values files, local fixtures, and CR manifests
+needed to install Orbit into the k3d local development cluster using the
+**orbit-operator**.
 
 ---
 
-## Prerequisites
-
-Before running any `helm` commands here, ensure the following are satisfied:
-
-1. **k3d cluster is running**
-   ```bash
-   make cluster-up
-   ```
-   This creates a k3d cluster (`orbit-local`) with a local registry at
-   `orbit-registry:5001` and patches CoreDNS for `dex.orbit.local` resolution.
-
-2. **Orbit images are built and pushed to the local registry**
-   ```bash
-   make build-backend
-   make push-local
-   ```
-
-3. **Secrets are created in the cluster**
-   ```bash
-   make cluster-secrets
-   ```
-   Creates `orbit-secrets` in `orbit-system` and `orbit-example-tenant`
-   namespaces via `scripts/cluster/create-secrets.sh`. Requires
-   `secrets/signing.key`, `DB_PASSWORD`, and `REDIS_PASSWORD` to be set.
-
-4. **Tenant registry ConfigMap exists**
-   ```bash
-   kubectl create configmap orbit-tenants \
-     --from-file=tenants.yaml=config/tenants.yaml \
-     -n orbit-system \
-     --dry-run=client -o yaml | kubectl apply -f -
-   ```
-   The `config/tenants.yaml` file is committed to the repository and
-   pre-configured for the local Dex OIDC provider. See
-   [Tenant Registry](#tenant-registry) below.
-
-5. **Orbit ConfigMap exists** (non-secret env vars for the identity service)
-   ```bash
-   kubectl create configmap orbit-config \
-     --from-literal=DB_HOST=orbit-postgres \
-     --from-literal=DB_NAME=orbit \
-     --from-literal=DB_PORT=5432 \
-     --from-literal=DB_USER=orbit \
-     --from-literal=REDIS_HOST=host.k3d.internal \
-     --from-literal=REDIS_PORT=6379 \
-     -n orbit-system \
-     --dry-run=client -o yaml | kubectl apply -f -
-   ```
-
-6. **Database migrations are applied**
-   ```bash
-   make migrate-up
-   ```
-
----
-
-## Three-Step Install Sequence
+## Quick Start
 
 ```bash
-# Step 1 — Install platform layer (SPIRE + Istio + namespaces + ClusterSPIFFEIDs)
-helm upgrade --install orbit-platform ./charts/orbit-platform \
-  -f deploy/local/platform-values.yaml \
-  --namespace orbit-system \
-  --create-namespace
+make dev-cluster       # start Docker Compose (Postgres, Redis, Dex) + k3d cluster
+make cluster-operator  # build + deploy orbit-operator; installs SPIRE, Istio,
+                       # orbit-platform, and orbit automatically via the OrbitPlatform CR
+make cluster-deploy    # create secrets (orbit-secrets) and apply workload fixtures
+```
 
-# Wait for SPIRE and Istio pods to become ready before proceeding:
-kubectl -n spire wait --for=condition=ready pod -l app.kubernetes.io/name=spire-server --timeout=120s
-kubectl -n istio-system wait --for=condition=ready pod -l app=istiod --timeout=120s
+That's it. The operator drives the full install sequence — you do not need to
+run `helm upgrade` or `helmfile` commands manually.
 
-# Step 2 — Install the Orbit application chart
-helm upgrade --install orbit ./charts/orbit \
-  -f deploy/local/orbit-values.yaml \
-  --namespace orbit-system
+---
 
-# Step 3 — Apply local fixtures (not Helm-managed)
-kubectl apply -f deploy/local/fixtures/orbit-example-tenant.yaml
+## What Each Step Does
+
+### `make dev-cluster`
+
+1. Starts Docker Compose services: Postgres (`orbit-postgres`), Redis, and Dex OIDC.
+2. Creates the k3d cluster `orbit-local` with a local registry at `orbit-registry:5001`.
+3. Patches CoreDNS for `dex.orbit.local` resolution.
+
+### `make cluster-operator`
+
+1. Builds and pushes the `orbit-operator` image to `orbit-registry:5001`.
+2. Applies `deploy/local/orbit-system-namespace.yaml` (pre-creates `orbit-system`).
+3. Installs `charts/orbit-operator/` via Helm with `deploy/local/operator-values.yaml`.
+4. Applies `deploy/local/orbit-platform.yaml` (the `OrbitPlatform` CR).
+5. Applies `deploy/local/tenants/local.yaml` (the `OrbitTenant` CR for local dev).
+
+The operator then reconciles the full release sequence:
+
+```
+spire-crds → spire → istio-base → istiod → gateway → orbit-platform → orbit
+```
+
+Waits for `daemonset/spire-agent` and `deployment/istiod` to be ready before
+declaring `OrbitPlatform` as `Ready`.
+
+### `make cluster-deploy`
+
+1. Builds and pushes all service images (`identity`, `example`, `identity-proxy`).
+2. Runs `scripts/cluster/create-secrets.sh` — creates `orbit-secrets` in
+   `orbit-system` and `orbit-example-tenant`.
+3. Applies all manifests in `deploy/local/fixtures/` (workload fixtures, including
+   `orbit-example-tenant.yaml` which is fully self-contained).
+4. Waits for `deployment/orbit-identity` to be ready.
+
+---
+
+## Directory Structure
+
+```
+deploy/local/
+├── orbit-platform.yaml        # OrbitPlatform CR — drives the full release sequence
+├── orbit-system-namespace.yaml # Pre-bootstrap namespace manifest
+├── operator-values.yaml       # Values for charts/orbit-operator (local overrides)
+├── orbit-values.yaml          # Values for charts/orbit (identity service)
+├── platform-values.yaml       # Values for charts/orbit-platform (cluster resources)
+├── spire-values.yaml          # Values for the SPIRE Helm release
+├── istio-values.yaml          # Values for istiod (includes spire + identity-proxy
+│                              #   sidecar injection templates)
+├── gateway-values.yaml        # Values for istio gateway (NodePort on k3d)
+├── helmfile-env.yaml          # helmfile environment bindings (escape-hatch use only)
+├── fixtures/
+│   └── orbit-example-tenant.yaml  # Self-contained example tenant workload
+└── tenants/
+    └── local.yaml             # OrbitTenant CR for the local dev tenant
 ```
 
 ---
@@ -88,18 +81,15 @@ kubectl apply -f deploy/local/fixtures/orbit-example-tenant.yaml
 ## Tenant Registry
 
 The `config/tenants.yaml` file at the project root is committed to the
-repository and pre-configured for the local Dex OIDC provider. It is the
-source of truth for tenant registration in local dev.
+repository and pre-configured for the local Dex OIDC provider. The operator
+syncs it into the `orbit-tenants` ConfigMap in `orbit-system` automatically
+when `OrbitTenant` CRs are applied.
 
-When you modify `config/tenants.yaml`, re-sync the ConfigMap:
+When you modify `config/tenants.yaml`, re-apply the tenant CR to trigger a
+registry sync:
 
 ```bash
-kubectl create configmap orbit-tenants \
-  --from-file=tenants.yaml=config/tenants.yaml \
-  -n orbit-system \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart the identity deployment to pick up the new config
+kubectl apply -f deploy/local/tenants/local.yaml
 kubectl rollout restart deployment/orbit-identity -n orbit-system
 ```
 
@@ -116,52 +106,50 @@ Or set `ORBIT_TENANTS_CONFIG=./config/tenants.yaml` in your `.env` file.
 
 ## Trust Domain Consistency
 
-The `global.trustDomain` value **must be identical** in both values files:
+The `global.trustDomain` value **must be identical** across all values files
+that reference it:
 
 | File | Field |
 |------|-------|
 | `deploy/local/platform-values.yaml` | `global.trustDomain` |
 | `deploy/local/orbit-values.yaml` | `global.trustDomain` |
+| `deploy/local/spire-values.yaml` | `global.spire.trustDomain` |
 
-Both are currently set to `orbit.local`. Changing one without the other will
+All are currently set to `orbit.local`. Changing one without the others will
 cause SPIFFE SAN validation failures in the DestinationRule and mTLS peer
 authentication will break.
 
 ---
 
-## Adapting for Non-Local Environments
+## Updating a Running Cluster
 
-This directory is intentionally **local dev only**. For staging/production:
-
-1. Do not use `imagePullPolicy: Always` — the default `IfNotPresent` in
-   `charts/orbit/values.yaml` is the safe production default.
-2. Do not reference `orbit-registry:5001` — use your OCI registry:
-   ```
-   ghcr.io/orbit-sh/orbit-identity:<version>
-   ```
-3. Chart registry URLs (once published):
-   ```
-   oci://ghcr.io/orbit-sh/charts/orbit-platform
-   oci://ghcr.io/orbit-sh/charts/orbit
-   ```
-4. Supply tenant config via your GitOps tooling — the operator is responsible
-   for creating the `orbit-tenants` ConfigMap (or Secret) in the cluster before
-   installing the `orbit` chart.
-5. Use a separate deployment repository that references this repo's published
-   charts. Do not fork or copy these charts into your deployment repo.
+```bash
+make cluster-update-operator   # rebuild + redeploy orbit-operator only
+make cluster-update            # rebuild + redeploy all service images
+make cluster-update-service    # rebuild + redeploy a single service (SERVICE=identity)
+```
 
 ---
 
-## Fixtures Disclaimer
+## Tear Down
 
-Files in `deploy/local/fixtures/` are **not managed by Helm**. They are
-applied with `kubectl apply` and are local-only reference implementations.
+```bash
+make dev-cluster-down   # tears down the k3d cluster only
+                        # Docker Compose services (Postgres, Redis, Dex) keep running
+make dev-down           # stop Docker Compose services
+```
 
-- They will not appear in `helm status orbit` or `helm history orbit`.
-- They are not subject to `helm rollback`.
-- They use local registry images (`orbit-registry:5001`) and `imagePullPolicy: Always`.
+---
 
-Do not copy fixtures directly into a production deployment without:
-- Replacing the local registry reference with a versioned OCI image.
-- Removing `imagePullPolicy: Always`.
-- Adding appropriate resource limits, PodDisruptionBudgets, and HPA config.
+## Escape Hatch — Helmfile
+
+The `helmfile.yaml` at the repo root can be used to install or inspect
+individual releases without the operator. This is useful for debugging a
+specific chart version or recovering from a stuck reconcile loop.
+
+```bash
+helmfile diff --environment local                        # preview changes
+helmfile apply --environment local -l name=istiod        # upgrade a single release
+```
+
+See `helmfile.yaml` for the full release list and dependency order.

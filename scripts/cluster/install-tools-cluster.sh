@@ -5,14 +5,15 @@
 # Installs (if not already present at the correct version):
 #   - k3d        >= 5.6   (local k3s cluster manager)
 #   - kubectl    >= 1.29  (Kubernetes CLI)
-#   - helm       >= 3.14  (Kubernetes package manager — used for Istio + SPIRE)
-#   - helmfile   >= 0.169 (multi-release Helm orchestrator — primary operator install interface)
-#   - helm-diff  >= 3.9   (Helm plugin — required by helmfile diff / make cluster-platform-diff)
+#   - helm       >= 3.14  (Kubernetes package manager)
+#   - helmfile   >= 0.169 (Helm orchestrator — escape-hatch reference path; operator
+#                          is the primary install mechanism for local dev)
+#   - helm-diff  >= 3.9   (Helm plugin — required by helmfile diff)
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
 #
-# Note: istioctl is NOT required. Istio is installed via helm (istio/base +
-# istio/istiod) so no additional CLI tooling is needed beyond helm + helmfile.
+# Note: istioctl is NOT required. SPIRE and Istio are installed by the orbit
+# operator (charts/orbit-operator) via the Helm Go SDK — no CLI tooling needed.
 # =============================================================================
 set -euo pipefail
 
@@ -124,10 +125,10 @@ else
 fi
 
 # ── helmfile ──────────────────────────────────────────────────────────────────
-# Helmfile orchestrates multiple Helm releases with correct namespace placement
-# and install ordering. It is the primary operator install interface for Orbit.
-# Operators run: helmfile apply --environment <env>
-# Local dev runs: helmfile apply --environment local   (or: make cluster-platform)
+# Helmfile is retained as an escape-hatch / reference install path. The primary
+# local dev workflow uses the orbit-operator (make cluster-operator). Helmfile
+# can be used to manually install or inspect individual Helm releases when
+# bypassing the operator is needed for debugging.
 step "helmfile ${HELMFILE_VERSION}"
 if command -v helmfile >/dev/null; then
   INSTALLED="$(helmfile version 2>/dev/null | grep -E '^\s+Version' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
@@ -150,7 +151,7 @@ else
 fi
 
 # ── helm-diff plugin ──────────────────────────────────────────────────────────
-# Required by helmfile for `helmfile diff` / `make cluster-platform-diff`.
+# Required by helmfile for `helmfile diff` (escape-hatch debugging).
 # Installs as a Helm plugin rather than a standalone binary.
 # If an incompatible version is present (e.g. built for a newer Helm), the
 # plugin directory must be force-removed because `helm plugin remove` fails

@@ -680,7 +680,7 @@ Operators using Helmfile should define `global.trustDomain` once at the top leve
 
 **Mitigation — `make cluster-deploy` validation:**
 
-The `make cluster-deploy` target includes a post-install assertion that reads the running SPIRE trust domain from the cluster (`kubectl exec -n spire-server spire-server-0 -- /opt/spire/bin/spire-server bundle show`) and compares the embedded trust domain against the value the identity service was deployed with. A mismatch fails the `make cluster-deploy` run with a clear error before the problem manifests as a silent auth failure.
+A post-install trust domain assertion can be added to validate the running SPIRE configuration: `kubectl exec -n spire-system spire-server-0 -c spire-server -- /opt/spire/bin/spire-server bundle show` reads the active trust domain and can be compared against the deployed identity service configuration. A mismatch should fail the deploy with a clear error before it manifests as a silent auth failure. This assertion is not currently implemented.
 
 **On chart versioning:**
 
