@@ -82,8 +82,11 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 // It wraps the OpenAI-compatible Bedrock endpoint (via openai-go) and
 // the Anthropic Messages API on Bedrock (via anthropic-sdk-go/bedrock).
 //
-// Dialect selection is the caller's responsibility. The connector never
-// inspects the model name to choose a path.
+// Bedrock is a multi-endpoint provider: Anthropic/Claude models must be called
+// via the Anthropic Messages API (anthropicClient) because the OpenAI-compatible
+// Bedrock endpoint does not support them. ChatCompletion and ChatCompletionStream
+// therefore inspect the model ID and self-dispatch to the correct transport so
+// that OpenAI-dialect callers targeting Claude models work transparently.
 type Connector struct {
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
