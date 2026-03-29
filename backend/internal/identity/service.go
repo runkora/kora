@@ -31,13 +31,21 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// ─── Internal OIDC provider metadata ─────────────────────────────────────────
+// ─── Internal OIDC provider state ────────────────────────────────────────────
 
 // oidcProviderMeta holds metadata fetched from the OIDC discovery document
 // that is not exposed by go-oidc's Provider type.
 type oidcProviderMeta struct {
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
+}
+
+// tenantOIDCState bundles the resolved go-oidc provider and its discovery
+// metadata for a single tenant.
+type tenantOIDCState struct {
+	cfg      TenantOIDCConfig
+	provider *gooidc.Provider
+	meta     *oidcProviderMeta
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -57,9 +65,10 @@ type Service struct {
 	// sensible default in NewService and can be replaced in tests.
 	httpClient *http.Client
 
-	// OIDC — nil when federated auth is not configured.
-	oidcProvider *gooidc.Provider
-	oidcMeta     *oidcProviderMeta
+	// oidcTenants holds one resolved OIDC state per active tenant, keyed by
+	// tenant ID.  Populated at startup by initTenantOIDCProviders.
+	// Empty map means federated auth is disabled for all tenants.
+	oidcTenants map[string]*tenantOIDCState
 
 	// extractor derives a Principal from the inbound request (reads the
 	// Envoy-injected XFCC header in production; a stub header locally).
@@ -77,8 +86,9 @@ type Service struct {
 // cfg must be the value returned by LoadConfig — env-var overrides and secret
 // fields (ClientID, ClientSecret) are resolved there.
 //
-// If cfg.OIDC.IssuerURL is non-empty, OIDC provider discovery is performed
-// eagerly at construction time.
+// OIDC provider discovery is performed eagerly at construction time for
+// every active tenant found in the tenant registry (ORBIT_TENANTS_CONFIG).
+// Tenants without a configured OIDC issuer URL are skipped.
 //
 // The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
 // ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
@@ -102,18 +112,12 @@ func NewService(
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		oidcTenants:   make(map[string]*tenantOIDCState),
 	}
 
-	// Initialize OIDC provider if an issuer URL has been configured.
-	if cfg.OIDC.IssuerURL != "" {
-		if err := svc.initOIDCProvider(ctx); err != nil {
-			return nil, fmt.Errorf("identity service: init oidc provider: %w", err)
-		}
-		logger.Info(ctx, "OIDC provider initialized",
-			logging.Field{Key: "issuer", Value: cfg.OIDC.IssuerURL},
-		)
-	} else {
-		logger.Info(ctx, "OIDC provider not configured — federated authentication disabled")
+	// Discover OIDC providers for all active tenants in the registry.
+	if err := svc.initTenantOIDCProviders(ctx); err != nil {
+		return nil, fmt.Errorf("identity service: init tenant oidc providers: %w", err)
 	}
 
 	// Load or generate the RSA signing key.
@@ -134,25 +138,27 @@ func NewService(
 // ─── Federated authentication: device authorization grant ────────────────────
 
 // InitiateDeviceAuth starts a Device Authorization Grant flow with the
-// configured OIDC provider and returns the device code + user instructions.
+// OIDC provider configured for req.TenantID and returns the device code +
+// user instructions.
 func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest) (*DeviceAuthResponse, error) {
-	if err := s.requireOIDC(); err != nil {
+	ts, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
 		return nil, err
 	}
 
-	scopes := s.cfg.OIDC.Scopes
+	scopes := ts.cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"openid", "profile", "email"}
 	}
 
 	formVals := url.Values{
-		"client_id": {s.cfg.OIDC.ClientID},
+		"client_id": {ts.cfg.ClientID},
 		"scope":     {strings.Join(scopes, " ")},
 	}
 
-	resp, err := s.postForm(ctx, s.oidcMeta.DeviceAuthorizationEndpoint, formVals)
+	resp, err := s.postForm(ctx, ts.meta.DeviceAuthorizationEndpoint, formVals)
 	if err != nil {
-		return nil, fmt.Errorf("device auth request to %s: %w", s.oidcMeta.DeviceAuthorizationEndpoint, err)
+		return nil, fmt.Errorf("device auth request to %s: %w", ts.meta.DeviceAuthorizationEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -168,14 +174,14 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 			var oe *OAuthError
 			if errors.As(oauthErr, &oe) {
 				return nil, fmt.Errorf("device auth endpoint %s returned %d (%s): %w",
-					s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
+					ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
 			}
 			// Sentinel error (ErrAuthorizationPending, etc.)
 			return nil, fmt.Errorf("device auth endpoint %s returned %d: %w",
-				s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oauthErr)
+				ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, oauthErr)
 		}
 		return nil, fmt.Errorf("device auth endpoint %s returned %d: %s",
-			s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, body)
+			ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, body)
 	}
 
 	var dar struct {
@@ -246,26 +252,27 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	)
 	defer span.End()
 
-	if err := s.requireOIDC(); err != nil {
+	ts, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured")
+		span.SetStatus(codes.Error, "OIDC not configured for tenant")
 		return nil, err
 	}
 
 	formVals := url.Values{
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 		"device_code": {req.DeviceCode},
-		"client_id":   {s.cfg.OIDC.ClientID},
+		"client_id":   {ts.cfg.ClientID},
 	}
-	if s.cfg.OIDC.ClientSecret != "" {
-		formVals.Set("client_secret", s.cfg.OIDC.ClientSecret)
+	if ts.cfg.ClientSecret != "" {
+		formVals.Set("client_secret", ts.cfg.ClientSecret)
 	}
 
-	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
+	resp, err := s.postForm(ctx, ts.meta.TokenEndpoint, formVals)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "token endpoint request failed")
-		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", s.oidcMeta.TokenEndpoint, err)
+		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", ts.meta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -298,8 +305,8 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	// Verify the ID token signature + claims with go-oidc.
-	idToken, err := s.oidcProvider.Verifier(&gooidc.Config{
-		ClientID: s.cfg.OIDC.ClientID,
+	idToken, err := ts.provider.Verifier(&gooidc.Config{
+		ClientID: ts.cfg.ClientID,
 	}).Verify(ctx, tokenResp.IDToken)
 	if err != nil {
 		span.RecordError(err)
@@ -801,12 +808,13 @@ func (s *Service) parseToken(tokenString string) (*PlatformClaims, error) {
 	return &claims, nil
 }
 
-// requireOIDC returns ErrOIDCNotConfigured if no OIDC provider is configured.
-func (s *Service) requireOIDC() error {
-	if s.oidcProvider == nil {
-		return ErrOIDCNotConfigured
+// tenantOIDC returns the resolved OIDC state for a given tenant ID.
+// Returns ErrOIDCNotConfigured if the tenant is unknown or has no OIDC provider.
+func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
+	if ts, ok := s.oidcTenants[tenantID]; ok {
+		return ts, nil
 	}
-	return nil
+	return nil, ErrOIDCNotConfigured
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.
@@ -844,33 +852,61 @@ func (s *Service) postForm(ctx context.Context, endpoint string, vals url.Values
 	return s.httpClient.Do(req)
 }
 
-// initOIDCProvider performs OIDC discovery and populates oidcProvider + oidcMeta.
-func (s *Service) initOIDCProvider(ctx context.Context) error {
-	// Use gooidc.ClientContext to inject s.httpClient for all OIDC requests
-	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
-	provider, err := gooidc.NewProvider(ctxWithClient, s.cfg.OIDC.IssuerURL)
+// initTenantOIDCProviders loads the tenant registry and performs OIDC discovery
+// for every active tenant that has an issuer URL configured.  Tenants without
+// an issuer URL are skipped with an info log (federated auth disabled for that
+// tenant).  A discovery failure for any tenant is fatal — misconfigured
+// providers should be caught at startup, not at first login.
+func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
+	tenants, err := loadTenantRegistry()
 	if err != nil {
-		return fmt.Errorf("oidc discovery: %w", err)
+		return fmt.Errorf("load tenant registry: %w", err)
+	}
+	if len(tenants) == 0 {
+		s.logger.Info(ctx, "no tenants in registry — federated authentication disabled")
+		return nil
 	}
 
-	var meta oidcProviderMeta
-	if err := provider.Claims(&meta); err != nil {
-		return fmt.Errorf("extract provider metadata: %w", err)
-	}
+	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
+	for tenantID, cfg := range tenants {
+		if cfg.IssuerURL == "" {
+			s.logger.Info(ctx, "tenant has no OIDC issuer URL — skipping",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+			)
+			continue
+		}
 
-	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use that as fallback.
-	if meta.TokenEndpoint == "" {
-		meta.TokenEndpoint = provider.Endpoint().TokenURL
-	}
-	if meta.TokenEndpoint == "" {
-		return fmt.Errorf("provider does not advertise token_endpoint")
-	}
-	if meta.DeviceAuthorizationEndpoint == "" {
-		return fmt.Errorf("provider does not advertise device_authorization_endpoint")
-	}
+		provider, err := gooidc.NewProvider(ctxWithClient, cfg.IssuerURL)
+		if err != nil {
+			return fmt.Errorf("oidc discovery for tenant %q: %w", tenantID, err)
+		}
 
-	s.oidcProvider = provider
-	s.oidcMeta = &meta
+		var meta oidcProviderMeta
+		if err := provider.Claims(&meta); err != nil {
+			return fmt.Errorf("extract provider metadata for tenant %q: %w", tenantID, err)
+		}
+
+		// go-oidc exposes token_endpoint via Endpoint().TokenURL — use as fallback.
+		if meta.TokenEndpoint == "" {
+			meta.TokenEndpoint = provider.Endpoint().TokenURL
+		}
+		if meta.TokenEndpoint == "" {
+			return fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
+		}
+		if meta.DeviceAuthorizationEndpoint == "" {
+			return fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
+		}
+
+		s.oidcTenants[tenantID] = &tenantOIDCState{
+			cfg:      cfg,
+			provider: provider,
+			meta:     &meta,
+		}
+		s.logger.Info(ctx, "OIDC provider initialized",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "issuer", Value: cfg.IssuerURL},
+		)
+	}
 	return nil
 }
 
@@ -886,7 +922,7 @@ func (s *Service) initOIDCProvider(ctx context.Context) error {
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
 	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from an operator-controlled env var, not user input
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}

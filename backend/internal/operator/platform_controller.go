@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,6 +36,12 @@ type PlatformReconciler struct {
 	// In local dev this is the repo's charts/ directory.
 	// In production this is the directory where charts are embedded.
 	ChartDir string
+
+	// Registry is shared with TenantReconciler so the platform controller can
+	// pre-create the orbit-tenants ConfigMap (empty) before orbit-identity
+	// starts. Without it, orbit-identity fails to mount the volume on first boot
+	// when no OrbitTenant CRs have been applied yet.
+	Registry *TenantRegistry
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitPlatform is
@@ -122,9 +130,109 @@ func (r *PlatformReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // release sequence
 // -----------------------------------------------------------------------------
 
+// ensureSystemNamespace creates the orbit-system namespace if it does not exist.
+// The namespace is created with the labels required for SPIRE and Istio injection
+// before any Helm release runs. This removes the need for a separate bootstrap manifest.
+func (r *PlatformReconciler) ensureSystemNamespace(ctx context.Context) error {
+	ns := &corev1.Namespace{}
+	err := r.Get(ctx, types.NamespacedName{Name: "orbit-system"}, ns)
+	if err == nil {
+		return nil // already exists
+	}
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get orbit-system namespace: %w", err)
+	}
+	ns = &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orbit-system",
+			Labels: map[string]string{
+				"istio-injection":         "enabled",
+				"spiffe.io/spire-managed": "true",
+			},
+		},
+	}
+	if createErr := r.Create(ctx, ns); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+		return fmt.Errorf("create orbit-system namespace: %w", createErr)
+	}
+	r.Logger.Info(ctx, "created orbit-system namespace")
+	return nil
+}
+
+// ensureOrbitConfig creates or updates the orbit-config ConfigMap in orbit-system.
+// This ConfigMap holds non-secret infrastructure configuration (DB host/name/port/user,
+// Redis host/port) derived from the OrbitPlatform CR spec. Keeping it operator-managed
+// means the platform team only needs to fill in the OrbitPlatform CR — no separate
+// kubectl commands are required during cluster setup.
+func (r *PlatformReconciler) ensureOrbitConfig(ctx context.Context, p *OrbitPlatform) error {
+	const name = "orbit-config"
+
+	db := p.Spec.Config.DB
+	redis := p.Spec.Config.Redis
+
+	desired := map[string]string{
+		"DB_HOST":    db.Host,
+		"DB_NAME":    db.Name,
+		"DB_PORT":    strconv.Itoa(db.Port),
+		"DB_USER":    db.User,
+		"REDIS_HOST": redis.Host,
+		"REDIS_PORT": strconv.Itoa(redis.Port),
+	}
+
+	existing := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: systemNamespace}, existing)
+	if apierrors.IsNotFound(err) {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: systemNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "orbit-operator",
+					"orbit.io/component":           "platform-config",
+				},
+			},
+			Data: desired,
+		}
+		if createErr := r.Create(ctx, cm); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create %s ConfigMap: %w", name, createErr)
+		}
+		r.Logger.Info(ctx, "created orbit-config ConfigMap")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get %s ConfigMap: %w", name, err)
+	}
+
+	// Update if any value has drifted.
+	changed := false
+	if existing.Data == nil {
+		existing.Data = make(map[string]string)
+	}
+	for k, v := range desired {
+		if existing.Data[k] != v {
+			existing.Data[k] = v
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	patch := client.MergeFrom(existing.DeepCopy())
+	maps.Copy(existing.Data, desired)
+	if patchErr := r.Patch(ctx, existing, patch); patchErr != nil {
+		return fmt.Errorf("patch %s ConfigMap: %w", name, patchErr)
+	}
+	r.Logger.Info(ctx, "updated orbit-config ConfigMap")
+	return nil
+}
+
 // reconcileReleases drives all Helm releases in dependency order.
 // Each step is a named function so failures are easy to attribute.
 func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlatform) error {
+	// Ensure the system namespace exists before any Helm release runs.
+	if err := r.ensureSystemNamespace(ctx); err != nil {
+		return fmt.Errorf("orbit-system namespace: %w", err)
+	}
+
 	if p.Spec.SPIRE.Enabled {
 		if err := r.reconcileSPIRECRDs(ctx, p); err != nil {
 			return fmt.Errorf("spire-crds: %w", err)
@@ -141,13 +249,30 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 		if err := r.reconcileIstiod(ctx, p); err != nil {
 			return fmt.Errorf("istiod: %w", err)
 		}
-		if err := r.reconcileGateway(ctx); err != nil {
+		if err := r.reconcileGateway(ctx, p); err != nil {
 			return fmt.Errorf("gateway: %w", err)
 		}
 	}
 
 	if err := r.reconcileOrbitPlatform(ctx, p); err != nil {
 		return fmt.Errorf("orbit-platform: %w", err)
+	}
+
+	// Ensure the non-secret platform config ConfigMap exists before deploying
+	// orbit services. This derives DB_HOST, DB_NAME, DB_PORT, DB_USER,
+	// REDIS_HOST, REDIS_PORT from the OrbitPlatform CR spec so users do not
+	// need to create it manually.
+	if err := r.ensureOrbitConfig(ctx, p); err != nil {
+		return fmt.Errorf("orbit-config: %w", err)
+	}
+
+	// Ensure orbit-tenants ConfigMap exists (may be empty if no OrbitTenant CRs
+	// have been applied yet). orbit-identity mounts this as a required volume —
+	// it will fail to start if the ConfigMap is absent on first boot.
+	if r.Registry != nil {
+		if err := r.Registry.Sync(ctx); err != nil {
+			return fmt.Errorf("orbit-tenants: %w", err)
+		}
 	}
 
 	if err := r.reconcileOrbit(ctx, p); err != nil {
@@ -177,7 +302,65 @@ func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPla
 
 func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatform) error {
 	versions := r.loadVersions()
-	spireValues := r.loadValuesFile("spire-values.yaml")
+
+	clusterName := p.Spec.ClusterName
+	if clusterName == "" {
+		clusterName = "orbit"
+	}
+
+	// All SPIRE values are derived from the OrbitPlatform CR or are Orbit
+	// opinionated defaults. No external values file is required.
+	spireValues := map[string]any{
+		"global": map[string]any{
+			"spire": map[string]any{
+				"trustDomain": p.Spec.TrustDomain,
+				"clusterName": clusterName,
+			},
+		},
+		"spire-server": map[string]any{
+			"controllerManager": map[string]any{
+				"identities": map[string]any{
+					"clusterSPIFFEIDs": map[string]any{
+						// Disable the default ClusterSPIFFEID — Orbit manages
+						// its own via the orbit-platform chart.
+						"default": map[string]any{"enabled": false},
+					},
+				},
+			},
+			"nodeAttestor": map[string]any{
+				"k8sPSAT": map[string]any{
+					"enabled": true,
+					"clusters": map[string]any{
+						clusterName: map[string]any{
+							"service_account_allow_list": []string{"spire-system:spire-agent"},
+						},
+					},
+				},
+			},
+		},
+		"spire-agent": map[string]any{
+			"sds": map[string]any{
+				"enabled":               true,
+				"defaultSVIDName":       "default",
+				"defaultBundleName":     "ROOTCA",
+				"defaultAllBundlesName": "ALL",
+			},
+			"nodeAttestor": map[string]any{
+				"k8sPSAT": map[string]any{"enabled": true},
+			},
+			"workloadAttestors": map[string]any{
+				"k8s": map[string]any{
+					"enabled":                   true,
+					"skipKubeletVerification":   true,
+					"disableContainerSelectors": true,
+					"useNewContainerLocator":    false,
+				},
+			},
+		},
+		"spiffe-csi-driver":        map[string]any{"enabled": true},
+		"spire-controller-manager": map[string]any{"enabled": true},
+	}
+
 	helm := NewHelmClient("spire-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"spire",
@@ -212,14 +395,27 @@ func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context) error {
 
 func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatform) error {
 	versions := r.loadVersions()
-	istioValues := r.loadValuesFile("istio-values.yaml")
-	// Inject the trust domain into istiod values.
-	istioValues["meshConfig"] = mergeMaps(
-		toMap(istioValues["meshConfig"]),
-		map[string]any{
+
+	// The SPIRE and identity-proxy sidecar injection templates are Orbit's
+	// internal wiring between its components. They are generated from the
+	// OrbitPlatform CR — the user should never need to write or maintain them.
+	istioValues := map[string]any{
+		"meshConfig": map[string]any{
 			"trustDomain": p.Spec.TrustDomain,
+			"defaultConfig": map[string]any{
+				"discoveryAddress": "istiod.istio-system.svc:15012",
+			},
 		},
-	)
+		"sidecarInjectorWebhook": map[string]any{
+			"templates": map[string]any{
+				"spire": buildSpireInjectionTemplate(),
+				"identity-proxy": buildIdentityProxyInjectionTemplate(
+					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
+				),
+			},
+		},
+	}
+
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"istiod",
@@ -236,13 +432,23 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileGateway(ctx context.Context) error {
+func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform) error {
 	versions := r.loadVersions()
-	// Load optional gateway values file (e.g. deploy/local/gateway-values.yaml).
-	// This allows overriding service.type=NodePort on k3d where no cloud
-	// LoadBalancer controller is present — without it Helm's --wait blocks
-	// indefinitely waiting for the EXTERNAL-IP to be assigned.
-	gatewayValues := r.loadValuesFile("gateway-values.yaml")
+
+	serviceType := p.Spec.Gateway.ServiceType
+	if serviceType == "" {
+		serviceType = "LoadBalancer"
+	}
+
+	// ServiceType is the only gateway knob an operator needs. Use NodePort on
+	// local clusters (e.g. k3d) that have no cloud LoadBalancer controller —
+	// otherwise Helm --wait blocks indefinitely waiting for EXTERNAL-IP.
+	gatewayValues := map[string]any{
+		"service": map[string]any{
+			"type": serviceType,
+		},
+	}
+
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"gateway",

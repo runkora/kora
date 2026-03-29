@@ -31,10 +31,12 @@ run `helm upgrade` or `helmfile` commands manually.
 ### `make cluster-operator`
 
 1. Builds and pushes the `orbit-operator` image to `orbit-registry:5001`.
-2. Applies `deploy/local/orbit-system-namespace.yaml` (pre-creates `orbit-system`).
-3. Installs `charts/orbit-operator/` via Helm with `deploy/local/operator-values.yaml`.
-4. Applies `deploy/local/orbit-platform.yaml` (the `OrbitPlatform` CR).
-5. Applies `deploy/local/tenants/local.yaml` (the `OrbitTenant` CR for local dev).
+2. Installs `charts/orbit-operator/` via Helm with `deploy/local/operator-values.yaml`.
+3. Applies `deploy/local/orbit-platform.yaml` (the `OrbitPlatform` CR).
+4. Applies `deploy/local/tenants/example.yaml` (the `OrbitTenant` CR for the example tenant).
+
+The operator creates the `orbit-system` namespace automatically on first reconcile
+(no bootstrap namespace manifest required).
 
 The operator then reconciles the full release sequence:
 
@@ -49,9 +51,9 @@ declaring `OrbitPlatform` as `Ready`.
 
 1. Builds and pushes all service images (`identity`, `example`, `identity-proxy`).
 2. Runs `scripts/cluster/create-secrets.sh` — creates `orbit-secrets` in
-   `orbit-system` and `orbit-example-tenant`.
+   `orbit-system` and `orbit-tenant-example`.
 3. Applies all manifests in `deploy/local/fixtures/` (workload fixtures, including
-   `orbit-example-tenant.yaml` which is fully self-contained).
+   `orbit-tenant-example.yaml` which is fully self-contained).
 4. Waits for `deployment/orbit-identity` to be ready.
 
 ---
@@ -61,20 +63,18 @@ declaring `OrbitPlatform` as `Ready`.
 ```
 deploy/local/
 ├── orbit-platform.yaml        # OrbitPlatform CR — drives the full release sequence
-├── orbit-system-namespace.yaml # Pre-bootstrap namespace manifest
 ├── operator-values.yaml       # Values for charts/orbit-operator (local overrides)
 ├── orbit-values.yaml          # Values for charts/orbit (identity service)
 ├── platform-values.yaml       # Values for charts/orbit-platform (cluster resources)
-├── spire-values.yaml          # Values for the SPIRE Helm release
-├── istio-values.yaml          # Values for istiod (includes spire + identity-proxy
-│                              #   sidecar injection templates)
-├── gateway-values.yaml        # Values for istio gateway (NodePort on k3d)
 ├── helmfile-env.yaml          # helmfile environment bindings (escape-hatch use only)
 ├── fixtures/
-│   └── orbit-example-tenant.yaml  # Self-contained example tenant workload
+│   └── orbit-tenant-example.yaml  # Self-contained example tenant workload
 └── tenants/
-    └── local.yaml             # OrbitTenant CR for the local dev tenant
+    └── example.yaml           # OrbitTenant CR for the example tenant (namespace: orbit-tenant-example)
 ```
+
+SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields —
+no separate values files for those components are needed.
 
 ---
 
@@ -89,7 +89,7 @@ When you modify `config/tenants.yaml`, re-apply the tenant CR to trigger a
 registry sync:
 
 ```bash
-kubectl apply -f deploy/local/tenants/local.yaml
+kubectl apply -f deploy/local/tenants/example.yaml
 kubectl rollout restart deployment/orbit-identity -n orbit-system
 ```
 
@@ -111,13 +111,13 @@ that reference it:
 
 | File | Field |
 |------|-------|
-| `deploy/local/platform-values.yaml` | `global.trustDomain` |
-| `deploy/local/orbit-values.yaml` | `global.trustDomain` |
-| `deploy/local/spire-values.yaml` | `global.spire.trustDomain` |
+| `deploy/local/orbit-platform.yaml` | `spec.trustDomain` — primary source; operator derives SPIRE and Istio trust domain from this |
+| `deploy/local/platform-values.yaml` | `global.trustDomain` — used by the orbit-platform Helm chart |
+| `deploy/local/orbit-values.yaml` | `global.trustDomain` — used by the orbit Helm chart |
 
-All are currently set to `orbit.local`. Changing one without the others will
-cause SPIFFE SAN validation failures in the DestinationRule and mTLS peer
-authentication will break.
+All are currently set to `orbit.local`. If you change `spec.trustDomain` in
+`orbit-platform.yaml`, update the two chart values files to match. A mismatch
+will cause SPIFFE SAN validation failures and mTLS peer authentication will break.
 
 ---
 

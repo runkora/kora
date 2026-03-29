@@ -12,9 +12,6 @@ image:
 # APP_ENV=local is for running the binary directly outside the container (local.yaml overrides chartDir: ../charts).
 appEnv: development
 
-# chartDir is intentionally omitted — the production default (/etc/orbit/charts)
-# is correct for the container image. The Dockerfile.operator copies charts there.
-
 leaderElection: false
 
 logLevel: debug

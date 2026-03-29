@@ -69,6 +69,24 @@ type OrbitPlatformSpec struct {
 	// UpgradeStrategy controls how the operator handles chart version upgrades.
 	UpgradeStrategy UpgradeStrategySpec `json:"upgradeStrategy,omitempty"`
 
+	// ClusterName is the SPIRE cluster identifier. Defaults to "orbit".
+	// Must be consistent across SPIRE server and agent configuration.
+	// +kubebuilder:default=orbit
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+
+	// Gateway configures the Istio ingress gateway.
+	Gateway GatewaySpec `json:"gateway,omitempty"`
+
+	// ImageRegistry is an optional registry prefix applied to all Orbit platform
+	// service images (orbit-identity, orbit-identity-proxy, etc.).
+	// Use this for local development or air-gapped environments where images are
+	// mirrored to a private registry.
+	// Example: "orbit-registry:5001" -> orbit-registry:5001/orbit-identity:latest
+	// Leave blank in production — the operator uses the built-in image references.
+	// +optional
+	ImageRegistry string `json:"imageRegistry,omitempty"`
+
 	// PlatformValues are raw Helm values merged into the orbit-platform chart.
 	// Use sparingly — prefer structured spec fields.
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -92,6 +110,16 @@ type IstioSpec struct {
 	// Enabled controls whether the operator installs Istio. Default: true.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+}
+
+// GatewaySpec configures the Istio ingress gateway.
+type GatewaySpec struct {
+	// ServiceType is the Kubernetes service type for the gateway.
+	// Use "NodePort" on local clusters without a cloud LoadBalancer controller (e.g. k3d).
+	// Defaults to "LoadBalancer".
+	// +kubebuilder:default=LoadBalancer
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	ServiceType string `json:"serviceType,omitempty"`
 }
 
 // PlatformSecretsSpec references the Secret containing platform credentials.
@@ -307,12 +335,13 @@ type OrbitTenantSpec struct {
 	Active bool `json:"active"`
 
 	// Namespace is the Kubernetes namespace for this tenant's workloads.
-	// The operator creates it with the correct labels:
+	// If omitted, the operator derives it as "orbit-tenant-{tenantID}".
+	// The operator creates the namespace with the correct labels:
 	//   orbit.io/role: tenant
 	//   istio-injection: enabled
 	//   spiffe.io/spire-managed: "true"
-	// +kubebuilder:validation:MinLength=1
-	Namespace string `json:"namespace"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 
 	// OIDC configures the identity provider for this tenant.
 	OIDC TenantOIDCSpec `json:"oidc"`

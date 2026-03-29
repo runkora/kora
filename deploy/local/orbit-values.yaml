@@ -7,7 +7,7 @@
 #   helm upgrade --install orbit ./charts/orbit \
 #     -f deploy/local/orbit-values.yaml -n orbit-system
 #
-# Trust domain must match platform-values.yaml and spire-values.yaml.
+# Trust domain must match spec.trustDomain in deploy/local/orbit-platform.yaml.
 # =============================================================================
 
 global:
@@ -40,7 +40,7 @@ identity:
   existingTenantsConfigMap: orbit-tenants
 
   # Secret containing DB_PASSWORD, REDIS_PASSWORD, JWT_SIGNING_KEY, and
-  # optionally ORBIT_OIDC_CLIENT_SECRET for tenant OIDC providers.
+  # per-tenant OIDC client secrets (e.g. ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET).
   # Created by: make cluster-secrets (runs scripts/cluster/create-secrets.sh)
   existingSecret: orbit-secrets
 
@@ -52,7 +52,7 @@ platform:
   namespaces:
     system: orbit-system
     tenants:
-      - orbit-example-tenant
+      - orbit-tenant-example
 
   spiffe:
     enabled: true

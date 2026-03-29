@@ -117,6 +117,28 @@ spec:
                         port:
                           type: integer
                           default: 6379
+                clusterName:
+                  description: Kubernetes cluster name, used to derive SPIRE cluster name and other cluster-scoped identifiers.
+                  type: string
+                gateway:
+                  description: Istio gateway configuration.
+                  type: object
+                  properties:
+                    serviceType:
+                      description: "Kubernetes Service type for the gateway. Use NodePort for local/k3d, LoadBalancer for cloud."
+                      type: string
+                      enum:
+                        - ClusterIP
+                        - NodePort
+                        - LoadBalancer
+                      default: LoadBalancer
+                imageRegistry:
+                  description: >
+                    Optional registry prefix applied to all Orbit platform service images.
+                    Use for local dev or air-gapped environments where images are mirrored.
+                    Example: "orbit-registry:5001" produces orbit-registry:5001/orbit-identity:latest.
+                    Leave blank in production — the operator uses built-in versioned image references.
+                  type: string
                 upgradeStrategy:
                   description: Controls how the operator handles chart version upgrades.
                   type: object

@@ -23,23 +23,28 @@ spec:
       subresources:
         status: {}
       additionalPrinterColumns:
-        - name: Tenant ID
-          type: string
-          jsonPath: .spec.tenantId
         - name: Phase
           type: string
           jsonPath: .status.phase
         - name: Namespace
           type: string
-          jsonPath: .spec.namespace
+          # Shows the resolved namespace (auto-derived or explicit spec.namespace).
+          jsonPath: .status.namespace
+        - name: OIDC
+          type: string
+          jsonPath: .spec.oidc.issuerURL
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
       schema:
         openAPIV3Schema:
-          description: OrbitTenant declares a tenant in the Orbit platform.
-            The operator creates the tenant namespace and registers the tenant
-            in the orbit-tenants ConfigMap consumed by the identity service.
+          description: >
+            OrbitTenant declares a tenant in the Orbit platform.
+            The CR name (metadata.name) is the tenant ID — no separate tenantId
+            field is needed. The operator creates the tenant namespace
+            (auto-derived as "orbit-tenant-{name}" when spec.namespace is omitted)
+            and registers the tenant in the orbit-tenants ConfigMap consumed by
+            the identity service. All tenant configuration lives in this single CR.
           type: object
           required:
             - spec
@@ -53,30 +58,25 @@ spec:
             spec:
               type: object
               required:
-                - tenantId
                 - displayName
-                - namespace
                 - oidc
               properties:
-                tenantId:
-                  description: Stable, unique identifier for the tenant. Used as
-                    the tenant ID in SPIFFE IDs and the identity service registry.
-                  type: string
-                  minLength: 1
-                  maxLength: 63
-                  pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
                 displayName:
                   description: Human-readable tenant display name.
                   type: string
                   minLength: 1
                 namespace:
-                  description: Kubernetes namespace for tenant workloads. The operator
-                    creates this namespace with the required Istio and SPIRE labels.
+                  description: >
+                    Kubernetes namespace for tenant workloads. When omitted the
+                    operator auto-derives the namespace as "orbit-tenant-{name}".
+                    The operator creates this namespace with the required Istio
+                    and SPIRE labels.
                   type: string
                   minLength: 1
                 active:
-                  description: Whether the tenant is active. Inactive tenants are
-                    excluded from the identity service registry. Default true.
+                  description: >
+                    Whether the tenant is active. Inactive tenants are excluded
+                    from the identity service registry. Default true.
                   type: boolean
                   default: true
                 oidc:
@@ -87,15 +87,18 @@ spec:
                     - clientID
                   properties:
                     issuerURL:
-                      description: OIDC issuer URL. Must be reachable from the
-                        identity service.
+                      description: >
+                        OIDC issuer URL. Must be reachable from the identity
+                        service. For local dev this is the Dex URL.
                       type: string
                     clientID:
                       description: OIDC client ID registered with the provider.
                       type: string
                     clientSecretRef:
-                      description: Reference to a Secret containing the OIDC client
-                        secret in key "clientSecret". Optional for public clients.
+                      description: >
+                        Reference to a Secret containing the OIDC client secret
+                        in key "clientSecret". Optional for public clients (e.g.
+                        Dex device-flow clients).
                       type: object
                       required:
                         - name
@@ -106,8 +109,9 @@ spec:
                         namespace:
                           type: string
                     scopes:
-                      description: Additional OIDC scopes to request. "openid" is
-                        always included.
+                      description: >
+                        OIDC scopes to request. Defaults to
+                        [openid, profile, email].
                       type: array
                       items:
                         type: string
@@ -116,15 +120,21 @@ spec:
                         - profile
                         - email
                 deleteNamespaceOnRemoval:
-                  description: Whether to delete the tenant namespace when the
-                    OrbitTenant CR is deleted. Default false — namespace is retained
-                    to avoid accidental data loss.
+                  description: >
+                    Whether to delete the tenant namespace when the OrbitTenant
+                    CR is deleted. Default false — namespace is retained to avoid
+                    accidental data loss.
                   type: boolean
                   default: false
             status:
               type: object
               properties:
                 phase:
+                  type: string
+                namespace:
+                  description: >
+                    The resolved namespace in use for this tenant (either
+                    spec.namespace or the auto-derived "orbit-tenant-{name}").
                   type: string
                 conditions:
                   type: array

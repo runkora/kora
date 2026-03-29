@@ -34,12 +34,11 @@
 #
 # ADDING A NEW ENVIRONMENT
 # ─────────────────────────
+# NOTE: SPIRE and Istio are managed by the orbit-operator, not helmfile.
+# The helmfile escape-hatch only covers the orbit-platform chart.
+#
 # 1. Create deploy/<env>/helmfile-env.yaml:
 #
-#      spire:
-#        valuesFile: deploy/<env>/spire-values.yaml
-#      istiod:
-#        valuesFile: deploy/<env>/istio-values.yaml
 #      orbitPlatform:
 #        valuesFile: deploy/<env>/platform-values.yaml
 #

@@ -16,15 +16,10 @@
 #   gateway     → istio-system (release: gateway)
 #
 # See: deploy/local/orbit-platform.yaml (OrbitPlatform CR)
-#      deploy/local/spire-values.yaml
-#      deploy/local/istio-values.yaml
 # =============================================================================
 
 # -- Trust domain for SPIFFE SVIDs.
-# Must match:
-#   deploy/local/spire-values.yaml  → global.spire.trustDomain
-#   deploy/local/istio-values.yaml  → meshConfig.trustDomain
-#   deploy/local/orbit-values.yaml  → global.trustDomain
+# Must match spec.trustDomain in the OrbitPlatform CR.
 global:
   trustDomain: "cluster.local"
 
@@ -38,7 +33,7 @@ namespaces:
   tenants: []
   # Example:
   # tenants:
-  #   - orbit-example-tenant
+  #   - orbit-tenant-example
 
 # -- NetworkPolicy toggle. Disable only in development environments where
 # NetworkPolicy is not enforced by the CNI.

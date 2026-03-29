@@ -25,8 +25,8 @@
 version: "v1"
 
 tenants:
-  - id: "local"
-    displayName: "Orbit Local Dev"
+  - id: "example"
+    displayName: "Orbit Example"
     state: "active"
     oidc:
       # Local Dex OIDC provider — started by: make dev-up
@@ -42,7 +42,7 @@ tenants:
       # orbit-local is a public Dex client — no client secret is required.
       # The env var below will be empty string at runtime, which is correct.
       # See config/dex/config.yaml: staticClients[0].public: true
-      clientSecretEnv: "ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET"
+      clientSecretEnv: "ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET"
       scopes:
         - openid
         - profile

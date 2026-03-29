@@ -182,6 +182,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		RestConfig: restCfg,
 		Logger:     logger,
 		ChartDir:   oc.Current.Operator.ChartDir,
+		Registry:   registry,
 	}
 	if err := platformReconciler.SetupWithManager(mgr); err != nil {
 		return err

@@ -70,7 +70,7 @@ identity:
   existingSecret: ""
 
   # Name of an existing ConfigMap containing non-secret environment variables
-  # (DB_HOST, DB_NAME, REDIS_HOST, ORBIT_OIDC_ISSUER_URL, etc.).
+  # (DB_HOST, DB_NAME, REDIS_HOST, etc.).
   # When set, the ConfigMap is mounted as envFrom.
   existingConfigMap: ""
 

@@ -49,9 +49,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
 	}
 
+	ns := tenantNamespace(tenant)
+
 	log.Info(ctx, "reconciling OrbitTenant",
 		logging.Field{Key: "tenant", Value: tenant.Name},
-		logging.Field{Key: "namespace", Value: tenant.Spec.Namespace},
+		logging.Field{Key: "namespace", Value: ns},
 		logging.Field{Key: "phase", Value: tenant.Status.Phase},
 	)
 
@@ -74,7 +76,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.ensureNamespace(ctx, tenant); err != nil {
 		log.Error(ctx, "failed to ensure tenant namespace",
 			logging.Field{Key: "tenant", Value: tenant.Name},
-			logging.Field{Key: "namespace", Value: tenant.Spec.Namespace},
+			logging.Field{Key: "namespace", Value: ns},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionFalse,
@@ -83,7 +85,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionTrue,
-		"Ready", fmt.Sprintf("namespace %q exists with correct labels", tenant.Spec.Namespace))
+		"Ready", fmt.Sprintf("namespace %q exists with correct labels", ns))
 
 	// Step 2: rebuild the tenant registry ConfigMap.
 	if err := r.Registry.Sync(ctx); err != nil {
@@ -101,14 +103,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Step 3: mark ready and record timestamp.
 	now := metav1.Now()
-	tenant.Status.Namespace = tenant.Spec.Namespace
+	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
 
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseReady)
 
 	log.Info(ctx, "OrbitTenant reconciliation complete",
 		logging.Field{Key: "tenant", Value: tenant.Name},
-		logging.Field{Key: "namespace", Value: tenant.Spec.Namespace},
+		logging.Field{Key: "namespace", Value: ns},
 	)
 
 	// Periodic re-check every 5 minutes — catches namespace label drift.
@@ -131,14 +133,16 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // CreateOrUpdate so Helm never owns the namespace (avoiding the ownership
 // conflict described in ADR-0025).
 func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTenant) error {
-	ns := &corev1.Namespace{}
-	err := r.Get(ctx, client.ObjectKey{Name: tenant.Spec.Namespace}, ns)
+	ns := tenantNamespace(tenant)
+
+	existing := &corev1.Namespace{}
+	err := r.Get(ctx, client.ObjectKey{Name: ns}, existing)
 
 	switch {
 	case apierrors.IsNotFound(err):
-		ns = &corev1.Namespace{
+		obj := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:   tenant.Spec.Namespace,
+				Name:   ns,
 				Labels: tenantNamespaceLabels(tenant),
 				Annotations: map[string]string{
 					"orbit.io/managed-by": "orbit-operator",
@@ -146,28 +150,28 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 				},
 			},
 		}
-		if err = r.Create(ctx, ns); err != nil {
-			return fmt.Errorf("create namespace %q: %w", tenant.Spec.Namespace, err)
+		if err = r.Create(ctx, obj); err != nil {
+			return fmt.Errorf("create namespace %q: %w", ns, err)
 		}
 		r.Logger.Info(ctx, "created tenant namespace",
-			logging.Field{Key: "namespace", Value: tenant.Spec.Namespace},
+			logging.Field{Key: "namespace", Value: ns},
 			logging.Field{Key: "tenant", Value: tenant.Name},
 		)
 	case err != nil:
-		return fmt.Errorf("get namespace %q: %w", tenant.Spec.Namespace, err)
+		return fmt.Errorf("get namespace %q: %w", ns, err)
 	default:
 		// Namespace exists — ensure required labels are present.
-		if !hasRequiredLabels(ns.Labels, tenantNamespaceLabels(tenant)) {
-			patch := client.MergeFrom(ns.DeepCopy())
-			if ns.Labels == nil {
-				ns.Labels = make(map[string]string)
+		if !hasRequiredLabels(existing.Labels, tenantNamespaceLabels(tenant)) {
+			patch := client.MergeFrom(existing.DeepCopy())
+			if existing.Labels == nil {
+				existing.Labels = make(map[string]string)
 			}
-			maps.Copy(ns.Labels, tenantNamespaceLabels(tenant))
-			if err := r.Patch(ctx, ns, patch); err != nil {
-				return fmt.Errorf("patch namespace %q labels: %w", tenant.Spec.Namespace, err)
+			maps.Copy(existing.Labels, tenantNamespaceLabels(tenant))
+			if err := r.Patch(ctx, existing, patch); err != nil {
+				return fmt.Errorf("patch namespace %q labels: %w", ns, err)
 			}
 			r.Logger.Info(ctx, "patched tenant namespace labels",
-				logging.Field{Key: "namespace", Value: tenant.Spec.Namespace},
+				logging.Field{Key: "namespace", Value: ns},
 				logging.Field{Key: "tenant", Value: tenant.Name},
 			)
 		}

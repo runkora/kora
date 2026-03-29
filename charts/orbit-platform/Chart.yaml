@@ -4,7 +4,7 @@ description: >
   Orbit cluster-level resources — namespaces, ClusterSPIFFEIDs, and NetworkPolicies.
   This is a thin chart that manages Orbit's cluster-scoped configuration only.
   SPIRE and Istio are installed as SEPARATE Helm releases, driven by the
-  orbit-operator (see deploy/local/spire-values.yaml + istio-values.yaml).
+  orbit-operator, configured entirely from the OrbitPlatform CR.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -28,4 +28,4 @@ maintainers:
 #   orbit          → orbit-system namespace (identity service + sidecar)
 #
 # See: deploy/local/orbit-platform.yaml (OrbitPlatform CR),
-#      deploy/local/spire-values.yaml, deploy/local/istio-values.yaml
+#      OrbitPlatform CR fields (spec.trustDomain, spec.clusterName, spec.gateway)

@@ -67,11 +67,42 @@ func isHelmBusy(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "another operation (install/upgrade/rollback) is in progress")
 }
 
-// toMap safely casts an interface{} to map[string]interface{}.
-// Returns an empty map when the cast fails (e.g. when the value is nil).
-func toMap(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
-		return m
+// Default image references for Orbit platform services.
+// These are intentionally blank until images are published to a registry.
+// Once published, set these to versioned OCI references:
+//
+//	const defaultIdentityImage = "ghcr.io/orbit-sh/orbit-identity:v0.1.0"
+const (
+	defaultIdentityImage      = ""
+	defaultIdentityProxyImage = ""
+)
+
+// orbitImageRef returns the full image reference for an Orbit platform service.
+// Resolution order:
+//  1. Built-in versioned constant (defaultXxxImage) — used in production once published.
+//  2. imageRegistry prefix from the OrbitPlatform CR — used for local dev and air-gapped
+//     environments: "{imageRegistry}/orbit-{service}:latest"
+//
+// If neither is set (both blank), returns a bare "orbit-{service}:latest" which will
+// only work if the image is already present on the node (e.g. in a local kind/k3d cluster
+// loaded directly via `docker load`).
+func orbitImageRef(defaultImage, service, imageRegistry string) string {
+	if defaultImage != "" {
+		return defaultImage
 	}
-	return map[string]any{}
+	if imageRegistry != "" {
+		return fmt.Sprintf("%s/orbit-%s:latest", imageRegistry, service)
+	}
+	return fmt.Sprintf("orbit-%s:latest", service)
+}
+
+// tenantNamespace returns the Kubernetes namespace to use for a tenant.
+// If spec.namespace is set it is used as-is; otherwise the namespace is
+// derived as "orbit-tenant-{tenantID}" so that users don't have to declare
+// it explicitly in the OrbitTenant CR.
+func tenantNamespace(t *OrbitTenant) string {
+	if t.Spec.Namespace != "" {
+		return t.Spec.Namespace
+	}
+	return fmt.Sprintf("orbit-tenant-%s", t.Name)
 }

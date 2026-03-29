@@ -11,7 +11,7 @@
 #   - Istio mTLS for all service-to-service traffic
 #
 # Apply manually:
-#   kubectl apply -f deploy/local/fixtures/orbit-example-tenant.yaml
+#   kubectl apply -f deploy/local/fixtures/orbit-tenant-example.yaml
 #
 # This file MUST NOT be committed to a production deployment repo without
 # replacing orbit-registry:5001 with a real image registry and removing
@@ -20,16 +20,16 @@
 # In a production GitOps setup, the operator provides their own workload
 # manifests. This fixture exists solely to validate the local dev environment.
 #
-# Namespace: orbit-example-tenant
-# Created by: orbit-platform chart (deploy/local/platform-values.yaml →
-#             namespaces.tenants: [orbit-example-tenant])
+# Namespace: orbit-tenant-example
+# Created by: OrbitTenant CR (deploy/local/tenants/example.yaml) — the operator
+#             auto-derives the namespace as "orbit-tenant-{name}".
 # =============================================================================
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: example-config
-  namespace: orbit-example-tenant
+  namespace: orbit-tenant-example
 data:
   DB_HOST: orbit-postgres
   DB_NAME: orbit
@@ -40,13 +40,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: orbit-example
-  namespace: orbit-example-tenant
+  namespace: orbit-tenant-example
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: orbit-example
-  namespace: orbit-example-tenant
+  namespace: orbit-tenant-example
   labels:
     app: orbit-example
 spec:
@@ -60,7 +60,7 @@ spec:
         app: orbit-example
         # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
         # orbit-tenant-agent to issue:
-        #   spiffe://orbit.local/tenant/orbit-example-tenant/agent/example
+        #   spiffe://orbit.local/tenant/orbit-tenant-example/agent/example
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/agent: example
         # Required on all Orbit platform agent pods. This label activates the
@@ -123,7 +123,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: orbit-example
-  namespace: orbit-example-tenant
+  namespace: orbit-tenant-example
 spec:
   selector:
     app: orbit-example

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -271,6 +272,9 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 	// This ensures tests don't depend on the local dev signing key file.
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	// Clear tenant registry so the service starts with no OIDC providers —
+	// tests that need OIDC use newTestServiceWithOIDC instead.
+	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 	cfg := &Config{
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
@@ -294,6 +298,9 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 }
 
 // newTestServiceWithOIDC builds a *Service pointed at a live OIDC test server.
+// It writes a temporary tenant registry file with a single tenant "tenant-1"
+// configured to use the given issuerURL and sets ORBIT_TENANTS_CONFIG to point
+// at it for the duration of the test.
 func newTestServiceWithOIDC(
 	t *testing.T,
 	issuerURL string,
@@ -306,12 +313,38 @@ func newTestServiceWithOIDC(
 	// This ensures tests don't depend on the local dev signing key file.
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+
+	// Write a minimal tenant registry so the service initialises its per-tenant
+	// OIDC provider. Two tenant IDs are registered so both service tests
+	// ("tenant-1") and handler tests ("t1") resolve correctly.
+	registry := fmt.Sprintf(`version: "v1"
+tenants:
+  - id: "tenant-1"
+    displayName: "Test Tenant"
+    state: "active"
+    oidc:
+      issuerURL: %q
+      clientID: "test-client"
+      scopes: [openid]
+  - id: "t1"
+    displayName: "Test Tenant T1"
+    state: "active"
+    oidc:
+      issuerURL: %q
+      clientID: "test-client"
+      scopes: [openid]
+`, issuerURL, issuerURL)
+	f, err := os.CreateTemp(t.TempDir(), "tenants-*.yaml")
+	if err != nil {
+		t.Fatalf("newTestServiceWithOIDC: create temp registry: %v", err)
+	}
+	if _, err := f.WriteString(registry); err != nil {
+		t.Fatalf("newTestServiceWithOIDC: write temp registry: %v", err)
+	}
+	f.Close()
+	t.Setenv("ORBIT_TENANTS_CONFIG", f.Name())
+
 	cfg := &Config{
-		OIDC: OIDCConfig{
-			IssuerURL: issuerURL,
-			ClientID:  "test-client",
-			Scopes:    []string{"openid"},
-		},
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,

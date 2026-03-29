@@ -2,23 +2,18 @@
 # orbit-platform chart — local development values
 # =============================================================================
 #
-# This chart now only manages cluster-scoped Orbit resources:
+# This chart manages cluster-scoped Orbit resources:
 #   - Namespaces (orbit-system, istio-system, spire-system)
 #   - ClusterSPIFFEIDs (workload identity grants)
 #   - NetworkPolicies (default-deny + explicit allow rules)
 #
-# SPIRE and Istio are managed by the orbit-operator — see:
-#   deploy/local/spire-values.yaml   (helm release: spire, ns: spire-system)
-#   deploy/local/istio-values.yaml   (helm release: istiod, ns: istio-system)
-#
-# The orbit-operator reconciles the full install sequence driven by OrbitPlatform CR.
+# SPIRE and Istio are managed entirely by the orbit-operator, configured from
+# OrbitPlatform CR fields (spec.trustDomain, spec.clusterName, spec.gateway).
+# No separate spire-values.yaml or istio-values.yaml files are used.
 # =============================================================================
 
 global:
-  # Trust domain must match:
-  #   - deploy/local/spire-values.yaml  global.spire.trustDomain
-  #   - deploy/local/istio-values.yaml  meshConfig.trustDomain
-  #   - deploy/local/orbit-values.yaml  global.trustDomain
+  # Trust domain — must match spec.trustDomain in deploy/local/orbit-platform.yaml
   trustDomain: "orbit.local"
 
 namespaces:
@@ -26,7 +21,7 @@ namespaces:
   # Tenant namespaces that orbit-platform creates with Istio injection,
   # SPIRE attestation, and orbit.io/role=tenant labels.
   tenants:
-    - orbit-example-tenant
+    - orbit-tenant-example
 
 # Allow orbit-system pods to reach Docker-hosted services (Postgres, Redis).
 # In local k3d development, orbit-postgres and orbit-redis run as Docker Compose
