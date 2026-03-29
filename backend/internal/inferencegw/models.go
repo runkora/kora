@@ -7,6 +7,7 @@ package inferencegw
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -19,7 +20,7 @@ type APIDialect string
 const (
 	// DialectOpenAI is the OpenAI Chat Completions API format (default).
 	DialectOpenAI APIDialect = "openai"
-	// DialectAnthropic is the Anthropic Messages API format (P1 — not in MVP).
+	// DialectAnthropic is the Anthropic Messages API format.
 	DialectAnthropic APIDialect = "anthropic"
 )
 
@@ -57,8 +58,9 @@ const (
 type MessageContent string
 
 // UnmarshalJSON accepts either a JSON string or an array of content-part objects.
-// Content parts of type "text" are concatenated; other types (image_url, etc.)
-// are currently skipped — gateway is text-only in the MVP.
+// Content parts must all be of type "text" — the gateway is text-only and returns
+// a validation error if any non-text part (e.g. image_url) is encountered, rather
+// than silently dropping it and sending a truncated prompt to the provider.
 func (c *MessageContent) UnmarshalJSON(b []byte) error {
 	// Fast path: plain string.
 	var s string
@@ -77,9 +79,11 @@ func (c *MessageContent) UnmarshalJSON(b []byte) error {
 	}
 	var sb strings.Builder
 	for _, p := range parts {
-		if p.Type == "text" {
-			sb.WriteString(p.Text)
+		if p.Type != "text" {
+			return fmt.Errorf("%w: content part type %q is not supported; the inference gateway is text-only",
+				ErrInvalidRequest, p.Type)
 		}
+		sb.WriteString(p.Text)
 	}
 	*c = MessageContent(sb.String())
 	return nil

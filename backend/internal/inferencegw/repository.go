@@ -106,6 +106,8 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		limit = 1000
 	}
 
+	offset := max(filter.Offset, 0)
+
 	q := fmt.Sprintf(`
 		SELECT id, tenant_id, principal_id, principal_type, api_dialect,
 		       provider, model_id, routing_strategy,
@@ -114,7 +116,7 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		FROM inference_usage
 		%s
 		ORDER BY created_at DESC
-		LIMIT %d OFFSET %d`, where, limit, filter.Offset)
+		LIMIT %d OFFSET %d`, where, limit, offset)
 
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {

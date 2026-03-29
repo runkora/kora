@@ -362,10 +362,10 @@ run-identity: ## Run the identity service
 .PHONY: run-inference-gateway
 run-inference-gateway: ## Run the inference gateway (set provider env vars first — see backend/cmd/inference-gateway/config/local.yaml)
 	@echo "$(COLOR_YELLOW)Starting inference gateway on :8081...$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)  JWKS: $${ORBIT_TOKEN_JWKS_URL:-http://localhost:6069/api/v1/identity/.well-known/jwks.json}$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  JWKS: $${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)  Tip:  export BEDROCK_ENABLED=true BEDROCK_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
-	export ORBIT_TOKEN_JWKS_URL=$${ORBIT_TOKEN_JWKS_URL:-http://localhost:6069/api/v1/identity/.well-known/jwks.json}; \
+	export ORBIT_TOKEN_JWKS_URL=$${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}; \
 	export APP_ENV=local; \
 		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/inference-gateway/main.go
 

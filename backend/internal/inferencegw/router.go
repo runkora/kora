@@ -315,17 +315,21 @@ func (r *RoutingEngine) failoverChain() ([]RouteTarget, error) {
 func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, RoutingStrategy, error) {
 	priority := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
 
-	// Build a set of providers known to carry this model when the catalog is warm.
-	var catalogProviders map[ProviderName]struct{}
+	// Build a set of providers known to carry this model and resolve any alias
+	// to the canonical model ID the provider expects.
+	type providerEntry struct {
+		canonicalID string
+	}
+	var catalogProviders map[ProviderName]providerEntry
 	if catalog := r.modelCatalog.Load(); catalog != nil {
-		catalogProviders = make(map[ProviderName]struct{}, len(priority))
+		catalogProviders = make(map[ProviderName]providerEntry, len(priority))
 		for _, m := range *catalog {
 			if m.ModelID == modelID {
-				catalogProviders[m.Provider] = struct{}{}
+				catalogProviders[m.Provider] = providerEntry{canonicalID: m.ModelID}
 				continue
 			}
 			if slices.Contains(m.Aliases, modelID) {
-				catalogProviders[m.Provider] = struct{}{}
+				catalogProviders[m.Provider] = providerEntry{canonicalID: m.ModelID}
 			}
 		}
 	}
@@ -336,18 +340,22 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 			continue
 		}
 		// When catalog data is available, skip providers that don't carry this model.
+		// Resolve alias to the canonical provider model ID.
+		canonicalID := modelID
 		if catalogProviders != nil {
-			if _, known := catalogProviders[p]; !known {
+			entry, known := catalogProviders[p]
+			if !known {
 				continue
 			}
+			canonicalID = entry.canonicalID
 		}
-		pricing, ok := r.pricing.Price(p, modelID)
+		pricing, ok := r.pricing.Price(p, canonicalID)
 		if !ok {
-			pricing = ModelPricing{Provider: p, ModelID: modelID}
+			pricing = ModelPricing{Provider: p, ModelID: canonicalID}
 		}
 		targets = append(targets, RouteTarget{
 			Provider: p,
-			ModelID:  modelID,
+			ModelID:  canonicalID,
 			Pricing:  pricing,
 		})
 	}

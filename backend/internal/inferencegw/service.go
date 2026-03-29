@@ -467,11 +467,11 @@ func retryTargets[T any](
 				usedTarget = &t
 				return
 			}
-			retryCount++
 			var connErr *ConnectorError
 			if !errors.As(callErr, &connErr) || !connErr.Retryable {
 				break
 			}
+			retryCount++
 			s.logger.Info(ctx, logMsg,
 				logging.Field{Key: "provider", Value: string(target.Provider)},
 				logging.Field{Key: "attempt", Value: attempt + 1},

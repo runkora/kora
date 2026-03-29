@@ -84,8 +84,10 @@ func FromOpenAIResponse(resp *openai.ChatCompletion) inferencegw.ChatCompletionR
 // FromOpenAIChunk converts an openai-go ChatCompletionChunk to an Orbit chunk.
 func FromOpenAIChunk(chunk *openai.ChatCompletionChunk) inferencegw.ChatCompletionChunk {
 	out := inferencegw.ChatCompletionChunk{
-		ID:    chunk.ID,
-		Model: chunk.Model,
+		ID:      chunk.ID,
+		Object:  string(chunk.Object),
+		Model:   chunk.Model,
+		Created: chunk.Created,
 		Usage: inferencegw.UsageStats{
 			PromptTokens:     int(chunk.Usage.PromptTokens),
 			CompletionTokens: int(chunk.Usage.CompletionTokens),

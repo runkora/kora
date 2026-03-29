@@ -74,10 +74,14 @@ func (c *Controller) handleChatCompletionsStream(
 
 	for chunk := range chunks {
 		if chunk.Err != nil {
+			c.logger.Error(ctx, "chat completion stream error",
+				logging.Field{Key: "error", Value: chunk.Err.Error()},
+			)
+			apiErr := inferenceErrorResponse(chunk.Err)
 			_ = writeSSE(map[string]any{
 				"error": map[string]string{
-					"type":    "provider_error",
-					"message": chunk.Err.Error(),
+					"type":    apiErr.Code,
+					"message": apiErr.Message,
 				},
 			})
 			return

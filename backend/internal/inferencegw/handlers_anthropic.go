@@ -103,11 +103,15 @@ func (c *Controller) handleMessagesStream(
 
 	for ev := range events {
 		if ev.Err != nil {
+			c.logger.Error(ctx, "anthropic stream error",
+				logging.Field{Key: "error", Value: ev.Err.Error()},
+			)
+			apiErr := inferenceErrorResponse(ev.Err)
 			errData, _ := json.Marshal(map[string]any{
 				"type": "error",
 				"error": map[string]string{
-					"type":    "provider_error",
-					"message": ev.Err.Error(),
+					"type":    apiErr.Code,
+					"message": apiErr.Message,
 				},
 			})
 			_ = writeSSE("error", errData)
