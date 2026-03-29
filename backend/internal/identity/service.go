@@ -16,10 +16,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"github.com/fsnotify/fsnotify"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -65,9 +68,14 @@ type Service struct {
 	// sensible default in NewService and can be replaced in tests.
 	httpClient *http.Client
 
+	// mu protects oidcTenants — readers acquire RLock, the file-watcher
+	// goroutine acquires Lock when it swaps in a freshly loaded map.
+	mu sync.RWMutex
+
 	// oidcTenants holds one resolved OIDC state per active tenant, keyed by
-	// tenant ID.  Populated at startup by initTenantOIDCProviders.
-	// Empty map means federated auth is disabled for all tenants.
+	// tenant ID.  Populated at startup by initTenantOIDCProviders and refreshed
+	// live by watchTenantRegistry whenever the tenant registry file changes.
+	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
 
 	// extractor derives a Principal from the inbound request (reads the
@@ -119,6 +127,12 @@ func NewService(
 	if err := svc.initTenantOIDCProviders(ctx); err != nil {
 		return nil, fmt.Errorf("identity service: init tenant oidc providers: %w", err)
 	}
+
+	// Start the live-reload watcher.  The goroutine exits when ctx is
+	// canceled (SIGTERM), so the caller must pass a context that is
+	// tied to the process lifetime.
+	registryPath := os.Getenv("ORBIT_TENANTS_CONFIG")
+	go svc.watchTenantRegistry(ctx, registryPath)
 
 	// Load or generate the RSA signing key.
 	if err := svc.initSigningKey(ctx); err != nil {
@@ -811,7 +825,10 @@ func (s *Service) parseToken(tokenString string) (*PlatformClaims, error) {
 // tenantOIDC returns the resolved OIDC state for a given tenant ID.
 // Returns ErrOIDCNotConfigured if the tenant is unknown or has no OIDC provider.
 func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
-	if ts, ok := s.oidcTenants[tenantID]; ok {
+	s.mu.RLock()
+	ts, ok := s.oidcTenants[tenantID]
+	s.mu.RUnlock()
+	if ok {
 		return ts, nil
 	}
 	return nil, ErrOIDCNotConfigured
@@ -852,10 +869,39 @@ func (s *Service) postForm(ctx context.Context, endpoint string, vals url.Values
 	return s.httpClient.Do(req)
 }
 
+// discoverTenantOIDC performs OIDC provider discovery for a single tenant
+// and returns the resolved state. Returns an error if discovery or endpoint
+// validation fails.
+func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg TenantOIDCConfig) (*tenantOIDCState, error) {
+	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
+	provider, err := gooidc.NewProvider(ctxWithClient, cfg.IssuerURL)
+	if err != nil {
+		return nil, fmt.Errorf("oidc discovery for tenant %q: %w", tenantID, err)
+	}
+
+	var meta oidcProviderMeta
+	if err := provider.Claims(&meta); err != nil {
+		return nil, fmt.Errorf("extract provider metadata for tenant %q: %w", tenantID, err)
+	}
+
+	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use as fallback.
+	if meta.TokenEndpoint == "" {
+		meta.TokenEndpoint = provider.Endpoint().TokenURL
+	}
+	if meta.TokenEndpoint == "" {
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
+	}
+	if meta.DeviceAuthorizationEndpoint == "" {
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
+	}
+
+	return &tenantOIDCState{cfg: cfg, provider: provider, meta: &meta}, nil
+}
+
 // initTenantOIDCProviders loads the tenant registry and performs OIDC discovery
-// for every active tenant that has an issuer URL configured.  Tenants without
+// for every active tenant that has an issuer URL configured. Tenants without
 // an issuer URL are skipped with an info log (federated auth disabled for that
-// tenant).  A discovery failure for any tenant is fatal — misconfigured
+// tenant). A discovery failure for any tenant is fatal — misconfigured
 // providers should be caught at startup, not at first login.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 	tenants, err := loadTenantRegistry()
@@ -867,7 +913,6 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 		return nil
 	}
 
-	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
 	for tenantID, cfg := range tenants {
 		if cfg.IssuerURL == "" {
 			s.logger.Info(ctx, "tenant has no OIDC issuer URL — skipping",
@@ -876,32 +921,11 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 			continue
 		}
 
-		provider, err := gooidc.NewProvider(ctxWithClient, cfg.IssuerURL)
+		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
 		if err != nil {
-			return fmt.Errorf("oidc discovery for tenant %q: %w", tenantID, err)
+			return err
 		}
-
-		var meta oidcProviderMeta
-		if err := provider.Claims(&meta); err != nil {
-			return fmt.Errorf("extract provider metadata for tenant %q: %w", tenantID, err)
-		}
-
-		// go-oidc exposes token_endpoint via Endpoint().TokenURL — use as fallback.
-		if meta.TokenEndpoint == "" {
-			meta.TokenEndpoint = provider.Endpoint().TokenURL
-		}
-		if meta.TokenEndpoint == "" {
-			return fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
-		}
-		if meta.DeviceAuthorizationEndpoint == "" {
-			return fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
-		}
-
-		s.oidcTenants[tenantID] = &tenantOIDCState{
-			cfg:      cfg,
-			provider: provider,
-			meta:     &meta,
-		}
+		s.oidcTenants[tenantID] = state
 		s.logger.Info(ctx, "OIDC provider initialized",
 			logging.Field{Key: "tenant_id", Value: tenantID},
 			logging.Field{Key: "issuer", Value: cfg.IssuerURL},
@@ -910,8 +934,176 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 	return nil
 }
 
-// initSigningKey loads the RSA private key from one of three sources, in order:
+// reloadTenantOIDCProviders re-reads the tenant registry file and performs OIDC
+// discovery for any tenant whose issuer URL has changed or that is newly active.
+// Existing providers whose issuer URL is unchanged are reused — this avoids
+// unnecessary outbound discovery calls on every file-change event.
 //
+// The updated map is swapped in atomically under a write lock so in-flight
+// requests using the old map are not interrupted.
+func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
+	tenants, err := loadTenantRegistry()
+	if err != nil {
+		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	// Snapshot the current map once before the loop — one lock acquisition
+	// rather than one per iteration.
+	s.mu.RLock()
+	current := s.oidcTenants
+	s.mu.RUnlock()
+
+	// Build the new map, reusing existing providers where the issuer URL is
+	// unchanged. Always take the freshly resolved cfg so that rotated client
+	// secrets are picked up without a full OIDC discovery round-trip.
+	next := make(map[string]*tenantOIDCState, len(tenants))
+	for tenantID, cfg := range tenants {
+		if cfg.IssuerURL == "" {
+			continue
+		}
+
+		if existing, had := current[tenantID]; had && existing.cfg.IssuerURL == cfg.IssuerURL {
+			next[tenantID] = &tenantOIDCState{
+				cfg:      cfg,
+				provider: existing.provider,
+				meta:     existing.meta,
+			}
+			continue
+		}
+
+		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
+		if err != nil {
+			s.logger.Error(ctx, "OIDC discovery failed during reload — skipping tenant",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		next[tenantID] = state
+		s.logger.Info(ctx, "OIDC provider reloaded",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "issuer", Value: cfg.IssuerURL},
+		)
+	}
+
+	s.mu.Lock()
+	s.oidcTenants = next
+	s.mu.Unlock()
+
+	s.logger.Info(ctx, "tenant registry reloaded",
+		logging.Field{Key: "tenant_count", Value: len(next)},
+	)
+}
+
+// watchTenantRegistry watches the directory containing the tenant registry
+// file for changes and triggers a live reload whenever the file is updated.
+//
+// Kubernetes writes ConfigMap-backed volume files via an atomic symlink swap
+// (the kubelet replaces the ..data symlink), which means fsnotify fires a
+// RENAME or REMOVE event rather than a plain WRITE.  Watching the *directory*
+// and filtering by filename handles this correctly across both local and
+// in-cluster environments.
+//
+// A 200 ms debounce timer coalesces rapid event bursts (e.g. RENAME + CREATE)
+// into a single reload call.
+//
+// The goroutine exits cleanly when ctx is canceled (SIGTERM).
+func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) {
+	if registryPath == "" {
+		return
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		s.logger.Error(ctx, "failed to create fsnotify watcher — hot-reload disabled",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			s.logger.Error(ctx, "failed to close fsnotify watcher",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+
+	dir := filepath.Dir(registryPath)
+	base := filepath.Base(registryPath)
+
+	if addErr := watcher.Add(dir); addErr != nil {
+		s.logger.Error(ctx, "failed to watch tenant registry directory — hot-reload disabled",
+			logging.Field{Key: "path", Value: dir},
+			logging.Field{Key: "error", Value: addErr.Error()},
+		)
+		return
+	}
+
+	s.logger.Info(ctx, "watching tenant registry for changes",
+		logging.Field{Key: "path", Value: registryPath},
+	)
+
+	var debounce *time.Timer
+	const debounceDelay = 200 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			if debounce != nil {
+				debounce.Stop()
+			}
+			return
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if !isRelevantRegistryEvent(event, base) {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(debounceDelay, func() {
+				s.reloadTenantOIDCProviders(ctx)
+			})
+
+		case watchErr, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			s.logger.Error(ctx, "tenant registry watcher error",
+				logging.Field{Key: "error", Value: watchErr.Error()},
+			)
+		}
+	}
+}
+
+// isRelevantRegistryEvent reports whether the fsnotify event should trigger a
+// tenant registry reload. It matches only events on the expected filename and
+// only for write, create, rename, or remove operations — covering both normal
+// file writes and the atomic symlink swaps that Kubernetes uses for ConfigMap
+// volume updates.
+func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
+	name := filepath.Base(event.Name)
+	// Match either the target file directly (plain file writes, local dev)
+	// or the "..data" symlink that Kubernetes rotates atomically when a
+	// ConfigMap-backed volume is updated.  The symlink swap emits a RENAME
+	// event on "..data", not on the individual files inside it.
+	if name != base && name != "..data" {
+		return false
+	}
+	return event.Has(fsnotify.Write) ||
+		event.Has(fsnotify.Create) ||
+		event.Has(fsnotify.Rename) ||
+		event.Has(fsnotify.Remove)
+}
+
+// initSigningKey loads the RSA private key from one of three sources, in order:
+
 //  1. ORBIT_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
 //     for local dev: avoids multiline env-var problems entirely).
 //  2. ORBIT_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n

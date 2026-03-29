@@ -202,15 +202,15 @@ func (r *PlatformReconciler) ensureOrbitConfig(ctx context.Context, p *OrbitPlat
 		return fmt.Errorf("get %s ConfigMap: %w", name, err)
 	}
 
-	// Update if any value has drifted.
-	changed := false
+	// Update only if content has drifted.
 	if existing.Data == nil {
 		existing.Data = make(map[string]string)
 	}
+	changed := false
 	for k, v := range desired {
 		if existing.Data[k] != v {
-			existing.Data[k] = v
 			changed = true
+			break
 		}
 	}
 	if !changed {
@@ -233,23 +233,25 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 		return fmt.Errorf("orbit-system namespace: %w", err)
 	}
 
+	versions := r.loadVersions()
+
 	if p.Spec.SPIRE.Enabled {
-		if err := r.reconcileSPIRECRDs(ctx, p); err != nil {
+		if err := r.reconcileSPIRECRDs(ctx, p, versions); err != nil {
 			return fmt.Errorf("spire-crds: %w", err)
 		}
-		if err := r.reconcileSPIRE(ctx, p); err != nil {
+		if err := r.reconcileSPIRE(ctx, p, versions); err != nil {
 			return fmt.Errorf("spire: %w", err)
 		}
 	}
 
 	if p.Spec.Istio.Enabled {
-		if err := r.reconcileIstioBase(ctx); err != nil {
+		if err := r.reconcileIstioBase(ctx, versions); err != nil {
 			return fmt.Errorf("istio-base: %w", err)
 		}
-		if err := r.reconcileIstiod(ctx, p); err != nil {
+		if err := r.reconcileIstiod(ctx, p, versions); err != nil {
 			return fmt.Errorf("istiod: %w", err)
 		}
-		if err := r.reconcileGateway(ctx, p); err != nil {
+		if err := r.reconcileGateway(ctx, p, versions); err != nil {
 			return fmt.Errorf("gateway: %w", err)
 		}
 	}
@@ -282,8 +284,7 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPlatform) error {
-	versions := r.loadVersions()
+func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
 	helm := NewHelmClient("spire-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"spire-crds",
@@ -300,9 +301,7 @@ func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPla
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatform) error {
-	versions := r.loadVersions()
-
+func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
 	clusterName := p.Spec.ClusterName
 	if clusterName == "" {
 		clusterName = "orbit"
@@ -377,8 +376,7 @@ func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatfor
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context) error {
-	versions := r.loadVersions()
+func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, versions *chartVersions) error {
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"istio-base",
@@ -393,9 +391,7 @@ func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context) error {
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatform) error {
-	versions := r.loadVersions()
-
+func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
 	// The SPIRE and identity-proxy sidecar injection templates are Orbit's
 	// internal wiring between its components. They are generated from the
 	// OrbitPlatform CR — the user should never need to write or maintain them.
@@ -432,9 +428,7 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform) error {
-	versions := r.loadVersions()
-
+func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
 	serviceType := p.Spec.Gateway.ServiceType
 	if serviceType == "" {
 		serviceType = "LoadBalancer"
@@ -496,7 +490,7 @@ func (r *PlatformReconciler) reconcileOrbitPlatform(ctx context.Context, p *Orbi
 }
 
 func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatform) error {
-	secretName, err := r.platformSecretName(p)
+	secretName, err := r.platformSecretName(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -614,7 +608,7 @@ func (r *PlatformReconciler) chartPath(name string) string {
 
 // platformSecretName resolves the platform secret name from the CR spec,
 // defaulting to "orbit-secrets" when not explicitly set.
-func (r *PlatformReconciler) platformSecretName(p *OrbitPlatform) (string, error) {
+func (r *PlatformReconciler) platformSecretName(ctx context.Context, p *OrbitPlatform) (string, error) {
 	name := p.Spec.Secrets.PlatformSecretRef.Name
 	if name == "" {
 		name = "orbit-secrets"
@@ -626,7 +620,7 @@ func (r *PlatformReconciler) platformSecretName(p *OrbitPlatform) (string, error
 
 	// Verify the Secret exists before referencing it; emit a clear error if not.
 	secret := &corev1.Secret{}
-	if err := r.Get(context.Background(), types.NamespacedName{Name: name, Namespace: ns}, secret); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return "", fmt.Errorf("platform secret %q not found in namespace %q — create it before applying OrbitPlatform", name, ns)
 		}
@@ -646,9 +640,10 @@ func (r *PlatformReconciler) tenantNamespaces(ctx context.Context) []string {
 		return nil
 	}
 	ns := make([]string, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active && t.Spec.Namespace != "" {
-			ns = append(ns, t.Spec.Namespace)
+	for i := range list.Items {
+		t := &list.Items[i]
+		if t.Spec.Active {
+			ns = append(ns, tenantNamespace(t))
 		}
 	}
 	return ns

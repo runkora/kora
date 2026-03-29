@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,12 +19,24 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	if err := realMain(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+// realMain contains the full startup sequence. Returning an error from here
+// ensures all deferred cleanups run before os.Exit is called in main.
+func realMain() error {
+	// Use a signal-cancellable context so background goroutines (e.g. the
+	// tenant registry file watcher) stop cleanly on SIGTERM / SIGINT.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize observability with deferred cleanup.
 	shutdownObservability, err := initObservability(ctx)
 	if err != nil {
-		log.Fatalf("Failed to setup observability: %v", err)
+		return fmt.Errorf("setup observability: %w", err)
 	}
 	defer shutdownObservability()
 
@@ -35,9 +47,7 @@ func main() {
 	// Initialize storage backends (Postgres + Redis) from a single config load.
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
-		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
-		shutdownObservability()
-		os.Exit(1) //nolint:gocritic // exitAfterDefer: explicit cleanup needed before exit
+		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer db.Close()
 	defer redis.Close() //nolint:errcheck
@@ -45,13 +55,12 @@ func main() {
 	// Create HTTP server with wired controllers.
 	server, err := initServer(ctx, logger, db, redis)
 	if err != nil {
-		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
-		shutdownObservability()
-		os.Exit(1)
+		return fmt.Errorf("initialize server: %w", err)
 	}
 
-	// Run server with graceful shutdown.
+	// Run server until context is canceled (SIGTERM / SIGINT).
 	run(ctx, logger, server)
+	return nil
 }
 
 // initObservability sets up OTEL tracing and returns a cleanup function.
@@ -70,7 +79,7 @@ func initObservability(ctx context.Context) (func(), error) {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.ShutdownTimeout())
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
-			log.Printf("Error shutting down observability: %v", err)
+			fmt.Fprintf(os.Stderr, "Error shutting down observability: %v\n", err)
 		}
 	}, nil
 }
@@ -169,21 +178,23 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 }
 
 // run starts the HTTP server and handles graceful shutdown.
+// ctx is expected to be the signal-cancellable context created in main —
+// cancellation drives shutdown of both the HTTP server and background
+// goroutines (tenant registry watcher, etc.).
 func run(ctx context.Context, logger logging.Logger, server *http.Server) {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
 
-	<-quit
+	// Block until the context is canceled (SIGTERM / SIGINT from
+	// signal.NotifyContext in main).
+	<-ctx.Done()
 	logger.Info(ctx, "Shutting down identity service...")
 
-	shutdownCtx, cancel := context.WithTimeout(ctx, ic.Current.ShutdownTimeout())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.ShutdownTimeout())
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {

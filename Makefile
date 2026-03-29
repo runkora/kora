@@ -415,6 +415,8 @@ cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, r
 	@kubectl apply -f deploy/local/tenants/
 	@echo "  Waiting for tenant namespaces (operator provisioning)..."
 	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
+	@echo "  Waiting for orbit-identity to load tenant OIDC config..."
+	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
