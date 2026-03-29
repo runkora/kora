@@ -219,4 +219,5 @@ var (
 	ErrProviderError         = errors.New("provider returned an error")
 	ErrInvalidRequest        = errors.New("invalid inference request")
 	ErrTokenParseFailed      = errors.New("failed to parse platform token")
+	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 )

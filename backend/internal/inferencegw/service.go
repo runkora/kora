@@ -436,13 +436,17 @@ func extractErrorCode(err error) string {
 	return "UNKNOWN"
 }
 
-// callWithFailover iterates targets, retrying retryable errors up to the engine limits.
-func (s *Service) callWithFailover(
+// retryTargets is the shared retry scaffolding used by all three call paths
+// (OpenAI, Anthropic non-streaming, Anthropic streaming setup). It iterates
+// targets, calling fn for each, and retries retryable errors within each target
+// up to the engine's per-target and total attempt limits.
+func retryTargets[T any](
 	ctx context.Context,
+	s *Service,
 	targets []RouteTarget,
-	dialect APIDialect,
-	req ChatCompletionRequest,
-) (resp ChatCompletionResponse, usedTarget *RouteTarget, retryCount int, callErr error) {
+	logMsg string,
+	fn func(ProviderConnector, RouteTarget) (T, error),
+) (result T, usedTarget *RouteTarget, retryCount int, callErr error) {
 	totalAttempts := 0
 	for _, target := range targets {
 		if totalAttempts >= s.router.MaxTotalAttempts() {
@@ -457,9 +461,7 @@ func (s *Service) callWithFailover(
 			if totalAttempts > s.router.MaxTotalAttempts() {
 				break
 			}
-			callReq := req
-			callReq.Model = target.ModelID
-			resp, callErr = dialectCall(connector, dialect, ctx, callReq)
+			result, callErr = fn(connector, target)
 			if callErr == nil {
 				t := target
 				usedTarget = &t
@@ -470,7 +472,7 @@ func (s *Service) callWithFailover(
 			if !errors.As(callErr, &connErr) || !connErr.Retryable {
 				break
 			}
-			s.logger.Info(ctx, "retrying after retryable provider error",
+			s.logger.Info(ctx, logMsg,
 				logging.Field{Key: "provider", Value: string(target.Provider)},
 				logging.Field{Key: "attempt", Value: attempt + 1},
 				logging.Field{Key: "error_code", Value: connErr.Code},
@@ -481,6 +483,21 @@ func (s *Service) callWithFailover(
 		}
 	}
 	return
+}
+
+// callWithFailover iterates targets, retrying retryable errors up to the engine limits.
+func (s *Service) callWithFailover(
+	ctx context.Context,
+	targets []RouteTarget,
+	dialect APIDialect,
+	req ChatCompletionRequest,
+) (ChatCompletionResponse, *RouteTarget, int, error) {
+	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (ChatCompletionResponse, error) {
+			callReq := req
+			callReq.Model = target.ModelID
+			return dialectCall(c, dialect, ctx, callReq)
+		})
 }
 
 func nthProvider(targets []RouteTarget) *ProviderName {
@@ -555,31 +572,12 @@ func (s *Service) AnthropicMessages(
 		return nil, ErrPolicyDenied
 	}
 
-	// Try targets in order; no retry loop needed for non-streaming (connector handles
-	// Bedrock's internal streaming transparently).
-	var (
-		msg        *anthropic.Message
-		callErr    error
-		usedTarget *RouteTarget
-	)
-	for _, target := range targets {
-		connector, ok := s.router.Connector(target.Provider)
-		if !ok {
-			continue
-		}
-		callParams := params
-		callParams.Model = target.ModelID
-		msg, callErr = connector.AnthropicMessages(ctx, callParams)
-		if callErr == nil {
-			t := target
-			usedTarget = &t
-			break
-		}
-		var connErr *ConnectorError
-		if !errors.As(callErr, &connErr) || !connErr.Retryable {
-			break
-		}
-	}
+	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
+		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
+			p := params
+			p.Model = target.ModelID
+			return c.AnthropicMessages(ctx, p)
+		})
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -609,6 +607,7 @@ func (s *Service) AnthropicMessages(
 		TotalTokens:      promptTokens + completionTokens,
 		EstimatedCostUSD: estimatedCost,
 		Status:           UsageStatusSuccess,
+		RetryCount:       retryCount,
 		LatencyMS:        latencyMS,
 		CreatedAt:        time.Now().UTC(),
 	}
@@ -689,25 +688,15 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, ErrPolicyDenied
 	}
 
-	var (
-		upstream   <-chan AnthropicStreamEvent
-		callErr    error
-		usedTarget *RouteTarget
-	)
-	for _, target := range targets {
-		connector, ok := s.router.Connector(target.Provider)
-		if !ok {
-			continue
-		}
-		callParams := params
-		callParams.Model = target.ModelID
-		upstream, callErr = connector.AnthropicMessagesStream(ctx, callParams)
-		if callErr == nil {
-			t := target
-			usedTarget = &t
-			break
-		}
-	}
+	// Retry pre-stream connection failures (e.g. throttling on setup). Mid-stream
+	// errors are single-pass — once the channel is open and returned to the caller,
+	// tearing it down and retrying is not transparent.
+	upstream, usedTarget, _, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
+		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
+			p := params
+			p.Model = target.ModelID
+			return c.AnthropicMessagesStream(ctx, p)
+		})
 
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)

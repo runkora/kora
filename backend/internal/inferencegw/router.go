@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 )
@@ -302,13 +303,43 @@ func (r *RoutingEngine) failoverChain() ([]RouteTarget, error) {
 
 // modelAcrossProviders resolves a bare model name across all enabled providers
 // in canonical failover order.
+//
+// When the model catalog has been populated by a prior ListModels call, only
+// providers that actually advertise the model (by canonical ID or alias) are
+// included as targets. This prevents spurious cross-provider calls when only a
+// subset of providers supports the requested model.
+//
+// When the catalog is empty (cold start before the first ListModels sweep) we
+// fall back to broadcasting to every enabled provider so the gateway remains
+// functional without a warm-up dependency.
 func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, RoutingStrategy, error) {
 	priority := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
+
+	// Build a set of providers known to carry this model when the catalog is warm.
+	var catalogProviders map[ProviderName]struct{}
+	if catalog := r.modelCatalog.Load(); catalog != nil {
+		catalogProviders = make(map[ProviderName]struct{}, len(priority))
+		for _, m := range *catalog {
+			if m.ModelID == modelID {
+				catalogProviders[m.Provider] = struct{}{}
+				continue
+			}
+			if slices.Contains(m.Aliases, modelID) {
+				catalogProviders[m.Provider] = struct{}{}
+			}
+		}
+	}
 
 	targets := make([]RouteTarget, 0, len(priority))
 	for _, p := range priority {
 		if _, ok := r.connectors[p]; !ok {
 			continue
+		}
+		// When catalog data is available, skip providers that don't carry this model.
+		if catalogProviders != nil {
+			if _, known := catalogProviders[p]; !known {
+				continue
+			}
 		}
 		pricing, ok := r.pricing.Price(p, modelID)
 		if !ok {

@@ -25,6 +25,7 @@ func (c *Connector) anthropicChatCompletion(ctx context.Context, req inferencegw
 	)
 
 	stream := c.anthropicClient.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
 
 	var (
 		accumulated anthropic.Message
@@ -69,6 +70,7 @@ func (c *Connector) anthropicChatCompletionStream(ctx context.Context, req infer
 	ch := make(chan inferencegw.ChatCompletionChunk, 32)
 	go func() {
 		defer close(ch)
+		defer stream.Close()
 		var (
 			accumulated anthropic.Message
 			eventCount  int
@@ -117,6 +119,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 	)
 
 	stream := c.anthropicClient.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
 
 	var (
 		accumulated anthropic.Message
@@ -165,6 +168,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 	ch := make(chan inferencegw.AnthropicStreamEvent, 32)
 	go func() {
 		defer close(ch)
+		defer stream.Close()
 		var eventCount int
 		for stream.Next() {
 			eventCount++

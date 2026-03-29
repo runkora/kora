@@ -87,7 +87,7 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, id string) (
 	rec, err := scanUsageRecord(row)
 	if err != nil {
 		if isNoRows(err) {
-			return InferenceUsageRecord{}, fmt.Errorf("inference usage get %s: %w", id, ErrInvalidRequest)
+			return InferenceUsageRecord{}, fmt.Errorf("inference usage get %s: %w", id, ErrUsageRecordNotFound)
 		}
 		return InferenceUsageRecord{}, fmt.Errorf("inference usage get %s: %w", id, err)
 	}

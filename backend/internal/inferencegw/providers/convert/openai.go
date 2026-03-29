@@ -94,7 +94,13 @@ func FromOpenAIChunk(chunk *openai.ChatCompletionChunk) inferencegw.ChatCompleti
 	}
 
 	for _, ch := range chunk.Choices {
-		fr := ch.FinishReason
+		// finish_reason must be null on non-terminal chunks per the OpenAI spec.
+		// Only set a non-nil pointer when there is an actual reason value.
+		var fr *string
+		if ch.FinishReason != "" {
+			s := ch.FinishReason
+			fr = &s
+		}
 		out.Choices = append(out.Choices, struct {
 			Index        int                     `json:"index"`
 			Delta        inferencegw.StreamDelta `json:"delta"`
@@ -105,7 +111,7 @@ func FromOpenAIChunk(chunk *openai.ChatCompletionChunk) inferencegw.ChatCompleti
 				Role:    ch.Delta.Role,
 				Content: ch.Delta.Content,
 			},
-			FinishReason: &fr,
+			FinishReason: fr,
 		})
 	}
 
@@ -232,7 +238,8 @@ func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw
 		if event.Delta.Type == "text_delta" {
 			delta = event.Delta.Text
 		}
-		fr := ""
+		// finish_reason is null for content delta chunks — only the terminal
+		// message_delta event carries a stop reason.
 		return inferencegw.ChatCompletionChunk{
 			Choices: []struct {
 				Index        int                     `json:"index"`
@@ -242,7 +249,7 @@ func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw
 				{
 					Index:        int(event.Index),
 					Delta:        inferencegw.StreamDelta{Role: "assistant", Content: delta},
-					FinishReason: &fr,
+					FinishReason: nil,
 				},
 			},
 		}, true

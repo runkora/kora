@@ -329,8 +329,14 @@ func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.Ch
 // isAnthropicModel reports whether the given model ID belongs to the Anthropic
 // family. It matches bare IDs ("anthropic.claude-…") and all cross-region
 // inference profile prefixes ("us.anthropic.…", "apac.anthropic.…", etc.).
+//
+// We strip the optional region prefix first (e.g. "us.", "eu.", "ap.") and
+// then require the remaining ID to start with "anthropic." — a HasPrefix check
+// rather than Contains so that a hypothetical third-party model whose name
+// merely contains the substring cannot accidentally be routed to the Anthropic
+// client.
 func isAnthropicModel(id string) bool {
-	return strings.Contains(id, "anthropic.")
+	return strings.HasPrefix(stripRegionPrefix(id), "anthropic.")
 }
 
 // AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.
