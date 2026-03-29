@@ -19,7 +19,11 @@
 import { getIronSession } from 'iron-session';
 import { type NextRequest, NextResponse } from 'next/server';
 
-import { getSessionOptions, type SessionPayload, type BackendSessionResponse } from '@orbit/server/auth-config';
+import {
+  getSessionOptions,
+  type SessionPayload,
+  type BackendSessionResponse,
+} from '@orbit/server/auth-config';
 import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────

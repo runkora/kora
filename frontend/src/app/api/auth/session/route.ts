@@ -25,7 +25,11 @@ import 'server-only';
 
 import { config } from '@orbit/server/config';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import type { SessionPayload, SessionUser, BackendSessionResponse } from '@orbit/server/auth-config';
+import type {
+  SessionPayload,
+  SessionUser,
+  BackendSessionResponse,
+} from '@orbit/server/auth-config';
 
 /** Decoded Orbit JWT payload (unverified — trusted because it comes from our own backend). */
 interface OrbitJwtPayload {
