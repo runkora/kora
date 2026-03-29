@@ -34,6 +34,17 @@ export interface SessionPayload {
   expiresAt: number;
 }
 
+// ── Backend API response shapes ──────────────────────────────────────────────
+
+/** Shape returned by Go `POST /identity/session` for all grant types. */
+export interface BackendSessionResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token: string;
+  issued_at: number;
+}
+
 // ── Cookie names ──────────────────────────────────────────────────────────────
 
 /** Name of the sealed iron-session cookie. */

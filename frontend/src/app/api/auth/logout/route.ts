@@ -9,8 +9,9 @@
  * 3. Destroys the iron-session cookie.
  * 4. Redirects to /login.
  *
- * RFC 7009 §2.1: the revocation endpoint returns 200 even for unknown tokens
- * and 204 for invalid tokens — both are treated as success here.
+ * RFC 7009 §2.2: the revocation endpoint always returns HTTP 200, whether the
+ * token was valid, already expired, or unknown. Both cases are treated as
+ * success here so a stale or already-revoked token never blocks logout.
  */
 import 'server-only';
 
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Destroy the local session cookie unconditionally.
-  session.destroy();
+  await session.destroy();
 
   return Response.redirect(new URL(APP_ROUTES.login, request.url));
 }

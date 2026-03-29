@@ -393,7 +393,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 // candidate fields: name → preferred_username → email → sub. The subject
 // identifier is always non-empty and acts as the final fallback.
 func resolveDisplayName(name, preferredUsername, email, sub string) string {
-	for _, v := range []string{name, preferredUsername, email, sub} {
+	for _, v := range []string{name, preferredUsername, email} {
 		if v != "" {
 			return v
 		}
@@ -423,13 +423,6 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "OIDC not configured")
 		return nil, err
-	}
-
-	if req.IDToken == "" {
-		err := fmt.Errorf("id_token is required for oidc_id_token grant")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "missing id_token")
-		return nil, ErrIDTokenInvalid
 	}
 
 	// Verify the id_token signature and standard claims (iss, aud, exp) via JWKS.

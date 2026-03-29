@@ -19,17 +19,10 @@
 import { getIronSession } from 'iron-session';
 import { type NextRequest, NextResponse } from 'next/server';
 
-import { getSessionOptions, type SessionPayload } from '@orbit/server/auth-config';
+import { getSessionOptions, type SessionPayload, type BackendSessionResponse } from '@orbit/server/auth-config';
 import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
-
-interface BackendSessionResponse {
-  access_token: string;
-  expires_in: number;
-  refresh_token: string;
-  issued_at: number;
-}
 
 /**
  * Attempts a best-effort inline token refresh against the Go identity service.
@@ -105,7 +98,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // `response` object it was bound to. We copy those cookies onto the
       // redirect so the browser actually receives the delete instruction
       // and the stale cookie is cleared (preventing a redirect loop).
-      session.destroy();
+      await session.destroy();
       const loginUrl = new URL(APP_ROUTES.login, request.url);
       if (isSafeRedirectPath(pathname)) {
         loginUrl.searchParams.set('next', pathname);

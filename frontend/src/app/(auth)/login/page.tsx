@@ -27,6 +27,9 @@ import {
   Text,
 } from '@orbit/terra';
 
+import { getSession, isSessionValid } from '@orbit/server/session';
+
+import { AlreadySignedIn } from './_components/already-signed-in';
 import { SignInButton } from './_components/sign-in-button';
 
 interface LoginPageProps {
@@ -50,6 +53,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const errorCode = typeof params.error === 'string' ? params.error : null;
   const next = typeof params.next === 'string' ? params.next : '/';
+
+  const session = await getSession();
+  if (isSessionValid(session)) {
+    return (
+      <Stack maxWidth="card">
+        <AlreadySignedIn />
+      </Stack>
+    );
+  }
 
   const message = errorMessage(errorCode);
 

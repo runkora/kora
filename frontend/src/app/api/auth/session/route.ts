@@ -25,18 +25,7 @@ import 'server-only';
 
 import { config } from '@orbit/server/config';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import type { SessionPayload, SessionUser } from '@orbit/server/auth-config';
-
-// ── Shared types ──────────────────────────────────────────────────────────────
-
-/** Shape returned by Go `POST /identity/session` for all grant types. */
-interface BackendSessionResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  refresh_token: string;
-  issued_at: number;
-}
+import type { SessionPayload, SessionUser, BackendSessionResponse } from '@orbit/server/auth-config';
 
 /** Decoded Orbit JWT payload (unverified — trusted because it comes from our own backend). */
 interface OrbitJwtPayload {
