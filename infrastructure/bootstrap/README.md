@@ -27,38 +27,35 @@ This will:
 
 ## After cluster creation
 
-Install Orbit's platform layer and services using the Helm charts in `deploy/local/`:
+Install Orbit and its full platform layer via the operator:
 
 ```bash
-# Step 1 — install SPIRE + Istio (Core Infrastructure Layer)
-helm dependency update charts/orbit-platform
-helm upgrade --install orbit-platform charts/orbit-platform \
-  -f deploy/local/platform-values.yaml \
-  --namespace orbit-system --create-namespace
+make cluster-operator   # build + push orbit-operator image, install the operator
+                        # Helm chart, and apply the OrbitPlatform + OrbitTenant CRs.
+                        # The operator then drives the full release sequence:
+                        # spire-crds → spire → istio-base → istiod → gateway
+                        #   → orbit-platform → orbit
 
-# Step 2 — wait for SPIRE agent + Istio control plane
-kubectl rollout status daemonset/spire-agent -n spire --timeout=120s
-kubectl rollout status deployment/istiod -n istio-system --timeout=120s
-
-# Step 3 — install Orbit services
-helm upgrade --install orbit charts/orbit \
-  -f deploy/local/orbit-values.yaml \
-  --namespace orbit-system
-
-# Step 4 — apply non-Helm local fixtures
-kubectl apply -f deploy/local/fixtures/
+make cluster-deploy     # build + push service images; create orbit-secrets;
+                        # apply workload fixtures in deploy/local/fixtures/
 ```
 
 See `deploy/local/README.md` for the full annotated install sequence.
+
+> **Escape hatch:** The raw `helm` / `helmfile` commands in `helmfile.yaml` can be
+> used to install or inspect individual releases without the operator. This is
+> useful for debugging a specific chart or recovering from a stuck reconcile loop.
+> The SPIRE agent daemonset lives in the `spire-system` namespace (not `spire`).
 
 ## What lives here vs deploy/local/
 
 | Concern | Location |
 |---------|----------|
 | Create / delete k3d cluster | `infrastructure/bootstrap/` (here) |
-| Install SPIRE + Istio + Orbit via Helm | `deploy/local/` |
-| Helm values for local overrides | `deploy/local/platform-values.yaml`, `deploy/local/orbit-values.yaml` |
+| Operator + platform CRDs / CRs | `deploy/local/operator/`, `deploy/local/platform/`, `deploy/local/tenants/` |
+| Helm values for local overrides | `deploy/local/operator/values.yaml`, `deploy/local/platform/values.yaml` |
 | Non-Helm fixtures (example tenant) | `deploy/local/fixtures/` |
+| Raw helmfile install (escape hatch) | `helmfile.yaml` |
 
 ## Tear down
 

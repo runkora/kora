@@ -230,7 +230,7 @@ To tear down the cluster (Docker Compose services keep running):
 make dev-cluster-down
 ```
 
-See [ADR-0016](../adr/0016-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [ADR-0025](../adr/0025-orbit-kubernetes-operator.md) for the operator design.
+See [ADR-0016](../adr/0016-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [ADR-0028](../adr/0028-orbit-kubernetes-operator.md) for the operator design.
 
 ---
 

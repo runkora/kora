@@ -80,20 +80,26 @@ no separate values files for those components are needed.
 
 ## Tenant Registry
 
-The `config/tenants.yaml` file at the project root is committed to the
-repository and pre-configured for the local Dex OIDC provider. The operator
-syncs it into the `orbit-tenants` ConfigMap in `orbit-system` automatically
-when `OrbitTenant` CRs are applied.
+The operator builds the `orbit-tenants` ConfigMap in `orbit-system` directly
+from `OrbitTenant` CRs — it does **not** read `config/tenants.yaml`. The
+ConfigMap is created eagerly during `OrbitPlatform` reconciliation (so
+`orbit-identity` can start before any tenants exist) and is updated whenever
+an `OrbitTenant` CR is created, modified, or deleted.
 
-When you modify `config/tenants.yaml`, re-apply the tenant CR to trigger a
-registry sync:
+To change tenant configuration in the cluster, edit
+`deploy/local/tenants/example.yaml` and re-apply it:
 
 ```bash
 kubectl apply -f deploy/local/tenants/example.yaml
-kubectl rollout restart deployment/orbit-identity -n orbit-system
 ```
 
-For **non-cluster local dev** (`make dev` / air hot-reload on the host):
+The operator will reconcile the CR and update the ConfigMap automatically.
+`orbit-identity` picks up the change via its file watcher — no manual rollout
+restart required.
+
+For **non-cluster local dev** (`make dev` / air hot-reload on the host), the
+identity service reads `config/tenants.yaml` directly via the
+`ORBIT_TENANTS_CONFIG` environment variable:
 
 ```bash
 export ORBIT_TENANTS_CONFIG=./config/tenants.yaml

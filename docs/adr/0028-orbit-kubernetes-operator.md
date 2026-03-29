@@ -307,14 +307,11 @@ spec:
 status:
   phase: Ready                      # Pending | Provisioning | Ready | Degraded | Suspended
   namespace: "acme-corp-tenant"
-  oidcValidated: true               # operator performed OIDC discovery and issuer is reachable
   lastReconciledAt: "2026-06-15T10:05:00Z"
   conditions:
     - type: NamespaceReady
       status: "True"
-    - type: OIDCReachable
-      status: "True"
-    - type: SecretsProjected
+    - type: RegistryUpdated
       status: "True"
 ```
 
@@ -323,10 +320,8 @@ status:
 The operator maintains the `orbit-tenants` ConfigMap consumed by the identity service (ADR-0026). When an `OrbitTenant` CR is created, updated, or deleted, the operator:
 
 1. Creates/updates the tenant namespace with the required labels (`orbit.io/role: tenant`, `istio-injection: enabled`, `spiffe.io/spire-managed: "true"`)
-2. Validates the OIDC issuer URL (HTTP GET to `/.well-known/openid-configuration`) and records the result in `status.oidcValidated`
-3. Projects the OIDC client secret (if `spec.oidc.clientSecretRef` is set) into `orbit-system` as a well-known env var so the identity service can read it
-4. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the ADR-0026 tenant registry YAML format
-5. Triggers an identity service configuration reload (annotation bump on the ConfigMap — the identity service file watcher picks up the change)
+2. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the ADR-0026 tenant registry YAML format
+3. Marks the tenant `Ready` and records `status.lastReconciledAt` — the identity service picks up ConfigMap changes via its file watcher
 
 The operator does NOT manage the tenant's own application secrets (database passwords, API keys, etc.). Those are the tenant's infrastructure concern, managed independently of Orbit.
 

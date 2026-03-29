@@ -19,7 +19,7 @@ spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
 
 The original infrastructure model granted platform service identities through explicit, per-service manifests. Each service that needed an SVID carried a dedicated `ClusterSPIFFEID` manifest under the infrastructure tree. That made the grant registry easy to read in Git, but it also created friction: every new service required boilerplate infrastructure edits even when it fit an already-understood naming pattern.
 
-PR #10 introduces a different approach using shared `ClusterSPIFFEID` resources (now at `charts/orbit/templates/platform/clusterSpiffeIDs.yaml`) that mint identities dynamically from pod metadata. Today that means:
+PR #10 introduces a different approach using shared `ClusterSPIFFEID` resources (now at `charts/orbit-platform/templates/clusterSpiffeIDs.yaml`) that mint identities dynamically from pod metadata. Today that means:
 
 - System services use `spiffe.io/component` to produce `/system/{component-name}`
 - Tenant services use `spiffe.io/tenant` and `spiffe.io/service` to produce `/tenant/{tenant-id}/service/{service-name}`

@@ -23,11 +23,9 @@ import (
 //  1. Creates the tenant namespace with the required Istio/SPIRE labels.
 //  2. Syncs the orbit-tenants ConfigMap (via TenantRegistry) so the
 //     identity service picks up the new OIDC provider.
-//  3. Reconciles the OrbitPlatform release to add the new namespace to the
-//     orbit-platform chart's namespaces.tenants list (NetworkPolicies,
-//     ClusterSPIFFEIDs, etc.).
+//  3. Marks the tenant Ready and records the last-reconciled timestamp.
 //
-// See docs/adr/0025-orbit-kubernetes-operator.md for the design.
+// See docs/adr/0028-orbit-kubernetes-operator.md for the design.
 type TenantReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -131,7 +129,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // ensureNamespace creates the tenant namespace if it does not exist, or patches
 // it if required labels are missing. Namespace creation is done via client-go
 // CreateOrUpdate so Helm never owns the namespace (avoiding the ownership
-// conflict described in ADR-0025).
+// conflict described in ADR-0028).
 func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 

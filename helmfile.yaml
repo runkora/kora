@@ -3,8 +3,10 @@
 # =============================================================================
 #
 # NOTE: This file is NOT the primary install path for local development.
-# The orbit-operator (make cluster-operator + kubectl apply deploy/local/orbit-platform.yaml)
-# is the canonical way to install and manage the full platform stack.
+# The orbit-operator (make cluster-operator) is the canonical way to install
+# and manage the full platform stack. The operator drives the complete release
+# sequence — spire-crds → spire → istio-base → istiod → gateway →
+# orbit-platform → orbit — using the OrbitPlatform CR as its desired-state spec.
 #
 # Helmfile is retained as a reference implementation and escape hatch for:
 #   - Manual inspection of individual releases (helmfile diff)

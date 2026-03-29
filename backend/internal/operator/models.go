@@ -312,7 +312,6 @@ func (s *OrbitPlatformStatus) DeepCopyInto(out *OrbitPlatformStatus) {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.status.namespace`
-// +kubebuilder:printcolumn:name="OIDC",type=boolean,JSONPath=`.status.oidcValidated`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type OrbitTenant struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -384,10 +383,6 @@ type OrbitTenantStatus struct {
 	// Namespace is the provisioned tenant namespace name.
 	Namespace string `json:"namespace,omitempty"`
 
-	// OIDCValidated reports whether the operator successfully validated the
-	// OIDC issuer URL at last reconciliation.
-	OIDCValidated bool `json:"oidcValidated,omitempty"`
-
 	// LastReconciledAt is the timestamp of the last successful reconciliation.
 	LastReconciledAt *metav1.Time `json:"lastReconciledAt,omitempty"`
 
@@ -399,10 +394,8 @@ type OrbitTenantStatus struct {
 
 // Tenant status condition types.
 const (
-	ConditionNamespaceReady   = "NamespaceReady"
-	ConditionOIDCReachable    = "OIDCReachable"
-	ConditionSecretsProjected = "SecretsProjected"
-	ConditionRegistryUpdated  = "RegistryUpdated"
+	ConditionNamespaceReady = "NamespaceReady"
+	ConditionRegistryUpdated = "RegistryUpdated"
 )
 
 // Tenant phase values.
