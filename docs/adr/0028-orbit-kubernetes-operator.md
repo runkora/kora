@@ -1,9 +1,9 @@
-# 0025. Orbit Kubernetes Operator
+# 0028. Orbit Kubernetes Operator
 
 **Status:** Accepted
 **Date:** 2026-06-15
 **Deciders:** Engineering Team
-**Technical Story:** ADR-0024 established two Helm charts as the distribution artifact for Orbit. The current installation experience requires operators to use Helmfile, manage install ordering (SPIRE CRDs → SPIRE → Istio → orbit-platform → orbit), imperatively create ConfigMaps and Secrets, and understand the dependency graph to add a tenant. As Orbit targets both self-hosted enterprise clusters and our own production EKS deployment, this complexity is an adoption barrier and an operational gap. A Kubernetes operator that manages the complete platform lifecycle — from SPIRE and Istio installation through to tenant provisioning — closes both gaps with a single CRD surface. The operator owns the full release sequence; Helmfile is no longer required.
+**Technical Story:** ADR-0027 established two Helm charts as the distribution artifact for Orbit. The current installation experience requires operators to use Helmfile, manage install ordering (SPIRE CRDs → SPIRE → Istio → orbit-platform → orbit), imperatively create ConfigMaps and Secrets, and understand the dependency graph to add a tenant. As Orbit targets both self-hosted enterprise clusters and our own production EKS deployment, this complexity is an adoption barrier and an operational gap. A Kubernetes operator that manages the complete platform lifecycle — from SPIRE and Istio installation through to tenant provisioning — closes both gaps with a single CRD surface. The operator owns the full release sequence; Helmfile is no longer required.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-ADR-0024 defined the two-chart model (`charts/orbit-platform` + `charts/orbit`) and established `deploy/local/` as the reference operator deployment. It deferred chart publishing and operator tooling as "release pipeline concerns". That deferral was correct at the time — the chart structure needed to be validated locally first. The charts are now validated and working.
+ADR-0027 defined the two-chart model (`charts/orbit-platform` + `charts/orbit`) and established `deploy/local/` as the reference operator deployment. It deferred chart publishing and operator tooling as "release pipeline concerns". That deferral was correct at the time — the chart structure needed to be validated locally first. The charts are now validated and working.
 
 The current operator experience is:
 
@@ -33,18 +33,18 @@ The operator must work in both contexts:
 
 **Production (EKS and customer self-hosted):** Operators have their own GitOps tooling (ArgoCD, Flux, or Helmfile). They install the operator bootstrap chart once, then declare `OrbitPlatform` and `OrbitTenant` resources in their repository. Git becomes the source of truth for platform state. Secrets come from their existing secret management solution.
 
-### How ADR-0023 and ADR-0025 Relate
+### How ADR-0026 and ADR-0028 Relate
 
-ADR-0023 defines the tenant registry as an operator-mounted YAML file (`config/tenants.yaml` in local dev, a ConfigMap-mounted file in cluster). That model is correct and is not replaced — it is the **identity service's view** of tenants: a file it reads at startup and watches for changes.
+ADR-0026 defines the tenant registry as an operator-mounted YAML file (`config/tenants.yaml` in local dev, a ConfigMap-mounted file in cluster). That model is correct and is not replaced — it is the **identity service's view** of tenants: a file it reads at startup and watches for changes.
 
 The operator is the **cluster management view** of tenants: it manages the namespace, the per-namespace Secrets and ConfigMaps, OIDC configuration validation, and ultimately writes the ConfigMap that the identity service reads. The two ADRs describe different layers of the same system:
 
 ```
 OrbitTenant CR (operator input)
         ↓  operator reconciler
-orbit-tenants ConfigMap (ADR-0023 tenant registry file)
+orbit-tenants ConfigMap (ADR-0026 tenant registry file)
         ↓  identity service reads
-Per-tenant OIDC provider (ADR-0023 runtime)
+Per-tenant OIDC provider (ADR-0026 runtime)
 ```
 
 ### Secret Management Across Environments
@@ -89,10 +89,10 @@ We need:
 ### Non-Goals
 
 - Building a web UI or API for tenant self-service registration — this is infrastructure for operators, not end users
-- Replacing the identity service's runtime tenant registry model (ADR-0023) — the operator populates the ConfigMap that the identity service reads; ADR-0023 governs how the identity service consumes it
+- Replacing the identity service's runtime tenant registry model (ADR-0026) — the operator populates the ConfigMap that the identity service reads; ADR-0026 governs how the identity service consumes it
 - Secret rotation or secret creation — the operator reads pre-existing Secrets; sourcing and rotating them is the operator's responsibility
 - Multi-cluster federation — each cluster has its own `OrbitPlatform` instance
-- Supporting clusters with no service mesh (Istio) or no workload identity (SPIRE) — ADR-0024 Non-Goals apply here too
+- Supporting clusters with no service mesh (Istio) or no workload identity (SPIRE) — ADR-0027 Non-Goals apply here too
 
 ---
 
@@ -229,7 +229,7 @@ spec:
   platformValues: {}
   orbitValues: {}
 
-  # Upgrade strategy. See ADR-0025 for rationale.
+  # Upgrade strategy. See ADR-0028 for rationale.
   upgradeStrategy:
     mode: Explicit                  # Explicit | Automatic
     # Explicit: only upgrade when spec.version is changed.
@@ -293,7 +293,7 @@ spec:
       - openid
       - profile
       - email
-    # Optional claim-based tenant membership scoping (see ADR-0023).
+    # Optional claim-based tenant membership scoping (see ADR-0026).
     # claimBinding:
     #   claim: "hd"
     #   value: "acme.com"
@@ -318,19 +318,19 @@ status:
       status: "True"
 ```
 
-### How `OrbitTenant` Drives ADR-0023
+### How `OrbitTenant` Drives ADR-0026
 
-The operator maintains the `orbit-tenants` ConfigMap consumed by the identity service (ADR-0023). When an `OrbitTenant` CR is created, updated, or deleted, the operator:
+The operator maintains the `orbit-tenants` ConfigMap consumed by the identity service (ADR-0026). When an `OrbitTenant` CR is created, updated, or deleted, the operator:
 
 1. Creates/updates the tenant namespace with the required labels (`orbit.io/role: tenant`, `istio-injection: enabled`, `spiffe.io/spire-managed: "true"`)
 2. Validates the OIDC issuer URL (HTTP GET to `/.well-known/openid-configuration`) and records the result in `status.oidcValidated`
 3. Projects the OIDC client secret (if `spec.oidc.clientSecretRef` is set) into `orbit-system` as a well-known env var so the identity service can read it
-4. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the ADR-0023 tenant registry YAML format
+4. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the ADR-0026 tenant registry YAML format
 5. Triggers an identity service configuration reload (annotation bump on the ConfigMap — the identity service file watcher picks up the change)
 
 The operator does NOT manage the tenant's own application secrets (database passwords, API keys, etc.). Those are the tenant's infrastructure concern, managed independently of Orbit.
 
-ADR-0023's `config/tenants.yaml` file format is preserved exactly — the operator writes it, rather than a human editing it manually.
+ADR-0026's `config/tenants.yaml` file format is preserved exactly — the operator writes it, rather than a human editing it manually.
 
 ---
 
@@ -390,7 +390,7 @@ That is the entire operator experience. No Helmfile. No imperative ConfigMap cre
 
 ### Upgrade Strategy Decision
 
-The ADR-0024 model (operator bumps `spec.version`) is Explicit mode. This is the default and is correct for most deployments: upgrades are a deliberate act, coordinated with tenant workload owners.
+The ADR-0027 model (operator bumps `spec.version`) is Explicit mode. This is the default and is correct for most deployments: upgrades are a deliberate act, coordinated with tenant workload owners.
 
 Automatic mode (patch-only) is available for operators who want automated security patch delivery. The operator polls the chart registry at a configurable interval and upgrades when a new patch version is available. Minor and major version bumps always require an explicit `spec.version` change — they may have breaking changes in values API or behaviour.
 
@@ -549,7 +549,7 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 ### Phase 3: `OrbitTenant` reconciler — happy path (~1 week)
 
-1. Implement `registry.go` — assembles `orbit-tenants` ConfigMap content from all `OrbitTenant` CRs in the ADR-0023 YAML format
+1. Implement `registry.go` — assembles `orbit-tenants` ConfigMap content from all `OrbitTenant` CRs in the ADR-0026 YAML format
 2. Implement `OrbitTenant` reconciler:
    - Create/update tenant namespace with required labels
    - Validate OIDC issuer reachability (HTTP GET to `/.well-known/openid-configuration`)
@@ -617,8 +617,8 @@ The imperative `kubectl create configmap orbit-config`, `kubectl create configma
 
 ## Related Decisions
 
-- [ADR-0023](0023-tenant-registration-and-oidc-provider-binding.md) — Tenant registry YAML format; the operator generates this file's content from `OrbitTenant` CRs
-- [ADR-0024](0024-helm-chart-distribution-and-gitops-repository-structure.md) — Two-chart model; the operator drives these charts via the Helm Go SDK
+- [ADR-0026](0026-tenant-registration-and-oidc-provider-binding.md) — Tenant registry YAML format; the operator generates this file's content from `OrbitTenant` CRs
+- [ADR-0027](0027-helm-chart-distribution-and-gitops-repository-structure.md) — Two-chart model; the operator drives these charts via the Helm Go SDK
 - [ADR-0020](0020-multi-service-backend-deployment-structure.md) — Multi-binary structure; `cmd/operator/` follows the same conventions
 - [ADR-0010](0010-spiffe-spire-workload-attestation.md) — SPIRE workload identity; the operator validates SPIRE readiness before accepting `OrbitTenant` reconciliation
 - [ADR-0015](0015-service-mesh-and-network-enforcement-infrastructure.md) — Istio service mesh; the operator validates Istio readiness before platform install
@@ -640,9 +640,9 @@ The imperative `kubectl create configmap orbit-config`, `kubectl create configma
 
 **On the operator owning the full release sequence:**
 
-The operator's `OrbitPlatform` reconciler drives ALL chart releases in order: `spire-crds`, `spire`, `istio-base`, `istiod`, `gateway`, `orbit-platform`, `orbit`. This is a deliberate break from the earlier ADR-0024 model where Helmfile owned the third-party charts and the operator owned only the Orbit charts.
+The operator's `OrbitPlatform` reconciler drives ALL chart releases in order: `spire-crds`, `spire`, `istio-base`, `istiod`, `gateway`, `orbit-platform`, `orbit`. This is a deliberate break from the earlier ADR-0027 model where Helmfile owned the third-party charts and the operator owned only the Orbit charts.
 
-The reason for giving the operator ownership of the full sequence is environment parity: if the operator does not install SPIRE and Istio, local dev must use a different toolchain (Helmfile) than production (operator), which creates the divergence problem ADR-0024 was designed to eliminate.
+The reason for giving the operator ownership of the full sequence is environment parity: if the operator does not install SPIRE and Istio, local dev must use a different toolchain (Helmfile) than production (operator), which creates the divergence problem ADR-0027 was designed to eliminate.
 
 The operator acknowledges that SPIRE and Istio have their own upgrade considerations (CA rollover windows, control plane/data plane version skew). It handles this by waiting for readiness at each step rather than fire-and-forget helm installs, and by surfacing per-release health in `status.conditions`. SPIRE and Istio version pins live in the operator's own `version.go` constants alongside the orbit-platform and orbit chart versions — a single version bump in `spec.version` advances all of them together, which is what "Orbit version X requires SPIRE Y and Istio Z" actually means.
 
@@ -650,11 +650,11 @@ Operators who manage their own SPIRE and Istio upgrades independently set `spec.
 
 **On the `orbit-system` namespace ownership problem:**
 
-ADR-0024's `deploy/local/orbit-system-namespace.yaml` pre-creates the namespace without Helm ownership labels, causing `helm upgrade orbit-platform` to fail with an ownership conflict. The operator sidesteps this entirely: it creates the namespace directly via `client-go` (`CreateOrUpdate`), not via Helm's `--create-namespace` flag. The namespace is owned by the operator's reconciler, not by Helm. This eliminates the lookup guard workaround in `charts/orbit-platform/templates/namespaces.yaml`.
+ADR-0027's `deploy/local/orbit-system-namespace.yaml` pre-creates the namespace without Helm ownership labels, causing `helm upgrade orbit-platform` to fail with an ownership conflict. The operator sidesteps this entirely: it creates the namespace directly via `client-go` (`CreateOrUpdate`), not via Helm's `--create-namespace` flag. The namespace is owned by the operator's reconciler, not by Helm. This eliminates the lookup guard workaround in `charts/orbit-platform/templates/namespaces.yaml`.
 
 **On the `ORBIT_OIDC_CLIENT_ID` global variable:**
 
-ADR-0023 noted that `OIDCConfig` global vars (`ORBIT_OIDC_CLIENT_ID`, `ORBIT_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `OrbitTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with ADR-0023's requirement to remove the global OIDC vars.
+ADR-0026 noted that `OIDCConfig` global vars (`ORBIT_OIDC_CLIENT_ID`, `ORBIT_OIDC_ISSUER_URL`) must be removed in the same PR that adds multi-tenant support. With the operator, these env vars are no longer placed in the `orbit-config` ConfigMap by the operator — they are derived from `OrbitTenant` CRs and written into the `orbit-tenants` ConfigMap. The `orbit-config` ConfigMap created by the operator contains only infrastructure config (DB host, Redis host) that is not tenant-specific. This aligns with ADR-0026's requirement to remove the global OIDC vars.
 
 **On ESO and secret management:**
 

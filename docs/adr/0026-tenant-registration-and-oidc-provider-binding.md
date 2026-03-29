@@ -1,4 +1,4 @@
-# 0023. Tenant Registration and OIDC Provider Binding
+# 0026. Tenant Registration and OIDC Provider Binding
 
 **Status:** Proposed
 **Date:** 2026-06-10

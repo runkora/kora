@@ -19,7 +19,7 @@
 # The local Dex client is a public client — no secret is required. The env
 # var below will be empty, which is the correct behaviour for a public client.
 #
-# Ref: ADR-0023 (tenant registration and OIDC provider binding)
+# Ref: ADR-0026 (tenant registration and OIDC provider binding)
 # =============================================================================
 
 version: "v1"

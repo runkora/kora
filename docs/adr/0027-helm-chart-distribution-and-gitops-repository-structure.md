@@ -1,4 +1,4 @@
-# 0024. Helm Chart Distribution and GitOps Repository Structure
+# 0027. Helm Chart Distribution and GitOps Repository Structure
 
 **Status:** Accepted
 **Date:** 2026-06-04
@@ -63,7 +63,7 @@ We need to define:
 3. How Istio and SPIRE are distributed as sub-charts with opt-out flags for operators with pre-existing installations
 4. How the local k3d cluster deployment changes to use both charts ("dog food" model)
 5. Where `deploy/local/` fits and how it relates to an operator's external deployment repository
-6. How `config/tenants.yaml` (per ADR-0023) is wired in both Tier 1 (`make dev`) and Tier 2 (`make cluster-deploy`) development environments
+6. How `config/tenants.yaml` (per ADR-0026) is wired in both Tier 1 (`make dev`) and Tier 2 (`make cluster-deploy`) development environments
 
 ### Goals
 
@@ -208,7 +208,7 @@ deploy/
 config/
   dex/
     config.yaml                       # unchanged — committed local Dex config
-  tenants.yaml                        # committed local dev tenant registry (see ADR-0023)
+  tenants.yaml                        # committed local dev tenant registry (see ADR-0026)
                                       # NOT tenants.local.yaml — the *.local gitignore glob would match it
 ```
 
@@ -241,7 +241,7 @@ version: 0.1.0
 dependencies:
   # SPIRE CRDs are a separate chart because the spiffe/spire chart creates ClusterSPIFFEID
   # resources directly in templates (not as CRD hooks) — CRDs must be present before install.
-  # See ADR-0024 Notes for the spire-crds prerequisite constraint.
+  # See ADR-0027 Notes for the spire-crds prerequisite constraint.
   - name: spire-crds
     repository: https://spiffe.github.io/helm-charts-hardened/
     version: "0.3.0"
@@ -480,7 +480,7 @@ tenants:
         - profile
         - email
       # Optional: restrict membership by an OIDC claim value within a shared issuer.
-      # Flat struct matching ADR-0023: one claim/value pair per tenant.
+      # Flat struct matching ADR-0026: one claim/value pair per tenant.
       # claimBinding:
       #   claim: "email"
       #   value: "dev@orbit.local"
@@ -601,7 +601,7 @@ The `helmCharts:` Kustomize directives that previously installed Istio and SPIRE
 9. **Update Makefile** — `cluster-up` runs k3d create using `infrastructure/bootstrap/k3d-config.yaml`; `cluster-deploy` runs the three-step install sequence (spire-crds → orbit-platform → orbit)
 10. **Delete `k8s/`** — once all content is accounted for in `charts/orbit/templates/` or `deploy/local/`
 11. **Delete `infrastructure/base/`** — once all content is in `charts/orbit/templates/platform/`
-12. **Add `ORBIT_TENANTS_CONFIG=./config/tenants.yaml`** to `.env.example` and create `config/tenants.yaml` (per ADR-0023 Phase 3)
+12. **Add `ORBIT_TENANTS_CONFIG=./config/tenants.yaml`** to `.env.example` and create `config/tenants.yaml` (per ADR-0026 Phase 3)
 
 ### New Service Checklist (post-migration)
 
@@ -640,7 +640,7 @@ When a new platform service is introduced:
 - [ADR-0016](0016-local-development-environment.md) — Two-tier local dev strategy; Tier 2 cluster deployment is updated by this ADR to use the two-chart Helm install sequence
 - [ADR-0018](0018-dynamic-spiffe-identity-grants-and-tenant-isolation.md) — Label-driven SPIFFE ID model; `ClusterSPIFFEID` templates migrate into `charts/orbit/templates/platform/`
 - [ADR-0020](0020-multi-service-backend-deployment-structure.md) — Go binary structure and the convention that "application manifests live in `k8s/`"; this ADR supersedes the `k8s/` manifest location convention in favour of `charts/orbit/templates/`
-- [ADR-0023](0023-tenant-registration-and-oidc-provider-binding.md) — Tenant registry; defines `config/tenants.yaml` and `ORBIT_TENANTS_CONFIG` env var; this ADR defines how the file is mounted in both dev tiers
+- [ADR-0026](0026-tenant-registration-and-oidc-provider-binding.md) — Tenant registry; defines `config/tenants.yaml` and `ORBIT_TENANTS_CONFIG` env var; this ADR defines how the file is mounted in both dev tiers
 
 ---
 
