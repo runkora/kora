@@ -54,10 +54,12 @@ linters:
 
     gosec:
       excludes:
+        - G101  # Potential hardcoded credentials — false positive on env-var names and k8s resource name constants
         - G104  # Errors unhandled
         - G204  # Subprocess launched with variable
         - G302  # File permissions
         - G304  # File inclusion via variable
+        - G703  # Path traversal via taint analysis — env-var config paths are trusted
 
     # gocritic is already enabled above. The ruleguard extension loads our
     # custom rules file, which enforces the following patterns:

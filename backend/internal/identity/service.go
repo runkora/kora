@@ -16,10 +16,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"github.com/fsnotify/fsnotify"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -27,17 +30,24 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// ─── Internal OIDC provider metadata ─────────────────────────────────────────
+// ─── Internal OIDC provider state ────────────────────────────────────────────
 
 // oidcProviderMeta holds metadata fetched from the OIDC discovery document
 // that is not exposed by go-oidc's Provider type.
 type oidcProviderMeta struct {
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
+}
+
+// tenantOIDCState bundles the resolved go-oidc provider and its discovery
+// metadata for a single tenant.
+type tenantOIDCState struct {
+	cfg      TenantOIDCConfig
+	provider *gooidc.Provider
+	meta     *oidcProviderMeta
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -57,9 +67,21 @@ type Service struct {
 	// sensible default in NewService and can be replaced in tests.
 	httpClient *http.Client
 
-	// OIDC — nil when federated auth is not configured.
-	oidcProvider *gooidc.Provider
-	oidcMeta     *oidcProviderMeta
+	// mu protects oidcTenants — readers acquire RLock, the file-watcher
+	// goroutine acquires Lock when it swaps in a freshly loaded map.
+	mu sync.RWMutex
+
+	// oidcTenants holds one resolved OIDC state per active tenant, keyed by
+	// tenant ID.  Populated at startup by initTenantOIDCProviders and refreshed
+	// live by watchTenantRegistry whenever the tenant registry file changes.
+	// Access only while holding mu (read or write as appropriate).
+	oidcTenants map[string]*tenantOIDCState
+
+	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
+	// tenant ID. Populated at startup by initClientSecrets and refreshed live
+	// by watchClientSecrets whenever orbit-tenant-oidc-secrets changes.
+	// Access only while holding mu (read or write as appropriate).
+	clientSecrets map[string]string
 
 	// extractor derives a Principal from the inbound request (reads the
 	// Envoy-injected XFCC header in production; a stub header locally).
@@ -77,8 +99,9 @@ type Service struct {
 // cfg must be the value returned by LoadConfig — env-var overrides and secret
 // fields (ClientID, ClientSecret) are resolved there.
 //
-// If cfg.OIDC.IssuerURL is non-empty, OIDC provider discovery is performed
-// eagerly at construction time.
+// OIDC provider discovery is performed eagerly at construction time for
+// every active tenant found in the tenant registry (ORBIT_TENANTS_CONFIG).
+// Tenants without a configured OIDC issuer URL are skipped.
 //
 // The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
 // ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
@@ -102,19 +125,28 @@ func NewService(
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		oidcTenants:   make(map[string]*tenantOIDCState),
+		clientSecrets: make(map[string]string),
 	}
 
-	// Initialize OIDC provider if an issuer URL has been configured.
-	if cfg.OIDC.IssuerURL != "" {
-		if err := svc.initOIDCProvider(ctx); err != nil {
-			return nil, fmt.Errorf("identity service: init oidc provider: %w", err)
-		}
-		logger.Info(ctx, "OIDC provider initialized",
-			logging.Field{Key: "issuer", Value: cfg.OIDC.IssuerURL},
-		)
-	} else {
-		logger.Info(ctx, "OIDC provider not configured — federated authentication disabled")
+	// Load the aggregated client secrets before OIDC discovery so that
+	// confidential tenants have their client_secret available on first startup.
+	if err := svc.initClientSecrets(ctx); err != nil {
+		return nil, fmt.Errorf("identity service: init client secrets: %w", err)
 	}
+
+	// Discover OIDC providers for all active tenants in the registry.
+	if err := svc.initTenantOIDCProviders(ctx); err != nil {
+		return nil, fmt.Errorf("identity service: init tenant oidc providers: %w", err)
+	}
+
+	// Start live-reload watchers. Both goroutines exit when ctx is canceled
+	// (SIGTERM), so the caller must pass a context tied to the process lifetime.
+	registryPath := os.Getenv("ORBIT_TENANTS_CONFIG")
+	go svc.watchTenantRegistry(ctx, registryPath)
+
+	secretsPath := clientSecretsPath()
+	go svc.watchClientSecrets(ctx, secretsPath)
 
 	// Load or generate the RSA signing key.
 	if err := svc.initSigningKey(ctx); err != nil {
@@ -134,25 +166,27 @@ func NewService(
 // ─── Federated authentication: device authorization grant ────────────────────
 
 // InitiateDeviceAuth starts a Device Authorization Grant flow with the
-// configured OIDC provider and returns the device code + user instructions.
+// OIDC provider configured for req.TenantID and returns the device code +
+// user instructions.
 func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest) (*DeviceAuthResponse, error) {
-	if err := s.requireOIDC(); err != nil {
+	ts, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
 		return nil, err
 	}
 
-	scopes := s.cfg.OIDC.Scopes
+	scopes := ts.cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"openid", "profile", "email"}
 	}
 
 	formVals := url.Values{
-		"client_id": {s.cfg.OIDC.ClientID},
+		"client_id": {ts.cfg.ClientID},
 		"scope":     {strings.Join(scopes, " ")},
 	}
 
-	resp, err := s.postForm(ctx, s.oidcMeta.DeviceAuthorizationEndpoint, formVals)
+	resp, err := s.postForm(ctx, ts.meta.DeviceAuthorizationEndpoint, formVals)
 	if err != nil {
-		return nil, fmt.Errorf("device auth request to %s: %w", s.oidcMeta.DeviceAuthorizationEndpoint, err)
+		return nil, fmt.Errorf("device auth request to %s: %w", ts.meta.DeviceAuthorizationEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -168,14 +202,14 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 			var oe *OAuthError
 			if errors.As(oauthErr, &oe) {
 				return nil, fmt.Errorf("device auth endpoint %s returned %d (%s): %w",
-					s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
+					ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, oe.Code, oauthErr)
 			}
 			// Sentinel error (ErrAuthorizationPending, etc.)
 			return nil, fmt.Errorf("device auth endpoint %s returned %d: %w",
-				s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, oauthErr)
+				ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, oauthErr)
 		}
 		return nil, fmt.Errorf("device auth endpoint %s returned %d: %s",
-			s.oidcMeta.DeviceAuthorizationEndpoint, resp.StatusCode, body)
+			ts.meta.DeviceAuthorizationEndpoint, resp.StatusCode, body)
 	}
 
 	var dar struct {
@@ -246,26 +280,27 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	)
 	defer span.End()
 
-	if err := s.requireOIDC(); err != nil {
+	ts, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured")
+		span.SetStatus(codes.Error, "OIDC not configured for tenant")
 		return nil, err
 	}
 
 	formVals := url.Values{
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 		"device_code": {req.DeviceCode},
-		"client_id":   {s.cfg.OIDC.ClientID},
+		"client_id":   {ts.cfg.ClientID},
 	}
-	if s.cfg.OIDC.ClientSecret != "" {
-		formVals.Set("client_secret", s.cfg.OIDC.ClientSecret)
+	if ts.cfg.ClientSecret != "" {
+		formVals.Set("client_secret", ts.cfg.ClientSecret)
 	}
 
-	resp, err := s.postForm(ctx, s.oidcMeta.TokenEndpoint, formVals)
+	resp, err := s.postForm(ctx, ts.meta.TokenEndpoint, formVals)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "token endpoint request failed")
-		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", s.oidcMeta.TokenEndpoint, err)
+		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", ts.meta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
 
@@ -298,8 +333,8 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	// Verify the ID token signature + claims with go-oidc.
-	idToken, err := s.oidcProvider.Verifier(&gooidc.Config{
-		ClientID: s.cfg.OIDC.ClientID,
+	idToken, err := ts.provider.Verifier(&gooidc.Config{
+		ClientID: ts.cfg.ClientID,
 	}).Verify(ctx, tokenResp.IDToken)
 	if err != nil {
 		span.RecordError(err)
@@ -801,12 +836,16 @@ func (s *Service) parseToken(tokenString string) (*PlatformClaims, error) {
 	return &claims, nil
 }
 
-// requireOIDC returns ErrOIDCNotConfigured if no OIDC provider is configured.
-func (s *Service) requireOIDC() error {
-	if s.oidcProvider == nil {
-		return ErrOIDCNotConfigured
+// tenantOIDC returns the resolved OIDC state for a given tenant ID.
+// Returns ErrOIDCNotConfigured if the tenant is unknown or has no OIDC provider.
+func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
+	s.mu.RLock()
+	ts, ok := s.oidcTenants[tenantID]
+	s.mu.RUnlock()
+	if ok {
+		return ts, nil
 	}
-	return nil
+	return nil, ErrOIDCNotConfigured
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.
@@ -844,34 +883,237 @@ func (s *Service) postForm(ctx context.Context, endpoint string, vals url.Values
 	return s.httpClient.Do(req)
 }
 
-// initOIDCProvider performs OIDC discovery and populates oidcProvider + oidcMeta.
-func (s *Service) initOIDCProvider(ctx context.Context) error {
-	// Use gooidc.ClientContext to inject s.httpClient for all OIDC requests
+// discoverTenantOIDC performs OIDC provider discovery for a single tenant
+// and returns the resolved state. Returns an error if discovery or endpoint
+// validation fails.
+func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg TenantOIDCConfig) (*tenantOIDCState, error) {
 	ctxWithClient := gooidc.ClientContext(ctx, s.httpClient)
-	provider, err := gooidc.NewProvider(ctxWithClient, s.cfg.OIDC.IssuerURL)
+	provider, err := gooidc.NewProvider(ctxWithClient, cfg.IssuerURL)
 	if err != nil {
-		return fmt.Errorf("oidc discovery: %w", err)
+		return nil, fmt.Errorf("oidc discovery for tenant %q: %w", tenantID, err)
 	}
 
 	var meta oidcProviderMeta
 	if err := provider.Claims(&meta); err != nil {
-		return fmt.Errorf("extract provider metadata: %w", err)
+		return nil, fmt.Errorf("extract provider metadata for tenant %q: %w", tenantID, err)
 	}
 
-	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use that as fallback.
+	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use as fallback.
 	if meta.TokenEndpoint == "" {
 		meta.TokenEndpoint = provider.Endpoint().TokenURL
 	}
 	if meta.TokenEndpoint == "" {
-		return fmt.Errorf("provider does not advertise token_endpoint")
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
 	}
 	if meta.DeviceAuthorizationEndpoint == "" {
-		return fmt.Errorf("provider does not advertise device_authorization_endpoint")
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
 	}
 
-	s.oidcProvider = provider
-	s.oidcMeta = &meta
+	return &tenantOIDCState{cfg: cfg, provider: provider, meta: &meta}, nil
+}
+
+// initTenantOIDCProviders loads the tenant registry and performs OIDC discovery
+// for every active tenant that has an issuer URL configured. Tenants without
+// an issuer URL are skipped with an info log (federated auth disabled for that
+// tenant). A discovery failure for any tenant is fatal — misconfigured
+// providers should be caught at startup, not at first login.
+func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
+	tenants, err := loadTenantRegistry(s.clientSecrets)
+	if err != nil {
+		return fmt.Errorf("load tenant registry: %w", err)
+	}
+	if len(tenants) == 0 {
+		s.logger.Info(ctx, "no tenants in registry — federated authentication disabled")
+		return nil
+	}
+
+	for tenantID, cfg := range tenants {
+		if cfg.IssuerURL == "" {
+			s.logger.Info(ctx, "tenant has no OIDC issuer URL — skipping",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+			)
+			continue
+		}
+
+		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
+		if err != nil {
+			return err
+		}
+		s.oidcTenants[tenantID] = state
+		s.logger.Info(ctx, "OIDC provider initialized",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "issuer", Value: cfg.IssuerURL},
+		)
+	}
 	return nil
+}
+
+// reloadTenantOIDCProviders re-reads the tenant registry file and performs OIDC
+// discovery for any tenant whose issuer URL has changed or that is newly active.
+// Existing providers whose issuer URL is unchanged are reused — this avoids
+// unnecessary outbound discovery calls on every file-change event.
+//
+// The updated map is swapped in atomically under a write lock so in-flight
+// requests using the old map are not interrupted.
+func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
+	// Snapshot both maps under a single read lock to keep them consistent.
+	s.mu.RLock()
+	current := s.oidcTenants
+	clientSecrets := s.clientSecrets
+	s.mu.RUnlock()
+
+	tenants, err := loadTenantRegistry(clientSecrets)
+	if err != nil {
+		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	// Build the new map, reusing existing providers where the issuer URL is
+	// unchanged. Always take the freshly resolved cfg so that rotated client
+	// secrets are picked up without a full OIDC discovery round-trip.
+	next := make(map[string]*tenantOIDCState, len(tenants))
+	for tenantID, cfg := range tenants {
+		if cfg.IssuerURL == "" {
+			continue
+		}
+
+		if existing, had := current[tenantID]; had && existing.cfg.IssuerURL == cfg.IssuerURL {
+			next[tenantID] = &tenantOIDCState{
+				cfg:      cfg,
+				provider: existing.provider,
+				meta:     existing.meta,
+			}
+			continue
+		}
+
+		state, err := s.discoverTenantOIDC(ctx, tenantID, cfg)
+		if err != nil {
+			s.logger.Error(ctx, "OIDC discovery failed during reload — skipping tenant",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		next[tenantID] = state
+		s.logger.Info(ctx, "OIDC provider reloaded",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "issuer", Value: cfg.IssuerURL},
+		)
+	}
+
+	s.mu.Lock()
+	s.oidcTenants = next
+	s.mu.Unlock()
+
+	s.logger.Info(ctx, "tenant registry reloaded",
+		logging.Field{Key: "tenant_count", Value: len(next)},
+	)
+}
+
+// watchTenantRegistry watches the directory containing the tenant registry
+// file for changes and triggers a live reload whenever the file is updated.
+//
+// Kubernetes writes ConfigMap-backed volume files via an atomic symlink swap
+// (the kubelet replaces the ..data symlink), which means fsnotify fires a
+// RENAME or REMOVE event rather than a plain WRITE.  Watching the *directory*
+// and filtering by filename handles this correctly across both local and
+// in-cluster environments.
+//
+// A 200 ms debounce timer coalesces rapid event bursts (e.g. RENAME + CREATE)
+// into a single reload call.
+//
+// The goroutine exits cleanly when ctx is canceled (SIGTERM).
+func (s *Service) watchTenantRegistry(ctx context.Context, registryPath string) {
+	if registryPath == "" {
+		return
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		s.logger.Error(ctx, "failed to create fsnotify watcher — hot-reload disabled",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			s.logger.Error(ctx, "failed to close fsnotify watcher",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+
+	dir := filepath.Dir(registryPath)
+	base := filepath.Base(registryPath)
+
+	if addErr := watcher.Add(dir); addErr != nil {
+		s.logger.Error(ctx, "failed to watch tenant registry directory — hot-reload disabled",
+			logging.Field{Key: "path", Value: dir},
+			logging.Field{Key: "error", Value: addErr.Error()},
+		)
+		return
+	}
+
+	s.logger.Info(ctx, "watching tenant registry for changes",
+		logging.Field{Key: "path", Value: registryPath},
+	)
+
+	var debounce *time.Timer
+	const debounceDelay = 200 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			if debounce != nil {
+				debounce.Stop()
+			}
+			return
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if !isRelevantRegistryEvent(event, base) {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(debounceDelay, func() {
+				s.reloadTenantOIDCProviders(ctx)
+			})
+
+		case watchErr, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			s.logger.Error(ctx, "tenant registry watcher error",
+				logging.Field{Key: "error", Value: watchErr.Error()},
+			)
+		}
+	}
+}
+
+// isRelevantRegistryEvent reports whether the fsnotify event should trigger a
+// tenant registry reload. It matches only events on the expected filename and
+// only for write, create, rename, or remove operations — covering both normal
+// file writes and the atomic symlink swaps that Kubernetes uses for ConfigMap
+// volume updates.
+func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
+	name := filepath.Base(event.Name)
+	// Match either the target file directly (plain file writes, local dev)
+	// or the "..data" symlink that Kubernetes rotates atomically when a
+	// ConfigMap-backed volume is updated.  The symlink swap emits a RENAME
+	// event on "..data", not on the individual files inside it.
+	if name != base && name != "..data" {
+		return false
+	}
+	return event.Has(fsnotify.Write) ||
+		event.Has(fsnotify.Create) ||
+		event.Has(fsnotify.Rename) ||
+		event.Has(fsnotify.Remove)
 }
 
 // initSigningKey loads the RSA private key from one of three sources, in order:
@@ -880,13 +1122,13 @@ func (s *Service) initOIDCProvider(ctx context.Context) error {
 //     for local dev: avoids multiline env-var problems entirely).
 //  2. ORBIT_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
 //     escape sequences are both accepted.
-//  3. Auto-generate a throwaway 2048-bit key — permitted only when APP_ENV is
-//     "local". Any other environment fails fast with a clear error; silently
-//     accepting a missing signing key in production would be a security flaw.
+//  3. Auto-generate a throwaway 2048-bit key — permitted only when
+//     ORBIT_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
+//     error; silently accepting a missing signing key would be a security flaw.
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
 	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from an operator-controlled env var, not user input
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
@@ -910,13 +1152,13 @@ func (s *Service) initSigningKey(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. Auto-generate a throwaway key — strictly forbidden outside local dev.
-	// In any non-local environment a missing signing key is a misconfiguration,
-	// not something we should silently paper over with an ephemeral key.
-	if env := config.Environment(); env != "local" {
+	// 3. Auto-generate a throwaway key — only when ORBIT_ALLOW_EPHEMERAL_KEY=true.
+	// A missing signing key is always a misconfiguration in production; silently
+	// papering over it with an ephemeral key would be a security flaw. Tests and
+	// local dev without a key file set ORBIT_ALLOW_EPHEMERAL_KEY=true explicitly.
+	if os.Getenv("ORBIT_ALLOW_EPHEMERAL_KEY") != "true" {
 		return fmt.Errorf(
-			"no RSA signing key configured in environment %q: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server",
-			env,
+			"no RSA signing key configured: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server (or ORBIT_ALLOW_EPHEMERAL_KEY=true for local dev only)",
 		)
 	}
 

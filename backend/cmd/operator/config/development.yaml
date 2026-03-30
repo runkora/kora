@@ -1,0 +1,7 @@
+# Operator config for in-cluster development (k3d / local Kubernetes).
+# Loaded when APP_ENV=development — used by the operator pod in local cluster deployments.
+#
+# Does NOT override chartDir — charts are baked into the image at /etc/orbit/charts (base.yaml default).
+# For running the binary directly outside a container, see local.yaml.
+operator:
+  leaderElection: false

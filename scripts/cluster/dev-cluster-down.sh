@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-K3D_CONFIG="${REPO_ROOT}/infrastructure/overlays/local/k3d-config.yaml"
+K3D_CONFIG="${REPO_ROOT}/infrastructure/bootstrap/k3d-config.yaml"
 
 # Derive cluster name from k3d-config.yaml — same source as dev-cluster-up.sh.
 CLUSTER_NAME="$(grep 'name:' "${K3D_CONFIG}" | head -1 | awk '{print $2}')"

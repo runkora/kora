@@ -2,6 +2,9 @@
 # =============================================================================
 # dev-cluster-up.sh — Bring up the Orbit local k3d development cluster
 #
+# This script creates the k3d cluster and patches CoreDNS.
+# Orbit services are installed separately via `make cluster-deploy` (Helm).
+#
 # Prerequisites (install once via make install-tools-cluster):
 #   - k3d    >= 5.6
 #   - kubectl >= 1.29
@@ -11,8 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-K3D_CONFIG="${REPO_ROOT}/infrastructure/overlays/local/k3d-config.yaml"
-OVERLAYS_DIR="${REPO_ROOT}/infrastructure/overlays/local"
+K3D_CONFIG="${REPO_ROOT}/infrastructure/bootstrap/k3d-config.yaml"
 
 # Derive cluster name directly from k3d-config.yaml so this script never
 # diverges from what k3d actually names the cluster.
@@ -30,7 +32,7 @@ warn()  { echo -e "${YELLOW}⚠ $*${RESET}"; }
 
 # ── Preflight ─────────────────────────────────────────────────────────────
 step "Checking prerequisites"
-for cmd in k3d kubectl helm docker kustomize ; do
+for cmd in k3d kubectl helm docker; do
   if ! command -v "${cmd}" &>/dev/null; then
     echo "  Missing: ${cmd}$([ "${cmd}" != "docker" ] && echo " — run 'make install-tools-cluster'" || echo "")"
     exit 1
@@ -41,7 +43,7 @@ ok "All prerequisites present"
 # Check for postgres running
 if ! docker inspect orbit-postgres &>/dev/null; then
   echo "  ERROR: orbit-postgres container not found."
-  echo "  Start it first:  make db-up   (or: docker compose up -d postgres)"
+  echo "  Start it first:  make dev-up   (or: docker compose up -d postgres)"
   exit 1
 fi
 
@@ -103,34 +105,24 @@ kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
 
-# ── Apply Helm charts and manifests ───────────────────────────────────────
-# first time CRDs can take a moment to register, so retry if apply fails
-echo "  Applying Helm Charts and Kubernetes Manifests ..."
-kustomize build --enable-helm "${OVERLAYS_DIR}" | kubectl apply -f - || \
-kustomize build --enable-helm "${OVERLAYS_DIR}" | kubectl apply -f -
-
-# delete gateway pod once to trigger a new pull with image ingested via istio
-kubectl delete pod -l app.kubernetes.io/instance=gateway -n istio-system --ignore-not-found
-
-# wait for spire server & agents
-kubectl wait -n spire-server pod -l "app.kubernetes.io/component=server"  --for=condition=Ready --timeout=180s
-kubectl wait -n spire-server pod -l "app.kubernetes.io/component=default" --for=condition=Ready --timeout=180s
-
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  Orbit local cluster is ready                    ${RESET}"
+echo -e "${GREEN}  k3d cluster ready — install Orbit next          ${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
 echo ""
 echo "  Cluster:       k3d-${CLUSTER_NAME}"
-echo "  Trust domain:  spiffe://orbit.local"
-echo "  Dex OIDC:      http://dex.orbit.local:5556/dex"
-echo "  Istio ingress: http://localhost:8880 / https://localhost:8443"
+echo "  Context:       k3d-${CLUSTER_NAME}"
 echo ""
-echo "  Useful commands:"
+echo "  Next steps:"
+echo ""
+echo "    make cluster-operator   # install the operator + apply OrbitPlatform / OrbitTenant CRs"
+echo "    make cluster-deploy     # build service images + apply workload fixtures"
+echo ""
+echo "  See deploy/local/README.md for the full annotated sequence."
+echo ""
+echo "  Other useful commands:"
 echo "    kubectl get pods -A"
-echo "    kubectl get pods -n spire"
 echo "    helm list -A"
-echo "    make cluster-deploy"
 echo "    make dev-cluster-down"
 echo ""

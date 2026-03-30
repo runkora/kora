@@ -211,24 +211,26 @@ The `ORBIT_OIDC_ISSUER_URL` environment variable overrides the `issuerUrl` value
 
 ## Full-Stack Cluster (Tier 2)
 
-The Tier 2 environment provisions a local Kubernetes cluster with SPIRE, Istio, and Envoy. Use it when you need to test the SPIFFE SVID exchange flow (`POST /api/v1/identity/exchange`) or sidecar token injection.
+The Tier 2 environment provisions a local Kubernetes cluster with SPIRE, Istio, and Envoy, all managed by the Orbit operator. Use it when you need to test the SPIFFE SVID exchange flow (`POST /api/v1/identity/exchange`) or sidecar token injection.
 
-**Requires Tier 1 Postgres to be running first:**
+**Three-step bootstrap:**
 
 ```bash
-make dev-up       # or make db-up if you only need Postgres
-make dev-cluster  # provisions k3d cluster + SPIRE + Istio
+make dev-cluster        # start Docker Compose (Postgres, Redis, Dex) + k3d cluster
+make cluster-operator   # build + deploy the orbit-operator; it installs SPIRE, Istio,
+                        # and all Orbit Helm releases automatically
+make cluster-deploy     # create secrets (orbit-secrets) and apply workload fixtures
 ```
 
-`make dev-cluster` declares `db-up` as a prerequisite — you do not need to remember the ordering.
+`make dev-cluster` starts Docker Compose services first — you do not need to run `make dev-up` separately.
 
-To tear down the cluster:
+To tear down the cluster (Docker Compose services keep running):
 
 ```bash
 make dev-cluster-down
 ```
 
-See [ADR-0016](../adr/0016-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods.
+See [ADR-0016](../adr/0016-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [ADR-0028](../adr/0028-orbit-kubernetes-operator.md) for the operator design.
 
 ---
 

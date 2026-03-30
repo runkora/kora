@@ -1,0 +1,46 @@
+# OrbitPlatform CR for local k3d development.
+#
+# Apply this after `make cluster-operator` to trigger the full platform install:
+#   spire-crds → spire → istio-base → istiod → gateway → orbit-platform → orbit
+#
+# All SPIRE, Istio, and gateway configuration is derived from the fields below —
+# no separate values files are needed.
+apiVersion: orbit.io/v1alpha1
+kind: OrbitPlatform
+metadata:
+  name: orbit
+spec:
+  version: "0.1.0"
+  trustDomain: orbit.local
+  clusterName: orbit-local
+
+  spire:
+    enabled: true
+
+  istio:
+    enabled: true
+
+  gateway:
+    serviceType: NodePort
+
+  # imageRegistry is the local k3d mirror registry.
+  # In production leave this blank — the operator uses built-in versioned image references.
+  imageRegistry: orbit-registry:5001
+
+  secrets:
+    platformSecretRef:
+      name: orbit-secrets
+      namespace: orbit-system
+
+  config:
+    db:
+      host: orbit-postgres
+      name: orbit
+      port: 5432
+      user: orbit
+    redis:
+      host: host.k3d.internal
+      port: 6379
+
+  upgradeStrategy:
+    mode: Explicit

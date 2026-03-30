@@ -144,6 +144,14 @@ check-tool-versions: ## Verify installed tool versions match pinned versions in 
 	else \
 		echo "  $(COLOR_BLUE)ℹ air: installed=$${INSTALLED:-none}  expected=$(AIR_VERSION) — run: make install-tools$(COLOR_RESET)"; \
 	fi
+	@. scripts/cluster/versions.env && \
+	INSTALLED=$$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" = "$${HELM_VERSION}" ]; then \
+		echo "  $(COLOR_GREEN)✓ helm $$INSTALLED$(COLOR_RESET)"; \
+	else \
+		echo "  $(COLOR_YELLOW)⚠ helm: installed=$${INSTALLED:-none}  expected=$${HELM_VERSION} — run: make install-tools-cluster$(COLOR_RESET)"; \
+	fi
+
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod dependencies
@@ -268,13 +276,13 @@ dev-down-clean: ## Stop Postgres + Redis and remove volumes
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm) — istioctl not required, Istio runs via Helm
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
 
 .PHONY: dev-cluster
-dev-cluster: dev-up ## Bring up the local k3d cluster (SPIRE + Istio + NetworkPolicy). Starts postgres first (required by SPIRE).
+dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-operator' next.
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
 	@K3D_FIX_DNS=$(K3D_FIX_DNS) bash scripts/cluster/dev-cluster-up.sh
 
@@ -283,42 +291,134 @@ dev-cluster-down: ## Tear down the local k3d cluster
 	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-down.sh
 
-# SERVICES is the list of service directories under backend/cmd/.
-# Add a new service here when a new cmd/<service> entrypoint is created.
-SERVICES := identity example identity-proxy
+# PLATFORM_SERVICES are orbit-system services owned by the operator.
+# They must be built before 'make cluster-operator' so the operator can pull them.
+PLATFORM_SERVICES := identity identity-proxy
+
+# TENANT_SERVICES are workload images deployed into tenant namespaces.
+# They are built during 'make cluster-deploy'.
+TENANT_SERVICES := example
 
 .PHONY: docker-build
-docker-build: ## Build all service Docker images (orbit-<service>:latest)
-	@for svc in $(SERVICES); do \
+docker-build: docker-build-platform docker-build-tenant ## Build all service Docker images
+
+.PHONY: docker-build-platform
+docker-build-platform: ## Build platform service images (identity, identity-proxy)
+	@for svc in $(PLATFORM_SERVICES); do \
+		echo "$(COLOR_YELLOW)Building orbit-$$svc:latest...$(COLOR_RESET)"; \
+		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
+		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
+	done
+
+.PHONY: docker-build-tenant
+docker-build-tenant: ## Build tenant workload images (example)
+	@for svc in $(TENANT_SERVICES); do \
 		echo "$(COLOR_YELLOW)Building orbit-$$svc:latest...$(COLOR_RESET)"; \
 		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
 		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
 .PHONY: docker-push
-docker-push: ## Push all service images to local registry (orbit-registry:5001/orbit-<service>:latest)
-	@for svc in $(SERVICES); do \
+docker-push: docker-push-platform docker-push-tenant ## Push all service images to local registry
+
+.PHONY: docker-push-platform
+docker-push-platform: ## Push platform service images to local registry
+	@for svc in $(PLATFORM_SERVICES); do \
 		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
 		docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
 		docker push localhost:5001/orbit-$$svc:latest; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
+.PHONY: docker-push-tenant
+docker-push-tenant: ## Push tenant workload images to local registry
+	@for svc in $(TENANT_SERVICES); do \
+		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
+		docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
+		docker push localhost:5001/orbit-$$svc:latest; \
+		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
+	done
+
+.PHONY: docker-build-operator
+docker-build-operator: ## Build the orbit-operator Docker image (uses Dockerfile.operator — bakes charts into image)
+	@echo "$(COLOR_YELLOW)Building orbit-operator:latest...$(COLOR_RESET)"
+	@docker build -t orbit-operator:latest -f Dockerfile.operator .
+	@echo "$(COLOR_GREEN)✓ orbit-operator:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-operator
+docker-push-operator: ## Push orbit-operator image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-operator to local registry...$(COLOR_RESET)"
+	@docker tag orbit-operator:latest localhost:5001/orbit-operator:latest
+	@docker push localhost:5001/orbit-operator:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
+
+.PHONY: cluster-operator
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
+	@helm upgrade --install orbit-operator charts/orbit-operator \
+		-f deploy/local/operator-values.yaml \
+		--namespace orbit-operator --create-namespace \
+		--timeout 60s --wait
+	@echo "$(COLOR_YELLOW)Applying OrbitPlatform CR...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/orbit-platform.yaml
+	@echo "  Waiting for orbit-system namespace (created by operator)..."
+	@until kubectl get namespace orbit-system &>/dev/null; do sleep 3; done
+	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh orbit-system
+	@echo "$(COLOR_YELLOW)Waiting for SPIRE + Istio (operator is installing)...$(COLOR_RESET)"
+	@echo "  Waiting for spire-system namespace..."
+	@until kubectl get namespace spire-system &>/dev/null; do sleep 3; done
+	@echo "  Waiting for spire-agent daemonset..."
+	@until kubectl get daemonset spire-agent -n spire-system &>/dev/null; do sleep 3; done
+	@kubectl rollout status daemonset/spire-agent -n spire-system --timeout=300s
+	@echo "  Waiting for istio-system namespace..."
+	@until kubectl get namespace istio-system &>/dev/null; do sleep 3; done
+	@echo "  Waiting for istiod deployment..."
+	@until kubectl get deployment istiod -n istio-system &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
+	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
+	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
+	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
+
+.PHONY: cluster-update-operator
+cluster-update-operator: docker-build-operator docker-push-operator ## Rebuild and redeploy the operator (e.g. after changing reconciler logic)
+	@echo "$(COLOR_YELLOW)Upgrading Orbit operator...$(COLOR_RESET)"
+	@helm upgrade --install orbit-operator charts/orbit-operator \
+		-f deploy/local/operator-values.yaml \
+		--namespace orbit-operator \
+		--timeout 60s --wait
+	@kubectl rollout restart deployment/orbit-operator -n orbit-operator
+	@kubectl rollout status deployment/orbit-operator -n orbit-operator --timeout=60s
+	@echo "$(COLOR_GREEN)✓ orbit-operator updated$(COLOR_RESET)"
+
 .PHONY: cluster-deploy
-cluster-deploy: docker-build docker-push ## Apply k8s manifests and secrets to the local k3d cluster (does NOT build or restart)
-	@echo "$(COLOR_YELLOW)Deploying Orbit services to local cluster...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh
-	@kustomize build k8s | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ Orbit services deployed to cluster$(COLOR_RESET)"
+cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, register tenants, and deploy workloads
+	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Registering tenants (applying OrbitTenant CRs)...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/tenants/
+	@echo "  Waiting for tenant namespaces (operator provisioning)..."
+	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
+	@echo "  Waiting for orbit-identity to load tenant OIDC config..."
+	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
+	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
+	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/fixtures/
+	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
+	@until kubectl get deployment orbit-example -n orbit-tenant-example &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/orbit-example -n orbit-tenant-example --timeout=180s
+	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push cluster-deploy ## Build, push, re-apply manifests and restart ALL services in the cluster
-	@echo "$(COLOR_YELLOW)Restarting all deployments to pick up new images...$(COLOR_RESET)"
+cluster-update: docker-build docker-push ## Rebuild service images and restart deployments
+	@echo "$(COLOR_YELLOW)Updating Orbit services in cluster...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
-	@kubectl rollout restart deployment -n orbit-example-tenant 2>/dev/null || true
+	@kubectl rollout restart deployment -n orbit-tenant-example 2>/dev/null || true
 	@echo "$(COLOR_YELLOW)Waiting for rollouts to complete...$(COLOR_RESET)"
 	@kubectl rollout status deployment -n orbit-system --timeout=120s
-	@kubectl rollout status deployment -n orbit-example-tenant --timeout=120s 2>/dev/null || true
+	@kubectl rollout status deployment -n orbit-tenant-example --timeout=120s 2>/dev/null || true
 	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
 
 .PHONY: cluster-update-service
@@ -563,7 +663,7 @@ auth-device: ## Authenticate via Device Authorization Grant (local binary on :60
 	@chmod +x scripts/auth-device.sh
 	@./scripts/auth-device.sh \
 		--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
-		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"
+		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"
 
 .PHONY: auth-device-k3d
 auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via port-forward)
@@ -574,7 +674,7 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		sleep 2; \
 		./scripts/auth-device.sh \
 			--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
-			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),local)}"; \
+			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS

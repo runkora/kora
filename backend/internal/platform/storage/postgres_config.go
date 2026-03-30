@@ -35,8 +35,12 @@ func (c *PostgresConfig) ConnectionString() string {
 	)
 }
 
-// loadPostgresConfig overlays environment-variable credentials onto a PostgresConfig
-// that has already been populated from YAML. It is called by LoadStorageConfig.
+// loadPostgresConfig overlays environment-variable credentials and optional
+// per-field overrides onto a PostgresConfig that has already been populated
+// from YAML. It is called by LoadStorageConfig.
+//
+// Explicit env var overrides let local dev change individual settings (e.g.
+// ORBIT_POSTGRES_SSL_MODE=disable) without needing APP_ENV-based YAML branching.
 func loadPostgresConfig(cfg *PostgresConfig) error {
 	cfg.Host = os.Getenv("DB_HOST")
 	if cfg.Host == "" {
@@ -62,6 +66,15 @@ func loadPostgresConfig(cfg *PostgresConfig) error {
 		if p, err := strconv.Atoi(port); err == nil {
 			cfg.Port = p
 		}
+	}
+
+	// Explicit overrides — take precedence over YAML when set.
+	// Used by local dev to disable SSL without an APP_ENV-specific YAML file.
+	if v := os.Getenv("ORBIT_POSTGRES_SSL_MODE"); v != "" {
+		cfg.SSLMode = v
+	}
+	if v := os.Getenv("ORBIT_POSTGRES_CAPTURE_QUERY_TEXT"); v != "" {
+		cfg.CaptureQueryText = v == "true" || v == "1"
 	}
 
 	return nil

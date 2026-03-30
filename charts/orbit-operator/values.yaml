@@ -1,0 +1,44 @@
+# Default values for orbit-operator.
+# These are production defaults — local dev overrides live in deploy/local/operator-values.yaml.
+
+replicaCount: 1
+
+image:
+  repository: orbit-registry:5001/orbit-operator
+  # tag defaults to .Chart.AppVersion if not set
+  tag: ""
+  pullPolicy: Always
+
+# Namespace the operator itself is deployed into.
+namespace: orbit-operator
+
+# Path to Helm charts directory inside the operator container.
+# Production: /etc/orbit/charts (charts baked into the image or mounted)
+# Local dev: ../charts (relative to cmd/operator — overridden in operator-values.yaml)
+chartDir: /etc/orbit/charts
+
+# Enable leader election for HA deployments. Disable for local single-replica dev.
+# Injected as ORBIT_LEADER_ELECTION into the operator pod; the Go config reads
+# this and overrides the base.yaml default (true). Set to false in
+# deploy/local/operator-values.yaml for Kind/minikube clusters.
+leaderElection: true
+
+# Log level: debug, info, warn, error
+logLevel: info
+
+serviceAccount:
+  create: true
+  name: orbit-operator
+
+podAnnotations:
+  # The operator installs Istio — it MUST NOT have the Istio sidecar injected.
+  # This annotation is architectural, not a workaround. Do not remove it.
+  sidecar.istio.io/inject: "false"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
