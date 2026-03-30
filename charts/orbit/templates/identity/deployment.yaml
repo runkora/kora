@@ -68,8 +68,19 @@ spec:
           image: "{{ .Values.identity.image.repository }}:{{ include "orbit.identity.imageTag" . }}"
           imagePullPolicy: {{ include "orbit.identity.imagePullPolicy" . }}
           env:
-            - name: APP_ENV
-              value: {{ .Values.identity.appEnv | quote }}
+            # Security-sensitive tunables injected explicitly so consumers never
+            # need to set APP_ENV. Production values are the chart defaults;
+            # deploy/local/orbit-values.yaml overrides them for local dev clusters.
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.identity.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.identity.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_REDIS_TLS_ENABLED
+              value: {{ .Values.identity.config.redisTLSEnabled | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.identity.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.identity.config.logFormat | quote }}
             # SPIFFE Workload API socket — used for SVID exchange and SPIRE SDS.
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"

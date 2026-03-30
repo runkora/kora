@@ -6,12 +6,9 @@ image:
   tag: latest
   pullPolicy: Always
 
-# Use APP_ENV=development for the in-cluster pod:
-# - loads cmd/operator/config/development.yaml (leaderElection: false)
-# - does NOT override chartDir, so charts are read from /etc/orbit/charts (baked into image)
-# APP_ENV=local is for running the binary directly outside the container (local.yaml overrides chartDir: ../charts).
-appEnv: development
-
+# Disable leader election for single-replica local dev clusters.
+# Injected as ORBIT_LEADER_ELECTION=false into the operator pod; the operator
+# reads this and overrides the base.yaml default (true).
 leaderElection: false
 
 logLevel: debug

@@ -15,12 +15,11 @@ ADR-0027 defined the two-chart model (`charts/orbit-platform` + `charts/orbit`) 
 
 The current operator experience is:
 
-1. Install Helmfile and helm-diff at pinned versions
-2. Write a `helmfile.yaml` that sequences six releases in the correct order with `needs:` dependencies
-3. Imperatively create `orbit-config` ConfigMap in each namespace (with the right key-value pairs)
+1. Write six sequential `helm upgrade --install` commands in the correct dependency order
+2. Imperatively create `orbit-config` ConfigMap in each namespace (with the right key-value pairs)
 4. Imperatively create `orbit-secrets` Secret in each namespace (from a secrets manager or manually)
 5. Imperatively create `orbit-tenants` ConfigMap from the tenant registry file
-6. To add a tenant: create a namespace manually, add it to `platform-values.yaml`, re-run `helm upgrade orbit-platform`, add config to `config/tenants.yaml`, re-apply `orbit-tenants` ConfigMap, restart the identity service
+5. To add a tenant: create a namespace manually, add it to `platform-values.yaml`, re-run `helm upgrade orbit-platform`, add config to `config/tenants.yaml`, re-apply `orbit-tenants` ConfigMap, restart the identity service
 7. To upgrade Orbit: coordinate a version bump across two charts with a dependency between them
 
 This is not a viable operational model for self-hosted enterprise deployments, and it is not the model we want for our own EKS deployment. Every step above is a potential misconfiguration.
@@ -78,9 +77,8 @@ We need:
 ### Goals
 
 - Operators deploy the entire Orbit platform by applying two things: the operator bootstrap chart, and an `OrbitPlatform` CR — the operator handles SPIRE, Istio, and all Orbit charts from there
-- Adding a tenant requires applying one `OrbitTenant` CR — no Helmfile edits, no namespace creation, no ConfigMap patching
+- Adding a tenant requires applying one `OrbitTenant` CR — no namespace creation, no ConfigMap patching, no manual helm commands
 - The operator works identically in local k3d and production EKS — same CRDs, same controller binary, no divergent tooling paths
-- Helmfile is no longer required for local development or production — the operator replaces the full helmfile release sequence
 - Secrets are managed via `secretRef` pointing at pre-existing `Secret` objects — compatible with ESO, Vault, manual, or any other secret source
 - Upgrade Orbit by bumping `spec.version` in the `OrbitPlatform` CR — the operator sequences all chart upgrades in dependency order
 - `deploy/local/` and the Makefile remain the local dev workflow — they install the bootstrap chart and apply CRDs using `kubectl apply`
@@ -458,8 +456,6 @@ kubectl apply -f deploy/local/tenants/local.yaml
                          # operator provisions namespace, validates OIDC, rebuilds registry
 ```
 
-**Helmfile is no longer part of the local dev workflow.** The `helmfile.yaml` file is retained as a reference for operators who prefer Helmfile over the CRD model (or for use in CI), but it is not used in the standard `make` workflow.
-
 The operator's `OrbitPlatform` reconciler manages the full release dependency chain:
 
 ```
@@ -512,7 +508,6 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 - `deploy/local/` structure changes: values files are supplemented by `OrbitPlatform` and `OrbitTenant` CRs; `make cluster-platform` is replaced by `make cluster-operator` + `kubectl apply`
 - `scripts/cluster/create-secrets.sh` is retained for local dev — it creates the Secret that `spec.secrets.platformSecretRef` points at
-- `helmfile.yaml` is retained as a reference and escape hatch for operators who prefer it, but is no longer part of the standard local dev workflow or the recommended production path
 - Tenant application secrets (DB passwords, API keys) are explicitly out of scope — the operator manages only Orbit platform secrets (OIDC client secrets, signing keys)
 
 ---
@@ -580,13 +575,13 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 The operator supersedes the Helmfile workflow. The transition for an existing local cluster is:
 
-1. `make dev-cluster-down` + `make dev-cluster` — fresh cluster; the old helmfile-based state is discarded
+1. `make dev-cluster-down` + `make dev-cluster` — fresh cluster; any previously manually managed state is discarded
 2. `make cluster-secrets` — new target wrapping `create-secrets.sh`; creates `orbit-platform-secrets` Secret
 3. `make cluster-operator` — installs the bootstrap chart; operator pod starts
 4. `kubectl apply -f deploy/local/orbit-platform.yaml` — operator installs the full stack (SPIRE → Istio → orbit-platform → orbit) and surfaces progress in `OrbitPlatform.status`
 5. `kubectl apply -f deploy/local/tenants/local.yaml` — operator provisions the dev tenant namespace and registry
 
-The existing `make cluster-platform` and `make cluster-deploy` targets are removed once the operator is validated. The `helmfile.yaml` is retained as a reference document.
+The existing `make cluster-platform` and `make cluster-deploy` targets are removed once the operator is validated.
 
 The imperative `kubectl create configmap orbit-config`, `kubectl create configmap orbit-tenants`, and `kubectl create secret` commands in the current Makefile are replaced entirely by the operator's reconciler.
 

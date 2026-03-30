@@ -39,9 +39,15 @@ identity:
 
   replicas: 1
 
-  # APP_ENV controls which config YAML is loaded at startup.
-  # "local" maps to backend/internal/identity/config/local.yaml.
-  appEnv: local
+  # Local dev overrides for security and observability tunables.
+  # These correspond to the identity.config.* fields in charts/orbit/values.yaml
+  # and are injected as ORBIT_* env vars — no APP_ENV needed.
+  config:
+    postgresSSLMode: "disable"           # Local Postgres has no TLS cert.
+    postgresCaptureQueryText: "true"     # Log full SQL in traces locally.
+    redisTLSEnabled: "false"             # Local Redis has no TLS cert.
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
 
 networkPolicy:
   enabled: true

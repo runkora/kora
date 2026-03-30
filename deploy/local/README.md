@@ -16,7 +16,7 @@ make cluster-deploy    # create secrets (orbit-secrets) and apply workload fixtu
 ```
 
 That's it. The operator drives the full install sequence — you do not need to
-run `helm upgrade` or `helmfile` commands manually.
+run `helm upgrade` commands manually.
 
 ---
 
@@ -66,7 +66,6 @@ deploy/local/
 ├── operator-values.yaml       # Values for charts/orbit-operator (local overrides)
 ├── orbit-values.yaml          # Values for charts/orbit (identity service)
 ├── platform-values.yaml       # Values for charts/orbit-platform (cluster resources)
-├── helmfile-env.yaml          # helmfile environment bindings (escape-hatch use only)
 ├── fixtures/
 │   └── orbit-tenant-example.yaml  # Self-contained example tenant workload
 └── tenants/
@@ -145,17 +144,4 @@ make dev-cluster-down   # tears down the k3d cluster only
 make dev-down           # stop Docker Compose services
 ```
 
----
 
-## Escape Hatch — Helmfile
-
-The `helmfile.yaml` at the repo root can be used to install or inspect
-individual releases without the operator. This is useful for debugging a
-specific chart version or recovering from a stuck reconcile loop.
-
-```bash
-helmfile diff --environment local                        # preview changes
-helmfile apply --environment local -l name=istiod        # upgrade a single release
-```
-
-See `helmfile.yaml` for the full release list and dependency order.

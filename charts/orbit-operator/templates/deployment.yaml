@@ -34,8 +34,11 @@ spec:
           image: "{{ .Values.image.repository }}:{{ include "orbit-operator.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: APP_ENV
-              value: {{ .Values.appEnv | quote }}
+            # Leader election is the only in-cluster tunable that differs between
+            # dev and production. Driven by the chart value so operators running
+            # in Kind/minikube can set leaderElection: false without APP_ENV.
+            - name: ORBIT_LEADER_ELECTION
+              value: {{ .Values.leaderElection | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
           resources:

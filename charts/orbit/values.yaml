@@ -55,9 +55,26 @@ identity:
       cpu: 500m
       memory: 256Mi
 
-  # Application environment passed as APP_ENV env var.
-  # Valid values: development, local, production
-  appEnv: production
+  # Explicit security and observability tunables.
+  # These replace APP_ENV-based YAML branching so consumers never need to set
+  # an internal environment selector. Production values are the defaults;
+  # override in deploy/local/orbit-values.yaml for local dev clusters.
+  config:
+    # PostgreSQL connection security. Use "require" in production (default).
+    # Set to "disable" for local dev clusters that run Postgres without TLS.
+    postgresSSLMode: "require"
+    # Log query text in traces. Always false in production; set true locally
+    # to see the full SQL of slow queries in your OTLP backend.
+    postgresCaptureQueryText: "false"
+    # Redis TLS. Always true in production; set false for local dev Redis.
+    redisTLSEnabled: "true"
+    # Send traces/metrics over plaintext gRPC. Always false in production.
+    # Set true for local OTLP collectors (e.g. otel-collector in Kind) that
+    # do not have TLS certificates.
+    otlpInsecure: "false"
+    # Structured log format. "json" for production log aggregators;
+    # "console" for human-readable local dev output.
+    logFormat: "json"
 
   # Name of the existing Secret containing environment variables for the
   # identity service (DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY, etc.).

@@ -42,10 +42,6 @@ make cluster-deploy     # build + push service images; create orbit-secrets;
 
 See `deploy/local/README.md` for the full annotated install sequence.
 
-> **Escape hatch:** The raw `helm` / `helmfile` commands in `helmfile.yaml` can be
-> used to install or inspect individual releases without the operator. This is
-> useful for debugging a specific chart or recovering from a stuck reconcile loop.
-> The SPIRE agent daemonset lives in the `spire-system` namespace (not `spire`).
 
 ## What lives here vs deploy/local/
 
@@ -55,7 +51,6 @@ See `deploy/local/README.md` for the full annotated install sequence.
 | Operator + platform CRDs / CRs | `deploy/local/operator/`, `deploy/local/platform/`, `deploy/local/tenants/` |
 | Helm values for local overrides | `deploy/local/operator/values.yaml`, `deploy/local/platform/values.yaml` |
 | Non-Helm fixtures (example tenant) | `deploy/local/fixtures/` |
-| Raw helmfile install (escape hatch) | `helmfile.yaml` |
 
 ## Tear down
 

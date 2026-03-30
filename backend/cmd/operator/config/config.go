@@ -2,6 +2,7 @@
 package operatorConfig
 
 import (
+	"os"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -57,4 +58,14 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current holds all non-secret configuration for the operator.
-var Current = config.MustLoadService[Config]("cmd/operator", config.Environment())
+// Explicit ORBIT_* env var overrides are applied after YAML loading so that
+// operators running in-cluster never need APP_ENV-based YAML branching.
+var Current = func() *Config {
+	cfg := config.MustLoadService[Config]("cmd/operator", config.Environment())
+	// Allow in-cluster dev (Kind, minikube) to disable leader election without
+	// a separate APP_ENV YAML file.
+	if v := os.Getenv("ORBIT_LEADER_ELECTION"); v != "" {
+		cfg.Operator.LeaderElection = v == "true" || v == "1"
+	}
+	return cfg
+}()

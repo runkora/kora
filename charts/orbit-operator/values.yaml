@@ -18,10 +18,10 @@ namespace: orbit-operator
 chartDir: /etc/orbit/charts
 
 # Enable leader election for HA deployments. Disable for local single-replica dev.
+# Injected as ORBIT_LEADER_ELECTION into the operator pod; the Go config reads
+# this and overrides the base.yaml default (true). Set to false in
+# deploy/local/operator-values.yaml for Kind/minikube clusters.
 leaderElection: true
-
-# Application environment passed as APP_ENV to the operator process.
-appEnv: production
 
 # Log level: debug, info, warn, error
 logLevel: info

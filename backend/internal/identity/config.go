@@ -2,6 +2,8 @@ package identity
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
@@ -53,6 +55,22 @@ func LoadConfig() (*Config, error) {
 	}
 	if cfg.Token.Audience == "" {
 		cfg.Token.Audience = "orbit-platform"
+	}
+
+	// Explicit env var overrides — take precedence over YAML defaults.
+	// Used by local dev to extend token TTLs without APP_ENV-based YAML branching.
+	if v := os.Getenv("ORBIT_ACCESS_TOKEN_TTL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Token.AccessTokenTTLMinutes = n
+		}
+	}
+	if v := os.Getenv("ORBIT_REFRESH_TOKEN_TTL_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Token.RefreshTokenTTLDays = n
+		}
+	}
+	if v := os.Getenv("ORBIT_TOKEN_AUDIENCE"); v != "" {
+		cfg.Token.Audience = v
 	}
 
 	return cfg, nil

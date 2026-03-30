@@ -145,28 +145,13 @@ check-tool-versions: ## Verify installed tool versions match pinned versions in 
 		echo "  $(COLOR_BLUE)ℹ air: installed=$${INSTALLED:-none}  expected=$(AIR_VERSION) — run: make install-tools$(COLOR_RESET)"; \
 	fi
 	@. scripts/cluster/versions.env && \
-	INSTALLED=$$(helmfile version 2>/dev/null | grep -E '^\s+Version' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	EXPECTED=$$(echo "$${HELMFILE_VERSION}" | sed 's/^v//'); \
-	if [ "$$INSTALLED" = "$$EXPECTED" ]; then \
-		echo "  $(COLOR_GREEN)✓ helmfile v$$INSTALLED$(COLOR_RESET)"; \
-	else \
-		echo "  $(COLOR_YELLOW)⚠ helmfile: installed=$${INSTALLED:-none}  expected=$$EXPECTED — run: make install-tools-cluster$(COLOR_RESET)"; \
-	fi
-	@. scripts/cluster/versions.env && \
 	INSTALLED=$$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$${HELM_VERSION}" ]; then \
 		echo "  $(COLOR_GREEN)✓ helm $$INSTALLED$(COLOR_RESET)"; \
 	else \
 		echo "  $(COLOR_YELLOW)⚠ helm: installed=$${INSTALLED:-none}  expected=$${HELM_VERSION} — run: make install-tools-cluster$(COLOR_RESET)"; \
 	fi
-	@. scripts/cluster/versions.env && \
-	INSTALLED=$$(helm diff version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	EXPECTED=$$(echo "$${HELM_DIFF_VERSION}" | sed 's/^v//'); \
-	if [ "$$INSTALLED" = "$$EXPECTED" ]; then \
-		echo "  $(COLOR_GREEN)✓ helm-diff v$$INSTALLED$(COLOR_RESET)"; \
-	else \
-		echo "  $(COLOR_YELLOW)⚠ helm-diff: installed=$${INSTALLED:-none}  expected=$$EXPECTED — run: make install-tools-cluster$(COLOR_RESET)"; \
-	fi
+
 
 .PHONY: tidy
 tidy: ## Tidy and verify go.mod dependencies
@@ -291,7 +276,7 @@ dev-down-clean: ## Stop Postgres + Redis and remove volumes
 # ===========================================
 
 .PHONY: install-tools-cluster
-install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile)
+install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
