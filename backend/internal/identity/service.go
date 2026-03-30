@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -1118,14 +1117,14 @@ func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
 }
 
 // initSigningKey loads the RSA private key from one of three sources, in order:
-
+//
 //  1. ORBIT_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
 //     for local dev: avoids multiline env-var problems entirely).
 //  2. ORBIT_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
 //     escape sequences are both accepted.
-//  3. Auto-generate a throwaway 2048-bit key — permitted only when APP_ENV is
-//     "local". Any other environment fails fast with a clear error; silently
-//     accepting a missing signing key in production would be a security flaw.
+//  3. Auto-generate a throwaway 2048-bit key — permitted only when
+//     ORBIT_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
+//     error; silently accepting a missing signing key would be a security flaw.
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
 	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
@@ -1153,13 +1152,13 @@ func (s *Service) initSigningKey(ctx context.Context) error {
 		return nil
 	}
 
-	// 3. Auto-generate a throwaway key — strictly forbidden outside local dev.
-	// In any non-local environment a missing signing key is a misconfiguration,
-	// not something we should silently paper over with an ephemeral key.
-	if env := config.Environment(); env != "local" {
+	// 3. Auto-generate a throwaway key — only when ORBIT_ALLOW_EPHEMERAL_KEY=true.
+	// A missing signing key is always a misconfiguration in production; silently
+	// papering over it with an ephemeral key would be a security flaw. Tests and
+	// local dev without a key file set ORBIT_ALLOW_EPHEMERAL_KEY=true explicitly.
+	if os.Getenv("ORBIT_ALLOW_EPHEMERAL_KEY") != "true" {
 		return fmt.Errorf(
-			"no RSA signing key configured in environment %q: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server",
-			env,
+			"no RSA signing key configured: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server (or ORBIT_ALLOW_EPHEMERAL_KEY=true for local dev only)",
 		)
 	}
 

@@ -265,9 +265,12 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 // ── service construction helpers ──────────────────────────────────────────────
 
 // newTestService builds a *Service with no OIDC configured and an ephemeral RSA
-// signing key. This is valid because APP_ENV defaults to "local".
+// signing key. ORBIT_ALLOW_EPHEMERAL_KEY is set so initSigningKey falls through
+// to ephemeral key generation rather than failing with a misconfiguration error.
 func newTestService(t *testing.T, sessions SessionRepository, refreshTokens RefreshTokenRepository, blocklist JTIBlocklistRepository) *Service {
 	t.Helper()
+	// Permit ephemeral key generation in tests — never set this in production.
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	// Unset signing key env vars to force ephemeral key generation in tests.
 	// This ensures tests don't depend on the local dev signing key file.
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
@@ -309,6 +312,8 @@ func newTestServiceWithOIDC(
 	blocklist JTIBlocklistRepository,
 ) *Service {
 	t.Helper()
+	// Permit ephemeral key generation in tests — never set this in production.
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	// Unset signing key env vars to force ephemeral key generation in tests.
 	// This ensures tests don't depend on the local dev signing key file.
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
