@@ -3,6 +3,7 @@ package vertexai
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	anthropicvertex "github.com/anthropics/anthropic-sdk-go/vertex"
 	openai "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -23,6 +26,11 @@ import (
 type Config struct {
 	ProjectID string
 	Location  string
+	// AnthropicLocation overrides Location for Claude-on-Vertex requests.
+	// Claude 4 models are only available in specific regions (e.g. us-east5)
+	// while Gemini/Llama models remain in Location (e.g. us-central1).
+	// When empty, Location is used for all models.
+	AnthropicLocation string
 }
 
 // LoadConfig reads Vertex AI configuration from environment variables.
@@ -31,9 +39,13 @@ type Config struct {
 //
 // Environment variables:
 //
-//	VERTEX_ENABLED     — set to "true" to enable
-//	VERTEX_PROJECT_ID  — GCP project ID (required when enabled)
-//	VERTEX_LOCATION    — GCP region, e.g. "us-central1" (required when enabled)
+//	VERTEX_ENABLED              — set to "true" to enable
+//	VERTEX_PROJECT_ID           — GCP project ID (required when enabled)
+//	VERTEX_LOCATION             — GCP region for Gemini/Llama models, e.g. "us-central1" (required when enabled)
+//	VERTEX_ANTHROPIC_LOCATION   — GCP region for Claude models, e.g. "us-east5" (optional; defaults to VERTEX_LOCATION)
+//	VERTEX_ENABLED_MODELS       — comma-separated list of model IDs enabled in Vertex AI Model Garden
+//	                              (e.g. "google/gemini-2.5-flash,claude-sonnet-4-6")
+//	                              Only these models appear in GET /v1/models. If unset, no models are returned.
 //
 // Auth uses Application Default Credentials (ADC) exclusively.
 // On GKE use Workload Identity; locally set GOOGLE_APPLICATION_CREDENTIALS.
@@ -52,9 +64,15 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("vertexai: VERTEX_LOCATION is required when VERTEX_ENABLED=true")
 	}
 
+	anthropicLocation := os.Getenv("VERTEX_ANTHROPIC_LOCATION")
+	if anthropicLocation == "" {
+		anthropicLocation = location
+	}
+
 	return &Config{
-		ProjectID: projectID,
-		Location:  location,
+		ProjectID:         projectID,
+		Location:          location,
+		AnthropicLocation: anthropicLocation,
 	}, nil
 }
 
@@ -83,37 +101,77 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 type Connector struct {
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
-	logger          logging.Logger
+	// listHTTPClient is used exclusively by ListModels to query the Vertex AI
+	// Model Garden v1beta1 API. It shares the same ADC token source as the
+	// inference clients but uses a shorter timeout.
+	listHTTPClient *http.Client
+	cfg            *Config
+	logger         logging.Logger
 }
 
 // New constructs a Vertex AI Connector from a validated Config.
 func New(cfg *Config, logger logging.Logger) (*Connector, error) {
-	// OpenAI-compatible endpoint for Gemini models on Vertex AI.
+	ctx := context.Background()
+
+	// Obtain an ADC token source scoped to the Vertex AI API.
+	// On GKE this queries the metadata server (Workload Identity);
+	// locally this reads ~/.config/gcloud/application_default_credentials.json.
+	tokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("vertexai: get ADC token source: %w", err)
+	}
+
+	// OpenAI-compatible endpoint for Gemini and Llama models on Vertex AI.
 	openaiEndpoint := fmt.Sprintf(
 		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/endpoints/openapi/",
 		cfg.Location, cfg.ProjectID, cfg.Location,
 	)
+	// The oauth2.Transport wraps the tracing transport and injects
+	// "Authorization: Bearer <google-access-token>" on every request,
+	// overriding whatever the openai-go SDK would otherwise send.
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
-		openaiopt.WithAPIKey("vertex"), // auth handled by ADC transport
+		openaiopt.WithAPIKey("-"), // placeholder — oauth2.Transport overrides the header
 		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-			httpclient.NewTracingTransport("orbit.vertexai-openai", nil),
+			&oauth2.Transport{
+				Source: tokenSource,
+				Base:   httpclient.NewTracingTransport("orbit.vertexai-openai", nil),
+			},
 		)),
 	)
 
-	// Anthropic client with Vertex transport — uses Application Default Credentials.
-	// The tracing transport wraps the ADC transport injected by WithGoogleAuth so
-	// every call gets an OTel client span + W3C traceparent without disrupting auth.
+	// Anthropic client for Claude-on-Vertex.
+	// WithGoogleAuth sets the Vertex AI base URL and model path — we keep it for that,
+	// but we override the HTTP client so we can insert our tracing transport.
+	// The oauth2.Transport injects "Authorization: Bearer <adc-token>" on every request
+	// using the same tokenSource as the OpenAI client above, then the inner tracing
+	// transport records the OTel client span with W3C traceparent.
+	// AnthropicLocation may differ from Location — Claude 4 models are only available
+	// in certain regions (e.g. us-east5) while Gemini/Llama stay in Location.
 	anthropicClient := anthropic.NewClient(
-		anthropicvertex.WithGoogleAuth(context.Background(), cfg.Location, cfg.ProjectID),
+		anthropicvertex.WithGoogleAuth(context.Background(), cfg.AnthropicLocation, cfg.ProjectID),
 		anthropicopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
-			httpclient.NewTracingTransport("orbit.vertexai-anthropic", nil),
+			&oauth2.Transport{
+				Source: tokenSource,
+				Base:   httpclient.NewTracingTransport("orbit.vertexai-anthropic", nil),
+			},
 		)),
+	)
+
+	// HTTP client for Model Garden listing — shares the same ADC token source
+	// but uses a shorter timeout since list calls are expected to be fast.
+	listHTTPClient := httpclient.NewHTTPClient(10*time.Second,
+		&oauth2.Transport{
+			Source: tokenSource,
+			Base:   httpclient.NewTracingTransport("orbit.vertexai-list", nil),
+		},
 	)
 
 	return &Connector{
 		openaiClient:    &openaiClient,
 		anthropicClient: &anthropicClient,
+		listHTTPClient:  listHTTPClient,
+		cfg:             cfg,
 		logger:          logger,
 	}, nil
 }
@@ -122,57 +180,46 @@ func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderVertexAI
 }
 
-// ListModels returns the live list of models from the Vertex AI OpenAI-compatible endpoint.
-// Each model carries a display name auto-generated from the model ID. Vertex AI does
-// not expose a separate inference profile concept, so no deduplication is needed.
-func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
-	iter := c.openaiClient.Models.ListAutoPaging(ctx)
-	var models []inferencegw.ProviderModel
-	for iter.Next() {
-		id := iter.Current().ID
-		models = append(models, inferencegw.ProviderModel{
-			Provider:    inferencegw.ProviderVertexAI,
-			ModelID:     id,
-			DisplayName: displayNameFromID(id),
-		})
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("vertexai: list models: %w", err)
-	}
-	return models, nil
-}
-
-// displayNameFromID produces a human-readable label from a Vertex AI model ID slug.
-// e.g. "gemini-2-5-pro" → "Gemini 2 5 Pro".
-func displayNameFromID(id string) string {
-	if id == "" {
-		return id
-	}
-	parts := strings.FieldsFunc(id, func(r rune) bool { return r == '-' || r == '_' })
-	for i, p := range parts {
-		if len(p) > 0 {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
+// ChatCompletion sends a non-streaming request.
+//
+// Vertex AI has two physically separate endpoints:
+//   - OpenAI-compatible endpoint: Gemini and Llama models
+//   - Anthropic Messages endpoint: Claude models only
+//
+// This method internally routes Claude models (identified by a "claude-" prefix)
+// to the Anthropic path regardless of which handler/dialect the caller used.
+// This is a provider topology constraint, not a dialect preference.
 func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
+	if isClaudeModel(req.Model) {
+		return c.anthropicChatCompletion(ctx, req)
+	}
 	return c.openaiChatCompletion(ctx, req)
 }
 
-// ChatCompletionStream opens a streaming request via the OpenAI-compatible dialect.
+// ChatCompletionStream opens a streaming request.
+// Claude models are internally routed to the Anthropic path — see ChatCompletion.
 func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
+	if isClaudeModel(req.Model) {
+		return c.anthropicChatCompletionStream(ctx, req)
+	}
 	return c.openaiChatCompletionStream(ctx, req)
 }
 
 // AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.
+// Called by the /v1/messages handler — always uses the Anthropic path.
 func (c *Connector) AnthropicChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
 	return c.anthropicChatCompletion(ctx, req)
 }
 
 // AnthropicChatCompletionStream opens a streaming request via the Anthropic Messages dialect.
+// Called by the /v1/messages handler — always uses the Anthropic path.
 func (c *Connector) AnthropicChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
 	return c.anthropicChatCompletionStream(ctx, req)
+}
+
+// isClaudeModel reports whether the model ID refers to a Claude model.
+// Claude models on Vertex AI use the Anthropic Messages endpoint exclusively —
+// they are not available on the OpenAI-compatible endpoint.
+func isClaudeModel(modelID string) bool {
+	return strings.HasPrefix(modelID, "claude-")
 }

@@ -363,7 +363,8 @@ run-identity: ## Run the identity service
 run-inference-gateway: ## Run the inference gateway (set provider env vars first — see backend/cmd/inference-gateway/config/local.yaml)
 	@echo "$(COLOR_YELLOW)Starting inference gateway on :8081...$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)  JWKS: $${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)  Tip:  export BEDROCK_ENABLED=true BEDROCK_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  Tip (Bedrock):  export BEDROCK_ENABLED=true BEDROCK_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  Tip (Vertex):   gcloud auth application-default login  # once; then set VERTEX_ENABLED=true VERTEX_PROJECT_ID=... VERTEX_LOCATION=us-central1$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
 	export ORBIT_TOKEN_JWKS_URL=$${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}; \
 	export APP_ENV=local; \
