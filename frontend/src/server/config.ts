@@ -23,7 +23,7 @@ export const config = {
    * Base URL of the Go control plane API.
    * Used exclusively by BFF API routes — never sent to the browser.
    */
-  orbitApiUrl: requireEnv('ORBIT_API_URL'),
+  orbitApiUrl: requireEnv('ORBIT_API_URL').replace(/\/$/, ''),
 
   /**
    * Secret used to sign/verify session tokens.

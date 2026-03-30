@@ -41,7 +41,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const session = await getSession();
 
   if (session.user) {
-    const revokeUrl = `${config.orbitApiUrl.replace(/\/$/, '')}/identity/revoke`;
+    const revokeUrl = `${config.orbitApiUrl}/identity/revoke`;
 
     // Fire revocation requests concurrently; don't block logout on failures.
     await Promise.allSettled([
