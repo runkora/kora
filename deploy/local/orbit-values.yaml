@@ -7,7 +7,6 @@
 #   helm upgrade --install orbit ./charts/orbit \
 #     -f deploy/local/orbit-values.yaml -n orbit-system
 #
-# Trust domain must match spec.trustDomain in deploy/local/orbit-platform.yaml.
 #
 # NOTE: The following fields are intentionally absent from this file because
 # the orbit-operator injects them as computed values during reconciliation —
@@ -25,7 +24,6 @@
 # =============================================================================
 
 global:
-  trustDomain: "orbit.local"
   # Force pull from local k3d registry on every pod start.
   # Local registry images are not content-addressed — Always ensures the
   # cluster always runs the freshest locally-built image.
