@@ -394,7 +394,7 @@ type OrbitTenantStatus struct {
 
 // Tenant status condition types.
 const (
-	ConditionNamespaceReady = "NamespaceReady"
+	ConditionNamespaceReady  = "NamespaceReady"
 	ConditionRegistryUpdated = "RegistryUpdated"
 )
 

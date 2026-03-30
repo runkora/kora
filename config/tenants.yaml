@@ -1,25 +1,27 @@
 # =============================================================================
-# Orbit Tenant Registry — local development
+# Orbit Tenant Registry — Tier 1 local dev ONLY (make dev / air hot-reload)
 # =============================================================================
 #
-# This file is committed to the repository and pre-wired for the local Dex
-# OIDC provider. It is loaded at startup via the ORBIT_TENANTS_CONFIG
-# environment variable:
+# THIS FILE IS NOT USED IN CLUSTER DEPLOYMENTS.
 #
-#   ORBIT_TENANTS_CONFIG=./config/tenants.yaml   (make dev / air hot-reload)
-#   ORBIT_TENANTS_CONFIG=/etc/orbit/tenants.yaml  (cluster — mounted ConfigMap)
+# When you run the identity service directly on the host (make dev), there is
+# no Kubernetes operator, no ConfigMap, and no volume mount. The service reads
+# this file from the filesystem via the ORBIT_TENANTS_CONFIG env var (set in
+# .env to ./config/tenants.yaml).
 #
-# For cluster deployments, sync this file to the orbit-tenants ConfigMap:
-#   kubectl create configmap orbit-tenants \
-#     --from-file=tenants.yaml=config/tenants.yaml \
-#     -n orbit-system --dry-run=client -o yaml | kubectl apply -f -
+# For cluster dev (make cluster-operator + make cluster-deploy):
+#   The orbit-operator builds the orbit-tenants ConfigMap from OrbitTenant CRs
+#   defined in deploy/local/tenants/. This file is not read or mounted.
+#   Edit deploy/local/tenants/example.yaml to change cluster tenant config.
 #
-# DO NOT put secrets in this file. Tenant OIDC client secrets are injected
-# at runtime from environment variables named by the `clientSecretEnv` field.
-# The local Dex client is a public client — no secret is required. The env
-# var below will be empty, which is the correct behaviour for a public client.
+# DO NOT put secrets in this file. Client secrets for confidential OIDC clients
+# are managed by the orbit-operator (ADR-0029): the operator aggregates them
+# into the Secret orbit-tenant-oidc-secrets in orbit-system; the identity
+# service picks them up via a file watcher. The local Dex client is a public
+# client — no secret is needed here.
 #
 # Ref: ADR-0026 (tenant registration and OIDC provider binding)
+#      ADR-0029 (OIDC client secret projection for confidential tenants)
 # =============================================================================
 
 version: "v1"
@@ -40,9 +42,7 @@ tenants:
       issuerURL: "http://dex.orbit.local:5556/dex"
       clientID: "orbit-local"
       # orbit-local is a public Dex client — no client secret is required.
-      # The env var below will be empty string at runtime, which is correct.
       # See config/dex/config.yaml: staticClients[0].public: true
-      clientSecretEnv: "ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET"
       scopes:
         - openid
         - profile

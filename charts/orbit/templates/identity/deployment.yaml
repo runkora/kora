@@ -45,12 +45,23 @@ spec:
             driver: csi.spiffe.io
             readOnly: true
         {{- if .Values.identity.existingTenantsConfigMap }}
-        # Tenant registry ConfigMap volume — mounted read-only at
-        # config.tenantsConfigPath. The identity service reads the tenant
-        # registry from this path at startup (ORBIT_TENANTS_CONFIG env var).
+        # Tenant registry ConfigMap volume — mounted read-only at /etc/orbit.
+        # The identity service reads tenants.yaml from this path at startup
+        # via the ORBIT_TENANTS_CONFIG env var (/etc/orbit/tenants.yaml).
         - name: tenants-config
           configMap:
             name: {{ .Values.identity.existingTenantsConfigMap }}
+        {{- end }}
+        {{- if .Values.identity.existingClientSecretsSecret }}
+        # Aggregated OIDC client secrets Secret — written by orbit-operator
+        # from per-tenant spec.oidc.clientSecretRef Secrets. The identity
+        # service watches this file and hot-reloads without a pod restart.
+        # optional: true so the pod starts cleanly when no confidential
+        # tenants are provisioned and the Secret does not yet exist.
+        - name: tenant-client-secrets
+          secret:
+            secretName: {{ .Values.identity.existingClientSecretsSecret }}
+            optional: true
         {{- end }}
       containers:
         - name: orbit-identity
@@ -63,10 +74,18 @@ spec:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
             {{- if .Values.identity.existingTenantsConfigMap }}
-            # Path to the tenant registry YAML file, sourced from the mounted
-            # ConfigMap. Operator can override this path if needed.
+            # Path to the tenant registry YAML — sourced from the orbit-tenants
+            # ConfigMap mounted at /etc/orbit by the orbit-operator.
             - name: ORBIT_TENANTS_CONFIG
-              value: {{ .Values.identity.config.tenantsConfigPath | quote }}
+              value: "/etc/orbit/tenants.yaml"
+            {{- end }}
+            {{- if .Values.identity.existingClientSecretsSecret }}
+            # Path to the aggregated OIDC client secrets YAML file, sourced
+            # from the orbit-tenant-oidc-secrets Secret managed by the
+            # orbit-operator. Unset this env var to disable confidential
+            # client support (all tenants treated as public OIDC clients).
+            - name: ORBIT_TENANT_SECRETS_CONFIG
+              value: "/etc/orbit/tenant-secrets/client-secrets.yaml"
             {{- end }}
           ports:
             - name: http
@@ -107,6 +126,11 @@ spec:
               readOnly: true
             {{- if .Values.identity.existingTenantsConfigMap }}
             - name: tenants-config
-              mountPath: {{ .Values.identity.config.tenantsConfigPath | dir | quote }}
+              mountPath: /etc/orbit
+              readOnly: true
+            {{- end }}
+            {{- if .Values.identity.existingClientSecretsSecret }}
+            - name: tenant-client-secrets
+              mountPath: /etc/orbit/tenant-secrets
               readOnly: true
             {{- end }}

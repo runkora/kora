@@ -25,7 +25,7 @@ import (
 //
 //	spire-crds → spire → istio-base → istiod → gateway → orbit-platform → orbit
 //
-// See docs/adr/0025-orbit-kubernetes-operator.md for the design.
+// See docs/adr/0028-orbit-kubernetes-operator.md for the design.
 type PlatformReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
@@ -501,18 +501,25 @@ func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatfor
 	orbitValues := r.loadValuesFile("orbit-values.yaml")
 
 	// Overlay computed values — these always win over file-based values.
+	// Resource names (orbit-config, orbit-tenants, orbit-tenant-oidc-secrets,
+	// orbit-secrets) are operator-managed conventions. Users should never need
+	// to set these in a values file.
 	orbitValues = mergeMaps(orbitValues, map[string]any{
 		"global": map[string]any{
 			"trustDomain": p.Spec.TrustDomain,
 		},
 		"identity": map[string]any{
-			"existingSecret":           secretName,
-			"existingConfigMap":        "orbit-config",
-			"existingTenantsConfigMap": "orbit-tenants",
+			"existingSecret":              secretName,
+			"existingConfigMap":           "orbit-config",
+			"existingTenantsConfigMap":    "orbit-tenants",
+			"existingClientSecretsSecret": "orbit-tenant-oidc-secrets",
 		},
 		"platform": map[string]any{
 			"namespaces": map[string]any{
 				"system": "orbit-system",
+			},
+			"spiffe": map[string]any{
+				"enabled": p.Spec.SPIRE.Enabled,
 			},
 		},
 	})

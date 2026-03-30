@@ -78,6 +78,12 @@ type Service struct {
 	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
 
+	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
+	// tenant ID. Populated at startup by initClientSecrets and refreshed live
+	// by watchClientSecrets whenever orbit-tenant-oidc-secrets changes.
+	// Access only while holding mu (read or write as appropriate).
+	clientSecrets map[string]string
+
 	// extractor derives a Principal from the inbound request (reads the
 	// Envoy-injected XFCC header in production; a stub header locally).
 	extractor PrincipalExtractor
@@ -121,6 +127,13 @@ func NewService(
 		tracer:        otel.Tracer("orbit.identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
+		clientSecrets: make(map[string]string),
+	}
+
+	// Load the aggregated client secrets before OIDC discovery so that
+	// confidential tenants have their client_secret available on first startup.
+	if err := svc.initClientSecrets(ctx); err != nil {
+		return nil, fmt.Errorf("identity service: init client secrets: %w", err)
 	}
 
 	// Discover OIDC providers for all active tenants in the registry.
@@ -128,11 +141,13 @@ func NewService(
 		return nil, fmt.Errorf("identity service: init tenant oidc providers: %w", err)
 	}
 
-	// Start the live-reload watcher.  The goroutine exits when ctx is
-	// canceled (SIGTERM), so the caller must pass a context that is
-	// tied to the process lifetime.
+	// Start live-reload watchers. Both goroutines exit when ctx is canceled
+	// (SIGTERM), so the caller must pass a context tied to the process lifetime.
 	registryPath := os.Getenv("ORBIT_TENANTS_CONFIG")
 	go svc.watchTenantRegistry(ctx, registryPath)
+
+	secretsPath := clientSecretsPath()
+	go svc.watchClientSecrets(ctx, secretsPath)
 
 	// Load or generate the RSA signing key.
 	if err := svc.initSigningKey(ctx); err != nil {
@@ -904,7 +919,7 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 // tenant). A discovery failure for any tenant is fatal — misconfigured
 // providers should be caught at startup, not at first login.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
-	tenants, err := loadTenantRegistry()
+	tenants, err := loadTenantRegistry(s.clientSecrets)
 	if err != nil {
 		return fmt.Errorf("load tenant registry: %w", err)
 	}
@@ -942,19 +957,19 @@ func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
 // The updated map is swapped in atomically under a write lock so in-flight
 // requests using the old map are not interrupted.
 func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
-	tenants, err := loadTenantRegistry()
+	// Snapshot both maps under a single read lock to keep them consistent.
+	s.mu.RLock()
+	current := s.oidcTenants
+	clientSecrets := s.clientSecrets
+	s.mu.RUnlock()
+
+	tenants, err := loadTenantRegistry(clientSecrets)
 	if err != nil {
 		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
-
-	// Snapshot the current map once before the loop — one lock acquisition
-	// rather than one per iteration.
-	s.mu.RLock()
-	current := s.oidcTenants
-	s.mu.RUnlock()
 
 	// Build the new map, reusing existing providers where the issuer URL is
 	// unchanged. Always take the freshly resolved cfg so that rotated client

@@ -175,6 +175,7 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 // the controller-runtime Manager.
 func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logger) error {
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
+	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
 		Client:     mgr.GetClient(),
@@ -189,10 +190,11 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 	}
 
 	tenantReconciler := &operator.TenantReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Registry: registry,
-		Logger:   logger,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Registry:   registry,
+		Aggregator: aggregator,
+		Logger:     logger,
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
 		return err

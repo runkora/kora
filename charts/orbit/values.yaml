@@ -5,15 +5,24 @@
 # These are the production-safe defaults. Override per-environment via a
 # values file passed with -f, or with --set for individual fields.
 #
+# When deployed via the orbit-operator, the following values are computed
+# automatically from the OrbitPlatform CR and active OrbitTenant CRs —
+# you do NOT need to set them in a values file:
+#
+#   global.trustDomain
+#   identity.existingSecret              (from spec.secrets.platformSecretRef)
+#   identity.existingConfigMap           (always "orbit-config")
+#   identity.existingTenantsConfigMap    (always "orbit-tenants")
+#   identity.existingClientSecretsSecret (always "orbit-tenant-oidc-secrets")
+#   platform.namespaces.tenants          (derived from active OrbitTenant CRs)
+#   platform.spiffe.enabled              (from spec.spire.enabled)
+#
+# These defaults match the operator's naming conventions so the chart works
+# correctly both when the operator manages it and when deployed standalone.
+#
 # Local dev example:
 #   helm upgrade --install orbit ./charts/orbit \
-#     -f deploy/local/orbit-values.yaml
-#
-# Operator example (GitOps / separate deployment repo):
-#   helm upgrade --install orbit oci://ghcr.io/orbit-sh/charts/orbit \
-#     --version 0.1.0 \
-#     -f my-org/orbit-values.yaml \
-#     --set global.trustDomain=my-org.internal
+#     -f deploy/local/orbit-values.yaml -n orbit-system
 # =============================================================================
 
 # -- Global values shared across all templates.
@@ -50,41 +59,42 @@ identity:
   # Valid values: development, local, production
   appEnv: production
 
-  # Path inside the container where the tenant registry YAML is mounted.
-  # The ORBIT_TENANTS_CONFIG env var is set to this path.
-  # Must match the mountPath of the tenantsConfigMap volume below.
-  config:
-    tenantsConfigPath: "/etc/orbit/tenants.yaml"
+  # Name of the existing Secret containing environment variables for the
+  # identity service (DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY, etc.).
+  # Operator default: "orbit-secrets" (created by scripts/cluster/create-secrets.sh).
+  existingSecret: "orbit-secrets"
 
-  # Name of an existing ConfigMap containing the tenant registry YAML.
-  # The ConfigMap must have a key "tenants.yaml".
-  # When set, the chart mounts this ConfigMap at config.tenantsConfigPath.
-  # When empty, no tenants volume is mounted — ORBIT_TENANTS_CONFIG must be
-  # provided via existingSecret or another mechanism.
-  existingTenantsConfigMap: ""
+  # Name of the existing ConfigMap containing non-secret environment variables
+  # (DB_HOST, DB_NAME, DB_PORT, DB_USER, REDIS_HOST, REDIS_PORT, ORBIT_OIDC_CLIENT_ID,
+  # ORBIT_OIDC_ISSUER_URL). Operator default: "orbit-config" (managed by operator).
+  existingConfigMap: "orbit-config"
 
-  # Name of an existing Secret containing environment variables for the
-  # identity service (DB_PASSWORD, REDIS_PASSWORD, JWT_SIGNING_KEY, etc.).
-  # When set, the Secret is mounted as envFrom.
-  # When empty, no secret envFrom is mounted — supply env vars another way.
-  existingSecret: ""
+  # Name of the existing ConfigMap containing the tenant registry YAML.
+  # The ConfigMap must have a key "tenants.yaml". Mounted at /etc/orbit/tenants.yaml
+  # and referenced via ORBIT_TENANTS_CONFIG env var.
+  # Operator default: "orbit-tenants" (managed by orbit-operator from OrbitTenant CRs).
+  existingTenantsConfigMap: "orbit-tenants"
 
-  # Name of an existing ConfigMap containing non-secret environment variables
-  # (DB_HOST, DB_NAME, REDIS_HOST, etc.).
-  # When set, the ConfigMap is mounted as envFrom.
-  existingConfigMap: ""
+  # Name of the aggregated OIDC client secrets Secret managed by the orbit-operator
+  # (orbit-tenant-oidc-secrets). Mounted at /etc/orbit/tenant-secrets/client-secrets.yaml
+  # and referenced via ORBIT_TENANT_SECRETS_CONFIG. The identity service hot-reloads
+  # this file without a pod restart when secrets are rotated.
+  # Mounted with optional: true so the pod starts cleanly before any confidential
+  # tenants are provisioned. Operator default: "orbit-tenant-oidc-secrets".
+  existingClientSecretsSecret: "orbit-tenant-oidc-secrets"
 
 # -- Platform namespace configuration.
-# Must match the namespaces configured in the orbit-platform chart.
+# The operator injects these from the OrbitPlatform CR and active OrbitTenant CRs.
 platform:
   namespaces:
     # The system namespace where Orbit core services are deployed.
     system: "orbit-system"
-    # Tenant namespaces managed by this Orbit installation.
-    # Used to configure DestinationRules and cross-namespace policies.
+    # Tenant namespaces — populated by the orbit-operator from active OrbitTenant CRs.
+    # Do not set this manually when using the operator.
     tenants: []
 
   # SPIFFE configuration for DestinationRule SAN validation.
+  # Operator injects this from spec.spire.enabled in the OrbitPlatform CR.
   spiffe:
     enabled: true
 

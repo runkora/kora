@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,10 +29,9 @@ type registryEntry struct {
 }
 
 type registryOIDC struct {
-	IssuerURL       string   `json:"issuerURL"`
-	ClientID        string   `json:"clientID"`
-	ClientSecretEnv string   `json:"clientSecretEnv"`
-	Scopes          []string `json:"scopes"`
+	IssuerURL string   `json:"issuerURL"`
+	ClientID  string   `json:"clientID"`
+	Scopes    []string `json:"scopes"`
 }
 
 const (
@@ -135,10 +133,9 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []OrbitTenant) (string, error
 			DisplayName: t.Spec.DisplayName,
 			State:       "active",
 			OIDC: registryOIDC{
-				IssuerURL:       t.Spec.OIDC.IssuerURL,
-				ClientID:        t.Spec.OIDC.ClientID,
-				ClientSecretEnv: tenantOIDCSecretEnvVar(t.Name),
-				Scopes:          scopes,
+				IssuerURL: t.Spec.OIDC.IssuerURL,
+				ClientID:  t.Spec.OIDC.ClientID,
+				Scopes:    scopes,
 			},
 		})
 	}
@@ -148,28 +145,6 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []OrbitTenant) (string, error
 		return "", fmt.Errorf("marshal tenant registry: %w", err)
 	}
 	return string(out), nil
-}
-
-// tenantOIDCSecretEnvVar derives the env var name that the identity service
-// reads to obtain the OIDC client secret for a given tenant.
-//
-// Convention: ORBIT_TENANT_{UPPER_SANITIZED_ID}_OIDC_CLIENT_SECRET
-// e.g. tenant id "acme-corp" → ORBIT_TENANT_ACME_CORP_OIDC_CLIENT_SECRET
-//
-// NOTE: spec.oidc.clientSecretRef documents which Secret contains the client
-// secret value, but the operator does not project it automatically — the
-// environment variable must be present in the identity service pod (injected
-// via ESO, Vault Agent, SealedSecret, or manually). This is tracked for a
-// future operator enhancement.
-func tenantOIDCSecretEnvVar(tenantID string) string {
-	upper := strings.ToUpper(tenantID)
-	sanitized := strings.Map(func(r rune) rune {
-		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			return r
-		}
-		return '_'
-	}, upper)
-	return fmt.Sprintf("ORBIT_TENANT_%s_OIDC_CLIENT_SECRET", sanitized)
 }
 
 func (r *TenantRegistry) createConfigMap(ctx context.Context, yaml string) error {

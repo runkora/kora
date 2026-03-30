@@ -357,23 +357,22 @@ identity:
     limits:
       cpu: 500m
       memory: 256Mi
-  config:
-    # Path inside the container where the tenant registry file is mounted.
-    tenantsConfigPath: /etc/orbit/tenants.yaml
   # Name of an existing ConfigMap containing a `tenants.yaml` key with the tenant registry.
-  # Operators create this ConfigMap in their GitOps tooling (e.g. as a ConfigMap resource in
-  # their deployment repo, or via ExternalSecrets for the credential env vars).
-  # The chart mounts it at identity.config.tenantsConfigPath.
-  # When empty, no mount is added — the operator must ensure the file exists by other means.
-  existingTenantsConfigMap: ""
-  existingSecret: ""            # name of an existing k8s Secret containing orbit-secrets keys
+  # Mounted at /etc/orbit/tenants.yaml inside the container (ORBIT_TENANTS_CONFIG).
+  # When using the orbit-operator this is always "orbit-tenants" — injected automatically.
+  existingTenantsConfigMap: "orbit-tenants"
+  # Name of the aggregated OIDC client secrets Secret managed by the orbit-operator.
+  # Mounted at /etc/orbit/tenant-secrets/client-secrets.yaml (ORBIT_TENANT_SECRETS_CONFIG).
+  # When using the orbit-operator this is always "orbit-tenant-oidc-secrets" — injected automatically.
+  existingClientSecretsSecret: "orbit-tenant-oidc-secrets"
+  existingSecret: "orbit-secrets"  # name of an existing k8s Secret containing orbit-secrets keys
+  existingConfigMap: "orbit-config" # name of an existing ConfigMap containing non-secret config
 
 platform:
   namespaces:
-    # Additional tenant namespaces to create, labelled for Istio injection + SPIFFE.
-    # Each entry creates a Namespace with orbit.io/role: tenant and istio-injection: enabled.
+    # Tenant namespaces — populated automatically by the orbit-operator from active OrbitTenant CRs.
+    # Do not set this when using the operator; set it only for standalone Helm installs.
     tenants: []
-    # - orbit-example-tenant
 
   spiffe:
     # ClusterSPIFFEID resources configure the SPIRE Controller Manager.
@@ -402,14 +401,11 @@ identity:
   image:
     repository: orbit-registry:5001/orbit-identity
     tag: latest
-  config:
-    tenantsConfigPath: /etc/orbit/tenants.yaml
-  existingSecret: orbit-secrets
-
-platform:
-  namespaces:
-    tenants:
-      - orbit-example-tenant
+  appEnv: local
+  # NOTE: existingSecret, existingConfigMap, existingTenantsConfigMap,
+  # existingClientSecretsSecret, and platform.namespaces.tenants are all
+  # injected by the orbit-operator from the OrbitPlatform CR and OrbitTenant CRs.
+  # They are not needed in this file.
 ```
 
 ### Local Cluster Install Sequence — Tier 2
@@ -452,7 +448,7 @@ This sequence is wrapped in a single `make cluster-deploy` target.
 
 **Tier 2 — `make cluster-deploy` (local k3d cluster):**
 
-The install sequence above. The ConfigMap mount at `/etc/orbit/tenants.yaml` inside the pod matches `tenantsConfigPath`. This is the same mount pattern an operator uses with their own ConfigMap or Secret.
+The install sequence above. The orbit-operator mounts the `orbit-tenants` ConfigMap at `/etc/orbit/tenants.yaml` inside the identity pod and injects `ORBIT_TENANTS_CONFIG` accordingly. This is handled automatically — no values file configuration is required.
 
 ### `config/tenants.yaml` — Committed Local Dev Tenant Registry
 
@@ -594,7 +590,7 @@ The `helmCharts:` Kustomize directives that previously installed Istio and SPIRE
 2. **Run `helm dependency update charts/orbit-platform/`** — vendor sub-charts into `charts/orbit-platform/charts/`
 3. **Create `charts/orbit/` skeleton** — `Chart.yaml`, `values.yaml`, `templates/` directory structure, `_helpers.tpl`
 4. **Migrate `infrastructure/base/`** — copy `namespace.yaml`, `spiffe.yaml`, `net-pols.yaml` into `charts/orbit/templates/platform/`; add Helm templating for values-driven fields (trust domain, tenant namespace list)
-5. **Migrate `k8s/system/`** — copy `identity.yaml` (split into `serviceaccount.yaml`, `deployment.yaml`, `service.yaml`), `destination-rule.yaml` into `charts/orbit/templates/identity/`; parameterise image repo/tag, resource limits, secret name, `tenantsConfigPath` via values
+5. **Migrate `k8s/system/`** — copy `identity.yaml` (split into `serviceaccount.yaml`, `deployment.yaml`, `service.yaml`), `destination-rule.yaml` into `charts/orbit/templates/identity/`; parameterise image repo/tag, resource limits, secret name via values; hardcode mount path `/etc/orbit/tenants.yaml`
 6. **Migrate `k8s/istio-system/`** — copy `envoyfilter-identity-proxy.yaml` into `charts/orbit/templates/identity-proxy/`
 7. **Create `deploy/local/`** — `platform-values.yaml` and `orbit-values.yaml` with local overrides; move `k8s/orbit-example-tenant/` here as a `kubectl apply` fixture (not part of either chart)
 8. **Rename `infrastructure/overlays/local/`** to **`infrastructure/bootstrap/`**; remove all `helmCharts:` directives from `kustomization.yaml`; retain only the k3d cluster definition

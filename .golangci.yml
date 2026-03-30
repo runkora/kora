@@ -54,6 +54,7 @@ linters:
 
     gosec:
       excludes:
+        - G101  # Potential hardcoded credentials — false positive on env-var names and k8s resource name constants
         - G104  # Errors unhandled
         - G204  # Subprocess launched with variable
         - G302  # File permissions

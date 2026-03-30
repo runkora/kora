@@ -10,7 +10,7 @@ import (
 // ─── Tenant Registry ──────────────────────────────────────────────────────────
 //
 // The tenant registry is a YAML file read from the path set by the
-// ORBIT_TENANTS_CONFIG environment variable.  In local dev this points at
+// ORBIT_TENANTS_CONFIG environment variable. In local dev this points at
 // config/tenants.yaml; in cluster mode it is a ConfigMap-mounted file at
 // /etc/orbit/tenants.yaml (the orbit-tenants ConfigMap managed by the operator).
 //
@@ -24,8 +24,12 @@ import (
 //	    oidc:
 //	      issuerURL: "https://accounts.google.com"
 //	      clientID: "123.apps.googleusercontent.com"
-//	      clientSecretEnv: "ORBIT_TENANT_ACME_OIDC_CLIENT_SECRET"
 //	      scopes: [openid, profile, email]
+//
+// OIDC client secrets are NOT stored in this file. They are read from the
+// aggregated Secret orbit-tenant-oidc-secrets (managed by the orbit-operator)
+// and passed to loadTenantRegistry as the clientSecrets map.
+// See docs/adr/0029-oidc-client-secret-projection-for-confidential-tenants.md
 
 // tenantRegistryFile is the on-disk schema for the tenant registry YAML.
 type tenantRegistryFile struct {
@@ -42,16 +46,17 @@ type tenantEntry struct {
 }
 
 // tenantOIDCEntry holds per-tenant OIDC config from the registry file.
+// Client secrets are NOT stored here — they are injected from the aggregated
+// Secret mounted at ORBIT_TENANT_SECRETS_CONFIG.
 type tenantOIDCEntry struct {
-	IssuerURL       string   `json:"issuerURL"`
-	ClientID        string   `json:"clientID"`
-	ClientSecretEnv string   `json:"clientSecretEnv"`
-	Scopes          []string `json:"scopes"`
+	IssuerURL string   `json:"issuerURL"`
+	ClientID  string   `json:"clientID"`
+	Scopes    []string `json:"scopes"`
 }
 
 // TenantOIDCConfig is the resolved per-tenant OIDC configuration exposed to
-// the service layer.  ClientSecret is resolved from the env var named by
-// ClientSecretEnv at load time.
+// the service layer. ClientSecret is resolved from the aggregated client
+// secrets map keyed by tenant ID.
 type TenantOIDCConfig struct {
 	IssuerURL    string
 	ClientID     string
@@ -60,12 +65,14 @@ type TenantOIDCConfig struct {
 }
 
 // loadTenantRegistry reads the tenant registry from the path specified by
-// ORBIT_TENANTS_CONFIG and returns a map keyed by tenant ID.
+// ORBIT_TENANTS_CONFIG and returns a map keyed by tenant ID. Client secrets
+// are resolved from clientSecrets (keyed by tenant ID), which is populated
+// from the aggregated Secret orbit-tenant-oidc-secrets.
 //
 // An empty ORBIT_TENANTS_CONFIG is not an error — it returns an empty map,
-// which causes requireTenantOIDC to return ErrOIDCNotConfigured for any
-// tenant, consistent with the service running without OIDC.
-func loadTenantRegistry() (map[string]TenantOIDCConfig, error) {
+// which causes tenantOIDC to return ErrOIDCNotConfigured for any tenant,
+// consistent with the service running without OIDC.
+func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCConfig, error) {
 	path := os.Getenv("ORBIT_TENANTS_CONFIG")
 	if path == "" {
 		return map[string]TenantOIDCConfig{}, nil
@@ -92,15 +99,10 @@ func loadTenantRegistry() (map[string]TenantOIDCConfig, error) {
 			scopes = []string{"openid", "profile", "email"}
 		}
 
-		secret := ""
-		if t.OIDC.ClientSecretEnv != "" {
-			secret = os.Getenv(t.OIDC.ClientSecretEnv)
-		}
-
 		out[t.ID] = TenantOIDCConfig{
 			IssuerURL:    t.OIDC.IssuerURL,
 			ClientID:     t.OIDC.ClientID,
-			ClientSecret: secret,
+			ClientSecret: clientSecrets[t.ID],
 			Scopes:       scopes,
 		}
 	}

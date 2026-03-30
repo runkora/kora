@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -23,14 +25,18 @@ import (
 //  1. Creates the tenant namespace with the required Istio/SPIRE labels.
 //  2. Syncs the orbit-tenants ConfigMap (via TenantRegistry) so the
 //     identity service picks up the new OIDC provider.
-//  3. Marks the tenant Ready and records the last-reconciled timestamp.
+//  3. Syncs the orbit-tenant-oidc-secrets Secret (via ClientSecretAggregator)
+//     so confidential tenants have their client_secret available to the
+//     identity service without a pod restart.
+//  4. Marks the tenant Ready and records the last-reconciled timestamp.
 //
 // See docs/adr/0028-orbit-kubernetes-operator.md for the design.
 type TenantReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Registry *TenantRegistry
-	Logger   logging.Logger
+	Scheme     *runtime.Scheme
+	Registry   *TenantRegistry
+	Aggregator *ClientSecretAggregator
+	Logger     logging.Logger
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitTenant is
@@ -41,8 +47,12 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &OrbitTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted — trigger a registry sync so the tenant is removed.
-			return ctrl.Result{}, r.Registry.Sync(ctx)
+			// CR deleted — sync both the registry and the aggregated secrets so
+			// the removed tenant is no longer served by the identity service.
+			if syncErr := r.Registry.Sync(ctx); syncErr != nil {
+				return ctrl.Result{}, syncErr
+			}
+			return ctrl.Result{}, r.Aggregator.Sync(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
 	}
@@ -99,7 +109,18 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	_ = r.setTenantCondition(ctx, tenant, ConditionRegistryUpdated, metav1.ConditionTrue,
 		"Synced", "orbit-tenants ConfigMap updated")
 
-	// Step 3: mark ready and record timestamp.
+	// Step 3: rebuild the aggregated OIDC client secrets Secret so that
+	// confidential tenants are served without an identity service pod restart.
+	if err := r.Aggregator.Sync(ctx); err != nil {
+		log.Error(ctx, "failed to sync aggregated client secrets",
+			logging.Field{Key: "tenant", Value: tenant.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
+	// Step 4: mark ready and record timestamp.
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
@@ -116,10 +137,52 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 // SetupWithManager registers the controller with the controller-runtime Manager.
+// In addition to watching OrbitTenant CRs, it watches corev1.Secret objects
+// so that a rotation of a referenced clientSecretRef immediately triggers a
+// reconcile of the affected tenant — no manual sync required.
 func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&OrbitTenant{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.secretToTenants),
+		).
 		Complete(r)
+}
+
+// secretToTenants maps a Secret event to the set of OrbitTenant reconcile
+// requests whose spec.oidc.clientSecretRef points to that Secret.
+func (r *TenantReconciler) secretToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	list := &OrbitTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		r.Logger.Error(ctx, "failed to list OrbitTenants for secret watch",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+
+	var reqs []reconcile.Request
+	for _, t := range list.Items {
+		ref := t.Spec.OIDC.ClientSecretRef
+		if ref == nil {
+			continue
+		}
+		ns := ref.Namespace
+		if ns == "" {
+			ns = systemNamespace
+		}
+		if ref.Name == secret.Name && ns == secret.Namespace {
+			reqs = append(reqs, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: t.Name},
+			})
+		}
+	}
+	return reqs
 }
 
 // -----------------------------------------------------------------------------
@@ -180,12 +243,16 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 // reconcileSuspended handles the case where spec.active is false. The
 // namespace is left intact; only the registry is synced to reflect suspension.
 func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, error) {
-	r.Logger.Info(ctx, "tenant is suspended, syncing registry only",
+	r.Logger.Info(ctx, "tenant is suspended, syncing registry and aggregated secrets",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 	)
 	if err := r.Registry.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync registry for suspended tenant: %w", err)
+	}
+	if err := r.Aggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated secrets for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

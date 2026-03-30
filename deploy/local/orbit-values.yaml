@@ -8,6 +8,20 @@
 #     -f deploy/local/orbit-values.yaml -n orbit-system
 #
 # Trust domain must match spec.trustDomain in deploy/local/orbit-platform.yaml.
+#
+# NOTE: The following fields are intentionally absent from this file because
+# the orbit-operator injects them as computed values during reconciliation —
+# any values set here would be overwritten:
+#
+#   identity.existingSecret              → from spec.secrets.platformSecretRef
+#   identity.existingConfigMap           → orbit-config (operator-managed)
+#   identity.existingTenantsConfigMap    → orbit-tenants (operator-managed)
+#   identity.existingClientSecretsSecret → orbit-tenant-oidc-secrets (operator-managed)
+#   platform.namespaces.tenants          → derived from active OrbitTenant CRs
+#   platform.spiffe.enabled              → derived from spec.spire.enabled
+#
+# To configure these, edit deploy/local/orbit-platform.yaml (OrbitPlatform CR)
+# or deploy/local/tenants/*.yaml (OrbitTenant CRs).
 # =============================================================================
 
 global:
@@ -28,34 +42,6 @@ identity:
   # APP_ENV controls which config YAML is loaded at startup.
   # "local" maps to backend/internal/identity/config/local.yaml.
   appEnv: local
-
-  config:
-    tenantsConfigPath: "/etc/orbit/tenants.yaml"
-
-  # ConfigMap containing the tenant registry YAML (config/tenants.yaml).
-  # Created by: kubectl create configmap orbit-tenants \
-  #   --from-file=tenants.yaml=config/tenants.yaml -n orbit-system
-  # Or via the GitOps-compatible pattern:
-  #   --set identity.existingTenantsConfigMap=orbit-tenants
-  existingTenantsConfigMap: orbit-tenants
-
-  # Secret containing DB_PASSWORD, REDIS_PASSWORD, JWT_SIGNING_KEY, and
-  # per-tenant OIDC client secrets (e.g. ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET).
-  # Created by: make cluster-secrets (runs scripts/cluster/create-secrets.sh)
-  existingSecret: orbit-secrets
-
-  # ConfigMap containing non-secret env vars (DB_HOST, DB_NAME, REDIS_HOST, etc.).
-  # Created by the chart itself or manually — see deploy/local/README.md.
-  existingConfigMap: orbit-config
-
-platform:
-  namespaces:
-    system: orbit-system
-    tenants:
-      - orbit-tenant-example
-
-  spiffe:
-    enabled: true
 
 networkPolicy:
   enabled: true
