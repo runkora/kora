@@ -55,6 +55,15 @@ interface OrbitJwtPayload {
  * Safe because the token is received directly from the Go backend over a
  * trusted internal network — it is not user-supplied input.
  */
+function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as Record<string, unknown>)['sub'] === 'string' &&
+    typeof (v as Record<string, unknown>)['exp'] === 'number'
+  );
+}
+
 function decodeJwtPayload(token: string): OrbitJwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT structure');
@@ -64,8 +73,9 @@ function decodeJwtPayload(token: string): OrbitJwtPayload {
     .replace(/-/g, '+')
     .replace(/_/g, '/')
     .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
-  const json = atob(base64);
-  return JSON.parse(json) as OrbitJwtPayload;
+  const parsed: unknown = JSON.parse(atob(base64));
+  if (!isOrbitJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
+  return parsed;
 }
 
 // ── POST — exchange id_token for Orbit session ────────────────────────────────

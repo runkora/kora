@@ -175,6 +175,10 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 		return nil, err
 	}
 
+	if ts.meta.DeviceAuthorizationEndpoint == "" {
+		return nil, ErrDeviceFlowNotSupported
+	}
+
 	scopes := ts.cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"openid", "profile", "email"}
@@ -1035,8 +1039,17 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 	if meta.TokenEndpoint == "" {
 		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
 	}
+	if meta.AuthorizationEndpoint == "" {
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise authorization_endpoint", tenantID)
+	}
 	if meta.DeviceAuthorizationEndpoint == "" {
-		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
+		// Not all IdPs support the Device Authorization Grant (RFC 8628).
+		// Web-only providers (e.g. Okta orgs with device flow disabled) omit
+		// this endpoint — log a warning but allow startup to proceed.
+		// InitiateDeviceAuth will return ErrDeviceFlowNotSupported at call time.
+		s.logger.Warn(ctx, "OIDC provider does not advertise device_authorization_endpoint — Device Flow disabled for tenant",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+		)
 	}
 
 	return &tenantOIDCState{cfg: cfg, provider: provider, meta: &meta}, nil

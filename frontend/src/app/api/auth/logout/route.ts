@@ -27,14 +27,16 @@ async function revokeToken(
   tokenTypeHint: 'access_token' | 'refresh_token',
 ): Promise<void> {
   const body = new URLSearchParams({ token, token_type_hint: tokenTypeHint });
-  await fetch(revokeUrl, {
+  const res = await fetch(revokeUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
     cache: 'no-store',
     signal: AbortSignal.timeout(5_000),
   });
-  // Intentionally swallow errors — local session is destroyed regardless.
+  if (!res.ok) {
+    throw new Error(`revocation endpoint returned ${res.status}`);
+  }
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -44,10 +46,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     const revokeUrl = `${config.orbitApiUrl}/identity/revoke`;
 
     // Fire revocation requests concurrently; don't block logout on failures.
-    await Promise.allSettled([
+    const [refreshResult, accessResult] = await Promise.allSettled([
       revokeToken(revokeUrl, session.refreshToken, 'refresh_token'),
       revokeToken(revokeUrl, session.accessToken, 'access_token'),
     ]);
+    if (refreshResult.status === 'rejected') {
+      console.error('[logout] refresh_token revocation failed:', refreshResult.reason);
+    }
+    if (accessResult.status === 'rejected') {
+      console.error('[logout] access_token revocation failed:', accessResult.reason);
+    }
   }
 
   // Destroy the local session cookie unconditionally.
