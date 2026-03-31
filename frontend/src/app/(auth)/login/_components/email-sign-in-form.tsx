@@ -98,7 +98,13 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
       // Persist the resolved tenant config so the callback page can reconstruct
       // the same UserManager after the IdP round-trip — sessionStorage is
       // tab-scoped and cleared when the tab is closed.
-      sessionStorage.setItem(TENANT_CONFIG_STORAGE_KEY, JSON.stringify(tenantConfig));
+      try {
+        sessionStorage.setItem(TENANT_CONFIG_STORAGE_KEY, JSON.stringify(tenantConfig));
+      } catch {
+        setBannerError('Unable to store session data. Check that your browser allows sessionStorage.');
+        setLoading(false);
+        return;
+      }
 
       const userManager = buildUserManager(tenantConfig);
 

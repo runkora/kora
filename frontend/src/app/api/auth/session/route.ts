@@ -135,8 +135,13 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (!backendRes.ok) {
-    const status = backendRes.status === 401 ? 401 : 502;
-    return Response.json({ error: status === 401 ? 'unauthorized' : 'upstream_error' }, { status });
+    if (backendRes.status === 401) {
+      return Response.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    if (backendRes.status >= 400 && backendRes.status < 500) {
+      return Response.json({ error: 'bad_request' }, { status: 400 });
+    }
+    return Response.json({ error: 'upstream_error' }, { status: 502 });
   }
 
   let data: BackendSessionResponse;
@@ -165,6 +170,7 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
+    tenantId: tenantId as string,
   };
 
   // Create the session with a maxAge derived from the backend's refresh token

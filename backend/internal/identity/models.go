@@ -208,4 +208,5 @@ var (
 	ErrIDTokenInvalid         = errors.New("id_token failed verification")
 	ErrTenantNotFound         = errors.New("tenant not found for email domain")
 	ErrDeviceFlowNotSupported = errors.New("tenant OIDC provider does not support Device Authorization Grant")
+	ErrInvalidEmailFormat     = errors.New("invalid email format")
 )

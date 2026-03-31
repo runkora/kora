@@ -35,7 +35,7 @@ import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing
  * `process.env.ORBIT_API_URL` is available in Edge Runtime — it is a
  * server-side env var read at request time, not baked in at build time.
  */
-async function tryRefresh(refreshToken: string): Promise<BackendSessionResponse | null> {
+async function tryRefresh(refreshToken: string, tenantId: string): Promise<BackendSessionResponse | null> {
   const apiBase = process.env.ORBIT_API_URL?.replace(/\/$/, '');
   if (!apiBase) return null;
 
@@ -46,10 +46,7 @@ async function tryRefresh(refreshToken: string): Promise<BackendSessionResponse 
       body: JSON.stringify({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        // tenant_id is required by the backend. Hardcoded to 'default' for the
-        // current single-tenant deployment; extend SessionPayload with tenantId
-        // and read it here when multi-tenancy is introduced.
-        tenant_id: 'default',
+        tenant_id: tenantId,
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(5_000),
@@ -94,7 +91,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const secondsUntilExpiry = session.expiresAt - nowSeconds;
 
   if (secondsUntilExpiry < 5 * 60) {
-    const refreshed = await tryRefresh(session.refreshToken);
+    const refreshed = await tryRefresh(session.refreshToken, session.tenantId);
 
     if (!refreshed) {
       // Refresh failed — destroy the stale session and redirect to login.

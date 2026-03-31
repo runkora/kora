@@ -1,7 +1,7 @@
 # 0031. Home Realm Discovery and Email-Based Tenant Routing
 
 **Status:** Accepted
-**Date:** 2026-07-01
+**Date:** 2026-03-27
 **Deciders:** Engineering Team
 **Technical Story:** PR #17 (`feat/browser-auth-flow`) hardcoded `tenant_id: 'default'` and a singleton `UserManager` initialised from build-time env vars — both assumptions are incompatible with the multi-tenant OIDC registry introduced in ADR-0026.
 
@@ -414,4 +414,4 @@ Local development requires adding `emailDomains: ["orbit.local"]` to the `defaul
 
 The email domain is a routing hint, not an access control boundary. The OIDC provider is the authoritative source of truth for whether a user is permitted to authenticate against a tenant. The identity service's `claimBindings` (ADR-0026) provide a secondary enforcement layer. The discovery step only determines which door to knock on — the door itself decides whether to open.
 
-**Last Updated:** 2026-07-01
+**Last Updated:** 2026-03-27

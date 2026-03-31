@@ -1,4 +1,4 @@
-# 0023. Browser-Based Authentication Flow and BFF Session Architecture
+# 0030. Browser-Based Authentication Flow and BFF Session Architecture
 
 **Status:** Accepted
 **Date:** 2026-03-24

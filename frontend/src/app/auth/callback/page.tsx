@@ -63,7 +63,18 @@ export default function CallbackPage() {
 
         let tenantConfig: TenantOidcConfig;
         try {
-          tenantConfig = JSON.parse(raw) as TenantOidcConfig;
+          const parsed: unknown = JSON.parse(raw);
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            typeof (parsed as Record<string, unknown>).issuerUrl !== 'string' ||
+            typeof (parsed as Record<string, unknown>).clientId !== 'string' ||
+            typeof (parsed as Record<string, unknown>).tenantId !== 'string'
+          ) {
+            router.replace('/login?error=invalid_request');
+            return;
+          }
+          tenantConfig = parsed as TenantOidcConfig;
         } catch {
           router.replace('/login?error=invalid_request');
           return;
