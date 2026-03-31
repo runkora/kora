@@ -111,32 +111,10 @@ func (s *Service) ChatCompletion(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	// ── 3. Policy check ───────────────────────────────────────────────────────
-	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-		TenantID:      p.TenantID,
-		PrincipalID:   p.PrincipalID,
-		PrincipalType: p.PrincipalType,
-		Provider:      targets[0].Provider,
-		ModelID:       targets[0].ModelID,
-	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
-		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
-	}
-	if !decision.Allowed {
-		s.logger.Info(ctx, "inference request denied by policy",
-			logging.Field{Key: "reason", Value: decision.Reason},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
-		return nil, ErrPolicyDenied
-	}
-
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
+	// Policy is evaluated per target inside callWithFailover so that failover
+	// targets are also checked before being attempted.
+	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, p, targets, params)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -239,30 +217,8 @@ func (s *Service) ChatCompletionStream(
 	}
 
 	// ── 3. Policy ──────────────────────────────────────────────────────────────
-	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-		TenantID:      p.TenantID,
-		PrincipalID:   p.PrincipalID,
-		PrincipalType: p.PrincipalType,
-		Provider:      targets[0].Provider,
-		ModelID:       targets[0].ModelID,
-	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
-		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
-	}
-	if !decision.Allowed {
-		s.logger.Info(ctx, "streaming inference request denied by policy",
-			logging.Field{Key: "reason", Value: decision.Reason},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
-		return nil, ErrPolicyDenied
-	}
+	// Evaluated per target inside retryTargets so that failover targets are
+	// also checked before being attempted.
 
 	// ── 4. Open stream from provider ──────────────────────────────────────────
 	// Inject stream_options so providers that support it return usage data.
@@ -273,9 +229,27 @@ func (s *Service) ChatCompletionStream(
 
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
-			p := streamParams
-			p.Model = target.ModelID
-			return c.ChatCompletionStream(ctx, p)
+			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+				TenantID:      p.TenantID,
+				PrincipalID:   p.PrincipalID,
+				PrincipalType: p.PrincipalType,
+				Provider:      target.Provider,
+				ModelID:       target.ModelID,
+			})
+			if polErr != nil {
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
+			}
+			if !decision.Allowed {
+				s.logger.Info(ctx, "streaming inference request denied by policy",
+					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "principal_id", Value: p.PrincipalID},
+					logging.Field{Key: "provider", Value: string(target.Provider)},
+				)
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
+			}
+			q := streamParams
+			q.Model = target.ModelID
+			return c.ChatCompletionStream(ctx, q)
 		})
 
 	if callErr != nil || usedTarget == nil {
@@ -299,26 +273,7 @@ func (s *Service) ChatCompletionStream(
 		defer span.End()
 		defer close(out)
 
-		var (
-			promptTokens, completionTokens, totalTokens int
-			streamErr                                   error
-		)
-
-		for result := range upstream {
-			if result.Err != nil {
-				streamErr = result.Err
-				out <- result
-				break
-			}
-			// Accumulate usage — some providers send it only in the final chunk.
-			// Additive accumulation handles providers that split across chunks.
-			if result.Chunk != nil {
-				promptTokens += int(result.Chunk.Usage.PromptTokens)
-				completionTokens += int(result.Chunk.Usage.CompletionTokens)
-				totalTokens += int(result.Chunk.Usage.TotalTokens)
-			}
-			out <- result
-		}
+		promptTokens, completionTokens, totalTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
 
 		latencyMS := int(time.Since(start).Milliseconds())
 
@@ -369,6 +324,76 @@ func (s *Service) ChatCompletionStream(
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+// drainOpenAIStream forwards chunks from upstream to out, accumulating token
+// usage counts. If ctx is canceled before the stream ends, the remaining
+// upstream items are drained asynchronously so the connector goroutine can exit.
+func drainOpenAIStream(
+	ctx context.Context,
+	upstream <-chan OpenAIStreamResult,
+	out chan<- OpenAIStreamResult,
+) (promptTokens, completionTokens, totalTokens int, streamErr error) {
+	for result := range upstream {
+		if result.Err != nil {
+			streamErr = result.Err
+			select {
+			case out <- result:
+			case <-ctx.Done():
+			}
+			return
+		}
+		// Accumulate usage — some providers send it only in the final chunk.
+		// Additive accumulation handles providers that split across chunks.
+		if result.Chunk != nil {
+			promptTokens += int(result.Chunk.Usage.PromptTokens)
+			completionTokens += int(result.Chunk.Usage.CompletionTokens)
+			totalTokens += int(result.Chunk.Usage.TotalTokens)
+		}
+		select {
+		case out <- result:
+		case <-ctx.Done():
+			// Client disconnected; drain upstream so the connector goroutine can exit.
+			go func() {
+				for range upstream {
+				}
+			}()
+			return
+		}
+	}
+	return
+}
+
+// drainAnthropicStream forwards events from upstream to out, accumulating the
+// full message via the SDK Accumulate helper. If ctx is canceled before the
+// stream ends, the remaining upstream items are drained asynchronously.
+func drainAnthropicStream(
+	ctx context.Context,
+	upstream <-chan AnthropicStreamEvent,
+	out chan<- AnthropicStreamEvent,
+) (accumulated anthropic.Message, streamErr error) {
+	for ev := range upstream {
+		if ev.Err != nil {
+			streamErr = ev.Err
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+			}
+			return
+		}
+		_ = accumulated.Accumulate(ev.Event)
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			// Client disconnected; drain upstream so the connector goroutine can exit.
+			go func() {
+				for range upstream {
+				}
+			}()
+			return
+		}
+	}
+	return
+}
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
@@ -483,16 +508,36 @@ func retryTargets[T any](
 }
 
 // callWithFailover wraps retryTargets for non-streaming OpenAI requests.
+// Policy is evaluated per target so that failover targets are also checked.
 func (s *Service) callWithFailover(
 	ctx context.Context,
+	p principal,
 	targets []RouteTarget,
 	params openai.ChatCompletionNewParams,
 ) (*openai.ChatCompletion, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
-			p := params
-			p.Model = target.ModelID
-			return c.ChatCompletion(ctx, p)
+			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+				TenantID:      p.TenantID,
+				PrincipalID:   p.PrincipalID,
+				PrincipalType: p.PrincipalType,
+				Provider:      target.Provider,
+				ModelID:       target.ModelID,
+			})
+			if polErr != nil {
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
+			}
+			if !decision.Allowed {
+				s.logger.Info(ctx, "inference request denied by policy",
+					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "principal_id", Value: p.PrincipalID},
+					logging.Field{Key: "provider", Value: string(target.Provider)},
+				)
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
+			}
+			q := params
+			q.Model = target.ModelID
+			return c.ChatCompletion(ctx, q)
 		})
 }
 
@@ -543,31 +588,28 @@ func (s *Service) AnthropicMessages(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-		TenantID:      p.TenantID,
-		PrincipalID:   p.PrincipalID,
-		PrincipalType: p.PrincipalType,
-		Provider:      targets[0].Provider,
-		ModelID:       targets[0].ModelID,
-	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
-		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
-	}
-	if !decision.Allowed {
-		s.logger.Info(ctx, "inference request denied by policy",
-			logging.Field{Key: "reason", Value: decision.Reason},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
-		return nil, ErrPolicyDenied
-	}
-
+	// Policy is evaluated per target inside retryTargets so that failover targets
+	// are also checked before being attempted.
 	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
+			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+				TenantID:      p.TenantID,
+				PrincipalID:   p.PrincipalID,
+				PrincipalType: p.PrincipalType,
+				Provider:      target.Provider,
+				ModelID:       target.ModelID,
+			})
+			if polErr != nil {
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
+			}
+			if !decision.Allowed {
+				s.logger.Info(ctx, "inference request denied by policy",
+					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "principal_id", Value: p.PrincipalID},
+					logging.Field{Key: "provider", Value: string(target.Provider)},
+				)
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
+			}
 			q := params
 			q.Model = target.ModelID
 			return c.AnthropicMessages(ctx, q)
@@ -657,33 +699,28 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-		TenantID:      p.TenantID,
-		PrincipalID:   p.PrincipalID,
-		PrincipalType: p.PrincipalType,
-		Provider:      targets[0].Provider,
-		ModelID:       targets[0].ModelID,
-	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
-		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
-	}
-	if !decision.Allowed {
-		s.logger.Info(ctx, "streaming anthropic request denied by policy",
-			logging.Field{Key: "reason", Value: decision.Reason},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
-		return nil, ErrPolicyDenied
-	}
-
+	// Policy is evaluated per target inside retryTargets so that failover targets
+	// are also checked before being attempted.
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
+			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
+				TenantID:      p.TenantID,
+				PrincipalID:   p.PrincipalID,
+				PrincipalType: p.PrincipalType,
+				Provider:      target.Provider,
+				ModelID:       target.ModelID,
+			})
+			if polErr != nil {
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
+			}
+			if !decision.Allowed {
+				s.logger.Info(ctx, "streaming anthropic request denied by policy",
+					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "principal_id", Value: p.PrincipalID},
+					logging.Field{Key: "provider", Value: string(target.Provider)},
+				)
+				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
+			}
 			q := params
 			q.Model = target.ModelID
 			return c.AnthropicMessagesStream(ctx, q)
@@ -706,20 +743,7 @@ func (s *Service) AnthropicMessagesStream(
 		defer span.End()
 		defer close(out)
 
-		var (
-			accumulated anthropic.Message
-			streamErr   error
-		)
-
-		for ev := range upstream {
-			if ev.Err != nil {
-				streamErr = ev.Err
-				out <- ev
-				break
-			}
-			_ = accumulated.Accumulate(ev.Event)
-			out <- ev
-		}
+		accumulated, streamErr := drainAnthropicStream(ctx, upstream, out)
 
 		latencyMS := int(time.Since(start).Milliseconds())
 

@@ -9,6 +9,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -150,7 +151,12 @@ func assistantMsgBlocks(m *openai.ChatCompletionAssistantMessageParam) []anthrop
 	for _, tc := range m.ToolCalls {
 		var input any = map[string]any{}
 		if tc.Function.Arguments != "" {
-			input = map[string]any{"_raw": tc.Function.Arguments}
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+				input = parsed
+			}
+			// If arguments is not valid JSON, leave input as empty map rather than
+			// forwarding an unparseable string — the Anthropic API requires an object.
 		}
 		blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Function.Name))
 	}

@@ -49,6 +49,7 @@ func (c *Connector) openaiChatCompletionStream(ctx context.Context, params opena
 	ch := make(chan inferencegw.OpenAIStreamResult, 32)
 	go func() {
 		defer close(ch)
+		defer stream.Close()
 		chunkCount := 0
 		for stream.Next() {
 			chunkCount++

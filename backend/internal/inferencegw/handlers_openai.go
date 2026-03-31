@@ -67,6 +67,10 @@ func (e *chatCompletionEnvelope) UnmarshalJSON(b []byte) error {
 func (c *Controller) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Cap body size to prevent arbitrarily large payloads from exhausting memory
+	// (the SigV4 transport buffers the full body for signing).
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
+
 	// Decode directly into the openai-go SDK wire type — zero translation loss.
 	// Tool definitions, response_format, logprobs, seed, and all other fields
 	// pass through to the provider unchanged.

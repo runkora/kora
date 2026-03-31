@@ -49,6 +49,9 @@ func (e *messagesEnvelope) UnmarshalJSON(b []byte) error {
 func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Cap body size to prevent arbitrarily large payloads from exhausting memory.
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
+
 	var env messagesEnvelope
 	if !api.DecodeJSON(ctx, r, w, c.logger, &env) {
 		return

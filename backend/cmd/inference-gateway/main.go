@@ -126,6 +126,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	pricing := inferencegw.NewNopPricingCache()
 	router := inferencegw.NewRoutingEngine(connectors, pricing)
 	policy := &inferencegw.AllowAllPolicyEvaluator{}
+	logger.Warn(ctx, "WARNING: using AllowAllPolicyEvaluator — all inference requests are permitted without policy evaluation; replace before production use")
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 
 	// Warm the alias table before accepting traffic so that alias routing
