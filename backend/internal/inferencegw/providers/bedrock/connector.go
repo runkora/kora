@@ -314,14 +314,30 @@ func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, 
 }
 
 // isAnthropicModel reports whether the given model ID belongs to the Anthropic
-// family. It matches bare IDs ("anthropic.claude-…") and all cross-region
-// inference profile prefixes ("us.anthropic.…", "apac.anthropic.…", etc.).
+// family. It handles all three forms the routing engine may deliver:
 //
-// We strip the optional region prefix first (e.g. "us.", "eu.", "ap.") and
-// then require the remaining ID to start with "anthropic." — a HasPrefix check
-// rather than Contains so that a hypothetical third-party model whose name
-// merely contains the substring cannot accidentally be routed to the Anthropic
-// client.
+//   - Canonical Bedrock namespace:  "anthropic.claude-3-5-sonnet-20241022-v1:0"
+//   - Cross-region profile:         "us.anthropic.claude-3-5-sonnet-20241022-v1:0"
+//   - Short alias (client-supplied or cold-start before catalog is warm):
+//     "claude-sonnet-4-6", "claude-3-5-haiku", etc.
+//
+// When the model catalog is warm, the routing engine resolves short aliases to
+// their canonical Bedrock IDs before the connector is called, so the
+// "anthropic." prefix check is the common path. The "claude-" prefix check is
+// the cold-start / direct-alias fallback: every Anthropic chat model carries
+// this prefix, and no other Bedrock provider uses it.
+//
+// HasPrefix is used in both cases rather than Contains so that a hypothetical
+// third-party model whose name merely contains the substring cannot
+// accidentally be routed to the Anthropic client.
 func isAnthropicModel(id string) bool {
-	return strings.HasPrefix(stripRegionPrefix(id), "anthropic.")
+	base := stripRegionPrefix(id)
+	// Fully-qualified Bedrock form: "anthropic.claude-..."
+	if strings.HasPrefix(base, "anthropic.") {
+		return true
+	}
+	// Short alias form — "claude-..." is the universal Anthropic model prefix
+	// used by clients and by the routing engine on a cold start (before the
+	// first ListModels sweep has populated the alias table).
+	return strings.HasPrefix(base, "claude-")
 }
