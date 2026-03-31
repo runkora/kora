@@ -49,7 +49,7 @@ export function isSessionValid(session: IronSession<SessionPayload>): boolean {
  * Used by middleware to decide whether to attempt an inline refresh.
  */
 export function isSessionExpiringSoon(session: IronSession<SessionPayload>): boolean {
-  if (!session.expiresAt) return false;
+  if (!session.expiresAt) return true;
   const nowSeconds = Math.floor(Date.now() / 1000);
   return session.expiresAt - nowSeconds < 5 * 60;
 }
