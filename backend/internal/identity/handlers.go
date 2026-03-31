@@ -76,6 +76,12 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrDeviceFlowNotSupported) {
+			apiErr := api.BadRequestError("device_flow_not_supported",
+				"this tenant's OIDC provider does not support the Device Authorization Grant", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to initiate device auth", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

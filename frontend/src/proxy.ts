@@ -102,7 +102,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // `response` object it was bound to. We copy those cookies onto the
       // redirect so the browser actually receives the delete instruction
       // and the stale cookie is cleared (preventing a redirect loop).
-      await session.destroy();
+      session.destroy();
       const loginUrl = new URL(APP_ROUTES.login, request.url);
       if (isSafeRedirectPath(pathname)) {
         loginUrl.searchParams.set('next', pathname);
@@ -114,12 +114,21 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return loginRedirect;
     }
 
-    // Update the session in place — iron-session writes the sealed cookie into
-    // `response.cookies` when `save()` is called.
-    session.accessToken = refreshed.access_token;
-    session.refreshToken = refreshed.refresh_token;
-    session.expiresAt = refreshed.issued_at + refreshed.expires_in;
-    await session.save();
+    // Re-bind iron-session with options derived from the refreshed token TTL so
+    // the cookie maxAge stays in sync with the new refresh token's expiry.
+    // iron-session bakes maxAge at getIronSession() time, not at save() time,
+    // so we must create a new session instance to pick up the updated value.
+    const refreshedSession = await getIronSession<SessionPayload>(
+      request,
+      response,
+      getSessionOptions(refreshed.refresh_token_expires_in),
+    );
+    refreshedSession.user = session.user;
+    refreshedSession.tenantId = session.tenantId;
+    refreshedSession.accessToken = refreshed.access_token;
+    refreshedSession.refreshToken = refreshed.refresh_token;
+    refreshedSession.expiresAt = refreshed.issued_at + refreshed.expires_in;
+    await refreshedSession.save();
   }
 
   return response;
