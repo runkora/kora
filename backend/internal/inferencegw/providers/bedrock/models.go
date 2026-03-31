@@ -196,6 +196,36 @@ func computeDialects(canonicalID string, outputMods []inferencegw.Modality) []in
 	return []inferencegw.APIDialect{inferencegw.DialectOpenAI}
 }
 
+// computeCapabilities derives the endpoint families a model supports from its
+// output modalities and model ID. The rules mirror the three-layer taxonomy
+// described in ADR-0026:
+//
+//   - text output + non-reranker  → CapabilityChat
+//   - embedding output            → CapabilityEmbedding
+//   - image output                → CapabilityImageGeneration
+//   - video output                → CapabilityVideoGeneration
+//   - "rerank" in model ID        → CapabilityRerank (overrides text-output chat)
+func computeCapabilities(canonicalID string, outputMods []inferencegw.Modality) []inferencegw.ModelCapability {
+	lower := strings.ToLower(canonicalID)
+	if strings.Contains(lower, "rerank") {
+		return []inferencegw.ModelCapability{inferencegw.CapabilityRerank}
+	}
+	var caps []inferencegw.ModelCapability
+	for _, m := range outputMods {
+		switch m {
+		case inferencegw.ModalityText:
+			caps = append(caps, inferencegw.CapabilityChat)
+		case inferencegw.ModalityEmbedding:
+			caps = append(caps, inferencegw.CapabilityEmbedding)
+		case inferencegw.ModalityImage:
+			caps = append(caps, inferencegw.CapabilityImageGeneration)
+		case inferencegw.ModalityVideo:
+			caps = append(caps, inferencegw.CapabilityVideoGeneration)
+		}
+	}
+	return caps
+}
+
 // buildProviderModel constructs a ProviderModel for the given canonical Bedrock
 // model ID. name is the human-readable name returned by the API; if empty,
 // a fallback is derived from the model ID. inputMods/outputMods come from the
@@ -219,5 +249,6 @@ func buildProviderModel(canonicalID, name string, inputMods, outputMods []infere
 		InputModalities:  inputMods,
 		OutputModalities: outputMods,
 		Dialects:         computeDialects(canonicalID, outputMods),
+		Capabilities:     computeCapabilities(canonicalID, outputMods),
 	}
 }

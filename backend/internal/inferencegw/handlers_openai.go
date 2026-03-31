@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	openai "github.com/openai/openai-go"
@@ -13,6 +14,31 @@ import (
 )
 
 // ─── Request envelope ────────────────────────────────────────────────────────
+
+// activeCapabilities is the set of ModelCapability values for which the gateway
+// has a live handler implementation. Models whose capabilities have no overlap
+// with this set are suppressed from GET /v1/models (per ADR-0027).
+//
+// When a new endpoint is shipped (e.g. /v1/embeddings), add the corresponding
+// capability constant here and the model will automatically surface in the list.
+var activeCapabilities = map[ModelCapability]bool{
+	CapabilityChat: true,
+	// CapabilityEmbedding:       false,  // handler not yet implemented
+	// CapabilityImageGeneration: false,  // handler not yet implemented
+	// CapabilityVideoGeneration: false,  // handler not yet implemented
+	// CapabilityRerank:          false,  // handler not yet implemented
+}
+
+// hasActiveCapability returns true if at least one of the model's capabilities
+// is in the active set. Models with no capabilities (empty slice) are suppressed.
+func hasActiveCapability(caps []ModelCapability) bool {
+	for _, c := range caps {
+		if activeCapabilities[c] {
+			return true
+		}
+	}
+	return false
+}
 
 // chatCompletionEnvelope wraps openai.ChatCompletionNewParams to additionally
 // capture the stream boolean. ChatCompletionNewParams is an outbound SDK type
@@ -143,19 +169,26 @@ type modelsResponse struct {
 }
 
 type modelObject struct {
-	ID               string       `json:"id"`
-	Object           string       `json:"object"`
-	Created          int64        `json:"created"`
-	OwnedBy          string       `json:"owned_by"`
-	DisplayName      string       `json:"display_name,omitempty"`
-	Aliases          []string     `json:"aliases,omitempty"`
-	InputModalities  []Modality   `json:"input_modalities,omitempty"`
-	OutputModalities []Modality   `json:"output_modalities,omitempty"`
-	Dialects         []APIDialect `json:"dialects,omitempty"`
+	ID               string            `json:"id"`
+	Object           string            `json:"object"`
+	Created          int64             `json:"created"`
+	OwnedBy          string            `json:"owned_by"`
+	DisplayName      string            `json:"display_name,omitempty"`
+	Aliases          []string          `json:"aliases,omitempty"`
+	InputModalities  []Modality        `json:"input_modalities,omitempty"`
+	OutputModalities []Modality        `json:"output_modalities,omitempty"`
+	Dialects         []APIDialect      `json:"dialects,omitempty"`
+	Capabilities     []ModelCapability `json:"capabilities,omitempty"`
 }
 
 // handleListModels queries all enabled provider connectors for their live model
 // lists and returns the aggregated results in OpenAI list format.
+//
+// Query parameters:
+//
+//	capability=all              — return every model regardless of capability
+//	capability=chat,embedding   — return models matching any of the listed capabilities
+//	(omitted)                   — default: only models with an active handler (ADR-0027)
 func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -165,9 +198,15 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build the capability filter from the ?capability= query param.
+	capFilter := buildCapabilityFilter(r.URL.Query().Get("capability"))
+
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(models))
 	for _, m := range models {
+		if !capFilter(m.Capabilities) {
+			continue
+		}
 		var prefixedAliases []string
 		for _, a := range m.Aliases {
 			prefixedAliases = append(prefixedAliases, fmt.Sprintf("%s/%s", m.Provider, a))
@@ -182,6 +221,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			InputModalities:  m.InputModalities,
 			OutputModalities: m.OutputModalities,
 			Dialects:         m.Dialects,
+			Capabilities:     m.Capabilities,
 		})
 	}
 
@@ -189,4 +229,35 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   data,
 	})
+}
+
+// buildCapabilityFilter returns a predicate function for filtering models by
+// capability based on the raw value of the ?capability= query parameter:
+//
+//   - ""          → default: use activeCapabilities (ADR-0027 gate)
+//   - "all"       → accept every model
+//   - "chat,..."  → accept models that have any of the listed capabilities
+func buildCapabilityFilter(param string) func([]ModelCapability) bool {
+	if param == "" {
+		// Default: only models with an active handler implementation.
+		return hasActiveCapability
+	}
+	if param == "all" {
+		return func(_ []ModelCapability) bool { return true }
+	}
+	// Comma-separated explicit list.
+	requested := map[ModelCapability]bool{}
+	for s := range strings.SplitSeq(param, ",") {
+		if c := ModelCapability(strings.TrimSpace(s)); c != "" {
+			requested[c] = true
+		}
+	}
+	return func(caps []ModelCapability) bool {
+		for _, c := range caps {
+			if requested[c] {
+				return true
+			}
+		}
+		return false
+	}
 }

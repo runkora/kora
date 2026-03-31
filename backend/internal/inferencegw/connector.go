@@ -70,6 +70,48 @@ const (
 )
 
 // ============================================================================
+// ModelCapability
+// ============================================================================
+
+// ModelCapability identifies the endpoint family a model belongs to.
+// This is orthogonal to Modality (physical I/O types) and APIDialect
+// (wire format within a family). A model's Capabilities slice drives which
+// gateway handlers can serve it and whether it appears in GET /v1/models.
+//
+// Three-layer taxonomy:
+//
+//	ModelCapability  — what endpoint family?    (chat, embedding, image, …)
+//	APIDialect       — which wire format?       (openai, anthropic)  [chat only]
+//	Modality         — what physical I/O types? (text, image, embedding, …)
+type ModelCapability string
+
+const (
+	// CapabilityChat — model supports POST /v1/chat/completions or POST /v1/messages.
+	CapabilityChat ModelCapability = "chat"
+
+	// CapabilityEmbedding — model supports POST /v1/embeddings.
+	// Handler not yet implemented; models with this capability are hidden from
+	// GET /v1/models until the handler ships.
+	CapabilityEmbedding ModelCapability = "embedding"
+
+	// CapabilityImageGeneration — model supports POST /v1/images/generations.
+	// Handler not yet implemented.
+	CapabilityImageGeneration ModelCapability = "image"
+
+	// CapabilityVideoGeneration — model produces video output (async/polling).
+	// No standard endpoint yet.
+	CapabilityVideoGeneration ModelCapability = "video"
+
+	// CapabilityRerank — model supports POST /v1/rerank (Cohere-style).
+	// Handler not yet implemented.
+	CapabilityRerank ModelCapability = "rerank"
+
+	// CapabilityAudioGeneration — model produces audio output (TTS, live audio).
+	// No standard endpoint yet.
+	CapabilityAudioGeneration ModelCapability = "audio"
+)
+
+// ============================================================================
 // ProviderModel
 // ============================================================================
 
@@ -105,11 +147,17 @@ type ProviderModel struct {
 	OutputModalities []Modality
 
 	// Dialects lists which gateway wire protocols can be used to call this model.
+	// Only populated for models with CapabilityChat.
 	// ["openai"]             - OpenAI Chat Completions (POST /v1/chat/completions)
 	// ["openai","anthropic"] - both Chat Completions and Anthropic Messages API
-	// []                     - model does not support a chat dialect (e.g. embedding,
-	//                          image generation, reranker)
 	Dialects []APIDialect
+
+	// Capabilities lists the endpoint families this model supports.
+	// The GET /v1/models handler filters to models whose Capabilities overlap
+	// with the set of active (implemented) handler families.
+	// e.g. ["chat"] for LLMs, ["embedding"] for embedding models,
+	//      ["image"] for image-generation models.
+	Capabilities []ModelCapability
 }
 
 // ============================================================================

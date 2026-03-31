@@ -148,6 +148,7 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 			InputModalities:  inputMods,
 			OutputModalities: outputMods,
 			Dialects:         inferAzureDialects(id, outputMods),
+			Capabilities:     inferAzureCapabilities(id, outputMods),
 		})
 	}
 	if err := iter.Err(); err != nil {
@@ -179,6 +180,31 @@ func inferAzureModalities(id string) (input, output []inferencegw.Modality) {
 		return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
 			[]inferencegw.Modality{inferencegw.ModalityText}
 	}
+}
+
+// inferAzureCapabilities returns the endpoint families supported for an Azure model.
+// Rules follow ADR-0026: output modality drives capability, with text → chat,
+// embedding → embedding, image → image_generation. Audio speech models (whisper/tts)
+// that output text are treated as chat-capable since they use the completions path.
+func inferAzureCapabilities(id string, outputMods []inferencegw.Modality) []inferencegw.ModelCapability {
+	lower := strings.ToLower(id)
+	if strings.Contains(lower, "rerank") {
+		return []inferencegw.ModelCapability{inferencegw.CapabilityRerank}
+	}
+	var caps []inferencegw.ModelCapability
+	for _, m := range outputMods {
+		switch m {
+		case inferencegw.ModalityText:
+			caps = append(caps, inferencegw.CapabilityChat)
+		case inferencegw.ModalityEmbedding:
+			caps = append(caps, inferencegw.CapabilityEmbedding)
+		case inferencegw.ModalityImage:
+			caps = append(caps, inferencegw.CapabilityImageGeneration)
+		case inferencegw.ModalityVideo:
+			caps = append(caps, inferencegw.CapabilityVideoGeneration)
+		}
+	}
+	return caps
 }
 
 // inferAzureDialects returns the gateway wire protocols supported for an Azure model.

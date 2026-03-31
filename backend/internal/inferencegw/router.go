@@ -211,6 +211,12 @@ func (r *RoutingEngine) lowestCostTargets() ([]RouteTarget, error) {
 		if _, ok := r.connectors[m.Provider]; !ok {
 			continue
 		}
+		// Only include chat-capable models. lowestCostTargets is invoked by the
+		// wildcard ("*") routing path for chat completions — routing to an embedding
+		// or image-generation model would produce a provider error (ADR-0027).
+		if !slices.Contains(m.Capabilities, CapabilityChat) {
+			continue
+		}
 		pricing, _ := r.pricing.Price(m.Provider, m.ModelID)
 		pricing.Provider = m.Provider
 		pricing.ModelID = m.ModelID
@@ -278,19 +284,23 @@ func (r *RoutingEngine) failoverChain() ([]RouteTarget, error) {
 		if catalog == nil {
 			continue
 		}
-		// Pick the first model available for this provider from the live catalog.
+		// Pick the first chat-capable model from the live catalog for this provider.
 		for _, m := range *catalog {
-			if m.Provider == p {
-				pricing, _ := r.pricing.Price(p, m.ModelID)
-				pricing.Provider = p
-				pricing.ModelID = m.ModelID
-				targets = append(targets, RouteTarget{
-					Provider: p,
-					ModelID:  m.ModelID,
-					Pricing:  pricing,
-				})
-				break
+			if m.Provider != p {
+				continue
 			}
+			if !slices.Contains(m.Capabilities, CapabilityChat) {
+				continue // skip embedding/image/video models
+			}
+			pricing, _ := r.pricing.Price(p, m.ModelID)
+			pricing.Provider = p
+			pricing.ModelID = m.ModelID
+			targets = append(targets, RouteTarget{
+				Provider: p,
+				ModelID:  m.ModelID,
+				Pricing:  pricing,
+			})
+			break
 		}
 	}
 

@@ -142,9 +142,10 @@ func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.
 		}
 	}
 
-	// Derive modalities and dialects from publisher and model ID.
+	// Derive modalities, dialects, and capabilities from publisher and model ID.
 	inputMods, outputMods := inferVertexModalities(publisher, modelID)
 	dialects := inferVertexDialects(publisher, modelID, outputMods)
+	caps := inferVertexCapabilities(modelID, outputMods)
 
 	return &inferencegw.ProviderModel{
 		Provider:         inferencegw.ProviderVertexAI,
@@ -154,6 +155,7 @@ func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.
 		InputModalities:  inputMods,
 		OutputModalities: outputMods,
 		Dialects:         dialects,
+		Capabilities:     caps,
 	}
 }
 
@@ -172,6 +174,18 @@ func inferVertexModalities(publisher, modelID string) (input, output []inference
 		case strings.Contains(lower, "imagen") || strings.Contains(lower, "imagegeneration"):
 			return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
 				[]inferencegw.Modality{inferencegw.ModalityImage}
+		case strings.Contains(lower, "image-preview") || strings.HasSuffix(lower, "-image-preview"):
+			// e.g. gemini-3.1-flash-image-preview — generates images from text.
+			return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+				[]inferencegw.Modality{inferencegw.ModalityImage}
+		case strings.Contains(lower, "tts"):
+			// e.g. gemini-2.5-pro-tts — text-to-speech output only.
+			return []inferencegw.Modality{inferencegw.ModalityText},
+				[]inferencegw.Modality{inferencegw.ModalityAudio}
+		case strings.Contains(lower, "audio"):
+			// e.g. gemini-live-2.5-flash-native-audio — live audio I/O.
+			return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityAudio},
+				[]inferencegw.Modality{inferencegw.ModalityAudio}
 		}
 	}
 
@@ -190,6 +204,32 @@ func inferVertexModalities(publisher, modelID string) (input, output []inference
 		return []inferencegw.Modality{inferencegw.ModalityText},
 			[]inferencegw.Modality{inferencegw.ModalityText}
 	}
+}
+
+// inferVertexCapabilities returns the endpoint families supported for a Vertex AI model.
+// Rules follow ADR-0026: output modality drives capability, with text → chat,
+// embedding → embedding, image → image_generation.
+func inferVertexCapabilities(modelID string, outputMods []inferencegw.Modality) []inferencegw.ModelCapability {
+	lower := strings.ToLower(modelID)
+	if strings.Contains(lower, "rerank") {
+		return []inferencegw.ModelCapability{inferencegw.CapabilityRerank}
+	}
+	var caps []inferencegw.ModelCapability
+	for _, m := range outputMods {
+		switch m {
+		case inferencegw.ModalityText:
+			caps = append(caps, inferencegw.CapabilityChat)
+		case inferencegw.ModalityEmbedding:
+			caps = append(caps, inferencegw.CapabilityEmbedding)
+		case inferencegw.ModalityImage:
+			caps = append(caps, inferencegw.CapabilityImageGeneration)
+		case inferencegw.ModalityVideo:
+			caps = append(caps, inferencegw.CapabilityVideoGeneration)
+		case inferencegw.ModalityAudio:
+			caps = append(caps, inferencegw.CapabilityAudioGeneration)
+		}
+	}
+	return caps
 }
 
 // inferVertexDialects returns the gateway wire protocols supported for a Vertex AI model.

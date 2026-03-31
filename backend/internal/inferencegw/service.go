@@ -175,7 +175,7 @@ func (s *Service) ChatCompletion(
 		Status:           UsageStatusSuccess,
 		RetryCount:       retryCount,
 		LatencyMS:        latencyMS,
-		CreatedAt:        time.Now().UTC(),
+		CreatedAt:        start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -271,7 +271,7 @@ func (s *Service) ChatCompletionStream(
 		IncludeUsage: openai.Bool(true),
 	}
 
-	upstream, usedTarget, _, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
 			p := streamParams
 			p.Model = target.ModelID
@@ -352,8 +352,9 @@ func (s *Service) ChatCompletionStream(
 			TotalTokens:      totalTokens,
 			EstimatedCostUSD: estimatedCost,
 			Status:           UsageStatusSuccess,
+			RetryCount:       streamRetryCount,
 			LatencyMS:        latencyMS,
-			CreatedAt:        time.Now().UTC(),
+			CreatedAt:        start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -453,10 +454,10 @@ func retryTargets[T any](
 			continue
 		}
 		for attempt := 0; attempt < s.router.MaxAttemptsPerTarget(); attempt++ {
-			totalAttempts++
-			if totalAttempts > s.router.MaxTotalAttempts() {
+			if totalAttempts >= s.router.MaxTotalAttempts() {
 				break
 			}
+			totalAttempts++
 			result, callErr = fn(connector, target)
 			if callErr == nil {
 				t := target
@@ -602,7 +603,7 @@ func (s *Service) AnthropicMessages(
 		Status:           UsageStatusSuccess,
 		RetryCount:       retryCount,
 		LatencyMS:        latencyMS,
-		CreatedAt:        time.Now().UTC(),
+		CreatedAt:        start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -681,7 +682,7 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, ErrPolicyDenied
 	}
 
-	upstream, usedTarget, _, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
 			q := params
 			q.Model = target.ModelID
@@ -750,8 +751,9 @@ func (s *Service) AnthropicMessagesStream(
 			TotalTokens:      promptTokens + completionTokens,
 			EstimatedCostUSD: estimatedCost,
 			Status:           UsageStatusSuccess,
+			RetryCount:       streamRetryCount,
 			LatencyMS:        latencyMS,
-			CreatedAt:        time.Now().UTC(),
+			CreatedAt:        start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
