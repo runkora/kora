@@ -312,6 +312,13 @@ func (c *Controller) handleDiscoverTenant(w http.ResponseWriter, r *http.Request
 
 	discovery, err := c.svc.DiscoverTenantByEmail(ctx, email)
 	if err != nil {
+		if errors.Is(err, ErrInvalidEmailFormat) {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "malformed email address", map[string]any{
+				"field": "email",
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrTenantNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no tenant found for the provided email domain", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

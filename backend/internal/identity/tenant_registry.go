@@ -3,6 +3,7 @@ package identity
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -96,6 +97,9 @@ func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCC
 	}
 
 	out := make(map[string]TenantOIDCConfig, len(reg.Tenants))
+	// Track email domain ownership to detect collisions at startup.
+	domainOwner := make(map[string]string) // lowercase domain → tenant ID
+
 	for _, t := range reg.Tenants {
 		if t.State != "active" {
 			continue
@@ -104,6 +108,17 @@ func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCC
 		scopes := t.OIDC.Scopes
 		if len(scopes) == 0 {
 			scopes = []string{"openid", "profile", "email"}
+		}
+
+		for _, d := range t.OIDC.EmailDomains {
+			lower := strings.ToLower(d)
+			if owner, exists := domainOwner[lower]; exists {
+				return nil, fmt.Errorf(
+					"duplicate email domain %q: claimed by both tenant %q and %q",
+					lower, owner, t.ID,
+				)
+			}
+			domainOwner[lower] = t.ID
 		}
 
 		out[t.ID] = TenantOIDCConfig{

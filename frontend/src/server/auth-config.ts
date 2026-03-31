@@ -32,6 +32,8 @@ export interface SessionPayload {
   refreshToken: string;
   /** UTC Unix seconds when the access token expires. */
   expiresAt: number;
+  /** Tenant ID the session was created against (used for token refresh). */
+  tenantId: string;
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────

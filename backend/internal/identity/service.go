@@ -950,11 +950,11 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 
 	at := strings.LastIndex(email, "@")
 	if at < 0 {
-		return nil, fmt.Errorf("%w: malformed email", ErrTenantNotFound)
+		return nil, fmt.Errorf("%w: missing '@' sign", ErrInvalidEmailFormat)
 	}
 	domain := strings.ToLower(email[at+1:])
 	if domain == "" {
-		return nil, fmt.Errorf("%w: empty domain", ErrTenantNotFound)
+		return nil, fmt.Errorf("%w: empty domain", ErrInvalidEmailFormat)
 	}
 
 	s.mu.RLock()

@@ -47,6 +47,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Forward the upstream body and status verbatim.  The identity service
   // already returns well-formed JSON error objects on 400/404/500.
-  const body = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return NextResponse.json(
+      { error: 'upstream_error', message: 'unexpected upstream response' },
+      { status: 502 },
+    );
+  }
   return NextResponse.json(body, { status: response.status });
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   Activity,
   Bot,
@@ -15,6 +16,7 @@ import { usePathname } from 'next/navigation';
 
 import { Badge, NavItem, Separator, Text } from '@orbit/terra';
 import { LogoutButton } from '@orbit/components/logout-button';
+import { ApiRoute } from '@orbit/lib/routing/api-routes';
 
 // ─── Nav definitions ─────────────────────────────────────────────────────────
 
@@ -59,6 +61,20 @@ const NAV_GROUPS = [
  */
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    fetch(ApiRoute.session.GET())
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user) {
+          setUserEmail(data.user.email || '');
+          setUserName(data.user.name || '');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -123,11 +139,13 @@ export function DashboardSidebar() {
            * arbitrarily long and must not overflow the sidebar column.
            */}
           <Text size="caption" weight="emphasis" truncate>
-            dev@orbit.local
+            {userEmail || 'Loading…'}
           </Text>
-          <Text size="caption" color="subtle" truncate>
-            Administrator
-          </Text>
+          {userName && (
+            <Text size="caption" color="subtle" truncate>
+              {userName}
+            </Text>
+          )}
         </div>
         <LogoutButton />
       </div>
