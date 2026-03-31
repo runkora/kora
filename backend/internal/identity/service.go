@@ -437,7 +437,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "id_token verification failed")
-		return nil, fmt.Errorf("%w: %s", ErrIDTokenInvalid, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
 	}
 
 	var claims struct {
