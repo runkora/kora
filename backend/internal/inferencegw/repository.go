@@ -108,6 +108,12 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 
 	offset := max(filter.Offset, 0)
 
+	// LIMIT and OFFSET are appended as parameters rather than formatted into the
+	// query string so the query plan can be cached by the connection pool.
+	limitIdx := len(args) + 1
+	offsetIdx := len(args) + 2
+	args = append(args, limit, offset)
+
 	q := fmt.Sprintf(`
 		SELECT id, tenant_id, principal_id, principal_type, api_dialect,
 		       provider, model_id, routing_strategy,
@@ -116,7 +122,7 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		FROM inference_usage
 		%s
 		ORDER BY created_at DESC
-		LIMIT %d OFFSET %d`, where, limit, offset)
+		LIMIT $%d OFFSET $%d`, where, limitIdx, offsetIdx)
 
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {

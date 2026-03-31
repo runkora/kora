@@ -134,8 +134,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	// A failure here is non-fatal — aliases will resolve after the first
 	// successful GET /v1/models call.
 	if _, err := router.ListModels(ctx); err != nil {
-		logger.Warn(ctx, "startup model warm-up failed — alias routing unavailable until next /v1/models call",
-			logging.Field{Key: "error", Value: err})
+		logger.Warn(ctx, "startup model warm-up failed — lowest_cost, failover_chain, and alias routing unavailable until next /v1/models call",
+			logging.Field{Key: "error", Value: err.Error()})
 	} else {
 		logger.Info(ctx, "model catalog warm-up complete")
 	}

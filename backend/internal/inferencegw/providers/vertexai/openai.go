@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	openai "github.com/openai/openai-go"
 
@@ -110,6 +111,7 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(anthropicParams.Messages))},
 	)
 
+	startedAt := time.Now().Unix()
 	msg, err := c.anthropicClient.Messages.New(ctx, anthropicParams)
 	if err != nil {
 		c.logger.Error(ctx, "vertexai: claudeChatCompletion error",
@@ -121,7 +123,7 @@ func (c *Connector) claudeChatCompletion(ctx context.Context, params openai.Chat
 	c.logger.Debug(ctx, "vertexai: claudeChatCompletion done",
 		logging.Field{Key: "stop_reason", Value: string(msg.StopReason)},
 	)
-	return convert.AnthropicMessageToOpenAI(msg), nil
+	return convert.AnthropicMessageToOpenAI(msg, startedAt), nil
 }
 
 // claudeChatCompletionStream routes a Claude model streaming request through the

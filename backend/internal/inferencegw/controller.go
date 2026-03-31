@@ -63,7 +63,7 @@ func inferenceErrorResponse(err error) *api.APIError {
 	// Check for specific ConnectorError codes before generic sentinel matching.
 	// MODEL_NOT_SUPPORTED is a permanent client error (wrong endpoint for this model),
 	// not a transient provider outage — return 400 so clients do not retry.
-	var connErr ConnectorError
+	var connErr *ConnectorError
 	if errors.As(err, &connErr) && connErr.Code == "MODEL_NOT_SUPPORTED" {
 		return api.BadRequestError("model_not_supported",
 			"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",

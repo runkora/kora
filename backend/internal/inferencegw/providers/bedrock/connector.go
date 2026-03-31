@@ -89,6 +89,7 @@ type Connector struct {
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
 	bedrockClient   *bedrockSDK.Client
+	region          string // AWS region; used to prefer regionally-matching inference profiles
 	logger          logging.Logger
 }
 
@@ -147,12 +148,30 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 		openaiClient:    &openaiClient,
 		anthropicClient: &anthropicClient,
 		bedrockClient:   bedrockClient,
+		region:          cfg.Region,
 		logger:          logger,
 	}, nil
 }
 
 func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderBedrock
+}
+
+// regionToProfilePrefix maps the configured AWS region to the corresponding
+// cross-region inference profile prefix. For example, "us-east-1" → "us.",
+// "eu-west-1" → "eu.", "ap-northeast-1" → "ap.".
+// Returns "" for regions that have no known cross-region prefix.
+func (c *Connector) regionToProfilePrefix() string {
+	switch {
+	case strings.HasPrefix(c.region, "us-"):
+		return "us."
+	case strings.HasPrefix(c.region, "eu-"):
+		return "eu."
+	case strings.HasPrefix(c.region, "ap-"):
+		return "ap."
+	default:
+		return ""
+	}
 }
 
 // fmEntry holds data from a ListFoundationModels summary.
@@ -232,9 +251,12 @@ func (c *Connector) listOnDemandFMs(ctx context.Context) (activeFMs map[string]f
 
 // listSystemProfiles fetches all system-defined cross-region inference profiles
 // (paginated) and returns a map of base FM ID → profileEntry. When a base FM
-// has multiple regional profiles, only the first one returned by the API is kept.
+// has multiple regional profiles, the profile whose region prefix matches
+// cfg.Region is preferred; if no match exists, the first one returned is used.
 func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEntry {
 	result := make(map[string]profileEntry, 64)
+	preferred := make(map[string]bool, 64) // baseID → whether result[baseID] is a regional match
+	regionalPrefix := c.regionToProfilePrefix()
 	var nextToken *string
 	for {
 		out, err := c.bedrockClient.ListInferenceProfiles(ctx, &bedrockSDK.ListInferenceProfilesInput{
@@ -253,14 +275,23 @@ func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEn
 			}
 			profileID := *p.InferenceProfileId
 			baseID := stripRegionPrefix(profileID)
-			if _, exists := result[baseID]; exists {
-				continue // keep only the first profile per base FM
-			}
 			name := ""
 			if p.InferenceProfileName != nil {
 				name = *p.InferenceProfileName
 			}
-			result[baseID] = profileEntry{id: profileID, name: name}
+			entry := profileEntry{id: profileID, name: name}
+			isRegionalMatch := regionalPrefix != "" && strings.HasPrefix(profileID, regionalPrefix)
+			existing, exists := result[baseID]
+			_ = existing
+			if !exists {
+				result[baseID] = entry
+				preferred[baseID] = isRegionalMatch
+			} else if isRegionalMatch && !preferred[baseID] {
+				// Upgrade to a regionally-matching profile so that a gateway in
+				// us-east-1 prefers "us.anthropic.*" over "eu.anthropic.*".
+				result[baseID] = entry
+				preferred[baseID] = true
+			}
 		}
 		if out.NextToken == nil || *out.NextToken == "" {
 			return result

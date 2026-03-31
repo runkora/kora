@@ -494,14 +494,14 @@ func retryTargets[T any](
 				break
 			}
 			retryCount++
+			// Brief backoff before retrying to avoid hammering throttled providers.
+			// THROTTLED (429) errors almost always fail again if retried immediately.
+			time.Sleep(500 * time.Millisecond)
 			s.logger.Info(ctx, logMsg,
 				logging.Field{Key: "provider", Value: string(target.Provider)},
 				logging.Field{Key: "attempt", Value: attempt + 1},
 				logging.Field{Key: "error_code", Value: connErr.Code},
 			)
-		}
-		if callErr == nil {
-			break
 		}
 	}
 	return

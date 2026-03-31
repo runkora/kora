@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
@@ -281,7 +280,12 @@ func convertToolChoice(tc openai.ChatCompletionToolChoiceOptionUnionParam) (anth
 // openai.ChatCompletion. Used by connectors routing Claude models through
 // the Anthropic Messages API while returning an OpenAI-compatible response.
 // Tool use blocks in the Anthropic response are mapped to OpenAI tool_calls.
-func AnthropicMessageToOpenAI(msg *anthropic.Message) *openai.ChatCompletion {
+//
+// createdAt is the Unix timestamp (seconds) at which the provider call was
+// initiated — callers should capture time.Now().Unix() immediately before
+// calling the Anthropic API so the field is accurate rather than reflecting
+// the conversion time.
+func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.ChatCompletion {
 	var textContent strings.Builder
 	var toolCalls []openai.ChatCompletionMessageToolCall
 
@@ -312,7 +316,7 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message) *openai.ChatCompletion {
 	return &openai.ChatCompletion{
 		ID:      msg.ID,
 		Model:   msg.Model,
-		Created: time.Now().Unix(),
+		Created: createdAt,
 		Choices: []openai.ChatCompletionChoice{
 			{
 				Index:        0,

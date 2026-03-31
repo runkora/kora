@@ -251,7 +251,7 @@ func (r *RoutingEngine) explicitTarget(model string) (RouteTarget, error) {
 	}
 
 	if _, ok := r.connectors[provider]; !ok {
-		return RouteTarget{}, fmt.Errorf("%w: provider %q is not enabled", ErrRoutingFailed, provider)
+		return RouteTarget{}, fmt.Errorf("%w: provider %q is not enabled or recognized", ErrInvalidRequest, provider)
 	}
 
 	pricing, ok := r.pricing.Price(provider, modelID)
