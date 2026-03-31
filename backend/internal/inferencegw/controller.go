@@ -60,6 +60,17 @@ func (c *Controller) Boot(mux *api.Mux) {
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.
 // Shared by both the OpenAI and Anthropic dialect handlers.
 func inferenceErrorResponse(err error) *api.APIError {
+	// Check for specific ConnectorError codes before generic sentinel matching.
+	// MODEL_NOT_SUPPORTED is a permanent client error (wrong endpoint for this model),
+	// not a transient provider outage — return 400 so clients do not retry.
+	var connErr ConnectorError
+	if errors.As(err, &connErr) && connErr.Code == "MODEL_NOT_SUPPORTED" {
+		return api.BadRequestError("model_not_supported",
+			"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",
+			nil,
+		)
+	}
+
 	switch {
 	case errors.Is(err, ErrTokenParseFailed):
 		return api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil)

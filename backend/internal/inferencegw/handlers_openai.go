@@ -6,26 +6,56 @@ import (
 	"net/http"
 	"time"
 
+	openai "github.com/openai/openai-go"
+
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// ─── Request envelope ────────────────────────────────────────────────────────
+
+// chatCompletionEnvelope wraps openai.ChatCompletionNewParams to additionally
+// capture the stream boolean. ChatCompletionNewParams is an outbound SDK type
+// that has no Stream field (streaming is selected by calling NewStreaming on
+// the client, not by setting a param). We extract "stream" from the same raw
+// bytes via a custom UnmarshalJSON, mirroring the messagesEnvelope pattern.
+type chatCompletionEnvelope struct {
+	Params openai.ChatCompletionNewParams
+	Stream bool
+}
+
+func (e *chatCompletionEnvelope) UnmarshalJSON(b []byte) error {
+	if err := e.Params.UnmarshalJSON(b); err != nil {
+		return err
+	}
+	var raw struct {
+		Stream bool `json:"stream"`
+	}
+	_ = json.Unmarshal(b, &raw)
+	e.Stream = raw.Stream
+	return nil
+}
 
 // ─── POST /chat/completions ───────────────────────────────────────────────────
 
 func (c *Controller) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req ChatCompletionRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+	// Decode directly into the openai-go SDK wire type — zero translation loss.
+	// Tool definitions, response_format, logprobs, seed, and all other fields
+	// pass through to the provider unchanged.
+	var env chatCompletionEnvelope
+	if !api.DecodeJSON(ctx, r, w, c.logger, &env) {
+		return
+	}
+	params := env.Params
+
+	if env.Stream {
+		c.handleChatCompletionsStream(w, r, params)
 		return
 	}
 
-	if req.Stream {
-		c.handleChatCompletionsStream(w, r, req)
-		return
-	}
-
-	resp, err := c.svc.ChatCompletion(ctx, DialectOpenAI, req)
+	resp, err := c.svc.ChatCompletion(ctx, params)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
@@ -41,11 +71,11 @@ func (c *Controller) handleChatCompletions(w http.ResponseWriter, r *http.Reques
 func (c *Controller) handleChatCompletionsStream(
 	w http.ResponseWriter,
 	r *http.Request,
-	req ChatCompletionRequest,
+	params openai.ChatCompletionNewParams,
 ) {
 	ctx := r.Context()
 
-	chunks, err := c.svc.ChatCompletionStream(ctx, DialectOpenAI, req)
+	chunks, err := c.svc.ChatCompletionStream(ctx, params)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
@@ -72,12 +102,12 @@ func (c *Controller) handleChatCompletionsStream(
 		return nil
 	}
 
-	for chunk := range chunks {
-		if chunk.Err != nil {
+	for result := range chunks {
+		if result.Err != nil {
 			c.logger.Error(ctx, "chat completion stream error",
-				logging.Field{Key: "error", Value: chunk.Err.Error()},
+				logging.Field{Key: "error", Value: result.Err.Error()},
 			)
-			apiErr := inferenceErrorResponse(chunk.Err)
+			apiErr := inferenceErrorResponse(result.Err)
 			_ = writeSSE(map[string]any{
 				"error": map[string]string{
 					"type":    apiErr.Code,
@@ -86,7 +116,7 @@ func (c *Controller) handleChatCompletionsStream(
 			})
 			return
 		}
-		if err := writeSSE(chunk); err != nil {
+		if err := writeSSE(result.Chunk); err != nil {
 			c.logger.Error(ctx, "sse write error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
@@ -113,17 +143,19 @@ type modelsResponse struct {
 }
 
 type modelObject struct {
-	ID          string   `json:"id"`
-	Object      string   `json:"object"`
-	Created     int64    `json:"created"`
-	OwnedBy     string   `json:"owned_by"`
-	DisplayName string   `json:"display_name,omitempty"`
-	Aliases     []string `json:"aliases,omitempty"`
+	ID               string       `json:"id"`
+	Object           string       `json:"object"`
+	Created          int64        `json:"created"`
+	OwnedBy          string       `json:"owned_by"`
+	DisplayName      string       `json:"display_name,omitempty"`
+	Aliases          []string     `json:"aliases,omitempty"`
+	InputModalities  []Modality   `json:"input_modalities,omitempty"`
+	OutputModalities []Modality   `json:"output_modalities,omitempty"`
+	Dialects         []APIDialect `json:"dialects,omitempty"`
 }
 
 // handleListModels queries all enabled provider connectors for their live model
 // lists and returns the aggregated results in OpenAI list format.
-// Auth is enforced by AuthMiddleware — this handler runs only for verified principals.
 func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -136,19 +168,20 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(models))
 	for _, m := range models {
-		// Build provider-prefixed aliases so clients can use them as drop-in
-		// model IDs in chat completion requests (e.g. "bedrock/claude-3-haiku").
 		var prefixedAliases []string
 		for _, a := range m.Aliases {
 			prefixedAliases = append(prefixedAliases, fmt.Sprintf("%s/%s", m.Provider, a))
 		}
 		data = append(data, modelObject{
-			ID:          fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
-			Object:      "model",
-			Created:     now,
-			OwnedBy:     string(m.Provider),
-			DisplayName: m.DisplayName,
-			Aliases:     prefixedAliases,
+			ID:               fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
+			Object:           "model",
+			Created:          now,
+			OwnedBy:          string(m.Provider),
+			DisplayName:      m.DisplayName,
+			Aliases:          prefixedAliases,
+			InputModalities:  m.InputModalities,
+			OutputModalities: m.OutputModalities,
+			Dialects:         m.Dialects,
 		})
 	}
 

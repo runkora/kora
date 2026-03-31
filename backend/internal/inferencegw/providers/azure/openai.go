@@ -4,54 +4,63 @@ import (
 	"context"
 	"fmt"
 
+	openai "github.com/openai/openai-go"
+
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-func (c *Connector) openaiChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
+// openaiChatCompletion sends a non-streaming request to Azure OpenAI.
+// The SDK wire type is passed through and returned with zero translation
+// loss — tool definitions, tool_calls, logprobs, and all other fields are preserved.
+func (c *Connector) openaiChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 	c.logger.Debug(ctx, "azure: openaiChatCompletion start",
-		logging.Field{Key: "model", Value: req.Model},
-		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(req.Messages))},
+		logging.Field{Key: "model", Value: params.Model},
+		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
-	resp, err := c.openaiClient.Chat.Completions.New(ctx, convert.ToOpenAIParams(req))
+	resp, err := c.openaiClient.Chat.Completions.New(ctx, params)
 	if err != nil {
 		c.logger.Error(ctx, "azure: openaiChatCompletion error",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return inferencegw.ChatCompletionResponse{}, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
+		return nil, convert.MapOpenAIError(inferencegw.ProviderAzure, err)
 	}
 
-	c.logger.Debug(ctx, "azure: openaiChatCompletion done",
-		logging.Field{Key: "finish_reason", Value: resp.Choices[0].FinishReason},
-	)
-	return convert.FromOpenAIResponse(resp), nil
+	if len(resp.Choices) > 0 {
+		c.logger.Debug(ctx, "azure: openaiChatCompletion done",
+			logging.Field{Key: "finish_reason", Value: resp.Choices[0].FinishReason},
+		)
+	}
+	return resp, nil
 }
 
-func (c *Connector) openaiChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
+// openaiChatCompletionStream opens a streaming request to Azure OpenAI.
+// Raw SDK chunks are forwarded through the channel with no translation.
+func (c *Connector) openaiChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (<-chan inferencegw.OpenAIStreamResult, error) {
 	c.logger.Debug(ctx, "azure: openaiChatCompletionStream start",
-		logging.Field{Key: "model", Value: req.Model},
-		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(req.Messages))},
+		logging.Field{Key: "model", Value: params.Model},
+		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
-	stream := c.openaiClient.Chat.Completions.NewStreaming(ctx, convert.ToOpenAIParams(req))
+	stream := c.openaiClient.Chat.Completions.NewStreaming(ctx, params)
 
-	ch := make(chan inferencegw.ChatCompletionChunk, 32)
+	ch := make(chan inferencegw.OpenAIStreamResult, 32)
 	go func() {
 		defer close(ch)
 		chunkCount := 0
 		for stream.Next() {
 			chunkCount++
 			cur := stream.Current()
-			ch <- convert.FromOpenAIChunk(&cur)
+			ch <- inferencegw.OpenAIStreamResult{Chunk: &cur}
 		}
 		if err := stream.Err(); err != nil {
-			c.logger.Error(ctx, "azure: openaiChatCompletionStream stream error",
+			c.logger.Error(ctx, "azure: openaiChatCompletionStream error",
 				logging.Field{Key: "error", Value: err.Error()},
 				logging.Field{Key: "chunks_before_error", Value: fmt.Sprintf("%d", chunkCount)},
 			)
-			ch <- inferencegw.ChatCompletionChunk{Err: convert.MapOpenAIError(inferencegw.ProviderAzure, err)}
+			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderAzure, err)}
 			return
 		}
 		c.logger.Debug(ctx, "azure: openaiChatCompletionStream done",

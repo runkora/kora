@@ -7,6 +7,8 @@ import (
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	openai "github.com/openai/openai-go"
+
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
@@ -67,22 +69,17 @@ func (s *Service) ListModels(ctx context.Context) ([]ProviderModel, error) {
 
 // ─── ChatCompletion (non-streaming) ──────────────────────────────────────────
 
-// ChatCompletion handles a non-streaming inference request end-to-end:
-//  1. Read the verified principal from context (placed there by AuthMiddleware).
-//  2. Evaluate policy.
-//  3. Route to provider(s).
-//  4. Call provider, retrying/failing-over on retryable errors.
-//  5. Write usage record.
-//  6. Return normalised response.
+// ChatCompletion handles a non-streaming inference request end-to-end.
+// The full openai.ChatCompletionNewParams wire type is passed through to the
+// connector unchanged — tool definitions, response format, logprobs, and all
+// other fields are preserved with zero translation loss.
 func (s *Service) ChatCompletion(
 	ctx context.Context,
-	dialect APIDialect,
-	req ChatCompletionRequest,
-) (ChatCompletionResponse, error) {
+	params openai.ChatCompletionNewParams,
+) (*openai.ChatCompletion, error) {
 	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletion",
 		trace.WithAttributes(
-			attribute.String("model", req.Model),
-			attribute.String("dialect", string(dialect)),
+			attribute.String("model", params.Model),
 			attribute.Bool("stream", false),
 		),
 	)
@@ -95,7 +92,7 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
-		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
 	span.SetAttributes(
@@ -103,13 +100,15 @@ func (s *Service) ChatCompletion(
 		attribute.String("principal_type", p.PrincipalType),
 	)
 
+	routeReq := ChatCompletionRequest{Model: params.Model}
+
 	// ── 2. Route request ──────────────────────────────────────────────────────
-	targets, strategy, err := s.router.RouteRequest(ctx, req)
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, req, dialect, nil, nil, UsageStatusRoutingFailed, "", 0)
-		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
 	// ── 3. Policy check ───────────────────────────────────────────────────────
@@ -123,8 +122,8 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
-		return ChatCompletionResponse{}, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
 	}
 	if !decision.Allowed {
 		s.logger.Info(ctx, "inference request denied by policy",
@@ -132,12 +131,12 @@ func (s *Service) ChatCompletion(
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
-		return ChatCompletionResponse{}, ErrPolicyDenied
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, ErrPolicyDenied
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, dialect, req)
+	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -145,26 +144,33 @@ func (s *Service) ChatCompletion(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
-		return ChatCompletionResponse{}, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
 	// ── 5. Write usage record ─────────────────────────────────────────────────
+	promptTokens := int(resp.Usage.PromptTokens)
+	completionTokens := int(resp.Usage.CompletionTokens)
+	totalTokens := int(resp.Usage.TotalTokens)
+	if totalTokens == 0 {
+		totalTokens = promptTokens + completionTokens
+	}
+
 	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
 
 	rec := InferenceUsageRecord{
 		ID:               uuid.NewString(),
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
-		APIDialect:       dialect,
+		APIDialect:       DialectOpenAI,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
 		RoutingStrategy:  &strategy,
-		PromptTokens:     resp.Usage.PromptTokens,
-		CompletionTokens: resp.Usage.CompletionTokens,
-		TotalTokens:      resp.Usage.TotalTokens,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
 		EstimatedCostUSD: estimatedCost,
 		Status:           UsageStatusSuccess,
 		RetryCount:       retryCount,
@@ -187,28 +193,26 @@ func (s *Service) ChatCompletion(
 
 // ChatCompletionStream handles a streaming inference request.
 // The handler is responsible for writing SSE frames; this method returns a
-// channel that emits chunks and closes when the stream is done.
-// On mid-stream error a final chunk with Err set is sent before the channel closes.
+// channel that emits OpenAIStreamResult values and closes when the stream ends.
+// On mid-stream error a final result with Err set is sent before the channel closes.
 //
 // The OTel span started here lives until the goroutine finishes draining the
 // upstream channel — it covers the full streaming lifecycle, not just setup.
 func (s *Service) ChatCompletionStream(
 	ctx context.Context,
-	dialect APIDialect,
-	req ChatCompletionRequest,
-) (<-chan ChatCompletionChunk, error) {
+	params openai.ChatCompletionNewParams,
+) (<-chan OpenAIStreamResult, error) {
 	// Span must be ended manually (not via defer) because it outlives the
 	// function — it is closed inside the goroutine once the stream drains.
 	ctx, span := tracer.Start(ctx, "inferencegw.ChatCompletionStream",
 		trace.WithAttributes(
-			attribute.String("model", req.Model),
-			attribute.String("dialect", string(dialect)),
+			attribute.String("model", params.Model),
 			attribute.Bool("stream", true),
 		),
 	)
 	start := time.Now()
 
-	// ── 1. Extract principal from context ─────────────────────────────────────
+	// ── 1. Extract principal ───────────────────────────────────────────────────
 	p, err := principalFromClaims(ctx)
 	if err != nil {
 		span.RecordError(err)
@@ -222,17 +226,19 @@ func (s *Service) ChatCompletionStream(
 		attribute.String("principal_type", p.PrincipalType),
 	)
 
-	// ── 2. Route request ──────────────────────────────────────────────────────
-	targets, strategy, err := s.router.RouteRequest(ctx, req)
+	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	// ── 2. Route ───────────────────────────────────────────────────────────────
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, req, dialect, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	// ── 3. Policy check ───────────────────────────────────────────────────────
+	// ── 3. Policy ──────────────────────────────────────────────────────────────
 	decision, err := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
 		TenantID:      p.TenantID,
 		PrincipalID:   p.PrincipalID,
@@ -244,7 +250,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "", 0)
 		return nil, fmt.Errorf("%w: policy evaluation: %w", ErrPolicyDenied, err)
 	}
 	if !decision.Allowed {
@@ -254,52 +260,39 @@ func (s *Service) ChatCompletionStream(
 		)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, req, dialect, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, &targets[0].Provider, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, ErrPolicyDenied
 	}
 
 	// ── 4. Open stream from provider ──────────────────────────────────────────
-	// Try providers in order until one accepts the stream.
-	var (
-		upstream   <-chan ChatCompletionChunk
-		callErr    error
-		usedTarget *RouteTarget
-	)
-
-	for _, target := range targets {
-		connector, ok := s.router.Connector(target.Provider)
-		if !ok {
-			continue
-		}
-
-		callReq := req
-		callReq.Model = target.ModelID
-
-		upstream, callErr = dialectStream(connector, dialect, ctx, callReq)
-		if callErr == nil {
-			t := target
-			usedTarget = &t
-			break
-		}
+	// Inject stream_options so providers that support it return usage data.
+	streamParams := params
+	streamParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+		IncludeUsage: openai.Bool(true),
 	}
+
+	upstream, usedTarget, _, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
+			p := streamParams
+			p.Model = target.ModelID
+			return c.ChatCompletionStream(ctx, p)
+		})
 
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, req, dialect, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
 	// ── 5. Proxy stream + write usage ─────────────────────────────────────────
-	// Proxy the upstream channel, accumulating token counts for usage attribution.
-	out := make(chan ChatCompletionChunk, 16)
+	out := make(chan OpenAIStreamResult, 16)
 	capturedTarget := usedTarget
 	capturedStrategy := strategy
 
 	// writeCtx is detached from the request context so the goroutine survives
 	// client disconnect, but preserves trace/baggage values via WithoutCancel.
-	// The span itself is ended inside the goroutine — it must outlive the HTTP handler.
 	writeCtx := context.WithoutCancel(ctx)
 
 	go func() {
@@ -311,21 +304,24 @@ func (s *Service) ChatCompletionStream(
 			streamErr                                   error
 		)
 
-		for chunk := range upstream {
-			if chunk.Err != nil {
-				streamErr = chunk.Err
+		for result := range upstream {
+			if result.Err != nil {
+				streamErr = result.Err
+				out <- result
+				break
 			}
-			promptTokens += chunk.Usage.PromptTokens
-			completionTokens += chunk.Usage.CompletionTokens
-			totalTokens += chunk.Usage.TotalTokens
-			out <- chunk
+			// Accumulate usage — some providers send it only in the final chunk.
+			// Additive accumulation handles providers that split across chunks.
+			if result.Chunk != nil {
+				promptTokens += int(result.Chunk.Usage.PromptTokens)
+				completionTokens += int(result.Chunk.Usage.CompletionTokens)
+				totalTokens += int(result.Chunk.Usage.TotalTokens)
+			}
+			out <- result
 		}
 
 		latencyMS := int(time.Since(start).Milliseconds())
 
-		// totalTokens may be zero when the provider (e.g. Anthropic) emits input
-		// and output token counts in separate events rather than a combined total.
-		// Compute it from the parts so the usage record is always populated.
 		if totalTokens == 0 {
 			totalTokens = promptTokens + completionTokens
 		}
@@ -333,9 +329,11 @@ func (s *Service) ChatCompletionStream(
 		if streamErr != nil {
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-		} else {
-			span.SetStatus(codes.Ok, "")
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			return
 		}
+
+		span.SetStatus(codes.Ok, "")
 
 		pricing := capturedTarget.Pricing
 		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
@@ -345,7 +343,7 @@ func (s *Service) ChatCompletionStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
-			APIDialect:       dialect,
+			APIDialect:       DialectOpenAI,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
 			RoutingStrategy:  &capturedStrategy,
@@ -373,7 +371,6 @@ func (s *Service) ChatCompletionStream(
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
-// Returns an error if AuthMiddleware has not run (i.e. claims are absent).
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -436,10 +433,9 @@ func extractErrorCode(err error) string {
 	return "UNKNOWN"
 }
 
-// retryTargets is the shared retry scaffolding used by all three call paths
-// (OpenAI, Anthropic non-streaming, Anthropic streaming setup). It iterates
-// targets, calling fn for each, and retries retryable errors within each target
-// up to the engine's per-target and total attempt limits.
+// retryTargets is the shared retry scaffolding used by all call paths.
+// It iterates targets, calling fn for each, and retries retryable errors within
+// each target up to the engine's per-target and total attempt limits.
 func retryTargets[T any](
 	ctx context.Context,
 	s *Service,
@@ -485,18 +481,17 @@ func retryTargets[T any](
 	return
 }
 
-// callWithFailover iterates targets, retrying retryable errors up to the engine limits.
+// callWithFailover wraps retryTargets for non-streaming OpenAI requests.
 func (s *Service) callWithFailover(
 	ctx context.Context,
 	targets []RouteTarget,
-	dialect APIDialect,
-	req ChatCompletionRequest,
-) (ChatCompletionResponse, *RouteTarget, int, error) {
+	params openai.ChatCompletionNewParams,
+) (*openai.ChatCompletion, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
-		func(c ProviderConnector, target RouteTarget) (ChatCompletionResponse, error) {
-			callReq := req
-			callReq.Model = target.ModelID
-			return dialectCall(c, dialect, ctx, callReq)
+		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
+			p := params
+			p.Model = target.ModelID
+			return c.ChatCompletion(ctx, p)
 		})
 }
 
@@ -512,7 +507,6 @@ func nthProvider(targets []RouteTarget) *ProviderName {
 
 // AnthropicMessages handles a non-streaming POST /v1/messages request using the
 // zero-translation path: params and response are native Anthropic SDK types.
-// Policy evaluation and usage attribution still apply.
 func (s *Service) AnthropicMessages(
 	ctx context.Context,
 	params anthropic.MessageNewParams,
@@ -539,7 +533,6 @@ func (s *Service) AnthropicMessages(
 		attribute.String("principal_type", p.PrincipalType),
 	)
 
-	// Route using a minimal request carrying just the model name.
 	routeReq := ChatCompletionRequest{Model: params.Model}
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
@@ -574,9 +567,9 @@ func (s *Service) AnthropicMessages(
 
 	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
-			p := params
-			p.Model = target.ModelID
-			return c.AnthropicMessages(ctx, p)
+			q := params
+			q.Model = target.ModelID
+			return c.AnthropicMessages(ctx, q)
 		})
 
 	latencyMS := int(time.Since(start).Milliseconds())
@@ -688,14 +681,11 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, ErrPolicyDenied
 	}
 
-	// Retry pre-stream connection failures (e.g. throttling on setup). Mid-stream
-	// errors are single-pass — once the channel is open and returned to the caller,
-	// tearing it down and retrying is not transparent.
 	upstream, usedTarget, _, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
-			p := params
-			p.Model = target.ModelID
-			return c.AnthropicMessagesStream(ctx, p)
+			q := params
+			q.Model = target.ModelID
+			return c.AnthropicMessagesStream(ctx, q)
 		})
 
 	if callErr != nil || usedTarget == nil {
@@ -726,7 +716,6 @@ func (s *Service) AnthropicMessagesStream(
 				out <- ev
 				break
 			}
-			// Accumulate for usage tracking; ignore accumulation errors (non-fatal).
 			_ = accumulated.Accumulate(ev.Event)
 			out <- ev
 		}
@@ -774,34 +763,4 @@ func (s *Service) AnthropicMessagesStream(
 	}()
 
 	return out, nil
-}
-
-// ─── dialect dispatch helpers ─────────────────────────────────────────────────
-
-// dialectCall invokes the correct non-streaming connector method for the given
-// dialect. The connector is never responsible for making this decision.
-func dialectCall(
-	c ProviderConnector,
-	dialect APIDialect,
-	ctx context.Context,
-	req ChatCompletionRequest,
-) (ChatCompletionResponse, error) {
-	if dialect == DialectAnthropic {
-		return c.AnthropicChatCompletion(ctx, req)
-	}
-	return c.ChatCompletion(ctx, req)
-}
-
-// dialectStream invokes the correct streaming connector method for the given
-// dialect. The connector is never responsible for making this decision.
-func dialectStream(
-	c ProviderConnector,
-	dialect APIDialect,
-	ctx context.Context,
-	req ChatCompletionRequest,
-) (<-chan ChatCompletionChunk, error) {
-	if dialect == DialectAnthropic {
-		return c.AnthropicChatCompletionStream(ctx, req)
-	}
-	return c.ChatCompletionStream(ctx, req)
 }

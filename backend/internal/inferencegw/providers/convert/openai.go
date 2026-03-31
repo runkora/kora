@@ -1,5 +1,11 @@
-// Package convert provides shared type-conversion helpers between the Orbit
-// inference domain types and the upstream SDK types (openai-go, anthropic-sdk-go).
+// Package convert provides shared type-conversion helpers used when provider
+// topology requires translating between SDK wire types (e.g. routing a
+// Claude model through the Anthropic Messages API while maintaining an
+// OpenAI-compatible external interface).
+//
+// The golden rule: translation must only happen at provider topology boundaries,
+// never at the HTTP handler layer. Gemini/Llama/GPT models pass SDK types
+// straight through with zero translation loss.
 package convert
 
 import (
@@ -11,114 +17,459 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 )
 
-// ─── OpenAI ──────────────────────────────────────────────────────────────────
+// OpenAI to Anthropic (request)
 
-// ToOpenAIParams converts an Orbit ChatCompletionRequest to openai-go params.
-func ToOpenAIParams(req inferencegw.ChatCompletionRequest) openai.ChatCompletionNewParams {
-	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(req.Messages))
+// OpenAIParamsToAnthropicParams translates native openai-go chat completion params
+// to anthropic-sdk-go message params. Used by connectors that must route
+// Claude models through the Anthropic Messages API (Bedrock, Vertex AI) while
+// maintaining an OpenAI-compatible external interface.
+func OpenAIParamsToAnthropicParams(params openai.ChatCompletionNewParams) anthropic.MessageNewParams {
+	maxTokens := int64(4096)
+	if params.MaxTokens.Valid() {
+		maxTokens = params.MaxTokens.Value
+	}
 
-	for _, m := range req.Messages {
-		switch m.Role {
-		case "system":
-			messages = append(messages, openai.SystemMessage(m.Content.String()))
-		case "assistant":
-			messages = append(messages, openai.AssistantMessage(m.Content.String()))
-		default:
-			messages = append(messages, openai.UserMessage(m.Content.String()))
+	var systemBlocks []anthropic.TextBlockParam
+	messages := make([]anthropic.MessageParam, 0, len(params.Messages))
+
+	for _, m := range params.Messages {
+		switch {
+		case m.OfSystem != nil:
+			text := systemMsgText(m.OfSystem)
+			systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: text})
+
+		case m.OfUser != nil:
+			blocks := userMsgBlocks(m.OfUser)
+			messages = append(messages, anthropic.NewUserMessage(blocks...))
+
+		case m.OfAssistant != nil:
+			blocks := assistantMsgBlocks(m.OfAssistant)
+			if len(blocks) > 0 {
+				messages = append(messages, anthropic.NewAssistantMessage(blocks...))
+			}
+
+		case m.OfTool != nil:
+			block := toolResultBlock(m.OfTool)
+			messages = append(messages, anthropic.NewUserMessage(block))
 		}
 	}
 
-	p := openai.ChatCompletionNewParams{
-		Model:    req.Model,
-		Messages: messages,
+	p := anthropic.MessageNewParams{
+		Model:     params.Model,
+		MaxTokens: maxTokens,
+		Messages:  messages,
 	}
-
-	if req.MaxTokens > 0 {
-		p.MaxTokens = param.NewOpt(int64(req.MaxTokens))
+	if len(systemBlocks) > 0 {
+		p.System = systemBlocks
 	}
-	if req.Temperature != nil {
-		p.Temperature = param.NewOpt(*req.Temperature)
+	if params.Temperature.Valid() {
+		p.Temperature = anthropic.Float(params.Temperature.Value)
 	}
-
+	if len(params.Tools) > 0 {
+		p.Tools = convertTools(params.Tools)
+		if tc, ok := convertToolChoice(params.ToolChoice); ok {
+			p.ToolChoice = tc
+		}
+	}
 	return p
 }
 
-// FromOpenAIResponse converts an openai-go ChatCompletion to an Orbit response.
-func FromOpenAIResponse(resp *openai.ChatCompletion) inferencegw.ChatCompletionResponse {
-	choices := make([]inferencegw.ChatCompletionChoice, 0, len(resp.Choices))
-	for _, ch := range resp.Choices {
-		choices = append(choices, inferencegw.ChatCompletionChoice{
-			Index:        int(ch.Index),
-			FinishReason: ch.FinishReason,
-			Message: inferencegw.ChatMessage{
-				Role:    string(ch.Message.Role),
-				Content: inferencegw.MessageContent(ch.Message.Content),
-			},
-		})
+// systemMsgText extracts the plain-text content from a system message param.
+func systemMsgText(m *openai.ChatCompletionSystemMessageParam) string {
+	if m.Content.OfString.Valid() {
+		return m.Content.OfString.Value
 	}
-
-	created := resp.Created
-	if created == 0 {
-		created = time.Now().Unix()
+	var sb strings.Builder
+	for _, part := range m.Content.OfArrayOfContentParts {
+		sb.WriteString(part.Text)
 	}
-
-	return inferencegw.ChatCompletionResponse{
-		ID:      resp.ID,
-		Object:  "chat.completion",
-		Created: created,
-		Model:   resp.Model,
-		Choices: choices,
-		Usage: inferencegw.UsageStats{
-			PromptTokens:     int(resp.Usage.PromptTokens),
-			CompletionTokens: int(resp.Usage.CompletionTokens),
-			TotalTokens:      int(resp.Usage.TotalTokens),
-		},
-	}
+	return sb.String()
 }
 
-// FromOpenAIChunk converts an openai-go ChatCompletionChunk to an Orbit chunk.
-func FromOpenAIChunk(chunk *openai.ChatCompletionChunk) inferencegw.ChatCompletionChunk {
-	out := inferencegw.ChatCompletionChunk{
-		ID:      chunk.ID,
-		Object:  string(chunk.Object),
-		Model:   chunk.Model,
-		Created: chunk.Created,
-		Usage: inferencegw.UsageStats{
-			PromptTokens:     int(chunk.Usage.PromptTokens),
-			CompletionTokens: int(chunk.Usage.CompletionTokens),
-			TotalTokens:      int(chunk.Usage.TotalTokens),
-		},
+// userMsgBlocks converts user message content to Anthropic content blocks.
+// image_url parts are converted to Anthropic image blocks (URL or base64).
+func userMsgBlocks(m *openai.ChatCompletionUserMessageParam) []anthropic.ContentBlockParamUnion {
+	if m.Content.OfString.Valid() {
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content.OfString.Value)}
+	}
+	var blocks []anthropic.ContentBlockParamUnion
+	for _, part := range m.Content.OfArrayOfContentParts {
+		if part.OfText != nil {
+			blocks = append(blocks, anthropic.NewTextBlock(part.OfText.Text))
+		} else if part.OfImageURL != nil {
+			blocks = append(blocks, imageURLToAnthropicBlock(part.OfImageURL.ImageURL.URL))
+		}
+	}
+	return blocks
+}
+
+// imageURLToAnthropicBlock converts an OpenAI image URL (either a plain URL or a
+// data URI) to an Anthropic ContentBlockParamUnion image block.
+func imageURLToAnthropicBlock(url string) anthropic.ContentBlockParamUnion {
+	// data URIs have the form: data:<mediaType>;base64,<data>
+	if strings.HasPrefix(url, "data:") {
+		// Strip the "data:" prefix
+		rest := url[5:]
+		before, after, ok := strings.Cut(rest, ";")
+		if !ok {
+			// Malformed data URI — fall back to URL block
+			return anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url})
+		}
+		mediaType := before
+		remainder := after
+		// Expect "base64,<data>"
+		const prefix = "base64,"
+		if !strings.HasPrefix(remainder, prefix) {
+			return anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url})
+		}
+		encoded := remainder[len(prefix):]
+		return anthropic.NewImageBlockBase64(mediaType, encoded)
+	}
+	return anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url})
+}
+
+// assistantMsgBlocks converts assistant message content to Anthropic content blocks.
+func assistantMsgBlocks(m *openai.ChatCompletionAssistantMessageParam) []anthropic.ContentBlockParamUnion {
+	var blocks []anthropic.ContentBlockParamUnion
+
+	// Text content
+	if m.Content.OfString.Valid() && m.Content.OfString.Value != "" {
+		blocks = append(blocks, anthropic.NewTextBlock(m.Content.OfString.Value))
+	}
+	for _, part := range m.Content.OfArrayOfContentParts {
+		if part.OfText != nil && part.OfText.Text != "" {
+			blocks = append(blocks, anthropic.NewTextBlock(part.OfText.Text))
+		}
 	}
 
-	for _, ch := range chunk.Choices {
-		// finish_reason must be null on non-terminal chunks per the OpenAI spec.
-		// Only set a non-nil pointer when there is an actual reason value.
-		var fr *string
-		if ch.FinishReason != "" {
-			s := ch.FinishReason
-			fr = &s
+	// Tool calls
+	for _, tc := range m.ToolCalls {
+		var input any = map[string]any{}
+		if tc.Function.Arguments != "" {
+			input = map[string]any{"_raw": tc.Function.Arguments}
 		}
-		out.Choices = append(out.Choices, struct {
-			Index        int                     `json:"index"`
-			Delta        inferencegw.StreamDelta `json:"delta"`
-			FinishReason *string                 `json:"finish_reason"`
-		}{
-			Index: int(ch.Index),
-			Delta: inferencegw.StreamDelta{
-				Role:    ch.Delta.Role,
-				Content: ch.Delta.Content,
+		blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Function.Name))
+	}
+
+	return blocks
+}
+
+// toolResultBlock converts a tool message param to an Anthropic tool_result block.
+func toolResultBlock(m *openai.ChatCompletionToolMessageParam) anthropic.ContentBlockParamUnion {
+	var content string
+	if m.Content.OfString.Valid() {
+		content = m.Content.OfString.Value
+	} else {
+		var sb strings.Builder
+		for _, part := range m.Content.OfArrayOfContentParts {
+			sb.WriteString(part.Text)
+		}
+		content = sb.String()
+	}
+	return anthropic.NewToolResultBlock(m.ToolCallID, content, false)
+}
+
+// convertTools translates OpenAI tool definitions to Anthropic tool params.
+func convertTools(tools []openai.ChatCompletionToolParam) []anthropic.ToolUnionParam {
+	out := make([]anthropic.ToolUnionParam, 0, len(tools))
+	for _, t := range tools {
+		fn := t.Function
+		var desc string
+		if fn.Description.Valid() {
+			desc = fn.Description.Value
+		}
+		schema := openAISchemaToAnthropic(fn.Parameters)
+		out = append(out, anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        fn.Name,
+				Description: anthropic.String(desc),
+				InputSchema: schema,
 			},
-			FinishReason: fr,
 		})
 	}
-
 	return out
 }
+
+// openAISchemaToAnthropic converts an OpenAI function parameters map (a full JSON
+// Schema object: {"type":"object","properties":{...},"required":[...]}) into an
+// anthropic.ToolInputSchemaParam by unpacking the top-level keys into the typed
+// struct fields. Unknown top-level keys are forwarded via ExtraFields so that
+// constructs like $defs survive the translation.
+func openAISchemaToAnthropic(params map[string]any) anthropic.ToolInputSchemaParam {
+	if params == nil {
+		return anthropic.ToolInputSchemaParam{}
+	}
+
+	schema := anthropic.ToolInputSchemaParam{}
+
+	if props, ok := params["properties"]; ok {
+		schema.Properties = props
+	}
+
+	// "required" arrives as []any when decoded from JSON; normalise to []string.
+	if req, ok := params["required"]; ok {
+		switch v := req.(type) {
+		case []string:
+			schema.Required = v
+		case []any:
+			strs := make([]string, 0, len(v))
+			for _, r := range v {
+				if s, ok := r.(string); ok {
+					strs = append(strs, s)
+				}
+			}
+			schema.Required = strs
+		}
+	}
+
+	// Forward any remaining top-level keys (e.g. $defs, $ref, description)
+	// as extra JSON fields so they survive the translation.
+	skip := map[string]bool{"type": true, "properties": true, "required": true}
+	for k, v := range params {
+		if skip[k] {
+			continue
+		}
+		if schema.ExtraFields == nil {
+			schema.ExtraFields = make(map[string]any)
+		}
+		schema.ExtraFields[k] = v
+	}
+
+	return schema
+}
+
+// convertToolChoice translates an OpenAI tool_choice to Anthropic ToolChoiceUnionParam.
+// Returns (zero, false) when no tool choice is set.
+func convertToolChoice(tc openai.ChatCompletionToolChoiceOptionUnionParam) (anthropic.ToolChoiceUnionParam, bool) {
+	if tc.OfChatCompletionNamedToolChoice != nil {
+		return anthropic.ToolChoiceUnionParam{
+			OfTool: &anthropic.ToolChoiceToolParam{
+				Name: tc.OfChatCompletionNamedToolChoice.Function.Name,
+			},
+		}, true
+	}
+	if tc.OfAuto.Valid() {
+		switch tc.OfAuto.Value {
+		case "auto":
+			return anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{},
+			}, true
+		case "required":
+			return anthropic.ToolChoiceUnionParam{
+				OfAny: &anthropic.ToolChoiceAnyParam{},
+			}, true
+		case "none":
+			return anthropic.ToolChoiceUnionParam{}, false
+		}
+	}
+	return anthropic.ToolChoiceUnionParam{}, false
+}
+
+// Anthropic to OpenAI (response)
+
+// AnthropicMessageToOpenAI converts a native anthropic.Message to an
+// openai.ChatCompletion. Used by connectors routing Claude models through
+// the Anthropic Messages API while returning an OpenAI-compatible response.
+// Tool use blocks in the Anthropic response are mapped to OpenAI tool_calls.
+func AnthropicMessageToOpenAI(msg *anthropic.Message) *openai.ChatCompletion {
+	var textContent strings.Builder
+	var toolCalls []openai.ChatCompletionMessageToolCall
+
+	for _, block := range msg.Content {
+		switch block.Type {
+		case "text":
+			textContent.WriteString(block.Text)
+		case "tool_use":
+			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: openai.ChatCompletionMessageToolCallFunction{
+					Name:      block.Name,
+					Arguments: string(block.Input),
+				},
+			})
+		}
+	}
+
+	message := openai.ChatCompletionMessage{
+		Role:    "assistant",
+		Content: textContent.String(),
+	}
+	if len(toolCalls) > 0 {
+		message.ToolCalls = toolCalls
+	}
+
+	return &openai.ChatCompletion{
+		ID:      msg.ID,
+		Model:   msg.Model,
+		Created: time.Now().Unix(),
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Index:        0,
+				FinishReason: mapAnthropicStopReason(msg.StopReason),
+				Message:      message,
+			},
+		},
+		Usage: openai.CompletionUsage{
+			PromptTokens:     msg.Usage.InputTokens,
+			CompletionTokens: msg.Usage.OutputTokens,
+			TotalTokens:      msg.Usage.InputTokens + msg.Usage.OutputTokens,
+		},
+	}
+}
+
+// Anthropic streaming to OpenAI streaming
+
+// AnthropicStreamState tracks inter-event state needed to convert a sequence of
+// Anthropic SSE events into a sequence of OpenAI chat.completion.chunk objects.
+// Create one per stream with NewAnthropicStreamState.
+type AnthropicStreamState struct {
+	MessageID   string
+	Model       string
+	toolCallIdx map[int64]int64 // Anthropic content-block index -> OpenAI tool_calls slot index
+	nextTCIdx   int64
+}
+
+// NewAnthropicStreamState initializes an AnthropicStreamState for a new stream.
+func NewAnthropicStreamState() *AnthropicStreamState {
+	return &AnthropicStreamState{toolCallIdx: make(map[int64]int64)}
+}
+
+// AnthropicEventToOpenAIChunk converts one Anthropic SSE event to an OpenAI
+// chat.completion.chunk. Returns (chunk, true) when a chunk should be forwarded;
+// (nil, false) for events that carry no client-visible data (e.g. content_block_stop).
+//
+// Tool call streaming: content_block_start events with type="tool_use" emit the
+// tool call header (id, name). Subsequent input_json_delta events emit argument
+// fragments. The caller must process events in order.
+func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *AnthropicStreamState) (*openai.ChatCompletionChunk, bool) {
+	switch event.Type {
+	case "message_start":
+		s.MessageID = event.Message.ID
+		s.Model = event.Message.Model
+		return &openai.ChatCompletionChunk{
+			ID:    s.MessageID,
+			Model: s.Model,
+			Usage: openai.CompletionUsage{
+				PromptTokens: event.Message.Usage.InputTokens,
+			},
+		}, true
+
+	case "content_block_start":
+		if event.ContentBlock.Type != "tool_use" {
+			return nil, false
+		}
+		// Assign a stable slot index for this tool call within the choices delta.
+		tcIdx := s.nextTCIdx
+		s.toolCallIdx[event.Index] = tcIdx
+		s.nextTCIdx++
+		return &openai.ChatCompletionChunk{
+			ID:    s.MessageID,
+			Model: s.Model,
+			Choices: []openai.ChatCompletionChunkChoice{
+				{
+					Index: 0,
+					Delta: openai.ChatCompletionChunkChoiceDelta{
+						ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{
+							{
+								Index: tcIdx,
+								ID:    event.ContentBlock.ID,
+								Type:  "function",
+								Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
+									Name:      event.ContentBlock.Name,
+									Arguments: "",
+								},
+							},
+						},
+					},
+				},
+			},
+		}, true
+
+	case "content_block_delta":
+		switch event.Delta.Type {
+		case "text_delta":
+			return &openai.ChatCompletionChunk{
+				ID:    s.MessageID,
+				Model: s.Model,
+				Choices: []openai.ChatCompletionChunkChoice{
+					{
+						Index: 0,
+						Delta: openai.ChatCompletionChunkChoiceDelta{
+							Role:    "assistant",
+							Content: event.Delta.Text,
+						},
+					},
+				},
+			}, true
+
+		case "input_json_delta":
+			tcIdx, ok := s.toolCallIdx[event.Index]
+			if !ok {
+				return nil, false
+			}
+			return &openai.ChatCompletionChunk{
+				ID:    s.MessageID,
+				Model: s.Model,
+				Choices: []openai.ChatCompletionChunkChoice{
+					{
+						Index: 0,
+						Delta: openai.ChatCompletionChunkChoiceDelta{
+							ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{
+								{
+									Index: tcIdx,
+									Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
+										Arguments: event.Delta.PartialJSON,
+									},
+								},
+							},
+						},
+					},
+				},
+			}, true
+		}
+
+	case "message_delta":
+		return &openai.ChatCompletionChunk{
+			ID:    s.MessageID,
+			Model: s.Model,
+			Choices: []openai.ChatCompletionChunkChoice{
+				{
+					Index:        0,
+					FinishReason: mapAnthropicStopReason(event.Delta.StopReason),
+					Delta:        openai.ChatCompletionChunkChoiceDelta{},
+				},
+			},
+			Usage: openai.CompletionUsage{
+				CompletionTokens: event.Usage.OutputTokens,
+			},
+		}, true
+	}
+
+	return nil, false
+}
+
+// mapAnthropicStopReason translates Anthropic stop reasons to OpenAI finish_reason values.
+func mapAnthropicStopReason[T ~string](reason T) string {
+	switch string(reason) {
+	case "end_turn":
+		return "stop"
+	case "max_tokens":
+		return "length"
+	case "stop_sequence":
+		return "stop"
+	case "tool_use":
+		return "tool_calls"
+	default:
+		return "stop"
+	}
+}
+
+// Error mapping
 
 // MapOpenAIError converts an openai-go error to a ConnectorError.
 func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
@@ -156,147 +507,6 @@ func classifyOpenAIStatus(status int) (code string, retryable bool) {
 		return "PROVIDER_UNAVAILABLE", true
 	default:
 		return "PROVIDER_ERROR", status >= 500
-	}
-}
-
-// ─── Anthropic ───────────────────────────────────────────────────────────────
-
-// ToAnthropicParams converts an Orbit ChatCompletionRequest to anthropic-sdk-go params.
-func ToAnthropicParams(req inferencegw.ChatCompletionRequest) anthropic.MessageNewParams {
-	maxTokens := int64(4096)
-	if req.MaxTokens > 0 {
-		maxTokens = int64(req.MaxTokens)
-	}
-
-	var systemBlocks []anthropic.TextBlockParam
-	messages := make([]anthropic.MessageParam, 0, len(req.Messages))
-
-	for _, m := range req.Messages {
-		switch m.Role {
-		case "system":
-			systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: m.Content.String()})
-		case "assistant":
-			messages = append(messages, anthropic.NewAssistantMessage(
-				anthropic.NewTextBlock(m.Content.String()),
-			))
-		default:
-			messages = append(messages, anthropic.NewUserMessage(
-				anthropic.NewTextBlock(m.Content.String()),
-			))
-		}
-	}
-
-	p := anthropic.MessageNewParams{
-		Model:     req.Model,
-		MaxTokens: maxTokens,
-		Messages:  messages,
-	}
-
-	if len(systemBlocks) > 0 {
-		p.System = systemBlocks
-	}
-
-	return p
-}
-
-// FromAnthropicMessage converts an anthropic-sdk-go Message to an Orbit response.
-func FromAnthropicMessage(msg *anthropic.Message) inferencegw.ChatCompletionResponse {
-	var content strings.Builder
-	for _, block := range msg.Content {
-		if block.Type == "text" {
-			content.WriteString(block.Text)
-		}
-	}
-
-	return inferencegw.ChatCompletionResponse{
-		ID:      msg.ID,
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   msg.Model,
-		Choices: []inferencegw.ChatCompletionChoice{
-			{
-				Index:        0,
-				FinishReason: mapAnthropicStopReason(msg.StopReason),
-				Message: inferencegw.ChatMessage{
-					Role:    "assistant",
-					Content: inferencegw.MessageContent(content.String()),
-				},
-			},
-		},
-		Usage: inferencegw.UsageStats{
-			PromptTokens:     int(msg.Usage.InputTokens),
-			CompletionTokens: int(msg.Usage.OutputTokens),
-			TotalTokens:      int(msg.Usage.InputTokens + msg.Usage.OutputTokens),
-		},
-	}
-}
-
-// AnthropicEventToChunk converts a streaming MessageStreamEventUnion to an Orbit chunk.
-// Returns (chunk, true) for events that carry content; (zero, false) for others.
-func AnthropicEventToChunk(event anthropic.MessageStreamEventUnion) (inferencegw.ChatCompletionChunk, bool) {
-	switch event.Type {
-	case "content_block_delta":
-		delta := ""
-		if event.Delta.Type == "text_delta" {
-			delta = event.Delta.Text
-		}
-		// finish_reason is null for content delta chunks — only the terminal
-		// message_delta event carries a stop reason.
-		return inferencegw.ChatCompletionChunk{
-			Choices: []struct {
-				Index        int                     `json:"index"`
-				Delta        inferencegw.StreamDelta `json:"delta"`
-				FinishReason *string                 `json:"finish_reason"`
-			}{
-				{
-					Index:        int(event.Index),
-					Delta:        inferencegw.StreamDelta{Role: "assistant", Content: delta},
-					FinishReason: nil,
-				},
-			},
-		}, true
-
-	case "message_delta":
-		fr := mapAnthropicStopReason(event.Delta.StopReason)
-		return inferencegw.ChatCompletionChunk{
-			Choices: []struct {
-				Index        int                     `json:"index"`
-				Delta        inferencegw.StreamDelta `json:"delta"`
-				FinishReason *string                 `json:"finish_reason"`
-			}{
-				{Index: 0, Delta: inferencegw.StreamDelta{}, FinishReason: &fr},
-			},
-			Usage: inferencegw.UsageStats{
-				CompletionTokens: int(event.Usage.OutputTokens),
-			},
-		}, true
-
-	case "message_start":
-		return inferencegw.ChatCompletionChunk{
-			ID:    event.Message.ID,
-			Model: event.Message.Model,
-			Usage: inferencegw.UsageStats{
-				PromptTokens: int(event.Message.Usage.InputTokens),
-			},
-		}, true
-	}
-
-	return inferencegw.ChatCompletionChunk{}, false
-}
-
-// mapAnthropicStopReason translates Anthropic stop reasons to OpenAI finish_reason values.
-func mapAnthropicStopReason[T ~string](reason T) string {
-	switch string(reason) {
-	case "end_turn":
-		return "stop"
-	case "max_tokens":
-		return "length"
-	case "stop_sequence":
-		return "stop"
-	case "tool_use":
-		return "tool_calls"
-	default:
-		return "stop"
 	}
 }
 

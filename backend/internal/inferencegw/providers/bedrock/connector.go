@@ -156,7 +156,9 @@ func (c *Connector) Name() inferencegw.ProviderName {
 
 // fmEntry holds data from a ListFoundationModels summary.
 type fmEntry struct {
-	name string // human-readable name from the API (e.g. "Claude 3 Sonnet")
+	name       string                          // human-readable name from the API (e.g. "Claude 3 Sonnet")
+	inputMods  []bedrockSDKtypes.ModelModality // input modalities from the API
+	outputMods []bedrockSDKtypes.ModelModality // output modalities from the API
 }
 
 // profileEntry holds data from a ListInferenceProfiles summary.
@@ -218,7 +220,11 @@ func (c *Connector) listOnDemandFMs(ctx context.Context) (activeFMs map[string]f
 		if m.ModelName != nil {
 			name = *m.ModelName
 		}
-		activeFMs[*m.ModelId] = fmEntry{name: name}
+		activeFMs[*m.ModelId] = fmEntry{
+			name:       name,
+			inputMods:  m.InputModalities,
+			outputMods: m.OutputModalities,
+		}
 	}
 	return activeFMs, excludedFMs, nil
 }
@@ -281,7 +287,9 @@ func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, 
 			continue
 		}
 		seen[canonicalID] = true
-		models = append(models, buildProviderModel(canonicalID, fm.name))
+		inputMods := convertModalities(fm.inputMods)
+		outputMods := convertModalities(fm.outputMods)
+		models = append(models, buildProviderModel(canonicalID, fm.name, inputMods, outputMods))
 	}
 
 	// Include profiles whose base FM is not in activeFMs
@@ -292,38 +300,17 @@ func mergeModels(activeFMs map[string]fmEntry, excludedFMs map[string]struct{}, 
 			continue // already handled above
 		}
 		if _, excluded := excludedFMs[baseID]; excluded {
-			continue // base FM is LEGACY — suppress its profiles too
+			continue // base FM is LEGACY - suppress its profiles too
 		}
 		if seen[profile.id] {
 			continue
 		}
 		seen[profile.id] = true
-		models = append(models, buildProviderModel(profile.id, profile.name))
+		// Profiles don't carry modality data - inferred from model ID in buildProviderModel.
+		models = append(models, buildProviderModel(profile.id, profile.name, nil, nil))
 	}
 
 	return models
-}
-
-// ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
-// Bedrock is a multi-endpoint provider: Anthropic models must be called via the
-// Anthropic Messages API (anthropicClient) even when the caller used the OpenAI
-// dialect — the OpenAI-compatible Bedrock endpoint does not support them.
-// All other model families are routed to the OpenAI-compatible endpoint (openaiClient).
-func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	if isAnthropicModel(req.Model) {
-		return c.anthropicChatCompletion(ctx, req)
-	}
-	return c.openaiChatCompletion(ctx, req)
-}
-
-// ChatCompletionStream opens a streaming request via the OpenAI-compatible dialect.
-// As with ChatCompletion, Anthropic models are transparently redirected to the
-// Anthropic Messages streaming API regardless of the caller's dialect choice.
-func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	if isAnthropicModel(req.Model) {
-		return c.anthropicChatCompletionStream(ctx, req)
-	}
-	return c.openaiChatCompletionStream(ctx, req)
 }
 
 // isAnthropicModel reports whether the given model ID belongs to the Anthropic
@@ -337,14 +324,4 @@ func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.Ch
 // client.
 func isAnthropicModel(id string) bool {
 	return strings.HasPrefix(stripRegionPrefix(id), "anthropic.")
-}
-
-// AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.
-func (c *Connector) AnthropicChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	return c.anthropicChatCompletion(ctx, req)
-}
-
-// AnthropicChatCompletionStream opens a streaming request via the Anthropic Messages dialect.
-func (c *Connector) AnthropicChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	return c.anthropicChatCompletionStream(ctx, req)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
@@ -17,14 +18,11 @@ import (
 var publishers = []string{"google", "anthropic", "meta"}
 
 // modelGardenBaseURL is the Vertex AI Model Garden v1beta1 REST API base.
-// The list endpoint does not require a project ID — it lists globally available publisher models.
 const modelGardenBaseURL = "https://aiplatform.googleapis.com/v1beta1"
 
 // publisherListResponse is the JSON response from publishers.models.listPublisherModels.
-// See: https://cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/publishers.models/list
 type publisherListResponse struct {
 	PublisherModels []struct {
-		// Name is the full resource name: publishers/{publisher}/models/{modelId}
 		Name string `json:"name"`
 	} `json:"publisherModels"`
 	NextPageToken string `json:"nextPageToken"`
@@ -32,20 +30,13 @@ type publisherListResponse struct {
 
 // ListModels fetches the live model catalog from the Vertex AI Model Garden for each
 // registered publisher (google, anthropic, meta) and returns them as ProviderModel entries.
-//
-// This calls the v1beta1 publishers.models.listPublisherModels endpoint with pagination
-// so the returned list always reflects what the Model Garden currently advertises —
-// no hardcoded model IDs anywhere.
-//
-// Note: a model appearing in the Model Garden list does not guarantee it is enabled for
-// your project. Models must be enabled in the GCP Console before inference calls succeed.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	var models []inferencegw.ProviderModel
 
 	for _, publisher := range publishers {
 		pm, err := c.listModelsForPublisher(ctx, publisher)
 		if err != nil {
-			c.logger.Warn(ctx, "vertexai: ListModels: failed to list publisher models — skipping",
+			c.logger.Warn(ctx, "vertexai: ListModels: failed to list publisher models -- skipping",
 				logging.Field{Key: "publisher", Value: publisher},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
@@ -77,9 +68,6 @@ func (c *Connector) listModelsForPublisher(ctx context.Context, publisher string
 		if err != nil {
 			return nil, fmt.Errorf("build request: %w", err)
 		}
-		// Required when using local ADC (user credentials) — tells the API which
-		// project to bill quota against. On GKE Workload Identity this is a no-op
-		// since the service account is already scoped to the project.
 		req.Header.Set("x-goog-user-project", c.cfg.ProjectID)
 
 		resp, err := c.listHTTPClient.Do(req)
@@ -122,20 +110,13 @@ func (c *Connector) listModelsForPublisher(ctx context.Context, publisher string
 // ProviderModel suitable for the inference gateway catalog.
 //
 // Resource name format: publishers/{publisher}/models/{modelId}
-//
-// Model ID conventions on Vertex AI:
-//   - Anthropic: bare model ID only, e.g. "claude-3-5-haiku@20241022"
-//   - Google/Meta: publisher-prefixed, e.g. "google/gemini-2.5-pro"
-//
-// This mirrors how models must be referenced when calling the inference endpoints.
 func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.ProviderModel {
-	// Extract model ID from "publishers/{publisher}/models/{modelId}"
 	const sep = "/models/"
-	idx := strings.Index(resourceName, sep)
-	if idx < 0 {
+	_, after, ok := strings.Cut(resourceName, sep)
+	if !ok {
 		return nil
 	}
-	rawModelID := resourceName[idx+len(sep):]
+	rawModelID := after
 	if rawModelID == "" {
 		return nil
 	}
@@ -150,46 +131,97 @@ func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.
 		modelID = publisher + "/" + rawModelID
 	}
 
-	// Derive a short alias by stripping the version suffix (@date or -NNN).
-	alias := stripVersionSuffix(rawModelID)
+	// Derive a short alias by stripping the @YYYYMMDD version suffix.
+	// Only Anthropic models use this pinning format; Google/Meta use numeric
+	// revision suffixes ("-001") and also expose unversioned IDs directly, so
+	// generating an alias from those would shadow the real unversioned model ID.
+	var aliases []string
+	if publisher == "anthropic" {
+		if stripped := stripVersionSuffix(rawModelID); stripped != rawModelID {
+			aliases = []string{stripped}
+		}
+	}
+
+	// Derive modalities and dialects from publisher and model ID.
+	inputMods, outputMods := inferVertexModalities(publisher, modelID)
+	dialects := inferVertexDialects(publisher, modelID, outputMods)
 
 	return &inferencegw.ProviderModel{
-		Provider:    inferencegw.ProviderVertexAI,
-		ModelID:     modelID,
-		DisplayName: modelIDToDisplayName(rawModelID),
-		Aliases:     []string{alias},
+		Provider:         inferencegw.ProviderVertexAI,
+		ModelID:          modelID,
+		DisplayName:      modelIDToDisplayName(rawModelID),
+		Aliases:          aliases,
+		InputModalities:  inputMods,
+		OutputModalities: outputMods,
+		Dialects:         dialects,
 	}
 }
 
-// stripVersionSuffix removes version-pinning suffixes so callers can use
-// a stable short alias regardless of the pinned version date.
+// inferVertexModalities returns input and output modalities for a Vertex AI model.
+// The Model Garden list API does not return modality metadata, so we infer from
+// publisher and model ID patterns.
+func inferVertexModalities(publisher, modelID string) (input, output []inferencegw.Modality) {
+	lower := strings.ToLower(modelID)
+
+	// Check for specialised Google model types first.
+	if publisher == "google" {
+		switch {
+		case strings.Contains(lower, "embed"):
+			return []inferencegw.Modality{inferencegw.ModalityText},
+				[]inferencegw.Modality{inferencegw.ModalityEmbedding}
+		case strings.Contains(lower, "imagen") || strings.Contains(lower, "imagegeneration"):
+			return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+				[]inferencegw.Modality{inferencegw.ModalityImage}
+		}
+	}
+
+	// Default by publisher.
+	switch publisher {
+	case "anthropic":
+		// All current Claude models support vision input.
+		return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+			[]inferencegw.Modality{inferencegw.ModalityText}
+	case "google":
+		// Gemini models are natively multimodal.
+		return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+			[]inferencegw.Modality{inferencegw.ModalityText}
+	default:
+		// Meta Llama and others: text-only.
+		return []inferencegw.Modality{inferencegw.ModalityText},
+			[]inferencegw.Modality{inferencegw.ModalityText}
+	}
+}
+
+// inferVertexDialects returns the gateway wire protocols supported for a Vertex AI model.
+// Embedding and image-gen models get no dialect (they don't use chat APIs).
+// Claude models get both openai and anthropic dialects.
+// All other text-output models get openai dialect only.
+func inferVertexDialects(publisher, modelID string, outputMods []inferencegw.Modality) []inferencegw.APIDialect {
+	hasTextOutput := slices.Contains(outputMods, inferencegw.ModalityText)
+	if !hasTextOutput {
+		return nil
+	}
+	if publisher == "anthropic" || isClaudeModel(modelID) {
+		return []inferencegw.APIDialect{inferencegw.DialectOpenAI, inferencegw.DialectAnthropic}
+	}
+	return []inferencegw.APIDialect{inferencegw.DialectOpenAI}
+}
+
+// stripVersionSuffix removes the Anthropic @YYYYMMDD version-pinning suffix
+// from a model ID, returning the stable base name.
 //
-// Handles two formats:
-//   - @YYYYMMDD suffix  (Anthropic on Vertex)  → claude-3-5-haiku
-//   - trailing -NNN version tag (Gemini, Llama) → gemini-2.0-flash
+// Example: "claude-3-5-haiku@20241022" -> "claude-3-5-haiku"
 func stripVersionSuffix(modelID string) string {
-	// Anthropic @date suffix
 	if at := strings.LastIndex(modelID, "@"); at >= 0 {
 		return modelID[:at]
-	}
-	// Google/Meta numeric trailing segment, e.g. gemini-2.0-flash-001
-	// Only strip if the last dash-separated segment is entirely digits.
-	parts := strings.Split(modelID, "-")
-	if len(parts) > 1 {
-		last := parts[len(parts)-1]
-		if isDigits(last) {
-			return strings.Join(parts[:len(parts)-1], "-")
-		}
 	}
 	return modelID
 }
 
 // modelIDToDisplayName produces a human-readable display name from a raw model ID.
-// This is best-effort — e.g. "gemini-2.5-pro" → "Gemini 2.5 Pro".
+// e.g. "gemini-2.5-pro" -> "Gemini 2.5 Pro"
 func modelIDToDisplayName(modelID string) string {
-	// Strip version suffix first
 	base := stripVersionSuffix(modelID)
-	// Split on dash and title-case each segment that isn't purely numeric
 	parts := strings.Split(base, "-")
 	for i, p := range parts {
 		if !isDigits(p) && len(p) > 0 {

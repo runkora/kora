@@ -43,9 +43,6 @@ type Config struct {
 //	VERTEX_PROJECT_ID           — GCP project ID (required when enabled)
 //	VERTEX_LOCATION             — GCP region for Gemini/Llama models, e.g. "us-central1" (required when enabled)
 //	VERTEX_ANTHROPIC_LOCATION   — GCP region for Claude models, e.g. "us-east5" (optional; defaults to VERTEX_LOCATION)
-//	VERTEX_ENABLED_MODELS       — comma-separated list of model IDs enabled in Vertex AI Model Garden
-//	                              (e.g. "google/gemini-2.5-flash,claude-sonnet-4-6")
-//	                              Only these models appear in GET /v1/models. If unset, no models are returned.
 //
 // Auth uses Application Default Credentials (ADC) exclusively.
 // On GKE use Workload Identity; locally set GOOGLE_APPLICATION_CREDENTIALS.
@@ -96,8 +93,11 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 // It wraps the OpenAI-compatible Vertex AI endpoint (via openai-go) and
 // the Anthropic Messages API on Vertex (via anthropic-sdk-go/vertex).
 //
-// Dialect selection is the caller's responsibility. The connector never
-// inspects the model name to choose a path.
+// Vertex AI topology note: Claude models are only available on the Anthropic
+// Messages endpoint, not the OpenAI-compatible endpoint. ChatCompletion and
+// ChatCompletionStream internally detect claude- model IDs and route them
+// through the Anthropic client with full SDK-to-SDK conversion, preserving
+// all tool_calls, structured outputs, and other fields.
 type Connector struct {
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
@@ -178,43 +178,6 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 
 func (c *Connector) Name() inferencegw.ProviderName {
 	return inferencegw.ProviderVertexAI
-}
-
-// ChatCompletion sends a non-streaming request.
-//
-// Vertex AI has two physically separate endpoints:
-//   - OpenAI-compatible endpoint: Gemini and Llama models
-//   - Anthropic Messages endpoint: Claude models only
-//
-// This method internally routes Claude models (identified by a "claude-" prefix)
-// to the Anthropic path regardless of which handler/dialect the caller used.
-// This is a provider topology constraint, not a dialect preference.
-func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	if isClaudeModel(req.Model) {
-		return c.anthropicChatCompletion(ctx, req)
-	}
-	return c.openaiChatCompletion(ctx, req)
-}
-
-// ChatCompletionStream opens a streaming request.
-// Claude models are internally routed to the Anthropic path — see ChatCompletion.
-func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	if isClaudeModel(req.Model) {
-		return c.anthropicChatCompletionStream(ctx, req)
-	}
-	return c.openaiChatCompletionStream(ctx, req)
-}
-
-// AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.
-// Called by the /v1/messages handler — always uses the Anthropic path.
-func (c *Connector) AnthropicChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	return c.anthropicChatCompletion(ctx, req)
-}
-
-// AnthropicChatCompletionStream opens a streaming request via the Anthropic Messages dialect.
-// Called by the /v1/messages handler — always uses the Anthropic path.
-func (c *Connector) AnthropicChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	return c.anthropicChatCompletionStream(ctx, req)
 }
 
 // isClaudeModel reports whether the model ID refers to a Claude model.

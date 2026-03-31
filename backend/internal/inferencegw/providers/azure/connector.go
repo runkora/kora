@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,23 +132,69 @@ func (c *Connector) Name() inferencegw.ProviderName {
 }
 
 // ListModels returns the live list of models from the Azure OpenAI endpoint.
-// Each model carries a display name auto-generated from the model ID. Azure does
-// not expose a separate inference profile concept, so no deduplication is needed.
+// Each model carries modality and dialect metadata inferred from the model ID.
+// Azure does not expose a separate inference profile concept, so no deduplication
+// is needed.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	iter := c.openaiClient.Models.ListAutoPaging(ctx)
 	var models []inferencegw.ProviderModel
 	for iter.Next() {
 		id := iter.Current().ID
+		inputMods, outputMods := inferAzureModalities(id)
 		models = append(models, inferencegw.ProviderModel{
-			Provider:    inferencegw.ProviderAzure,
-			ModelID:     id,
-			DisplayName: displayNameFromID(id),
+			Provider:         inferencegw.ProviderAzure,
+			ModelID:          id,
+			DisplayName:      displayNameFromID(id),
+			InputModalities:  inputMods,
+			OutputModalities: outputMods,
+			Dialects:         inferAzureDialects(id, outputMods),
 		})
 	}
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("azure: list models: %w", err)
 	}
 	return models, nil
+}
+
+// inferAzureModalities derives input/output modalities from an Azure model ID.
+// Azure does not expose modality metadata via its Models API, so we infer from
+// well-known model ID patterns.
+func inferAzureModalities(id string) (input, output []inferencegw.Modality) {
+	lower := strings.ToLower(id)
+	switch {
+	case strings.Contains(lower, "embed"):
+		return []inferencegw.Modality{inferencegw.ModalityText},
+			[]inferencegw.Modality{inferencegw.ModalityEmbedding}
+	case strings.Contains(lower, "dall-e") || strings.Contains(lower, "dalle") ||
+		strings.Contains(lower, "image-gen"):
+		return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+			[]inferencegw.Modality{inferencegw.ModalityImage}
+	case strings.Contains(lower, "whisper") || strings.Contains(lower, "tts"):
+		// Speech models - audio input/output
+		return []inferencegw.Modality{inferencegw.ModalityAudio},
+			[]inferencegw.Modality{inferencegw.ModalityText}
+	default:
+		// GPT-4o, GPT-4V, o1, o3, Mistral, Llama etc. are all text+vision chat models.
+		// Azure routes GPT-4 Vision models under the same gpt-4 ID with vision capability.
+		return []inferencegw.Modality{inferencegw.ModalityText, inferencegw.ModalityImage},
+			[]inferencegw.Modality{inferencegw.ModalityText}
+	}
+}
+
+// inferAzureDialects returns the gateway wire protocols supported for an Azure model.
+// Azure Claude models (deployed from the Azure Model Catalog) support both dialects.
+// All other text-output models support the openai dialect only.
+// Non-chat models (embedding, image-gen, audio) return no dialects.
+func inferAzureDialects(id string, outputMods []inferencegw.Modality) []inferencegw.APIDialect {
+	hasTextOutput := slices.Contains(outputMods, inferencegw.ModalityText)
+	if !hasTextOutput {
+		return nil
+	}
+	lower := strings.ToLower(id)
+	if strings.Contains(lower, "claude") {
+		return []inferencegw.APIDialect{inferencegw.DialectOpenAI, inferencegw.DialectAnthropic}
+	}
+	return []inferencegw.APIDialect{inferencegw.DialectOpenAI}
 }
 
 // displayNameFromID produces a human-readable label from an Azure model ID slug.
@@ -172,21 +219,11 @@ func splitSlug(s string) []string {
 }
 
 // ChatCompletion sends a non-streaming request via the OpenAI-compatible dialect.
-func (c *Connector) ChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	return c.openaiChatCompletion(ctx, req)
+func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	return c.openaiChatCompletion(ctx, params)
 }
 
 // ChatCompletionStream opens a streaming request via the OpenAI-compatible dialect.
-func (c *Connector) ChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	return c.openaiChatCompletionStream(ctx, req)
-}
-
-// AnthropicChatCompletion sends a non-streaming request via the Anthropic Messages dialect.
-func (c *Connector) AnthropicChatCompletion(ctx context.Context, req inferencegw.ChatCompletionRequest) (inferencegw.ChatCompletionResponse, error) {
-	return c.anthropicChatCompletion(ctx, req)
-}
-
-// AnthropicChatCompletionStream opens a streaming request via the Anthropic Messages dialect.
-func (c *Connector) AnthropicChatCompletionStream(ctx context.Context, req inferencegw.ChatCompletionRequest) (<-chan inferencegw.ChatCompletionChunk, error) {
-	return c.anthropicChatCompletionStream(ctx, req)
+func (c *Connector) ChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (<-chan inferencegw.OpenAIStreamResult, error) {
+	return c.openaiChatCompletionStream(ctx, params)
 }

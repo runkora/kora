@@ -5,25 +5,36 @@ import (
 	"fmt"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	openai "github.com/openai/openai-go"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// ─── Dialect interfaces ───────────────────────────────────────────────────────
+// ============================================================================
+// Dialect interfaces
+// ============================================================================
 
 // OpenAIConnector is the OpenAI-compatible dialect surface of a provider.
 // It is invoked when the client speaks the OpenAI Chat Completions API
-// (POST /v1/chat/completions). The router/handler layer selects this dialect
-// based on the endpoint the client called — never based on model name.
+// (POST /v1/chat/completions). Request and response types are native openai-go
+// SDK wire types — no hand-rolled translation layer, so tool calls, function
+// calling, logprobs, and all other fields pass through unchanged.
 type OpenAIConnector interface {
-	ChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
-	ChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
+	ChatCompletion(ctx context.Context, req openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
+	ChatCompletionStream(ctx context.Context, req openai.ChatCompletionNewParams) (<-chan OpenAIStreamResult, error)
+}
+
+// OpenAIStreamResult is one element emitted on a ChatCompletionStream channel.
+// On a mid-stream provider error Err is non-nil and Chunk is nil; callers must
+// check Err before using Chunk. The channel is always closed when the stream ends.
+type OpenAIStreamResult struct {
+	Chunk *openai.ChatCompletionChunk
+	Err   error
 }
 
 // AnthropicStreamEvent wraps a raw Anthropic SDK stream event with an optional
-// error.  On a mid-stream provider error Err is non-nil and Event is the zero
+// error. On a mid-stream provider error Err is non-nil and Event is the zero
 // value; callers must check Err before using Event.
-// This mirrors the ChatCompletionChunk.Err pattern used on the OpenAI path.
 type AnthropicStreamEvent struct {
 	Event anthropic.MessageStreamEventUnion
 	Err   error
@@ -31,25 +42,36 @@ type AnthropicStreamEvent struct {
 
 // AnthropicConnector is the Anthropic Messages API dialect surface of a provider.
 // It is invoked when the client speaks the Anthropic Messages API
-// (POST /v1/messages). The router/handler layer selects this dialect
-// based on the endpoint the client called — never based on model name.
+// (POST /v1/messages). Request and response types are native anthropic-sdk-go
+// wire types — zero translation, no information loss.
 type AnthropicConnector interface {
-	// AnthropicChatCompletion is the normalised path used internally for failover
-	// and metrics: request/response types are the Orbit domain types.
-	AnthropicChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error)
-	AnthropicChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)
-
-	// AnthropicMessages is the zero-translation path for the /v1/messages
-	// endpoint. Request and response are native Anthropic SDK types so no
-	// information is lost in transit.
+	// AnthropicMessages handles a non-streaming POST /v1/messages request.
 	AnthropicMessages(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error)
-	// AnthropicMessagesStream returns a channel of raw SDK stream events.
+	// AnthropicMessagesStream handles a streaming POST /v1/messages request.
 	// Mid-stream errors are communicated via AnthropicStreamEvent.Err; the
 	// channel is always closed when the stream ends (error or not).
 	AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error)
 }
 
-// ─── ProviderModel ───────────────────────────────────────────────────────────
+// ============================================================================
+// Modality
+// ============================================================================
+
+// Modality describes a content type that a model can accept as input or produce
+// as output. Values are lower-case strings so they serialize cleanly to JSON.
+type Modality string
+
+const (
+	ModalityText      Modality = "text"
+	ModalityImage     Modality = "image"
+	ModalityEmbedding Modality = "embedding"
+	ModalityAudio     Modality = "audio"
+	ModalityVideo     Modality = "video"
+)
+
+// ============================================================================
+// ProviderModel
+// ============================================================================
 
 // ProviderModel is a model returned by a live provider listing.
 type ProviderModel struct {
@@ -72,9 +94,27 @@ type ProviderModel struct {
 	// e.g. ["claude-sonnet-4-6", "anthropic.claude-sonnet-4-6"].
 	// Operator-curated aliases will be merged in by the routing engine.
 	Aliases []string
+
+	// InputModalities describes what content types this model accepts as input.
+	// e.g. ["text"] for text-only LLMs, ["text","image"] for vision models.
+	InputModalities []Modality
+
+	// OutputModalities describes what content types this model produces.
+	// e.g. ["text"] for LLMs, ["embedding"] for embedding models,
+	// ["image"] for image-generation models.
+	OutputModalities []Modality
+
+	// Dialects lists which gateway wire protocols can be used to call this model.
+	// ["openai"]             - OpenAI Chat Completions (POST /v1/chat/completions)
+	// ["openai","anthropic"] - both Chat Completions and Anthropic Messages API
+	// []                     - model does not support a chat dialect (e.g. embedding,
+	//                          image generation, reranker)
+	Dialects []APIDialect
 }
 
-// ─── ProviderConnector ────────────────────────────────────────────────────────
+// ============================================================================
+// ProviderConnector
+// ============================================================================
 
 // ProviderConnector is the full abstraction over a cloud AI provider.
 // Every provider (Bedrock, Vertex AI, Azure) implements both dialect interfaces.
@@ -96,7 +136,9 @@ type ProviderConnector interface {
 	AnthropicConnector
 }
 
-// ─── ConnectorFactory ────────────────────────────────────────────────────────
+// ============================================================================
+// ConnectorFactory
+// ============================================================================
 
 // ConnectorFactory creates a ProviderConnector from environment-sourced config.
 // Each provider package exports a Factory struct that implements this interface.
@@ -108,7 +150,9 @@ type ConnectorFactory interface {
 	Build(logger logging.Logger) (ProviderConnector, error)
 }
 
-// ─── ConnectorError ──────────────────────────────────────────────────────────
+// ============================================================================
+// ConnectorError
+// ============================================================================
 
 // ConnectorError wraps a provider-side error with a stable code that can be
 // stored in inference_usage.error_code and used for routing decisions.
@@ -127,18 +171,20 @@ type ConnectorError struct {
 	Underlying error
 }
 
-func (e *ConnectorError) Error() string {
+func (e ConnectorError) Error() string {
 	return fmt.Sprintf("provider %s error [%s]: %v", e.Provider, e.Code, e.Underlying)
 }
 
-func (e *ConnectorError) Unwrap() error {
+func (e ConnectorError) Unwrap() error {
 	return e.Underlying
 }
 
-// ─── ModelPricing ─────────────────────────────────────────────────────────────
+// ============================================================================
+// ModelPricing
+// ============================================================================
 
 // ModelPricing holds per-million-token cost data for a specific provider+model.
-// Pricing data flows exclusively from PricingCache — never from the connector.
+// Pricing data flows exclusively from PricingCache -- never from the connector.
 type ModelPricing struct {
 	Provider             ProviderName
 	ModelID              string
