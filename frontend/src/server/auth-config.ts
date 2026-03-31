@@ -40,9 +40,16 @@ export interface SessionPayload {
 export interface BackendSessionResponse {
   access_token: string;
   token_type: string;
+  /** Access token lifetime in seconds. */
   expires_in: number;
   refresh_token: string;
   issued_at: number;
+  /**
+   * Refresh token lifetime in seconds.
+   * When present, the BFF uses this to set the session cookie maxAge so the
+   * cookie stays alive for exactly as long as the refresh token is valid.
+   */
+  refresh_token_expires_in?: number;
 }
 
 // ── Cookie names ──────────────────────────────────────────────────────────────
@@ -55,8 +62,13 @@ export const SESSION_COOKIE_NAME = 'orbit_session';
 /**
  * Returns iron-session options, reading `BFF_SESSION_SECRET` at call time.
  * Throws early with a descriptive error if the secret is absent or too short.
+ *
+ * @param refreshTokenExpiresIn - Refresh token lifetime in seconds, as
+ *   returned by the backend in `refresh_token_expires_in`. When provided the
+ *   cookie maxAge is derived from the actual token TTL so the two stay in
+ *   sync. Falls back to 30 days if the backend does not supply the value.
  */
-export function getSessionOptions(): SessionOptions {
+export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOptions {
   const password = process.env.BFF_SESSION_SECRET;
   if (!password || password.length < 32) {
     throw new Error(
@@ -64,6 +76,11 @@ export function getSessionOptions(): SessionOptions {
         'Generate one with: openssl rand -base64 32',
     );
   }
+
+  // Default to 30 days — matches the Go backend's default RefreshTokenTTLDays.
+  // The caller should always pass the backend-supplied value when available.
+  const maxAge = refreshTokenExpiresIn ?? 60 * 60 * 24 * 30;
+
   return {
     cookieName: SESSION_COOKIE_NAME,
     password,
@@ -71,8 +88,7 @@ export function getSessionOptions(): SessionOptions {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       sameSite: 'lax' as const,
-      // 7 days — mirrors the Go backend's refresh token TTL.
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge,
     },
   };
 }

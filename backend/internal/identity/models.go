@@ -151,6 +151,22 @@ type SessionResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	IssuedAt     int64  `json:"issued_at"` // Unix seconds
+	// RefreshTokenExpiresIn is the lifetime of the refresh token in seconds.
+	// The BFF uses this to align the iron-session cookie maxAge with the actual
+	// token lifetime, so the cookie never outlives the refresh token.
+	// Omitted for agent sessions (no refresh token issued).
+	RefreshTokenExpiresIn int `json:"refresh_token_expires_in,omitempty"`
+}
+
+// TenantDiscovery is the response body for GET /identity/tenants/discover.
+// It contains the minimum OIDC configuration the browser needs to construct a
+// UserManager and initiate PKCE — deliberately excludes the client secret.
+// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+type TenantDiscovery struct {
+	TenantID  string   `json:"tenant_id"`
+	IssuerURL string   `json:"issuer_url"`
+	ClientID  string   `json:"client_id"`
+	Scopes    []string `json:"scopes"`
 }
 
 // RevokeRequest is the parsed form body for POST /identity/revoke (RFC 7009 §2.1).
@@ -190,4 +206,5 @@ var (
 	ErrDeviceCodeExpired    = errors.New("device code expired or not found")
 	ErrUnsupportedTokenType = errors.New("unsupported token type")
 	ErrIDTokenInvalid       = errors.New("id_token failed verification")
+	ErrTenantNotFound       = errors.New("tenant not found for email domain")
 )

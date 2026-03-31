@@ -4,18 +4,21 @@
  * This Client Component is the registered `redirect_uri` for the browser-side
  * OIDC client. It runs entirely in the browser:
  *
- *   1. Calls `signinRedirectCallback()` on the OIDC UserManager, which:
+ *   1. Reads the tenant OIDC config written to sessionStorage by the login page
+ *      immediately before `signinRedirect()` (ADR-0031 sessionStorage handoff).
+ *
+ *   2. Calls `signinRedirectCallback()` on a reconstructed UserManager, which:
  *      - Reads `code` and `state` from the URL search params
  *      - Retrieves the PKCE verifier from sessionStorage (written by signinRedirect)
  *      - Exchanges the code at the OIDC token endpoint directly from the browser
- *      - Returns a `User` object containing the `id_token`
+ *      - Returns a `User` object containing the `id_token` and the original state
  *
- *   2. POSTs the `id_token` to `/api/auth/session` (BFF route) which:
+ *   3. POSTs `{ id_token, tenant_id }` to `/api/auth/session` (BFF route) which:
  *      - Forwards to Go `POST /identity/session` with `grant_type: oidc_id_token`
  *      - Receives an Orbit platform JWT in return
- *      - Seals it into an HttpOnly `iron-session` cookie
+ *      - Seals it into an HttpOnly `iron-session` cookie with the backend's TTL
  *
- *   3. Redirects to `state.next` (validated relative path) or `/`.
+ *   4. Redirects to `state.next` (validated relative path) or `/`.
  *
  * Error handling: any failure redirects to `/login?error=<code>` so the user
  * always ends up on a recognisable page rather than a blank or broken view.
@@ -25,7 +28,11 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { getUserManager } from '@orbit/lib/oidc-client';
+import {
+  buildUserManager,
+  TENANT_CONFIG_STORAGE_KEY,
+  type TenantOidcConfig,
+} from '@orbit/lib/oidc-client';
 import { isSafeRedirectPath } from '@orbit/lib/routing';
 
 export default function CallbackPage() {
@@ -41,7 +48,32 @@ export default function CallbackPage() {
 
     async function handleCallback() {
       try {
-        const userManager = getUserManager();
+        // ── Step 1: recover tenant config from sessionStorage ──────────────
+        //
+        // The login page wrote this immediately before signinRedirect() so the
+        // callback page can reconstruct an identical UserManager. Without this
+        // the browser wouldn't know which IdP to call for the token exchange.
+        const raw = sessionStorage.getItem(TENANT_CONFIG_STORAGE_KEY);
+        if (!raw) {
+          // No config found — either the user landed here directly (no login
+          // flow was started in this tab) or sessionStorage was cleared.
+          router.replace('/login?error=invalid_request');
+          return;
+        }
+
+        let tenantConfig: TenantOidcConfig;
+        try {
+          tenantConfig = JSON.parse(raw) as TenantOidcConfig;
+        } catch {
+          router.replace('/login?error=invalid_request');
+          return;
+        }
+
+        // Remove now that we have it — keep sessionStorage tidy.
+        sessionStorage.removeItem(TENANT_CONFIG_STORAGE_KEY);
+
+        // ── Step 2: complete the PKCE exchange ─────────────────────────────
+        const userManager = buildUserManager(tenantConfig);
         const user = await userManager.signinRedirectCallback();
 
         const idToken = user.id_token;
@@ -50,20 +82,30 @@ export default function CallbackPage() {
           return;
         }
 
-        // Extract the post-login destination from the OIDC state parameter.
+        // ── Step 3: extract post-login destination and tenant_id from state ─
+        //
         // oidc-client-ts restores the state object we passed to signinRedirect().
-        const rawNext =
-          user.state && typeof user.state === 'object' && 'next' in user.state
-            ? String((user.state as { next: string }).next)
-            : '/';
+        // Both `next` and `tenantId` were encoded there by EmailSignInForm.
+        const state =
+          user.state && typeof user.state === 'object'
+            ? (user.state as Record<string, unknown>)
+            : {};
+
+        const rawNext = typeof state.next === 'string' ? state.next : '/';
         const next = isSafeRedirectPath(rawNext) ? rawNext : '/';
 
-        // Hand the id_token to the BFF. The BFF validates it against the Go
-        // identity service and seals the resulting Orbit JWT into a session cookie.
+        // tenant_id from the PKCE state is the authoritative source — it was
+        // resolved by HRD and round-tripped through the IdP unchanged.
+        const tenantId =
+          typeof state.tenantId === 'string' && state.tenantId
+            ? state.tenantId
+            : tenantConfig.tenantId; // fallback to sessionStorage value
+
+        // ── Step 4: seal into BFF session ──────────────────────────────────
         const res = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id_token: idToken }),
+          body: JSON.stringify({ id_token: idToken, tenant_id: tenantId }),
         });
 
         if (!res.ok) {

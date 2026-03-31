@@ -2,13 +2,16 @@
  * /api/auth/session — BFF session endpoint.
  *
  * POST — called by the OIDC callback page after `signinRedirectCallback()`.
- *        Accepts `{ id_token }`, forwards to the Go identity service with the
- *        `oidc_id_token` grant type, and seals the resulting Orbit tokens into
- *        an HttpOnly iron-session cookie.
+ *        Accepts `{ id_token, tenant_id }`, forwards to the Go identity service
+ *        with the `oidc_id_token` grant type, and seals the resulting Orbit
+ *        tokens into an HttpOnly iron-session cookie.
  *
- *        Request:  { id_token: string }
+ *        `tenant_id` is resolved upstream via Home Realm Discovery (ADR-0031)
+ *        and threaded through the PKCE state param to the callback page.
+ *
+ *        Request:  { id_token: string; tenant_id: string }
  *        Response: 200 {}  — session cookie set; caller handles redirect
- *                  400 { error: 'bad_request' }
+ *                  400 { error: 'bad_request', message: string }
  *                  401 { error: 'unauthorized' }
  *                  502 { error: 'upstream_error' }
  *
@@ -23,13 +26,19 @@
  */
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getIronSession } from 'iron-session';
+import { cookies } from 'next/headers';
+
+import { getSessionOptions } from '@orbit/server/auth-config';
 import type {
   SessionPayload,
   SessionUser,
   BackendSessionResponse,
 } from '@orbit/server/auth-config';
+import { config } from '@orbit/server/config';
+import { getSession, isSessionValid } from '@orbit/server/session';
+
+// ── Internal types ────────────────────────────────────────────────────────────
 
 /** Decoded Orbit JWT payload (unverified — trusted because it comes from our own backend). */
 interface OrbitJwtPayload {
@@ -66,16 +75,37 @@ export async function POST(request: Request): Promise<Response> {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'bad_request' }, { status: 400 });
+    return Response.json(
+      { error: 'bad_request', message: 'request body must be JSON' },
+      { status: 400 },
+    );
   }
 
-  if (!body || typeof body !== 'object' || !('id_token' in body)) {
-    return Response.json({ error: 'bad_request' }, { status: 400 });
+  if (!body || typeof body !== 'object') {
+    return Response.json(
+      { error: 'bad_request', message: 'request body must be a JSON object' },
+      { status: 400 },
+    );
   }
 
-  const idToken = (body as Record<string, unknown>).id_token;
+  const raw = body as Record<string, unknown>;
+
+  const idToken = raw.id_token;
   if (typeof idToken !== 'string' || !idToken) {
-    return Response.json({ error: 'bad_request' }, { status: 400 });
+    return Response.json(
+      { error: 'bad_request', message: 'id_token is required' },
+      { status: 400 },
+    );
+  }
+
+  // tenant_id is required — resolved via email-based Home Realm Discovery
+  // (ADR-0031) and threaded through the PKCE state param by the callback page.
+  const tenantId = raw.tenant_id;
+  if (typeof tenantId !== 'string' || !tenantId) {
+    return Response.json(
+      { error: 'bad_request', message: 'tenant_id is required' },
+      { status: 400 },
+    );
   }
 
   // Forward to Go identity service.
@@ -87,7 +117,7 @@ export async function POST(request: Request): Promise<Response> {
       body: JSON.stringify({
         grant_type: 'oidc_id_token',
         id_token: idToken,
-        tenant_id: 'default',
+        tenant_id: tenantId,
       }),
     });
   } catch {
@@ -127,7 +157,16 @@ export async function POST(request: Request): Promise<Response> {
     expiresAt: data.issued_at + data.expires_in,
   };
 
-  const session = await getSession();
+  // Create the session with a maxAge derived from the backend's refresh token
+  // TTL so the cookie stays alive for exactly as long as the refresh token is
+  // valid. We bypass getSession() here because that helper uses the default
+  // options — iron-session bakes the maxAge in at getIronSession() time, not
+  // at save() time, so we must pass the dynamic value at construction.
+  const cookieStore = await cookies();
+  const session = await getIronSession<SessionPayload>(
+    cookieStore,
+    getSessionOptions(data.refresh_token_expires_in),
+  );
   Object.assign(session, payload);
   await session.save();
 

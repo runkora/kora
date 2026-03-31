@@ -36,6 +36,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /identity/health                 Liveness check.
 //	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
+//	GET    /identity/tenants/discover       Home Realm Discovery — resolve tenant by email domain.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
@@ -43,6 +44,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /exchange", c.handleExchange)
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
+	mux.Handle("GET /tenants/discover", c.handleDiscoverTenant)
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -290,6 +292,37 @@ func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+}
+
+// handleDiscoverTenant implements GET /identity/tenants/discover?email=user@example.com
+// It resolves the OIDC tenant for an email address via Home Realm Discovery (ADR-0031).
+// The response contains only public OIDC config — never the client secret.
+// Returns 404 if no tenant claims the email domain, 400 if the email is missing/malformed.
+func (c *Controller) handleDiscoverTenant(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "email query parameter is required", map[string]any{
+			"field": "email",
+		})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	discovery, err := c.svc.DiscoverTenantByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, ErrTenantNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no tenant found for the provided email domain", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "tenant discovery failed", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, discovery)
 }
 
 // ─── Error mapping helpers ────────────────────────────────────────────────────

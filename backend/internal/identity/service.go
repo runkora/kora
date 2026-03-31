@@ -419,15 +419,16 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	)
 	defer span.End()
 
-	if err := s.requireOIDC(); err != nil {
+	tenant, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured")
-		return nil, err
+		span.SetStatus(codes.Error, ErrOIDCNotConfigured.Error())
+		return nil, fmt.Errorf("%w: tenant %q", ErrOIDCNotConfigured, req.TenantID)
 	}
 
 	// Verify the id_token signature and standard claims (iss, aud, exp) via JWKS.
-	idToken, err := s.oidcProvider.Verifier(&gooidc.Config{
-		ClientID: s.cfg.OIDC.ClientID,
+	idToken, err := tenant.provider.Verifier(&gooidc.Config{
+		ClientID: tenant.cfg.ClientID,
 	}).Verify(ctx, req.IDToken)
 	if err != nil {
 		span.RecordError(err)
@@ -845,12 +846,14 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 	)
 	span.SetStatus(codes.Ok, "session with refresh token created")
 
+	refreshTTL := time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour
 	return &SessionResponse{
-		AccessToken:  accessToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(ttl.Seconds()),
-		RefreshToken: rawRefresh,
-		IssuedAt:     now.Unix(),
+		AccessToken:           accessToken,
+		TokenType:             "Bearer",
+		ExpiresIn:             int(ttl.Seconds()),
+		RefreshToken:          rawRefresh,
+		IssuedAt:              now.Unix(),
+		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
 	}, nil
 }
 
@@ -931,6 +934,44 @@ func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
 		return ts, nil
 	}
 	return nil, ErrOIDCNotConfigured
+}
+
+// DiscoverTenantByEmail resolves the tenant for a given email address by matching
+// the email's domain suffix against the EmailDomains list of each active tenant.
+// Returns ErrTenantNotFound if no tenant claims the domain.
+// The returned TenantDiscovery intentionally excludes the client secret.
+func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*TenantDiscovery, error) {
+	_, span := otel.Tracer("identity").Start(ctx, "identity.DiscoverTenantByEmail")
+	defer span.End()
+
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return nil, fmt.Errorf("%w: malformed email", ErrTenantNotFound)
+	}
+	domain := strings.ToLower(email[at+1:])
+	if domain == "" {
+		return nil, fmt.Errorf("%w: empty domain", ErrTenantNotFound)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for tenantID, ts := range s.oidcTenants {
+		for _, d := range ts.cfg.EmailDomains {
+			if strings.ToLower(d) == domain {
+				return &TenantDiscovery{
+					TenantID:  tenantID,
+					IssuerURL: ts.cfg.IssuerURL,
+					ClientID:  ts.cfg.ClientID,
+					Scopes:    ts.cfg.Scopes,
+				}, nil
+			}
+		}
+	}
+
+	span.RecordError(ErrTenantNotFound)
+	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
+	return nil, ErrTenantNotFound
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.

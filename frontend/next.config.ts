@@ -6,14 +6,10 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@orbit/terra'],
   // Emit standalone output for containerised deployments
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
-  // Forward bare ORBIT_OIDC_* vars to the browser bundle without requiring a
-  // NEXT_PUBLIC_ prefix. Values are read from the server-side environment at
-  // build time and statically inlined. This keeps the naming consistent with
-  // the backend config and avoids a second set of duplicate env var names.
-  env: {
-    ORBIT_OIDC_ISSUER_URL: process.env.ORBIT_OIDC_ISSUER_URL ?? '',
-    ORBIT_OIDC_CLIENT_ID: process.env.ORBIT_OIDC_CLIENT_ID ?? '',
-  },
+  // ORBIT_OIDC_ISSUER_URL and ORBIT_OIDC_CLIENT_ID have been intentionally
+  // removed. Tenant OIDC configuration is now resolved at runtime via the
+  // Home Realm Discovery endpoint (ADR-0031) — there is no longer a single
+  // build-time issuer or client ID to bake in.
 };
 
 export default nextConfig;

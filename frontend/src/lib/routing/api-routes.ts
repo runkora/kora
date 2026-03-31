@@ -63,6 +63,20 @@ export const ApiRoute = {
     POST: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
     GET: (): `${typeof AUTH_BASE}/session` => `${AUTH_BASE}/session`,
   },
+
+  /**
+   * `/api/auth/discover?email=user@example.com`
+   *
+   * GET — Home Realm Discovery (ADR-0031). Resolves the OIDC tenant config
+   *       for a given email address by matching the email domain against
+   *       registered tenant email domains.
+   *
+   * Returns `{ tenant_id, issuer_url, client_id, scopes }` — never the client secret.
+   */
+  discover: {
+    GET: (email: string): `${typeof AUTH_BASE}/discover?email=${string}` =>
+      `${AUTH_BASE}/discover?email=${encodeURIComponent(email)}`,
+  },
 } as const;
 
 /**
@@ -75,4 +89,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['health']['GET']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
-  | ReturnType<(typeof ApiRoute)['session']['GET']>;
+  | ReturnType<(typeof ApiRoute)['session']['GET']>
+  | `${typeof AUTH_BASE}/discover?email=${string}`;

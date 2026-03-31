@@ -52,6 +52,10 @@ type tenantOIDCEntry struct {
 	IssuerURL string   `json:"issuerURL"`
 	ClientID  string   `json:"clientID"`
 	Scopes    []string `json:"scopes"`
+	// EmailDomains is the list of email address domains routed to this tenant
+	// by the Home Realm Discovery endpoint. Example: ["acme.com", "acme.io"].
+	// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+	EmailDomains []string `json:"emailDomains"`
 }
 
 // TenantOIDCConfig is the resolved per-tenant OIDC configuration exposed to
@@ -62,6 +66,9 @@ type TenantOIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	Scopes       []string
+	// EmailDomains lists the email address domains that resolve to this tenant
+	// during Home Realm Discovery. See ADR-0031.
+	EmailDomains []string
 }
 
 // loadTenantRegistry reads the tenant registry from the path specified by
@@ -104,6 +111,7 @@ func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCC
 			ClientID:     t.OIDC.ClientID,
 			ClientSecret: clientSecrets[t.ID],
 			Scopes:       scopes,
+			EmailDomains: t.OIDC.EmailDomains,
 		}
 	}
 

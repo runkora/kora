@@ -30,7 +30,7 @@ import {
 import { getSession, isSessionValid } from '@orbit/server/session';
 
 import { AlreadySignedIn } from './_components/already-signed-in';
-import { SignInButton } from './_components/sign-in-button';
+import { EmailSignInForm } from './_components/email-sign-in-form';
 
 interface LoginPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -79,8 +79,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             Orbit
           </Heading>
           <CardDescription>
-            You&apos;ll be redirected to your organisation&apos;s identity provider to complete
-            sign-in.
+            Enter your work email to be directed to your organisation&apos;s identity provider.
           </CardDescription>
         </CardHeader>
 
@@ -99,11 +98,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           )}
 
           {/*
-           * SignInButton calls signinRedirect() on the browser-side OIDC
-           * client. The `next` destination is encoded in the OIDC state so
-           * the callback page can restore it after the provider round-trip.
+           * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
+           * enters their work email, the BFF resolves the tenant's OIDC
+           * configuration, and the browser is redirected to the correct IdP.
+           * The `next` destination is encoded in the PKCE state so the
+           * callback page can restore it after the provider round-trip.
            */}
-          <SignInButton next={next} />
+          <EmailSignInForm next={next} />
         </CardContent>
 
         {/* CardFooter already applies border-t border-border-subtle */}
