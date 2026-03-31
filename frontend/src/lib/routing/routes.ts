@@ -61,6 +61,11 @@ export const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   // Health endpoint — must be reachable without a session for monitoring and
   // external load balancer health checks that come through the Istio gateway.
   ApiRoute.health.GET(),
+  // Home Realm Discovery — resolves OIDC tenant config from an email address.
+  // Must be public because it is called before any session exists (pre-auth).
+  // The middleware matches pathname only (no query string), so we register the
+  // bare path here rather than a URL with ?email= baked in.
+  ApiRoute.discover.PATH(),
 ]);
 
 // ── Redirect safety ───────────────────────────────────────────────────────────

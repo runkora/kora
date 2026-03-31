@@ -74,6 +74,12 @@ export const ApiRoute = {
    * Returns `{ tenant_id, issuer_url, client_id, scopes }` — never the client secret.
    */
   discover: {
+    /**
+     * The bare path without query parameters — use this in `PUBLIC_PATHS`
+     * because the middleware matches `pathname` (no query string) against the
+     * set. `GET(email)` cannot be used there since it always includes `?email=`.
+     */
+    PATH: (): `${typeof AUTH_BASE}/discover` => `${AUTH_BASE}/discover`,
     GET: (email: string): `${typeof AUTH_BASE}/discover?email=${string}` =>
       `${AUTH_BASE}/discover?email=${encodeURIComponent(email)}`,
   },
@@ -90,4 +96,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>
+  | ReturnType<(typeof ApiRoute)['discover']['PATH']>
   | `${typeof AUTH_BASE}/discover?email=${string}`;
