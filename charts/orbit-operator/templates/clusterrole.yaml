@@ -1,0 +1,71 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orbit-operator
+  labels:
+    {{- include "orbit-operator.labels" . | nindent 4 }}
+rules:
+  # Helm stores release state as Secrets; also manages ConfigMaps, Namespaces, ServiceAccounts
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "namespaces", "serviceaccounts", "services", "endpoints"]
+    verbs: ["*"]
+  # Pod and container management (needed for SPIRE, Istio, Orbit workloads)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec"]
+    verbs: ["get", "list", "watch"]
+  # CRD management — SPIRE CRDs ship in templates/, not crds/ (helm ordering issue)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["*"]
+  # SPIFFE/SPIRE resources — API group is spire.spiffe.io (not spiffe.spiffe.io)
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  # Istio networking and install resources
+  - apiGroups: ["networking.istio.io", "install.istio.io", "security.istio.io", "telemetry.istio.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  # RBAC — operator needs to create roles for tenant namespaces
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+    verbs: ["*"]
+  # Own CRDs
+  - apiGroups: ["orbit.io"]
+    resources: ["orbitplatforms", "orbitplatforms/status", "orbittenants", "orbittenants/status"]
+    verbs: ["*"]
+  # Apps — Deployments and DaemonSets for SPIRE, Istio, and Orbit services
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+    verbs: ["*"]
+  # NetworkPolicies managed by orbit-platform chart
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["*"]
+  # Admission webhooks (SPIRE controller manager)
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["*"]
+  # CSI drivers (SPIFFE CSI driver)
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csidrivers", "csinodes", "storageclasses"]
+    verbs: ["*"]
+  # Batch jobs — SPIRE pre-upgrade/post-delete hooks use Jobs
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["*"]
+  # HorizontalPodAutoscaler — Istiod chart manages an HPA
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["*"]
+  # PodDisruptionBudgets — Istio and SPIRE use PDBs
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["*"]
+  # Leader election requires lease management
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["*"]
+  # Events for operator status reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]

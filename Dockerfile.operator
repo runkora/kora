@@ -1,0 +1,69 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.operator — builds the orbit-operator binary and bakes the
+# Helm charts into the image at /etc/orbit/charts.
+#
+# The operator uses charts at /etc/orbit/charts at runtime (base.yaml default).
+# In local dev outside the container, cmd/operator/config/local.yaml overrides
+# chartDir to ../charts (relative to the backend/ working directory).
+
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /app
+
+ENV GOPRIVATE=github.com/clear-route/*
+ENV GONOSUMDB=github.com/clear-route/*
+ENV GONOPROXY=github.com/clear-route/*
+
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download && go mod verify
+
+COPY backend/ .
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator/main.go
+
+# Collect every */config/*.yaml file into /configs/ maintaining relative paths.
+RUN find /app -path "*/config/*.yaml" | while read f; do \
+        rel="${f#/app/}"; \
+        mkdir -p "/configs/$(dirname "$rel")"; \
+        cp "$f" "/configs/$rel"; \
+    done
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM alpine:3.23
+
+# Create non-root user that matches the securityContext in the Helm chart.
+RUN addgroup -g 65532 nonroot && adduser -u 65532 -G nonroot -s /sbin/nologin -D nonroot
+
+WORKDIR /app
+
+RUN apk add --no-cache ca-certificates
+
+# Config files (same relative layout as local dev) — owned by nonroot.
+COPY --from=builder --chown=65532:65532 /configs/ ./
+
+# Operator binary — owned by nonroot.
+COPY --from=builder --chown=65532:65532 /orbit-operator ./orbit
+
+# Helm charts baked into the image at the path the operator expects.
+# base.yaml: chartDir: /etc/orbit/charts
+COPY --chown=65532:65532 charts/orbit-platform/ /etc/orbit/charts/orbit-platform/
+COPY --chown=65532:65532 charts/orbit/ /etc/orbit/charts/orbit/
+
+# Environment-specific Helm values files — baked in at /etc/orbit/values/.
+# loadValuesFile() probes this path as the production fallback after
+# the local-dev path ({ChartDir}/../deploy/local/) is tried first.
+COPY --chown=65532:65532 deploy/local/ /etc/orbit/values/
+
+# Helm cache directory — operator writes here at runtime.
+RUN mkdir -p /tmp/orbit-helm-cache && chown 65532:65532 /tmp/orbit-helm-cache
+
+# SPIRE and Istio charts are fetched remotely by the Helm client at runtime —
+# they are not baked into the image (too large and versioned independently).
+
+USER 65532
+
+EXPOSE 8081
+CMD ["./orbit"]

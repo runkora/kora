@@ -1,0 +1,7 @@
+operator:
+  # In local dev the charts live in the repo root's charts/ directory.
+  # The operator binary is run from backend/ so we navigate up one level.
+  chartDir: ../charts
+  # Disable leader election in single-node local dev.
+  leaderElection: false
+  syncPeriodSecs: 60

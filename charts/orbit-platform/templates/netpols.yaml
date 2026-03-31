@@ -1,0 +1,192 @@
+# NetworkPolicies for the Orbit system namespace.
+#
+# Design intent:
+# - Default deny-all (ingress + egress) in orbit-system
+# - Explicit allow rules for: DNS, Istio mesh sidecar ports, istiod xDS,
+#   and Kubernetes API (for any controller/webhook needs)
+#
+# SPIRE runs in its own namespace (spire-system) and is NOT governed by these
+# policies. Workload SVIDs are delivered via CSI-mounted Unix domain socket —
+# no network path from orbit-system to spire-system is required.
+#
+# Disable entirely for environments where the CNI does not enforce NetworkPolicy:
+#   --set networkPolicy.enabled=false
+{{- if .Values.networkPolicy.enabled }}
+{{- $ns := include "orbit-platform.systemNamespace" . }}
+---
+# Block all ingress and egress by default in orbit-system.
+# All exceptions must be explicitly granted by the rules below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow all pods in orbit-system to make DNS queries.
+# Without this, service discovery fails under the default-deny-all baseline.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Allow intra-namespace traffic on Envoy sidecar ports only.
+# - 15006: Envoy inbound iptables redirect
+# - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
+# - 15090: Envoy Prometheus metrics scrape
+# Application-level traffic transits through the sidecar (port 15006 redirect),
+# so this rule is sufficient for all intra-namespace pod-to-pod communication.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mesh-sidecar
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns }}
+      ports:
+        - port: 15006
+        - port: 15008
+        - port: 15090
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns }}
+      ports:
+        - port: 15006
+        - port: 15008
+---
+# Allow inbound mTLS mesh traffic from tenant namespaces into orbit-system.
+# The identity-proxy sidecar in each tenant namespace calls orbit-identity's
+# /api/v1/identity/exchange endpoint. With Istio mTLS, this means the source
+# Envoy connects to the destination pod on port 15006 (inbound redirect) or
+# 15008 (HBONE tunnel). Without this rule, the default-deny-all blocks the
+# connection and Envoy returns 503 "delayed connect error: Connection refused".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-tenant-mesh-ingress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              orbit.io/role: tenant
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 15006
+          protocol: TCP
+        - port: 15008
+          protocol: TCP
+---
+# Allow orbit-system pods to reach istiod on port 15012 (gRPC xDS).
+# Envoy sidecars must reach istiod to receive Listener, Cluster, Route, and
+# Endpoint configuration. Without this, all sidecar-managed traffic fails.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istiod-xds
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 15012
+---
+# Allow orbit-system pods to reach the Kubernetes API server.
+# Required for any controllers or webhooks that need to call the k8s API.
+# The Kubernetes API server runs as a host-network service and cannot be
+# selected by pod/namespace selector — an ipBlock open to 0.0.0.0/0 on 443
+# and 6443 is the correct pattern for k3d/k8s environments.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-apiserver
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- if .Values.networkPolicy.externalServices }}
+---
+# Allow orbit-system pods to reach external services (e.g. Postgres, Redis) running
+# outside the cluster on known CIDRs. Configured per-environment in values files.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-services
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    {{- range .Values.networkPolicy.externalServices }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr }}
+      ports:
+        {{- range .ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

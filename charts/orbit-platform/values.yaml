@@ -1,0 +1,51 @@
+# =============================================================================
+# orbit-platform chart — default values
+# =============================================================================
+#
+# This chart manages cluster-scoped Orbit resources only:
+#   - Namespaces (orbit-system, istio-system, spire-system)
+#   - ClusterSPIFFEIDs (workload identity grants via SPIRE controller manager)
+#   - NetworkPolicies (default-deny + explicit allow rules for orbit-system)
+#
+# SPIRE and Istio are NOT sub-charts of this release. They are installed as
+# separate Helm releases so each lands in its canonical namespace:
+#   spire-crds  → spire-system (release: spire-crds)
+#   spire       → spire-system (release: spire  →  className: spire-system-spire)
+#   istio-base  → istio-system (release: istio-base)
+#   istiod      → istio-system (release: istiod)
+#   gateway     → istio-system (release: gateway)
+#
+# See: deploy/local/orbit-platform.yaml (OrbitPlatform CR)
+# =============================================================================
+
+# -- Trust domain for SPIFFE SVIDs.
+# Must match spec.trustDomain in the OrbitPlatform CR.
+global:
+  trustDomain: "cluster.local"
+
+# -- Orbit platform namespace configuration.
+# Controls which namespaces are created and their labels.
+namespaces:
+  # System namespace for Orbit core services (identity, etc.)
+  system: "orbit-system"
+  # List of tenant namespaces to create with orbit.io/role=tenant label.
+  # Add entries here for each tenant namespace the platform manages.
+  tenants: []
+  # Example:
+  # tenants:
+  #   - orbit-tenant-example
+
+# -- NetworkPolicy toggle. Disable only in development environments where
+# NetworkPolicy is not enforced by the CNI.
+networkPolicy:
+  enabled: true
+  # -- List of external service egress rules. Each entry allows orbit-system pods
+  # to reach an external CIDR on specified TCP ports. Used for Docker-hosted
+  # services (Postgres, Redis) in local development.
+  # Example:
+  #   externalServices:
+  #     - cidr: 172.24.0.0/16
+  #       ports:
+  #         - 5432
+  #         - 6379
+  externalServices: []

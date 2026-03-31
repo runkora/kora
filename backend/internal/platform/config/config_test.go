@@ -58,10 +58,10 @@ func chdirTo(t *testing.T, dir string) {
 
 // ---- Environment() ----------------------------------------------------------
 
-func TestEnvironment_DefaultsToLocal(t *testing.T) {
+func TestEnvironment_DefaultsToProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "")
-	if got := Environment(); got != "local" {
-		t.Errorf("Environment() = %q, want %q", got, "local")
+	if got := Environment(); got != "production" {
+		t.Errorf("Environment() = %q, want %q", got, "production")
 	}
 }
 

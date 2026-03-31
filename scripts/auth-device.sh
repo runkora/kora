@@ -26,21 +26,27 @@
 #
 #   or directly:
 #
-#     ./scripts/auth-device.sh --tenant-id local
+#     ./scripts/auth-device.sh --tenant-id example
 #
 #   Test user:  dev@orbit.local / password
 #   Client ID:  orbit-local  (public client, no secret)
 #
 # ─── Real provider (Entra, Okta, …) ──────────────────────────────────────────
 #
-#   Override the issuer and supply credentials in your .env:
+#   OIDC config is per-tenant — configure it in config/tenants.yaml (local dev)
+#   or via the OrbitTenant CR spec.oidc.* fields (cluster). Each tenant declares
+#   its own issuerURL, clientID, and clientSecretEnv. There are no global
+#   ORBIT_OIDC_* environment variables.
 #
-#     ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0
-#     ORBIT_OIDC_CLIENT_ID=<app-registration-client-id>
-#     ORBIT_OIDC_CLIENT_SECRET=<app-registration-client-secret>
-#     ORBIT_TENANT_ID=<entra-tenant-id>
+#   Example OrbitTenant OIDC config:
+#     spec:
+#       oidc:
+#         issuerURL: https://login.microsoftonline.com/<tenant-id>/v2.0
+#         clientID: <app-registration-client-id>
+#         clientSecretEnv: ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET
+#         scopes: [openid, profile, email]
 #
-#   Then: make auth-device  (or ./scripts/auth-device.sh --tenant-id <id>)
+#   Then: make auth-device-k3d tenant=<tenant-name>
 #
 # ─── Environment variables ────────────────────────────────────────────────────
 #
@@ -138,16 +144,25 @@ if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
   echo "  ${ERR_MSG}"
   echo ""
   if [[ "$ERR_CODE" == "oidc_not_configured" ]]; then
-    echo "  Local dev: Dex should be running — start it with:"
-    echo "    make dev-up"
+    echo "  The tenant '${TENANT_ID}' is not registered or has no OIDC config."
     echo ""
-    echo "  If Dex is running, check that local.yaml has issuerUrl set:"
-    echo "    backend/internal/identity/config/local.yaml"
+    echo "  ── Local dev ──────────────────────────────────────────────────"
+    echo "  1. Ensure Dex is running:   make dev-up"
+    echo "  2. Ensure the tenant CR is applied and the operator has reconciled it:"
+    echo "       kubectl apply -f deploy/local/tenants/example.yaml"
+    echo "       kubectl get orbittenant -A"
+    echo "  3. Check the tenant registry ConfigMap:"
+    echo "       kubectl get configmap orbit-tenants -n orbit-system -o yaml"
     echo ""
-    echo "  To use a real provider instead, set in your .env and restart:"
-    echo "    ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/<tenant-id>/v2.0"
-    echo "    ORBIT_OIDC_CLIENT_ID=<client-id>"
-    echo "    ORBIT_OIDC_CLIENT_SECRET=<client-secret>"
+    echo "  ── Cluster (k3d) ──────────────────────────────────────────────"
+    echo "  Run 'make cluster-deploy' to register tenants, or apply the"
+    echo "  OrbitTenant CR directly:"
+    echo "       kubectl apply -f deploy/local/tenants/<tenant>.yaml"
+    echo ""
+    echo "  ── Real provider (Entra, Okta, …) ────────────────────────────"
+    echo "  OIDC config is per-tenant in config/tenants.yaml (local dev)"
+    echo "  or via OrbitTenant CR spec.oidc.* (cluster)."
+    echo "  There are no global ORBIT_OIDC_* env vars — configure per tenant."
     echo ""
   fi
   exit 1

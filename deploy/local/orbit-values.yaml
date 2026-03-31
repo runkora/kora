@@ -1,0 +1,51 @@
+# =============================================================================
+# orbit chart — local development values
+# =============================================================================
+#
+# Applied automatically by the orbit-operator when reconciling the OrbitPlatform CR.
+# To install manually (escape hatch):
+#   helm upgrade --install orbit ./charts/orbit \
+#     -f deploy/local/orbit-values.yaml -n orbit-system
+#
+#
+# NOTE: The following fields are intentionally absent from this file because
+# the orbit-operator injects them as computed values during reconciliation —
+# any values set here would be overwritten:
+#
+#   identity.existingSecret              → from spec.secrets.platformSecretRef
+#   identity.existingConfigMap           → orbit-config (operator-managed)
+#   identity.existingTenantsConfigMap    → orbit-tenants (operator-managed)
+#   identity.existingClientSecretsSecret → orbit-tenant-oidc-secrets (operator-managed)
+#   platform.namespaces.tenants          → derived from active OrbitTenant CRs
+#   platform.spiffe.enabled              → derived from spec.spire.enabled
+#
+# To configure these, edit deploy/local/orbit-platform.yaml (OrbitPlatform CR)
+# or deploy/local/tenants/*.yaml (OrbitTenant CRs).
+# =============================================================================
+
+global:
+  # Force pull from local k3d registry on every pod start.
+  # Local registry images are not content-addressed — Always ensures the
+  # cluster always runs the freshest locally-built image.
+  imagePullPolicy: Always
+
+identity:
+  image:
+    # Local k3d registry — built by: make docker-push
+    repository: orbit-registry:5001/orbit-identity
+    tag: latest
+
+  replicas: 1
+
+  # Local dev overrides for security and observability tunables.
+  # These correspond to the identity.config.* fields in charts/orbit/values.yaml
+  # and are injected as ORBIT_* env vars — no APP_ENV needed.
+  config:
+    postgresSSLMode: "disable"           # Local Postgres has no TLS cert.
+    postgresCaptureQueryText: "true"     # Log full SQL in traces locally.
+    redisTLSEnabled: "false"             # Local Redis has no TLS cert.
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+
+networkPolicy:
+  enabled: true

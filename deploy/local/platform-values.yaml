@@ -1,0 +1,40 @@
+# =============================================================================
+# orbit-platform chart — local development values
+# =============================================================================
+#
+# This chart manages cluster-scoped Orbit resources:
+#   - Namespaces (orbit-system + tenant namespaces)
+#   - ClusterSPIFFEIDs (workload identity grants via SPIRE controller manager)
+#   - NetworkPolicies (default-deny + explicit allow rules for orbit-system)
+#
+# SPIRE and Istio are managed entirely by the orbit-operator, configured from
+# OrbitPlatform CR fields (spec.trustDomain, spec.clusterName, spec.gateway).
+# No separate spire-values.yaml or istio-values.yaml files are used.
+#
+# NOTE: The following fields are intentionally absent because the orbit-operator
+# injects them as computed values during reconciliation:
+#
+#   global.trustDomain        → from spec.trustDomain in orbit-platform.yaml
+#   namespaces.system         → always "orbit-system"
+#   namespaces.tenants        → derived from active OrbitTenant CRs
+#
+# To add a tenant namespace, apply an OrbitTenant CR in deploy/local/tenants/.
+# =============================================================================
+
+# Allow orbit-system pods to reach Docker-hosted services (Postgres, Redis, Dex).
+# In local k3d development, orbit-postgres and orbit-redis run as Docker Compose
+# containers on the orbit-network subnet (172.24.0.0/16). host.k3d.internal
+# resolves to 172.24.0.1 (the Docker network gateway) for Redis access.
+networkPolicy:
+  externalServices:
+    # orbit-network subnet — covers orbit-postgres (172.24.0.4), Dex (172.24.0.1:5556), and the Docker gateway
+    - cidr: 172.24.0.0/16
+      ports:
+        - 5432
+        - 6379
+        - 5556
+    # host.k3d.internal resolves to 192.168.5.2 (Docker Desktop internal gateway)
+    # Required for Redis access from k3d pods
+    - cidr: 192.168.5.0/24
+      ports:
+        - 6379

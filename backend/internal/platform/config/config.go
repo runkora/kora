@@ -35,10 +35,14 @@ import (
 )
 
 // defaultEnvironment is used when APP_ENV is not set.
-const defaultEnvironment = "local"
+// Production is the safe default — explicit env var overrides (e.g. ORBIT_POSTGRES_SSL_MODE,
+// ORBIT_REDIS_TLS_ENABLED) are used by local dev tooling instead of changing this.
+const defaultEnvironment = "production"
 
 // Environment reads the APP_ENV environment variable.
-// Returns "local" if APP_ENV is unset or empty.
+// Returns "production" if APP_ENV is unset or empty.
+// Local development binaries set APP_ENV=local via the .env file (make dev).
+// Chart deployments no longer inject APP_ENV — production is always the default in cluster.
 //
 // Supported values by convention: "local", "development", "production".
 func Environment() string {

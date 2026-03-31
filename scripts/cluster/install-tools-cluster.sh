@@ -3,14 +3,14 @@
 # install-tools-cluster.sh — Install cluster tooling for local dev environment
 #
 # Installs (if not already present at the correct version):
-#   - k3d    >= 5.6   (local k3s cluster manager)
-#   - kubectl >= 1.29  (Kubernetes CLI)
-#   - helm   >= 3.14  (Kubernetes package manager — used for Istio + SPIRE)
+#   - k3d        >= 5.6   (local k3s cluster manager)
+#   - kubectl    >= 1.29  (Kubernetes CLI)
+#   - helm       >= 3.14  (Kubernetes package manager)
 #
 # Versions are pinned in scripts/cluster/versions.env — change them there.
 #
-# Note: istioctl is NOT required. Istio is installed via helm (istio/base +
-# istio/istiod) so no additional CLI tooling is needed beyond helm.
+# Note: istioctl is NOT required. SPIRE and Istio are installed by the orbit
+# operator (charts/orbit-operator) via the Helm Go SDK — no CLI tooling needed.
 # =============================================================================
 set -euo pipefail
 
@@ -30,7 +30,7 @@ already() { echo -e "${GREEN}✓ $* already installed at correct version — ski
 
 # Prefer GOPATH/bin when Go is available so cluster tools share the same
 # PATH entry as Go tools.  Fall back to ~/.local/bin for machines without Go.
-if command -v go &>/dev/null; then
+if command -v go >/dev/null; then
   INSTALL_DIR="$(go env GOPATH)/bin"
 else
   INSTALL_DIR="${HOME}/.local/bin"
@@ -51,8 +51,8 @@ esac
 
 # ── k3d ──────────────────────────────────────────────────────────────────────
 step "k3d ${K3D_VERSION}"
-if command -v k3d &>/dev/null; then
-  INSTALLED="$(k3d version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if command -v k3d >/dev/null; then
+  INSTALLED="$(k3d version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   if [ "${INSTALLED}" = "${K3D_VERSION}" ]; then
     already "k3d ${INSTALLED}"
   else
@@ -73,8 +73,8 @@ fi
 
 # ── kubectl ───────────────────────────────────────────────────────────────────
 step "kubectl ${KUBECTL_VERSION}"
-if command -v kubectl &>/dev/null; then
-  INSTALLED="$(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}')"
+if command -v kubectl >/dev/null; then
+  INSTALLED="$(kubectl version --client -o yaml 2>/dev/null | grep -m1 gitVersion | awk '{print $2}' || true)"
   if [ "${INSTALLED}" = "${KUBECTL_VERSION}" ]; then
     already "kubectl ${INSTALLED}"
   else
@@ -94,13 +94,11 @@ else
 fi
 
 # ── helm ──────────────────────────────────────────────────────────────────────
-# Used to install both Istio (istio/base + istio/istiod) and SPIRE (spiffe/spire).
+# Used by the operator's Helm Go SDK and directly for chart operations.
 # Helm release assets use 'darwin' on macOS (consistent with uname -s output).
-# Note: if Istio v1.22+ renames its asset prefix from 'osx' to 'darwin', only
-# the istio download URL would need updating — helm is unaffected.
 step "helm ${HELM_VERSION}"
-if command -v helm &>/dev/null; then
-  INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+if command -v helm >/dev/null; then
+  INSTALLED="$(helm version --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   if [ "${INSTALLED}" = "${HELM_VERSION}" ]; then
     already "helm ${INSTALLED}"
   else
@@ -119,28 +117,6 @@ else
   mv "/tmp/${OS}-${ARCH_HELM}/helm" "${INSTALL_DIR}/helm"
   rm -rf "/tmp/${OS}-${ARCH_HELM}"
   ok "helm ${HELM_VERSION} installed → ${INSTALL_DIR}/helm"
-fi
-
-# ── kustomize ─────────────────────────────────────────────────────────────────
-step "kustomize ${KUSTOMIZE_VERSION}"
-if command -v kustomize &>/dev/null; then
-  INSTALLED="$(kustomize version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-  if [ "${INSTALLED}" = "${KUSTOMIZE_VERSION}" ]; then
-    already "kustomize ${INSTALLED}"
-  else
-    warn "kustomize ${INSTALLED} is installed but ${KUSTOMIZE_VERSION} is required — reinstalling"
-    curl -sSfL \
-      "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
-      | tar -xz -C /tmp
-    mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
-    ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
-  fi
-else
-  curl -sSfL \
-    "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${OS}_${ARCH_HELM}.tar.gz" \
-    | tar -xz -C /tmp
-  mv "/tmp/kustomize" "${INSTALL_DIR}/kustomize"
-  ok "kustomize ${KUSTOMIZE_VERSION} installed → ${INSTALL_DIR}/kustomize"
 fi
 
 echo ""

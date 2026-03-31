@@ -26,8 +26,12 @@ type RedisConfig struct {
 	Password string `yaml:"-"`
 }
 
-// loadRedisConfig overlays environment-variable credentials onto a RedisConfig
-// that has already been populated from YAML. It is called by LoadStorageConfig.
+// loadRedisConfig overlays environment-variable credentials and optional
+// per-field overrides onto a RedisConfig that has already been populated
+// from YAML. It is called by LoadStorageConfig.
+//
+// Explicit env var overrides let local dev change individual settings (e.g.
+// ORBIT_REDIS_TLS_ENABLED=false) without needing APP_ENV-based YAML branching.
 func loadRedisConfig(cfg *RedisConfig) error {
 	cfg.Host = os.Getenv("REDIS_HOST")
 	if cfg.Host == "" {
@@ -43,6 +47,12 @@ func loadRedisConfig(cfg *RedisConfig) error {
 		if p, err := strconv.Atoi(port); err == nil {
 			cfg.Port = p
 		}
+	}
+
+	// Explicit override — takes precedence over YAML when set.
+	// Used by local dev to disable TLS without an APP_ENV-specific YAML file.
+	if v := os.Getenv("ORBIT_REDIS_TLS_ENABLED"); v != "" {
+		cfg.TLSEnabled = v == "true" || v == "1"
 	}
 
 	return nil

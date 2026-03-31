@@ -1,0 +1,11 @@
+# Local k3d overrides for the orbit-operator Helm chart.
+# The operator manages all chart installs (SPIRE, Istio, orbit-platform, orbit).
+
+logLevel: debug
+image:
+  repository: orbit-registry:5001/orbit-operator
+  tag: latest
+  pullPolicy: Always
+
+# Disable leader election for single-replica local dev clusters
+leaderElection: false

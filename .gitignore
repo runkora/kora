@@ -94,4 +94,6 @@ dist/
 # agents
 .forge/
 
-infrastructure/overlays/*/charts
+# helm
+charts/**/charts/
+Chart.lock
