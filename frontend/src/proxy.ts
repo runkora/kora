@@ -35,7 +35,10 @@ import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing
  * `process.env.ORBIT_API_URL` is available in Edge Runtime — it is a
  * server-side env var read at request time, not baked in at build time.
  */
-async function tryRefresh(refreshToken: string, tenantId: string): Promise<BackendSessionResponse | null> {
+async function tryRefresh(
+  refreshToken: string,
+  tenantId: string,
+): Promise<BackendSessionResponse | null> {
   const apiBase = process.env.ORBIT_API_URL?.replace(/\/$/, '');
   if (!apiBase) return null;
 

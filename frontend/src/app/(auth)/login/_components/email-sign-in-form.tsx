@@ -101,7 +101,9 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
       try {
         sessionStorage.setItem(TENANT_CONFIG_STORAGE_KEY, JSON.stringify(tenantConfig));
       } catch {
-        setBannerError('Unable to store session data. Check that your browser allows sessionStorage.');
+        setBannerError(
+          'Unable to store session data. Check that your browser allows sessionStorage.',
+        );
         setLoading(false);
         return;
       }
