@@ -92,8 +92,11 @@ type InferenceUsageRecord struct {
 }
 
 // InferenceUsageFilter is used to query usage records.
+// TenantID is required — List and Get both reject an empty value to guarantee
+// tenant isolation. Callers must populate it from the verified principal, never
+// from user-supplied request data.
 type InferenceUsageFilter struct {
-	TenantID      *string
+	TenantID      string
 	PrincipalID   *string
 	PrincipalType *string
 	Provider      *ProviderName

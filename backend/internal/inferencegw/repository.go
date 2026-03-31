@@ -16,10 +16,13 @@ type InferenceUsageRepository interface {
 	Create(ctx context.Context, record InferenceUsageRecord) error
 
 	// List returns usage records matching the filter.
+	// filter.TenantID must be non-empty; the method returns ErrInvalidRequest otherwise.
 	List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, error)
 
-	// Get returns a single usage record by ID.
-	Get(ctx context.Context, id string) (InferenceUsageRecord, error)
+	// Get returns a single usage record by ID scoped to tenantID.
+	// Passing a tenantID that does not match the record returns ErrUsageRecordNotFound,
+	// preventing cross-tenant reads.
+	Get(ctx context.Context, tenantID, id string) (InferenceUsageRecord, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -73,17 +76,17 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 	return nil
 }
 
-// Get retrieves a single inference_usage row by primary key.
-func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, id string) (InferenceUsageRecord, error) {
+// Get retrieves a single inference_usage row by primary key, scoped to tenantID.
+func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id string) (InferenceUsageRecord, error) {
 	const q = `
 		SELECT id, tenant_id, principal_id, principal_type, api_dialect,
 		       provider, model_id, routing_strategy,
 		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
 		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
-		WHERE id = $1`
+		WHERE id = $1 AND tenant_id = $2`
 
-	row := r.pool.QueryRow(ctx, q, id)
+	row := r.pool.QueryRow(ctx, q, id, tenantID)
 	rec, err := scanUsageRecord(row)
 	if err != nil {
 		if isNoRows(err) {
@@ -95,7 +98,12 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, id string) (
 }
 
 // List retrieves usage records matching the filter with limit/offset pagination.
+// filter.TenantID must be non-empty; the method returns ErrInvalidRequest otherwise.
 func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, error) {
+	if filter.TenantID == "" {
+		return nil, fmt.Errorf("%w: tenant_id is required for usage list", ErrInvalidRequest)
+	}
+
 	where, args := buildFilter(filter)
 
 	limit := filter.Limit
@@ -192,8 +200,8 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 		n++
 	}
 
-	if f.TenantID != nil {
-		add("tenant_id = $%d", *f.TenantID)
+	if f.TenantID != "" {
+		add("tenant_id = $%d", f.TenantID)
 	}
 	if f.PrincipalID != nil {
 		add("principal_id = $%d", *f.PrincipalID)
