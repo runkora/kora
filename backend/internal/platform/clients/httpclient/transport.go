@@ -64,12 +64,39 @@ import (
 //	)
 //
 // Pass nil for transport to use http.DefaultTransport.
+//
+// For streaming / SSE responses use [NewStreamingHTTPClient] instead — setting a
+// Timeout on a client used for long-lived streams will terminate the response body
+// read after the deadline elapses, regardless of how much data has been received.
 func NewHTTPClient(timeout time.Duration, transport http.RoundTripper) *http.Client {
 	c := &http.Client{Timeout: timeout}
 	if transport != nil {
 		c.Transport = transport
 	}
 	return c
+}
+
+// NewStreamingHTTPClient constructs a *http.Client with no client-level timeout,
+// suitable for SSE / server-sent-event streams where the response body is open
+// for the duration of the generation.
+//
+// Why timeout=0: http.Client.Timeout covers the entire response body read.
+// For streaming calls the body IS the stream, so a finite client timeout kills
+// long-running generations mid-flight. The caller's context.Context (derived from
+// the inbound HTTP request) already enforces the deadline — when the client
+// disconnects or the handler context is canceled the underlying transport tears
+// down the connection automatically.
+//
+// Always pair with [NewTracingTransport] to get OTel coverage per request:
+//
+//	httpclient.NewStreamingHTTPClient(
+//	    httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	)
+//
+// Pass nil for transport to use http.DefaultTransport.
+func NewStreamingHTTPClient(transport http.RoundTripper) *http.Client {
+	// Timeout=0 means no client-level timeout; context deadline governs instead.
+	return NewHTTPClient(0, transport)
 }
 
 // NewTracingTransport wraps inner with an OTel client span per HTTP round-trip.

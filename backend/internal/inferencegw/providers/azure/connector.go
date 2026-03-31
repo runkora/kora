@@ -6,7 +6,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	anthropicopt "github.com/anthropics/anthropic-sdk-go/option"
@@ -103,10 +102,13 @@ type Connector struct {
 
 // New constructs an Azure Connector from a validated Config.
 func New(cfg *Config, logger logging.Logger) (*Connector, error) {
+	// No client-level timeout — context deadline governs streaming lifetime.
+	// http.Client.Timeout covers the full body read; for SSE streams that
+	// means the generation is killed after 30 s regardless of progress.
 	openaiClient := openai.NewClient(
 		azureopenai.WithEndpoint(cfg.Endpoint, cfg.APIVersion),
 		azureopenai.WithAPIKey(cfg.APIKey),
-		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			httpclient.NewTracingTransport("orbit.azure-openai", nil),
 		)),
 	)
@@ -114,7 +116,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	anthropicClient := anthropic.NewClient(
 		anthropicopt.WithBaseURL(cfg.AnthropicEndpoint),
 		anthropicopt.WithHeader("api-key", cfg.APIKey),
-		anthropicopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			httpclient.NewTracingTransport("orbit.azure-anthropic", nil),
 		)),
 	)

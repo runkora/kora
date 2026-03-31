@@ -126,13 +126,16 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/endpoints/openapi/",
 		cfg.Location, cfg.ProjectID, cfg.Location,
 	)
+	// No client-level timeout — context deadline governs streaming lifetime.
+	// http.Client.Timeout covers the full body read; for SSE streams that
+	// means the generation is killed after 30 s regardless of progress.
 	// The oauth2.Transport wraps the tracing transport and injects
 	// "Authorization: Bearer <google-access-token>" on every request,
 	// overriding whatever the openai-go SDK would otherwise send.
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
 		openaiopt.WithAPIKey("-"), // placeholder — oauth2.Transport overrides the header
-		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
 				Base:   httpclient.NewTracingTransport("orbit.vertexai-openai", nil),
@@ -150,7 +153,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	// in certain regions (e.g. us-east5) while Gemini/Llama stay in Location.
 	anthropicClient := anthropic.NewClient(
 		anthropicvertex.WithGoogleAuth(context.Background(), cfg.AnthropicLocation, cfg.ProjectID),
-		anthropicopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
 				Base:   httpclient.NewTracingTransport("orbit.vertexai-anthropic", nil),

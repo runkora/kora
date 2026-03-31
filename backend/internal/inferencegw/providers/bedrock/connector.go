@@ -3,11 +3,6 @@ package bedrock
 import (
 	"context"
 	"fmt"
-	"os"
-	"slices"
-	"strings"
-	"time"
-
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	awsbedrock "github.com/anthropics/anthropic-sdk-go/bedrock"
 	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
@@ -18,6 +13,9 @@ import (
 	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	openai "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
+	"os"
+	"slices"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -122,9 +120,12 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	// The tracing transport wraps SigV4 so every call gets an OTel client span
 	// and W3C traceparent injection before SigV4 signs the final headers.
 	openaiEndpoint := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/openai/v1", cfg.Region)
+	// No client-level timeout — context deadline governs streaming lifetime.
+	// http.Client.Timeout covers the full body read; for SSE streams that
+	// means the generation is killed after 30 s regardless of progress.
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
-		openaiopt.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			httpclient.NewTracingTransport("orbit.bedrock-openai", newSigV4Transport(awsCfg)),
 		)),
 	)
@@ -135,7 +136,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	// interfering with the SDK's auth middleware chain.
 	anthropicClient := anthropic.NewClient(
 		awsbedrock.WithConfig(awsCfg),
-		anthropicOption.WithHTTPClient(httpclient.NewHTTPClient(30*time.Second,
+		anthropicOption.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
 		)),
 	)
