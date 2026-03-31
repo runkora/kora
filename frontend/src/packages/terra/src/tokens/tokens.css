@@ -46,7 +46,7 @@
   --terra-neutral-chroma: 0.005;
   --terra-accent-hue: 8;
   --terra-accent-chroma: 0.17;
-  --terra-bg-base: 13%;       /* increase to lighten all background surfaces   */
+  --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
 }
 
 /* ─── Raw colour palette ─────────────────────────────────────────────────── */
@@ -61,10 +61,18 @@
   /*   raw-950    = base + 5% (surface)                                        */
   /*   raw-900    = base + 10% (surface-elevated)                              */
   /*   raw-800    = base + 16% (surface-overlay)                               */
-  --terra-raw-black: oklch(var(--terra-bg-base) var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-950: oklch(calc(var(--terra-bg-base) + 5%) var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-900: oklch(calc(var(--terra-bg-base) + 10%) var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-800: oklch(calc(var(--terra-bg-base) + 16%) var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-black: oklch(
+    var(--terra-bg-base) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-950: oklch(
+    calc(var(--terra-bg-base) + 5%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-900: oklch(
+    calc(var(--terra-bg-base) + 10%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-800: oklch(
+    calc(var(--terra-bg-base) + 16%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
   --terra-raw-700: oklch(28% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-600: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-500: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
