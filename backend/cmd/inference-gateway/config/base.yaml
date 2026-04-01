@@ -1,0 +1,21 @@
+# Inference Gateway — build-time defaults.
+#
+# This file is embedded in the Docker image. Operators never edit it directly.
+# All deployment-time configuration is supplied via environment variables,
+# which loadEnvOverrides() applies on top of these defaults at startup.
+# Helm chart values map to env vars — see the inference-gateway chart values.yaml.
+
+app:
+  version: "0.1.0"
+
+server:
+  port: 8081
+  basePath: /v1
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: orbit-inference-gateway
+
+pricing:
+  # How often the pricing cache refreshes (seconds). 3600 = 1 hour.
+  refreshIntervalSecs: 3600

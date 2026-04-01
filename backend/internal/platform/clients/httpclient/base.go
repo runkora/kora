@@ -1,25 +1,17 @@
 // Package httpclient provides the shared HTTP client foundation for all
-// Orbit service-to-service platform clients.
+// Orbit platform HTTP calls — both first-party service-to-service calls and
+// calls through third-party provider SDKs (e.g. anthropic-sdk-go, openai-go).
 //
-// Every typed client in internal/platform/clients/{service}/ should embed
-// *httpclient.Base rather than constructing its own http.Client, tracer, or
-// logger. This ensures consistent cross-cutting behavior across all
-// service-to-service calls:
+// # Choosing the right pattern
 //
-//   - A pre-configured *http.Client with a caller-supplied timeout
-//   - An OTel client span opened per call (SpanKindClient)
-//   - W3C traceparent/tracestate headers injected into every outbound request
-//     so remote services can attach their server span as a child of this span
-//   - Transport-level errors recorded on the span automatically
-//   - The structured logger exposed to service-specific methods
+// There are two observability patterns in this package. Pick based on whether
+// your code owns the request lifecycle.
 //
-// Service clients retain full control over:
-//   - Wire types (request/response structs owned by the client, not the target)
-//   - Domain-specific span attributes and log fields
-//   - Application-level error handling (non-2xx status codes)
-//   - Response body decoding and validation
+// ## Pattern 1 — Embed Base (first-party service-to-service calls)
 //
-// Usage pattern for embedding:
+// Use when your code constructs the request, executes it, and decodes the
+// response. Every typed client in internal/platform/clients/{service}/ follows
+// this pattern. Embed *Base and call Base.Do:
 //
 //	type Client struct {
 //	    *httpclient.Base
@@ -42,8 +34,32 @@
 //	    if err != nil { return err }
 //	    defer resp.Body.Close()
 //
-//	    // record domain-specific attributes, decode body, log, etc.
+//	    // record domain-specific attributes, decode body, handle errors, etc.
 //	}
+//
+// Base.Do gives you: a named OTel span (SpanKindClient), W3C traceparent
+// injection, HTTP semantic attributes, and helper methods (DecodeJSON,
+// HandleErrorResponse, RecordError) — all without per-client boilerplate.
+//
+// ## Pattern 2 — NewHTTPClient + NewTracingTransport (third-party SDK calls)
+//
+// Use when handing an *http.Client to a third-party SDK that manages its own
+// request lifecycle. The SDK cannot embed Base, so observability is provided
+// at the RoundTripper layer instead. See transport.go for full documentation
+// and usage examples.
+//
+//	// SDK handles auth; tracing transport wraps http.DefaultTransport:
+//	httpclient.NewHTTPClient(30*time.Second,
+//	    httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+//	)
+//
+//	// Tracing transport wraps a custom auth transport (e.g. SigV4):
+//	httpclient.NewHTTPClient(30*time.Second,
+//	    httpclient.NewTracingTransport("orbit.bedrock-openai", sigV4Transport),
+//	)
+//
+// NewTracingTransport provides the same per-call OTel coverage as Base.Do:
+// a client span, W3C traceparent injection, and HTTP semantic attributes.
 package httpclient
 
 import (
@@ -65,6 +81,9 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// See transport.go for NewHTTPClient and NewTracingTransport — the constructors
+// for raw *http.Client and OTel-tracing RoundTripper used with third-party SDKs.
 
 // Sentinel errors returned by the Base helpers. Callers may test for these
 // with errors.Is to distinguish failure categories without string matching.

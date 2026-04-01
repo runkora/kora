@@ -4,77 +4,48 @@ import (
 	"errors"
 	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ─── Principal ───────────────────────────────────────────────────────────────
 
 // PrincipalType identifies the category of actor.
-type PrincipalType string
+// Defined in internal/platform/token and aliased here for ergonomic use within
+// the identity package without requiring a package qualifier.
+type PrincipalType = token.PrincipalType
 
 const (
-	PrincipalTypeHuman   PrincipalType = "HUMAN"
-	PrincipalTypeAgent   PrincipalType = "AGENT"
-	PrincipalTypeService PrincipalType = "SERVICE"
-	PrincipalTypeSystem  PrincipalType = "SYSTEM"
+	PrincipalTypeHuman   = token.PrincipalTypeHuman
+	PrincipalTypeAgent   = token.PrincipalTypeAgent
+	PrincipalTypeService = token.PrincipalTypeService
+	PrincipalTypeSystem  = token.PrincipalTypeSystem
 )
 
 // IdentitySource records how the principal's identity was established.
-type IdentitySource string
+type IdentitySource = token.IdentitySource
 
 const (
 	// IdentitySourceFederated — OIDC/SAML via an external provider (Entra, Okta, …).
-	IdentitySourceFederated IdentitySource = "FEDERATED"
+	IdentitySourceFederated = token.IdentitySourceFederated
 	// IdentitySourceAttested — SPIFFE/SPIRE workload attestation.
-	IdentitySourceAttested IdentitySource = "ATTESTED"
+	IdentitySourceAttested = token.IdentitySourceAttested
 	// IdentitySourcePlatform — internally issued (SYSTEM principals).
-	IdentitySourcePlatform IdentitySource = "PLATFORM"
+	IdentitySourcePlatform = token.IdentitySourcePlatform
 )
 
 // Principal is the unified identity abstraction for all actors in Orbit.
-// It is the subject of every policy decision, audit event, and delegation chain.
-// Downstream components only ever see the Principal carried inside a platform
-// session token — they never receive raw OIDC tokens or SVIDs.
-type Principal struct {
-	// ID is a globally unique, stable identifier.
-	// For HUMAN principals this is derived from the upstream IdP subject claim.
-	// For AGENT principals this is Orbit's own agent registry ID.
-	ID string `json:"id"`
-
-	// Type discriminates the category of actor.
-	Type PrincipalType `json:"type"`
-
-	// TenantID scopes this principal to a specific tenant.
-	TenantID string `json:"tenant_id"`
-
-	// DisplayName is a human-readable label for audit and UI.
-	DisplayName string `json:"display_name"`
-
-	// IdentitySource records the authentication mechanism used.
-	IdentitySource IdentitySource `json:"identity_source"`
-
-	// Claims carries source-specific verified attributes.
-	Claims map[string]string `json:"claims"`
-}
+// Aliased from internal/platform/token — see that package for field documentation.
+type Principal = token.Principal
 
 // ─── JWT token claims ────────────────────────────────────────────────────────
 
 // PlatformClaims are the JWT claims carried in every platform session token.
-type PlatformClaims struct {
-	jwt.RegisteredClaims
-	Orbit OrbitClaims `json:"orbit"`
-}
+// Aliased from internal/platform/token.
+type PlatformClaims = token.PlatformClaims
 
 // OrbitClaims are the Orbit-specific claims embedded in the platform token's
-// "orbit" namespace so they do not conflict with registered claim names.
-type OrbitClaims struct {
-	SessionID      string            `json:"session_id"`
-	PrincipalType  PrincipalType     `json:"principal_type"`
-	TenantID       string            `json:"tenant_id"`
-	IdentitySource IdentitySource    `json:"identity_source"`
-	DisplayName    string            `json:"display_name"`
-	Claims         map[string]string `json:"claims,omitempty"`
-}
+// "orbit" namespace. Aliased from internal/platform/token.
+type OrbitClaims = token.OrbitClaims
 
 // ─── Storage records ─────────────────────────────────────────────────────────
 

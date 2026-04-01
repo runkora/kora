@@ -293,7 +293,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 
 # PLATFORM_SERVICES are orbit-system services owned by the operator.
 # They must be built before 'make cluster-operator' so the operator can pull them.
-PLATFORM_SERVICES := identity identity-proxy
+PLATFORM_SERVICES := identity identity-proxy inference-gateway
 
 # TENANT_SERVICES are workload images deployed into tenant namespaces.
 # They are built during 'make cluster-deploy'.
@@ -458,6 +458,17 @@ run-identity: ## Run the identity service
 	@echo "$(COLOR_YELLOW)Starting identity service...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
 		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/identity/main.go
+
+.PHONY: run-inference-gateway
+run-inference-gateway: ## Run the inference gateway (set provider env vars first — see backend/cmd/inference-gateway/config/local.yaml)
+	@echo "$(COLOR_YELLOW)Starting inference gateway on :8081...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  JWKS: $${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  Tip (Bedrock):  export BEDROCK_ENABLED=true BEDROCK_REGION=us-east-1 AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)  Tip (Vertex):   gcloud auth application-default login  # once; then set VERTEX_ENABLED=true VERTEX_PROJECT_ID=... VERTEX_LOCATION=us-central1$(COLOR_RESET)"
+	@set -a; [ -f .env ] && . .env; set +a; \
+	export ORBIT_TOKEN_JWKS_URL=$${ORBIT_TOKEN_JWKS_URL:-http://localhost:8080/api/v1/identity/.well-known/jwks.json}; \
+	export APP_ENV=local; \
+		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/inference-gateway/main.go
 
 .PHONY: run-example
 run-example: ## Run the example service
