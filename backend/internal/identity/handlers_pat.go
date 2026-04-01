@@ -42,7 +42,7 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	if req.ExpiresInDays < 0 {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeInvalidField,
-				fmt.Sprintf("expires_in_days must be between 1 and %d", c.svc.cfg.Token.PATMaxTTLDays),
+				fmt.Sprintf("expires_in_days must be 0 (use server default) or a positive value up to %d", c.svc.cfg.Token.PATMaxTTLDays),
 				map[string]any{"field": "expires_in_days"}), nil)
 		return
 	}

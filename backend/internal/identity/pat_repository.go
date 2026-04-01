@@ -103,6 +103,7 @@ func (r *postgresPATRepository) GetByID(ctx context.Context, tenantID, userID, i
 		WHERE  id        = $1
 		  AND  tenant_id = $2
 		  AND  user_id   = $3
+		  AND  revoked_at IS NULL
 	`, id, tenantID, userID).Scan(
 		&p.ID, &p.TenantID, &p.UserID, &p.Name,
 		&p.JTI, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
