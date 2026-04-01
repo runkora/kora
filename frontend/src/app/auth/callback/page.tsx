@@ -107,10 +107,14 @@ export default function CallbackPage() {
 
         // tenant_id from the PKCE state is the authoritative source — it was
         // resolved by HRD and round-tripped through the IdP unchanged.
-        const tenantId =
-          typeof state.tenantId === 'string' && state.tenantId
-            ? state.tenantId
-            : tenantConfig.tenantId; // fallback to sessionStorage value
+        // Reject outright if missing: a silent fallback to sessionStorage could
+        // allow a compromised or manipulated flow to authenticate against the
+        // wrong tenant.
+        if (typeof state.tenantId !== 'string' || !state.tenantId) {
+          router.replace('/login?error=invalid_callback');
+          return;
+        }
+        const tenantId = state.tenantId;
 
         // ── Step 4: seal into BFF session ──────────────────────────────────
         const res = await fetch('/api/auth/session', {
