@@ -66,7 +66,7 @@ func TestGenerateOpaqueToken_NotEmpty(t *testing.T) {
 // ── JWKSJSON ──────────────────────────────────────────────────────────────────
 
 func TestJWKSJSON_NonEmpty(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	raw := svc.JWKSJSON()
 	if len(raw) == 0 {
 		t.Fatal("JWKSJSON returned empty bytes")
@@ -74,7 +74,7 @@ func TestJWKSJSON_NonEmpty(t *testing.T) {
 }
 
 func TestJWKSJSON_ContainsKty(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	raw := svc.JWKSJSON()
 	if !strings.Contains(string(raw), `"kty"`) {
 		t.Errorf("JWKS JSON does not contain kty field: %s", raw)
@@ -82,7 +82,7 @@ func TestJWKSJSON_ContainsKty(t *testing.T) {
 }
 
 func TestJWKSJSON_ContainsRSA(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	raw := svc.JWKSJSON()
 	if !strings.Contains(string(raw), `"RSA"`) {
 		t.Errorf("JWKS JSON does not contain RSA key type: %s", raw)
@@ -102,7 +102,7 @@ func xfccRequest(spiffeID string) *http.Request {
 }
 
 func TestExchangeSVID_Success(t *testing.T) {
-	svc, sessions, _, _ := newFullTestService(t)
+	svc, sessions, _, _, _ := newFullTestService(t)
 
 	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
@@ -136,7 +136,7 @@ func TestExchangeSVID_Success(t *testing.T) {
 
 func TestExchangeSVID_TokenParses(t *testing.T) {
 	const spiffeID = "spiffe://orbit.local/tenant/platform-team/agent/agent-99"
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 
 	resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(spiffeID))
 	if err != nil {
@@ -163,7 +163,7 @@ func TestExchangeSVID_TokenParses(t *testing.T) {
 
 func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
 	// Tenant ID is derived from the SPIFFE URI path — no caller override is allowed.
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 
 	r := xfccRequest("spiffe://orbit.local/tenant/acme-corp/agent/deploy-bot")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
@@ -182,7 +182,7 @@ func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
 func TestExchangeSVID_MissingXFCC(t *testing.T) {
 	// A request without x-forwarded-client-cert must be rejected — it means
 	// the request did not arrive via the Envoy mTLS sidecar.
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 
 	r := httptest.NewRequest(http.MethodPost, "/exchange", nil) // no XFCC header
 	_, err := svc.ExchangeSVID(context.Background(), r)
@@ -194,7 +194,7 @@ func TestExchangeSVID_MissingXFCC(t *testing.T) {
 func TestExchangeSVID_SessionPersistError(t *testing.T) {
 	sessions := newMockSessionRepo()
 	sessions.createErr = errors.New("db unavailable")
-	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo())
+	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
 
 	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
 	_, err := svc.ExchangeSVID(context.Background(), r)
@@ -206,7 +206,7 @@ func TestExchangeSVID_SessionPersistError(t *testing.T) {
 // ── RefreshSession ────────────────────────────────────────────────────────────
 
 func TestRefreshSession_Success(t *testing.T) {
-	svc, sessions, refreshTokens, _ := newFullTestService(t)
+	svc, sessions, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "original-refresh-token"
 	seedSession(sessions, "session-1", "jti-1")
@@ -233,7 +233,7 @@ func TestRefreshSession_Success(t *testing.T) {
 
 func TestRefreshSession_OldTokenRevoked(t *testing.T) {
 	// After a successful refresh, the original refresh token must be revoked.
-	svc, sessions, refreshTokens, _ := newFullTestService(t)
+	svc, sessions, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "original-token"
 	seedSession(sessions, "session-1", "jti-1")
@@ -258,7 +258,7 @@ func TestRefreshSession_OldTokenRevoked(t *testing.T) {
 }
 
 func TestRefreshSession_TokenNotFound(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	_, err := svc.RefreshSession(context.Background(), SessionRequest{
 		TenantID:     "tenant-1",
 		GrantType:    "refresh_token",
@@ -270,7 +270,7 @@ func TestRefreshSession_TokenNotFound(t *testing.T) {
 }
 
 func TestRefreshSession_TokenRevoked(t *testing.T) {
-	svc, sessions, refreshTokens, _ := newFullTestService(t)
+	svc, sessions, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "revoked-token"
 	seedSession(sessions, "session-1", "jti-1")
@@ -292,7 +292,7 @@ func TestRefreshSession_TokenRevoked(t *testing.T) {
 }
 
 func TestRefreshSession_TokenExpired(t *testing.T) {
-	svc, sessions, refreshTokens, _ := newFullTestService(t)
+	svc, sessions, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "expired-token"
 	seedSession(sessions, "session-1", "jti-1")
@@ -313,7 +313,7 @@ func TestRefreshSession_TokenExpired(t *testing.T) {
 }
 
 func TestRefreshSession_SessionRevoked(t *testing.T) {
-	svc, sessions, refreshTokens, _ := newFullTestService(t)
+	svc, sessions, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "valid-token"
 	s := seedSession(sessions, "session-1", "jti-1")
@@ -340,7 +340,7 @@ func TestRefreshSession_DBErrorNotMasked(t *testing.T) {
 	sessions := newMockSessionRepo()
 	refreshTokens := newMockRefreshTokenRepo()
 	refreshTokens.getByHashErr = errors.New("connection reset by peer")
-	svc := newTestService(t, sessions, refreshTokens, newMockBlocklistRepo())
+	svc := newTestService(t, sessions, refreshTokens, newMockBlocklistRepo(), newMockPATRepo())
 
 	_, err := svc.RefreshSession(context.Background(), SessionRequest{
 		TenantID:     "tenant-1",
@@ -358,7 +358,7 @@ func TestRefreshSession_DBErrorNotMasked(t *testing.T) {
 // ── RevokeToken — access_token path ──────────────────────────────────────────
 
 func TestRevokeToken_AccessToken_Success(t *testing.T) {
-	svc, sessions, _, blocklist := newFullTestService(t)
+	svc, sessions, _, blocklist, _ := newFullTestService(t)
 
 	// Build a valid signed token using the service's own key.
 	principal := &Principal{
@@ -399,7 +399,7 @@ func TestRevokeToken_AccessToken_Success(t *testing.T) {
 }
 
 func TestRevokeToken_AccessToken_InvalidJWT(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	err := svc.RevokeToken(context.Background(), RevokeRequest{
 		Token:     "not.a.jwt",
 		TokenType: "access_token",
@@ -413,7 +413,7 @@ func TestRevokeToken_AccessToken_InvalidJWT(t *testing.T) {
 // token whose JTI is already in the blocklist is idempotent — BlockJTI on the
 // mock simply overwrites the key, so the service returns nil (RFC 7009 §2.1).
 func TestRevokeToken_AccessToken_AlreadyBlocked(t *testing.T) {
-	svc, sessions, _, blocklist := newFullTestService(t)
+	svc, sessions, _, blocklist, _ := newFullTestService(t)
 
 	principal := &Principal{
 		ID:             "user-1",
@@ -447,7 +447,7 @@ func TestRevokeToken_AccessToken_AlreadyBlocked(t *testing.T) {
 func TestRevokeToken_AccessToken_SessionNotFoundIsOK(t *testing.T) {
 	// revokeAccessToken tolerates ErrSessionNotFound from GetSessionByJTI —
 	// the token may have been issued for a session that no longer exists.
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 
 	principal := &Principal{
 		ID:             "user-1",
@@ -473,7 +473,7 @@ func TestRevokeToken_AccessToken_SessionNotFoundIsOK(t *testing.T) {
 // ── RevokeToken — refresh_token path ─────────────────────────────────────────
 
 func TestRevokeToken_RefreshToken_Success(t *testing.T) {
-	svc, _, refreshTokens, _ := newFullTestService(t)
+	svc, _, refreshTokens, _, _ := newFullTestService(t)
 
 	rawRefresh := "opaque-refresh-1"
 	rt := seedRefreshToken(refreshTokens, "rt-1", "session-1", rawRefresh)
@@ -499,7 +499,7 @@ func TestRevokeToken_RefreshToken_NotFound(t *testing.T) {
 	// RFC 7009 §2.1: the server must respond with 200/204 even when the token
 	// never existed or was already revoked. Returning ErrRefreshTokenNotFound
 	// here would be a protocol violation.
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	err := svc.RevokeToken(context.Background(), RevokeRequest{
 		Token:     "nonexistent-refresh-token",
 		TokenType: "refresh_token",
@@ -513,7 +513,7 @@ func TestRevokeToken_RefreshToken_DBErrorNotMasked(t *testing.T) {
 	sessions := newMockSessionRepo()
 	refreshTokens := newMockRefreshTokenRepo()
 	refreshTokens.getByHashErr = errors.New("db timeout")
-	svc := newTestService(t, sessions, refreshTokens, newMockBlocklistRepo())
+	svc := newTestService(t, sessions, refreshTokens, newMockBlocklistRepo(), newMockPATRepo())
 
 	err := svc.RevokeToken(context.Background(), RevokeRequest{
 		Token:     "any-token",
@@ -530,7 +530,7 @@ func TestRevokeToken_RefreshToken_DBErrorNotMasked(t *testing.T) {
 // ── RevokeToken — unsupported token type ─────────────────────────────────────
 
 func TestRevokeToken_UnsupportedTokenType(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	err := svc.RevokeToken(context.Background(), RevokeRequest{
 		Token:     "any-token",
 		TokenType: "id_token",
@@ -543,7 +543,7 @@ func TestRevokeToken_UnsupportedTokenType(t *testing.T) {
 // ── InitiateDeviceAuth ────────────────────────────────────────────────────────
 
 func TestInitiateDeviceAuth_NoOIDC(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	_, err := svc.InitiateDeviceAuth(context.Background(), DeviceAuthRequest{
 		TenantID: "tenant-1",
 	})
@@ -642,7 +642,7 @@ func TestPollDeviceAuth_ExpiredToken(t *testing.T) {
 }
 
 func TestPollDeviceAuth_NoOIDC(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 	_, err := svc.PollDeviceAuth(context.Background(), SessionRequest{
 		TenantID:   "tenant-1",
 		DeviceCode: "any-code",
@@ -693,7 +693,7 @@ func TestExchangeIDToken_InvalidToken(t *testing.T) {
 }
 
 func TestExchangeIDToken_UnknownTenant(t *testing.T) {
-	svc, _, _, _ := newFullTestService(t)
+	svc, _, _, _, _ := newFullTestService(t)
 
 	_, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
 		TenantID: "nonexistent-tenant",

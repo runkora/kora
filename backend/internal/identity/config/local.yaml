@@ -1,4 +1,0 @@
-token:
-  # Short-lived access tokens for local dev — easier iteration.
-  accessTokenTtlMinutes: 60
-  refreshTokenTtlDays: 30

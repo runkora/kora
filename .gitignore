@@ -50,6 +50,7 @@ config/dex/.env
 *.key
 *.crt
 secrets
+secrets/
 
 # Logs
 *.log

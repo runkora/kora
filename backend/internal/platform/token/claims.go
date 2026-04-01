@@ -18,6 +18,7 @@ const (
 	PrincipalTypeAgent   PrincipalType = "AGENT"
 	PrincipalTypeService PrincipalType = "SERVICE"
 	PrincipalTypeSystem  PrincipalType = "SYSTEM"
+	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
 // IdentitySource records how the principal's identity was established.

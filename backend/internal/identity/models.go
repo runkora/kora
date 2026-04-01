@@ -19,6 +19,7 @@ const (
 	PrincipalTypeAgent   = token.PrincipalTypeAgent
 	PrincipalTypeService = token.PrincipalTypeService
 	PrincipalTypeSystem  = token.PrincipalTypeSystem
+	PrincipalTypePAT     = token.PrincipalTypePAT
 )
 
 // IdentitySource records how the principal's identity was established.
@@ -161,6 +162,50 @@ func (e *OAuthError) Error() string {
 	return "oauth2 error: " + e.Code
 }
 
+// ─── PAT types ───────────────────────────────────────────────────────────────
+
+// PAT is a Personal Access Token record stored in user_pat_tokens.
+// The raw JWT is never stored — only its SHA-256 hash.
+type PAT struct {
+	ID        string     `db:"id"`
+	TenantID  string     `db:"tenant_id"`
+	UserID    string     `db:"user_id"`
+	Name      string     `db:"name"`
+	JTI       string     `db:"jti"`
+	ExpiresAt time.Time  `db:"expires_at"`
+	CreatedAt time.Time  `db:"created_at"`
+	RevokedAt *time.Time `db:"revoked_at"`
+}
+
+// CreatePATRequest is the HTTP request body for POST /identity/tokens.
+type CreatePATRequest struct {
+	Name          string `json:"name"`
+	ExpiresInDays int    `json:"expires_in_days,omitempty"`
+}
+
+// CreatePATResponse is returned on successful PAT creation.
+// Token is the raw JWT prefixed with "orb_" — shown exactly once.
+type CreatePATResponse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+// PATSummary is a single entry in the list response — raw token is omitted.
+type PATSummary struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ListPATsResponse is returned by GET /identity/tokens.
+type ListPATsResponse struct {
+	Tokens []PATSummary `json:"tokens"`
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
@@ -180,4 +225,9 @@ var (
 	ErrTenantNotFound         = errors.New("tenant not found for email domain")
 	ErrDeviceFlowNotSupported = errors.New("tenant OIDC provider does not support Device Authorization Grant")
 	ErrInvalidEmailFormat     = errors.New("invalid email format")
+	ErrPATNotFound            = errors.New("PAT not found")
+	ErrPATSigningFailed       = errors.New("PAT signing failed")
+	ErrPATPersistFailed       = errors.New("PAT persistence failed")
+	ErrPATListFailed          = errors.New("PAT list failed")
+	ErrPATRevokeFailed        = errors.New("PAT revocation failed")
 )

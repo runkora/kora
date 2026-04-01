@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -26,13 +25,22 @@ type TokenConfig struct {
 	// RefreshTokenTTLDays is the lifetime of a human refresh token.
 	RefreshTokenTTLDays int `yaml:"refreshTokenTtlDays"`
 
+	// PATDefaultTTLDays is the default lifetime of a Personal Access Token.
+	PATDefaultTTLDays int `yaml:"patDefaultTtlDays"`
+
+	// PATMaxTTLDays is the maximum lifetime a caller may request for a PAT.
+	PATMaxTTLDays int `yaml:"patMaxTtlDays"`
+
 	// Audience is the JWT `aud` claim value. Defaults to "orbit-platform".
 	// Override per environment to scope tokens to a specific cluster or deployment.
 	Audience string `yaml:"audience"`
 }
 
 // LoadConfig loads the identity service configuration from
-// internal/identity/config/{environment}.yaml and applies safe defaults.
+// internal/identity/config/base.yaml and applies environment variable overrides.
+//
+// All defaults live in base.yaml. Runtime overrides are applied via ORBIT_*
+// environment variables — no environment-specific YAML files are used.
 //
 // OIDC configuration is resolved separately via loadTenantRegistry (called
 // by NewService) — it is sourced per-tenant from ORBIT_TENANTS_CONFIG, not
@@ -42,37 +50,30 @@ type TokenConfig struct {
 // initSigningKey method so that file-path env vars can be resolved relative to
 // a known working directory at runtime.
 func LoadConfig() (*Config, error) {
-	cfg, err := config.Load[Config]("internal/identity", config.Environment())
+	cfg, err := config.Load[Config]("internal/identity", "base")
 	if err != nil {
 		return nil, fmt.Errorf("load identity config: %w", err)
 	}
 
-	// Apply safe defaults for token lifetimes when YAML omits them.
-	if cfg.Token.AccessTokenTTLMinutes == 0 {
-		cfg.Token.AccessTokenTTLMinutes = 60
-	}
-	if cfg.Token.RefreshTokenTTLDays == 0 {
-		cfg.Token.RefreshTokenTTLDays = 30
-	}
-	if cfg.Token.Audience == "" {
-		cfg.Token.Audience = token.DefaultAudience
-	}
-
-	// Explicit env var overrides — take precedence over YAML defaults.
-	// Used by local dev to extend token TTLs without APP_ENV-based YAML branching.
-	if v := os.Getenv("ORBIT_ACCESS_TOKEN_TTL_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.Token.AccessTokenTTLMinutes = n
-		}
-	}
-	if v := os.Getenv("ORBIT_REFRESH_TOKEN_TTL_DAYS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.Token.RefreshTokenTTLDays = n
-		}
-	}
+	// Env var overrides — take precedence over base.yaml values.
+	// Use these in local dev to extend token TTLs (e.g. ORBIT_ACCESS_TOKEN_TTL_MINUTES=60).
+	overrideInt(&cfg.Token.AccessTokenTTLMinutes, "ORBIT_ACCESS_TOKEN_TTL_MINUTES")
+	overrideInt(&cfg.Token.RefreshTokenTTLDays, "ORBIT_REFRESH_TOKEN_TTL_DAYS")
+	overrideInt(&cfg.Token.PATDefaultTTLDays, "ORBIT_PAT_DEFAULT_TTL_DAYS")
+	overrideInt(&cfg.Token.PATMaxTTLDays, "ORBIT_PAT_MAX_TTL_DAYS")
 	if v := os.Getenv("ORBIT_TOKEN_AUDIENCE"); v != "" {
 		cfg.Token.Audience = v
 	}
 
 	return cfg, nil
+}
+
+// overrideInt sets *dst to the positive integer value of the named environment
+// variable, if the variable is set and parses successfully.
+func overrideInt(dst *int, envVar string) {
+	if v := os.Getenv(envVar); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			*dst = n
+		}
+	}
 }
