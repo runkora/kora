@@ -371,6 +371,33 @@ make gen-signing-key   # regenerates secrets/signing.key
 make dev               # restart the backend
 ```
 
+### Sign In button fails with a CORS error in the browser console
+
+**Symptom:** Clicking **Sign In** on the login page immediately shows an error. The browser console reports something like:
+
+```
+Access to fetch at 'http://dex.orbit.local:5556/dex/.well-known/openid-configuration'
+from origin 'http://localhost:3000' has been blocked by CORS policy:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `http://dex.orbit.local:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
+
+**Fix:** Confirm `config/dex/config.yaml` has `allowedOrigins` under the `web:` block:
+
+```yaml
+web:
+  http: 0.0.0.0:5556
+  allowedOrigins:
+    - http://localhost:3000
+```
+
+Then restart Dex to pick up the change:
+
+```bash
+docker compose restart orbit-dex
+```
+
 ### `make auth-device` times out waiting for authorization
 
 **Cause:** The device code expired (default: 5 minutes) before authorization was completed in the browser.

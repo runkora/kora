@@ -1,5 +1,5 @@
 import { Anchor, type AnchorProps } from '@orbit/terra';
-import { type ExternalUrl } from '@core/routing/external-urls';
+import { ExternalUrl } from '@orbit/lib/routing';
 
 type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;

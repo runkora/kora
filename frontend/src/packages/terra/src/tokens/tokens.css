@@ -18,6 +18,14 @@
  *   --terra-neutral-chroma: 0.02  (0–0.37  — how tinted the neutrals are)
  *   --terra-accent-hue:     210   (0–360°  — electric cyan default)
  *   --terra-accent-chroma:  0.18  (0–0.37  — accent saturation)
+ *   --terra-bg-base:        4%    (0–20%   — base lightness for background surfaces)
+ *                                   4%  = near-black (default)
+ *                                   13% = charcoal (recommended for most UIs)
+ *                                   18% = mid-dark
+ *
+ * Only the four background steps (background → surface-overlay) shift with
+ * --terra-bg-base. Foreground and mid-tone steps stay fixed so text contrast
+ * is never compromised regardless of the base value.
  *
  * All values use OKLCH — a perceptually-uniform colour space built into every
  * modern browser (Chrome 111+, Firefox 113+, Safari 15.4+). No npm dependency
@@ -30,13 +38,15 @@
 @import 'tailwindcss';
 
 /* ─── Theme seeds ─────────────────────────────────────────────────────────── */
-/* Override these two hue angles (and optionally the chroma values) to retheme */
-/* the entire system. All raw palette steps are derived from these four values. */
+/* Override any of these five values to retheme the entire system.             */
+/* The four background steps (background → surface-overlay) are derived from  */
+/* --terra-bg-base via calc() offsets. All other steps are fixed lightness.   */
 :root {
-  --terra-neutral-hue: 137.73;
-  --terra-neutral-chroma: 0.04;
-  --terra-accent-hue: 26;
-  --terra-accent-chroma: 0.23;
+  --terra-neutral-hue: 248;
+  --terra-neutral-chroma: 0.005;
+  --terra-accent-hue: 8;
+  --terra-accent-chroma: 0.17;
+  --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
 }
 
 /* ─── Raw colour palette ─────────────────────────────────────────────────── */
@@ -44,11 +54,25 @@
 /* Semantic tokens in @theme reference them below.                            */
 
 :root {
-  /* Neutral scale — lightness steps, fixed chroma and hue from seeds */
-  --terra-raw-black: oklch(4% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-950: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-900: oklch(14% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-800: oklch(20% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  /* Neutral scale — lightness steps, fixed chroma and hue from seeds          */
+  /* The first four steps derive from --terra-bg-base so background darkness   */
+  /* is controllable without touching individual steps. Default base = 4%:     */
+  /*   raw-black  = base + 0  (background)                                     */
+  /*   raw-950    = base + 5% (surface)                                        */
+  /*   raw-900    = base + 10% (surface-elevated)                              */
+  /*   raw-800    = base + 16% (surface-overlay)                               */
+  --terra-raw-black: oklch(
+    var(--terra-bg-base) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-950: oklch(
+    calc(var(--terra-bg-base) + 5%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-900: oklch(
+    calc(var(--terra-bg-base) + 10%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
+  --terra-raw-800: oklch(
+    calc(var(--terra-bg-base) + 16%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+  );
   --terra-raw-700: oklch(28% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-600: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-500: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
@@ -68,7 +92,7 @@
   --terra-raw-accent-fg: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
 
   /* Status — semantic signal colours; independent of the neutral/accent seeds */
-  --terra-raw-healthy: #8ae250;
+  --terra-raw-healthy: #9ce37d;
   --terra-raw-degraded: #ffd046;
   --terra-raw-error: #ef4444;
   --terra-raw-idle: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));

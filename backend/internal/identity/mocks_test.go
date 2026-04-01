@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -428,4 +432,126 @@ func seedRefreshToken(tokens *mockRefreshTokenRepository, id, sessionID, rawToke
 	tokens.byID[id] = rt
 	tokens.mu.Unlock()
 	return rt
+}
+
+// ── signing OIDC test server ──────────────────────────────────────────────────
+
+// newSigningOIDCTestServer starts a minimal OIDC-compliant HTTP server backed by
+// a real RSA key pair. Unlike newOIDCTestServer (which returns an empty JWKS),
+// this server serves its public key at /keys so that go-oidc can verify tokens.
+// The returned issueIDToken helper mints RS256-signed JWTs suitable for passing
+// to ExchangeIDToken.
+func newSigningOIDCTestServer(t *testing.T) (
+	issuerURL string,
+	issueIDToken func(clientID, sub, email, name string) string,
+) {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("newSigningOIDCTestServer: generate RSA key: %v", err)
+	}
+
+	jwksJSON, err := buildJWKS(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("newSigningOIDCTestServer: build JWKS: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	base := srv.URL
+
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                base,
+			"authorization_endpoint":                base + "/authorize",
+			"token_endpoint":                        base + "/token",
+			"jwks_uri":                              base + "/keys",
+			"response_types_supported":              []string{"code"},
+			"subject_types_supported":               []string{"public"},
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	})
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jwksJSON)
+	})
+
+	issueIDToken = func(clientID, sub, email, name string) string {
+		now := time.Now()
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+			"iss":   base,
+			"aud":   jwt.ClaimStrings{clientID},
+			"sub":   sub,
+			"exp":   now.Add(5 * time.Minute).Unix(),
+			"iat":   now.Unix(),
+			"email": email,
+			"name":  name,
+		})
+		signed, sigErr := tok.SignedString(key)
+		if sigErr != nil {
+			t.Fatalf("newSigningOIDCTestServer: sign id_token: %v", sigErr)
+		}
+		return signed
+	}
+
+	return base, issueIDToken
+}
+
+// newTestServiceWithDomains builds a *Service with a single active tenant
+// configured with the given issuerURL and emailDomains. Use for
+// DiscoverTenantByEmail tests that need email routing to be populated.
+func newTestServiceWithDomains(t *testing.T, issuerURL string, emailDomains []string) *Service {
+	t.Helper()
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+
+	domainsJSON, _ := json.Marshal(emailDomains)
+	registry := fmt.Sprintf(`version: "v1"
+tenants:
+  - id: "tenant-1"
+    displayName: "Test Tenant"
+    state: "active"
+    oidc:
+      issuerURL: %q
+      clientID: "test-client"
+      scopes: [openid]
+      emailDomains: %s
+`, issuerURL, string(domainsJSON))
+
+	f, err := os.CreateTemp(t.TempDir(), "tenants-*.yaml")
+	if err != nil {
+		t.Fatalf("newTestServiceWithDomains: create temp registry: %v", err)
+	}
+	if _, err := f.WriteString(registry); err != nil {
+		t.Fatalf("newTestServiceWithDomains: write temp registry: %v", err)
+	}
+	f.Close()
+	t.Setenv("ORBIT_TENANTS_CONFIG", f.Name())
+
+	cfg := &Config{
+		Token: TokenConfig{
+			AccessTokenTTLMinutes: 60,
+			RefreshTokenTTLDays:   30,
+			Audience:              "orbit-platform",
+		},
+	}
+	svc, err := NewService(
+		context.Background(),
+		cfg,
+		newMockSessionRepo(),
+		newMockRefreshTokenRepo(),
+		newMockBlocklistRepo(),
+		&XFCCPrincipalExtractor{},
+		logging.NewLoggerWithOutput(io.Discard),
+	)
+	if err != nil {
+		t.Fatalf("newTestServiceWithDomains: %v", err)
+	}
+	return svc
 }

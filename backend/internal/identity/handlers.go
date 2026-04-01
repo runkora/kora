@@ -31,16 +31,20 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 // Route map:
 //
 //	POST   /identity/device                 Initiate a Device Authorization Grant flow.
-//	POST   /identity/session                Complete device flow poll OR exchange a refresh token.
+//	POST   /identity/session                Complete device flow poll, present id_token, or refresh token.
 //	POST   /identity/exchange               Exchange a SPIFFE SVID for a platform session token.
+//	GET    /identity/health                 Liveness check.
 //	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
+//	GET    /identity/tenants/discover       Home Realm Discovery — resolve tenant by email domain.
 func (c *Controller) Boot(mux *api.Mux) {
+	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
+	mux.Handle("GET /tenants/discover", c.handleDiscoverTenant)
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
@@ -72,6 +76,12 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrDeviceFlowNotSupported) {
+			apiErr := api.BadRequestError("device_flow_not_supported",
+				"this tenant's OIDC provider does not support the Device Authorization Grant", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to initiate device auth", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -84,10 +94,12 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
-// handleSession handles both Device Authorization Grant polling and refresh token exchange.
+// handleSession handles Device Authorization Grant polling, OIDC id_token
+// handoff, and refresh token rotation.
 //
 // Supported grant_type values:
 //   - "urn:ietf:params:oauth:grant-type:device_code" — poll the upstream OIDC provider
+//   - "oidc_id_token"                                — browser presents a verified id_token; backend issues an Orbit session
 //   - "refresh_token"                                — rotate a human session refresh token
 func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -120,6 +132,23 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err = c.svc.PollDeviceAuth(ctx, req)
 
+	case "oidc_id_token":
+		if req.IDToken == "" {
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "id_token is required for oidc_id_token grant", map[string]any{
+				"field": "id_token",
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if req.TenantID == "" {
+			apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id is required for oidc_id_token grant", map[string]any{
+				"field": "tenant_id",
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		resp, err = c.svc.ExchangeIDToken(ctx, req)
+
 	case "refresh_token":
 		if req.RefreshToken == "" {
 			apiErr := api.ValidationError(api.ErrCodeMissingField, "refresh_token is required for refresh_token grant", map[string]any{
@@ -133,7 +162,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	case "":
 		apiErr := api.ValidationError(api.ErrCodeMissingField, "grant_type is required", map[string]any{
 			"field":           "grant_type",
-			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"},
+			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "oidc_id_token", "refresh_token"},
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
@@ -141,7 +170,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "unsupported grant_type", map[string]any{
 			"grant_type":      req.GrantType,
-			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "refresh_token"},
+			"supported_types": []string{"urn:ietf:params:oauth:grant-type:device_code", "oidc_id_token", "refresh_token"},
 		})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
@@ -249,6 +278,14 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleHealth returns a simple liveness response for the identity service.
+func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]string{
+		"status":  "healthy",
+		"service": "orbit-identity",
+	})
+}
+
 // handleJWKS returns the public key set used to verify platform tokens.
 // Downstream services and the gateway can cache this response.
 func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +298,44 @@ func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+}
+
+// handleDiscoverTenant implements GET /identity/tenants/discover?email=user@example.com
+// It resolves the OIDC tenant for an email address via Home Realm Discovery (ADR-0031).
+// The response contains only public OIDC config — never the client secret.
+// Returns 404 if no tenant claims the email domain, 400 if the email is missing/malformed.
+func (c *Controller) handleDiscoverTenant(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		apiErr := api.BadRequestError(api.ErrCodeInvalidField, "email query parameter is required", map[string]any{
+			"field": "email",
+		})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	discovery, err := c.svc.DiscoverTenantByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, ErrInvalidEmailFormat) {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "malformed email address", map[string]any{
+				"field": "email",
+			})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrTenantNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "no tenant found for the provided email domain", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "tenant discovery failed", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, discovery)
 }
 
 // ─── Error mapping helpers ────────────────────────────────────────────────────
@@ -299,6 +374,11 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 		apiErr := api.BadRequestError("oidc_not_configured",
 			"federated authentication is not configured for this environment", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+
+	// OIDC id_token grant errors.
+	case errors.Is(err, ErrIDTokenInvalid):
+		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "id_token verification failed — token may be expired, tampered with, or issued by an unexpected provider", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 
 	// Refresh token errors.
 	case errors.Is(err, ErrRefreshTokenNotFound), errors.Is(err, ErrRefreshTokenRevoked):

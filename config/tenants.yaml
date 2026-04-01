@@ -43,6 +43,8 @@ tenants:
       clientID: "orbit-local"
       # orbit-local is a public Dex client — no client secret is required.
       # See config/dex/config.yaml: staticClients[0].public: true
+      emailDomains:
+        - "orbit.local"
       scopes:
         - openid
         - profile

@@ -65,7 +65,7 @@ export interface AnchorProps
  *
  * Internal navigation:
  * ```tsx
- * <AppLink to="/dashboard">Go to dashboard</AppLink>
+ * <AppLink to="/">Go to Dashboard</AppLink>
  * ```
  *
  * Direct use (rare):

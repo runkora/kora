@@ -7,7 +7,7 @@
  * backend directly.
  */
 import { useEffect, useState } from 'react';
-import type { HealthResponse } from '@/shared/api';
+import type { HealthResponse } from '@orbit/shared/api';
 import { Badge, Card, CardContent, Code, Skeleton, Stack, Text } from '@orbit/terra';
 
 type State = { status: 'loading' } | { status: 'ok'; data: HealthResponse } | { status: 'error' };
@@ -17,7 +17,7 @@ export function HealthStatus() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/example/health', { signal: controller.signal })
+    fetch('/api/identity/health', { signal: controller.signal })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok || body.error) {

@@ -39,6 +39,7 @@ import (
 // oidcProviderMeta holds metadata fetched from the OIDC discovery document
 // that is not exposed by go-oidc's Provider type.
 type oidcProviderMeta struct {
+	AuthorizationEndpoint       string `json:"authorization_endpoint"`
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
 }
@@ -54,8 +55,8 @@ type tenantOIDCState struct {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 // Service implements the identity business logic: federated OIDC authentication
-// via the Device Authorization Grant, SPIFFE SVID exchange, JWT issuance,
-// session management, and token revocation.
+// via the Device Authorization Grant and oidc_id_token browser flow,
+// SPIFFE SVID exchange, JWT issuance, session management, and token revocation.
 type Service struct {
 	cfg           *Config
 	sessions      SessionRepository
@@ -173,6 +174,10 @@ func (s *Service) InitiateDeviceAuth(ctx context.Context, req DeviceAuthRequest)
 	ts, err := s.tenantOIDC(req.TenantID)
 	if err != nil {
 		return nil, err
+	}
+
+	if ts.meta.DeviceAuthorizationEndpoint == "" {
+		return nil, ErrDeviceFlowNotSupported
 	}
 
 	scopes := ts.cfg.Scopes
@@ -384,6 +389,91 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		},
 	}
 
+	return s.createSession(ctx, principal)
+}
+
+// ─── Federated authentication: browser id_token flow ────────────────────────
+
+// resolveDisplayName returns the first non-empty value from the ordered
+// candidate fields: name → preferred_username → email → sub. The subject
+// identifier is always non-empty and acts as the final fallback.
+func resolveDisplayName(name, preferredUsername, email, sub string) string {
+	for _, v := range []string{name, preferredUsername, email} {
+		if v != "" {
+			return v
+		}
+	}
+	return sub
+}
+
+// ExchangeIDToken handles the "oidc_id_token" grant type. The browser OIDC
+// client (oidc-client-ts) completes PKCE in the browser and hands the resulting
+// id_token to the BFF, which forwards it here. The backend verifies the token
+// cryptographically via JWKS (go-oidc), extracts standard claims, and issues an
+// Orbit platform session token + refresh token.
+//
+// This is the preferred browser auth path: the OIDC token never leaves the
+// browser-to-backend channel, no PKCE state is stored server-side, and the
+// Orbit JWT is sealed into an HttpOnly iron-session cookie by the BFF.
+func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
+		trace.WithAttributes(
+			attribute.String("grant_type", "oidc_id_token"),
+			attribute.String("tenant_id", req.TenantID),
+		),
+	)
+	defer span.End()
+
+	tenant, err := s.tenantOIDC(req.TenantID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrOIDCNotConfigured.Error())
+		return nil, fmt.Errorf("%w: tenant %q", ErrOIDCNotConfigured, req.TenantID)
+	}
+
+	// Verify the id_token signature and standard claims (iss, aud, exp) via JWKS.
+	idToken, err := tenant.provider.Verifier(&gooidc.Config{
+		ClientID: tenant.cfg.ClientID,
+	}).Verify(ctx, req.IDToken)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "id_token verification failed")
+		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
+	}
+
+	var claims struct {
+		Sub               string `json:"sub"`
+		Email             string `json:"email"`
+		Name              string `json:"name"`
+		PreferredUsername string `json:"preferred_username"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "claims extraction failed")
+		return nil, fmt.Errorf("extract id_token claims: %w", err)
+	}
+
+	span.SetAttributes(
+		attribute.String("principal.id", claims.Sub),
+		attribute.String("principal.type", string(PrincipalTypeHuman)),
+		attribute.String("identity.source", string(IdentitySourceFederated)),
+	)
+
+	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
+
+	principal := &Principal{
+		ID:             claims.Sub,
+		Type:           PrincipalTypeHuman,
+		TenantID:       req.TenantID,
+		DisplayName:    displayName,
+		IdentitySource: IdentitySourceFederated,
+		Claims: map[string]string{
+			"email":  claims.Email,
+			"issuer": idToken.Issuer,
+		},
+	}
+
+	span.SetStatus(codes.Ok, "id_token verified, creating session")
 	return s.createSession(ctx, principal)
 }
 
@@ -761,12 +851,14 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 	)
 	span.SetStatus(codes.Ok, "session with refresh token created")
 
+	refreshTTL := time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour
 	return &SessionResponse{
-		AccessToken:  accessToken,
-		TokenType:    "Bearer",
-		ExpiresIn:    int(ttl.Seconds()),
-		RefreshToken: rawRefresh,
-		IssuedAt:     now.Unix(),
+		AccessToken:           accessToken,
+		TokenType:             "Bearer",
+		ExpiresIn:             int(ttl.Seconds()),
+		RefreshToken:          rawRefresh,
+		IssuedAt:              now.Unix(),
+		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
 	}, nil
 }
 
@@ -849,6 +941,44 @@ func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
 	return nil, ErrOIDCNotConfigured
 }
 
+// DiscoverTenantByEmail resolves the tenant for a given email address by matching
+// the email's domain suffix against the EmailDomains list of each active tenant.
+// Returns ErrTenantNotFound if no tenant claims the domain.
+// The returned TenantDiscovery intentionally excludes the client secret.
+func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*TenantDiscovery, error) {
+	_, span := otel.Tracer("identity").Start(ctx, "identity.DiscoverTenantByEmail")
+	defer span.End()
+
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return nil, fmt.Errorf("%w: missing '@' sign", ErrInvalidEmailFormat)
+	}
+	domain := strings.ToLower(email[at+1:])
+	if domain == "" {
+		return nil, fmt.Errorf("%w: empty domain", ErrInvalidEmailFormat)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for tenantID, ts := range s.oidcTenants {
+		for _, d := range ts.cfg.EmailDomains {
+			if strings.ToLower(d) == domain {
+				return &TenantDiscovery{
+					TenantID:  tenantID,
+					IssuerURL: ts.cfg.IssuerURL,
+					ClientID:  ts.cfg.ClientID,
+					Scopes:    ts.cfg.Scopes,
+				}, nil
+			}
+		}
+	}
+
+	span.RecordError(ErrTenantNotFound)
+	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
+	return nil, ErrTenantNotFound
+}
+
 // recordDeviceAuthError records span error details for device authorization flow errors.
 // ErrAuthorizationPending is intentionally not recorded as an error - it's expected polling behavior.
 func recordDeviceAuthError(span trace.Span, err error) {
@@ -899,15 +1029,28 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 		return nil, fmt.Errorf("extract provider metadata for tenant %q: %w", tenantID, err)
 	}
 
-	// go-oidc exposes token_endpoint via Endpoint().TokenURL — use as fallback.
+	// go-oidc exposes token_endpoint and authorization_endpoint via Endpoint().
+	// Use those as fallbacks for values not in the raw claims JSON.
 	if meta.TokenEndpoint == "" {
 		meta.TokenEndpoint = provider.Endpoint().TokenURL
+	}
+	if meta.AuthorizationEndpoint == "" {
+		meta.AuthorizationEndpoint = provider.Endpoint().AuthURL
 	}
 	if meta.TokenEndpoint == "" {
 		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise token_endpoint", tenantID)
 	}
+	if meta.AuthorizationEndpoint == "" {
+		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise authorization_endpoint", tenantID)
+	}
 	if meta.DeviceAuthorizationEndpoint == "" {
-		return nil, fmt.Errorf("oidc provider for tenant %q does not advertise device_authorization_endpoint", tenantID)
+		// Not all IdPs support the Device Authorization Grant (RFC 8628).
+		// Web-only providers (e.g. Okta orgs with device flow disabled) omit
+		// this endpoint — log a warning but allow startup to proceed.
+		// InitiateDeviceAuth will return ErrDeviceFlowNotSupported at call time.
+		s.logger.Warn(ctx, "OIDC provider does not advertise device_authorization_endpoint — Device Flow disabled for tenant",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+		)
 	}
 
 	return &tenantOIDCState{cfg: cfg, provider: provider, meta: &meta}, nil

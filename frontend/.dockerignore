@@ -1,0 +1,25 @@
+# Build artifacts
+.next
+out
+
+# Dependencies (reinstalled in Docker)
+node_modules
+src/packages/*/node_modules
+
+# Dev / editor
+.env*
+!.env.example
+*.local
+.DS_Store
+.idea
+.vscode
+
+# Git
+.git
+.gitignore
+
+# Storybook build output
+storybook-static
+
+# Test artifacts
+coverage

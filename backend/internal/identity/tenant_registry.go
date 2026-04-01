@@ -3,6 +3,7 @@ package identity
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -52,6 +53,10 @@ type tenantOIDCEntry struct {
 	IssuerURL string   `json:"issuerURL"`
 	ClientID  string   `json:"clientID"`
 	Scopes    []string `json:"scopes"`
+	// EmailDomains is the list of email address domains routed to this tenant
+	// by the Home Realm Discovery endpoint. Example: ["acme.com", "acme.io"].
+	// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+	EmailDomains []string `json:"emailDomains"`
 }
 
 // TenantOIDCConfig is the resolved per-tenant OIDC configuration exposed to
@@ -62,6 +67,9 @@ type TenantOIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	Scopes       []string
+	// EmailDomains lists the email address domains that resolve to this tenant
+	// during Home Realm Discovery. See ADR-0031.
+	EmailDomains []string
 }
 
 // loadTenantRegistry reads the tenant registry from the path specified by
@@ -89,6 +97,9 @@ func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCC
 	}
 
 	out := make(map[string]TenantOIDCConfig, len(reg.Tenants))
+	// Track email domain ownership to detect collisions at startup.
+	domainOwner := make(map[string]string) // lowercase domain → tenant ID
+
 	for _, t := range reg.Tenants {
 		if t.State != "active" {
 			continue
@@ -99,11 +110,23 @@ func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCC
 			scopes = []string{"openid", "profile", "email"}
 		}
 
+		for _, d := range t.OIDC.EmailDomains {
+			lower := strings.ToLower(d)
+			if owner, exists := domainOwner[lower]; exists {
+				return nil, fmt.Errorf(
+					"duplicate email domain %q: claimed by both tenant %q and %q",
+					lower, owner, t.ID,
+				)
+			}
+			domainOwner[lower] = t.ID
+		}
+
 		out[t.ID] = TenantOIDCConfig{
 			IssuerURL:    t.OIDC.IssuerURL,
 			ClientID:     t.OIDC.ClientID,
 			ClientSecret: clientSecrets[t.ID],
 			Scopes:       scopes,
+			EmailDomains: t.OIDC.EmailDomains,
 		}
 	}
 
