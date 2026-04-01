@@ -49,7 +49,7 @@ config/dex/.env
 *.pem
 *.key
 *.crt
-secrets/
+secrets
 
 # Logs
 *.log
@@ -100,4 +100,3 @@ Chart.lock
 infrastructure/overlays/*/charts
 
 # Git
-.worktrees/

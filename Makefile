@@ -89,6 +89,60 @@ hooks: ## Configure git to use the project's tracked hooks from .githooks/
 	@git config core.hooksPath .githooks
 	@echo "$(COLOR_GREEN)✓ Git hooks installed (.githooks/)$(COLOR_RESET)"
 
+# ===========================================
+# Worktree Management
+# ===========================================
+
+.PHONY: worktree-new
+worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-new BRANCH=feature/my-feature)
+	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-new BRANCH=feature/my-feature))
+	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
+	WORKTREE_DIR="../orbit-$$SLUG"; \
+	if [ -d "$$WORKTREE_DIR" ]; then \
+		echo "$(COLOR_YELLOW)⚠ Worktree already exists at $$WORKTREE_DIR$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	echo "$(COLOR_YELLOW)Creating worktree for branch '$(BRANCH)'...$(COLOR_RESET)"; \
+	if git show-ref --verify --quiet "refs/heads/$(BRANCH)"; then \
+		git worktree add "$$WORKTREE_DIR" "$(BRANCH)"; \
+	elif git show-ref --verify --quiet "refs/remotes/origin/$(BRANCH)"; then \
+		git worktree add --track -b "$(BRANCH)" "$$WORKTREE_DIR" "origin/$(BRANCH)"; \
+	else \
+		git worktree add -b "$(BRANCH)" "$$WORKTREE_DIR"; \
+	fi; \
+	echo "$(COLOR_YELLOW)Symlinking local dev files...$(COLOR_RESET)"; \
+	ln -s "$(CURDIR)/.env" "$$WORKTREE_DIR/.env"; \
+	ln -s "$(CURDIR)/secrets" "$$WORKTREE_DIR/secrets"; \
+	mkdir -p "$$WORKTREE_DIR/config/dex"; \
+	ln -s "$(CURDIR)/config/dex/.env" "$$WORKTREE_DIR/config/dex/.env"; \
+	echo "$(COLOR_YELLOW)Configuring git hooks...$(COLOR_RESET)"; \
+	git -C "$$WORKTREE_DIR" config core.hooksPath .githooks; \
+	echo "$(COLOR_GREEN)✓ Worktree ready$(COLOR_RESET)"; \
+	echo ""; \
+	echo "  Branch:  $(BRANCH)"; \
+	echo "  Path:    $$(cd "$$WORKTREE_DIR" && pwd)"; \
+	echo ""; \
+	echo "  Next steps:"; \
+	echo "    cd $$WORKTREE_DIR && make dev-up"
+
+.PHONY: worktree-remove
+worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature)
+	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-remove BRANCH=feature/my-feature))
+	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
+	WORKTREE_DIR="../orbit-$$SLUG"; \
+	if [ ! -d "$$WORKTREE_DIR" ]; then \
+		echo "$(COLOR_YELLOW)⚠ No worktree found at $$WORKTREE_DIR$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	echo "$(COLOR_YELLOW)Removing worktree for branch '$(BRANCH)'...$(COLOR_RESET)"; \
+	git worktree remove "$$WORKTREE_DIR" --force; \
+	git worktree prune; \
+	echo "$(COLOR_GREEN)✓ Worktree removed and refs pruned$(COLOR_RESET)"
+
+.PHONY: worktree-list
+worktree-list: ## List all active worktrees
+	@git worktree list
+
 .PHONY: install-tools
 install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
