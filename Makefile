@@ -126,7 +126,7 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 	echo "    cd $$WORKTREE_DIR && make dev-up"
 
 .PHONY: worktree-remove
-worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature)
+worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature [FORCE=1])
 	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-remove BRANCH=feature/my-feature))
 	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
 	WORKTREE_DIR="../orbit-$$SLUG"; \
@@ -135,7 +135,17 @@ worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANC
 		exit 1; \
 	fi; \
 	echo "$(COLOR_YELLOW)Removing worktree for branch '$(BRANCH)'...$(COLOR_RESET)"; \
-	git worktree remove "$$WORKTREE_DIR" --force; \
+	if [ "$(FORCE)" = "1" ]; then \
+		echo "$(COLOR_YELLOW)⚠ FORCE=1 set — uncommitted changes in the worktree will be lost.$(COLOR_RESET)"; \
+		git worktree remove "$$WORKTREE_DIR" --force; \
+	else \
+		git worktree remove "$$WORKTREE_DIR" || { \
+			echo "$(COLOR_RED)✗ Worktree has uncommitted changes. Commit or discard them first,$(COLOR_RESET)"; \
+			echo "$(COLOR_RED)  or re-run with FORCE=1 to discard them:$(COLOR_RESET)"; \
+			echo "$(COLOR_RED)    make worktree-remove BRANCH=$(BRANCH) FORCE=1$(COLOR_RESET)"; \
+			exit 1; \
+		}; \
+	fi; \
 	git worktree prune; \
 	echo "$(COLOR_GREEN)✓ Worktree removed and refs pruned$(COLOR_RESET)"
 
