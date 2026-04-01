@@ -23,6 +23,7 @@ import (
 var _ SessionRepository = (*mockSessionRepository)(nil)
 var _ RefreshTokenRepository = (*mockRefreshTokenRepository)(nil)
 var _ JTIBlocklistRepository = (*mockJTIBlocklistRepository)(nil)
+var _ PATRepository = (*mockPATRepository)(nil)
 
 // ── mockSessionRepository ─────────────────────────────────────────────────────
 
@@ -201,6 +202,75 @@ func (m *mockJTIBlocklistRepository) IsBlocked(_ context.Context, jti string) (b
 	return m.blocked[jti], nil
 }
 
+// ── mockPATRepository ─────────────────────────────────────────────────────────
+
+type mockPATRepository struct {
+	mu        sync.Mutex
+	pats      map[string]*PAT
+	createErr error
+	listErr   error
+	getErr    error
+	revokeErr error
+}
+
+func newMockPATRepo() *mockPATRepository {
+	return &mockPATRepository{pats: make(map[string]*PAT)}
+}
+
+func (m *mockPATRepository) CreatePAT(_ context.Context, pat *PAT, _ string) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *pat
+	m.pats[pat.ID] = &cp
+	return nil
+}
+
+func (m *mockPATRepository) ListByUser(_ context.Context, tenantID, userID string) ([]PAT, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []PAT
+	for _, p := range m.pats {
+		if p.TenantID == tenantID && p.UserID == userID && p.RevokedAt == nil {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockPATRepository) GetByID(_ context.Context, tenantID, userID, id string) (*PAT, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.pats[id]
+	if !ok || p.TenantID != tenantID || p.UserID != userID {
+		return nil, ErrPATNotFound
+	}
+	cp := *p
+	return &cp, nil
+}
+
+func (m *mockPATRepository) Revoke(_ context.Context, tenantID, userID, id string, revokedAt time.Time) error {
+	if m.revokeErr != nil {
+		return m.revokeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.pats[id]
+	if !ok || p.TenantID != tenantID || p.UserID != userID {
+		return ErrPATNotFound
+	}
+	p.RevokedAt = &revokedAt
+	return nil
+}
+
 // ── OIDC test server ──────────────────────────────────────────────────────────
 
 // newOIDCTestServer starts a minimal OIDC-compliant HTTP server and returns the
@@ -271,7 +341,7 @@ func newOIDCTestServer(t *testing.T) (issuerURL string, setTokenResponse func(st
 // newTestService builds a *Service with no OIDC configured and an ephemeral RSA
 // signing key. ORBIT_ALLOW_EPHEMERAL_KEY is set so initSigningKey falls through
 // to ephemeral key generation rather than failing with a misconfiguration error.
-func newTestService(t *testing.T, sessions SessionRepository, refreshTokens RefreshTokenRepository, blocklist JTIBlocklistRepository) *Service {
+func newTestService(t *testing.T, sessions SessionRepository, refreshTokens RefreshTokenRepository, blocklist JTIBlocklistRepository, pats *mockPATRepository) *Service {
 	t.Helper()
 	// Permit ephemeral key generation in tests — never set this in production.
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
@@ -286,6 +356,8 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
+			PATDefaultTTLDays:     90,
+			PATMaxTTLDays:         365,
 			Audience:              "orbit-platform",
 		},
 	}
@@ -295,6 +367,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		sessions,
 		refreshTokens,
 		blocklist,
+		pats,
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
@@ -366,6 +439,7 @@ tenants:
 		sessions,
 		refreshTokens,
 		blocklist,
+		newMockPATRepo(),
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
@@ -382,12 +456,14 @@ func newFullTestService(t *testing.T) (
 	sessions *mockSessionRepository,
 	refreshTokens *mockRefreshTokenRepository,
 	blocklist *mockJTIBlocklistRepository,
+	pats *mockPATRepository,
 ) {
 	t.Helper()
 	sessions = newMockSessionRepo()
 	refreshTokens = newMockRefreshTokenRepo()
 	blocklist = newMockBlocklistRepo()
-	svc = newTestService(t, sessions, refreshTokens, blocklist)
+	pats = newMockPATRepo()
+	svc = newTestService(t, sessions, refreshTokens, blocklist, pats)
 	return
 }
 
@@ -547,6 +623,7 @@ tenants:
 		newMockSessionRepo(),
 		newMockRefreshTokenRepo(),
 		newMockBlocklistRepo(),
+		newMockPATRepo(),
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)

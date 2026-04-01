@@ -1,0 +1,11 @@
+token:
+  # Access token lifetime. Override with ORBIT_ACCESS_TOKEN_TTL_MINUTES for local dev.
+  accessTokenTtlMinutes: 15
+  # Human refresh token lifetime. Override with ORBIT_REFRESH_TOKEN_TTL_DAYS for local dev.
+  refreshTokenTtlDays: 7
+  # Default PAT lifetime when the caller does not specify expires_in_days.
+  patDefaultTtlDays: 90
+  # Maximum PAT lifetime a caller may request.
+  patMaxTtlDays: 365
+  # JWT aud claim. Override with ORBIT_TOKEN_AUDIENCE to scope tokens per cluster.
+  audience: orbit-platform

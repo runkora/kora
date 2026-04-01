@@ -30,7 +30,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -62,6 +64,7 @@ type Service struct {
 	sessions      SessionRepository
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
+	pats          PATRepository
 	logger        logging.Logger
 	tracer        trace.Tracer
 
@@ -115,6 +118,7 @@ func NewService(
 	sessions SessionRepository,
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
+	pats PATRepository,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
 ) (*Service, error) {
@@ -123,6 +127,7 @@ func NewService(
 		sessions:      sessions,
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
+		pats:          pats,
 		extractor:     extractor,
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
@@ -912,6 +917,53 @@ func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = keyID(&s.signingKey.PublicKey)
 	return token.SignedString(s.signingKey)
+}
+
+// AuthMiddleware returns a Middleware that verifies a platform JWT on the
+// request's Authorization header and stores the verified claims in the context
+// via token.WithClaims, identical to mw.AuthMiddleware but using the service's
+// in-memory signing key instead of a remote JWKS endpoint.
+func (s *Service) AuthMiddleware(logger logging.Logger) mw.Middleware {
+	return mw.NewMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				api.ErrorResponse(ctx, w, logger,
+					api.UnauthorizedError(api.ErrCodeUnauthorized, "Authorization header required", nil), nil)
+				return
+			}
+
+			claims, err := s.parseToken(raw)
+			if err != nil {
+				logger.Error(ctx, "platform token verification failed",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				api.ErrorResponse(ctx, w, logger,
+					api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or expired platform token", nil), nil)
+				return
+			}
+
+			// Check the JTI blocklist so revoked tokens are rejected immediately
+			// rather than remaining valid until natural expiry.
+			// On Redis failure we fail open (log and allow) to avoid a cache
+			// outage blocking all authentication.
+			if blocked, blErr := s.blocklist.IsBlocked(ctx, claims.ID); blErr != nil {
+				logger.Error(ctx, "JTI blocklist check failed — allowing request",
+					logging.Field{Key: "jti", Value: claims.ID},
+					logging.Field{Key: "error", Value: blErr.Error()},
+				)
+			} else if blocked {
+				api.ErrorResponse(ctx, w, logger,
+					api.UnauthorizedError(api.ErrCodeUnauthorized, "token has been revoked", nil), nil)
+				return
+			}
+
+			next.ServeHTTP(w, r.WithContext(token.WithClaims(ctx, claims)))
+		})
+	})
 }
 
 // parseToken parses and validates an RS256 platform JWT, returning its claims.

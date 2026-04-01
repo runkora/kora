@@ -13,6 +13,11 @@ import (
 // JSON encodes the body as JSON and writes it to the response with the given status code.
 // Logs encoding errors but does not expose them to the client.
 func JSON(ctx context.Context, w http.ResponseWriter, logger logging.Logger, status int, body any) {
+	if status == http.StatusNoContent {
+		w.WriteHeader(status)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 

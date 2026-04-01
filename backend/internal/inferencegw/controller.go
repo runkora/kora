@@ -37,9 +37,16 @@ func (c *Controller) GroupedBy() string { return "" }
 // Middleware returns the controller-level middleware chain applied to every
 // route registered in Boot. AuthMiddleware verifies the platform JWT and stores
 // the claims in context — no handler needs to touch auth directly.
+//
+// Execution order:
+//
+//	xAPIKeyMiddleware       — promotes x-api-key to Authorization: Bearer
+//	orbCredentialMiddleware — strips orb_ prefix from bearer value
+//	AuthMiddleware          — verifies JWT, stores claims in context
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return mw.MiddlewareChain(
 		xAPIKeyMiddleware(),
+		orbCredentialMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
 	)
 }
