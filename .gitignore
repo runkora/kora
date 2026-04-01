@@ -101,4 +101,3 @@ Chart.lock
 infrastructure/overlays/*/charts
 
 # Git
-.worktrees/
