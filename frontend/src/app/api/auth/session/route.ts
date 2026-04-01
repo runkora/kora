@@ -129,6 +129,7 @@ export async function POST(request: Request): Promise<Response> {
         id_token: idToken,
         tenant_id: tenantId,
       }),
+      signal: AbortSignal.timeout(5_000),
     });
   } catch {
     return Response.json({ error: 'upstream_error' }, { status: 502 });
