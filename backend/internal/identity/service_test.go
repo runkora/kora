@@ -651,3 +651,113 @@ func TestPollDeviceAuth_NoOIDC(t *testing.T) {
 		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
 	}
 }
+
+// ── ExchangeIDToken ───────────────────────────────────────────────────────────
+
+func TestExchangeIDToken_Success(t *testing.T) {
+	issuer, issueIDToken := newSigningOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	idToken := issueIDToken("test-client", "user-sub-1", "alice@example.com", "Alice Example")
+
+	resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "tenant-1",
+		IDToken:  idToken,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeIDToken: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected non-empty access_token")
+	}
+	if resp.RefreshToken == "" {
+		t.Error("expected non-empty refresh_token")
+	}
+}
+
+func TestExchangeIDToken_InvalidToken(t *testing.T) {
+	issuer, _ := newSigningOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	_, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "tenant-1",
+		IDToken:  "not.a.valid.jwt",
+	})
+	if !errors.Is(err, ErrIDTokenInvalid) {
+		t.Errorf("expected ErrIDTokenInvalid, got %v", err)
+	}
+}
+
+func TestExchangeIDToken_UnknownTenant(t *testing.T) {
+	svc, _, _, _ := newFullTestService(t)
+
+	_, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "nonexistent-tenant",
+		IDToken:  "any.token.value",
+	})
+	if !errors.Is(err, ErrOIDCNotConfigured) {
+		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+// ── DiscoverTenantByEmail ─────────────────────────────────────────────────────
+
+func TestDiscoverTenantByEmail_Success(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com", "acme.io"})
+
+	disc, err := svc.DiscoverTenantByEmail(context.Background(), "alice@acme.com")
+	if err != nil {
+		t.Fatalf("DiscoverTenantByEmail: %v", err)
+	}
+	if disc.TenantID != "tenant-1" {
+		t.Errorf("TenantID = %q, want %q", disc.TenantID, "tenant-1")
+	}
+	if disc.ClientID != "test-client" {
+		t.Errorf("ClientID = %q, want %q", disc.ClientID, "test-client")
+	}
+}
+
+func TestDiscoverTenantByEmail_CaseInsensitive(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
+
+	_, err := svc.DiscoverTenantByEmail(context.Background(), "alice@ACME.COM")
+	if err != nil {
+		t.Errorf("expected case-insensitive match, got %v", err)
+	}
+}
+
+func TestDiscoverTenantByEmail_UnknownDomain(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
+
+	_, err := svc.DiscoverTenantByEmail(context.Background(), "bob@other.com")
+	if !errors.Is(err, ErrTenantNotFound) {
+		t.Errorf("expected ErrTenantNotFound, got %v", err)
+	}
+}
+
+func TestDiscoverTenantByEmail_NoAtSign(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
+
+	_, err := svc.DiscoverTenantByEmail(context.Background(), "notanemail")
+	if !errors.Is(err, ErrInvalidEmailFormat) {
+		t.Errorf("expected ErrInvalidEmailFormat, got %v", err)
+	}
+}
+
+func TestDiscoverTenantByEmail_EmptyDomain(t *testing.T) {
+	issuer, _ := newOIDCTestServer(t)
+	svc := newTestServiceWithDomains(t, issuer, []string{"acme.com"})
+
+	_, err := svc.DiscoverTenantByEmail(context.Background(), "alice@")
+	if !errors.Is(err, ErrInvalidEmailFormat) {
+		t.Errorf("expected ErrInvalidEmailFormat, got %v", err)
+	}
+}
