@@ -27,9 +27,10 @@ func newTestController(t *testing.T) (
 	sessions *mockSessionRepository,
 	refreshTokens *mockRefreshTokenRepository,
 	blocklist *mockJTIBlocklistRepository,
+	pats *mockPATRepository,
 ) {
 	t.Helper()
-	svc, sessions, refreshTokens, blocklist = newFullTestService(t)
+	svc, sessions, refreshTokens, blocklist, pats = newFullTestService(t)
 	c = NewController(svc, logging.NewLoggerWithOutput(io.Discard))
 	return
 }
@@ -95,7 +96,7 @@ func decodeErrorCode(t *testing.T, body []byte) string {
 // ── handleInitiateDeviceAuth ──────────────────────────────────────────────────
 
 func TestHandleInitiateDeviceAuth_MissingTenantID(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleInitiateDeviceAuth, map[string]string{})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -107,7 +108,7 @@ func TestHandleInitiateDeviceAuth_MissingTenantID(t *testing.T) {
 }
 
 func TestHandleInitiateDeviceAuth_OIDCNotConfigured(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleInitiateDeviceAuth, map[string]string{"tenant_id": "t1"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -138,7 +139,7 @@ func TestHandleInitiateDeviceAuth_Success(t *testing.T) {
 }
 
 func TestHandleInitiateDeviceAuth_InvalidJSON(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -151,7 +152,7 @@ func TestHandleInitiateDeviceAuth_InvalidJSON(t *testing.T) {
 // ── handleSession — validation ────────────────────────────────────────────────
 
 func TestHandleSession_MissingTenantID(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{"grant_type": "refresh_token"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -159,7 +160,7 @@ func TestHandleSession_MissingTenantID(t *testing.T) {
 }
 
 func TestHandleSession_MissingGrantType(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{"tenant_id": "t1"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -171,7 +172,7 @@ func TestHandleSession_MissingGrantType(t *testing.T) {
 }
 
 func TestHandleSession_UnsupportedGrantType(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{
 		"tenant_id":  "t1",
 		"grant_type": "password",
@@ -186,7 +187,7 @@ func TestHandleSession_UnsupportedGrantType(t *testing.T) {
 }
 
 func TestHandleSession_DeviceCode_MissingDeviceCode(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{
 		"tenant_id":  "t1",
 		"grant_type": "urn:ietf:params:oauth:grant-type:device_code",
@@ -201,7 +202,7 @@ func TestHandleSession_DeviceCode_MissingDeviceCode(t *testing.T) {
 }
 
 func TestHandleSession_RefreshToken_MissingToken(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{
 		"tenant_id":  "t1",
 		"grant_type": "refresh_token",
@@ -286,7 +287,7 @@ func TestHandleSession_DeviceCodeExpired_Returns400(t *testing.T) {
 }
 
 func TestHandleSession_RefreshTokenNotFound_Returns401(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSON(t, c.handleSession, map[string]string{
 		"tenant_id":     "t1",
 		"grant_type":    "refresh_token",
@@ -298,7 +299,7 @@ func TestHandleSession_RefreshTokenNotFound_Returns401(t *testing.T) {
 }
 
 func TestHandleSession_RefreshTokenRevoked_Returns401(t *testing.T) {
-	c, svc, sessions, refreshTokens, _ := newTestController(t)
+	c, svc, sessions, refreshTokens, _, _ := newTestController(t)
 	_ = svc
 
 	rawToken := "revoked-refresh"
@@ -320,7 +321,7 @@ func TestHandleSession_RefreshTokenRevoked_Returns401(t *testing.T) {
 }
 
 func TestHandleSession_TokenRevoked_Returns401(t *testing.T) {
-	c, _, sessions, refreshTokens, _ := newTestController(t)
+	c, _, sessions, refreshTokens, _, _ := newTestController(t)
 
 	rawToken := "valid-refresh"
 	s := seedSession(sessions, "sess-1", "jti-1")
@@ -341,7 +342,7 @@ func TestHandleSession_TokenRevoked_Returns401(t *testing.T) {
 }
 
 func TestHandleSession_RefreshToken_Success(t *testing.T) {
-	c, _, sessions, refreshTokens, _ := newTestController(t)
+	c, _, sessions, refreshTokens, _, _ := newTestController(t)
 
 	rawToken := "valid-refresh-token"
 	seedSession(sessions, "sess-1", "jti-1")
@@ -393,7 +394,7 @@ func postJSONWithXFCC(t *testing.T, handler http.HandlerFunc, body any, xfcc str
 func TestHandleExchange_MissingXFCC_Returns401(t *testing.T) {
 	// No x-forwarded-client-cert header means the request did not arrive via
 	// the Envoy mTLS sidecar — must be rejected with 401.
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, "")
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusUnauthorized, w.Body)
@@ -402,7 +403,7 @@ func TestHandleExchange_MissingXFCC_Returns401(t *testing.T) {
 
 func TestHandleExchange_InvalidXFCC_Returns401(t *testing.T) {
 	// A malformed XFCC header (no URI= field) must be rejected with 401.
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postJSONWithXFCC(t, c.handleExchange,
 		map[string]string{},
 		"Hash=abc123;Cert=something",
@@ -413,7 +414,7 @@ func TestHandleExchange_InvalidXFCC_Returns401(t *testing.T) {
 }
 
 func TestHandleExchange_Success(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	xfcc := "URI=spiffe://orbit.local/tenant/platform-team/agent/agent-1"
 	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, xfcc)
 	if w.Code != http.StatusOK {
@@ -434,7 +435,7 @@ func TestHandleExchange_Success(t *testing.T) {
 // ── handleRevoke ──────────────────────────────────────────────────────────────
 
 func TestHandleRevoke_MissingToken(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{"token_type_hint": "access_token"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -442,7 +443,7 @@ func TestHandleRevoke_MissingToken(t *testing.T) {
 }
 
 func TestHandleRevoke_MissingTokenType(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{"token": "some-token"})
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
@@ -451,7 +452,7 @@ func TestHandleRevoke_MissingTokenType(t *testing.T) {
 
 func TestHandleRevoke_InvalidToken_Returns204(t *testing.T) {
 	// RFC 7009 §2.1: revocation endpoint must return success for invalid tokens
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{
 		"token":           "not.a.jwt",
 		"token_type_hint": "access_token",
@@ -464,7 +465,7 @@ func TestHandleRevoke_InvalidToken_Returns204(t *testing.T) {
 func TestHandleRevoke_RefreshTokenNotFound_IsIdempotent(t *testing.T) {
 	// RFC 7009 §2.1: revocation of an unknown or already-revoked refresh token
 	// must succeed (idempotent) — the client's goal (token unusable) is already met.
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{
 		"token":           "nonexistent-refresh-token",
 		"token_type_hint": "refresh_token",
@@ -475,7 +476,7 @@ func TestHandleRevoke_RefreshTokenNotFound_IsIdempotent(t *testing.T) {
 }
 
 func TestHandleRevoke_AccessToken_Success(t *testing.T) {
-	c, svc, sessions, _, _ := newTestController(t)
+	c, svc, sessions, _, _, _ := newTestController(t)
 
 	principal := &Principal{
 		ID:             "user-1",
@@ -501,7 +502,7 @@ func TestHandleRevoke_AccessToken_Success(t *testing.T) {
 }
 
 func TestHandleRevoke_RefreshToken_Success(t *testing.T) {
-	c, _, sessions, refreshTokens, _ := newTestController(t)
+	c, _, sessions, refreshTokens, _, _ := newTestController(t)
 
 	rawToken := "opaque-refresh-to-revoke"
 	seedSession(sessions, "sess-1", "jti-1")
@@ -520,7 +521,7 @@ func TestHandleRevoke_RefreshToken_Success(t *testing.T) {
 // states the server SHOULD respond with 200 even if the token is already
 // invalid.  Our implementation returns 204 No Content on success.
 func TestHandleRevoke_AlreadyBlockedAccessToken_IsIdempotent(t *testing.T) {
-	c, svc, sessions, _, blocklist := newTestController(t)
+	c, svc, sessions, _, blocklist, _ := newTestController(t)
 
 	principal := &Principal{
 		ID:             "user-1",
@@ -553,7 +554,7 @@ func TestHandleRevoke_AlreadyBlockedAccessToken_IsIdempotent(t *testing.T) {
 func TestHandleRevoke_UnsupportedTokenType_Returns400(t *testing.T) {
 	// token_type_hint values other than "access_token" / "refresh_token" must
 	// be rejected with HTTP 400 and the invalid_field error code.
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := postForm(t, c.handleRevoke, map[string]string{
 		"token":           "some-token-value",
 		"token_type_hint": "id_token",
@@ -573,7 +574,7 @@ func TestHandleRevoke_UnsupportedTokenType_Returns400(t *testing.T) {
 // ── handleJWKS ────────────────────────────────────────────────────────────────
 
 func TestHandleJWKS_StatusOK(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	if w.Code != http.StatusOK {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusOK)
@@ -581,7 +582,7 @@ func TestHandleJWKS_StatusOK(t *testing.T) {
 }
 
 func TestHandleJWKS_ContentType(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	ct := w.Header().Get("Content-Type")
 	if ct != "application/json" {
@@ -590,7 +591,7 @@ func TestHandleJWKS_ContentType(t *testing.T) {
 }
 
 func TestHandleJWKS_CacheControlHeader(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	cc := w.Header().Get("Cache-Control")
 	if cc != "public, max-age=3600" {
@@ -599,7 +600,7 @@ func TestHandleJWKS_CacheControlHeader(t *testing.T) {
 }
 
 func TestHandleJWKS_ValidJSON(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	var body map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
@@ -608,7 +609,7 @@ func TestHandleJWKS_ValidJSON(t *testing.T) {
 }
 
 func TestHandleJWKS_ContainsKeys(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleJWKS)
 	var body struct {
 		Keys []any `json:"keys"`
@@ -624,14 +625,14 @@ func TestHandleJWKS_ContainsKeys(t *testing.T) {
 // ── Controller metadata ───────────────────────────────────────────────────────
 
 func TestController_GroupedBy(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	if got := c.GroupedBy(); got != "/identity" {
 		t.Errorf("GroupedBy: got %q, want %q", got, "/identity")
 	}
 }
 
 func TestController_Middleware_IsNil(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	if c.Middleware() != nil {
 		t.Error("Middleware should return nil for the identity controller")
 	}
@@ -642,7 +643,7 @@ func TestController_Middleware_IsNil(t *testing.T) {
 // handleSessionError is exercised above via the full handler path.  This test
 // directly calls the helper so the error→status mapping is explicit.
 func TestHandleSessionError_ErrTokenRevoked_Returns401(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	c.handleSessionError(w, req, ErrTokenRevoked)
@@ -652,7 +653,7 @@ func TestHandleSessionError_ErrTokenRevoked_Returns401(t *testing.T) {
 }
 
 func TestHandleSessionError_ErrSessionNotFound_Returns401(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	c.handleSessionError(w, req, ErrSessionNotFound)
@@ -662,7 +663,7 @@ func TestHandleSessionError_ErrSessionNotFound_Returns401(t *testing.T) {
 }
 
 func TestHandleSessionError_ErrRefreshTokenExpired_Returns401(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	c.handleSessionError(w, req, ErrRefreshTokenExpired)
@@ -672,7 +673,7 @@ func TestHandleSessionError_ErrRefreshTokenExpired_Returns401(t *testing.T) {
 }
 
 func TestHandleSessionError_UnknownError_Returns500(t *testing.T) {
-	c, _, _, _, _ := newTestController(t)
+	c, _, _, _, _, _ := newTestController(t)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	w := httptest.NewRecorder()
 	c.handleSessionError(w, req, errors.New("unexpected internal failure"))

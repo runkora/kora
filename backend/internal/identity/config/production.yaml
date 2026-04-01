@@ -1,4 +1,0 @@
-token:
-  # Shorter-lived access tokens in production — refresh more frequently.
-  accessTokenTtlMinutes: 15
-  refreshTokenTtlDays: 7

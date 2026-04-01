@@ -7,6 +7,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // Controller wires the identity service to HTTP routes.
@@ -37,6 +38,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST   /identity/revoke                 Revoke an access token or refresh token (RFC 7009).
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
 //	GET    /identity/tenants/discover       Home Realm Discovery — resolve tenant by email domain.
+//
+//	POST   /identity/tokens                 Create a Personal Access Token (requires auth).
+//	GET    /identity/tokens                 List the caller's active PATs (requires auth).
+//	DELETE /identity/tokens/{id}            Revoke a PAT by ID (requires auth).
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
@@ -45,6 +50,38 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
 	mux.Handle("GET /tenants/discover", c.handleDiscoverTenant)
+
+	// PAT management routes: require a non-PAT authenticated caller.
+	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the
+	// token is not itself a PAT — PATs are scoped exclusively to the inference
+	// gateway and must not be used to manage identity resources.
+	auth := mw.MiddlewareChain(c.svc.AuthMiddleware(c.logger), rejectPATMiddleware(c.logger))
+	mux.HandleWithMiddleware("POST /tokens", auth, c.handleCreatePAT)
+	mux.HandleWithMiddleware("GET /tokens", auth, c.handleListPATs)
+	mux.HandleWithMiddleware("DELETE /tokens/{id}", auth, c.handleRevokePAT)
+}
+
+// rejectPATMiddleware rejects requests that carry a PAT token with 403
+// Forbidden. PATs are scoped exclusively to the inference gateway — they must
+// not authenticate against identity endpoints (including PAT management routes,
+// to prevent a PAT from minting or revoking other PATs).
+//
+// This middleware is a no-op when no claims are present in the context (i.e.
+// on unauthenticated routes where AuthMiddleware has not run).
+func rejectPATMiddleware(logger logging.Logger) mw.Middleware {
+	return mw.NewMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if claims, ok := token.ClaimsFromContext(r.Context()); ok && claims != nil {
+				if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+					api.ErrorResponse(r.Context(), w, logger,
+						api.ForbiddenError("pat_not_allowed",
+							"personal access tokens are not permitted on this endpoint", nil), nil)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 }
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────

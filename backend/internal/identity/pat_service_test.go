@@ -1,0 +1,205 @@
+package identity
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+// ── CreatePAT ─────────────────────────────────────────────────────────────────
+
+func TestCreatePAT_Success(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+
+	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
+		Name:          "ci-token",
+		ExpiresInDays: 30,
+	})
+	if err != nil {
+		t.Fatalf("CreatePAT: %v", err)
+	}
+	if resp.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	if resp.Name != "ci-token" {
+		t.Errorf("name: got %q, want %q", resp.Name, "ci-token")
+	}
+	if len(resp.Token) < 4 || resp.Token[:4] != "orb_" {
+		t.Errorf("token should be prefixed with orb_, got %q", resp.Token[:min(10, len(resp.Token))])
+	}
+	if resp.ExpiresAt == "" {
+		t.Error("expected non-empty expires_at")
+	}
+
+	// Verify persisted.
+	pats.mu.Lock()
+	count := len(pats.pats)
+	pats.mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected 1 persisted PAT, got %d", count)
+	}
+}
+
+func TestCreatePAT_DefaultTTL_WhenZero(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+
+	// ExpiresInDays == 0 should default to PATDefaultTTLDays (90 in tests).
+	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
+		Name: "default-ttl",
+	})
+	if err != nil {
+		t.Fatalf("CreatePAT: %v", err)
+	}
+
+	expiresAt, parseErr := time.Parse(time.RFC3339, resp.ExpiresAt)
+	if parseErr != nil {
+		t.Fatalf("parse expires_at: %v", parseErr)
+	}
+	createdAt, parseErr := time.Parse(time.RFC3339, resp.CreatedAt)
+	if parseErr != nil {
+		t.Fatalf("parse created_at: %v", parseErr)
+	}
+
+	ttl := expiresAt.Sub(createdAt)
+	expectedTTL := time.Duration(90) * 24 * time.Hour
+	// Allow a small delta for execution time.
+	if ttl < expectedTTL-time.Minute || ttl > expectedTTL+time.Minute {
+		t.Errorf("default TTL: got ~%v, want ~%v", ttl.Round(time.Hour), expectedTTL)
+	}
+}
+
+func TestCreatePAT_PersistError_ReturnsError(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+	pats.createErr = errors.New("db down")
+
+	_, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
+		Name: "will-fail",
+	})
+	if err == nil {
+		t.Fatal("expected error when persist fails")
+	}
+}
+
+// ── ListPATs ──────────────────────────────────────────────────────────────────
+
+func TestListPATs_EmptyList(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+
+	resp, err := svc.ListPATs(context.Background(), "t1", "user-1")
+	if err != nil {
+		t.Fatalf("ListPATs: %v", err)
+	}
+	if resp.Tokens == nil {
+		t.Error("tokens must not be nil — expect empty slice")
+	}
+	if len(resp.Tokens) != 0 {
+		t.Errorf("expected 0 tokens, got %d", len(resp.Tokens))
+	}
+}
+
+func TestListPATs_ReturnsScopedTokens(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+
+	now := time.Now().UTC()
+	pats.mu.Lock()
+	pats.pats["p1"] = &PAT{ID: "p1", TenantID: "t1", UserID: "user-1", Name: "first", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now}
+	pats.pats["p2"] = &PAT{ID: "p2", TenantID: "t1", UserID: "user-1", Name: "second", ExpiresAt: now.Add(48 * time.Hour), CreatedAt: now}
+	pats.pats["p3"] = &PAT{ID: "p3", TenantID: "t1", UserID: "user-2", Name: "other", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now}
+	pats.mu.Unlock()
+
+	resp, err := svc.ListPATs(context.Background(), "t1", "user-1")
+	if err != nil {
+		t.Fatalf("ListPATs: %v", err)
+	}
+	if len(resp.Tokens) != 2 {
+		t.Errorf("expected 2 tokens for user-1, got %d", len(resp.Tokens))
+	}
+}
+
+func TestListPATs_RepoError_ReturnsError(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+	pats.listErr = errors.New("db down")
+
+	_, err := svc.ListPATs(context.Background(), "t1", "user-1")
+	if err == nil {
+		t.Fatal("expected error when repo fails")
+	}
+}
+
+// ── RevokePAT ─────────────────────────────────────────────────────────────────
+
+func TestRevokePAT_Success_BlocklistsJTI(t *testing.T) {
+	svc, _, _, blocklist, pats := newFullTestService(t)
+
+	now := time.Now().UTC()
+	jti := "jti-to-revoke"
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{
+		ID:        "pat-1",
+		TenantID:  "t1",
+		UserID:    "user-1",
+		Name:      "my-pat",
+		JTI:       jti,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+	pats.mu.Unlock()
+
+	if err := svc.RevokePAT(context.Background(), "t1", "user-1", "pat-1"); err != nil {
+		t.Fatalf("RevokePAT: %v", err)
+	}
+
+	// JTI must be in the blocklist.
+	blocklist.mu.Lock()
+	blocked := blocklist.blocked[jti]
+	blocklist.mu.Unlock()
+	if !blocked {
+		t.Error("expected JTI to be blocklisted after revocation")
+	}
+
+	// PAT must be marked revoked in the repo.
+	pats.mu.Lock()
+	p := pats.pats["pat-1"]
+	pats.mu.Unlock()
+	if p.RevokedAt == nil {
+		t.Error("expected PAT to have RevokedAt set")
+	}
+}
+
+func TestRevokePAT_NotFound_ReturnsErrPATNotFound(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+
+	err := svc.RevokePAT(context.Background(), "t1", "user-1", "no-such-pat")
+	if err == nil {
+		t.Fatal("expected error for missing PAT")
+	}
+	if !errors.Is(err, ErrPATNotFound) {
+		t.Errorf("error should wrap ErrPATNotFound, got: %v", err)
+	}
+}
+
+func TestRevokePAT_BlocklistFailure_IsNonFatal(t *testing.T) {
+	svc, _, _, blocklist, pats := newFullTestService(t)
+
+	// Make blocklist fail.
+	blocklist.blockErr = errors.New("redis unavailable")
+
+	now := time.Now().UTC()
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{
+		ID:        "pat-1",
+		TenantID:  "t1",
+		UserID:    "user-1",
+		Name:      "my-pat",
+		JTI:       "jti-1",
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+	pats.mu.Unlock()
+
+	// Blocklist failure must not propagate — DB record is already revoked.
+	if err := svc.RevokePAT(context.Background(), "t1", "user-1", "pat-1"); err != nil {
+		t.Errorf("blocklist failure should be non-fatal, got error: %v", err)
+	}
+}

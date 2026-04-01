@@ -1,3 +1,0 @@
-token:
-  accessTokenTtlMinutes: 60
-  refreshTokenTtlDays: 30
