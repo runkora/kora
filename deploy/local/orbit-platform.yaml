@@ -34,7 +34,7 @@ spec:
 
   config:
     db:
-      host: orbit-postgres
+      host: host.k3d.internal
       name: orbit
       port: 5432
       user: orbit

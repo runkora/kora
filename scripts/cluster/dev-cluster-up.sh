@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-K3D_CONFIG="${REPO_ROOT}/infrastructure/bootstrap/k3d-config.yaml"
+K3D_CONFIG="${REPO_ROOT}/deploy/infrastructure/k3d-config.yaml"
 
 # Derive cluster name directly from k3d-config.yaml so this script never
 # diverges from what k3d actually names the cluster.
@@ -104,6 +104,65 @@ kubectl create configmap coredns-custom \
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
 ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
+
+# ── Create Service/Endpoints bridges for Docker datastores ───────────────────
+# Pods do not use Docker's embedded DNS, so external Docker Compose services
+# need explicit Kubernetes Service + Endpoints objects for stable in-cluster
+# names.
+step "Creating datastore bridge Services"
+
+POSTGRES_IP="$(docker inspect orbit-postgres --format '{{(index .NetworkSettings.Networks "orbit-network").IPAddress}}')"
+REDIS_IP="$(docker inspect orbit-redis --format '{{(index .NetworkSettings.Networks "orbit-network").IPAddress}}')"
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-postgres
+  namespace: orbit-system
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: orbit-postgres
+  namespace: orbit-system
+subsets:
+  - addresses:
+      - ip: ${POSTGRES_IP}
+    ports:
+      - name: postgres
+        port: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-redis
+  namespace: orbit-system
+spec:
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: orbit-redis
+  namespace: orbit-system
+subsets:
+  - addresses:
+      - ip: ${REDIS_IP}
+    ports:
+      - name: redis
+        port: 6379
+EOF
+
+ok "Datastore bridges created — orbit-postgres/orbit-redis resolve inside orbit-system"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""

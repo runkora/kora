@@ -1,0 +1,19 @@
+apiVersion: v2
+name: orbit-platform
+description: >
+  Orbit platform runtime resources for the identity service and identity-proxy
+  EnvoyFilter. This chart is intended for standalone installation from
+  deploy/orbit and exposes per-component enablement and runtime configuration.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - orbit
+  - identity
+  - spiffe
+  - envoy
+  - platform
+
+maintainers:
+  - name: Orbit Platform Team

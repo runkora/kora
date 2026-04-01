@@ -1,0 +1,115 @@
+# =============================================================================
+# orbit-platform chart — default values
+# =============================================================================
+#
+# This chart deploys the current Orbit platform runtime components:
+#   - identity       (Deployment, ServiceAccount, Service, DestinationRule)
+#   - identityProxy  (EnvoyFilter in the Istio root namespace)
+#
+# SPIRE, Istio, namespaces, and other cluster-scoped prerequisites are expected
+# to be installed separately.
+# =============================================================================
+
+global:
+  trustDomain: "cluster.local"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  namespaces:
+    system: "orbit-system"
+    istio: "istio-system"
+
+identity:
+  enabled: true
+  namespace: ""
+  replicas: 1
+
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-identity"
+    tag: ""
+    pullPolicy: ""
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  service:
+    enabled: true
+    annotations: {}
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  destinationRule:
+    enabled: true
+    exportTo:
+      - "*"
+
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  config:
+    postgresSSLMode: "require"
+    postgresCaptureQueryText: "false"
+    redisTLSEnabled: "true"
+    otlpInsecure: "false"
+    logFormat: "json"
+
+  infrastructureConfig:
+    create: true
+    name: "orbit-config"
+    data:
+      DB_HOST: "host.k3d.internal"
+      DB_NAME: "orbit"
+      DB_PORT: "5432"
+      DB_USER: "orbit"
+      REDIS_HOST: "host.k3d.internal"
+      REDIS_PORT: "6379"
+
+  tenantsConfig:
+    create: true
+    name: "orbit-tenants"
+    data:
+      tenants.yaml: |
+        version: v1
+        tenants: []
+
+  mesh:
+    inject: true
+    holdApplicationUntilProxyStarts: true
+    templates:
+      - sidecar
+      - spire
+    excludeOutboundPorts:
+      - 5432
+      - 6379
+
+  existingSecret: "orbit-secrets"
+  existingConfigMap: ""
+  existingTenantsConfigMap: ""
+  existingClientSecretsSecret: "orbit-tenant-oidc-secrets"
+
+identityProxy:
+  enabled: true
+  namespace: ""
+  workloadSelectorLabels:
+    orbit.io/identity-proxy: "enabled"
+  socketPath: "/run/orbit/identity-proxy.sock"
+  extProc:
+    failureModeAllow: true
+    connectTimeout: 1s
+    requestHeaderMode: SEND
+    responseHeaderMode: SKIP

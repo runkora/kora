@@ -94,5 +94,6 @@ dist/
 .forge/
 
 # helm
-charts/**/charts/
+deploy/infrastructure/charts/**
 Chart.lock
+.envrc

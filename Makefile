@@ -20,6 +20,10 @@ BACKEND_DIR=./backend
 FRONTEND_DIR=./frontend
 CMD_DIR=./backend/cmd/orbit
 MIGRATIONS_DIR=./backend/internal/platform/storage/migrations
+PLATFORM_STACK_CHART_DIR=./charts/orbit-platform-stack
+PLATFORM_STACK_VALUES_FILE=$(PLATFORM_STACK_CHART_DIR)/values.yaml
+PLATFORM_STACK_CRD_CHART_DIR=./charts/orbit-platform-crds
+PLATFORM_STACK_CRDS_DIR=$(PLATFORM_STACK_CRD_CHART_DIR)/crds
 
 # Binary output
 BINARY_DIR=.bin
@@ -58,7 +62,7 @@ COLOR_BLUE=\033[36m
 help: ## Display this help screen
 	@echo "$(COLOR_BOLD)Orbit Control Plane - Available Targets$(COLOR_RESET)"
 	@echo ""
-	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 	@echo ""
 
@@ -280,6 +284,27 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm)
 	@echo "$(COLOR_YELLOW)Installing cluster tools...$(COLOR_RESET)"
 	@bash scripts/cluster/install-tools-cluster.sh
 	@echo "$(COLOR_GREEN)✓ Cluster tools installed$(COLOR_RESET)"
+
+.PHONY: chart-extract-platform-crds
+chart-extract-platform-crds: ## Render orbit-platform-stack and extract all CRDs into PLATFORM_STACK_CRDS_DIR
+	@echo "$(COLOR_YELLOW)Extracting CRDs from $(PLATFORM_STACK_CHART_DIR) into $(PLATFORM_STACK_CRDS_DIR)...$(COLOR_RESET)"
+	@mkdir -p "$(PLATFORM_STACK_CRDS_DIR)"
+	@find "$(PLATFORM_STACK_CRDS_DIR)" -type f -name '*.yaml' -delete
+	@helm dependency update "$(PLATFORM_STACK_CHART_DIR)" >/dev/null
+	@set -o pipefail; cd "$(PLATFORM_STACK_CRDS_DIR)" && \
+		helm template orbit-platform-stack "$(abspath $(PLATFORM_STACK_CHART_DIR))" \
+			--include-crds \
+			-f "$(abspath $(PLATFORM_STACK_VALUES_FILE))" | \
+		yq eval '
+			select(.kind == "CustomResourceDefinition") |
+			del(.metadata.labels) |
+			del(.metadata.creationTimestamp) |
+			del(.metadata.annotations."helm.sh/resource-policy") |
+			del(.metadata.annotations."meta.helm.sh/release-name") |
+			del(.metadata.annotations."meta.helm.sh/release-namespace") |
+			(if (.metadata.annotations | length) == 0 then del(.metadata.annotations) else . end)
+		' --split-exp '.metadata.name + ".yaml"' -
+	@echo "$(COLOR_GREEN)✓ Extracted $$(find "$(PLATFORM_STACK_CRDS_DIR)" -type f -name '*.yaml' | wc -l | tr -d ' ') CRD files$(COLOR_RESET)"
 
 .PHONY: dev-cluster
 dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-operator' next.
@@ -726,5 +751,3 @@ all: tidy check build-backend ## Run all quality checks and build
 bootstrap: env dex-env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
-
-

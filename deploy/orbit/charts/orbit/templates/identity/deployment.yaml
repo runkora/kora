@@ -1,0 +1,184 @@
+{{- if .Values.identity.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-identity
+  namespace: {{ include "orbit-platform.systemNamespace" . }}
+  labels:
+    {{- include "orbit-platform.identity.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.identity.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit-platform.identity.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit-platform.identity.selectorLabels" . | nindent 8 }}
+        {{- include "orbit-platform.identity.labels" . | nindent 8 }}
+        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
+        # orbit-system-component to issue:
+        #   spiffe://<trust-domain>/system/identity
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: identity
+        {{- with .Values.identity.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if .Values.identity.mesh.inject }}
+        # Inject the Istio sidecar + SPIRE CSI volume template.
+        # The "spire" template adds SPIFFE_ENDPOINT_SOCKET and the CSI volume
+        # so Envoy can acquire its SVID from the SPIRE agent via SDS.
+        inject.istio.io/templates: {{ include "orbit-platform.identity.injectTemplates" . | quote }}
+        {{- end }}
+        {{- if .Values.identity.mesh.holdApplicationUntilProxyStarts }}
+        # Hold the application container until the Envoy proxy is ready.
+        # Prevents identity service from accepting traffic before mTLS is established.
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- end }}
+        {{- if .Values.identity.mesh.excludeOutboundPorts }}
+        # Exclude PostgreSQL and Redis ports from sidecar interception.
+        # Both orbit-postgres and orbit-redis are external containers on
+        # orbit-network (external to the mesh). Envoy cannot route plain TCP
+        # traffic through mTLS to these hosts; bypass so connections go directly
+        # to their container IPs without Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: {{ include "orbit-platform.identity.excludeOutboundPorts" . | quote }}
+        {{- end }}
+        {{- with .Values.identity.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "orbit-platform.identity.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.identity.priorityClassName }}
+      priorityClassName: {{ .Values.identity.priorityClassName }}
+      {{- end }}
+      volumes:
+        # SPIFFE CSI volume — delivers the SVID workload socket to the container.
+        # Mounted at /run/secrets/workload-spiffe-uds by the identity service
+        # for SPIFFE SVID exchange via the SVID exchange endpoint.
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+        {{- if include "orbit-platform.identity.tenantsConfigMapName" . }}
+        # Tenant registry ConfigMap volume — mounted read-only at /etc/orbit.
+        # The identity service reads tenants.yaml from this path at startup
+        # via the ORBIT_TENANTS_CONFIG env var (/etc/orbit/tenants.yaml).
+        - name: tenants-config
+          configMap:
+            name: {{ include "orbit-platform.identity.tenantsConfigMapName" . }}
+        {{- end }}
+        {{- if .Values.identity.existingClientSecretsSecret }}
+        # Aggregated OIDC client secrets Secret — written by orbit-operator
+        # from per-tenant spec.oidc.clientSecretRef Secrets. The identity
+        # service watches this file and hot-reloads without a pod restart.
+        # optional: true so the pod starts cleanly when no confidential
+        # tenants are provisioned and the Secret does not yet exist.
+        - name: tenant-client-secrets
+          secret:
+            secretName: {{ .Values.identity.existingClientSecretsSecret }}
+            optional: true
+        {{- end }}
+      containers:
+        - name: orbit-identity
+          image: "{{ .Values.identity.image.repository }}:{{ include "orbit-platform.identity.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit-platform.identity.imagePullPolicy" . }}
+          env:
+            # Security-sensitive tunables injected explicitly so consumers never
+            # need to set APP_ENV. Production values are the chart defaults;
+            # deploy/local/orbit-values.yaml overrides them for local dev clusters.
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.identity.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.identity.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_REDIS_TLS_ENABLED
+              value: {{ .Values.identity.config.redisTLSEnabled | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.identity.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.identity.config.logFormat | quote }}
+            # SPIFFE Workload API socket — used for SVID exchange and SPIRE SDS.
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- if include "orbit-platform.identity.tenantsConfigMapName" . }}
+            # Path to the tenant registry YAML — sourced from the orbit-tenants
+            # ConfigMap mounted at /etc/orbit by the orbit-operator.
+            - name: ORBIT_TENANTS_CONFIG
+              value: "/etc/orbit/tenants.yaml"
+            {{- end }}
+            {{- if .Values.identity.existingClientSecretsSecret }}
+            # Path to the aggregated OIDC client secrets YAML file, sourced
+            # from the orbit-tenant-oidc-secrets Secret managed by the
+            # orbit-operator. Unset this env var to disable confidential
+            # client support (all tenants treated as public OIDC clients).
+            - name: ORBIT_TENANT_SECRETS_CONFIG
+              value: "/etc/orbit/tenant-secrets/client-secrets.yaml"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- if or (include "orbit-platform.identity.configMapName" .) .Values.identity.existingSecret }}
+          envFrom:
+            {{- if include "orbit-platform.identity.configMapName" . }}
+            - configMapRef:
+                name: {{ include "orbit-platform.identity.configMapName" . }}
+            {{- end }}
+            {{- if .Values.identity.existingSecret }}
+            - secretRef:
+                name: {{ .Values.identity.existingSecret }}
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.identity.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true
+            {{- if include "orbit-platform.identity.tenantsConfigMapName" . }}
+            - name: tenants-config
+              mountPath: /etc/orbit
+              readOnly: true
+            {{- end }}
+            {{- if .Values.identity.existingClientSecretsSecret }}
+            - name: tenant-client-secrets
+              mountPath: /etc/orbit/tenant-secrets
+              readOnly: true
+            {{- end }}
+      {{- with .Values.identity.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.identity.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.identity.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.identity.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

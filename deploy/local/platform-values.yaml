@@ -37,4 +37,6 @@ networkPolicy:
     # Required for Redis access from k3d pods
     - cidr: 192.168.5.0/24
       ports:
+        - 5432
         - 6379
+        - 5556

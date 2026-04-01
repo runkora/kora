@@ -1,0 +1,26 @@
+meshConfig:
+  trustDomain: orbit.local
+  defaultConfig:
+    discoveryAddress: istiod.istio-system.svc:15012
+    proxyMetadata:
+      OUTPUT_CERTS: /var/run/secrets/workload-spiffe-credentials
+      SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
+
+sidecarInjectorWebhook:
+  templates:
+    spire: |
+      metadata:
+        labels:
+          spiffe.io/spire-managed-identity: "true"
+        spec:
+          containers:
+            - name: istio-proxy
+              volumeMounts:
+              - name: workload-socket
+                mountPath: /run/secrets/workload-spiffe-uds
+                readOnly: true
+          volumes:
+            - name: workload-socket
+              csi:
+                driver: "csi.spiffe.io"
+                readOnly: true

@@ -1,0 +1,85 @@
+{{- if .Values.identityProxy.enabled }}
+# EnvoyFilter: identity-proxy ext_proc integration.
+#
+# The identity-proxy is the MANDATORY trust enforcement point for all Orbit
+# platform agent workloads. It is not optional. Every agent pod on the platform
+# must carry the label `orbit.io/identity-proxy: "enabled"` and the sidecar
+# injection annotation `inject.istio.io/templates: "sidecar,spire,identity-proxy"`.
+#
+# This filter activates on all pods bearing that label and intercepts every
+# outbound HTTP request at the Envoy layer. It calls the identity-proxy sidecar
+# (Unix socket server) as an External Processing (ext_proc) filter, which:
+#   1. Exchanges the pod's live SPIFFE SVID for an Orbit platform Bearer token.
+#   2. Caches the token and invalidates it on SVID rotation.
+#   3. Injects Authorization: Bearer <token> into the outbound request headers.
+#
+# Agent workloads make plain HTTP calls — they are completely unaware of SPIFFE,
+# token exchange, or credential lifecycle. The platform enforces identity here.
+#
+# failureModeAllow: true — if the ext_proc socket is unavailable at startup
+# (race between containers), Envoy passes the request through rather than
+# failing. The identity-proxy readinessProbe gates pod readiness so traffic
+# is not routed until the proxy is ready.
+#
+# Ref: ADR-0021 (ext_proc sidecar token exchange mechanism)
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: identity-proxy-ext-proc
+  namespace: {{ include "orbit-platform.istioNamespace" . }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  # Targets all platform agent pods across all namespaces that carry the
+  # orbit.io/identity-proxy=enabled label. Because this EnvoyFilter lives in
+  # istio-system (the Istio root namespace), workloadSelector matches globally.
+  # Using workloadSelector here is correct — proxy.metadata.LABELS in a
+  # configPatch match expects a flat string value, not a nested label map.
+  workloadSelector:
+    labels:
+      {{- toYaml .Values.identityProxy.workloadSelectorLabels | nindent 6 }}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "envoy.filters.http.router"
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.ext_proc
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+            grpc_service:
+              envoy_grpc:
+                cluster_name: identity_proxy_local
+            failure_mode_allow: {{ .Values.identityProxy.extProc.failureModeAllow }}
+            processing_mode:
+              request_header_mode: {{ .Values.identityProxy.extProc.requestHeaderMode }}
+              response_header_mode: {{ .Values.identityProxy.extProc.responseHeaderMode }}
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: identity_proxy_local
+          type: STATIC
+          connect_timeout: {{ .Values.identityProxy.extProc.connectTimeout }}
+          load_assignment:
+            cluster_name: identity_proxy_local
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        pipe:
+                          # Unix socket path — must match the mountPath of the
+                          # id-proxy-sock emptyDir volume in the identity-proxy
+                          # sidecar injection template (charts/orbit-platform values).
+                          path: {{ .Values.identityProxy.socketPath }}
+          http2_protocol_options: {}
+{{- end }}

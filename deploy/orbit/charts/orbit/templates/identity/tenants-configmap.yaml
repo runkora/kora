@@ -1,0 +1,11 @@
+{{- if and .Values.identity.enabled .Values.identity.tenantsConfig.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orbit-platform.identity.tenantsConfigMapName" . }}
+  namespace: {{ include "orbit-platform.systemNamespace" . }}
+  labels:
+    {{- include "orbit-platform.identity.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.identity.tenantsConfig.data | nindent 2 }}
+{{- end }}

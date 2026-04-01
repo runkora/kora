@@ -1,0 +1,22 @@
+{{- if and .Values.identity.enabled .Values.identity.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-identity
+  namespace: {{ include "orbit-platform.systemNamespace" . }}
+  labels:
+    {{- include "orbit-platform.identity.labels" . | nindent 4 }}
+  {{- with .Values.identity.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.identity.service.type }}
+  selector:
+    {{- include "orbit-platform.identity.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.identity.service.port }}
+      targetPort: {{ .Values.identity.service.targetPort }}
+      protocol: TCP
+{{- end }}
