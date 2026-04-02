@@ -34,38 +34,38 @@ export type NavEntry = {
   wip?: boolean;
 };
 
-export type NavGroup = { label: string; items: NavEntry[] }
+export type NavGroup = { label: string; items: NavEntry[] };
 
 // ─── Nav arrays ───────────────────────────────────────────────────────────────
 
 const MAIN_NAV: NavEntry[] = [
-  { label: 'Dashboard',   href: APP_ROUTES.home,               icon: LayoutDashboard },
-  { label: 'Agents',      href: APP_ROUTES.agents,             icon: Bot,       badge: 12, wip: true },
-  { label: 'Event Spine', href: APP_ROUTES.events,             icon: Activity,            wip: true },
-  { label: 'Credentials', href: APP_ROUTES.credentials,        icon: KeyRound,            wip: true },
+  { label: 'Dashboard', href: APP_ROUTES.home, icon: LayoutDashboard },
+  { label: 'Agents', href: APP_ROUTES.agents, icon: Bot, badge: 12, wip: true },
+  { label: 'Event Spine', href: APP_ROUTES.events, icon: Activity, wip: true },
+  { label: 'Credentials', href: APP_ROUTES.credentials, icon: KeyRound, wip: true },
 ];
 
 const SECURITY_NAV: NavEntry[] = [
-  { label: 'Policy Engine', href: APP_ROUTES.policy,   icon: ShieldCheck, wip: true },
-  { label: 'Identity',      href: APP_ROUTES.identity, icon: User,        wip: true },
+  { label: 'Policy Engine', href: APP_ROUTES.policy, icon: ShieldCheck, wip: true },
+  { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
 ];
 
 const SYSTEM_NAV: NavEntry[] = [
-  { label: 'Storage',  href: APP_ROUTES.storage,  icon: Database, wip: true },
+  { label: 'Storage', href: APP_ROUTES.storage, icon: Database, wip: true },
   { label: 'Settings', href: APP_ROUTES.settings, icon: Settings, wip: true },
 ];
 
 const MODEL_GATEWAY_NAV: NavEntry[] = [
-  { label: 'Usage',  href: APP_ROUTES.modelGateway.usage,  icon: BarChart3 },
+  { label: 'Usage', href: APP_ROUTES.modelGateway.usage, icon: BarChart3 },
   { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
-  { label: 'Setup',  href: APP_ROUTES.modelGateway.setup,  icon: Wrench },
+  { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: Wrench },
 ];
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'Control Plane',  items: MAIN_NAV },
-  { label: 'Security',       items: SECURITY_NAV },
-  { label: 'Model Gateway',  items: MODEL_GATEWAY_NAV },
-  { label: 'System',         items: SYSTEM_NAV },
+  { label: 'Control Plane', items: MAIN_NAV },
+  { label: 'Security', items: SECURITY_NAV },
+  { label: 'Model Gateway', items: MODEL_GATEWAY_NAV },
+  { label: 'System', items: SYSTEM_NAV },
 ];
