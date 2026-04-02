@@ -72,12 +72,7 @@ export function DashboardSidebar() {
             </div>
             {items.map(({ label: itemLabel, href, icon: Icon, badge, wip }) =>
               wip ? (
-                <NavItem
-                  key={itemLabel}
-                  state="disabled"
-                  icon={<Icon />}
-                  badge={badge}
-                >
+                <NavItem key={itemLabel} state="disabled" icon={<Icon />} badge={badge}>
                   {itemLabel}
                 </NavItem>
               ) : (
@@ -90,7 +85,7 @@ export function DashboardSidebar() {
                 >
                   <a href={href}>{itemLabel}</a>
                 </NavItem>
-              )
+              ),
             )}
           </div>
         ))}
