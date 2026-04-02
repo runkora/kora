@@ -737,7 +737,7 @@ clean-all: clean ## Clean everything including database volumes
 auth-device: ## Authenticate via Device Authorization Grant (local binary on :6069)
 	@chmod +x scripts/auth-device.sh
 	@./scripts/auth-device.sh \
-		--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
+		--api-base "$${ORBIT_API_BASE:-http://localhost:8080/api/v1}" \
 		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"
 
 .PHONY: auth-device-k3d
