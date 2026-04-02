@@ -271,7 +271,7 @@ dependencies:
 # is always installed via charts/orbit regardless of these flags.
 
 global:
-  trustDomain: "orbit.local"   # SPIFFE trust domain — must match across orbit-platform and orbit
+  trustDomain: "orbit.test"   # SPIFFE trust domain — must match across orbit-platform and orbit
 
 istio:
   # Set to false if Istio is already installed in the cluster.
@@ -316,7 +316,7 @@ spire:
 # Global trust domain must match deploy/local/orbit-values.yaml.
 
 global:
-  trustDomain: "orbit.local"
+  trustDomain: "orbit.test"
 
 istio:
   enabled: true
@@ -339,7 +339,7 @@ This chart owns all Orbit-authored Kubernetes resources: platform-level resource
 # Operators override these in their deployment repository's values file.
 
 global:
-  trustDomain: "orbit.local"   # Must match the trust domain in orbit-platform values
+  trustDomain: "orbit.test"   # Must match the trust domain in orbit-platform values
   # IfNotPresent is correct for a distributed chart — avoids a registry round-trip on every
   # pod start. The local dev override (deploy/local/orbit-values.yaml) sets Always so that
   # local builds with floating `latest` tags are picked up without a pod delete.
@@ -394,7 +394,7 @@ networkPolicy:
 # Operators mirror this pattern in their own deployment repository.
 
 global:
-  trustDomain: "orbit.local"
+  trustDomain: "orbit.test"
   imagePullPolicy: Always
 
 identity:
@@ -466,7 +466,7 @@ tenants:
     displayName: "Local Development Tenant"
     state: "active"             # active | suspended; defaults to active if omitted
     oidc:
-      issuerURL: "http://dex.orbit.local:5556/dex"
+      issuerURL: "http://dex.orbit.test:5556/dex"
       clientID: "orbit"
       # Public client — no secret required. ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET is set to ""
       # in .env.example. Non-public clients set this to the env var holding the secret.
@@ -479,7 +479,7 @@ tenants:
       # Flat struct matching ADR-0026: one claim/value pair per tenant.
       # claimBinding:
       #   claim: "email"
-      #   value: "dev@orbit.local"
+      #   value: "dev@orbit.test"
 ```
 
 ### Operator Deployment Repository Pattern
@@ -672,7 +672,7 @@ When `istio.enabled: false` in `platform-values.yaml`, `charts/orbit-platform/` 
 
 **Mitigation — Helmfile shared globals block:**
 
-Operators using Helmfile should define `global.trustDomain` once at the top level and reference it in both releases via the `values:` block or Helmfile's `environments.values` mechanism. The `deploy/local/` reference deployment uses a shared `platform-values.yaml` and `orbit-values.yaml` that both hardcode `global.trustDomain: "orbit.local"` — operators must keep these in sync. For Flux/ArgoCD, the trust domain value should come from a shared `ConfigMap` or a Helm `--set` parameter applied to both releases from the same source of truth.
+Operators using Helmfile should define `global.trustDomain` once at the top level and reference it in both releases via the `values:` block or Helmfile's `environments.values` mechanism. The `deploy/local/` reference deployment uses a shared `platform-values.yaml` and `orbit-values.yaml` that both hardcode `global.trustDomain: "orbit.test"` — operators must keep these in sync. For Flux/ArgoCD, the trust domain value should come from a shared `ConfigMap` or a Helm `--set` parameter applied to both releases from the same source of truth.
 
 **Mitigation — `make cluster-deploy` validation:**
 

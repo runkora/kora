@@ -47,5 +47,34 @@ identity:
     otlpInsecure: "true"                 # Local OTLP collector has no TLS.
     logFormat: "console"                 # Human-readable logs locally.
 
+inferenceGateway:
+  image:
+    # Local k3d registry — built by: make docker-push-platform
+    repository: orbit-registry:5001/orbit-inference-gateway
+    tag: latest
+
+  replicas: 1
+
+  config:
+    postgresSSLMode: "disable"           # Local Postgres has no TLS cert.
+    postgresCaptureQueryText: "true"     # Log full SQL in traces locally.
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+
+frontend:
+  image:
+    # Local k3d registry — built by: make docker-push-frontend
+    repository: orbit-registry:5001/orbit-frontend
+    tag: latest
+
+  replicas: 1
+
+  config:
+    # In-cluster identity service — server-side BFF only, never sent to the browser.
+    orbitApiUrl: "http://orbit-identity.orbit-system/api/v1"
+    # Public URL of the frontend as seen from the browser.
+    # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
+    nextPublicAppUrl: "http://orbit.test:8880"
+
 networkPolicy:
   enabled: true

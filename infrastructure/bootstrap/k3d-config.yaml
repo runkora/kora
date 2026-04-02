@@ -38,7 +38,3 @@ options:
       - arg: --disable=traefik
         nodeFilters:
           - server:*
-      # Disable the default ServiceLB — Istio manages its own
-      - arg: --disable=servicelb
-        nodeFilters:
-          - server:*

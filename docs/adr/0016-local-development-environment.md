@@ -120,7 +120,7 @@ We need to define:
 - **Redis** — JTI blocklist store (session revocation per ADR-0008) and general caching
 - **Dex** — local OIDC identity provider for the Device Authorization Grant flow (ADR-0017)
 
-Dex runs at `http://dex.orbit.local:5556/dex` and is pre-configured with a static test user (`dev@orbit.local`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
+Dex runs at `http://dex.orbit.test:5556/dex` and is pre-configured with a static test user (`dev@orbit.test`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
 
 OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to Docker Compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
 
@@ -136,7 +136,7 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 
 `make dev-cluster` provisions:
 - A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`). k3d nodes can reach `orbit-postgres` at the IP level via this shared network, but pods inside the cluster use **CoreDNS** for name resolution — Docker's embedded DNS is invisible to CoreDNS. `dev-cluster-up.sh` registers `orbit-postgres` in CoreDNS by creating a headless `Service` + manual `Endpoints` object pointing at the container's Docker IP. See [CoreDNS DNS Injection](#coredns-dns-injection) below.
-- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
+- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.test`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
 - **SPIRE Agent** — deployed as a DaemonSet with the `k8s_psat` attestation plugin (Kubernetes projected service account tokens — works without hardware TPM)
 - **Istio** — installed via `helm upgrade --install` (`istio/base` + `istio/istiod`) with sidecar injection enabled for the `orbit-system` namespace; no `istioctl` dependency
 - **SPIRE Controller Manager** — deployed as a sidecar on the SPIRE Server pod (included in the `spiffe/spire` umbrella chart); watches `ClusterSPIFFEID` CRDs and automatically creates SPIRE registration entries — no manual `spire-server entry create` calls required
@@ -202,7 +202,7 @@ Testing this endpoint requires a real SVID, which requires a running SPIRE Agent
 ### Neutral
 
 - All Go services must be written to support both tiers — configuration must be environment-aware (SPIRE endpoint configurable, external service endpoints configurable, etc.)
-- SPIRE trust domain for local development is `spiffe://orbit.local` — distinct from staging/production trust domains to prevent accidental cross-environment SVID acceptance
+- SPIRE trust domain for local development is `spiffe://orbit.test` — distinct from staging/production trust domains to prevent accidental cross-environment SVID acceptance
 
 ---
 
@@ -250,7 +250,7 @@ SPIRE is deployed via the `spiffe/spire` Helm umbrella chart. Configuration is l
 
 | Concern | Base (`values.yaml`) | Local (`values.local.yaml`) |
 |---|---|---|
-| Trust domain | `orbit.local` | (same) |
+| Trust domain | `orbit.test` | (same) |
 | Datastore | PostgreSQL, `sslmode=require`, dedicated `spire` DB, password `REPLACE-VIA-OVERLAY` sentinel | `host=orbit-postgres`, `sslmode=disable`, shared `orbit` DB, password `orbit` |
 | Node attestor | `k8s_psat` | `skipKubeletVerification: true` |
 | Key manager (server) | `disk` | (same) |

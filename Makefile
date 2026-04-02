@@ -80,7 +80,7 @@ setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
 
 .PHONY: setup-dns
-setup-dns: ## Configure *.orbit.local DNS on macOS via dnsmasq (idempotent, no-op on Linux)
+setup-dns: ## Configure *.orbit.test DNS on macOS via dnsmasq (idempotent, no-op on Linux)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
@@ -317,8 +317,8 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  http://dex.orbit.local:5556/dex"
-	@echo "  Test user:        dev@orbit.local / password"
+	@echo "  Dex OIDC issuer:  http://dex.orbit.test:5556/dex"
+	@echo "  Test user:        dev@orbit.test / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
 	@echo ""
 	@echo "  Authenticate:     make auth-device"
@@ -416,8 +416,23 @@ docker-push-operator: ## Push orbit-operator image to local registry
 	@docker push localhost:5001/orbit-operator:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
 
+.PHONY: docker-build-frontend
+docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL=http://orbit.test:8880 into client bundle)
+	@echo "$(COLOR_YELLOW)Building orbit-frontend:latest...$(COLOR_RESET)"
+	@docker build -t orbit-frontend:latest \
+		--build-arg NEXT_PUBLIC_APP_URL=http://orbit.test:8880 \
+		frontend/
+	@echo "$(COLOR_GREEN)✓ orbit-frontend:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-frontend
+docker-push-frontend: docker-build-frontend ## Push the frontend image to the local k3d registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-frontend to local registry...$(COLOR_RESET)"
+	@docker tag orbit-frontend:latest localhost:5001/orbit-frontend:latest
+	@docker push localhost:5001/orbit-frontend:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
+
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
@@ -443,7 +458,12 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
 	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
+	@echo "  Waiting for orbit-frontend (operator reconciling orbit chart)..."
+	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@echo "  Frontend:          http://orbit.test:8880"
+	@echo "  Inference gateway: http://api.orbit.test:8880/v1"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
 .PHONY: cluster-update-operator
@@ -476,7 +496,7 @@ cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, r
 	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push ## Rebuild service images and restart deployments
+cluster-update: docker-build docker-push docker-push-frontend ## Rebuild service images and restart deployments
 	@echo "$(COLOR_YELLOW)Updating Orbit services in cluster...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
 	@kubectl rollout restart deployment -n orbit-tenant-example 2>/dev/null || true
@@ -506,6 +526,7 @@ cluster-update-service: ## Build, push and restart a single service (usage: make
 dev: ## Run identity service in development mode with auto-reload (air)
 	@echo "$(COLOR_YELLOW)Starting identity service in development mode...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
+	export GODEBUG=netdns=cgo; \
 	if command -v air > /dev/null; then \
 		air; \
 	else \
@@ -521,7 +542,7 @@ run: run-identity ## Alias for run-identity
 run-identity: ## Run the identity service
 	@echo "$(COLOR_YELLOW)Starting identity service...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
-		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/identity/main.go
+		cd $(BACKEND_DIR) && GODEBUG=netdns=cgo $(GOCMD) run ./cmd/identity/main.go
 
 .PHONY: run-inference-gateway
 run-inference-gateway: ## Run the inference gateway (set provider env vars first — see backend/cmd/inference-gateway/config/local.yaml)
@@ -776,7 +797,7 @@ dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-ha
 	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
 	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
 	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
-	echo "  Test user: dev@orbit.local / $(password)"
+	echo "  Test user: dev@orbit.test / $(password)"
 
 .PHONY: dex-env
 dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)

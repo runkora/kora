@@ -11,7 +11,7 @@ metadata:
   name: orbit
 spec:
   version: "0.1.0"
-  trustDomain: orbit.local
+  trustDomain: orbit.test
   clusterName: orbit-local
 
   spire:
@@ -21,7 +21,7 @@ spec:
     enabled: true
 
   gateway:
-    serviceType: NodePort
+    serviceType: LoadBalancer
 
   # imageRegistry is the local k3d mirror registry.
   # In production leave this blank — the operator uses built-in versioned image references.

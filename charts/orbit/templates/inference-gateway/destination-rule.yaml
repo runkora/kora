@@ -1,0 +1,25 @@
+{{- if .Values.platform.spiffe.enabled }}
+# DestinationRule for orbit-inference-gateway mTLS peer authentication.
+#
+# Configures Istio to use ISTIO_MUTUAL (SPIFFE-backed mTLS) for all inbound
+# traffic to the orbit-inference-gateway service. Required so that the Istio
+# Gateway proxy (which lacks sidecar iptables interception) selects the
+# correct mTLS transport socket when dialling the inference-gateway endpoint.
+#
+# Ref: ADR-0034 (frontend cluster deployment and ingress routing)
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-inference-gateway-client-policy
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.inferenceGateway.labels" . | nindent 4 }}
+spec:
+  host: orbit-inference-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "orbit.trustDomain" . }}/system/inference-gateway"
+{{- end }}

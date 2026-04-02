@@ -34,7 +34,7 @@ type PrincipalExtractor interface {
 //
 // Example header written by Envoy for an Orbit agent workload (ADR-0010):
 //
-//	x-forwarded-client-cert: By=spiffe://orbit.local/system/envoy-proxy;Hash=…;URI=spiffe://orbit.local/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
+//	x-forwarded-client-cert: By=spiffe://orbit.test/system/envoy-proxy;Hash=…;URI=spiffe://orbit.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
 //
 // Only the URI field is consumed here; all other fields are ignored.
 type XFCCPrincipalExtractor struct{}

@@ -60,7 +60,7 @@ spec:
         app: orbit-example
         # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
         # orbit-tenant-agent to issue:
-        #   spiffe://orbit.local/tenant/orbit-tenant-example/agent/example
+        #   spiffe://orbit.test/tenant/orbit-tenant-example/agent/example
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/agent: example
         # Required on all Orbit platform agent pods. This label activates the

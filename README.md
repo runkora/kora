@@ -132,7 +132,7 @@ make dev               # start Orbit with hot-reload
 **Authenticate (in a second terminal):**
 
 ```bash
-make auth-device       # device auth flow → log in as dev@orbit.local / password
+make auth-device       # device auth flow → log in as dev@orbit.test / password
                        # token saved to /tmp/orbit_credentials.json
 ```
 

@@ -1,0 +1,40 @@
+# Istio Gateway resource for all externally-reachable Orbit services.
+#
+# This is a platform concern — it owns the external ingress configuration for
+# the cluster and is shared by every service that needs external access.
+# Individual services declare their own VirtualService resources (in the orbit
+# chart) that reference this Gateway by name.
+#
+# Current hosts:
+#   orbit.test     → orbit-frontend     (browser UI)
+#   api.orbit.test → orbit-inference-gateway  (developer / agent CLI API)
+#
+# The selector `app: istio-gateway` matches the Istio ingress gateway pods
+# deployed in istio-system by the operator's `gateway` Helm release.
+#
+# Local dev: traffic enters via the k3d loadbalancer port mapping 8880:80.
+# Both orbit.test and api.orbit.test are resolved to the Docker bridge
+# gateway IP by the CoreDNS patch in scripts/cluster/dev-cluster-up.sh,
+# and to 127.0.0.1 on the host by the dnsmasq rule added by `make setup-dns`.
+#
+# Ref: ADR-0034 (frontend cluster deployment and ingress routing)
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: orbit-gateway
+  namespace: {{ include "orbit-platform.systemNamespace" . }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    # Selects the Istio ingress gateway pods in istio-system.
+    # The gateway Helm chart labels pods with app=gateway and istio=gateway.
+    app: gateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "orbit.test"
+        - "api.orbit.test"

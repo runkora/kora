@@ -301,7 +301,7 @@ The OIDC client is initialised with values from `NEXT_PUBLIC_*` environment vari
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_OIDC_ISSUER_URL` | OIDC provider issuer URL (e.g., `http://dex.orbit.local:5556/dex`) |
+| `NEXT_PUBLIC_OIDC_ISSUER_URL` | OIDC provider issuer URL (e.g., `http://dex.orbit.test:5556/dex`) |
 | `NEXT_PUBLIC_OIDC_CLIENT_ID` | OIDC client ID registered with the provider (public client — no secret) |
 | `NEXT_PUBLIC_OIDC_REDIRECT_URI` | Callback URL (e.g., `http://localhost:3000/auth/callback`) |
 
@@ -349,7 +349,7 @@ There is no existing browser session to migrate. The Device Authorization Grant 
 ### Success Metrics
 
 - A user visiting any protected route without a session cookie is redirected to `/login`
-- A user completing the full OIDC login flow (local provider: `dev@orbit.local` / `password`) lands on their original destination
+- A user completing the full OIDC login flow (local provider: `dev@orbit.test` / `password`) lands on their original destination
 - The browser's DevTools network panel shows no `access_token` or `refresh_token` values in any response body or cookie value that is readable by JavaScript
 - `POST /api/auth/logout` results in a cleared session cookie and a backend `POST /identity/revoke` call, confirmed via Go backend logs
 - An expired session redirects to `/login` on the next request

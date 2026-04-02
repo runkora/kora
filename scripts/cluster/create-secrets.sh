@@ -16,8 +16,9 @@
 #
 # Required environment variables (loaded from .env by the Makefile):
 #   DB_PASSWORD              Postgres password
-#   REDIS_PASSWORD           Redis password       (orbit-system only)
-#   ORBIT_OIDC_CLIENT_SECRET Dex client secret    (optional — public client)
+#   REDIS_PASSWORD           Redis password           (orbit-system only)
+#   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
+#   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
 #   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
@@ -76,6 +77,8 @@ if should_run "orbit-system"; then
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for orbit-system)"
+  [[ -n "${BFF_SESSION_SECRET:-}" ]] \
+    || fail "BFF_SESSION_SECRET is not set — run 'make gen-session-secret' and add to .env"
 fi
 
 ok "Prerequisites satisfied"
@@ -100,6 +103,16 @@ if should_run "orbit-system"; then
   fi
 
   create_secret "orbit-system" "${IDENTITY_SECRET_ARGS[@]}"
+
+  # orbit-frontend-secrets — BFF iron-session cookie signing key.
+  # Kept separate from orbit-secrets so the identity service pod does not receive
+  # unrelated frontend credentials via its envFrom secretRef.
+  kubectl create secret generic orbit-frontend-secrets \
+    --namespace orbit-system \
+    --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  ok "orbit-frontend-secrets in orbit-system"
 fi
 
 # ── orbit-tenant-example (example agent) ─────────────────────────────────────
@@ -117,7 +130,7 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → DB + Redis + signing key (+ OIDC secret if set)"
+  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session)"
   echo "  orbit-tenant-example → DB only"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"

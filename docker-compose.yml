@@ -43,8 +43,8 @@ services:
   # Runs a real, standards-compliant OIDC server so the full OAuth 2.0 Device
   # Authorization Grant (RFC 8628) protocol executes without any cloud accounts.
   #
-  # Issuer:   http://dex.orbit.local:5556/dex
-  # Test user: dev@orbit.local / (password set via DEX_USER_PASSWORD_HASH in .env)
+  # Issuer:   http://dex.orbit.test:5556/dex
+  # Test user: dev@orbit.test / (password set via DEX_USER_PASSWORD_HASH in .env)
   # Client ID: orbit-local  (public client — no secret)
   #
   # Enabled by: make dev-up  (or docker compose up -d dex)

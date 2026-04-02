@@ -28,7 +28,7 @@
 #
 #     ./scripts/auth-device.sh --tenant-id example
 #
-#   Test user:  dev@orbit.local / password
+#   Test user:  dev@orbit.test / password
 #   Client ID:  orbit-local  (public client, no secret)
 #
 # ─── Real provider (Entra, Okta, …) ──────────────────────────────────────────

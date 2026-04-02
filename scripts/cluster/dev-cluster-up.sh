@@ -64,16 +64,16 @@ else
   exit 1
 fi
 
-# ── Patch CoreDNS for dex.orbit.local → Docker bridge ────────────────────
-# On the host Mac, dnsmasq resolves *.orbit.local → 127.0.0.1.
+# ── Patch CoreDNS for dex.orbit.test → Docker bridge ────────────────────
+# On the host Mac, dnsmasq resolves *.orbit.test → 127.0.0.1.
 # Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
 #
 # The k3d Corefile already contains:
 #   import /etc/coredns/custom/*.server
 # which loads any *.server key from the coredns-custom ConfigMap as an
-# additional server block. We write our orbit.local zone there so k3d's
+# additional server block. We write our orbit.test zone there so k3d's
 # own Corefile (and its NodeHosts block) is never touched or reconciled away.
-step "Patching CoreDNS for dex.orbit.local"
+step "Patching CoreDNS for orbit.test hostnames"
 
 DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
@@ -86,9 +86,15 @@ fi
 ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
 
 # The key name must end in .server so CoreDNS imports it as a server block.
-ORBIT_SERVER_BLOCK="orbit.local:53 {
+# All *.orbit.test hostnames resolve to the Docker bridge gateway IP so that
+# pods inside k3d can reach Docker Compose services (Dex, Postgres, Redis) and
+# so that the Istio gateway's VirtualService hosts (orbit.test, api.orbit.test)
+# are resolvable for health checks and cross-pod service discovery.
+ORBIT_SERVER_BLOCK="orbit.test:53 {
     hosts {
-      ${DOCKER_BRIDGE_IP} dex.orbit.local
+      ${DOCKER_BRIDGE_IP} dex.orbit.test
+      ${DOCKER_BRIDGE_IP} orbit.test
+      ${DOCKER_BRIDGE_IP} api.orbit.test
       fallthrough
     }
     forward . /etc/resolv.conf
@@ -97,13 +103,13 @@ ORBIT_SERVER_BLOCK="orbit.local:53 {
 
 kubectl create configmap coredns-custom \
   --namespace kube-system \
-  --from-literal=orbit.local.server="${ORBIT_SERVER_BLOCK}" \
+  --from-literal=orbit.test.server="${ORBIT_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Restart CoreDNS to pick up the new custom block immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
+ok "CoreDNS patched — dex.orbit.test, orbit.test, api.orbit.test → ${DOCKER_BRIDGE_IP} inside cluster"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
