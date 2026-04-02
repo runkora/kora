@@ -49,12 +49,18 @@ spec:
         - protocol: TCP
           port: 53
 ---
-# Allow intra-namespace traffic on Envoy sidecar ports only.
+# Allow intra-namespace traffic on Envoy sidecar ports and application ports.
+# - 3000:  orbit-frontend (Next.js)
+# - 8080:  orbit-identity
+# - 8081:  orbit-inference-gateway
 # - 15006: Envoy inbound iptables redirect
 # - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
 # - 15090: Envoy Prometheus metrics scrape
-# Application-level traffic transits through the sidecar (port 15006 redirect),
-# so this rule is sufficient for all intra-namespace pod-to-pod communication.
+#
+# NOTE: CNI NetworkPolicy enforcement fires on the original destination port
+# BEFORE iptables redirects traffic into the pod's Envoy sidecar. We must
+# therefore allow the actual application ports that the source Envoy dials
+# directly, not just the sidecar redirect ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -73,6 +79,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ $ns }}
       ports:
+        - port: 3000
+        - port: 8080
+        - port: 8081
         - port: 15006
         - port: 15008
         - port: 15090
@@ -82,6 +91,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ $ns }}
       ports:
+        - port: 3000
+        - port: 8080
+        - port: 8081
         - port: 15006
         - port: 15008
 ---

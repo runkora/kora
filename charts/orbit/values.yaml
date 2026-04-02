@@ -46,6 +46,14 @@ identity:
   # Number of identity service replicas.
   replicas: 1
 
+  # hostAliases injects extra entries into the pod's /etc/hosts.
+  # Useful in local dev to resolve Docker Compose hostnames (e.g. dex.orbit.test)
+  # from within the k3d cluster. Empty by default (no extra entries).
+  hostAliases: []
+  # - ip: "172.24.0.3"
+  #   hostnames: ["dex.orbit.test"]
+
+
   # Resource requests and limits.
   resources:
     requests:

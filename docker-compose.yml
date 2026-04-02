@@ -62,8 +62,10 @@ services:
       - "5556:5556"
     volumes:
       - ./config/dex/config.yaml:/etc/dex/config.yaml:ro
+      - ./secrets/tls.crt:/etc/dex/tls.crt:ro
+      - ./secrets/tls.key:/etc/dex/tls.key:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5556/dex/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:5556/dex/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,3 +83,6 @@ networks:
   orbit-network:
     name: orbit-network   # explicit name prevents docker-compose project-prefix (orbit_orbit-network)
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16

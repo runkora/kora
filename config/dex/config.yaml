@@ -20,21 +20,23 @@
 # and never appear in committed config files.
 # =============================================================================
 
-issuer: http://dex.orbit.test:5556/dex
+issuer: https://dex.orbit.test:5556/dex
 
 # In-memory storage — state is lost on restart, which is fine for local dev.
 storage:
   type: memory
 
 web:
-  http: 0.0.0.0:5556
+  https: 0.0.0.0:5556
+  tlsCert: /etc/dex/tls.crt
+  tlsKey: /etc/dex/tls.key
   # allowedOrigins lets the browser fetch Dex's OIDC discovery document and
   # token endpoints from a different origin (the Next.js dev server).
   # Required because oidc-client-ts runs in the browser at http://localhost:3000
-  # and makes cross-origin requests to http://dex.orbit.test:5556.
+  # and makes cross-origin requests to https://dex.orbit.test:5556.
   allowedOrigins:
     - http://localhost:3000
-    - http://orbit.test:8880
+    - https://orbit.test:8443
 
 oauth2:
   # Enable the Device Authorization Grant (RFC 8628).
@@ -66,7 +68,8 @@ staticClients:
     public: true
     redirectURIs:
       - "http://localhost:3000/auth/callback"
-      - "http://orbit.test:8880/auth/callback"
+      - "https://orbit.test:8443/auth/callback"
+      - "/device/callback"
 
 # ─── Test users ───────────────────────────────────────────────────────────────
 

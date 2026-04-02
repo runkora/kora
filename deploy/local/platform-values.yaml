@@ -38,3 +38,11 @@ networkPolicy:
     - cidr: 192.168.5.0/24
       ports:
         - 6379
+
+# Enable HTTPS on the Istio gateway for local dev.
+# The TLS secret is created by: make gen-tls-cert && make cluster-tls-secret
+# mkcert installs a local CA so the browser trusts the cert without warnings.
+gateway:
+  tls:
+    enabled: true
+    credentialName: orbit-gateway-tls

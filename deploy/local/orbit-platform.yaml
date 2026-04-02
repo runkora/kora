@@ -39,8 +39,17 @@ spec:
       port: 5432
       user: orbit
     redis:
-      host: host.k3d.internal
+      host: orbit-redis
       port: 6379
+
+  # Raw Helm values merged into the orbit chart.
+  # hostAliases resolves Docker Compose hostnames (dex.orbit.test) from within
+  # k3d pods — no in-cluster DNS exists for Docker-network containers.
+  orbitValues:
+    identity:
+      hostAliases:
+        - ip: "172.24.0.3"
+          hostnames: ["dex.orbit.test"]
 
   upgradeStrategy:
     mode: Explicit

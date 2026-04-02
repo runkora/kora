@@ -9,13 +9,17 @@
 #   orbit.test     → orbit-frontend     (browser UI)
 #   api.orbit.test → orbit-inference-gateway  (developer / agent CLI API)
 #
-# The selector `app: istio-gateway` matches the Istio ingress gateway pods
+# The selector `app: gateway` matches the Istio ingress gateway pods
 # deployed in istio-system by the operator's `gateway` Helm release.
 #
-# Local dev: traffic enters via the k3d loadbalancer port mapping 8880:80.
-# Both orbit.test and api.orbit.test are resolved to the Docker bridge
-# gateway IP by the CoreDNS patch in scripts/cluster/dev-cluster-up.sh,
-# and to 127.0.0.1 on the host by the dnsmasq rule added by `make setup-dns`.
+# TLS (gateway.tls.enabled=true):
+#   HTTPS on port 443 using credentialName secret in istio-system.
+#   HTTP on port 80 redirects to HTTPS.
+#   Local dev: k3d maps host:8443 → lb:443 and host:8880 → lb:80.
+#
+# No TLS (default):
+#   HTTP only on port 80. Useful for environments where TLS is terminated
+#   upstream (e.g. a cloud load balancer).
 #
 # Ref: ADR-0034 (frontend cluster deployment and ingress routing)
 apiVersion: networking.istio.io/v1beta1
@@ -31,6 +35,30 @@ spec:
     # The gateway Helm chart labels pods with app=gateway and istio=gateway.
     app: gateway
   servers:
+    {{- if .Values.gateway.tls.enabled }}
+    # HTTPS — terminate TLS at the gateway using the named secret from istio-system.
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: {{ .Values.gateway.tls.credentialName }}
+      hosts:
+        - "orbit.test"
+        - "api.orbit.test"
+    # HTTP — redirect all traffic to HTTPS.
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      tls:
+        httpsRedirect: true
+      hosts:
+        - "orbit.test"
+        - "api.orbit.test"
+    {{- else }}
+    # HTTP only — no TLS termination at the gateway.
     - port:
         number: 80
         name: http
@@ -38,3 +66,4 @@ spec:
       hosts:
         - "orbit.test"
         - "api.orbit.test"
+    {{- end }}

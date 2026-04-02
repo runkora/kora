@@ -37,6 +37,12 @@ identity:
 
   replicas: 1
 
+  # Resolve Docker Compose hostnames from within k3d pods.
+  # dex.orbit.test runs in Docker on orbit-network — no in-cluster DNS for it.
+  hostAliases:
+    - ip: "172.24.0.3"
+      hostnames: ["dex.orbit.test"]
+
   # Local dev overrides for security and observability tunables.
   # These correspond to the identity.config.* fields in charts/orbit/values.yaml
   # and are injected as ORBIT_* env vars — no APP_ENV needed.
@@ -74,7 +80,7 @@ frontend:
     orbitApiUrl: "http://orbit-identity.orbit-system/api/v1"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
-    nextPublicAppUrl: "http://orbit.test:8880"
+    nextPublicAppUrl: "https://orbit.test:8443"
 
 networkPolicy:
   enabled: true
