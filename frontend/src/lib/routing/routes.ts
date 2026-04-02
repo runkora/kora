@@ -29,7 +29,37 @@ export const APP_ROUTES = {
    * it can be referenced in `PUBLIC_PATHS` without a bare string literal.
    */
   authCallback: '/auth/callback',
+
+  // ── Control Plane ────────────────────────────────────────────────────────
+  agents: '/agents',
+  events: '/events',
+  credentials: '/credentials',
+
+  // ── Security ─────────────────────────────────────────────────────────────
+  policy: '/policy',
+  identity: '/identity',
+
+  // ── System ───────────────────────────────────────────────────────────────
+  storage: '/storage',
+  settings: '/settings',
+
+  // ── Model Gateway ─────────────────────────────────────────────────────────
+  modelGateway: {
+    usage: '/model-gateway/usage',
+    models: '/model-gateway/models',
+    setup: '/model-gateway/setup',
+  },
 } as const;
+
+/**
+ * Recursively extracts every leaf string value from a nested const object.
+ * Used so that `AppRoute` covers both flat and grouped route entries.
+ */
+type LeafRoutes<T> = T extends string
+  ? T
+  : T extends Record<string, unknown>
+    ? { [K in keyof T]: LeafRoutes<T[K]> }[keyof T]
+    : never;
 
 /**
  * Every valid internal page route in the Orbit app.
@@ -37,7 +67,7 @@ export const APP_ROUTES = {
  * This is a compile-time exhaustive union — passing a string that is not
  * in `APP_ROUTES` to an `AppLink` is a TypeScript error.
  */
-export type AppRoute = (typeof APP_ROUTES)[keyof typeof APP_ROUTES];
+export type AppRoute = LeafRoutes<typeof APP_ROUTES>;
 
 // ── Public paths ──────────────────────────────────────────────────────────────
 

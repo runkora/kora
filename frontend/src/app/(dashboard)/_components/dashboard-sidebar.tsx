@@ -1,55 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  Activity,
-  Bot,
-  Database,
-  KeyRound,
-  LayoutDashboard,
-  Settings,
-  ShieldCheck,
-  User,
-  Zap,
-} from 'lucide-react';
+import { User, Zap } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 import { Badge, NavItem, Separator, Text } from '@orbit/terra';
 import { LogoutButton } from '@orbit/components/logout-button';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-
-// ─── Nav definitions ─────────────────────────────────────────────────────────
-
-type NavEntry = {
-  id: string;
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badge?: number;
-};
-
-const MAIN_NAV: NavEntry[] = [
-  { id: 'dashboard', href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'agents', href: '/agents', label: 'Agents', icon: Bot, badge: 12 },
-  { id: 'events', href: '/events', label: 'Event Spine', icon: Activity },
-  { id: 'credentials', href: '/credentials', label: 'Credentials', icon: KeyRound },
-];
-
-const SECURITY_NAV: NavEntry[] = [
-  { id: 'policy', href: '/policy', label: 'Policy Engine', icon: ShieldCheck },
-  { id: 'identity', href: '/identity', label: 'Identity', icon: User },
-];
-
-const SYSTEM_NAV: NavEntry[] = [
-  { id: 'storage', href: '/storage', label: 'Storage', icon: Database },
-  { id: 'settings', href: '/settings', label: 'Settings', icon: Settings },
-];
-
-const NAV_GROUPS = [
-  { label: 'Control Plane', items: MAIN_NAV },
-  { label: 'Security', items: SECURITY_NAV },
-  { label: 'System', items: SYSTEM_NAV },
-];
+import { NAV_GROUPS } from '../_utils';
 
 // ─── DashboardSidebar ─────────────────────────────────────────────────────────
 
@@ -112,17 +70,28 @@ export function DashboardSidebar() {
                 {label}
               </Text>
             </div>
-            {items.map(({ id, href, label: itemLabel, icon: Icon, badge }) => (
-              <NavItem
-                key={id}
-                state={pathname === href ? 'active' : 'default'}
-                icon={<Icon />}
-                badge={badge}
-                asChild
-              >
-                <a href={href}>{itemLabel}</a>
-              </NavItem>
-            ))}
+            {items.map(({ label: itemLabel, href, icon: Icon, badge, wip }) =>
+              wip ? (
+                <NavItem
+                  key={itemLabel}
+                  state="disabled"
+                  icon={<Icon />}
+                  badge={badge}
+                >
+                  {itemLabel}
+                </NavItem>
+              ) : (
+                <NavItem
+                  key={itemLabel}
+                  state={pathname === href ? 'active' : 'default'}
+                  icon={<Icon />}
+                  badge={badge}
+                  asChild
+                >
+                  <a href={href}>{itemLabel}</a>
+                </NavItem>
+              )
+            )}
           </div>
         ))}
       </nav>
