@@ -314,9 +314,9 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory dex-env; \
 	fi
-	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
-	@docker compose up -d --wait postgres redis dex
-	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex + port proxy)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis dex port-proxy
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex + port proxy ready$(COLOR_RESET)"
 	@echo "  Dex OIDC issuer:  https://dex.orbit.test:5556/dex"
 	@echo "  Test user:        dev@orbit.test / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
@@ -450,10 +450,10 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@until kubectl get namespace orbit-system &>/dev/null; do sleep 3; done
 	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-system
-	@echo "$(COLOR_YELLOW)Creating TLS secret for Istio gateway...$(COLOR_RESET)"
-	@$(MAKE) cluster-tls-secret
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
+	@echo "$(COLOR_YELLOW)Resolving Docker container IPs and patching OrbitPlatform CR...$(COLOR_RESET)"
+	@bash scripts/cluster/resolve-docker-ips.sh
 	@echo "$(COLOR_YELLOW)Waiting for SPIRE + Istio (operator is installing)...$(COLOR_RESET)"
 	@echo "  Waiting for spire-system namespace..."
 	@until kubectl get namespace spire-system &>/dev/null; do sleep 3; done
@@ -465,6 +465,8 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@echo "  Waiting for istiod deployment..."
 	@until kubectl get deployment istiod -n istio-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
+	@echo "$(COLOR_YELLOW)Creating TLS secret for Istio gateway...$(COLOR_RESET)"
+	@$(MAKE) cluster-tls-secret
 	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
 	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s

@@ -73,6 +73,30 @@ services:
     networks:
       - orbit-network
 
+  # ---------------------------------------------------------------------------
+  # Port proxy — maps standard ports (443/80) to k3d's high ports (8443/8880)
+  #
+  # Pure TCP passthrough (Layer 4) — no TLS termination, no certificate config.
+  # Lets devs access https://orbit.test instead of https://orbit.test:8443.
+  # HAProxy is ~10MB and uses negligible resources in TCP mode.
+  # ---------------------------------------------------------------------------
+  port-proxy:
+    image: haproxy:3.1-alpine
+    container_name: orbit-port-proxy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./config/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    healthcheck:
+      test: ["CMD-SHELL", "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   postgres_data:
     driver: local
@@ -83,6 +107,3 @@ networks:
   orbit-network:
     name: orbit-network   # explicit name prevents docker-compose project-prefix (orbit_orbit-network)
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.24.0.0/16

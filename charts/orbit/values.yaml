@@ -50,7 +50,7 @@ identity:
   # Useful in local dev to resolve Docker Compose hostnames (e.g. dex.orbit.test)
   # from within the k3d cluster. Empty by default (no extra entries).
   hostAliases: []
-  # - ip: "172.24.0.3"
+  # - ip: "<dex-container-ip>"   # resolved dynamically at cluster setup time
   #   hostnames: ["dex.orbit.test"]
 
 

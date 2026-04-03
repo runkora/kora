@@ -79,20 +79,31 @@ DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
 
 if [[ -z "${DOCKER_BRIDGE_IP}" ]]; then
-  DOCKER_BRIDGE_IP="172.18.0.1"
-  warn "Could not detect orbit-network gateway — falling back to ${DOCKER_BRIDGE_IP}"
+  echo "  ERROR: Could not detect orbit-network gateway."
+  echo "  Is orbit-network created?  Run:  make dev-up"
+  exit 1
 fi
 
-ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
+# Resolve Dex container IP dynamically — Docker assigns IPs from the subnet
+# pool and they vary across machines and restarts.
+DEX_IP="$(docker inspect orbit-dex \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")"
+if [[ -z "${DEX_IP}" ]]; then
+  echo "  ERROR: Could not detect orbit-dex container IP."
+  echo "  Is Dex running?  Run:  make dev-up"
+  exit 1
+fi
+
+ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}"
 
 # The key name must end in .server so CoreDNS imports it as a server block.
-# All *.orbit.test hostnames resolve to the Docker bridge gateway IP so that
-# pods inside k3d can reach Docker Compose services (Dex, Postgres, Redis) and
-# so that the Istio gateway's VirtualService hosts (orbit.test, api.orbit.test)
-# are resolvable for health checks and cross-pod service discovery.
+# orbit.test and api.orbit.test resolve to the gateway (Istio VirtualService
+# health checks). dex.orbit.test resolves to the Dex container IP directly
+# because Dex isn't reachable via the gateway — only via its container IP on
+# orbit-network.
 ORBIT_SERVER_BLOCK="orbit.test:53 {
     hosts {
-      ${DOCKER_BRIDGE_IP} dex.orbit.test
+      ${DEX_IP} dex.orbit.test
       ${DOCKER_BRIDGE_IP} orbit.test
       ${DOCKER_BRIDGE_IP} api.orbit.test
       fallthrough
@@ -109,7 +120,7 @@ kubectl create configmap coredns-custom \
 # Restart CoreDNS to pick up the new custom block immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex.orbit.test, orbit.test, api.orbit.test → ${DOCKER_BRIDGE_IP} inside cluster"
+ok "CoreDNS patched — dex.orbit.test → ${DEX_IP}, orbit.test/api.orbit.test → ${DOCKER_BRIDGE_IP}"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
