@@ -32,14 +32,14 @@ tenants:
     state: "active"
     oidc:
       # Local Dex OIDC provider — started by: make dev-up
-      # Issuer discovery: http://dex.orbit.test:5556/dex/.well-known/openid-configuration
+      # Issuer discovery: https://dex.orbit.test:5556/dex/.well-known/openid-configuration
       #
       # Dex must be reachable at this URL from the identity service process.
       # In make dev (host process): add to /etc/hosts —
       #   127.0.0.1  dex.orbit.test
       # In cluster (k3d): CoreDNS is patched by dev-cluster-up.sh to resolve
       #   dex.orbit.test → Docker bridge gateway IP.
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit-local"
       # orbit-local is a public Dex client — no client secret is required.
       # See config/dex/config.yaml: staticClients[0].public: true

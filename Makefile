@@ -317,7 +317,7 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  http://dex.orbit.test:5556/dex"
+	@echo "  Dex OIDC issuer:  https://dex.orbit.test:5556/dex"
 	@echo "  Test user:        dev@orbit.test / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
 	@echo ""

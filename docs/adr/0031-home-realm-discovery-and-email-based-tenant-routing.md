@@ -195,7 +195,7 @@ tenants:
   - id: default
     emailDomains: ["orbit.test"]
     oidc:
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit-local"
       scopes: ["openid", "email", "profile"]
 ```

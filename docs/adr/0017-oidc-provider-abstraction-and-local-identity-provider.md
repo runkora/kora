@@ -191,7 +191,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 
 ```yaml
 oidc:
-  issuerUrl: "http://dex.orbit.test:5556/dex"
+  issuerUrl: "https://dex.orbit.test:5556/dex"
   scopes:
     - openid
     - profile

@@ -28,6 +28,10 @@ spec:
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
     spec:
       serviceAccountName: orbit-inference-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
       volumes:
         - name: spire-workload-socket
           csi:
@@ -37,6 +41,8 @@ spec:
         - name: orbit-inference-gateway
           image: "{{ .Values.inferenceGateway.image.repository }}:{{ include "orbit.inferenceGateway.imageTag" . }}"
           imagePullPolicy: {{ include "orbit.inferenceGateway.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: ORBIT_POSTGRES_SSL_MODE
               value: {{ .Values.inferenceGateway.config.postgresSSLMode | quote }}

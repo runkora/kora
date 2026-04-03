@@ -108,7 +108,7 @@ Starts the Orbit backend with `air` for hot-reload. The server listens on `http:
 You should see startup output including:
 
 ```
-INFO  OIDC provider initialized  issuer=http://dex.orbit.test:5556/dex
+INFO  OIDC provider initialized  issuer=https://dex.orbit.test:5556/dex
 INFO  Server listening           addr=:6069
 ```
 
@@ -351,10 +351,10 @@ make dev-up
 
 **Cause:** `issuerUrl` is empty in `backend/internal/identity/config/local.yaml` and `ORBIT_OIDC_ISSUER_URL` is not set.
 
-**Fix:** Confirm `local.yaml` has `issuerUrl: "http://dex.orbit.test:5556/dex"` and that the Dex container is healthy:
+**Fix:** Confirm `local.yaml` has `issuerUrl: "https://dex.orbit.test:5556/dex"` and that the Dex container is healthy:
 ```bash
 docker compose ps
-curl http://dex.orbit.test:5556/dex/.well-known/openid-configuration
+curl -k https://dex.orbit.test:5556/dex/.well-known/openid-configuration
 ```
 
 ### `POST /api/v1/identity/device` returns 400 `oidc_not_configured`
@@ -376,20 +376,23 @@ make dev               # restart the backend
 **Symptom:** Clicking **Sign In** on the login page immediately shows an error. The browser console reports something like:
 
 ```
-Access to fetch at 'http://dex.orbit.test:5556/dex/.well-known/openid-configuration'
+Access to fetch at 'https://dex.orbit.test:5556/dex/.well-known/openid-configuration'
 from origin 'http://localhost:3000' has been blocked by CORS policy:
 No 'Access-Control-Allow-Origin' header is present on the requested resource.
 ```
 
-**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `http://dex.orbit.test:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
+**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `https://dex.orbit.test:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
 
 **Fix:** Confirm `config/dex/config.yaml` has `allowedOrigins` under the `web:` block:
 
 ```yaml
 web:
-  http: 0.0.0.0:5556
+  https: 0.0.0.0:5556
+  tlsCert: /etc/dex/tls.crt
+  tlsKey: /etc/dex/tls.key
   allowedOrigins:
     - http://localhost:3000
+    - https://orbit.test:8443
 ```
 
 Then restart Dex to pick up the change:
