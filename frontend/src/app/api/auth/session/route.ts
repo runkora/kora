@@ -44,8 +44,10 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 interface OrbitJwtPayload {
   sub: string;
   exp: number;
-  'orbit.display_name'?: string;
-  'orbit.claims'?: Record<string, string>;
+  orbit?: {
+    display_name?: string;
+    claims?: Record<string, string>;
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -162,8 +164,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const user: SessionUser = {
     sub: claims.sub,
-    email: claims['orbit.claims']?.['email'] ?? '',
-    name: claims['orbit.display_name'] ?? '',
+    email: claims.orbit?.claims?.['email'] ?? '',
+    name: claims.orbit?.display_name ?? '',
   };
 
   const payload: SessionPayload = {
