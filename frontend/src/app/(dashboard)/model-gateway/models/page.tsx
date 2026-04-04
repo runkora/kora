@@ -1,73 +1,52 @@
-'use client';
+// RSC — runs exclusively on the server. No 'use client' directive.
+//
+// Responsibilities:
+//   1. Validate the session (middleware already guards the route, but we
+//      double-check here so TypeScript knows accessToken is present).
+//   2. Fetch the model list from the inference gateway directly using the
+//      session token — no round-trip through the BFF route handler.
+//   3. Transform the raw API response into ModelRow[] via toModelRow.
+//   4. Pass the data to ModelsClientShell synchronously — no loading flash.
 
-import { useState } from 'react';
-import { Heading, Separator, Text } from '@orbit/terra';
-import { ModelCardGrid } from './_components/model-card-grid';
-import { ModelsTable } from './_components/models-table';
+import { getSession, isSessionValid } from '@orbit/server/session';
+import { config } from '@orbit/server/config';
+import type { ModelsListResponse } from '@orbit/shared/api';
+import { toModelRow } from '../_types';
+import { ModelsClientShell } from './_components/models-client-shell';
 
-// Seed with a couple of favourites so the section isn't empty on first load
-const DEFAULT_FAVOURITES = new Set(['claude-sonnet-4-5', 'gpt-4o']);
-
-// Curated top picks with "why" labels
-const TOP_PICKS = new Set(['claude-opus-4-5', 'gpt-4o-mini', 'gemini-2-5-flash']);
-const TOP_PICK_TAGS: Record<string, string> = {
-  'claude-opus-4-5': 'Most Capable',
-  'gpt-4o-mini': 'Best Value',
-  'gemini-2-5-flash': 'Fastest',
-};
-
-export default function ModelsPage() {
-  const [favourites, setFavourites] = useState<Set<string>>(DEFAULT_FAVOURITES);
-
-  function toggleFavourite(id: string) {
-    setFavourites((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+async function loadModels(accessToken: string) {
+  try {
+    const res = await fetch(`${config.inferenceGatewayUrl}/models`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
     });
+
+    if (!res.ok) {
+      console.error(
+        `[loadModels] gateway responded with ${res.status} ${res.statusText}:`,
+        await res.text().catch(() => '(could not read body)'),
+      );
+      return [];
+    }
+
+    const body: ModelsListResponse = await res.json();
+    return (body.data ?? []).map(toModelRow);
+  } catch (err) {
+    // Network error (ECONNREFUSED, timeout) or JSON parse failure.
+    // Log for server-side visibility; return empty list so the page still
+    // renders — the client-side refresh() action will retry.
+    console.error('[loadModels] failed to fetch models from gateway:', err);
+    return [];
   }
+}
 
-  return (
-    <div className="px-6 py-8 max-w-screen-xl mx-auto">
-      <div className="flex flex-col gap-10">
-        {/* ── Page header ── */}
-        <div>
-          <Heading variant="title">Models</Heading>
-          <div className="mt-1">
-            <Text size="supporting" color="muted">
-              Browse available AI models, compare pricing, and manage your favourites.
-            </Text>
-          </div>
-        </div>
+export default async function ModelsPage() {
+  const session = await getSession();
 
-        {/* ── Section 1: Favourites ── */}
-        <ModelCardGrid models={favourites} onRemove={toggleFavourite} />
+  // Middleware guards this route, so an invalid session here is a rare edge
+  // case (e.g. cookie expired between middleware check and handler). Render
+  // with empty initial data; the client will show an error on mount.
+  const initialData = isSessionValid(session) ? await loadModels(session.accessToken) : [];
 
-        <Separator />
-
-        {/* ── Section 2: Top picks — read-only with "why" tags ── */}
-        <ModelCardGrid
-          models={TOP_PICKS}
-          tags={TOP_PICK_TAGS}
-          title="Top picks"
-          description="Curated recommendations from the Orbit team"
-        />
-
-        <Separator />
-
-        {/* ── Section 3: Full model list ── */}
-        <div className="flex flex-col gap-4">
-          <div>
-            <Heading variant="section">All models</Heading>
-            <div className="mt-0.5">
-              <Text size="supporting" color="muted">
-                Click any row to view full details. Use the column toggle to customise your view.
-              </Text>
-            </div>
-          </div>
-          <ModelsTable favourites={favourites} onFavouriteToggle={toggleFavourite} />
-        </div>
-      </div>
-    </div>
-  );
+  return <ModelsClientShell initialData={initialData} />;
 }

@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Heart, ArrowUp, ArrowDown, ArrowUpDown, ListFilter, Check } from 'lucide-react';
 import {
+  Badge,
   Text,
   TableRoot,
   Table,
@@ -15,8 +16,8 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@orbit/terra';
-import { MODELS, type ModelRow, type Provider, type ModelStatus } from '../../_data/mock';
-import { ProviderIcon } from './provider-icon';
+import type { ModelRow, ModelStatus } from '../../_types';
+import { useModelsContext } from '../../_context/models-context';
 import { AvailabilityDot } from './availability-dot';
 import { ModelDetailModal } from './model-detail-modal';
 import { ColumnToggleMenu, ALL_COLUMNS, type ColumnId } from './column-toggle-menu';
@@ -28,36 +29,21 @@ type SortKey = ColumnId | null;
 
 export interface FilterState {
   search: string;
-  providers: Set<Provider>;
+  providers: Set<string>;
   statuses: Set<ModelStatus>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtLatency(ms: number) {
-  return ms === 0 ? '—' : `${ms.toLocaleString()} ms`;
-}
-
-function contextToNumber(k: number) {
-  return k; // stored in K already; 200 = 200k, 1000 = 1M
-}
-
-function fmtContext(k: number) {
-  if (k >= 1000) return `${(k / 1000).toFixed(0)}M`;
-  return `${k}k`;
-}
-
-function fmtCost(n: number, decimals = 2) {
-  return `$${n.toFixed(decimals)}`;
-}
-
 function matchesSearch(row: ModelRow, search: string) {
   if (!search) return true;
   const q = search.toLowerCase();
   return (
-    row.provider.toLowerCase().includes(q) ||
+    row.owned_by.toLowerCase().includes(q) ||
     row.name.toLowerCase().includes(q) ||
-    row.id.toLowerCase().includes(q)
+    row.id.toLowerCase().includes(q) ||
+    row.capabilities.some((c) => c.toLowerCase().includes(q)) ||
+    row.dialects.some((d) => d.toLowerCase().includes(q))
   );
 }
 
@@ -67,25 +53,10 @@ function sortRows(rows: ModelRow[], key: SortKey, dir: SortDir): ModelRow[] {
     let cmp = 0;
     switch (key) {
       case 'name':
+        cmp = a.name.localeCompare(b.name);
+        break;
       case 'provider':
-        cmp = a[key === 'name' ? 'name' : 'provider'].localeCompare(
-          b[key === 'name' ? 'name' : 'provider'],
-        );
-        break;
-      case 'latency':
-        cmp = a.latencyMs - b.latencyMs;
-        break;
-      case 'context':
-        cmp = contextToNumber(a.contextK) - contextToNumber(b.contextK);
-        break;
-      case 'promptCost':
-        cmp = a.promptPer1M - b.promptPer1M;
-        break;
-      case 'outputCost':
-        cmp = a.outputPer1M - b.outputPer1M;
-        break;
-      case 'requestCost':
-        cmp = a.requestCost - b.requestCost;
+        cmp = a.owned_by.localeCompare(b.owned_by);
         break;
       default:
         cmp = 0;
@@ -102,17 +73,9 @@ interface SortButtonProps {
   currentKey: SortKey;
   direction: SortDir;
   onSort: (key: ColumnId) => void;
-  align?: 'left' | 'right';
 }
 
-function SortButton({
-  label,
-  columnKey,
-  currentKey,
-  direction,
-  onSort,
-  align = 'left',
-}: SortButtonProps) {
+function SortButton({ label, columnKey, currentKey, direction, onSort }: SortButtonProps) {
   const active = currentKey === columnKey;
   const Icon =
     active && direction === 'asc'
@@ -131,9 +94,8 @@ function SortButton({
         active ? 'text-foreground' : 'text-muted-foreground',
       ].join(' ')}
     >
-      {align === 'right' && <Icon className="size-3 shrink-0 opacity-60" aria-hidden />}
       <span>{label}</span>
-      {align !== 'right' && <Icon className="size-3 shrink-0 opacity-60" aria-hidden />}
+      <Icon className="size-3 shrink-0 opacity-60" aria-hidden />
     </button>
   );
 }
@@ -143,7 +105,7 @@ function SortButton({
 interface FilterOption {
   value: string;
   label: string;
-  dotClass?: string; // optional status dot colour class
+  dotClass?: string;
 }
 
 interface FilterPopoverProps {
@@ -168,7 +130,7 @@ function FilterPopover({ options, selected, onToggle, onClear }: FilterPopoverPr
           ].join(' ')}
         >
           <ListFilter className="size-3" aria-hidden />
-          {active /* active indicator dot */ && (
+          {active && (
             <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-accent" />
           )}
         </button>
@@ -220,26 +182,36 @@ const DEFAULT_VISIBLE: Set<ColumnId> = new Set([
   'status',
   'provider',
   'name',
-  'latency',
-  'context',
-  'promptCost',
-  'outputCost',
-  'requestCost',
+  'capabilities',
+  'dialects',
 ]);
-
-const PROVIDERS = Array.from(new Set(MODELS.map((m) => m.provider)));
 
 const STATUS_OPTIONS: FilterOption[] = [
   { value: 'available', label: 'Available', dotClass: 'bg-status-healthy' },
   { value: 'unavailable', label: 'Unavailable', dotClass: 'bg-status-error' },
 ];
 
-interface ModelsTableProps {
-  favourites: Set<string>;
-  onFavouriteToggle: (id: string) => void;
+// Chip component for rendering small badge-style tags in cells
+function Chips({ values }: { values: string[] }) {
+  if (values.length === 0)
+    return (
+      <Text size="caption" color="subtle">
+        —
+      </Text>
+    );
+  return (
+    <div className="flex flex-wrap gap-1">
+      {values.map((v) => (
+        <Badge key={v} variant="outline" size="sm">
+          {v}
+        </Badge>
+      ))}
+    </div>
+  );
 }
 
-export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps) {
+export function ModelsTable() {
+  const { models, favourites, toggleFavourite } = useModelsContext();
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     providers: new Set(),
@@ -250,6 +222,8 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [selectedModel, setSelectedModel] = useState<ModelRow | null>(null);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+
+  const PROVIDERS = useMemo(() => Array.from(new Set(models.map((m) => m.owned_by))), [models]);
 
   const handleSort = useCallback((key: ColumnId) => {
     setSortKey((prev) => {
@@ -273,7 +247,7 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
   const toggleProvider = useCallback((p: string) => {
     setFilters((prev) => {
       const next = new Set(prev.providers);
-      next.has(p as Provider) ? next.delete(p as Provider) : next.add(p as Provider);
+      next.has(p) ? next.delete(p) : next.add(p);
       return { ...prev, providers: next };
     });
   }, []);
@@ -287,14 +261,14 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
   }, []);
 
   const filteredRows = useMemo(() => {
-    const rows = MODELS.filter((row) => {
-      if (filters.providers.size > 0 && !filters.providers.has(row.provider)) return false;
+    const rows = models.filter((row) => {
+      if (filters.providers.size > 0 && !filters.providers.has(row.owned_by)) return false;
       if (filters.statuses.size > 0 && !filters.statuses.has(row.status)) return false;
       if (!matchesSearch(row, filters.search)) return false;
       return true;
     });
     return sortRows(rows, sortKey, sortDir);
-  }, [filters, sortKey, sortDir]);
+  }, [models, filters, sortKey, sortDir]);
 
   function col(id: ColumnId) {
     return visible.has(id);
@@ -307,10 +281,10 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3">
         <Text size="supporting" color="muted">
-          {filteredRows.length} of {MODELS.length} models
+          {filteredRows.length} of {models.length} models
         </Text>
         <div className="flex items-center gap-2">
-          <input /* search */
+          <input
             type="search"
             placeholder="Search…"
             value={filters.search}
@@ -373,76 +347,11 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
                   />
                 </TableHead>
               )}
-              {col('latency') && (
-                <TableHead>
-                  <div className="flex justify-end">
-                    <SortButton
-                      label="Latency"
-                      columnKey="latency"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </div>
-                </TableHead>
-              )}
-              {col('context') && (
-                <TableHead>
-                  <div className="flex justify-end">
-                    <SortButton
-                      label="Context"
-                      columnKey="context"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </div>
-                </TableHead>
-              )}
-              {col('promptCost') && (
-                <TableHead>
-                  <div className="flex justify-end">
-                    <SortButton
-                      label="Prompt ($/1M)"
-                      columnKey="promptCost"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </div>
-                </TableHead>
-              )}
-              {col('outputCost') && (
-                <TableHead>
-                  <div className="flex justify-end">
-                    <SortButton
-                      label="Output ($/1M)"
-                      columnKey="outputCost"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </div>
-                </TableHead>
-              )}
-              {col('requestCost') && (
-                <TableHead>
-                  <div className="flex justify-end">
-                    <SortButton
-                      label="Request Cost"
-                      columnKey="requestCost"
-                      currentKey={sortKey}
-                      direction={sortDir}
-                      onSort={handleSort}
-                      align="right"
-                    />
-                  </div>
-                </TableHead>
-              )}
+
+              {col('capabilities') && <TableHead>Capabilities</TableHead>}
+              {col('dialects') && <TableHead>Dialects</TableHead>}
+              {col('inputModalities') && <TableHead>Input</TableHead>}
+              {col('outputModalities') && <TableHead>Output</TableHead>}
             </TableRow>
           </TableHeader>
 
@@ -477,7 +386,7 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
                               aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onFavouriteToggle(row.id);
+                                toggleFavourite(row.id);
                               }}
                               className="inline-flex items-center justify-center rounded p-1 transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
                             >
@@ -501,10 +410,7 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
                     )}
                     {col('provider') && (
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <ProviderIcon provider={row.provider} />
-                          <Text size="supporting">{row.provider}</Text>
-                        </div>
+                        <Text size="supporting">{row.owned_by}</Text>
                       </TableCell>
                     )}
                     {col('name') && (
@@ -519,49 +425,24 @@ export function ModelsTable({ favourites, onFavouriteToggle }: ModelsTableProps)
                         </div>
                       </TableCell>
                     )}
-                    {col('latency') && (
+                    {col('capabilities') && (
                       <TableCell>
-                        <div className="flex justify-end">
-                          <Text size="supporting" mono tabular color="muted">
-                            {fmtLatency(row.latencyMs)}
-                          </Text>
-                        </div>
+                        <Chips values={row.capabilities} />
                       </TableCell>
                     )}
-                    {col('context') && (
+                    {col('dialects') && (
                       <TableCell>
-                        <div className="flex justify-end">
-                          <Text size="supporting" mono tabular color="muted">
-                            {fmtContext(row.contextK)}
-                          </Text>
-                        </div>
+                        <Chips values={row.dialects} />
                       </TableCell>
                     )}
-                    {col('promptCost') && (
+                    {col('inputModalities') && (
                       <TableCell>
-                        <div className="flex justify-end">
-                          <Text size="supporting" mono tabular color="muted">
-                            {fmtCost(row.promptPer1M, 4)}
-                          </Text>
-                        </div>
+                        <Chips values={row.input_modalities} />
                       </TableCell>
                     )}
-                    {col('outputCost') && (
+                    {col('outputModalities') && (
                       <TableCell>
-                        <div className="flex justify-end">
-                          <Text size="supporting" mono tabular color="muted">
-                            {fmtCost(row.outputPer1M, 4)}
-                          </Text>
-                        </div>
-                      </TableCell>
-                    )}
-                    {col('requestCost') && (
-                      <TableCell>
-                        <div className="flex justify-end">
-                          <Text size="supporting" mono tabular color="muted">
-                            {fmtCost(row.requestCost, 6)}
-                          </Text>
-                        </div>
+                        <Chips values={row.output_modalities} />
                       </TableCell>
                     )}
                   </TableRow>

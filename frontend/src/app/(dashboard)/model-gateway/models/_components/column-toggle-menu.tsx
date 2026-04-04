@@ -11,11 +11,10 @@ export type ColumnId =
   | 'status'
   | 'provider'
   | 'name'
-  | 'latency'
-  | 'context'
-  | 'promptCost'
-  | 'outputCost'
-  | 'requestCost';
+  | 'capabilities'
+  | 'dialects'
+  | 'inputModalities'
+  | 'outputModalities';
 
 export interface ColumnDef {
   id: ColumnId;
@@ -29,11 +28,10 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Availability', locked: false },
   { id: 'provider', label: 'Provider', locked: false },
   { id: 'name', label: 'Model Name', locked: true },
-  { id: 'latency', label: 'Latency', locked: false },
-  { id: 'context', label: 'Context', locked: false },
-  { id: 'promptCost', label: 'Prompt ($/1M)', locked: false },
-  { id: 'outputCost', label: 'Output ($/1M)', locked: false },
-  { id: 'requestCost', label: 'Request Cost ($/Req)', locked: false },
+  { id: 'capabilities', label: 'Capabilities', locked: false },
+  { id: 'dialects', label: 'Dialects', locked: false },
+  { id: 'inputModalities', label: 'Input Modalities', locked: false },
+  { id: 'outputModalities', label: 'Output Modalities', locked: false },
 ];
 
 interface ColumnToggleMenuProps {
