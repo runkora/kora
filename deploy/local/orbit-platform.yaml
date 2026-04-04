@@ -42,14 +42,9 @@ spec:
       host: orbit-redis
       port: 6379
 
-  # Raw Helm values merged into the orbit chart.
-  # hostAliases resolves Docker Compose hostnames (dex.orbit.test) from within
-  # k3d pods — no in-cluster DNS exists for Docker-network containers.
-  orbitValues:
-    identity:
-      hostAliases:
-        - ip: "172.24.0.3"
-          hostnames: ["dex.orbit.test"]
+  # orbitValues.identity.hostAliases and platformValues.networkPolicy.externalServices
+  # are injected dynamically by scripts/cluster/resolve-docker-ips.sh at cluster
+  # setup time — Docker container IPs are not deterministic across machines.
 
   upgradeStrategy:
     mode: Explicit

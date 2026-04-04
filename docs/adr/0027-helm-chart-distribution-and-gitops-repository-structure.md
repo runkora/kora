@@ -466,7 +466,7 @@ tenants:
     displayName: "Local Development Tenant"
     state: "active"             # active | suspended; defaults to active if omitted
     oidc:
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit"
       # Public client — no secret required. ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET is set to ""
       # in .env.example. Non-public clients set this to the env var holding the secret.

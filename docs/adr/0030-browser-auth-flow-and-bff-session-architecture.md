@@ -301,7 +301,7 @@ The OIDC client is initialised with values from `NEXT_PUBLIC_*` environment vari
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_OIDC_ISSUER_URL` | OIDC provider issuer URL (e.g., `http://dex.orbit.test:5556/dex`) |
+| `NEXT_PUBLIC_OIDC_ISSUER_URL` | OIDC provider issuer URL (e.g., `https://dex.orbit.test:5556/dex`) |
 | `NEXT_PUBLIC_OIDC_CLIENT_ID` | OIDC client ID registered with the provider (public client — no secret) |
 | `NEXT_PUBLIC_OIDC_REDIRECT_URI` | Callback URL (e.g., `http://localhost:3000/auth/callback`) |
 

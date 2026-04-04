@@ -30,6 +30,10 @@ spec:
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-frontend
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
       volumes:
         # SPIFFE CSI volume — delivers the SVID workload socket to the sidecar.
         - name: spire-workload-socket
@@ -40,6 +44,8 @@ spec:
         - name: orbit-frontend
           image: "{{ .Values.frontend.image.repository }}:{{ include "orbit.frontend.imageTag" . }}"
           imagePullPolicy: {{ include "orbit.frontend.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - name: http
               containerPort: 3000

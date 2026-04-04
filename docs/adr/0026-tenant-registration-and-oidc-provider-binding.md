@@ -304,7 +304,7 @@ tenants:
     displayName: "Platform Engineering"
     state: "active"
     oidc:
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit"
       clientSecretEnv: "ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET"
       scopes: [openid, profile, email]
@@ -316,7 +316,7 @@ tenants:
     displayName: "Product Team"
     state: "active"
     oidc:
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit"
       clientSecretEnv: "ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET"
       scopes: [openid, profile, email]
@@ -366,7 +366,7 @@ tenants:
     displayName: "Local Development"
     state: "active"
     oidc:
-      issuerURL: "http://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.test:5556/dex"
       clientID: "orbit"
       # Public client — ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET is empty string
       clientSecretEnv: "ORBIT_TENANT_LOCAL_OIDC_CLIENT_SECRET"

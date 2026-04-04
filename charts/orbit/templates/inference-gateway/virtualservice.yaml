@@ -2,7 +2,7 @@
 #
 # Routes all traffic for api.orbit.test through the platform Gateway to the
 # orbit-inference-gateway ClusterIP service. Agent CLIs and developer tooling
-# reach the OpenAI-compatible API at http://api.orbit.test:8880/v1/*.
+# reach the OpenAI-compatible API at https://api.orbit.test:8443/v1/*.
 #
 # The Gateway resource lives in charts/orbit-platform/templates/gateway.yaml.
 #

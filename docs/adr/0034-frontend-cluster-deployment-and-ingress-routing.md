@@ -150,7 +150,7 @@ metadata:
   namespace: {{ .Values.platform.namespaces.system }}
 spec:
   selector:
-    app: istio-gateway   # selects Istio ingress gateway pods in istio-system
+    app: gateway   # selects Istio ingress gateway pods in istio-system
   servers:
     - port:
         number: 80
@@ -228,10 +228,10 @@ The existing `default-deny-all` policy in `orbit-system` blocks ingress from `is
 
 ### Success Metrics
 
-- `curl -s http://orbit.test:8880 | grep -q "<!DOCTYPE html>"` returns 0 after `make cluster-operator`
-- `curl -s http://api.orbit.test:8880/health` returns a 200 from the inference gateway
+- `curl -sk https://orbit.test:8443 | grep -q "<!DOCTYPE html>"` returns 0 after `make cluster-operator`
+- `curl -sk https://api.orbit.test:8443/health` returns a 200 from the inference gateway
 - `kubectl get pods -n orbit-system` shows `orbit-frontend-*` with 2/2 containers ready (app + Istio sidecar)
-- Browser login at `http://orbit.test:8880` completes the full OIDC flow and reaches the dashboard
+- Browser login at `https://orbit.test:8443` completes the full OIDC flow and reaches the dashboard
 
 ---
 
