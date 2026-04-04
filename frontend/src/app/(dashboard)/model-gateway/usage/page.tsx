@@ -1,4 +1,5 @@
 import { Heading, Stack, Text } from '@orbit/terra';
+import { STATS } from '../_data/mock';
 import { StatCards, UsageTabs } from './_components';
 
 export default function UsagePage() {
@@ -16,7 +17,7 @@ export default function UsagePage() {
         </div>
 
         {/* ── Quick stats ── */}
-        <StatCards />
+        <StatCards stats={STATS} />
 
         {/* ── Time-series tables ── */}
         <UsageTabs />

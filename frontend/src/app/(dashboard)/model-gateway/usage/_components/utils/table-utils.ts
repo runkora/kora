@@ -2,11 +2,6 @@ import type { Period } from '../table-controls';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
-/** Returns an ISO date string N days before "today" (2025-06-30 in our mock) */
-function mockToday(): Date {
-  return new Date('2025-06-30');
-}
-
 function subtractDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() - days);
@@ -32,15 +27,16 @@ const PERIOD_DAYS: Record<Period, number> = {
  * Filters an array of rows that have a `date: string` field (ISO format)
  * to only include entries within the given Period window.
  *
- * If the filtered result is empty, returns all rows so the table always shows
- * data (satisfying the "minimum period that captures data" requirement).
+ * `today` defaults to `new Date()` so production code always reflects the
+ * real current date. Tests can pass a fixed date for deterministic results.
  */
-export function filterByPeriod<T extends { date: string }>(rows: T[], period: Period): T[] {
-  const today = mockToday();
+export function filterByPeriod<T extends { date: string }>(
+  rows: T[],
+  period: Period,
+  today = new Date(),
+): T[] {
   const cutoff = toDateStr(subtractDays(today, PERIOD_DAYS[period]));
-  const filtered = rows.filter((r) => r.date >= cutoff);
-  // Fallback: if no data matches, return everything so the table isn't blank
-  return filtered.length > 0 ? filtered : rows;
+  return rows.filter((r) => r.date >= cutoff);
 }
 
 // ── Aggregation ───────────────────────────────────────────────────────────────

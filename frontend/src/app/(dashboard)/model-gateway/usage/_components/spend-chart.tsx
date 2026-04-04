@@ -98,8 +98,6 @@ export function SpendChart() {
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
-            defaultGranularity="daily"
-            defaultPeriod="30d"
           />
         </div>
       </CardHeader>

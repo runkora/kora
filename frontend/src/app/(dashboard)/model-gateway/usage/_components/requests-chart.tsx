@@ -87,8 +87,6 @@ export function RequestsChart() {
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
-            defaultGranularity="weekly"
-            defaultPeriod="30d"
           />
         </div>
       </CardHeader>

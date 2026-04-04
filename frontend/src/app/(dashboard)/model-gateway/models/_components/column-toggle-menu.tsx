@@ -1,8 +1,7 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
 import { Settings2 } from 'lucide-react';
-import { Button, Text } from '@orbit/terra';
+import { Button, Popover, PopoverTrigger, PopoverContent, Text } from '@orbit/terra';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,62 +41,28 @@ interface ColumnToggleMenuProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ColumnToggleMenu({ visible, onToggle }: ColumnToggleMenuProps) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: MouseEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open]);
-
   return (
-    <div ref={containerRef} className="relative">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <Settings2 className="size-3.5" />
-        Columns
-      </Button>
-
-      {open && (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          aria-label="Toggle table columns"
-          className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-lg border border-border bg-surface shadow-lg"
-        >
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" aria-label="Toggle column visibility">
+          <Settings2 className="size-3.5" />
+          Columns
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end">
+        <div className="w-52 p-0">
           <div className="border-b border-border px-3 py-2">
             <Text size="caption" color="muted">
               Toggle columns
             </Text>
           </div>
-          <div className="py-1">
+          <fieldset className="py-1 border-0 m-0 p-0">
+            <legend className="sr-only">Visible columns</legend>
             {ALL_COLUMNS.map((col) => {
               const checked = visible.has(col.id);
               return (
                 <label
                   key={col.id}
-                  role="option"
-                  aria-selected={checked}
                   className={[
                     'flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors',
                     col.locked ? 'cursor-not-allowed opacity-50' : 'hover:bg-surface-elevated',
@@ -114,9 +79,9 @@ export function ColumnToggleMenu({ visible, onToggle }: ColumnToggleMenuProps) {
                 </label>
               );
             })}
-          </div>
+          </fieldset>
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

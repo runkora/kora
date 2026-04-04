@@ -87,8 +87,6 @@ export function TokensChart() {
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
-            defaultGranularity="daily"
-            defaultPeriod="30d"
           />
         </div>
       </CardHeader>
