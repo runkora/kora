@@ -83,6 +83,16 @@ export const ApiRoute = {
     GET: (email: string): `${typeof AUTH_BASE}/discover?email=${string}` =>
       `${AUTH_BASE}/discover?email=${encodeURIComponent(email)}`,
   },
+
+  /**
+   * `/api/models`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/models` and returns
+   *       the full list of available models. Requires an authenticated session.
+   */
+  models: {
+    GET: (): `${typeof API_BASE}/models` => `${API_BASE}/models`,
+  },
 } as const;
 
 /**
@@ -97,4 +107,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>
   | ReturnType<(typeof ApiRoute)['discover']['PATH']>
-  | `${typeof AUTH_BASE}/discover?email=${string}`;
+  | `${typeof AUTH_BASE}/discover?email=${string}`
+  | ReturnType<(typeof ApiRoute)['models']['GET']>;

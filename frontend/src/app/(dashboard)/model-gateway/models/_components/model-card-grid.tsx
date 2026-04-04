@@ -1,29 +1,19 @@
 'use client';
 
 import { Heart } from 'lucide-react';
-import {
-  Badge,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  Text,
-  Heading,
-} from '@orbit/terra';
-import { MODELS, type ModelRow } from '../../_data/mock';
-import { ProviderIcon } from './provider-icon';
+import { Badge, Card, CardContent, CardHeader, CardTitle, Text, Heading } from '@orbit/terra';
+import type { ModelRow } from '../../_types';
+import { useModelsContext } from '../../_context/models-context';
 import { AvailabilityDot } from './availability-dot';
 
 // ── ModelCard ──────────────────────────────────────────────────────────────────
 
 interface ModelCardProps {
   model: ModelRow;
-  tag?: string;
   onRemove?: (id: string) => void;
 }
 
-function ModelCard({ model, tag, onRemove }: ModelCardProps) {
+function ModelCard({ model, onRemove }: ModelCardProps) {
   return (
     <div className="relative min-w-0">
       <Card column>
@@ -39,7 +29,6 @@ function ModelCard({ model, tag, onRemove }: ModelCardProps) {
         )}
         <CardHeader compact>
           <div className="flex items-center gap-2 pr-6">
-            <ProviderIcon provider={model.provider} size="md" />
             <div className="min-w-0">
               <CardTitle>{model.name}</CardTitle>
               <Text size="caption" color="muted" mono truncate>
@@ -49,43 +38,50 @@ function ModelCard({ model, tag, onRemove }: ModelCardProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
+            {/* Availability */}
             <div className="flex items-center gap-2">
               <AvailabilityDot status={model.status} />
               <Text size="caption" color="muted">
                 {model.status === 'available' ? 'Available' : 'Unavailable'}
               </Text>
             </div>
-            <div className="flex items-center justify-between">
-              <Text size="caption" color="muted">
-                Context
-              </Text>
-              <Text size="caption" mono>
-                {model.contextK >= 1000 ? `${model.contextK / 1000}M` : `${model.contextK}k`}
-              </Text>
-            </div>
-            <div className="flex items-center justify-between">
-              <Text size="caption" color="muted">
-                Prompt
-              </Text>
-              <Text size="caption" mono>
-                ${model.promptPer1M.toFixed(2)}/1M
-              </Text>
-            </div>
-            <div className="flex items-center justify-between">
-              <Text size="caption" color="muted">
-                Output
-              </Text>
-              <Text size="caption" mono>
-                ${model.outputPer1M.toFixed(2)}/1M
-              </Text>
-            </div>
+
+            {/* Capabilities */}
+            {model.capabilities.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {model.capabilities.map((cap) => (
+                  <Badge key={cap} variant="outline" size="sm">
+                    {cap}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Input modalities */}
+            {model.input_modalities.length > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <Text size="caption" color="muted">
+                  Input
+                </Text>
+                <Text size="caption" mono>
+                  {model.input_modalities.join(', ')}
+                </Text>
+              </div>
+            )}
+
+            {/* Output modalities */}
+            {model.output_modalities.length > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <Text size="caption" color="muted">
+                  Output
+                </Text>
+                <Text size="caption" mono>
+                  {model.output_modalities.join(', ')}
+                </Text>
+              </div>
+            )}
           </div>
-          {tag && (
-            <div className="mt-3 flex justify-end">
-              <Badge variant="outline">{tag}</Badge>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
@@ -97,8 +93,6 @@ function ModelCard({ model, tag, onRemove }: ModelCardProps) {
 interface ModelCardGridProps {
   /** Set of model IDs to display. */
   models: Set<string>;
-  /** Optional per-model "why" labels shown as a badge (e.g. "Best Value"). */
-  tags?: Record<string, string>;
   /** When provided the grid is interactive: each card shows a remove button. */
   onRemove?: (id: string) => void;
   title?: string;
@@ -107,37 +101,12 @@ interface ModelCardGridProps {
 
 export function ModelCardGrid({
   models,
-  tags,
   onRemove,
   title = 'Favourites',
   description,
 }: ModelCardGridProps) {
-  const rows = MODELS.filter((m) => models.has(m.id));
-
-  // Show empty state only when the widget is interactive (i.e. onRemove is present).
-  if (rows.length === 0 && onRemove) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>
-            {description ?? "Models you've starred for quick access"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-            <Heart className="size-8 text-border" />
-            <Text size="supporting" color="muted">
-              No favourites yet
-            </Text>
-            <Text size="caption" color="subtle">
-              Click the heart icon on any model row to add it here.
-            </Text>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const { models: allModels } = useModelsContext();
+  const rows = allModels.filter((m) => models.has(m.id));
 
   return (
     <div className="flex flex-col gap-3">
@@ -151,11 +120,28 @@ export function ModelCardGrid({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {rows.map((model) => (
-          <ModelCard key={model.id} model={model} tag={tags?.[model.id]} onRemove={onRemove} />
-        ))}
-      </div>
+
+      {rows.length === 0 && onRemove ? (
+        <Card>
+          <CardContent>
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+              <Heart className="size-8 text-border" />
+              <Text size="supporting" color="muted">
+                No favourites yet
+              </Text>
+              <Text size="caption" color="subtle">
+                Click the heart icon on any model row to add it here.
+              </Text>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {rows.map((model) => (
+            <ModelCard key={model.id} model={model} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

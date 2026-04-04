@@ -710,12 +710,12 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 .PHONY: frontend-dev
 frontend-dev: ## Start the frontend dev server (Next.js, port 3000)
 	@echo "$(COLOR_YELLOW)Starting frontend dev server...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm dev
+	@set -a && . ./.env && set +a && cd $(FRONTEND_DIR) && pnpm dev
 
 .PHONY: frontend-build
 frontend-build: ## Build the frontend for production
 	@echo "$(COLOR_YELLOW)Building frontend...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm build
+	@set -a && . ./.env && set +a && cd $(FRONTEND_DIR) && pnpm build
 	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
 
 .PHONY: frontend-lint

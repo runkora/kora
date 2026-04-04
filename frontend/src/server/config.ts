@@ -26,6 +26,12 @@ export const config = {
   orbitApiUrl: requireEnv('ORBIT_API_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the Go inference gateway (port 8081).
+   * Used exclusively by BFF API routes — never sent to the browser.
+   */
+  inferenceGatewayUrl: requireEnv('INFERENCE_GATEWAY_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */
