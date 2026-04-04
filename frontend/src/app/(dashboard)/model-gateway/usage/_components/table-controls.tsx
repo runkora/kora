@@ -12,10 +12,6 @@ interface TableControlsProps {
   period: Period;
   onGranularityChange: (g: Granularity) => void;
   onPeriodChange: (p: Period) => void;
-  /** The default granularity — shown as the recommended option */
-  defaultGranularity: Granularity;
-  /** The default period — shown as the recommended option */
-  defaultPeriod: Period;
 }
 
 // ── Inline select ─────────────────────────────────────────────────────────────
@@ -65,12 +61,7 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: '365d', label: 'Last year' },
 ];
 
-export function TableControls({
-  granularity,
-  period,
-  onGranularityChange,
-  onPeriodChange,
-}: TableControlsProps) {
+export function TableControls({ granularity, period, onGranularityChange, onPeriodChange }: TableControlsProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <InlineSelect
