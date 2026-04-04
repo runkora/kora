@@ -101,9 +101,7 @@ function CostCard({ spend }: { spend: StatsShape['spend'] }) {
 
 function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
   const successRate =
-    requests.total > 0
-      ? ((requests.successful / requests.total) * 100).toFixed(1)
-      : '0.0';
+    requests.total > 0 ? ((requests.successful / requests.total) * 100).toFixed(1) : '0.0';
 
   return (
     <Card column>
