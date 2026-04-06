@@ -89,3 +89,67 @@ The orbit-system namespace.
 {{- define "orbit.systemNamespace" -}}
 {{- .Values.platform.namespaces.system | default "orbit-system" }}
 {{- end }}
+
+{{/*
+Inference gateway service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.inferenceGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-inference-gateway
+app.kubernetes.io/component: inference-gateway
+{{- end }}
+
+{{/*
+Inference gateway selector labels — stable; used by Service selector and Deployment matchLabels.
+*/}}
+{{- define "orbit.inferenceGateway.selectorLabels" -}}
+app: orbit-inference-gateway
+{{- end }}
+
+{{/*
+Resolve the image tag for the inference gateway.
+*/}}
+{{- define "orbit.inferenceGateway.imageTag" -}}
+{{- .Values.inferenceGateway.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for the inference gateway.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.inferenceGateway.imagePullPolicy" -}}
+{{- .Values.inferenceGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
+Frontend service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.frontend.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-frontend
+app.kubernetes.io/component: frontend
+{{- end }}
+
+{{/*
+Frontend service selector labels — must be stable; used by the Service selector
+and the Deployment matchLabels. Do not add mutable labels here.
+*/}}
+{{- define "orbit.frontend.selectorLabels" -}}
+app: orbit-frontend
+{{- end }}
+
+{{/*
+Resolve the image tag for the frontend. Uses .Values.frontend.image.tag when set,
+otherwise falls back to .Chart.AppVersion.
+*/}}
+{{- define "orbit.frontend.imageTag" -}}
+{{- .Values.frontend.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for the frontend service.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.frontend.imagePullPolicy" -}}
+{{- .Values.frontend.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}

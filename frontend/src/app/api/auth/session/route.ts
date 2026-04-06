@@ -44,8 +44,10 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 interface OrbitJwtPayload {
   sub: string;
   exp: number;
-  'orbit.display_name'?: string;
-  'orbit.claims'?: Record<string, string>;
+  orbit?: {
+    display_name?: string;
+    claims?: Record<string, string>;
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -56,12 +58,19 @@ interface OrbitJwtPayload {
  * trusted internal network — it is not user-supplied input.
  */
 function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    typeof (v as Record<string, unknown>)['sub'] === 'string' &&
-    typeof (v as Record<string, unknown>)['exp'] === 'number'
-  );
+  if (
+    typeof v !== 'object' ||
+    v === null ||
+    typeof (v as Record<string, unknown>)['sub'] !== 'string' ||
+    typeof (v as Record<string, unknown>)['exp'] !== 'number'
+  ) {
+    return false;
+  }
+  const orbit = (v as Record<string, unknown>)['orbit'];
+  if (orbit !== undefined && (typeof orbit !== 'object' || orbit === null)) {
+    return false;
+  }
+  return true;
 }
 
 function decodeJwtPayload(token: string): OrbitJwtPayload {
@@ -162,8 +171,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const user: SessionUser = {
     sub: claims.sub,
-    email: claims['orbit.claims']?.['email'] ?? '',
-    name: claims['orbit.display_name'] ?? '',
+    email: claims.orbit?.claims?.['email'] ?? '',
+    name: claims.orbit?.display_name ?? '',
   };
 
   const payload: SessionPayload = {

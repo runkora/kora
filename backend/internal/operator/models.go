@@ -372,6 +372,12 @@ type TenantOIDCSpec struct {
 	// Scopes are the OAuth2 scopes to request. Defaults to [openid, profile, email].
 	// +kubebuilder:default={openid,profile,email}
 	Scopes []string `json:"scopes,omitempty"`
+
+	// EmailDomains lists the email address domains routed to this tenant by the
+	// Home Realm Discovery endpoint (e.g. ["acme.com", "acme.io"]).
+	// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+	// +optional
+	EmailDomains []string `json:"emailDomains,omitempty"`
 }
 
 // OrbitTenantStatus records observed tenant state.

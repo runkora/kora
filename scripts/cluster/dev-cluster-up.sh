@@ -64,31 +64,48 @@ else
   exit 1
 fi
 
-# ── Patch CoreDNS for dex.orbit.local → Docker bridge ────────────────────
-# On the host Mac, dnsmasq resolves *.orbit.local → 127.0.0.1.
+# ── Patch CoreDNS for dex.orbit.test → Docker bridge ────────────────────
+# On the host Mac, dnsmasq resolves *.orbit.test → 127.0.0.1.
 # Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
 #
 # The k3d Corefile already contains:
 #   import /etc/coredns/custom/*.server
 # which loads any *.server key from the coredns-custom ConfigMap as an
-# additional server block. We write our orbit.local zone there so k3d's
+# additional server block. We write our orbit.test zone there so k3d's
 # own Corefile (and its NodeHosts block) is never touched or reconciled away.
-step "Patching CoreDNS for dex.orbit.local"
+step "Patching CoreDNS for orbit.test hostnames"
 
 DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
 
 if [[ -z "${DOCKER_BRIDGE_IP}" ]]; then
-  DOCKER_BRIDGE_IP="172.18.0.1"
-  warn "Could not detect orbit-network gateway — falling back to ${DOCKER_BRIDGE_IP}"
+  echo "  ERROR: Could not detect orbit-network gateway."
+  echo "  Is orbit-network created?  Run:  make dev-up"
+  exit 1
 fi
 
-ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}"
+# Resolve Dex container IP dynamically — Docker assigns IPs from the subnet
+# pool and they vary across machines and restarts.
+DEX_IP="$(docker inspect orbit-dex \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")"
+if [[ -z "${DEX_IP}" ]]; then
+  echo "  ERROR: Could not detect orbit-dex container IP."
+  echo "  Is Dex running?  Run:  make dev-up"
+  exit 1
+fi
+
+ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}"
 
 # The key name must end in .server so CoreDNS imports it as a server block.
-ORBIT_SERVER_BLOCK="orbit.local:53 {
+# orbit.test and api.orbit.test resolve to the gateway (Istio VirtualService
+# health checks). dex.orbit.test resolves to the Dex container IP directly
+# because Dex isn't reachable via the gateway — only via its container IP on
+# orbit-network.
+ORBIT_SERVER_BLOCK="orbit.test:53 {
     hosts {
-      ${DOCKER_BRIDGE_IP} dex.orbit.local
+      ${DEX_IP} dex.orbit.test
+      ${DOCKER_BRIDGE_IP} orbit.test
+      ${DOCKER_BRIDGE_IP} api.orbit.test
       fallthrough
     }
     forward . /etc/resolv.conf
@@ -97,13 +114,13 @@ ORBIT_SERVER_BLOCK="orbit.local:53 {
 
 kubectl create configmap coredns-custom \
   --namespace kube-system \
-  --from-literal=orbit.local.server="${ORBIT_SERVER_BLOCK}" \
+  --from-literal=orbit.test.server="${ORBIT_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Restart CoreDNS to pick up the new custom block immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex.orbit.local → ${DOCKER_BRIDGE_IP} inside cluster"
+ok "CoreDNS patched — dex.orbit.test → ${DEX_IP}, orbit.test/api.orbit.test → ${DOCKER_BRIDGE_IP}"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""

@@ -10,11 +10,11 @@ agents: 2
 image: rancher/k3s:v1.29.4-k3s1
 
 ports:
-  # Istio ingress gateway — 8880 avoids conflicts with common dev tools (air, webpack, spring, SSH tunnels)
-  - port: 8880:80
+  # Istio ingress gateway — high ports avoid conflicts with other local services.
+  - port: 8443:443
     nodeFilters:
       - loadbalancer
-  - port: 8443:443
+  - port: 8880:80
     nodeFilters:
       - loadbalancer
 
@@ -36,9 +36,5 @@ options:
     extraArgs:
       # Disable Traefik — we use Istio as the ingress gateway
       - arg: --disable=traefik
-        nodeFilters:
-          - server:*
-      # Disable the default ServiceLB — Istio manages its own
-      - arg: --disable=servicelb
         nodeFilters:
           - server:*

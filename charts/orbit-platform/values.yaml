@@ -49,3 +49,13 @@ networkPolicy:
   #         - 5432
   #         - 6379
   externalServices: []
+
+# -- Istio ingress gateway configuration.
+gateway:
+  tls:
+    # -- Enable HTTPS on port 443 with HTTP→HTTPS redirect on port 80.
+    # Requires a TLS secret named by credentialName in the istio-system namespace.
+    # Create it with: make setup-tls && make cluster-tls-secret
+    enabled: false
+    # -- Name of the Kubernetes TLS secret in istio-system containing the cert/key.
+    credentialName: "orbit-gateway-tls"

@@ -452,7 +452,7 @@ backend/
 ```
 
 **SPIFFE Identity:**  
-The inference-gateway pod carries label `spiffe.io/component: inference-gateway` in the `orbit-system` namespace. The generic `orbit-system-component` `ClusterSPIFFEID` template (ADR-0020) automatically issues SPIFFE ID `spiffe://orbit.local/system/inference-gateway`. No per-service `ClusterSPIFFEID` resource is required.
+The inference-gateway pod carries label `spiffe.io/component: inference-gateway` in the `orbit-system` namespace. The generic `orbit-system-component` `ClusterSPIFFEID` template (ADR-0020) automatically issues SPIFFE ID `spiffe://orbit.test/system/inference-gateway`. No per-service `ClusterSPIFFEID` resource is required.
 
 ### Request Lifecycle
 

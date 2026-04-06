@@ -32,7 +32,7 @@ spec:
       kubernetes.io/metadata.name: istio-system
   podSelector:
     matchLabels:
-      app: istio-gateway
+      app: gateway
   workloadSelectorTemplates:
     - "k8s:ns:istio-system"
     - "k8s:sa:gateway"

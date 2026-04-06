@@ -29,9 +29,10 @@ type registryEntry struct {
 }
 
 type registryOIDC struct {
-	IssuerURL string   `json:"issuerURL"`
-	ClientID  string   `json:"clientID"`
-	Scopes    []string `json:"scopes"`
+	IssuerURL    string   `json:"issuerURL"`
+	ClientID     string   `json:"clientID"`
+	Scopes       []string `json:"scopes"`
+	EmailDomains []string `json:"emailDomains,omitempty"`
 }
 
 const (
@@ -133,9 +134,10 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []OrbitTenant) (string, error
 			DisplayName: t.Spec.DisplayName,
 			State:       "active",
 			OIDC: registryOIDC{
-				IssuerURL: t.Spec.OIDC.IssuerURL,
-				ClientID:  t.Spec.OIDC.ClientID,
-				Scopes:    scopes,
+				IssuerURL:    t.Spec.OIDC.IssuerURL,
+				ClientID:     t.Spec.OIDC.ClientID,
+				Scopes:       scopes,
+				EmailDomains: t.Spec.OIDC.EmailDomains,
 			},
 		})
 	}

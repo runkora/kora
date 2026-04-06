@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.inferenceGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.inferenceGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.inferenceGateway.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.inferenceGateway.labels" . | nindent 8 }}
+        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
+        # orbit-system-component to issue:
+        #   spiffe://<trust-domain>/system/inference-gateway
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: inference-gateway
+      annotations:
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Exclude PostgreSQL from sidecar interception — orbit-postgres is an
+        # external container on orbit-network, not a mesh service.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+    spec:
+      serviceAccountName: orbit-inference-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      containers:
+        - name: orbit-inference-gateway
+          image: "{{ .Values.inferenceGateway.image.repository }}:{{ include "orbit.inferenceGateway.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.inferenceGateway.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.inferenceGateway.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.inferenceGateway.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.inferenceGateway.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.inferenceGateway.config.logFormat | quote }}
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          {{- if or .Values.inferenceGateway.existingConfigMap .Values.inferenceGateway.existingSecret }}
+          envFrom:
+            {{- if .Values.inferenceGateway.existingConfigMap }}
+            - configMapRef:
+                name: {{ .Values.inferenceGateway.existingConfigMap }}
+            {{- end }}
+            {{- if .Values.inferenceGateway.existingSecret }}
+            - secretRef:
+                name: {{ .Values.inferenceGateway.existingSecret }}
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true
