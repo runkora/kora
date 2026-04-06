@@ -26,7 +26,7 @@
 # subnet is not deterministic across machines.
 
 # Enable HTTPS on the Istio gateway for local dev.
-# The TLS secret is created by: make gen-tls-cert && make cluster-tls-secret
+# The TLS secret is created by: make setup-tls && make cluster-tls-secret
 # mkcert installs a local CA so the browser trusts the cert without warnings.
 gateway:
   tls:

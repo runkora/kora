@@ -40,6 +40,10 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 # Developers on Docker Desktop can override this in .env: K3D_FIX_DNS=1
 K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
+# Frontend public URL — baked into the Next.js client bundle at Docker build time.
+# Override for non-local environments (e.g. CI): make docker-build-frontend NEXT_PUBLIC_APP_URL=https://my.host
+NEXT_PUBLIC_APP_URL ?= https://orbit.test:8443
+
 # Colors for output
 COLOR_RESET=\033[0m
 COLOR_BOLD=\033[1m
@@ -78,6 +82,10 @@ env: ## Scaffold .env from .env.example (no-op if .env already exists)
 .PHONY: setup
 setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns setup-tls ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
+	@if [ ! -f secrets/tls.crt ]; then \
+		echo "$(COLOR_YELLOW)Note: TLS certs were not generated (non-macOS without mkcert).$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)      'make dev-up' will generate a self-signed fallback automatically.$(COLOR_RESET)"; \
+	fi
 
 .PHONY: setup-dns
 setup-dns: ## Configure *.orbit.test DNS on macOS via dnsmasq (idempotent, no-op on Linux)
@@ -314,6 +322,10 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory dex-env; \
 	fi
+	@if [ ! -f secrets/tls.crt ] || [ ! -f secrets/tls.key ]; then \
+		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory setup-tls; \
+	fi
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex + port proxy ready$(COLOR_RESET)"
@@ -423,10 +435,10 @@ docker-push-operator: ## Push orbit-operator image to local registry
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
 
 .PHONY: docker-build-frontend
-docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL=https://orbit.test:8443 into client bundle)
-	@echo "$(COLOR_YELLOW)Building orbit-frontend:latest...$(COLOR_RESET)"
+docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL into client bundle)
+	@echo "$(COLOR_YELLOW)Building orbit-frontend:latest (NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL))...$(COLOR_RESET)"
 	@docker build -t orbit-frontend:latest \
-		--build-arg NEXT_PUBLIC_APP_URL=https://orbit.test:8443 \
+		--build-arg NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL) \
 		frontend/
 	@echo "$(COLOR_GREEN)✓ orbit-frontend:latest$(COLOR_RESET)"
 

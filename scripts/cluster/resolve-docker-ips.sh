@@ -39,10 +39,13 @@ container_ip() {
     --format '{{index .NetworkSettings.Networks "orbit-network"}}' 2>/dev/null \
     | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 
-  # Fall back to first network IP (works regardless of key naming)
+  # Fall back to first network IP (works regardless of key naming).
+  # The space after IPAddress prevents concatenation when a container is on
+  # multiple networks (e.g. "172.18.0.3 172.19.0.2" instead of "172.18.0.3172.19.0.2").
   if [[ -z "${ip}" ]]; then
     ip="$(docker inspect "${name}" \
-      --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
+      --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' 2>/dev/null \
+      | awk '{print $1}' || true)"
   fi
 
   if [[ -z "${ip}" ]]; then
