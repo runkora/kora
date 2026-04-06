@@ -64,6 +64,13 @@ inferenceGateway:
     otlpInsecure: "true"                 # Local OTLP collector has no TLS.
     logFormat: "console"                 # Human-readable logs locally.
 
+  # Enable Bedrock for local dev. Credentials (AWS_ACCESS_KEY_ID,
+  # AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) are read from .env and
+  # injected into orbit-secrets by: make cluster-secrets
+  bedrock:
+    enabled: true
+    region: "us-east-1"
+
 frontend:
   image:
     # Local k3d registry — built by: make docker-push-frontend
@@ -75,6 +82,8 @@ frontend:
   config:
     # In-cluster identity service — server-side BFF only, never sent to the browser.
     orbitApiUrl: "http://orbit-identity.orbit-system/api/v1"
+    # In-cluster inference gateway — server-side BFF only, never sent to the browser.
+    inferenceGatewayUrl: "http://orbit-inference-gateway.orbit-system/v1"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
     nextPublicAppUrl: "https://orbit.test:8443"

@@ -530,6 +530,10 @@ cluster-update: docker-build docker-push docker-push-frontend ## Rebuild service
 	@kubectl rollout status deployment -n orbit-tenant-example --timeout=120s 2>/dev/null || true
 	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
 
+.PHONY: cluster-bedrock-creds
+cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
+	@bash scripts/cluster/refresh-bedrock-creds.sh
+
 .PHONY: cluster-update-service
 cluster-update-service: ## Build, push and restart a single service (usage: make cluster-update-service SERVICE=identity)
 	$(if $(SERVICE),,$(error SERVICE is required — usage: make cluster-update-service SERVICE=identity))
@@ -794,7 +798,7 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		PF_PID=$$!; \
 		sleep 2; \
 		./scripts/auth-device.sh \
-			--api-base "$${ORBIT_API_BASE:-http://localhost:6069/api/v1}" \
+			--api-base "http://localhost:6069/api/v1" \
 			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \

@@ -135,6 +135,12 @@ inferenceGateway:
     otlpInsecure: "false"
     logFormat: "json"
 
+  # Provider enablement — non-secret config injected as env vars into the deployment.
+  # Credentials (AWS_ACCESS_KEY_ID etc.) go in the existingSecret via create-secrets.sh.
+  bedrock:
+    enabled: false
+    region: ""
+
   # Name of the existing Secret containing DB_PASSWORD (and optionally provider credentials).
   # Shares orbit-secrets with the identity service — extra keys are ignored.
   existingSecret: "orbit-secrets"
@@ -169,6 +175,9 @@ frontend:
     # URL of the Go identity service, reachable from inside the cluster.
     # Server-side only — never sent to the browser.
     orbitApiUrl: ""
+    # URL of the inference gateway service, reachable from inside the cluster.
+    # Server-side only — never sent to the browser.
+    inferenceGatewayUrl: ""
     # Public base URL of the frontend, reachable from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
