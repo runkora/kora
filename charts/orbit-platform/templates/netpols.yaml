@@ -200,6 +200,7 @@ spec:
           protocol: TCP
         {{- end }}
     {{- end }}
+{{- end }}
 ---
 # Allow the Istio ingress gateway (istio-system) to reach orbit-system pods.
 # Required for external traffic routed via the orbit-gateway VirtualServices
@@ -243,5 +244,4 @@ spec:
         # Envoy HBONE (HTTP/2 tunnel for mTLS) — ambient mesh traffic.
         - port: 15008
           protocol: TCP
-{{- end }}
 {{- end }}
