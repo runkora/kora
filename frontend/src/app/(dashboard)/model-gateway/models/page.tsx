@@ -7,6 +7,9 @@
 //      session token — no round-trip through the BFF route handler.
 //   3. Transform the raw API response into ModelRow[] via toModelRow.
 //   4. Pass the data to ModelsClientShell synchronously — no loading flash.
+//
+// loading.tsx is co-located and renders instantly on client-side navigation
+// as a Suspense fallback while this fetch completes, so navigation never blocks.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';

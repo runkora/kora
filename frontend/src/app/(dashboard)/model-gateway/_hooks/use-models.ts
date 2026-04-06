@@ -18,7 +18,7 @@
 //   refresh: () => Promise<void>;
 // }
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { fetchModels } from '../_services/models-api';
 import type { ModelRow } from '../_types';
 
@@ -78,6 +78,18 @@ export function useModels(initialData: ModelRow[]): ModelsStateShape {
       setModels(result.models);
       setStatus('success');
     }
+  }, []);
+
+  // If the RSC server-side fetch returned empty (e.g. during client-side
+  // navigation where the server fetch fails silently), kick off a client-side
+  // fetch automatically so the page doesn't sit blank on navigation.
+  useEffect(() => {
+    if (initialData.length === 0) {
+      void refresh();
+    }
+    // Run only on mount — initialData is the RSC seed and won't change after
+    // the component mounts. refresh is stable (useCallback with empty deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleFavourite = useCallback((id: string) => {
