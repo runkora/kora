@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -74,18 +75,18 @@ export function RequestsTable() {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+        <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
+          <Stack gap="none">
             <CardTitle>Requests over time</CardTitle>
             <CardDescription>Total, successful, and errored API calls per period</CardDescription>
-          </div>
+          </Stack>
           <TableControls
             granularity={granularity}
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
           />
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent flush>
         <TableRoot>
@@ -94,16 +95,24 @@ export function RequestsTable() {
               <TableRow>
                 <TableHead>Period</TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Total</div>
+                  <Stack direction="horizontal" justify="end">
+                    Total
+                  </Stack>
                 </TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Successful</div>
+                  <Stack direction="horizontal" justify="end">
+                    Successful
+                  </Stack>
                 </TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Errored</div>
+                  <Stack direction="horizontal" justify="end">
+                    Errored
+                  </Stack>
                 </TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Error rate</div>
+                  <Stack direction="horizontal" justify="end">
+                    Error rate
+                  </Stack>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -111,11 +120,15 @@ export function RequestsTable() {
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5}>
-                    <div className="text-center py-8">
-                      <Text size="supporting" color="muted">
-                        No data for selected period
-                      </Text>
-                    </div>
+                    <Stack align="center" justify="center">
+                      <Stack asChild>
+                        <figure className="py-8 text-center m-0">
+                          <Text size="supporting" color="muted">
+                            No data for selected period
+                          </Text>
+                        </figure>
+                      </Stack>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -130,21 +143,21 @@ export function RequestsTable() {
                         </Text>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
+                        <Stack direction="horizontal" justify="end">
                           <Text size="supporting" mono tabular weight="emphasis">
                             {fmtNum(row.total)}
                           </Text>
-                        </div>
+                        </Stack>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
+                        <Stack direction="horizontal" justify="end">
                           <Text size="supporting" mono tabular color="status-healthy">
                             {fmtNum(row.successful)}
                           </Text>
-                        </div>
+                        </Stack>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
+                        <Stack direction="horizontal" justify="end">
                           <Text
                             size="supporting"
                             mono
@@ -153,14 +166,14 @@ export function RequestsTable() {
                           >
                             {fmtNum(row.errored)}
                           </Text>
-                        </div>
+                        </Stack>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
+                        <Stack direction="horizontal" justify="end">
                           <Badge variant={isHighError ? 'error' : 'healthy'} size="sm">
                             {errorRate}%
                           </Badge>
-                        </div>
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   );

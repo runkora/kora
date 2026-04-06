@@ -95,7 +95,11 @@ export function useModels(initialData: ModelRow[]): ModelsStateShape {
   const toggleFavourite = useCallback((id: string) => {
     setFavourites((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }, []);

@@ -9,6 +9,7 @@ import {
   CardTitle,
   CardDescription,
   Heading,
+  Stack,
   Text,
   Separator,
 } from '@orbit/terra';
@@ -31,23 +32,25 @@ function CodeBlock({ code, language }: CodeBlockProps) {
   }, [code]);
 
   return (
-    <div className="group relative">
-      <pre className="overflow-x-auto rounded-lg bg-surface-elevated border border-border px-4 py-3 text-xs leading-relaxed">
-        <code className="font-mono text-foreground">{code}</code>
-      </pre>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label="Copy code"
-        className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
-      >
-        {copied ? (
-          <Check className="size-3.5 text-status-healthy" />
-        ) : (
-          <Copy className="size-3.5" />
-        )}
-      </button>
-    </div>
+    <Stack asChild>
+      <figure className="group relative m-0">
+        <pre className="overflow-x-auto rounded-lg bg-surface-elevated border border-border px-4 py-3 text-xs leading-relaxed">
+          <code className="font-mono text-foreground">{code}</code>
+        </pre>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label="Copy code"
+          className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          {copied ? (
+            <Check className="size-3.5 text-status-healthy" />
+          ) : (
+            <Copy className="size-3.5" />
+          )}
+        </button>
+      </figure>
+    </Stack>
   );
 }
 
@@ -61,22 +64,28 @@ interface StepProps {
 
 function Step({ number, title, children }: StepProps) {
   return (
-    <div className="flex gap-4">
-      <div className="flex flex-col items-center">
-        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
-          {number}
-        </div>
-        <div className="mt-2 w-px flex-1 bg-border" />
-      </div>
-      <div className="flex-1 pb-8">
-        <div className="mb-2">
-          <Text size="supporting" weight="emphasis">
-            {title}
-          </Text>
-        </div>
-        <div className="flex flex-col gap-2">{children}</div>
-      </div>
-    </div>
+    <Stack direction="horizontal" gap="comfortable">
+      <Stack align="center" gap="none">
+        <Stack asChild align="center" justify="center">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
+            {number}
+          </span>
+        </Stack>
+        <span className="mt-2 w-px flex-1 bg-border block" />
+      </Stack>
+      <Stack asChild>
+        <section className="flex-1 pb-8">
+          <Stack asChild>
+            <header className="mb-2">
+              <Text size="supporting" weight="emphasis">
+                {title}
+              </Text>
+            </header>
+          </Stack>
+          <Stack gap="tight">{children}</Stack>
+        </section>
+      </Stack>
+    </Stack>
   );
 }
 
@@ -93,7 +102,7 @@ export function SetupInstructions() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col">
+        <Stack>
           <Step number={1} title="Store your API key securely">
             <Text size="supporting" color="muted">
               Add your key to your environment — never hard-code it in source files.
@@ -154,21 +163,27 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)`}
             />
           </Step>
-        </div>
+        </Stack>
 
-        <div className="my-2">
-          <Separator span="full" />
-        </div>
+        <Stack asChild>
+          <figure className="my-2 m-0">
+            <Separator span="full" />
+          </figure>
+        </Stack>
 
-        <div className="rounded-lg bg-surface-elevated border border-border px-4 py-3">
-          <div className="mb-1">
-            <Heading variant="label">Compatible clients</Heading>
-          </div>
-          <Text size="caption" color="muted">
-            Any OpenAI-compatible client works with the Orbit gateway — including Cursor, Aider,
-            Continue, Cline, and custom scripts using the OpenAI Python or Node.js SDKs.
-          </Text>
-        </div>
+        <Stack asChild gap="tight">
+          <aside className="rounded-lg bg-surface-elevated border border-border px-4 py-3">
+            <Stack asChild>
+              <header className="mb-1">
+                <Heading variant="label">Compatible clients</Heading>
+              </header>
+            </Stack>
+            <Text size="caption" color="muted">
+              Any OpenAI-compatible client works with the Orbit gateway — including Cursor, Aider,
+              Continue, Cline, and custom scripts using the OpenAI Python or Node.js SDKs.
+            </Text>
+          </aside>
+        </Stack>
       </CardContent>
     </Card>
   );

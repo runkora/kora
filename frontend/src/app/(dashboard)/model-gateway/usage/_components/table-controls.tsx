@@ -1,6 +1,6 @@
 'use client';
 
-import { Text } from '@orbit/terra';
+import { Stack, Text } from '@orbit/terra';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ interface InlineSelectProps<T extends string> {
 
 function InlineSelect<T extends string>({ label, value, options, onChange }: InlineSelectProps<T>) {
   return (
-    <div className="flex items-center gap-1.5">
+    <Stack direction="horizontal" align="center" gap="tight">
       <Text size="caption" color="subtle" asChild>
         <label>{label}</label>
       </Text>
@@ -40,7 +40,7 @@ function InlineSelect<T extends string>({ label, value, options, onChange }: Inl
           </option>
         ))}
       </select>
-    </div>
+    </Stack>
   );
 }
 
@@ -68,7 +68,7 @@ export function TableControls({
   onPeriodChange,
 }: TableControlsProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <Stack direction="horizontal" wrap align="center" gap="snug">
       <InlineSelect
         label="Granularity"
         value={granularity}
@@ -81,6 +81,6 @@ export function TableControls({
         options={PERIOD_OPTIONS}
         onChange={onPeriodChange}
       />
-    </div>
+    </Stack>
   );
 }

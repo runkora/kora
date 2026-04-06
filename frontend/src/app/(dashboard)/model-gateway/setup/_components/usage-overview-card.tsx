@@ -6,6 +6,7 @@ import {
   CardDescription,
   Badge,
   Separator,
+  Stack,
   Text,
 } from '@orbit/terra';
 import { STATS } from '../../_data/mock';
@@ -22,14 +23,16 @@ function StatLine({
   mono?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <Text size="supporting" color="muted">
-        {label}
-      </Text>
-      <Text size="supporting" weight="emphasis" mono={mono}>
-        {value}
-      </Text>
-    </div>
+    <Stack asChild direction="horizontal" align="center" justify="between" gap="comfortable">
+      <section className="py-2">
+        <Text size="supporting" color="muted">
+          {label}
+        </Text>
+        <Text size="supporting" weight="emphasis" mono={mono}>
+          {value}
+        </Text>
+      </section>
+    </Stack>
   );
 }
 
@@ -65,16 +68,16 @@ export function UsageOverviewCard() {
   return (
     <Card column>
       <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div>
+        <Stack direction="horizontal" align="start" justify="between" gap="tight">
+          <Stack gap="none">
             <CardTitle>Usage &amp; Limits</CardTitle>
             <CardDescription>Current spend period and account tier</CardDescription>
-          </div>
+          </Stack>
           <Badge variant={tierCfg.variant}>{tierCfg.label}</Badge>
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-0">
+        <Stack gap="none">
           <StatLine label="Tier" value={tier} />
           <Separator />
           <StatLine label="Spend limit" value={`$${spendLimit.toLocaleString()}.00`} mono />
@@ -84,36 +87,38 @@ export function UsageOverviewCard() {
           <StatLine label="Remaining" value={`$${remaining.toFixed(2)}`} mono />
           <Separator />
           <StatLine label="Period resets on" value={resetDate} />
-        </div>
+        </Stack>
 
         {/* Progress bar */}
-        <div className="mt-4 flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <Text size="caption" color="muted">
-              {pct.toFixed(1)}% of limit used
-            </Text>
-            <Text size="caption" color="muted">
-              ${remaining.toFixed(2)} remaining
-            </Text>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-elevated">
-            <div
-              className={[
-                'h-full rounded-full transition-all',
-                pct >= 90
-                  ? 'bg-status-error'
-                  : pct >= 70
-                    ? 'bg-status-degraded'
-                    : 'bg-status-healthy',
-              ].join(' ')}
-              style={{ width: `${pct}%` }}
-              role="progressbar"
-              aria-valuenow={pct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            />
-          </div>
-        </div>
+        <Stack asChild gap="tight">
+          <figure className="mt-4 m-0">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" color="muted">
+                {pct.toFixed(1)}% of limit used
+              </Text>
+              <Text size="caption" color="muted">
+                ${remaining.toFixed(2)} remaining
+              </Text>
+            </Stack>
+            <span className="block h-2 w-full overflow-hidden rounded-full bg-surface-elevated">
+              <span
+                className={[
+                  'block h-full rounded-full transition-all',
+                  pct >= 90
+                    ? 'bg-status-error'
+                    : pct >= 70
+                      ? 'bg-status-degraded'
+                      : 'bg-status-healthy',
+                ].join(' ')}
+                style={{ width: `${pct}%` }}
+                role="progressbar"
+                aria-valuenow={pct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              />
+            </span>
+          </figure>
+        </Stack>
       </CardContent>
     </Card>
   );

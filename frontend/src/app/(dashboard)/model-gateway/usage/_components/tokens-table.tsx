@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -68,18 +69,18 @@ export function TokensTable() {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+        <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
+          <Stack gap="none">
             <CardTitle>Tokens over time</CardTitle>
             <CardDescription>Prompt and output token consumption per period</CardDescription>
-          </div>
+          </Stack>
           <TableControls
             granularity={granularity}
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
           />
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent flush>
         <TableRoot>
@@ -88,13 +89,19 @@ export function TokensTable() {
               <TableRow>
                 <TableHead>Period</TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Total</div>
+                  <Stack direction="horizontal" justify="end">
+                    Total
+                  </Stack>
                 </TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Prompt</div>
+                  <Stack direction="horizontal" justify="end">
+                    Prompt
+                  </Stack>
                 </TableHead>
                 <TableHead>
-                  <div className="flex justify-end">Output</div>
+                  <Stack direction="horizontal" justify="end">
+                    Output
+                  </Stack>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -102,11 +109,15 @@ export function TokensTable() {
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4}>
-                    <div className="text-center py-8">
-                      <Text size="supporting" color="muted">
-                        No data for selected period
-                      </Text>
-                    </div>
+                    <Stack align="center" justify="center">
+                      <Stack asChild>
+                        <figure className="py-8 text-center m-0">
+                          <Text size="supporting" color="muted">
+                            No data for selected period
+                          </Text>
+                        </figure>
+                      </Stack>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -118,25 +129,25 @@ export function TokensTable() {
                       </Text>
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end">
+                      <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular weight="emphasis">
                           {fmtTokens(row.totalTokens)}
                         </Text>
-                      </div>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end">
+                      <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular color="muted">
                           {fmtTokens(row.promptTokens)}
                         </Text>
-                      </div>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end">
+                      <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular color="muted">
                           {fmtTokens(row.outputTokens)}
                         </Text>
-                      </div>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 ))

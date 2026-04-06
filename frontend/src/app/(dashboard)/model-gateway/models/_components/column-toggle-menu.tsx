@@ -1,7 +1,7 @@
 'use client';
 
 import { Settings2 } from 'lucide-react';
-import { Button, Popover, PopoverTrigger, PopoverContent, Text } from '@orbit/terra';
+import { Button, Popover, PopoverTrigger, PopoverContent, Stack, Text } from '@orbit/terra';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,37 +50,39 @@ export function ColumnToggleMenu({ visible, onToggle }: ColumnToggleMenuProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end">
-        <div className="w-52 p-0">
-          <div className="border-b border-border px-3 py-2">
-            <Text size="caption" color="muted">
-              Toggle columns
-            </Text>
-          </div>
-          <fieldset className="py-1 border-0 m-0 p-0">
-            <legend className="sr-only">Visible columns</legend>
-            {ALL_COLUMNS.map((col) => {
-              const checked = visible.has(col.id);
-              return (
-                <label
-                  key={col.id}
-                  className={[
-                    'flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors',
-                    col.locked ? 'cursor-not-allowed opacity-50' : 'hover:bg-surface-elevated',
-                  ].join(' ')}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={col.locked}
-                    onChange={() => !col.locked && onToggle(col.id)}
-                    className="accent-accent size-3.5 cursor-pointer rounded"
-                  />
-                  <Text size="supporting">{col.label}</Text>
-                </label>
-              );
-            })}
-          </fieldset>
-        </div>
+        <Stack asChild gap="none">
+          <menu className="w-52 p-0 list-none m-0">
+            <li className="border-b border-border px-3 py-2">
+              <Text size="caption" color="muted">
+                Toggle columns
+              </Text>
+            </li>
+            <fieldset className="py-1 border-0 m-0 p-0">
+              <legend className="sr-only">Visible columns</legend>
+              {ALL_COLUMNS.map((col) => {
+                const checked = visible.has(col.id);
+                return (
+                  <label
+                    key={col.id}
+                    className={[
+                      'flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors',
+                      col.locked ? 'cursor-not-allowed opacity-50' : 'hover:bg-surface-elevated',
+                    ].join(' ')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={col.locked}
+                      onChange={() => !col.locked && onToggle(col.id)}
+                      className="accent-accent size-3.5 cursor-pointer rounded"
+                    />
+                    <Text size="supporting">{col.label}</Text>
+                  </label>
+                );
+              })}
+            </fieldset>
+          </menu>
+        </Stack>
       </PopoverContent>
     </Popover>
   );

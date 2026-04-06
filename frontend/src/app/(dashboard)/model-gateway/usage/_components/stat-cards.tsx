@@ -7,6 +7,7 @@ import {
   Grid,
   Heading,
   Separator,
+  Stack,
   Text,
 } from '@orbit/terra';
 
@@ -46,25 +47,29 @@ interface StatRowProps {
 
 function StatRow({ label, value }: StatRowProps) {
   return (
-    <div className="flex items-center justify-between py-1.5">
-      <Text size="supporting" color="muted">
-        {label}
-      </Text>
-      <Text size="supporting" weight="emphasis" mono tabular>
-        {value}
-      </Text>
-    </div>
+    <Stack asChild direction="horizontal" align="center" justify="between">
+      <section className="py-1.5">
+        <Text size="supporting" color="muted">
+          {label}
+        </Text>
+        <Text size="supporting" weight="emphasis" mono tabular>
+          {value}
+        </Text>
+      </section>
+    </Stack>
   );
 }
 
 /**
- * Separator omits className — wrap in a div to apply vertical margin.
+ * Separator omits className — wrap in a figure to apply vertical margin.
  */
 function CardDivider() {
   return (
-    <div className="my-3">
-      <Separator span="full" />
-    </div>
+    <Stack asChild>
+      <figure className="my-3 m-0">
+        <Separator span="full" />
+      </figure>
+    </Stack>
   );
 }
 
@@ -74,26 +79,26 @@ function CostCard({ spend }: { spend: StatsShape['spend'] }) {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
+        <Stack direction="horizontal" align="center" gap="tight">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
             <DollarSign className="size-4" aria-hidden />
-          </div>
+          </span>
           <CardTitle>Costs</CardTitle>
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent>
         <Heading variant="metric">{fmt(spend.period)}</Heading>
-        <div className="mt-0.5">
-          <Text size="caption" color="muted">
-            Current billing period
-          </Text>
-        </div>
+        <Text size="caption" color="muted">
+          Current billing period
+        </Text>
         <CardDivider />
-        <div className="divide-y divide-border-subtle">
+        <Stack gap="none">
           <StatRow label="This month" value={fmt(spend.month)} />
+          <Separator />
           <StatRow label="This quarter" value={fmt(spend.quarter)} />
+          <Separator />
           <StatRow label="This year" value={fmt(spend.year)} />
-        </div>
+        </Stack>
       </CardContent>
     </Card>
   );
@@ -106,25 +111,24 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
+        <Stack direction="horizontal" align="center" gap="tight">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
             <Activity className="size-4" aria-hidden />
-          </div>
+          </span>
           <CardTitle>Requests</CardTitle>
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent>
         <Heading variant="metric">{fmtReqs(requests.total)}</Heading>
-        <div className="mt-0.5">
-          <Text size="caption" color="status-healthy">
-            {successRate}% success rate
-          </Text>
-        </div>
+        <Text size="caption" color="status-healthy">
+          {successRate}% success rate
+        </Text>
         <CardDivider />
-        <div className="divide-y divide-border-subtle">
+        <Stack gap="none">
           <StatRow label="Successful" value={fmtReqs(requests.successful)} />
+          <Separator />
           <StatRow label="Failed" value={fmtReqs(requests.errored)} />
-        </div>
+        </Stack>
       </CardContent>
     </Card>
   );
@@ -134,26 +138,26 @@ function TokensCard({ tokens }: { tokens: StatsShape['tokens'] }) {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
+        <Stack direction="horizontal" align="center" gap="tight">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
             <Zap className="size-4" aria-hidden />
-          </div>
+          </span>
           <CardTitle>Tokens</CardTitle>
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent>
         <Heading variant="metric">{fmtTokens(tokens.period)}</Heading>
-        <div className="mt-0.5">
-          <Text size="caption" color="muted">
-            Current billing period
-          </Text>
-        </div>
+        <Text size="caption" color="muted">
+          Current billing period
+        </Text>
         <CardDivider />
-        <div className="divide-y divide-border-subtle">
+        <Stack gap="none">
           <StatRow label="This month" value={fmtTokens(tokens.month)} />
+          <Separator />
           <StatRow label="This quarter" value={fmtTokens(tokens.quarter)} />
+          <Separator />
           <StatRow label="This year" value={fmtTokens(tokens.year)} />
-        </div>
+        </Stack>
       </CardContent>
     </Card>
   );

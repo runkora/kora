@@ -11,6 +11,7 @@ import {
   ChartContainer,
   ChartTooltipContent,
   ChartLegendContent,
+  Stack,
   type ChartConfig,
 } from '@orbit/terra';
 import { DAILY_REQUESTS, type DailyRequestRow } from '../../_data/mock';
@@ -77,18 +78,18 @@ export function RequestsChart() {
   return (
     <Card column>
       <CardHeader compact>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+        <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
+          <Stack gap="none">
             <CardTitle>Requests over time</CardTitle>
             <CardDescription>Total, successful, and errored requests</CardDescription>
-          </div>
+          </Stack>
           <TableControls
             granularity={granularity}
             period={period}
             onGranularityChange={setGranularity}
             onPeriodChange={setPeriod}
           />
-        </div>
+        </Stack>
       </CardHeader>
       <CardContent>
         <ChartContainer config={CHART_CONFIG} height={280}>

@@ -8,7 +8,7 @@
 // All interactive state (favourites, refresh, etc.) lives in ModelsProvider via
 // the useModels hook. Children access it via useModelsContext().
 
-import { Heading, Separator, Text } from '@orbit/terra';
+import { Heading, Section, Separator, Stack, Text } from '@orbit/terra';
 import { ModelsProvider, useModelsContext } from '../../_context/models-context';
 import type { ModelRow } from '../../_types';
 import { ModelCardGrid } from './model-card-grid';
@@ -47,17 +47,15 @@ function FavouritesSection() {
 
 function ModelsPageContent() {
   return (
-    <div className="px-6 py-8 max-w-screen-xl mx-auto">
-      <div className="flex flex-col gap-10">
+    <Section>
+      <Stack gap="spacious">
         {/* ── Page header ── */}
-        <div>
+        <Stack gap="snug">
           <Heading variant="title">Models</Heading>
-          <div className="mt-1">
-            <Text size="supporting" color="muted">
-              Browse available AI models and manage your favourites.
-            </Text>
-          </div>
-        </div>
+          <Text size="supporting" color="muted">
+            Browse available AI models and manage your favourites.
+          </Text>
+        </Stack>
 
         {/* ── Section 1: Favourites ── */}
         <FavouritesSection />
@@ -65,18 +63,16 @@ function ModelsPageContent() {
         <Separator />
 
         {/* ── Section 2: Full model list ── */}
-        <div className="flex flex-col gap-4">
-          <div>
+        <Stack gap="comfortable">
+          <Stack gap="none">
             <Heading variant="section">All models</Heading>
-            <div className="mt-0.5">
-              <Text size="supporting" color="muted">
-                Click any row to view full details. Use the column toggle to customise your view.
-              </Text>
-            </div>
-          </div>
+            <Text size="supporting" color="muted">
+              Click any row to view full details. Use the column toggle to customise your view.
+            </Text>
+          </Stack>
           <ModelsTable />
-        </div>
-      </div>
-    </div>
+        </Stack>
+      </Stack>
+    </Section>
   );
 }

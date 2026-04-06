@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
+  Stack,
   Text,
 } from '@orbit/terra';
 
@@ -72,42 +73,40 @@ export function ApiKeyCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-3">
+        <Stack gap="snug">
           <Text size="caption" color="muted">
             Your API key is partially masked. Click the field or copy icon to copy the full key.
           </Text>
 
           {/* Masked key field */}
-          <div
-            className="group flex cursor-pointer items-center justify-between rounded-md border border-border bg-surface-elevated px-3 py-2.5 transition-colors hover:border-border-strong"
-            onClick={handleCopy}
-            role="button"
-            tabIndex={0}
-            aria-label="Copy API key"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') handleCopy();
-            }}
-          >
-            <div className="select-none min-w-0">
-              <Text size="supporting" mono truncate>
-                {masked}
-              </Text>
-            </div>
-            <span className="ml-3 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
-              {copied ? (
-                <Check className="size-4 text-status-healthy" />
-              ) : (
-                <Copy className="size-4" />
-              )}
-            </span>
-          </div>
+          <Stack asChild direction="horizontal" align="center" justify="between">
+            <button
+              type="button"
+              className="group cursor-pointer rounded-md border border-border bg-surface-elevated px-3 py-2.5 transition-colors hover:border-border-strong w-full text-left"
+              onClick={handleCopy}
+              aria-label="Copy API key"
+            >
+              <span className="select-none min-w-0 block">
+                <Text size="supporting" mono truncate>
+                  {masked}
+                </Text>
+              </span>
+              <span className="ml-3 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
+                {copied ? (
+                  <Check className="size-4 text-status-healthy" />
+                ) : (
+                  <Copy className="size-4" />
+                )}
+              </span>
+            </button>
+          </Stack>
 
           {copied && (
             <Text size="caption" color="status-healthy">
               ✓ Copied to clipboard
             </Text>
           )}
-        </div>
+        </Stack>
       </CardContent>
       <CardFooter justify="between">
         <Text size="caption" color="subtle">

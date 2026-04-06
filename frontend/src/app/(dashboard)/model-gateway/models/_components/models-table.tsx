@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Heart, ArrowUp, ArrowDown, ArrowUpDown, ListFilter, Check } from 'lucide-react';
 import {
   Badge,
+  Stack,
   Text,
   TableRoot,
   Table,
@@ -136,40 +137,42 @@ function FilterPopover({ options, selected, onToggle, onClear }: FilterPopoverPr
         </button>
       </PopoverTrigger>
       <PopoverContent>
-        <div className="w-44 p-1">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onToggle(opt.value)}
-              className={[
-                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors',
-                'hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent',
-                selected.has(opt.value) ? 'text-foreground' : 'text-muted-foreground',
-              ].join(' ')}
-            >
-              <span className="flex size-3.5 shrink-0 items-center justify-center rounded border border-border">
-                {selected.has(opt.value) && <Check className="size-2.5 text-accent" />}
-              </span>
-              {opt.dotClass && (
-                <span className={`size-1.5 shrink-0 rounded-full ${opt.dotClass}`} />
-              )}
-              {opt.label}
-            </button>
-          ))}
-          {active && (
-            <>
-              <div className="my-1 h-px bg-border" />
+        <Stack asChild gap="none">
+          <menu className="w-44 p-1 list-none m-0">
+            {options.map((opt) => (
               <button
+                key={opt.value}
                 type="button"
-                onClick={onClear}
-                className="flex w-full items-center rounded px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
+                onClick={() => onToggle(opt.value)}
+                className={[
+                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors',
+                  'hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent',
+                  selected.has(opt.value) ? 'text-foreground' : 'text-muted-foreground',
+                ].join(' ')}
               >
-                Clear filter
+                <span className="flex size-3.5 shrink-0 items-center justify-center rounded border border-border">
+                  {selected.has(opt.value) && <Check className="size-2.5 text-accent" />}
+                </span>
+                {opt.dotClass && (
+                  <span className={`size-1.5 shrink-0 rounded-full ${opt.dotClass}`} />
+                )}
+                {opt.label}
               </button>
-            </>
-          )}
-        </div>
+            ))}
+            {active && (
+              <>
+                <hr className="my-1 border-border" />
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="flex w-full items-center rounded px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  Clear filter
+                </button>
+              </>
+            )}
+          </menu>
+        </Stack>
       </PopoverContent>
     </Popover>
   );
@@ -200,13 +203,13 @@ function Chips({ values }: { values: string[] }) {
       </Text>
     );
   return (
-    <div className="flex flex-wrap gap-1">
+    <Stack direction="horizontal" wrap gap="tight">
       {values.map((v) => (
         <Badge key={v} variant="outline" size="sm">
           {v}
         </Badge>
       ))}
-    </div>
+    </Stack>
   );
 }
 
@@ -239,7 +242,11 @@ export function ModelsTable() {
   const toggleColumn = useCallback((id: ColumnId) => {
     setVisible((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }, []);
@@ -247,7 +254,11 @@ export function ModelsTable() {
   const toggleProvider = useCallback((p: string) => {
     setFilters((prev) => {
       const next = new Set(prev.providers);
-      next.has(p) ? next.delete(p) : next.add(p);
+      if (next.has(p)) {
+        next.delete(p);
+      } else {
+        next.add(p);
+      }
       return { ...prev, providers: next };
     });
   }, []);
@@ -255,7 +266,11 @@ export function ModelsTable() {
   const toggleStatus = useCallback((s: string) => {
     setFilters((prev) => {
       const next = new Set(prev.statuses);
-      next.has(s as ModelStatus) ? next.delete(s as ModelStatus) : next.add(s as ModelStatus);
+      if (next.has(s as ModelStatus)) {
+        next.delete(s as ModelStatus);
+      } else {
+        next.add(s as ModelStatus);
+      }
       return { ...prev, statuses: next };
     });
   }, []);
@@ -279,11 +294,11 @@ export function ModelsTable() {
   return (
     <>
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
+      <Stack direction="horizontal" align="center" justify="between" gap="snug">
         <Text size="supporting" color="muted">
           {filteredRows.length} of {models.length} models
         </Text>
-        <div className="flex items-center gap-2">
+        <Stack direction="horizontal" align="center" gap="tight">
           <input
             type="search"
             placeholder="Search…"
@@ -292,8 +307,8 @@ export function ModelsTable() {
             className="h-8 w-72 rounded-md border border-border bg-surface-elevated px-3 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           />
           <ColumnToggleMenu visible={visible} onToggle={toggleColumn} />
-        </div>
-      </div>
+        </Stack>
+      </Stack>
 
       {/* Table */}
       <TableRoot>
@@ -304,7 +319,7 @@ export function ModelsTable() {
 
               {col('status') && (
                 <TableHead>
-                  <div className="flex items-center justify-center gap-1">
+                  <Stack direction="horizontal" align="center" justify="center" gap="tight">
                     <span>Status</span>
                     <FilterPopover
                       options={STATUS_OPTIONS}
@@ -312,13 +327,13 @@ export function ModelsTable() {
                       onToggle={toggleStatus}
                       onClear={() => setFilters((prev) => ({ ...prev, statuses: new Set() }))}
                     />
-                  </div>
+                  </Stack>
                 </TableHead>
               )}
 
               {col('provider') && (
                 <TableHead>
-                  <div className="flex items-center gap-1">
+                  <Stack direction="horizontal" align="center" gap="tight">
                     <SortButton
                       label="Provider"
                       columnKey="provider"
@@ -332,7 +347,7 @@ export function ModelsTable() {
                       onToggle={toggleProvider}
                       onClear={() => setFilters((prev) => ({ ...prev, providers: new Set() }))}
                     />
-                  </div>
+                  </Stack>
                 </TableHead>
               )}
 
@@ -359,11 +374,15 @@ export function ModelsTable() {
             {filteredRows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={ALL_COLUMNS.length}>
-                  <div className="py-12 text-center">
-                    <Text size="supporting" color="muted">
-                      No models match your filters.
-                    </Text>
-                  </div>
+                  <Stack align="center" justify="center" gap="none">
+                    <Stack asChild>
+                      <figure className="py-12 text-center">
+                        <Text size="supporting" color="muted">
+                          No models match your filters.
+                        </Text>
+                      </figure>
+                    </Stack>
+                  </Stack>
                 </TableCell>
               </TableRow>
             ) : (
@@ -379,7 +398,7 @@ export function ModelsTable() {
                   >
                     {col('favourite') && (
                       <TableCell>
-                        <div className="w-8 px-2 py-0 text-center">
+                        <Stack align="center" justify="center">
                           {(isFav || isHovered) && (
                             <button
                               type="button"
@@ -398,14 +417,14 @@ export function ModelsTable() {
                               />
                             </button>
                           )}
-                        </div>
+                        </Stack>
                       </TableCell>
                     )}
                     {col('status') && (
                       <TableCell>
-                        <div className="flex justify-center">
+                        <Stack direction="horizontal" justify="center">
                           <AvailabilityDot status={row.status} />
-                        </div>
+                        </Stack>
                       </TableCell>
                     )}
                     {col('provider') && (
@@ -415,14 +434,14 @@ export function ModelsTable() {
                     )}
                     {col('name') && (
                       <TableCell>
-                        <div>
+                        <Stack gap="none">
                           <Text size="supporting" weight="emphasis">
                             {row.name}
                           </Text>
                           <Text size="caption" color="muted" mono truncate>
                             {row.id}
                           </Text>
-                        </div>
+                        </Stack>
                       </TableCell>
                     )}
                     {col('capabilities') && (

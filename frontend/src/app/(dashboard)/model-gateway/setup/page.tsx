@@ -1,31 +1,29 @@
-import { Heading, Text } from '@orbit/terra';
+import { Grid, Heading, Section, Stack, Text } from '@orbit/terra';
 import { UsageOverviewCard } from './_components/usage-overview-card';
 import { ApiKeyCard } from './_components/api-key-card';
 import { SetupInstructions } from './_components/setup-instructions';
 
 export default function SetupPage() {
   return (
-    <div className="px-6 py-8 max-w-screen-xl mx-auto">
-      <div className="flex flex-col gap-8">
+    <Section>
+      <Stack gap="spacious">
         {/* ── Page header ── */}
-        <div>
+        <Stack gap="snug">
           <Heading variant="title">Setup</Heading>
-          <div className="mt-1">
-            <Text size="supporting" color="muted">
-              Manage your API key and configure your local agent to use the Orbit Model Gateway.
-            </Text>
-          </div>
-        </div>
+          <Text size="supporting" color="muted">
+            Manage your API key and configure your local agent to use the Orbit Model Gateway.
+          </Text>
+        </Stack>
 
         {/* ── Top row: Usage overview + API key side by side on wide screens ── */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
           <UsageOverviewCard />
           <ApiKeyCard />
-        </div>
+        </Grid>
 
         {/* ── Setup instructions ── */}
         <SetupInstructions />
-      </div>
-    </div>
+      </Stack>
+    </Section>
   );
 }
