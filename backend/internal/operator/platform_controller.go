@@ -251,13 +251,21 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 		if err := r.reconcileIstiod(ctx, p, versions); err != nil {
 			return fmt.Errorf("istiod: %w", err)
 		}
+	}
+
+	// orbit-platform must be installed before the gateway so that the
+	// ClusterSPIFFEID resources (istio-gateway, orbit-system-component, etc.)
+	// exist before the gateway pod starts and requests a SPIFFE SVID from SPIRE.
+	// Without this the gateway is stuck waiting for a SPIRE entry that never
+	// arrives, causing the Helm install to time out and the operator to loop.
+	if err := r.reconcileOrbitPlatform(ctx, p); err != nil {
+		return fmt.Errorf("orbit-platform: %w", err)
+	}
+
+	if p.Spec.Istio.Enabled {
 		if err := r.reconcileGateway(ctx, p, versions); err != nil {
 			return fmt.Errorf("gateway: %w", err)
 		}
-	}
-
-	if err := r.reconcileOrbitPlatform(ctx, p); err != nil {
-		return fmt.Errorf("orbit-platform: %w", err)
 	}
 
 	// Ensure the non-secret platform config ConfigMap exists before deploying
@@ -434,12 +442,36 @@ func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatf
 		serviceType = "LoadBalancer"
 	}
 
-	// ServiceType is the only gateway knob an operator needs. Use NodePort on
-	// local clusters (e.g. k3d) that have no cloud LoadBalancer controller —
-	// otherwise Helm --wait blocks indefinitely waiting for EXTERNAL-IP.
+	// Wire the Istio ingress gateway to SPIRE so it shares the same CA root as
+	// all orbit-system sidecar proxies. Without this the gateway uses istiod's
+	// self-signed CA while sidecars use SPIRE's CA, causing TLS verify failures
+	// on every inbound route (CERTIFICATE_VERIFY_FAILED / SAN mismatch).
+	//
+	// The SPIFFE CSI volume is already present in the cluster (installed by the
+	// spire chart); we just need to mount it and tell pilot-agent to use it.
 	gatewayValues := map[string]any{
 		"service": map[string]any{
 			"type": serviceType,
+		},
+		"env": map[string]any{
+			"PILOT_CERT_PROVIDER":    "spire",
+			"SPIFFE_ENDPOINT_SOCKET": "unix:///run/secrets/workload-spiffe-uds/socket",
+		},
+		"volumes": []map[string]any{
+			{
+				"name": "workload-socket",
+				"csi": map[string]any{
+					"driver":   "csi.spiffe.io",
+					"readOnly": true,
+				},
+			},
+		},
+		"volumeMounts": []map[string]any{
+			{
+				"name":      "workload-socket",
+				"mountPath": "/run/secrets/workload-spiffe-uds",
+				"readOnly":  true,
+			},
 		},
 	}
 

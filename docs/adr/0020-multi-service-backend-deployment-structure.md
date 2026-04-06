@@ -15,15 +15,15 @@ ADR-0001 listed "Microservices architecture with multiple backend services" as a
 
 However, the enforcement architecture has since been fully specified (ADRs 0010, 0011, 0015), and it has a structural consequence that ADR-0001 did not anticipate:
 
-- ADR-0010 assigns a distinct SPIFFE ID to each platform service (`spiffe://orbit.local/system/identity`, `spiffe://orbit.local/system/ext-authz`, `spiffe://orbit.local/system/outbound-gateway`). A SPIFFE ID is a workload identity — it is assigned to a Kubernetes pod, not to a process within a pod.
+- ADR-0010 assigns a distinct SPIFFE ID to each platform service (`spiffe://orbit.test/system/identity`, `spiffe://orbit.test/system/ext-authz`, `spiffe://orbit.test/system/outbound-gateway`). A SPIFFE ID is a workload identity — it is assigned to a Kubernetes pod, not to a process within a pod.
 - ADR-0011 places an Envoy sidecar on every service pod. The sidecar performs mTLS using the pod's SVID and enforces `ext_authz` policy on every inbound request. A single pod running all services cannot have independent per-service sidecars.
 - ADR-0015 uses Istio's per-namespace sidecar injection and Cilium's pod-level eBPF network policy. Both operate at the pod boundary. A single all-features pod cannot be addressed by these controls at the per-service granularity that the security model requires.
 
 The infrastructure SPIFFE ID model (established in `infrastructure/base/spiffe.yaml`) uses three generic `ClusterSPIFFEID` templates rather than per-service resources:
 
-- `orbit-system-component` — any pod in the `orbit-system` namespace carrying the label `spiffe.io/component: <name>` is automatically issued SPIFFE ID `spiffe://orbit.local/system/<name>`
-- `orbit-tenant-service` — any pod in the `orbit-tenant` namespace with label `spiffe.io/service: <name>` gets `spiffe://orbit.local/tenant/<namespace>/service/<name>`
-- `orbit-tenant-agent` — any pod in the `orbit-agent` namespace with label `spiffe.io/agent: <name>` gets `spiffe://orbit.local/tenant/<namespace>/agent/<name>`
+- `orbit-system-component` — any pod in the `orbit-system` namespace carrying the label `spiffe.io/component: <name>` is automatically issued SPIFFE ID `spiffe://orbit.test/system/<name>`
+- `orbit-tenant-service` — any pod in the `orbit-tenant` namespace with label `spiffe.io/service: <name>` gets `spiffe://orbit.test/tenant/<namespace>/service/<name>`
+- `orbit-tenant-agent` — any pod in the `orbit-agent` namespace with label `spiffe.io/agent: <name>` gets `spiffe://orbit.test/tenant/<namespace>/agent/<name>`
 
 No per-service `ClusterSPIFFEID` resource is required. A new service acquires its SPIFFE identity solely by setting the appropriate pod label. Application manifests live in `k8s/` (not `infrastructure/`), which handles cluster-level concerns only (SPIRE, Istio, namespaces, network policies).
 
@@ -128,7 +128,7 @@ We need to define:
 
 The Go module system's `internal/` visibility rules are sufficient to enforce the package boundaries that matter. A Go workspace is solving a problem we do not have. The mode-flag approach (Option A) papers over the deployment reality rather than modelling it.
 
-Option B produces code structure that directly mirrors the deployment topology: `backend/cmd/identity/` maps to a k8s Deployment in `k8s/identity.yaml`, labelled `spiffe.io/component: identity`, which the generic `orbit-system-component` ClusterSPIFFEID template automatically gives the SPIFFE ID `spiffe://orbit.local/system/identity`. The relationship from source to running workload is unambiguous.
+Option B produces code structure that directly mirrors the deployment topology: `backend/cmd/identity/` maps to a k8s Deployment in `k8s/identity.yaml`, labelled `spiffe.io/component: identity`, which the generic `orbit-system-component` ClusterSPIFFEID template automatically gives the SPIFFE ID `spiffe://orbit.test/system/identity`. The relationship from source to running workload is unambiguous.
 
 ---
 
@@ -195,10 +195,10 @@ To give a service its SPIFFE identity, set the appropriate label on its pod:
 
 | Namespace | Pod label | Resulting SPIFFE ID |
 |---|---|---|
-| `orbit-system` | `spiffe.io/component: identity` | `spiffe://orbit.local/system/identity` |
-| `orbit-system` | `spiffe.io/component: ext-authz` | `spiffe://orbit.local/system/ext-authz` |
-| `orbit-tenant` | `spiffe.io/service: <name>` | `spiffe://orbit.local/tenant/<ns>/service/<name>` |
-| `orbit-agent` | `spiffe.io/agent: <name>` | `spiffe://orbit.local/tenant/<ns>/agent/<name>` |
+| `orbit-system` | `spiffe.io/component: identity` | `spiffe://orbit.test/system/identity` |
+| `orbit-system` | `spiffe.io/component: ext-authz` | `spiffe://orbit.test/system/ext-authz` |
+| `orbit-tenant` | `spiffe.io/service: <name>` | `spiffe://orbit.test/tenant/<ns>/service/<name>` |
+| `orbit-agent` | `spiffe.io/agent: <name>` | `spiffe://orbit.test/tenant/<ns>/agent/<name>` |
 
 Example pod template labels for the identity service:
 
@@ -215,11 +215,11 @@ annotations:
 
 | k8s Service | Binary entrypoint | SPIFFE ID | Internal feature package |
 |---|---|---|---|
-| identity | `cmd/identity/` | `spiffe://orbit.local/system/identity` | `internal/identity/` |
-| ext-authz | `cmd/ext-authz/` | `spiffe://orbit.local/system/ext-authz` | `internal/policy/` |
-| outbound-gateway | `cmd/gateway/` | `spiffe://orbit.local/system/outbound-gateway` | `internal/credentials/` |
-| agents (future) | `cmd/agents/` | `spiffe://orbit.local/system/agents` | `internal/agents/` |
-| run-manager (future) | `cmd/run-manager/` | `spiffe://orbit.local/system/run-manager` | `internal/runs/` |
+| identity | `cmd/identity/` | `spiffe://orbit.test/system/identity` | `internal/identity/` |
+| ext-authz | `cmd/ext-authz/` | `spiffe://orbit.test/system/ext-authz` | `internal/policy/` |
+| outbound-gateway | `cmd/gateway/` | `spiffe://orbit.test/system/outbound-gateway` | `internal/credentials/` |
+| agents (future) | `cmd/agents/` | `spiffe://orbit.test/system/agents` | `internal/agents/` |
+| run-manager (future) | `cmd/run-manager/` | `spiffe://orbit.test/system/run-manager` | `internal/runs/` |
 
 ### Migrations: Per-Service Ownership
 
@@ -379,7 +379,7 @@ No `ClusterSPIFFEID` resource is required — step 3 is the only infrastructure 
 
 - Each service binary compiles independently via `go build ./cmd/{service}/...` with no other service's feature packages in its import graph
 - `make migrate-up` applies all service migrations in timestamp order and is idempotent — passes in CI with no manual steps
-- The identity service runs as a standalone binary in the local k3d cluster (Tier 2) with its SPIFFE ID attested (`spiffe://orbit.local/system/identity`) and its Istio sidecar injected
+- The identity service runs as a standalone binary in the local k3d cluster (Tier 2) with its SPIFFE ID attested (`spiffe://orbit.test/system/identity`) and its Istio sidecar injected
 - No `internal/{feature}/` package imports another feature package (enforced by import cycle check in CI)
 
 ### Monitoring

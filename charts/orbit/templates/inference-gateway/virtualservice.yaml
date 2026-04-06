@@ -1,0 +1,28 @@
+# VirtualService for the Orbit inference gateway.
+#
+# Routes all traffic for api.orbit.test through the platform Gateway to the
+# orbit-inference-gateway ClusterIP service. Agent CLIs and developer tooling
+# reach the OpenAI-compatible API at https://api.orbit.test:8443/v1/*.
+#
+# The Gateway resource lives in charts/orbit-platform/templates/gateway.yaml.
+#
+# Ref: ADR-0034 (frontend cluster deployment and ingress routing)
+# Ref: ADR-0023 (inference gateway architecture)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: orbit-inference-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.inferenceGateway.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - "api.orbit.test"
+  gateways:
+    - {{ include "orbit.systemNamespace" . }}/orbit-gateway
+  http:
+    - route:
+        - destination:
+            host: orbit-inference-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80

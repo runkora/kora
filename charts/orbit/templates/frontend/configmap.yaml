@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-frontend-config
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.frontend.labels" . | nindent 4 }}
+data:
+  # URL of the Go identity service as seen from inside the cluster.
+  # Used by the Next.js BFF server-side routes to call the identity API.
+  # Never sent to the browser.
+  ORBIT_API_URL: {{ required "frontend.config.orbitApiUrl must be set" .Values.frontend.config.orbitApiUrl | quote }}
+
+  # Public base URL of this frontend, as seen from the browser.
+  # Also available at runtime for server-side code that reads process.env.NEXT_PUBLIC_APP_URL.
+  # Note: Next.js inlines NEXT_PUBLIC_* values into client bundles at build time —
+  # the value here does not affect what was baked into the image, but should match it.
+  NEXT_PUBLIC_APP_URL: {{ required "frontend.config.nextPublicAppUrl must be set" .Values.frontend.config.nextPublicAppUrl | quote }}

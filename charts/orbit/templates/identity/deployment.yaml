@@ -33,8 +33,12 @@ spec:
         # orbit-network (external to the mesh). Envoy cannot route plain TCP
         # traffic through mTLS to these hosts; bypass so connections go directly
         # to their container IPs without Envoy interception.
-        traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379"
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
     spec:
+      {{- if .Values.identity.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.identity.hostAliases | nindent 8 }}
+      {{- end }}
       serviceAccountName: orbit-identity
       volumes:
         # SPIFFE CSI volume — delivers the SVID workload socket to the container.

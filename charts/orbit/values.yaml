@@ -46,6 +46,14 @@ identity:
   # Number of identity service replicas.
   replicas: 1
 
+  # hostAliases injects extra entries into the pod's /etc/hosts.
+  # Useful in local dev to resolve Docker Compose hostnames (e.g. dex.orbit.test)
+  # from within the k3d cluster. Empty by default (no extra entries).
+  hostAliases: []
+  # - ip: "<dex-container-ip>"   # resolved dynamically at cluster setup time
+  #   hostnames: ["dex.orbit.test"]
+
+
   # Resource requests and limits.
   resources:
     requests:
@@ -99,6 +107,76 @@ identity:
   # Mounted with optional: true so the pod starts cleanly before any confidential
   # tenants are provisioned. Operator default: "orbit-tenant-oidc-secrets".
   existingClientSecretsSecret: "orbit-tenant-oidc-secrets"
+
+# -- Inference gateway service configuration.
+inferenceGateway:
+  # Container image for the orbit-inference-gateway service.
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-inference-gateway"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  # Number of inference gateway replicas.
+  replicas: 1
+
+  # Resource requests and limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  # Security and observability tunables — same pattern as identity service.
+  config:
+    postgresSSLMode: "require"
+    postgresCaptureQueryText: "false"
+    otlpInsecure: "false"
+    logFormat: "json"
+
+  # Name of the existing Secret containing DB_PASSWORD (and optionally provider credentials).
+  # Shares orbit-secrets with the identity service — extra keys are ignored.
+  existingSecret: "orbit-secrets"
+
+  # Name of the existing ConfigMap containing DB_HOST, DB_NAME, DB_PORT, DB_USER.
+  # Operator default: "orbit-config" (managed by operator, same as identity service).
+  existingConfigMap: "orbit-config"
+
+# -- Frontend service configuration.
+frontend:
+  # Container image for the orbit-frontend service.
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-frontend"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  # Number of frontend replicas.
+  replicas: 1
+
+  # Resource requests and limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Non-secret environment variables injected via the orbit-frontend-config ConfigMap.
+  # These are created directly by this chart (not operator-managed).
+  config:
+    # URL of the Go identity service, reachable from inside the cluster.
+    # Server-side only — never sent to the browser.
+    orbitApiUrl: ""
+    # Public base URL of the frontend, reachable from the browser.
+    # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
+    # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
+    nextPublicAppUrl: ""
+
+  # Name of the existing Secret containing BFF_SESSION_SECRET.
+  # Created by scripts/cluster/create-secrets.sh before the operator deploys this chart.
+  existingSecret: "orbit-frontend-secrets"
 
 # -- Platform namespace configuration.
 # The operator injects these from the OrbitPlatform CR and active OrbitTenant CRs.

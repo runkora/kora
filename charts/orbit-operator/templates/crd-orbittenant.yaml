@@ -119,6 +119,13 @@ spec:
                         - openid
                         - profile
                         - email
+                    emailDomains:
+                      description: >
+                        Email address domains routed to this tenant by Home
+                        Realm Discovery (e.g. ["acme.com", "acme.io"]).
+                      type: array
+                      items:
+                        type: string
                 deleteNamespaceOnRemoval:
                   description: >
                     Whether to delete the tenant namespace when the OrbitTenant

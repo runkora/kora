@@ -104,7 +104,7 @@ func xfccRequest(spiffeID string) *http.Request {
 func TestExchangeSVID_Success(t *testing.T) {
 	svc, sessions, _, _, _ := newFullTestService(t)
 
-	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
+	r := xfccRequest("spiffe://orbit.test/tenant/platform-team/agent/agent-1")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
@@ -135,7 +135,7 @@ func TestExchangeSVID_Success(t *testing.T) {
 }
 
 func TestExchangeSVID_TokenParses(t *testing.T) {
-	const spiffeID = "spiffe://orbit.local/tenant/platform-team/agent/agent-99"
+	const spiffeID = "spiffe://orbit.test/tenant/platform-team/agent/agent-99"
 	svc, _, _, _, _ := newFullTestService(t)
 
 	resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(spiffeID))
@@ -165,7 +165,7 @@ func TestExchangeSVID_TenantFromSPIFFEPath(t *testing.T) {
 	// Tenant ID is derived from the SPIFFE URI path — no caller override is allowed.
 	svc, _, _, _, _ := newFullTestService(t)
 
-	r := xfccRequest("spiffe://orbit.local/tenant/acme-corp/agent/deploy-bot")
+	r := xfccRequest("spiffe://orbit.test/tenant/acme-corp/agent/deploy-bot")
 	resp, err := svc.ExchangeSVID(context.Background(), r)
 	if err != nil {
 		t.Fatalf("ExchangeSVID: %v", err)
@@ -196,7 +196,7 @@ func TestExchangeSVID_SessionPersistError(t *testing.T) {
 	sessions.createErr = errors.New("db unavailable")
 	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
 
-	r := xfccRequest("spiffe://orbit.local/tenant/platform-team/agent/agent-1")
+	r := xfccRequest("spiffe://orbit.test/tenant/platform-team/agent/agent-1")
 	_, err := svc.ExchangeSVID(context.Background(), r)
 	if err == nil {
 		t.Fatal("expected error when session persistence fails")

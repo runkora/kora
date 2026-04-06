@@ -49,12 +49,18 @@ spec:
         - protocol: TCP
           port: 53
 ---
-# Allow intra-namespace traffic on Envoy sidecar ports only.
+# Allow intra-namespace traffic on Envoy sidecar ports and application ports.
+# - 3000:  orbit-frontend (Next.js)
+# - 8080:  orbit-identity
+# - 8081:  orbit-inference-gateway
 # - 15006: Envoy inbound iptables redirect
 # - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
 # - 15090: Envoy Prometheus metrics scrape
-# Application-level traffic transits through the sidecar (port 15006 redirect),
-# so this rule is sufficient for all intra-namespace pod-to-pod communication.
+#
+# NOTE: CNI NetworkPolicy enforcement fires on the original destination port
+# BEFORE iptables redirects traffic into the pod's Envoy sidecar. We must
+# therefore allow the actual application ports that the source Envoy dials
+# directly, not just the sidecar redirect ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -73,6 +79,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ $ns }}
       ports:
+        - port: 3000
+        - port: 8080
+        - port: 8081
         - port: 15006
         - port: 15008
         - port: 15090
@@ -82,6 +91,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ $ns }}
       ports:
+        - port: 3000
+        - port: 8080
+        - port: 8081
         - port: 15006
         - port: 15008
 ---
@@ -189,4 +201,47 @@ spec:
         {{- end }}
     {{- end }}
 {{- end }}
+---
+# Allow the Istio ingress gateway (istio-system) to reach orbit-system pods.
+# Required for external traffic routed via the orbit-gateway VirtualServices
+# (orbit.test → frontend, api.orbit.test → inference-gateway) to reach
+# their destination pods' Envoy sidecars.
+# Without this rule, the default-deny-all baseline blocks the gateway connection
+# and Envoy returns 503 "delayed connect error".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-ingress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        # Application ports — CNI NetworkPolicy enforcement fires on the original
+        # destination port before iptables redirect inside the pod's netns, so we
+        # must allow the actual app/sidecar ports that the gateway dials directly.
+        # 3000: orbit-frontend (Next.js)
+        # 8080: orbit-identity
+        # 8081: orbit-inference-gateway
+        - port: 3000
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+        - port: 8081
+          protocol: TCP
+        # Envoy inbound redirect port — in case any mesh-internal traffic arrives
+        # here (e.g. HBONE or direct sidecar-to-sidecar mTLS).
+        - port: 15006
+          protocol: TCP
+        # Envoy HBONE (HTTP/2 tunnel for mTLS) — ambient mesh traffic.
+        - port: 15008
+          protocol: TCP
 {{- end }}

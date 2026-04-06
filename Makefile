@@ -40,6 +40,10 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 # Developers on Docker Desktop can override this in .env: K3D_FIX_DNS=1
 K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
+# Frontend public URL — baked into the Next.js client bundle at Docker build time.
+# Override for non-local environments (e.g. CI): make docker-build-frontend NEXT_PUBLIC_APP_URL=https://my.host
+NEXT_PUBLIC_APP_URL ?= https://orbit.test:8443
+
 # Colors for output
 COLOR_RESET=\033[0m
 COLOR_BOLD=\033[1m
@@ -76,11 +80,15 @@ env: ## Scaffold .env from .env.example (no-op if .env already exists)
 	fi
 
 .PHONY: setup
-setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns ## Complete project setup (install tools, tidy dependencies, install hooks)
+setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns setup-tls ## Complete project setup (install tools, tidy dependencies, install hooks)
 	@echo "$(COLOR_GREEN)✓ Setup complete$(COLOR_RESET)"
+	@if [ ! -f secrets/tls.crt ]; then \
+		echo "$(COLOR_YELLOW)Note: TLS certs were not generated (non-macOS without mkcert).$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)      'make dev-up' will generate a self-signed fallback automatically.$(COLOR_RESET)"; \
+	fi
 
 .PHONY: setup-dns
-setup-dns: ## Configure *.orbit.local DNS on macOS via dnsmasq (idempotent, no-op on Linux)
+setup-dns: ## Configure *.orbit.test DNS on macOS via dnsmasq (idempotent, no-op on Linux)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
@@ -314,11 +322,15 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory dex-env; \
 	fi
-	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex)...$(COLOR_RESET)"
-	@docker compose up -d --wait postgres redis dex
-	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  http://dex.orbit.local:5556/dex"
-	@echo "  Test user:        dev@orbit.local / password"
+	@if [ ! -f secrets/tls.crt ] || [ ! -f secrets/tls.key ]; then \
+		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
+		$(MAKE) --no-print-directory setup-tls; \
+	fi
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex + port proxy)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis dex port-proxy
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex + port proxy ready$(COLOR_RESET)"
+	@echo "  Dex OIDC issuer:  https://dex.orbit.test:5556/dex"
+	@echo "  Test user:        dev@orbit.test / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
 	@echo ""
 	@echo "  Authenticate:     make auth-device"
@@ -373,6 +385,12 @@ docker-build-platform: ## Build platform service images (identity, identity-prox
 		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
 		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
+	@if [ -f secrets/mkcert-ca.pem ]; then \
+		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity for local Dex TLS trust...$(COLOR_RESET)"; \
+		printf 'FROM orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
+			docker build -t orbit-identity:latest -f - secrets/; \
+		echo "$(COLOR_GREEN)✓ orbit-identity:latest (with mkcert CA)$(COLOR_RESET)"; \
+	fi
 
 .PHONY: docker-build-tenant
 docker-build-tenant: ## Build tenant workload images (example)
@@ -416,8 +434,23 @@ docker-push-operator: ## Push orbit-operator image to local registry
 	@docker push localhost:5001/orbit-operator:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
 
+.PHONY: docker-build-frontend
+docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL into client bundle)
+	@echo "$(COLOR_YELLOW)Building orbit-frontend:latest (NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL))...$(COLOR_RESET)"
+	@docker build -t orbit-frontend:latest \
+		--build-arg NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL) \
+		frontend/
+	@echo "$(COLOR_GREEN)✓ orbit-frontend:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-frontend
+docker-push-frontend: docker-build-frontend ## Push the frontend image to the local k3d registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-frontend to local registry...$(COLOR_RESET)"
+	@docker tag orbit-frontend:latest localhost:5001/orbit-frontend:latest
+	@docker push localhost:5001/orbit-frontend:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
+
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
@@ -429,6 +462,10 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@until kubectl get namespace orbit-system &>/dev/null; do sleep 3; done
 	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-system
+	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
+	@$(MAKE) cluster-ca-configmap
+	@echo "$(COLOR_YELLOW)Resolving Docker container IPs and patching OrbitPlatform CR...$(COLOR_RESET)"
+	@bash scripts/cluster/resolve-docker-ips.sh
 	@echo "$(COLOR_YELLOW)Waiting for SPIRE + Istio (operator is installing)...$(COLOR_RESET)"
 	@echo "  Waiting for spire-system namespace..."
 	@until kubectl get namespace spire-system &>/dev/null; do sleep 3; done
@@ -440,10 +477,18 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@echo "  Waiting for istiod deployment..."
 	@until kubectl get deployment istiod -n istio-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/istiod -n istio-system --timeout=180s
+	@echo "$(COLOR_YELLOW)Creating TLS secret for Istio gateway...$(COLOR_RESET)"
+	@$(MAKE) cluster-tls-secret
 	@echo "  Waiting for orbit-identity (operator reconciling orbit-config + orbit chart)..."
 	@until kubectl get deployment orbit-identity -n orbit-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s
+	@echo "  Waiting for orbit-frontend (operator reconciling orbit chart)..."
+	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@echo "  Frontend:          https://orbit.test:8443"
+	@echo "  Inference gateway: https://api.orbit.test:8443/v1"
+	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
 .PHONY: cluster-update-operator
@@ -476,7 +521,7 @@ cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, r
 	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push ## Rebuild service images and restart deployments
+cluster-update: docker-build docker-push docker-push-frontend ## Rebuild service images and restart deployments
 	@echo "$(COLOR_YELLOW)Updating Orbit services in cluster...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
 	@kubectl rollout restart deployment -n orbit-tenant-example 2>/dev/null || true
@@ -506,6 +551,7 @@ cluster-update-service: ## Build, push and restart a single service (usage: make
 dev: ## Run identity service in development mode with auto-reload (air)
 	@echo "$(COLOR_YELLOW)Starting identity service in development mode...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
+	export GODEBUG=netdns=cgo; \
 	if command -v air > /dev/null; then \
 		air; \
 	else \
@@ -521,7 +567,7 @@ run: run-identity ## Alias for run-identity
 run-identity: ## Run the identity service
 	@echo "$(COLOR_YELLOW)Starting identity service...$(COLOR_RESET)"
 	@set -a; [ -f .env ] && . .env; set +a; \
-		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/identity/main.go
+		cd $(BACKEND_DIR) && GODEBUG=netdns=cgo $(GOCMD) run ./cmd/identity/main.go
 
 .PHONY: run-inference-gateway
 run-inference-gateway: ## Run the inference gateway (set provider env vars first — see backend/cmd/inference-gateway/config/local.yaml)
@@ -754,6 +800,32 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
+.PHONY: setup-tls
+setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.test (installs mkcert + CA if needed)
+	@chmod +x scripts/setup-tls.sh
+	@bash scripts/setup-tls.sh
+
+.PHONY: cluster-tls-secret
+cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in istio-system (run after setup-tls)
+	@[ -f secrets/tls.crt ] && [ -f secrets/tls.key ] || \
+		(echo "$(COLOR_RED)✗ secrets/tls.crt / secrets/tls.key not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
+	@kubectl create secret tls orbit-gateway-tls \
+		--cert=secrets/tls.crt \
+		--key=secrets/tls.key \
+		--namespace istio-system \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in istio-system$(COLOR_RESET)"
+
+.PHONY: cluster-ca-configmap
+cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-system (for Dex TLS verification)
+	@[ -f secrets/mkcert-ca.pem ] || \
+		(echo "$(COLOR_RED)✗ secrets/mkcert-ca.pem not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
+	@kubectl create configmap mkcert-ca \
+		--from-file=mkcert-ca.pem=secrets/mkcert-ca.pem \
+		--namespace orbit-system \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in orbit-system$(COLOR_RESET)"
+
 .PHONY: gen-signing-key
 gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@mkdir -p secrets
@@ -776,7 +848,7 @@ dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-ha
 	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
 	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
 	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
-	echo "  Test user: dev@orbit.local / $(password)"
+	echo "  Test user: dev@orbit.test / $(password)"
 
 .PHONY: dex-env
 dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)
