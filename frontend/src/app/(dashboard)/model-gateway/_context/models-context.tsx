@@ -19,11 +19,12 @@ const ModelsContext = createContext<ModelsStateShape | null>(null);
 
 interface ModelsProviderProps {
   initialData: ModelRow[];
+  initialError: string | null;
   children: React.ReactNode;
 }
 
-export function ModelsProvider({ initialData, children }: ModelsProviderProps) {
-  const state = useModels(initialData);
+export function ModelsProvider({ initialData, initialError, children }: ModelsProviderProps) {
+  const state = useModels(initialData, initialError);
   return <ModelsContext.Provider value={state}>{children}</ModelsContext.Provider>;
 }
 

@@ -19,8 +19,10 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Grid,
   Heading,
   Progress,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -231,14 +233,14 @@ function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof ST
        * value below it. Standard header spacing feels too wide in stat cards.
        */}
       <CardHeader compact>
-        <div className="flex items-center justify-between">
+        <Stack direction="horizontal" align="center" justify="between">
           <Text size="supporting" color="muted">
             {label}
           </Text>
-          <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
+          <span className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
             <Icon className="size-4" aria-hidden />
-          </div>
-        </div>
+          </span>
+        </Stack>
       </CardHeader>
       {/*
        * No props needed: CardContent defaults to pt-0, which is correct here
@@ -256,11 +258,11 @@ function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof ST
          * color="status-*": uses the Terra status colour tokens directly on
          * Text so the delta matches badge/progress colours without className.
          */}
-        <div className="mt-1">
+        <span className="mt-1 block">
           <Text size="caption" color={deltaPositive ? 'status-healthy' : 'status-error'}>
             {delta}
           </Text>
-        </div>
+        </span>
       </CardContent>
     </Card>
   );
@@ -270,299 +272,303 @@ function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof ST
 
 export default function DashboardPage() {
   return (
-    <div className="px-6 py-8 space-y-8 max-w-screen-xl mx-auto">
-      {/* Page title */}
-      <div>
-        <Heading variant="title">Dashboard</Heading>
-        {/*
-         * mt-1 wrapper: spacing between the page title and the subtitle.
-         * Layout spacing belongs on the wrapper, not on Text itself.
-         */}
-        <div className="mt-1">
-          <Text color="muted">Real-time overview of the Orbit control plane.</Text>
-        </div>
-      </div>
-
-      <HealthStatus />
-
-      {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {STATS.map((stat) => (
-          <StatCard key={stat.id} {...stat} />
-        ))}
-      </div>
-
-      {/* ── Agents table ── */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Active Agents</CardTitle>
-              {/*
-               * mt-0.5 wrapper: tightens the gap between the card title and
-               * its supporting description. Layout concern → wrapper div.
-               */}
-              <div className="mt-0.5">
-                <Text size="supporting" color="muted">
-                  All agents currently registered with the control plane.
-                </Text>
-              </div>
-            </div>
-            <Button variant="outline" size="sm">
-              View all
-              <ChevronRight className="size-3.5" />
-            </Button>
-          </div>
-        </CardHeader>
-        {/*
-         * flush: removes all padding so the table reaches the card edges.
-         * The table provides its own internal cell padding.
-         */}
-        <CardContent flush>
-          <TableRoot>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Autonomy</TableHead>
-                  <TableHead>Provider / Model</TableHead>
-                  <TableHead>Runs</TableHead>
-                  <TableHead>Last seen</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {AGENTS.map((agent) => (
-                  <TableRow key={agent.id}>
-                    <TableCell>
-                      <div>
-                        {/*
-                         * mono: renders agent names in monospace — they are
-                         * technical identifiers, not prose. weight="emphasis"
-                         * gives the name mild prominence over the ID below.
-                         */}
-                        <Text size="supporting" weight="emphasis" mono>
-                          {agent.name}
-                        </Text>
-                        {/*
-                         * mono: agent IDs are machine-generated identifiers.
-                         * Terra `Text` with `mono` is correct here (vs `Code`)
-                         * because this is a standalone field, not inline prose.
-                         */}
-                        <Text size="caption" color="subtle" mono>
-                          {agent.id}
-                        </Text>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={agent.status} />
-                    </TableCell>
-                    <TableCell>
-                      <Text size="supporting" color="muted">
-                        {agent.autonomy}
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      {/*
-                       * mono + color="muted": provider/model strings are
-                       * technical identifiers rendered in a secondary colour.
-                       */}
-                      <Text size="supporting" color="muted" mono>
-                        {agent.provider}
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      {/*
-                       * mono + tabular: run counts are numeric — tabular-nums
-                       * prevents layout jitter as values change; mono ensures
-                       * digits align vertically across rows.
-                       */}
-                      <Text size="supporting" mono tabular>
-                        {agent.runs.toLocaleString()}
-                      </Text>
-                    </TableCell>
-                    <TableCell>
-                      <Text size="supporting" color="muted">
-                        {agent.lastSeen}
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableRoot>
-        </CardContent>
-        {/*
-         * justify="between": count label on the left, load-more action on
-         * the right. compact: tightens py to py-3 for a dense footer strip.
-         */}
-        <CardFooter justify="between" compact>
-          <Text size="caption" color="subtle">
-            Showing {AGENTS.length} of 12 agents
-          </Text>
-          <Button variant="ghost" size="sm">
-            Load more
-            <ChevronRight className="size-3.5" />
-          </Button>
-        </CardFooter>
-      </Card>
-
-      {/* ── Bottom row ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Recent Events */}
-        {/*
-         * column: makes the card a flex column so CardFooter's mt-auto
-         * pushes it to the card's bottom edge regardless of content height.
-         */}
-        <Card column>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Recent Events</CardTitle>
-                <div className="mt-0.5">
-                  <Text size="supporting" color="muted">
-                    Live feed from the event spine.
-                  </Text>
-                </div>
-              </div>
-              <Badge variant="pending" dot>
-                Live
-              </Badge>
-            </div>
-          </CardHeader>
+    <Stack gap="spacious" asChild>
+      <main className="px-6 py-8 max-w-screen-xl mx-auto">
+        {/* Page title */}
+        <Stack gap="none">
+          <Heading variant="title">Dashboard</Heading>
           {/*
-           * flush grow: edge-to-edge event list that fills remaining card
-           * height before the footer. `grow` only works inside `<Card column>`.
+           * mt-1 wrapper: spacing between the page title and the subtitle.
+           * Layout spacing belongs on the wrapper, not on Text itself.
            */}
-          <CardContent flush grow>
-            <ul className="divide-y divide-border-subtle">
-              {EVENTS.map((evt) => (
-                <li
-                  key={evt.id}
-                  className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
-                >
-                  <EventIcon severity={evt.severity} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      {/*
-                       * mono: event type strings (e.g. "policy.allow") are
-                       * structured identifiers — monospace aids scanability.
-                       * weight="emphasis" and default color="foreground" give
-                       * it the prominence of a row label.
-                       */}
-                      <Text size="caption" weight="emphasis" mono>
-                        {evt.type}
-                      </Text>
-                      <Text size="caption" color="subtle">
-                        ·
-                      </Text>
-                      <Text size="caption" color="subtle">
-                        {evt.agent}
-                      </Text>
-                    </div>
-                    {/*
-                     * mt-0.5 wrapper: tight gap between the type/agent row
-                     * and the message below it. truncate: messages can be
-                     * long — clip at one line in the dense event list.
-                     */}
-                    <div className="mt-0.5">
-                      <Text size="caption" color="muted" truncate>
-                        {evt.message}
-                      </Text>
-                    </div>
-                  </div>
-                  {/*
-                   * shrink-0 wrapper: prevents the timestamp from compressing
-                   * in the flex row when long messages are present.
-                   * mono: timestamps benefit from fixed-width digit rendering.
-                   */}
-                  <div className="shrink-0">
-                    <Text size="caption" color="subtle" mono>
-                      {evt.ts}
-                    </Text>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-          <CardFooter justify="center" compact>
-            <Button variant="ghost" size="sm">
-              Open event log
-              <ChevronRight className="size-3.5" />
-            </Button>
-          </CardFooter>
-        </Card>
+          <span className="mt-1 block">
+            <Text color="muted">Real-time overview of the Orbit control plane.</Text>
+          </span>
+        </Stack>
 
-        {/* System Health */}
-        <Card column>
+        <HealthStatus />
+
+        {/* ── Stat cards ── */}
+        <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
+          {STATS.map((stat) => (
+            <StatCard key={stat.id} {...stat} />
+          ))}
+        </Grid>
+
+        {/* ── Agents table ── */}
+        <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>System Health</CardTitle>
-                <div className="mt-0.5">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Stack gap="none">
+                <CardTitle>Active Agents</CardTitle>
+                {/*
+                 * mt-0.5 wrapper: tightens the gap between the card title and
+                 * its supporting description. Layout concern → wrapper div.
+                 */}
+                <span className="mt-0.5 block">
                   <Text size="supporting" color="muted">
-                    Control plane resource utilisation.
+                    All agents currently registered with the control plane.
                   </Text>
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" aria-label="Refresh health">
-                <RefreshCw className="size-4" />
+                </span>
+              </Stack>
+              <Button variant="outline" size="sm">
+                View all
+                <ChevronRight className="size-3.5" />
               </Button>
-            </div>
+            </Stack>
           </CardHeader>
           {/*
-           * grow: fills remaining card height so the footer stays at the
-           * card's bottom edge. The inner div carries space-y-5 because
-           * CardContent has no spacing prop — internal layout belongs inside.
+           * flush: removes all padding so the table reaches the card edges.
+           * The table provides its own internal cell padding.
            */}
-          <CardContent grow>
-            <div className="space-y-5">
-              {HEALTH_RESOURCES.map(({ label, value, variant }) => (
-                <div key={label}>
-                  <div className="flex justify-between mb-1.5">
-                    <Text size="supporting" color="muted">
-                      {label}
-                    </Text>
-                    {/*
-                     * mono + tabular: percentage values are numeric — tabular
-                     * prevents jitter; mono aligns digits in a fixed column.
-                     * color="status-*": matches the progress bar token below.
-                     */}
-                    <Text
-                      size="caption"
-                      weight="emphasis"
-                      mono
-                      tabular
-                      color={
-                        variant === 'error'
-                          ? 'status-error'
-                          : variant === 'degraded'
-                            ? 'status-degraded'
-                            : 'status-healthy'
-                      }
-                    >
-                      {value}%
-                    </Text>
-                  </div>
-                  <Progress label={label} value={value} variant={variant} size="md" />
-                </div>
-              ))}
-            </div>
+          <CardContent flush>
+            <TableRoot>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Agent</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Autonomy</TableHead>
+                    <TableHead>Provider / Model</TableHead>
+                    <TableHead>Runs</TableHead>
+                    <TableHead>Last seen</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {AGENTS.map((agent) => (
+                    <TableRow key={agent.id}>
+                      <TableCell>
+                        <Stack gap="none">
+                          {/*
+                           * mono: renders agent names in monospace — they are
+                           * technical identifiers, not prose. weight="emphasis"
+                           * gives the name mild prominence over the ID below.
+                           */}
+                          <Text size="supporting" weight="emphasis" mono>
+                            {agent.name}
+                          </Text>
+                          {/*
+                           * mono: agent IDs are machine-generated identifiers.
+                           * Terra `Text` with `mono` is correct here (vs `Code`)
+                           * because this is a standalone field, not inline prose.
+                           */}
+                          <Text size="caption" color="subtle" mono>
+                            {agent.id}
+                          </Text>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={agent.status} />
+                      </TableCell>
+                      <TableCell>
+                        <Text size="supporting" color="muted">
+                          {agent.autonomy}
+                        </Text>
+                      </TableCell>
+                      <TableCell>
+                        {/*
+                         * mono + color="muted": provider/model strings are
+                         * technical identifiers rendered in a secondary colour.
+                         */}
+                        <Text size="supporting" color="muted" mono>
+                          {agent.provider}
+                        </Text>
+                      </TableCell>
+                      <TableCell>
+                        {/*
+                         * mono + tabular: run counts are numeric — tabular-nums
+                         * prevents layout jitter as values change; mono ensures
+                         * digits align vertically across rows.
+                         */}
+                        <Text size="supporting" mono tabular>
+                          {agent.runs.toLocaleString()}
+                        </Text>
+                      </TableCell>
+                      <TableCell>
+                        <Text size="supporting" color="muted">
+                          {agent.lastSeen}
+                        </Text>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableRoot>
           </CardContent>
+          {/*
+           * justify="between": count label on the left, load-more action on
+           * the right. compact: tightens py to py-3 for a dense footer strip.
+           */}
           <CardFooter justify="between" compact>
-            <div className="flex items-center gap-1.5">
-              <Cpu className="size-3.5 text-subtle" aria-hidden />
-              <Text size="caption" color="subtle">
-                Updated 30 s ago
-              </Text>
-            </div>
+            <Text size="caption" color="subtle">
+              Showing {AGENTS.length} of 12 agents
+            </Text>
             <Button variant="ghost" size="sm">
-              Infrastructure
+              Load more
               <ChevronRight className="size-3.5" />
             </Button>
           </CardFooter>
         </Card>
-      </div>
-    </div>
+
+        {/* ── Bottom row ── */}
+        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+          {/* Recent Events */}
+          {/*
+           * column: makes the card a flex column so CardFooter's mt-auto
+           * pushes it to the card's bottom edge regardless of content height.
+           */}
+          <Card column>
+            <CardHeader>
+              <Stack direction="horizontal" align="center" justify="between">
+                <Stack gap="none">
+                  <CardTitle>Recent Events</CardTitle>
+                  <span className="mt-0.5 block">
+                    <Text size="supporting" color="muted">
+                      Live feed from the event spine.
+                    </Text>
+                  </span>
+                </Stack>
+                <Badge variant="pending" dot>
+                  Live
+                </Badge>
+              </Stack>
+            </CardHeader>
+            {/*
+             * flush grow: edge-to-edge event list that fills remaining card
+             * height before the footer. `grow` only works inside `<Card column>`.
+             */}
+            <CardContent flush grow>
+              <ul className="divide-y divide-border-subtle">
+                {EVENTS.map((evt) => (
+                  <li
+                    key={evt.id}
+                    className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
+                  >
+                    <EventIcon severity={evt.severity} />
+                    <Stack gap="none" asChild>
+                      <span className="flex-1 min-w-0">
+                        <Stack direction="horizontal" align="center" gap="snug">
+                          {/*
+                           * mono: event type strings (e.g. "policy.allow") are
+                           * structured identifiers — monospace aids scanability.
+                           * weight="emphasis" and default color="foreground" give
+                           * it the prominence of a row label.
+                           */}
+                          <Text size="caption" weight="emphasis" mono>
+                            {evt.type}
+                          </Text>
+                          <Text size="caption" color="subtle">
+                            ·
+                          </Text>
+                          <Text size="caption" color="subtle">
+                            {evt.agent}
+                          </Text>
+                        </Stack>
+                        {/*
+                         * mt-0.5 wrapper: tight gap between the type/agent row
+                         * and the message below it. truncate: messages can be
+                         * long — clip at one line in the dense event list.
+                         */}
+                        <span className="mt-0.5 block">
+                          <Text size="caption" color="muted" truncate>
+                            {evt.message}
+                          </Text>
+                        </span>
+                      </span>
+                    </Stack>
+                    {/*
+                     * shrink-0 wrapper: prevents the timestamp from compressing
+                     * in the flex row when long messages are present.
+                     * mono: timestamps benefit from fixed-width digit rendering.
+                     */}
+                    <span className="shrink-0">
+                      <Text size="caption" color="subtle" mono>
+                        {evt.ts}
+                      </Text>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+            <CardFooter justify="center" compact>
+              <Button variant="ghost" size="sm">
+                Open event log
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </CardFooter>
+          </Card>
+
+          {/* System Health */}
+          <Card column>
+            <CardHeader>
+              <Stack direction="horizontal" align="center" justify="between">
+                <Stack gap="none">
+                  <CardTitle>System Health</CardTitle>
+                  <span className="mt-0.5 block">
+                    <Text size="supporting" color="muted">
+                      Control plane resource utilisation.
+                    </Text>
+                  </span>
+                </Stack>
+                <Button variant="ghost" size="icon" aria-label="Refresh health">
+                  <RefreshCw className="size-4" />
+                </Button>
+              </Stack>
+            </CardHeader>
+            {/*
+             * grow: fills remaining card height so the footer stays at the
+             * card's bottom edge. The inner Stack carries gap="spacious" because
+             * CardContent has no spacing prop — internal layout belongs inside.
+             */}
+            <CardContent grow>
+              <Stack gap="comfortable">
+                {HEALTH_RESOURCES.map(({ label, value, variant }) => (
+                  <Stack key={label} gap="snug">
+                    <Stack direction="horizontal" align="center" justify="between">
+                      <Text size="supporting" color="muted">
+                        {label}
+                      </Text>
+                      {/*
+                       * mono + tabular: percentage values are numeric — tabular
+                       * prevents jitter; mono aligns digits in a fixed column.
+                       * color="status-*": matches the progress bar token below.
+                       */}
+                      <Text
+                        size="caption"
+                        weight="emphasis"
+                        mono
+                        tabular
+                        color={
+                          variant === 'error'
+                            ? 'status-error'
+                            : variant === 'degraded'
+                              ? 'status-degraded'
+                              : 'status-healthy'
+                        }
+                      >
+                        {value}%
+                      </Text>
+                    </Stack>
+                    <Progress label={label} value={value} variant={variant} size="md" />
+                  </Stack>
+                ))}
+              </Stack>
+            </CardContent>
+            <CardFooter justify="between" compact>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Cpu className="size-3.5 text-subtle" aria-hidden />
+                <Text size="caption" color="subtle">
+                  Updated 30 s ago
+                </Text>
+              </Stack>
+              <Button variant="ghost" size="sm">
+                Infrastructure
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </CardFooter>
+          </Card>
+        </Grid>
+      </main>
+    </Stack>
   );
 }

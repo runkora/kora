@@ -3,6 +3,7 @@ import {
   BarChart3,
   Bot,
   Database,
+  Key,
   KeyRound,
   LayoutDashboard,
   Settings,
@@ -56,8 +57,10 @@ const SYSTEM_NAV: NavEntry[] = [
 ];
 
 const MODEL_GATEWAY_NAV: NavEntry[] = [
-  { label: 'Usage', href: APP_ROUTES.modelGateway.usage, icon: BarChart3 },
+  { label: 'Overview', href: APP_ROUTES.modelGateway.overview, icon: BarChart3 },
   { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
+  { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: Key },
+  { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: Activity },
   { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: Wrench },
 ];
 

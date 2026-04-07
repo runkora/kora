@@ -1,5 +1,5 @@
 import { cn } from '@orbit/terra';
-import type { ModelStatus } from '../../_types';
+import type { ModelStatus } from '../_types';
 
 interface AvailabilityDotProps {
   status: ModelStatus;

@@ -18,7 +18,6 @@ export type ColumnId =
 export interface ColumnDef {
   id: ColumnId;
   label: string;
-  /** Columns that cannot be hidden */
   locked?: boolean;
 }
 

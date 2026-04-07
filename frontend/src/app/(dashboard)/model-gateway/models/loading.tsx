@@ -1,20 +1,14 @@
-// loading.tsx — Suspense fallback for the Models page.
+// loading.tsx — Suspense fallback for the models tab.
 //
-// Next.js renders this instantly on client-side navigation while the RSC
-// page.tsx fetches model data server-side. Mirrors the real page structure
-// (header → favourites → separator → all models table) so there is no
-// jarring layout shift when the real content streams in.
+// Mirrors the real models tab layout exactly (toolbar + card-wrapped table)
+// so there is no layout shift when data arrives.
 
 import {
-  Stack,
-  Grid,
-  Section,
-  Skeleton,
-  Separator,
-  Heading,
-  Text,
+  Badge,
   Card,
   CardContent,
+  Skeleton,
+  Stack,
   TableRoot,
   Table,
   TableHeader,
@@ -26,113 +20,104 @@ import {
 
 export default function ModelsLoading() {
   return (
-    <Section>
-      <Stack gap="spacious">
-        {/* ── Page header ── */}
-        <Stack gap="snug">
-          <Heading variant="title">Models</Heading>
-          <Text size="supporting" color="muted">
-            Browse available AI models and manage your favourites.
-          </Text>
-        </Stack>
+    <Stack gap="comfortable">
+      {/* Toolbar — real search input so it looks seamless */}
+      <Stack direction="horizontal" align="center" gap="snug" wrap>
+        <span className="relative flex-1 max-w-xs">
+          <input
+            type="text"
+            placeholder="Search models..."
+            disabled
+            className="w-full rounded-md border border-border bg-surface px-3 py-1.5 pl-8 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          />
+        </span>
+        <span className="flex-1" />
+        <Skeleton shape="line" width="quarter" size="xs" />
+        <Skeleton shape="block" width="quarter" size="sm" />
+      </Stack>
 
-        {/* ── Favourites section ── */}
-        <Stack gap="snug">
-          <Heading variant="section">Favourites</Heading>
-          <Grid cols={3} gap="snug">
-            <Card>
-              <CardContent>
-                <Skeleton shape="block" width="full" size="xl" />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent>
-                <Skeleton shape="block" width="full" size="xl" />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent>
-                <Skeleton shape="block" width="full" size="xl" />
-              </CardContent>
-            </Card>
-          </Grid>
-        </Stack>
-
-        <Separator />
-
-        {/* ── All models section ── */}
-        <Stack gap="comfortable">
-          <Stack gap="snug">
-            <Heading variant="section">All models</Heading>
-            <Text size="supporting" color="muted">
-              Click any row to view full details. Use the column toggle to customise your view.
-            </Text>
-          </Stack>
-
-          {/* Toolbar — real search input so there's no pop-in when data loads */}
-          <Stack direction="horizontal" justify="between" align="center" gap="snug">
-            <Skeleton shape="line" width="quarter" size="xs" />
-            <input
-              type="search"
-              placeholder="Search…"
-              disabled
-              className="h-8 w-72 rounded-md border border-border bg-surface-elevated px-3 text-xs text-foreground placeholder:text-muted-foreground"
-            />
-          </Stack>
-
-          {/* Table */}
+      {/* Table inside a card — mirrors the Card column + CardContent flush structure */}
+      <Card column>
+        <CardContent flush>
           <TableRoot>
             <Table>
               <TableHeader>
                 <TableRow>
+                  {/* favourite */}
+                  <TableHead>
+                    <span className="w-10 block" />
+                  </TableHead>
+                  {/* name */}
+                  <TableHead>
+                    <Skeleton shape="line" width="half" size="xs" />
+                  </TableHead>
+                  {/* provider */}
+                  <TableHead>
+                    <Skeleton shape="line" width="half" size="xs" />
+                  </TableHead>
+                  {/* status */}
+                  <TableHead>
+                    <Skeleton shape="line" width="half" size="xs" />
+                  </TableHead>
+                  {/* capabilities */}
                   <TableHead>
                     <Skeleton shape="line" width="full" size="xs" />
                   </TableHead>
+                  {/* dialects */}
                   <TableHead>
                     <Skeleton shape="line" width="full" size="xs" />
                   </TableHead>
+                  {/* actions */}
                   <TableHead>
-                    <Skeleton shape="line" width="full" size="xs" />
-                  </TableHead>
-                  <TableHead>
-                    <Skeleton shape="line" width="full" size="xs" />
-                  </TableHead>
-                  <TableHead>
-                    <Skeleton shape="line" width="full" size="xs" />
-                  </TableHead>
-                  <TableHead>
-                    <Skeleton shape="line" width="full" size="xs" />
+                    <span className="w-10 block" />
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Array.from({ length: 10 }).map((_, i) => (
+                {Array.from({ length: 12 }).map((_, i) => (
                   <TableRow key={i}>
                     <TableCell>
                       <Skeleton shape="circle" size="xs" />
                     </TableCell>
                     <TableCell>
+                      <Stack gap="none">
+                        <Skeleton shape="line" width="three-quarters" size="sm" />
+                        <Skeleton shape="line" width="full" size="xs" />
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton shape="line" width="half" size="sm" />
+                    </TableCell>
+                    <TableCell>
                       <Skeleton shape="circle" size="xs" />
                     </TableCell>
                     <TableCell>
-                      <Skeleton shape="line" width="half" size="sm" />
+                      <Stack direction="horizontal" gap="tight">
+                        <Badge variant="outline" size="sm">
+                          <Skeleton shape="line" width="full" size="xs" />
+                        </Badge>
+                        <Badge variant="outline" size="sm">
+                          <Skeleton shape="line" width="full" size="xs" />
+                        </Badge>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <Skeleton shape="line" width="three-quarters" size="sm" />
+                      <Stack direction="horizontal" gap="tight">
+                        <Badge variant="outline" size="sm">
+                          <Skeleton shape="line" width="full" size="xs" />
+                        </Badge>
+                      </Stack>
                     </TableCell>
                     <TableCell>
-                      <Skeleton shape="line" width="two-thirds" size="sm" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton shape="line" width="half" size="sm" />
+                      <Skeleton shape="circle" size="xs" />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TableRoot>
-        </Stack>
-      </Stack>
-    </Section>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 }

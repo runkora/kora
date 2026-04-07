@@ -45,8 +45,10 @@ export const APP_ROUTES = {
 
   // ── Model Gateway ─────────────────────────────────────────────────────────
   modelGateway: {
-    usage: '/model-gateway/usage',
+    overview: '/model-gateway/overview',
     models: '/model-gateway/models',
+    keys: '/model-gateway/keys',
+    logs: '/model-gateway/logs',
     setup: '/model-gateway/setup',
   },
 } as const;

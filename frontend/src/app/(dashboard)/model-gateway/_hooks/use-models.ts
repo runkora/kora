@@ -18,7 +18,7 @@
 //   refresh: () => Promise<void>;
 // }
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { fetchModels } from '../_services/models-api';
 import type { ModelRow } from '../_types';
 
@@ -59,10 +59,15 @@ const DEFAULT_FAVOURITES = new Set<string>();
  * Calling `refresh()` triggers a fresh client-side fetch (e.g. after a manual
  * reload or when the user returns to the tab).
  */
-export function useModels(initialData: ModelRow[]): ModelsStateShape {
+export function useModels(
+  initialData: ModelRow[],
+  initialError: string | null = null,
+): ModelsStateShape {
   const [models, setModels] = useState<ModelRow[]>(initialData);
-  const [status, setStatus] = useState<LoadStatus>(initialData.length > 0 ? 'success' : 'idle');
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<LoadStatus>(
+    initialError ? 'error' : initialData.length > 0 ? 'success' : 'idle',
+  );
+  const [error, setError] = useState<string | null>(initialError);
   const [favourites, setFavourites] = useState<Set<string>>(DEFAULT_FAVOURITES);
 
   const refresh = useCallback(async () => {
@@ -78,18 +83,6 @@ export function useModels(initialData: ModelRow[]): ModelsStateShape {
       setModels(result.models);
       setStatus('success');
     }
-  }, []);
-
-  // If the RSC server-side fetch returned empty (e.g. during client-side
-  // navigation where the server fetch fails silently), kick off a client-side
-  // fetch automatically so the page doesn't sit blank on navigation.
-  useEffect(() => {
-    if (initialData.length === 0) {
-      void refresh();
-    }
-    // Run only on mount — initialData is the RSC seed and won't change after
-    // the component mounts. refresh is stable (useCallback with empty deps).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleFavourite = useCallback((id: string) => {

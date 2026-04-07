@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
-import { Copy, X } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Check, Copy, X } from 'lucide-react';
 import { Badge, Button, Heading, Stack, Text, Separator } from '@orbit/terra';
-import type { ModelRow } from '../../_types';
+import type { ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
 
 // ── CopyRow ───────────────────────────────────────────────────────────────────
@@ -15,8 +15,13 @@ interface CopyRowProps {
 }
 
 function CopyRow({ label, value, mono }: CopyRowProps) {
+  const [copied, setCopied] = useState(false);
+
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(value);
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   }, [value]);
 
   return (
@@ -33,10 +38,17 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
           {value}
         </Text>
       </Stack>
-      <Copy
-        className="ml-3 size-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
-        aria-hidden
-      />
+      {copied ? (
+        <Check
+          className="ml-3 size-3.5 shrink-0 text-status-healthy transition-opacity"
+          aria-hidden
+        />
+      ) : (
+        <Copy
+          className="ml-3 size-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
+      )}
     </button>
   );
 }
