@@ -15,8 +15,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { Badge, Grid, Heading, Stack, Text } from '@orbit/terra';
-import { GatewayCard } from './gateway-card';
+import { Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, Grid, Heading, Stack, Text } from '@orbit/terra';
 import { Clock, DollarSign, Zap, Activity, AlertCircle, HardDrive } from 'lucide-react';
 import { DAILY_SPEND, DAILY_REQUESTS, STATS } from '../_data/mock';
 import { StatCards, UsageTabs } from '../usage/_components';
@@ -76,19 +75,24 @@ function KPICard({ icon, label, value, deltaPercent, deltaText }: KPICardProps) 
   const deltaIcon = deltaPercent >= 0 ? '▲' : '▼';
 
   return (
-    <GatewayCard title={label} icon={icon}>
-      <Stack gap="snug">
-        <Heading variant="metric">{value}</Heading>
-        <Stack direction="horizontal" align="center" gap="tight">
-          <Text size="caption" color={deltaColor}>
-            {deltaIcon} {fmtPercent(Math.abs(deltaPercent))}
-          </Text>
-          <Text size="caption" color="subtle">
-            {deltaText}
-          </Text>
+    <Card column>
+      <CardHeader compact icon={icon}>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Stack gap="snug">
+          <Heading variant="metric">{value}</Heading>
+          <Stack direction="horizontal" align="center" gap="tight">
+            <Text size="caption" color={deltaColor}>
+              {deltaIcon} {fmtPercent(Math.abs(deltaPercent))}
+            </Text>
+            <Text size="caption" color="subtle">
+              {deltaText}
+            </Text>
+          </Stack>
         </Stack>
-      </Stack>
-    </GatewayCard>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -120,10 +124,12 @@ function RequestsChart() {
   const data: RequestsChartPoint[] = DAILY_REQUESTS.slice(-14);
 
   return (
-    <GatewayCard
-      title="Requests over time"
-      description="Total API calls across all models (last 14 days)"
-    >
+    <Card column>
+      <CardHeader compact>
+        <CardTitle>Requests over time</CardTitle>
+        <CardDescription>Total API calls across all models (last 14 days)</CardDescription>
+      </CardHeader>
+      <CardContent>
       <ResponsiveContainer width="100%" height={240}>
         <AreaChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
           <defs>
@@ -169,7 +175,8 @@ function RequestsChart() {
           />
         </AreaChart>
       </ResponsiveContainer>
-    </GatewayCard>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -199,7 +206,12 @@ function CostByModelChart() {
   ];
 
   return (
-    <GatewayCard title="Cost by model" description="Current billing period spend distribution">
+    <Card column>
+      <CardHeader compact>
+        <CardTitle>Cost by model</CardTitle>
+        <CardDescription>Current billing period spend distribution</CardDescription>
+      </CardHeader>
+      <CardContent>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart
           data={modelCosts}
@@ -231,7 +243,8 @@ function CostByModelChart() {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-    </GatewayCard>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -267,10 +280,12 @@ function LatencyChart() {
   const data = generateMockLatencyData();
 
   return (
-    <GatewayCard
-      title="Latency distribution"
-      description="P50, P95, and P99 request latency (last 14 days)"
-    >
+    <Card column>
+      <CardHeader compact>
+        <CardTitle>Latency distribution</CardTitle>
+        <CardDescription>P50, P95, and P99 request latency (last 14 days)</CardDescription>
+      </CardHeader>
+      <CardContent>
       <ResponsiveContainer width="100%" height={240}>
         <LineChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
@@ -330,7 +345,8 @@ function LatencyChart() {
           />
         </LineChart>
       </ResponsiveContainer>
-    </GatewayCard>
+      </CardContent>
+    </Card>
   );
 }
 

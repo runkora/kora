@@ -1,6 +1,5 @@
 import { DollarSign, Zap, Activity } from 'lucide-react';
-import { Grid, Heading, Separator, Stack, Text } from '@orbit/terra';
-import { GatewayCard } from '../../_components/gateway-card';
+import { Card, CardHeader, CardTitle, CardContent, Grid, Heading, Separator, Stack, Text } from '@orbit/terra';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,20 +67,25 @@ function CardDivider() {
 
 function CostCard({ spend }: { spend: StatsShape['spend'] }) {
   return (
-    <GatewayCard title="Costs" icon={<DollarSign className="size-4" aria-hidden />}>
-      <Heading variant="metric">{fmt(spend.period)}</Heading>
-      <Text size="caption" color="muted">
-        Current billing period
-      </Text>
-      <CardDivider />
-      <Stack gap="none">
-        <StatRow label="This month" value={fmt(spend.month)} />
-        <Separator />
-        <StatRow label="This quarter" value={fmt(spend.quarter)} />
-        <Separator />
-        <StatRow label="This year" value={fmt(spend.year)} />
-      </Stack>
-    </GatewayCard>
+    <Card column>
+      <CardHeader compact icon={<DollarSign className="size-4" aria-hidden />}>
+        <CardTitle>Costs</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Heading variant="metric">{fmt(spend.period)}</Heading>
+        <Text size="caption" color="muted">
+          Current billing period
+        </Text>
+        <CardDivider />
+        <Stack gap="none">
+          <StatRow label="This month" value={fmt(spend.month)} />
+          <Separator />
+          <StatRow label="This quarter" value={fmt(spend.quarter)} />
+          <Separator />
+          <StatRow label="This year" value={fmt(spend.year)} />
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -90,37 +94,47 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
     requests.total > 0 ? ((requests.successful / requests.total) * 100).toFixed(1) : '0.0';
 
   return (
-    <GatewayCard title="Requests" icon={<Activity className="size-4" aria-hidden />}>
-      <Heading variant="metric">{fmtReqs(requests.total)}</Heading>
-      <Text size="caption" color="status-healthy">
-        {successRate}% success rate
-      </Text>
-      <CardDivider />
-      <Stack gap="none">
-        <StatRow label="Successful" value={fmtReqs(requests.successful)} />
-        <Separator />
-        <StatRow label="Failed" value={fmtReqs(requests.errored)} />
-      </Stack>
-    </GatewayCard>
+    <Card column>
+      <CardHeader compact icon={<Activity className="size-4" aria-hidden />}>
+        <CardTitle>Requests</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Heading variant="metric">{fmtReqs(requests.total)}</Heading>
+        <Text size="caption" color="status-healthy">
+          {successRate}% success rate
+        </Text>
+        <CardDivider />
+        <Stack gap="none">
+          <StatRow label="Successful" value={fmtReqs(requests.successful)} />
+          <Separator />
+          <StatRow label="Failed" value={fmtReqs(requests.errored)} />
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
 function TokensCard({ tokens }: { tokens: StatsShape['tokens'] }) {
   return (
-    <GatewayCard title="Tokens" icon={<Zap className="size-4" aria-hidden />}>
-      <Heading variant="metric">{fmtTokens(tokens.period)}</Heading>
-      <Text size="caption" color="muted">
-        Current billing period
-      </Text>
-      <CardDivider />
-      <Stack gap="none">
-        <StatRow label="This month" value={fmtTokens(tokens.month)} />
-        <Separator />
-        <StatRow label="This quarter" value={fmtTokens(tokens.quarter)} />
-        <Separator />
-        <StatRow label="This year" value={fmtTokens(tokens.year)} />
-      </Stack>
-    </GatewayCard>
+    <Card column>
+      <CardHeader compact icon={<Zap className="size-4" aria-hidden />}>
+        <CardTitle>Tokens</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Heading variant="metric">{fmtTokens(tokens.period)}</Heading>
+        <Text size="caption" color="muted">
+          Current billing period
+        </Text>
+        <CardDivider />
+        <Stack gap="none">
+          <StatRow label="This month" value={fmtTokens(tokens.month)} />
+          <Separator />
+          <StatRow label="This quarter" value={fmtTokens(tokens.quarter)} />
+          <Separator />
+          <StatRow label="This year" value={fmtTokens(tokens.year)} />
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 

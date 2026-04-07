@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Activity } from 'lucide-react';
 import { Badge } from '../badge/badge';
 import { Button } from '../button/button';
 import { Text } from '../typography/typography';
@@ -75,6 +76,22 @@ export const WithBadge: Story = {
       <CardContent>
         <Text size="supporting" color="muted">
           Evaluated 2,341 decisions in the last hour. Zero violations.
+        </Text>
+      </CardContent>
+    </Card>
+  ),
+};
+
+export const WithIcon: Story = {
+  render: () => (
+    <Card column className="w-72">
+      <CardHeader compact icon={<Activity className="size-4" />}>
+        <CardTitle>Total Requests</CardTitle>
+        <CardDescription>Last billing period</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Text size="supporting" color="muted">
+          1.2M requests · 98.4% success rate
         </Text>
       </CardContent>
     </Card>

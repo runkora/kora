@@ -253,7 +253,7 @@ const STATUS_OPTIONS: FilterOption[] = [
 // ── ModelsTab ────────────────────────────────────────────────────────────────
 
 export function ModelsTab() {
-  const { models, status, error, favourites, toggleFavourite, refresh } = useModelsContext();
+  const { models, status, favourites, toggleFavourite, refresh } = useModelsContext();
 
   const favouriteRows = useMemo(
     () => models.filter((m) => favourites.has(m.id)),
@@ -325,27 +325,6 @@ export function ModelsTab() {
   }
 
   const visibleCount = ALL_COLUMNS.filter((c) => visible.has(c.id)).length;
-
-  if (status === 'error') {
-    return (
-      <Stack align="center" justify="center">
-        <figure className="py-24 text-center m-0">
-          <Stack gap="snug" align="center">
-            <Text size="supporting" color="muted">
-              {error ?? 'Failed to load models.'}
-            </Text>
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              Try again
-            </button>
-          </Stack>
-        </figure>
-      </Stack>
-    );
-  }
 
   return (
     <Stack gap="comfortable">
@@ -440,7 +419,28 @@ export function ModelsTab() {
               </TableHeader>
 
               <TableBody>
-                {filteredRows.length === 0 ? (
+                {status === 'error' ? (
+                  <TableRow>
+                    <TableCell colSpan={visibleCount + 1}>
+                      <Stack align="center" justify="center">
+                        <figure className="py-12 text-center m-0">
+                          <Stack gap="snug" align="center">
+                            <Text size="supporting" color="muted">
+                              Couldn&apos;t load models. The inference gateway may be unavailable.
+                            </Text>
+                            <button
+                              type="button"
+                              onClick={() => void refresh()}
+                              className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
+                            >
+                              Try again
+                            </button>
+                          </Stack>
+                        </figure>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={visibleCount + 1}>
                       <Stack align="center" justify="center">
