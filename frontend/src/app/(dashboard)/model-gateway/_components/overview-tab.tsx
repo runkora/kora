@@ -15,7 +15,18 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, Grid, Heading, Stack, Text } from '@orbit/terra';
+import {
+  Badge,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Grid,
+  Heading,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { Clock, DollarSign, Zap, Activity, AlertCircle, HardDrive } from 'lucide-react';
 import { DAILY_SPEND, DAILY_REQUESTS, STATS } from '../_data/mock';
 import { StatCards, UsageTabs } from '../usage/_components';
@@ -130,51 +141,51 @@ function RequestsChart() {
         <CardDescription>Total API calls across all models (last 14 days)</CardDescription>
       </CardHeader>
       <CardContent>
-      <ResponsiveContainer width="100%" height={240}>
-        <AreaChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
-          <defs>
-            <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={COLORS.accent} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={COLORS.accent} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
-          <XAxis
-            dataKey="date"
-            tick={{ fill: COLORS.subtle, fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatDateAxis}
-            minTickGap={40}
-          />
-          <YAxis
-            tick={{ fill: COLORS.subtle, fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatRequestsAxis}
-            width={52}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: COLORS.surfaceOverlay,
-              border: `1px solid ${COLORS.borderSubtle}`,
-              borderRadius: '6px',
-              padding: '8px 12px',
-            }}
-            labelFormatter={(label: unknown) => formatDateAxis(String(label))}
-            formatter={(value: unknown) => [formatRequestsAxis(Number(value)), '']}
-            cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
-          />
-          <Area
-            type="monotone"
-            dataKey="total"
-            stroke={COLORS.accent}
-            fillOpacity={1}
-            fill="url(#colorTotal)"
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+        <ResponsiveContainer width="100%" height={240}>
+          <AreaChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
+            <defs>
+              <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={COLORS.accent} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={COLORS.accent} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: COLORS.subtle, fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatDateAxis}
+              minTickGap={40}
+            />
+            <YAxis
+              tick={{ fill: COLORS.subtle, fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatRequestsAxis}
+              width={52}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: COLORS.surfaceOverlay,
+                border: `1px solid ${COLORS.borderSubtle}`,
+                borderRadius: '6px',
+                padding: '8px 12px',
+              }}
+              labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+              formatter={(value: unknown) => [formatRequestsAxis(Number(value)), '']}
+              cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
+            />
+            <Area
+              type="monotone"
+              dataKey="total"
+              stroke={COLORS.accent}
+              fillOpacity={1}
+              fill="url(#colorTotal)"
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
@@ -212,37 +223,37 @@ function CostByModelChart() {
         <CardDescription>Current billing period spend distribution</CardDescription>
       </CardHeader>
       <CardContent>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart
-          data={modelCosts}
-          layout="vertical"
-          margin={{ top: 4, right: 16, bottom: 0, left: 140 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} horizontal={false} />
-          <XAxis type="number" tick={{ fill: COLORS.subtle, fontSize: 11 }} />
-          <YAxis
-            type="category"
-            dataKey="model"
-            tick={{ fill: COLORS.subtle, fontSize: 11 }}
-            width={140}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: COLORS.surfaceOverlay,
-              border: `1px solid ${COLORS.borderSubtle}`,
-              borderRadius: '6px',
-              padding: '8px 12px',
-            }}
-            formatter={(value: unknown) => fmt(Number(value))}
-            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-          />
-          <Bar dataKey="cost" isAnimationActive={false}>
-            {modelCosts.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={modelColors[index % modelColors.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart
+            data={modelCosts}
+            layout="vertical"
+            margin={{ top: 4, right: 16, bottom: 0, left: 140 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} horizontal={false} />
+            <XAxis type="number" tick={{ fill: COLORS.subtle, fontSize: 11 }} />
+            <YAxis
+              type="category"
+              dataKey="model"
+              tick={{ fill: COLORS.subtle, fontSize: 11 }}
+              width={140}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: COLORS.surfaceOverlay,
+                border: `1px solid ${COLORS.borderSubtle}`,
+                borderRadius: '6px',
+                padding: '8px 12px',
+              }}
+              formatter={(value: unknown) => fmt(Number(value))}
+              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+            />
+            <Bar dataKey="cost" isAnimationActive={false}>
+              {modelCosts.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={modelColors[index % modelColors.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
@@ -286,65 +297,65 @@ function LatencyChart() {
         <CardDescription>P50, P95, and P99 request latency (last 14 days)</CardDescription>
       </CardHeader>
       <CardContent>
-      <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
-          <XAxis
-            dataKey="date"
-            tick={{ fill: COLORS.subtle, fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatDateAxis}
-            minTickGap={40}
-          />
-          <YAxis
-            tick={{ fill: COLORS.subtle, fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(n) => `${n}ms`}
-            width={48}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: COLORS.surfaceOverlay,
-              border: `1px solid ${COLORS.borderSubtle}`,
-              borderRadius: '6px',
-              padding: '8px 12px',
-            }}
-            labelFormatter={(label: unknown) => formatDateAxis(String(label))}
-            formatter={(value: unknown) => fmtLatency(Number(value))}
-            cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
-          />
-          <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="line" />
-          <Line
-            type="monotone"
-            dataKey="p50"
-            stroke={COLORS.healthy}
-            strokeWidth={2}
-            dot={false}
-            name="P50"
-            isAnimationActive={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="p95"
-            stroke={COLORS.degraded}
-            strokeWidth={2}
-            dot={false}
-            name="P95"
-            isAnimationActive={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="p99"
-            stroke={COLORS.error}
-            strokeWidth={2}
-            dot={false}
-            name="P99"
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: COLORS.subtle, fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatDateAxis}
+              minTickGap={40}
+            />
+            <YAxis
+              tick={{ fill: COLORS.subtle, fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(n) => `${n}ms`}
+              width={48}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: COLORS.surfaceOverlay,
+                border: `1px solid ${COLORS.borderSubtle}`,
+                borderRadius: '6px',
+                padding: '8px 12px',
+              }}
+              labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+              formatter={(value: unknown) => fmtLatency(Number(value))}
+              cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
+            />
+            <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="line" />
+            <Line
+              type="monotone"
+              dataKey="p50"
+              stroke={COLORS.healthy}
+              strokeWidth={2}
+              dot={false}
+              name="P50"
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="p95"
+              stroke={COLORS.degraded}
+              strokeWidth={2}
+              dot={false}
+              name="P95"
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="p99"
+              stroke={COLORS.error}
+              strokeWidth={2}
+              dot={false}
+              name="P99"
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );

@@ -1,5 +1,15 @@
 import { DollarSign, Zap, Activity } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Grid, Heading, Separator, Stack, Text } from '@orbit/terra';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Grid,
+  Heading,
+  Separator,
+  Stack,
+  Text,
+} from '@orbit/terra';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
