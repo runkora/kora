@@ -156,3 +156,43 @@ export const MODEL_COSTS: ModelCostRow[] = [
   { model: 'gpt-4o', cost: 21.07 },
   { model: 'llama-3-70b', cost: 9.43 },
 ];
+
+// ── Top models by usage ───────────────────────────────────────────────────────
+
+export interface ModelUsageRow {
+  model: string;
+  requests: number;
+  cost: number;
+}
+
+export const TOP_MODELS_BY_USAGE: ModelUsageRow[] = [
+  { model: 'claude-3-5-sonnet', requests: 45230, cost: 72.14 },
+  { model: 'claude-3-5-haiku', requests: 38410, cost: 53.88 },
+  { model: 'claude-opus-4', requests: 12840, cost: 41.22 },
+  { model: 'gpt-4o', requests: 8920, cost: 21.07 },
+  { model: 'llama-3-70b', requests: 6110, cost: 9.43 },
+];
+
+// ── Recent log entries ────────────────────────────────────────────────────────
+
+export type LogStatus = 'success' | 'error';
+
+export interface RecentLogEntry {
+  id: string;
+  model: string;
+  status: LogStatus;
+  latencyMs: number;
+  keyName: string;
+  minsAgo: number;
+}
+
+export const RECENT_LOGS: RecentLogEntry[] = [
+  { id: 'req_01', model: 'claude-3-5-sonnet', status: 'success', latencyMs: 312, keyName: 'prod-api-key', minsAgo: 0 },
+  { id: 'req_02', model: 'claude-3-5-haiku', status: 'success', latencyMs: 148, keyName: 'staging-key', minsAgo: 1 },
+  { id: 'req_03', model: 'gpt-4o', status: 'error', latencyMs: 5021, keyName: 'prod-api-key', minsAgo: 2 },
+  { id: 'req_04', model: 'claude-opus-4', status: 'success', latencyMs: 891, keyName: 'dev-key', minsAgo: 3 },
+  { id: 'req_05', model: 'claude-3-5-sonnet', status: 'success', latencyMs: 278, keyName: 'prod-api-key', minsAgo: 4 },
+  { id: 'req_06', model: 'llama-3-70b', status: 'success', latencyMs: 203, keyName: 'internal-key', minsAgo: 5 },
+  { id: 'req_07', model: 'claude-3-5-haiku', status: 'error', latencyMs: 3100, keyName: 'staging-key', minsAgo: 7 },
+  { id: 'req_08', model: 'claude-3-5-sonnet', status: 'success', latencyMs: 334, keyName: 'prod-api-key', minsAgo: 9 },
+];
