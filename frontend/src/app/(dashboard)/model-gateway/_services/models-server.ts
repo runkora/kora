@@ -39,6 +39,12 @@ export async function fetchModelsFromGateway(accessToken: string): Promise<Gatew
     return { ok: false, status: res.status, message: body || res.statusText };
   }
 
-  const body: ModelsListResponse = await res.json();
+  let body: ModelsListResponse;
+  try {
+    body = (await res.json()) as ModelsListResponse;
+  } catch {
+    console.error('[fetchModelsFromGateway] failed to parse gateway response as JSON');
+    return { ok: false, status: 502, message: 'Invalid response from inference gateway' };
+  }
   return { ok: true, models: (body.data ?? []).map(toModelRow) };
 }

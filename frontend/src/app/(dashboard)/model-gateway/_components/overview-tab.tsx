@@ -44,7 +44,6 @@ import {
   TOP_MODELS_BY_USAGE,
 } from '../_data/mock';
 import type { ModelRow } from '../_types';
-import { AvailabilityDot } from './availability-dot';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -376,7 +375,8 @@ function RequestsAndErrorsChart() {
 // ── Top Models Card ───────────────────────────────────────────────────────────
 
 function TopModelsCard() {
-  const maxRequests = Math.max(...TOP_MODELS_BY_USAGE.map((e) => e.requests));
+  const maxRequests =
+    TOP_MODELS_BY_USAGE.length > 0 ? Math.max(...TOP_MODELS_BY_USAGE.map((e) => e.requests)) : 1;
 
   return (
     <Card column>
