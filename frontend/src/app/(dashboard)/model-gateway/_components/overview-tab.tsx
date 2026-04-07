@@ -36,7 +36,13 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react';
-import { DAILY_REQUESTS, DAILY_SPEND, RECENT_LOGS, STATS, TOP_MODELS_BY_USAGE } from '../_data/mock';
+import {
+  DAILY_REQUESTS,
+  DAILY_SPEND,
+  RECENT_LOGS,
+  STATS,
+  TOP_MODELS_BY_USAGE,
+} from '../_data/mock';
 import type { ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
 
@@ -154,21 +160,44 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <Text size="caption" color="subtle">No model data available</Text>
+          <Text size="caption" color="subtle">
+            No model data available
+          </Text>
         ) : (
           <Stack gap="comfortable">
             {/* Headline + health bar */}
             <Stack gap="snug">
               <Stack direction="horizontal" align="baseline" gap="tight">
                 <Heading variant="metric">{available}</Heading>
-                <Text size="supporting" color="muted">/ {total} available</Text>
+                <Text size="supporting" color="muted">
+                  / {total} available
+                </Text>
               </Stack>
               {/* Health bar */}
-              <span style={{ display: 'block', height: 4, borderRadius: 2, background: COLORS.borderSubtle, overflow: 'hidden' }}>
-                <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: unavailable > 0 ? COLORS.degraded : COLORS.healthy, borderRadius: 2, transition: 'width 0.3s' }} />
+              <span
+                style={{
+                  display: 'block',
+                  height: 4,
+                  borderRadius: 2,
+                  background: COLORS.borderSubtle,
+                  overflow: 'hidden',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'block',
+                    height: '100%',
+                    width: `${pct}%`,
+                    background: unavailable > 0 ? COLORS.degraded : COLORS.healthy,
+                    borderRadius: 2,
+                    transition: 'width 0.3s',
+                  }}
+                />
               </span>
               {unavailable > 0 && (
-                <Text size="caption" color="muted">{unavailable} unavailable</Text>
+                <Text size="caption" color="muted">
+                  {unavailable} unavailable
+                </Text>
               )}
             </Stack>
 
@@ -176,12 +205,18 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
 
             {/* Provider breakdown */}
             <Stack gap="snug">
-              <Text size="caption" color="subtle" weight="emphasis">By provider</Text>
+              <Text size="caption" color="subtle" weight="emphasis">
+                By provider
+              </Text>
               <Stack gap="tight">
                 {Object.entries(providerCounts).map(([provider, count]) => (
                   <Stack key={provider} direction="horizontal" align="center" justify="between">
-                    <Text size="caption" color="muted">{provider}</Text>
-                    <Text size="caption" weight="emphasis">{count}</Text>
+                    <Text size="caption" color="muted">
+                      {provider}
+                    </Text>
+                    <Text size="caption" weight="emphasis">
+                      {count}
+                    </Text>
                   </Stack>
                 ))}
               </Stack>
@@ -191,12 +226,18 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
               <>
                 <Separator />
                 <Stack gap="snug">
-                  <Text size="caption" color="subtle" weight="emphasis">By modality</Text>
+                  <Text size="caption" color="subtle" weight="emphasis">
+                    By modality
+                  </Text>
                   <Stack direction="horizontal" gap="snug" style={{ flexWrap: 'wrap' }}>
                     {Object.entries(modalityCounts).map(([mod, count]) => (
                       <Stack key={mod} direction="horizontal" align="center" gap="tight">
-                        <Text size="caption" weight="emphasis">{count}</Text>
-                        <Text size="caption" color="muted">{mod}</Text>
+                        <Text size="caption" weight="emphasis">
+                          {count}
+                        </Text>
+                        <Text size="caption" color="muted">
+                          {mod}
+                        </Text>
                       </Stack>
                     ))}
                   </Stack>
@@ -207,8 +248,13 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
         )}
       </CardContent>
       <CardFooter compact justify="between">
-        <Text size="caption" color="subtle">{total} models registered</Text>
-        <Link href={APP_ROUTES.modelGateway.models} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <Text size="caption" color="subtle">
+          {total} models registered
+        </Text>
+        <Link
+          href={APP_ROUTES.modelGateway.models}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
           View all →
         </Link>
       </CardFooter>
@@ -342,23 +388,60 @@ function TopModelsCard() {
           {TOP_MODELS_BY_USAGE.map((entry) => (
             <Stack key={entry.model} gap="tight">
               <Stack direction="horizontal" align="center" justify="between">
-                <Text size="caption" mono truncate style={{ flex: 1, minWidth: 0 }}>{entry.model}</Text>
-                <Text size="caption" color="muted" mono style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmt(entry.cost)}</Text>
+                <Text size="caption" mono truncate style={{ flex: 1, minWidth: 0 }}>
+                  {entry.model}
+                </Text>
+                <Text
+                  size="caption"
+                  color="muted"
+                  mono
+                  style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}
+                >
+                  {fmt(entry.cost)}
+                </Text>
               </Stack>
               {/* Relative usage bar */}
               <Stack direction="horizontal" align="center" gap="tight">
-                <span style={{ flex: 1, display: 'block', height: 3, borderRadius: 2, background: COLORS.borderSubtle, overflow: 'hidden' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${(entry.requests / maxRequests) * 100}%`, background: COLORS.accent, borderRadius: 2 }} />
+                <span
+                  style={{
+                    flex: 1,
+                    display: 'block',
+                    height: 3,
+                    borderRadius: 2,
+                    background: COLORS.borderSubtle,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'block',
+                      height: '100%',
+                      width: `${(entry.requests / maxRequests) * 100}%`,
+                      background: COLORS.accent,
+                      borderRadius: 2,
+                    }}
+                  />
                 </span>
-                <Text size="caption" color="subtle" style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right' }}>{fmtReqs(entry.requests)}</Text>
+                <Text
+                  size="caption"
+                  color="subtle"
+                  style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right' }}
+                >
+                  {fmtReqs(entry.requests)}
+                </Text>
               </Stack>
             </Stack>
           ))}
         </Stack>
       </CardContent>
       <CardFooter compact justify="between">
-        <Text size="caption" color="subtle">By spend, last 30 days</Text>
-        <Link href={APP_ROUTES.modelGateway.usage} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <Text size="caption" color="subtle">
+          By spend, last 30 days
+        </Text>
+        <Link
+          href={APP_ROUTES.modelGateway.usage}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
           View usage →
         </Link>
       </CardFooter>
@@ -393,21 +476,47 @@ function RecentLogsCard() {
                   }}
                 >
                   {/* Status indicator */}
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                    background: isError ? COLORS.error : COLORS.healthy,
-                    boxShadow: isError ? `0 0 0 2px rgba(239,68,68,0.2)` : undefined,
-                  }} />
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: isError ? COLORS.error : COLORS.healthy,
+                      boxShadow: isError ? `0 0 0 2px rgba(239,68,68,0.2)` : undefined,
+                    }}
+                  />
                   {/* Model */}
-                  <Text size="caption" mono style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Text
+                    size="caption"
+                    mono
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {entry.model}
                   </Text>
                   {/* Latency */}
-                  <Text size="caption" color={isError ? 'muted' : 'subtle'} mono style={{ flexShrink: 0 }}>
-                    {entry.latencyMs >= 1000 ? `${(entry.latencyMs / 1000).toFixed(1)}s` : `${entry.latencyMs}ms`}
+                  <Text
+                    size="caption"
+                    color={isError ? 'muted' : 'subtle'}
+                    mono
+                    style={{ flexShrink: 0 }}
+                  >
+                    {entry.latencyMs >= 1000
+                      ? `${(entry.latencyMs / 1000).toFixed(1)}s`
+                      : `${entry.latencyMs}ms`}
                   </Text>
                   {/* Time */}
-                  <Text size="caption" color="subtle" style={{ flexShrink: 0, minWidth: '44px', textAlign: 'right' }}>
+                  <Text
+                    size="caption"
+                    color="subtle"
+                    style={{ flexShrink: 0, minWidth: '44px', textAlign: 'right' }}
+                  >
                     {entry.minsAgo === 0 ? 'just now' : `${entry.minsAgo}m ago`}
                   </Text>
                 </Stack>
@@ -418,8 +527,13 @@ function RecentLogsCard() {
         </Stack>
       </CardContent>
       <CardFooter compact justify="between">
-        <Text size="caption" color="subtle">Last {RECENT_LOGS.length} requests</Text>
-        <Link href={APP_ROUTES.modelGateway.logs} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <Text size="caption" color="subtle">
+          Last {RECENT_LOGS.length} requests
+        </Text>
+        <Link
+          href={APP_ROUTES.modelGateway.logs}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
           View all logs →
         </Link>
       </CardFooter>
