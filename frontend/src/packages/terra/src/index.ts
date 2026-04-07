@@ -45,6 +45,8 @@ export { Skeleton } from './components/skeleton';
 
 export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './components/tooltip';
 
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
+
 // ─── Typography ──────────────────────────────────────────────────────────────
 export {
   Heading,
@@ -98,6 +100,20 @@ export type {
 // ─── Layout: Section ─────────────────────────────────────────────────────────
 export { Section } from './components/section';
 export type { SectionProps } from './components/section';
+
+// ─── Molecules ───────────────────────────────────────────────────────────────
+
+export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
+
+// ─── Charts ──────────────────────────────────────────────────────────────────
+
+export { ChartContainer, ChartTooltipContent, ChartLegendContent } from './components/chart';
+export type {
+  ChartConfig,
+  ChartContainerProps,
+  ChartTooltipContentProps,
+  ChartLegendContentProps,
+} from './components/chart';
 
 // ─── Organisms ────────────────────────────────────────────────────────────────
 export { PageLayout } from './components/page-layout';

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { Stack } from '@orbit/terra';
+
 /**
  * Auth layout — centered, no chrome.
  *
@@ -9,5 +11,9 @@ import 'server-only';
  * only adds the centering wrapper.
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  return <div className="flex min-h-screen items-center justify-center">{children}</div>;
+  return (
+    <Stack asChild align="center" justify="center">
+      <main className="min-h-screen">{children}</main>
+    </Stack>
+  );
 }

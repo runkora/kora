@@ -15,7 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { Badge, Button, Text, Heading, Textarea, cn } from '@orbit/terra';
+import { Badge, Button, Grid, Stack, Text, Heading, Textarea, cn } from '@orbit/terra';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -304,15 +304,17 @@ function getAIResponse(userInput: string): string {
 
 function TypingIndicator() {
   return (
-    <div className="flex items-center gap-1 px-1 py-0.5">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
-          style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
-        />
-      ))}
-    </div>
+    <Stack direction="horizontal" align="center" gap="tight" asChild>
+      <span className="px-1 py-0.5">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
+            style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
+          />
+        ))}
+      </span>
+    </Stack>
   );
 }
 
@@ -323,37 +325,45 @@ function MessageContent({ content }: { content: string }) {
   const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
 
   return (
-    <div className="space-y-3 text-sm leading-relaxed text-foreground">
-      {segments.map((seg, i) => {
-        const codeMatch = seg.match(/^```([a-z]*)\n?([\s\S]*?)```$/);
-        if (codeMatch) {
-          const lang = codeMatch[1] || 'code';
-          const code = codeMatch[2].trim();
-          return (
-            <div key={i} className="rounded-lg border border-border-subtle overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2 bg-surface border-b border-border-subtle">
-                {/* Language label — raw span intentional: font-mono overrides font-sans */}
-                <span className="font-mono text-[11px] text-subtle">{lang}</span>
-                <div className="-mr-1">
-                  <Button variant="ghost" size="icon-sm" aria-label="Copy code">
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-              <pre className="bg-background px-4 py-3 overflow-x-auto">
-                <code className="font-mono text-xs text-foreground leading-relaxed">{code}</code>
-              </pre>
-            </div>
-          );
-        }
-        // Plain text segment — preserve newlines.
-        return seg ? (
-          <span key={i} className="whitespace-pre-wrap">
-            {seg}
-          </span>
-        ) : null;
-      })}
-    </div>
+    <Stack gap="snug" asChild>
+      <article className="text-sm leading-relaxed text-foreground">
+        {segments.map((seg, i) => {
+          const codeMatch = seg.match(/^```([a-z]*)\n?([\s\S]*?)```$/);
+          if (codeMatch) {
+            const lang = codeMatch[1] || 'code';
+            const code = codeMatch[2].trim();
+            return (
+              <Stack key={i} gap="none" asChild>
+                <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
+                  <Stack direction="horizontal" align="center" justify="between" asChild>
+                    <figcaption className="px-4 py-2 bg-surface border-b border-border-subtle">
+                      {/* Language label — raw span intentional: font-mono overrides font-sans */}
+                      <span className="font-mono text-[11px] text-subtle">{lang}</span>
+                      <span className="-mr-1">
+                        <Button variant="ghost" size="icon-sm" aria-label="Copy code">
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </span>
+                    </figcaption>
+                  </Stack>
+                  <pre className="bg-background px-4 py-3 overflow-x-auto">
+                    <code className="font-mono text-xs text-foreground leading-relaxed">
+                      {code}
+                    </code>
+                  </pre>
+                </figure>
+              </Stack>
+            );
+          }
+          // Plain text segment — preserve newlines.
+          return seg ? (
+            <span key={i} className="whitespace-pre-wrap">
+              {seg}
+            </span>
+          ) : null;
+        })}
+      </article>
+    </Stack>
   );
 }
 
@@ -493,234 +503,248 @@ export default function ChatPage() {
    * overflow-y-auto so the main element never scrolls itself.
    */
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* ── Message area ─────────────────────────────────────────────────────── */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
-          /* Welcome screen */
-          <div className="flex flex-col items-center justify-center h-full px-6 py-12 text-center">
-            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
-              <Sparkles className="h-8 w-8 text-accent" />
-            </div>
-            <div className="mb-2">
-              <Heading variant="section">How can Orbit help?</Heading>
-            </div>
-            <div className="mb-10 max-w-sm">
-              <Text size="supporting" color="muted">
-                The AI-powered control plane assistant. Ask about agent architecture, generate code,
-                or explore Orbit&apos;s design.
-              </Text>
-            </div>
+    <Stack direction="vertical" asChild>
+      <section className="h-full overflow-hidden">
+        {/* ── Message area ─────────────────────────────────────────────────────── */}
+        <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+          {messages.length === 0 ? (
+            /* Welcome screen */
+            <Stack direction="vertical" align="center" justify="center" asChild>
+              <section className="h-full px-6 py-12 text-center">
+                <span className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
+                  <Sparkles className="h-8 w-8 text-accent" />
+                </span>
+                <span className="mb-2 block">
+                  <Heading variant="section">How can Orbit help?</Heading>
+                </span>
+                <span className="mb-10 block max-w-sm">
+                  <Text size="supporting" color="muted">
+                    The AI-powered control plane assistant. Ask about agent architecture, generate
+                    code, or explore Orbit&apos;s design.
+                  </Text>
+                </span>
 
-            {/* Suggestion chips */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
-              {SUGGESTIONS.map((s) => {
-                const Icon = s.icon;
-                return (
-                  <button
-                    key={s.title}
-                    onClick={() => handleSuggestion(s.prompt)}
-                    className={cn(
-                      'group flex flex-col items-start gap-1.5 rounded-xl p-4 text-left',
-                      'border border-border bg-surface',
-                      'hover:border-accent/50 hover:bg-accent/5',
-                      'transition-colors duration-150',
-                    )}
-                  >
-                    <Icon className="h-4 w-4 text-accent mb-0.5" />
-                    <span className="text-sm font-medium text-foreground leading-snug">
-                      {s.title}
-                    </span>
-                    <span className="text-xs text-subtle leading-snug">{s.desc}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          /* Message thread */
-          <div className="max-w-3xl mx-auto w-full px-4 py-6 space-y-6">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={cn('flex gap-3', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}
-              >
-                {/* Bubble */}
-                <div
+                {/* Suggestion chips */}
+                <Grid cols={{ base: 1, sm: 2 }} gap="snug" asChild>
+                  <nav className="w-full max-w-xl">
+                    {SUGGESTIONS.map((s) => {
+                      const Icon = s.icon;
+                      return (
+                        <button
+                          key={s.title}
+                          onClick={() => handleSuggestion(s.prompt)}
+                          className={cn(
+                            'group flex flex-col items-start gap-1.5 rounded-xl p-4 text-left',
+                            'border border-border bg-surface',
+                            'hover:border-accent/50 hover:bg-accent/5',
+                            'transition-colors duration-150',
+                          )}
+                        >
+                          <Icon className="h-4 w-4 text-accent mb-0.5" />
+                          <span className="text-sm font-medium text-foreground leading-snug">
+                            {s.title}
+                          </span>
+                          <span className="text-xs text-subtle leading-snug">{s.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </Grid>
+              </section>
+            </Stack>
+          ) : (
+            /* Message thread */
+            <Stack gap="spacious" asChild>
+              <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
+                {messages.map((msg) => (
+                  <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
+                    <li className={cn(msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
+                      {/* Bubble */}
+                      <Stack direction="vertical" gap="snug" asChild>
+                        <span
+                          className={cn(
+                            'group relative max-w-[78%]',
+                            msg.role === 'user' ? 'items-end' : 'items-start',
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'rounded-2xl px-4 py-3',
+                              msg.role === 'assistant'
+                                ? 'bg-surface border border-border-subtle rounded-tl-sm'
+                                : 'bg-accent/10 border border-accent/20 rounded-tr-sm',
+                            )}
+                          >
+                            {msg.content ? (
+                              <MessageContent content={msg.content} />
+                            ) : (
+                              /* Streaming start — show dots before first words arrive */
+                              <TypingIndicator />
+                            )}
+                            {msg.isStreaming && msg.content && (
+                              /* Blinking cursor during streaming */
+                              <span className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
+                            )}
+                          </span>
+
+                          {/* Timestamp + actions */}
+                          <Stack direction="horizontal" align="center" gap="snug" asChild>
+                            <span
+                              className={cn(
+                                'px-1',
+                                'opacity-0 group-hover:opacity-100 transition-opacity',
+                                msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
+                              )}
+                            >
+                              {/*
+                               * Timestamp — raw span: carries text styling.
+                               */}
+                              <span className="text-[11px] text-subtle">
+                                {formatTime(msg.timestamp)}
+                              </span>
+                              {msg.role === 'assistant' && !msg.isStreaming && (
+                                <>
+                                  {/*
+                                   * Message action buttons — raw <button>: icon-only
+                                   * micro-actions in the hover overlay.
+                                   */}
+                                  <button
+                                    className="text-subtle hover:text-foreground transition-colors"
+                                    aria-label="Copy message"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    className="text-subtle hover:text-status-healthy transition-colors"
+                                    aria-label="Good response"
+                                  >
+                                    <ThumbsUp className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    className="text-subtle hover:text-status-error transition-colors"
+                                    aria-label="Bad response"
+                                  >
+                                    <ThumbsDown className="h-3 w-3" />
+                                  </button>
+                                </>
+                              )}
+                            </span>
+                          </Stack>
+                        </span>
+                      </Stack>
+                    </li>
+                  </Stack>
+                ))}
+
+                {/* Thinking indicator (between user message and streaming start) */}
+                {isThinking && (
+                  <Stack direction="horizontal" gap="snug" asChild>
+                    <li className="list-none">
+                      <span className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
+                        <TypingIndicator />
+                      </span>
+                    </li>
+                  </Stack>
+                )}
+              </ol>
+            </Stack>
+          )}
+        </main>
+
+        {/* ── Input bar ────────────────────────────────────────────────────────── */}
+        <Stack asChild>
+          <footer className="shrink-0 bg-background px-4 pt-3 pb-4">
+            <Stack asChild>
+              <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
+                <span
                   className={cn(
-                    'group relative flex flex-col gap-1.5 max-w-[78%]',
-                    msg.role === 'user' ? 'items-end' : 'items-start',
+                    'rounded-2xl border bg-surface transition-colors duration-150',
+                    'focus-within:border-accent border-border',
                   )}
                 >
-                  <div
-                    className={cn(
-                      'rounded-2xl px-4 py-3',
-                      msg.role === 'assistant'
-                        ? 'bg-surface border border-border-subtle rounded-tl-sm'
-                        : 'bg-accent/10 border border-accent/20 rounded-tr-sm',
-                    )}
-                  >
-                    {msg.content ? (
-                      <MessageContent content={msg.content} />
-                    ) : (
-                      /* Streaming start — show dots before first words arrive */
-                      <TypingIndicator />
-                    )}
-                    {msg.isStreaming && msg.content && (
-                      /* Blinking cursor during streaming */
-                      <span className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
-                    )}
-                  </div>
+                  {/*
+                   * variant="bare": the outer span above owns the border, background,
+                   * focus ring, and border-radius. The Textarea provides only the
+                   * interaction surface — no redundant chrome of its own.
+                   */}
+                  <Textarea
+                    ref={textareaRef}
+                    variant="bare"
+                    autoResize
+                    rows={1}
+                    maxRows={6}
+                    placeholder="Message Orbit…"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isThinking}
+                  />
 
-                  {/* Timestamp + actions */}
-                  <div
-                    className={cn(
-                      'flex items-center gap-2 px-1',
-                      'opacity-0 group-hover:opacity-100 transition-opacity',
-                      msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
-                    )}
-                  >
-                    {/*
-                     * Timestamp — raw span: carries both text styling and
-                     * the inline-flex layout context it lives in.
-                     */}
-                    <span className="text-[11px] text-subtle">{formatTime(msg.timestamp)}</span>
-                    {msg.role === 'assistant' && !msg.isStreaming && (
-                      <>
+                  {/* Bottom toolbar */}
+                  <Stack direction="horizontal" align="center" justify="between" asChild>
+                    <footer className="px-3 pb-2.5 pt-1">
+                      <Stack direction="horizontal" align="center" gap="snug">
                         {/*
-                         * Message action buttons — raw <button>: these are
-                         * icon-only micro-actions within the message hover
-                         * overlay. Using Terra Button would add h-9 w-9 hit
-                         * areas that are too large for this dense context.
+                         * Model selector: clicking the badge cycles through MODELS.
+                         * Raw <button> wrapper: we need onClick + hover on the badge
+                         * without adding a Terra Button's fixed size around it.
                          */}
                         <button
-                          className="text-subtle hover:text-foreground transition-colors"
-                          aria-label="Copy message"
+                          onClick={cycleModel}
+                          className="flex items-center gap-1 rounded-md hover:opacity-75 transition-opacity"
+                          title="Click to change model"
                         >
-                          <Copy className="h-3 w-3" />
+                          <Badge variant="dim" size="sm">
+                            <Zap className="h-2.5 w-2.5 mr-1" />
+                            {currentModel}
+                          </Badge>
                         </button>
-                        <button
-                          className="text-subtle hover:text-status-healthy transition-colors"
-                          aria-label="Good response"
-                        >
-                          <ThumbsUp className="h-3 w-3" />
-                        </button>
-                        <button
-                          className="text-subtle hover:text-status-error transition-colors"
-                          aria-label="Bad response"
-                        >
-                          <ThumbsDown className="h-3 w-3" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
 
-            {/* Thinking indicator (between user message and streaming start) */}
-            {isThinking && (
-              <div className="flex gap-3">
-                <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
-                  <TypingIndicator />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Input bar ────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 bg-background px-4 pt-3 pb-4">
-        <div className="max-w-3xl mx-auto w-full">
-          <div
-            className={cn(
-              'rounded-2xl border bg-surface transition-colors duration-150',
-              'focus-within:border-accent border-border',
-            )}
-          >
-            {/*
-             * variant="bare": the outer div above owns the border, background,
-             * focus ring, and border-radius. The Textarea provides only the
-             * interaction surface — no redundant chrome of its own.
-             */}
-            <Textarea
-              ref={textareaRef}
-              variant="bare"
-              autoResize
-              rows={1}
-              maxRows={6}
-              placeholder="Message Orbit…"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isThinking}
-            />
-
-            {/* Bottom toolbar */}
-            <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-              <div className="flex items-center gap-2">
-                {/*
-                 * Model selector: clicking the badge cycles through MODELS.
-                 * Raw <button> wrapper: we need onClick + hover on the badge
-                 * without adding a Terra Button's fixed size around it.
-                 */}
-                <button
-                  onClick={cycleModel}
-                  className="flex items-center gap-1 rounded-md hover:opacity-75 transition-opacity"
-                  title="Click to change model"
-                >
-                  <Badge variant="dim" size="sm">
-                    <Zap className="h-2.5 w-2.5 mr-1" />
-                    {currentModel}
-                  </Badge>
-                </button>
-
-                {/* Clear button — only visible when there is a conversation */}
-                {messages.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleClear}
-                    aria-label="Clear conversation"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {/*
-                 * Keyboard hint — raw span: carries responsive utility
-                 * (hidden sm:block) alongside text styling. No Terra
-                 * equivalent for responsive visibility control.
-                 */}
-                <span className="text-[11px] text-subtle hidden sm:block">
-                  Shift + Enter for new line
+                        {/* Clear button — only visible when there is a conversation */}
+                        {messages.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={handleClear}
+                            aria-label="Clear conversation"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </Stack>
+                      <Stack direction="horizontal" align="center" gap="snug">
+                        {/*
+                         * Keyboard hint — raw span: carries responsive utility
+                         * (hidden sm:block) alongside text styling.
+                         */}
+                        <span className="text-[11px] text-subtle hidden sm:block">
+                          Shift + Enter for new line
+                        </span>
+                        {/*
+                         * size="xs" shape="pill": compact pill send button.
+                         */}
+                        <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
+                          <Send className="h-3 w-3" />
+                          Send
+                        </Button>
+                      </Stack>
+                    </footer>
+                  </Stack>
                 </span>
-                {/*
-                 * size="xs" shape="pill": compact pill send button.
-                 * xs = h-7 px-3 gap-1.5 text-xs.
-                 * pill = rounded-full.
-                 */}
-                <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
-                  <Send className="h-3 w-3" />
-                  Send
-                </Button>
-              </div>
-            </div>
-          </div>
 
-          {/*
-           * mt-2 wrapper: spacing between the input card and the disclaimer.
-           * align="center": intrinsic to the text, not a layout concern.
-           */}
-          <div className="mt-2">
-            <Text size="micro" color="subtle" align="center">
-              Orbit AI can make mistakes. Verify important information before acting.
-            </Text>
-          </div>
-        </div>
-      </div>
-    </div>
+                {/*
+                 * mt-2 wrapper: spacing between the input card and the disclaimer.
+                 */}
+                <span className="mt-2 block">
+                  <Text size="micro" color="subtle" align="center">
+                    Orbit AI can make mistakes. Verify important information before acting.
+                  </Text>
+                </span>
+              </form>
+            </Stack>
+          </footer>
+        </Stack>
+      </section>
+    </Stack>
   );
 }
