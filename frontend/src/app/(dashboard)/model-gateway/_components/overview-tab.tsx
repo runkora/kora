@@ -3,35 +3,27 @@
 import {
   AreaChart,
   Area,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
-  Cell,
 } from 'recharts';
 import {
   Badge,
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
   Grid,
   Heading,
   Stack,
   Text,
 } from '@orbit/terra';
-import { Clock, DollarSign, Zap, Activity, AlertCircle, HardDrive } from 'lucide-react';
+import { Activity, Zap, DollarSign, Clock, AlertCircle, HardDrive } from 'lucide-react';
 import { DAILY_SPEND, DAILY_REQUESTS, STATS } from '../_data/mock';
-import { StatCards, UsageTabs } from '../usage/_components';
 
-// ── Types & Helpers ───────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(usd: number): string {
   return `$${usd.toFixed(2)}`;
@@ -50,12 +42,22 @@ function fmtReqs(n: number): string {
   return n.toLocaleString();
 }
 
-function fmtLatency(ms: number): string {
-  return `${ms.toFixed(0)}ms`;
-}
-
 function fmtPercent(n: number): string {
   return `${n.toFixed(1)}%`;
+}
+
+function formatDateAxis(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatRequestsAxis(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return n.toLocaleString();
 }
 
 // ── Chart Colors (Terra tokens as hex) ────────────────────────────────────────
@@ -71,7 +73,7 @@ const COLORS = {
   subtle: '#8a8a94',
 };
 
-// ── 1. KPI Stat Cards ─────────────────────────────────────────────────────────
+// ── KPI Card ──────────────────────────────────────────────────────────────────
 
 interface KPICardProps {
   icon: React.ReactNode;
@@ -79,11 +81,14 @@ interface KPICardProps {
   value: string;
   deltaPercent: number;
   deltaText: string;
+  positiveIsBad?: boolean;
 }
 
-function KPICard({ icon, label, value, deltaPercent, deltaText }: KPICardProps) {
-  const deltaColor = deltaPercent >= 0 ? 'status-degraded' : 'status-healthy';
-  const deltaIcon = deltaPercent >= 0 ? '▲' : '▼';
+function KPICard({ icon, label, value, deltaPercent, deltaText, positiveIsBad }: KPICardProps) {
+  const isPositive = deltaPercent >= 0;
+  const isGood = positiveIsBad ? !isPositive : isPositive;
+  const deltaColor = isGood ? 'status-healthy' : 'status-degraded';
+  const deltaIcon = isPositive ? '▲' : '▼';
 
   return (
     <Card column>
@@ -107,44 +112,21 @@ function KPICard({ icon, label, value, deltaPercent, deltaText }: KPICardProps) 
   );
 }
 
-// ── 2. Requests over time chart ───────────────────────────────────────────────
+// ── Requests Trend Chart ──────────────────────────────────────────────────────
 
-interface RequestsChartPoint {
-  date: string;
-  total: number;
-  successful: number;
-  errored: number;
-}
-
-function formatDateAxis(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
-}
-
-function formatRequestsAxis(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toLocaleString();
-}
-
-function RequestsChart() {
-  // Use last 14 days for the chart
-  const data: RequestsChartPoint[] = DAILY_REQUESTS.slice(-14);
+function RequestsTrendChart() {
+  const data = DAILY_REQUESTS.slice(-14);
 
   return (
     <Card column>
       <CardHeader compact>
-        <CardTitle>Requests over time</CardTitle>
-        <CardDescription>Total API calls across all models (last 14 days)</CardDescription>
+        <CardTitle>Requests — last 14 days</CardTitle>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
             <defs>
-              <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="overviewColorTotal" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={COLORS.accent} stopOpacity={0.3} />
                 <stop offset="95%" stopColor={COLORS.accent} stopOpacity={0} />
               </linearGradient>
@@ -181,7 +163,7 @@ function RequestsChart() {
               dataKey="total"
               stroke={COLORS.accent}
               fillOpacity={1}
-              fill="url(#colorTotal)"
+              fill="url(#overviewColorTotal)"
               isAnimationActive={false}
             />
           </AreaChart>
@@ -191,188 +173,16 @@ function RequestsChart() {
   );
 }
 
-// ── 3. Cost by model chart ────────────────────────────────────────────────────
-
-interface ModelCostData {
-  model: string;
-  cost: number;
-}
-
-function CostByModelChart() {
-  // Derive 5 models from aggregated spend data
-  const modelCosts: ModelCostData[] = [
-    { model: 'Claude 3.5 Opus', cost: STATS.spend.month * 0.42 },
-    { model: 'Claude 3.5 Sonnet', cost: STATS.spend.month * 0.31 },
-    { model: 'Claude 3 Haiku', cost: STATS.spend.month * 0.18 },
-    { model: 'GPT-4 Turbo', cost: STATS.spend.month * 0.06 },
-    { model: 'Llama 2 70B', cost: STATS.spend.month * 0.03 },
-  ].sort((a, b) => b.cost - a.cost);
-
-  const modelColors = [
-    COLORS.accent,
-    COLORS.healthy,
-    COLORS.degraded,
-    COLORS.subtle,
-    COLORS.borderSubtle,
-  ];
-
-  return (
-    <Card column>
-      <CardHeader compact>
-        <CardTitle>Cost by model</CardTitle>
-        <CardDescription>Current billing period spend distribution</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart
-            data={modelCosts}
-            layout="vertical"
-            margin={{ top: 4, right: 16, bottom: 0, left: 140 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} horizontal={false} />
-            <XAxis type="number" tick={{ fill: COLORS.subtle, fontSize: 11 }} />
-            <YAxis
-              type="category"
-              dataKey="model"
-              tick={{ fill: COLORS.subtle, fontSize: 11 }}
-              width={140}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: COLORS.surfaceOverlay,
-                border: `1px solid ${COLORS.borderSubtle}`,
-                borderRadius: '6px',
-                padding: '8px 12px',
-              }}
-              formatter={(value: unknown) => fmt(Number(value))}
-              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-            />
-            <Bar dataKey="cost" isAnimationActive={false}>
-              {modelCosts.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={modelColors[index % modelColors.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── 4. Latency distribution chart ─────────────────────────────────────────────
-
-interface LatencyData {
-  date: string;
-  p50: number;
-  p95: number;
-  p99: number;
-}
-
-function generateMockLatencyData(): LatencyData[] {
-  const data: LatencyData[] = [];
-  const baseDate = new Date('2025-06-17');
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    // Generate realistic latency patterns with some variance
-    const baseLatency = 120 + Math.sin(i / 3) * 30;
-    data.push({
-      date: dateStr,
-      p50: Math.max(80, baseLatency + (Math.random() - 0.5) * 20),
-      p95: Math.max(150, baseLatency + 70 + (Math.random() - 0.5) * 30),
-      p99: Math.max(250, baseLatency + 150 + (Math.random() - 0.5) * 50),
-    });
-  }
-  return data;
-}
-
-function LatencyChart() {
-  const data = generateMockLatencyData();
-
-  return (
-    <Card column>
-      <CardHeader compact>
-        <CardTitle>Latency distribution</CardTitle>
-        <CardDescription>P50, P95, and P99 request latency (last 14 days)</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.borderSubtle} vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: COLORS.subtle, fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={formatDateAxis}
-              minTickGap={40}
-            />
-            <YAxis
-              tick={{ fill: COLORS.subtle, fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(n) => `${n}ms`}
-              width={48}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: COLORS.surfaceOverlay,
-                border: `1px solid ${COLORS.borderSubtle}`,
-                borderRadius: '6px',
-                padding: '8px 12px',
-              }}
-              labelFormatter={(label: unknown) => formatDateAxis(String(label))}
-              formatter={(value: unknown) => fmtLatency(Number(value))}
-              cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
-            />
-            <Legend wrapperStyle={{ paddingTop: '16px' }} iconType="line" />
-            <Line
-              type="monotone"
-              dataKey="p50"
-              stroke={COLORS.healthy}
-              strokeWidth={2}
-              dot={false}
-              name="P50"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="p95"
-              stroke={COLORS.degraded}
-              strokeWidth={2}
-              dot={false}
-              name="P95"
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="p99"
-              stroke={COLORS.error}
-              strokeWidth={2}
-              dot={false}
-              name="P99"
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function OverviewTab() {
-  // Derive DAILY_TOKENS for calculations
-  const DAILY_TOKENS = DAILY_SPEND.map((d) => ({
+  // Derive DAILY_TOKENS inline for delta calculations
+  const dailyTokens = DAILY_SPEND.map((d) => ({
     date: d.date,
-    promptTokens: Math.round(d.promptUsd * 140_000),
-    outputTokens: Math.round(d.outputUsd * 14_000),
     totalTokens: Math.round(d.promptUsd * 140_000) + Math.round(d.outputUsd * 14_000),
   }));
 
-  // Calculate 7-day deltas (comparing current to previous 7 days)
+  // 7-day deltas (current vs previous 7 days)
   const currentWeek = DAILY_REQUESTS.slice(-7);
   const previousWeek = DAILY_REQUESTS.slice(-14, -7);
 
@@ -381,8 +191,8 @@ export function OverviewTab() {
   const requestsDelta =
     previousWeekTotal > 0 ? ((currentWeekTotal - previousWeekTotal) / previousWeekTotal) * 100 : 0;
 
-  const currentWeekTokens = DAILY_TOKENS.slice(-7).reduce((s, r) => s + r.totalTokens, 0);
-  const previousWeekTokens = DAILY_TOKENS.slice(-14, -7).reduce((s, r) => s + r.totalTokens, 0);
+  const currentWeekTokens = dailyTokens.slice(-7).reduce((s, r) => s + r.totalTokens, 0);
+  const previousWeekTokens = dailyTokens.slice(-14, -7).reduce((s, r) => s + r.totalTokens, 0);
   const tokensDelta =
     previousWeekTokens > 0
       ? ((currentWeekTokens - previousWeekTokens) / previousWeekTokens) * 100
@@ -395,8 +205,8 @@ export function OverviewTab() {
 
   return (
     <Stack direction="vertical" gap="comfortable" asChild>
-      <section className="pb-8">
-        {/* ── Page header ── */}
+      <section>
+        {/* Page header */}
         <Stack gap="snug">
           <Stack direction="horizontal" align="center" gap="snug">
             <Heading variant="title">Model Gateway</Heading>
@@ -432,13 +242,15 @@ export function OverviewTab() {
             value={fmt(STATS.spend.period)}
             deltaPercent={spendDelta}
             deltaText="vs last 7 days"
+            positiveIsBad
           />
           <KPICard
             icon={<Clock className="size-4" />}
-            label="Avg Latency (p50)"
+            label="Avg Latency"
             value="142ms"
             deltaPercent={2.3}
             deltaText="vs last 7 days"
+            positiveIsBad
           />
           <KPICard
             icon={<AlertCircle className="size-4" />}
@@ -446,6 +258,7 @@ export function OverviewTab() {
             value={fmtPercent((STATS.requests.errored / STATS.requests.total) * 100)}
             deltaPercent={-0.8}
             deltaText="vs last 7 days"
+            positiveIsBad
           />
           <KPICard
             icon={<HardDrive className="size-4" />}
@@ -456,17 +269,8 @@ export function OverviewTab() {
           />
         </Grid>
 
-        {/* Charts */}
-        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-          <RequestsChart />
-          <LatencyChart />
-        </Grid>
-
-        <CostByModelChart />
-
-        {/* Detailed usage analytics */}
-        <StatCards stats={STATS} />
-        <UsageTabs />
+        {/* Requests trend chart */}
+        <RequestsTrendChart />
       </section>
     </Stack>
   );

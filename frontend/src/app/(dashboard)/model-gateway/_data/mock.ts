@@ -21,39 +21,53 @@ export interface DailyRequestRow {
   errored: number;
 }
 
-// 30 days of mock spend data
-export const DAILY_SPEND: DailySpendRow[] = [
-  { date: '2025-06-01', totalUsd: 4.21, promptUsd: 2.1, outputUsd: 2.11 },
-  { date: '2025-06-02', totalUsd: 5.87, promptUsd: 2.94, outputUsd: 2.93 },
-  { date: '2025-06-03', totalUsd: 3.44, promptUsd: 1.72, outputUsd: 1.72 },
-  { date: '2025-06-04', totalUsd: 6.19, promptUsd: 3.1, outputUsd: 3.09 },
-  { date: '2025-06-05', totalUsd: 7.82, promptUsd: 3.91, outputUsd: 3.91 },
-  { date: '2025-06-06', totalUsd: 5.03, promptUsd: 2.52, outputUsd: 2.51 },
-  { date: '2025-06-07', totalUsd: 2.11, promptUsd: 1.06, outputUsd: 1.05 },
-  { date: '2025-06-08', totalUsd: 8.64, promptUsd: 4.32, outputUsd: 4.32 },
-  { date: '2025-06-09', totalUsd: 9.21, promptUsd: 4.61, outputUsd: 4.6 },
-  { date: '2025-06-10', totalUsd: 6.77, promptUsd: 3.39, outputUsd: 3.38 },
-  { date: '2025-06-11', totalUsd: 5.5, promptUsd: 2.75, outputUsd: 2.75 },
-  { date: '2025-06-12', totalUsd: 4.98, promptUsd: 2.49, outputUsd: 2.49 },
-  { date: '2025-06-13', totalUsd: 7.34, promptUsd: 3.67, outputUsd: 3.67 },
-  { date: '2025-06-14', totalUsd: 3.12, promptUsd: 1.56, outputUsd: 1.56 },
-  { date: '2025-06-15', totalUsd: 6.45, promptUsd: 3.23, outputUsd: 3.22 },
-  { date: '2025-06-16', totalUsd: 8.9, promptUsd: 4.45, outputUsd: 4.45 },
-  { date: '2025-06-17', totalUsd: 11.23, promptUsd: 5.62, outputUsd: 5.61 },
-  { date: '2025-06-18', totalUsd: 9.44, promptUsd: 4.72, outputUsd: 4.72 },
-  { date: '2025-06-19', totalUsd: 7.01, promptUsd: 3.51, outputUsd: 3.5 },
-  { date: '2025-06-20', totalUsd: 5.88, promptUsd: 2.94, outputUsd: 2.94 },
-  { date: '2025-06-21', totalUsd: 4.33, promptUsd: 2.17, outputUsd: 2.16 },
-  { date: '2025-06-22', totalUsd: 6.77, promptUsd: 3.39, outputUsd: 3.38 },
-  { date: '2025-06-23', totalUsd: 8.12, promptUsd: 4.06, outputUsd: 4.06 },
-  { date: '2025-06-24', totalUsd: 10.54, promptUsd: 5.27, outputUsd: 5.27 },
-  { date: '2025-06-25', totalUsd: 9.08, promptUsd: 4.54, outputUsd: 4.54 },
-  { date: '2025-06-26', totalUsd: 7.44, promptUsd: 3.72, outputUsd: 3.72 },
-  { date: '2025-06-27', totalUsd: 6.21, promptUsd: 3.11, outputUsd: 3.1 },
-  { date: '2025-06-28', totalUsd: 5.09, promptUsd: 2.55, outputUsd: 2.54 },
-  { date: '2025-06-29', totalUsd: 8.77, promptUsd: 4.39, outputUsd: 4.38 },
-  { date: '2025-06-30', totalUsd: 12.41, promptUsd: 6.21, outputUsd: 6.2 },
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+// ── 30 days of mock spend data (relative to today) ────────────────────────────
+
+const SPEND_VALUES = [
+  { totalUsd: 4.21, promptUsd: 2.1, outputUsd: 2.11 },
+  { totalUsd: 5.87, promptUsd: 2.94, outputUsd: 2.93 },
+  { totalUsd: 3.44, promptUsd: 1.72, outputUsd: 1.72 },
+  { totalUsd: 6.19, promptUsd: 3.1, outputUsd: 3.09 },
+  { totalUsd: 7.82, promptUsd: 3.91, outputUsd: 3.91 },
+  { totalUsd: 5.03, promptUsd: 2.52, outputUsd: 2.51 },
+  { totalUsd: 2.11, promptUsd: 1.06, outputUsd: 1.05 },
+  { totalUsd: 8.64, promptUsd: 4.32, outputUsd: 4.32 },
+  { totalUsd: 9.21, promptUsd: 4.61, outputUsd: 4.6 },
+  { totalUsd: 6.77, promptUsd: 3.39, outputUsd: 3.38 },
+  { totalUsd: 5.5, promptUsd: 2.75, outputUsd: 2.75 },
+  { totalUsd: 4.98, promptUsd: 2.49, outputUsd: 2.49 },
+  { totalUsd: 7.34, promptUsd: 3.67, outputUsd: 3.67 },
+  { totalUsd: 3.12, promptUsd: 1.56, outputUsd: 1.56 },
+  { totalUsd: 6.45, promptUsd: 3.23, outputUsd: 3.22 },
+  { totalUsd: 8.9, promptUsd: 4.45, outputUsd: 4.45 },
+  { totalUsd: 11.23, promptUsd: 5.62, outputUsd: 5.61 },
+  { totalUsd: 9.44, promptUsd: 4.72, outputUsd: 4.72 },
+  { totalUsd: 7.01, promptUsd: 3.51, outputUsd: 3.5 },
+  { totalUsd: 5.88, promptUsd: 2.94, outputUsd: 2.94 },
+  { totalUsd: 4.33, promptUsd: 2.17, outputUsd: 2.16 },
+  { totalUsd: 6.77, promptUsd: 3.39, outputUsd: 3.38 },
+  { totalUsd: 8.12, promptUsd: 4.06, outputUsd: 4.06 },
+  { totalUsd: 10.54, promptUsd: 5.27, outputUsd: 5.27 },
+  { totalUsd: 9.08, promptUsd: 4.54, outputUsd: 4.54 },
+  { totalUsd: 7.44, promptUsd: 3.72, outputUsd: 3.72 },
+  { totalUsd: 6.21, promptUsd: 3.11, outputUsd: 3.1 },
+  { totalUsd: 5.09, promptUsd: 2.55, outputUsd: 2.54 },
+  { totalUsd: 8.77, promptUsd: 4.39, outputUsd: 4.38 },
+  { totalUsd: 12.41, promptUsd: 6.21, outputUsd: 6.2 },
 ];
+
+export const DAILY_SPEND: DailySpendRow[] = SPEND_VALUES.map((v, i) => ({
+  date: daysAgo(SPEND_VALUES.length - 1 - i),
+  ...v,
+}));
 
 // 30 days of mock token data
 export const DAILY_TOKENS: DailyTokenRow[] = DAILY_SPEND.map((d) => ({
@@ -94,3 +108,51 @@ export const STATS = {
     year: DAILY_TOKENS.reduce((s, r) => s + r.totalTokens, 0) * 8.1,
   },
 };
+
+// ── Latency data ──────────────────────────────────────────────────────────────
+
+// 14 days of mock latency data (deterministic — no Math.random())
+export interface DailyLatencyRow {
+  date: string;
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
+const LATENCY_VALUES = [
+  { p50: 118, p95: 198, p99: 312 },
+  { p50: 124, p95: 204, p99: 298 },
+  { p50: 131, p95: 211, p99: 334 },
+  { p50: 115, p95: 195, p99: 287 },
+  { p50: 108, p95: 188, p99: 271 },
+  { p50: 122, p95: 202, p99: 318 },
+  { p50: 139, p95: 219, p99: 351 },
+  { p50: 147, p95: 227, p99: 368 },
+  { p50: 133, p95: 213, p99: 342 },
+  { p50: 121, p95: 201, p99: 309 },
+  { p50: 116, p95: 196, p99: 294 },
+  { p50: 128, p95: 208, p99: 327 },
+  { p50: 142, p95: 222, p99: 356 },
+  { p50: 136, p95: 216, p99: 344 },
+];
+
+export const DAILY_LATENCY: DailyLatencyRow[] = LATENCY_VALUES.map((v, i) => ({
+  date: daysAgo(LATENCY_VALUES.length - 1 - i),
+  ...v,
+}));
+
+// ── Cost breakdown by model ───────────────────────────────────────────────────
+
+// Cost breakdown by model for the current billing period
+export interface ModelCostRow {
+  model: string;
+  cost: number;
+}
+
+export const MODEL_COSTS: ModelCostRow[] = [
+  { model: 'claude-3-5-sonnet', cost: 72.14 },
+  { model: 'claude-3-5-haiku', cost: 53.88 },
+  { model: 'claude-opus-4', cost: 41.22 },
+  { model: 'gpt-4o', cost: 21.07 },
+  { model: 'llama-3-70b', cost: 9.43 },
+];

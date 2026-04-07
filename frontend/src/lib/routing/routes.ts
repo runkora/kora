@@ -47,8 +47,9 @@ export const APP_ROUTES = {
   modelGateway: {
     overview: '/model-gateway/overview',
     models: '/model-gateway/models',
-    keys: '/model-gateway/keys',
+    usage: '/model-gateway/usage',
     logs: '/model-gateway/logs',
+    keys: '/model-gateway/keys',
     setup: '/model-gateway/setup',
   },
 } as const;
