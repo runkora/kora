@@ -60,7 +60,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        'rounded-lg border border-border-subtle bg-surface text-foreground',
+        'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
         column && 'flex flex-col',
         className,
       )}
@@ -80,14 +80,25 @@ interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
    *
    * ```tsx
    * <CardHeader compact>
-   *   <div className="flex items-center justify-between">
-   *     <Text size="supporting" color="muted">{label}</Text>
-   *     <Icon />
-   *   </div>
+   *   <CardTitle>Costs</CardTitle>
    * </CardHeader>
    * ```
    */
   compact?: boolean;
+
+  /**
+   * Optional icon anchored to the top-right of the header. Renders in a
+   * small elevated box inset from the card corner. Use a single Lucide icon
+   * (size-4) to represent the card's subject at a glance.
+   *
+   * ```tsx
+   * <CardHeader compact icon={<DollarSign className="size-4" />}>
+   *   <CardTitle>Costs</CardTitle>
+   *   <CardDescription>Current billing period</CardDescription>
+   * </CardHeader>
+   * ```
+   */
+  icon?: React.ReactNode;
 }
 
 /**
@@ -98,14 +109,30 @@ interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
  *
  * Pass `compact` to reduce bottom padding for stat cards and KPI widgets
  * where the standard gap between header and content feels excessive.
+ *
+ * Pass `icon` to anchor a small icon box to the top-right corner of the
+ * header — useful for KPI cards and stat widgets.
  */
 const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
-  ({ className, compact = false, ...props }, ref) => (
+  ({ className, compact = false, icon, children, ...props }, ref) => (
     <div
       ref={ref}
       className={cn('flex flex-col gap-1.5 p-6', compact && 'pb-2', className)}
       {...props}
-    />
+    >
+      {icon ? (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1.5" style={{ marginTop: '-6px' }}>
+            {children}
+          </div>
+          <span className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
+            {icon}
+          </span>
+        </div>
+      ) : (
+        children
+      )}
+    </div>
   ),
 );
 CardHeader.displayName = 'CardHeader';
