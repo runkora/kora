@@ -27,10 +27,16 @@ export async function fetchModelsFromGateway(accessToken: string): Promise<Gatew
     res = await fetch(`${config.inferenceGatewayUrl}/models`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (err) {
-    console.error('[fetchModelsFromGateway] network error:', err);
-    return { ok: false, status: 502, message: 'Failed to reach inference gateway' };
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[fetchModelsFromGateway] ${isTimeout ? 'timeout' : 'network error'}:`, err);
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Inference gateway timed out' : 'Failed to reach inference gateway',
+    };
   }
 
   if (!res.ok) {

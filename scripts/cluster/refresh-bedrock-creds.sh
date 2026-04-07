@@ -65,9 +65,9 @@ step "Patching orbit-secrets in orbit-system"
 kubectl patch secret orbit-secrets -n orbit-system \
   --type=json \
   -p="[
-    {\"op\":\"add\",\"path\":\"/data/AWS_ACCESS_KEY_ID\",    \"value\":\"$(echo -n "${ACCESS_KEY}"    | base64)\"},
-    {\"op\":\"add\",\"path\":\"/data/AWS_SECRET_ACCESS_KEY\",\"value\":\"$(echo -n "${SECRET_KEY}"    | base64)\"},
-    {\"op\":\"add\",\"path\":\"/data/AWS_SESSION_TOKEN\",    \"value\":\"$(echo -n "${SESSION_TOKEN}" | base64)\"}
+    {\"op\":\"add\",\"path\":\"/data/AWS_ACCESS_KEY_ID\",    \"value\":\"$(echo -n "${ACCESS_KEY}"    | base64 | tr -d '\n')\"},
+    {\"op\":\"add\",\"path\":\"/data/AWS_SECRET_ACCESS_KEY\",\"value\":\"$(echo -n "${SECRET_KEY}"    | base64 | tr -d '\n')\"},
+    {\"op\":\"add\",\"path\":\"/data/AWS_SESSION_TOKEN\",    \"value\":\"$(echo -n "${SESSION_TOKEN}" | base64 | tr -d '\n')\"}
   ]"
 
 ok "orbit-secrets patched"

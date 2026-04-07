@@ -16,9 +16,11 @@ export async function GET(): Promise<NextResponse> {
   const result = await fetchModelsFromGateway(session.accessToken);
 
   if (!result.ok) {
+    console.error(`[GET /api/models] upstream error ${result.status}: ${result.message}`);
+    const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(
-      { code: 'upstream_error', message: result.message },
-      { status: result.status },
+      { code: 'upstream_error', message: 'Failed to load models from inference gateway' },
+      { status: clientStatus },
     );
   }
 

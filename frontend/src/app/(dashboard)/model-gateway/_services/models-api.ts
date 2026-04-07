@@ -4,8 +4,6 @@
 // the Go backend directly (which is server-only via orbitClient).
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { ModelsListResponse } from '@orbit/shared/api';
-import { toModelRow } from '../_types';
 import type { ModelRow } from '../_types';
 
 export interface FetchModelsResult {
@@ -38,9 +36,9 @@ export async function fetchModels(): Promise<FetchModelsResult> {
     return { models: [], error: message };
   }
 
-  const data = (await res.json()) as ModelsListResponse;
+  const data = (await res.json()) as { data: ModelRow[] };
   return {
-    models: (data.data ?? []).map(toModelRow),
+    models: data.data ?? [],
     error: null,
   };
 }

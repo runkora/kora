@@ -52,7 +52,7 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 # are never used at runtime — the real values are injected via the
 # orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
 ARG ORBIT_API_URL=http://orbit-identity.orbit-system/api/v1
-ARG INFERENCE_GATEWAY_URL=http://inference-gateway.orbit-system/api/v1
+ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
