@@ -1,7 +1,7 @@
 # 0030. Frontend Test Strategy and Toolchain
 
-**Status:** Proposed
-**Date:** 2026-04-01
+**Status:** Approved
+**Date:** 2026-04-08
 **Deciders:** Engineering Team
 **Technical Story:** [Frontend Test Strategy PRD](../prd/frontend-test-strategy.md) -- establishing a layered, package-aware test architecture for the Orbit frontend.
 

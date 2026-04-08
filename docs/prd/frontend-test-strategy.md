@@ -1,6 +1,6 @@
 # Frontend Test Strategy — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-03-23
 **Last Updated:** 2026-04-08
 **Owner:** Frontend

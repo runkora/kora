@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@orbit/shared/api';
+import { ApiRoute } from '@orbit/lib/routing';
 import { Badge, Card, CardContent, Code, Skeleton, Stack, Text } from '@orbit/terra';
 
 type State = { status: 'loading' } | { status: 'ok'; data: HealthResponse } | { status: 'error' };
@@ -17,7 +18,7 @@ export function HealthStatus() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/identity/health', { signal: controller.signal })
+    fetch(ApiRoute.identityHealth.GET(), { signal: controller.signal })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok || body.error) {
