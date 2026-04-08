@@ -6,8 +6,8 @@
 # chart) that reference this Gateway by name.
 #
 # Current hosts:
-#   orbit.test     → orbit-frontend     (browser UI)
-#   api.orbit.test → orbit-inference-gateway  (developer / agent CLI API)
+#   orbit.local.clearroute.io     → orbit-frontend     (browser UI)
+#   api.orbit.local.clearroute.io → orbit-inference-gateway  (developer / agent CLI API)
 #
 # The selector `app: gateway` matches the Istio ingress gateway pods
 # deployed in istio-system by the operator's `gateway` Helm release.
@@ -45,8 +45,8 @@ spec:
         mode: SIMPLE
         credentialName: {{ .Values.gateway.tls.credentialName }}
       hosts:
-        - "orbit.test"
-        - "api.orbit.test"
+        - "orbit.local.clearroute.io"
+        - "api.orbit.local.clearroute.io"
     # HTTP — redirect all traffic to HTTPS.
     - port:
         number: 80
@@ -55,8 +55,8 @@ spec:
       tls:
         httpsRedirect: true
       hosts:
-        - "orbit.test"
-        - "api.orbit.test"
+        - "orbit.local.clearroute.io"
+        - "api.orbit.local.clearroute.io"
     {{- else }}
     # HTTP only — no TLS termination at the gateway.
     - port:
@@ -64,6 +64,6 @@ spec:
         name: http
         protocol: HTTP
       hosts:
-        - "orbit.test"
-        - "api.orbit.test"
+        - "orbit.local.clearroute.io"
+        - "api.orbit.local.clearroute.io"
     {{- end }}

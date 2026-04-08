@@ -21,7 +21,7 @@ make dev-cluster
 This will:
 1. Start Postgres + Redis + Dex via `make dev-up` (if not already running)
 2. Create the k3d cluster from `infrastructure/bootstrap/k3d-config.yaml`
-3. Patch CoreDNS to resolve `dex.orbit.test` → Docker bridge gateway
+3. Patch CoreDNS to resolve `dex.orbit.local.clearroute.io` → Docker bridge gateway
 
 **This command is idempotent** — re-running it when the cluster already exists is a no-op.
 

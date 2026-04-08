@@ -26,7 +26,7 @@ run `helm upgrade` commands manually.
 
 1. Starts Docker Compose services: Postgres (`orbit-postgres`), Redis, and Dex OIDC.
 2. Creates the k3d cluster `orbit-local` with a local registry at `orbit-registry:5001`.
-3. Patches CoreDNS for `dex.orbit.test` resolution.
+3. Patches CoreDNS for `dex.orbit.local.clearroute.io` resolution.
 
 ### `make cluster-operator`
 
@@ -120,7 +120,7 @@ that reference it:
 | `deploy/local/platform-values.yaml` | `global.trustDomain` — used by the orbit-platform Helm chart |
 | `deploy/local/orbit-values.yaml` | `global.trustDomain` — used by the orbit Helm chart |
 
-All are currently set to `orbit.test`. If you change `spec.trustDomain` in
+All are currently set to `orbit.local.clearroute.io`. If you change `spec.trustDomain` in
 `orbit-platform.yaml`, update the two chart values files to match. A mismatch
 will cause SPIFFE SAN validation failures and mTLS peer authentication will break.
 

@@ -92,7 +92,7 @@ orbit/
 │   │   │   ├── service.go                # Service: OIDC flow, token issuance, session lifecycle
 │   │   │   ├── handlers.go               # HTTP handlers: device, session, refresh, exchange, revoke
 │   │   │   └── config/
-│   │   │       ├── local.yaml            # issuerUrl: https://dex.orbit.test:5556/dex
+│   │   │       ├── local.yaml            # issuerUrl: https://dex.orbit.local.clearroute.io:5556/dex
 │   │   │       ├── development.yaml
 │   │   │       └── production.yaml
 │   │   │

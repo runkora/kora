@@ -47,11 +47,11 @@ identity:
   replicas: 1
 
   # hostAliases injects extra entries into the pod's /etc/hosts.
-  # Useful in local dev to resolve Docker Compose hostnames (e.g. dex.orbit.test)
+  # Useful in local dev to resolve Docker Compose hostnames (e.g. dex.orbit.local.clearroute.io)
   # from within the k3d cluster. Empty by default (no extra entries).
   hostAliases: []
   # - ip: "<dex-container-ip>"   # resolved dynamically at cluster setup time
-  #   hostnames: ["dex.orbit.test"]
+  #   hostnames: ["dex.orbit.local.clearroute.io"]
 
 
   # Resource requests and limits.

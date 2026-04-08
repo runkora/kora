@@ -78,7 +78,7 @@ kubectl patch orbitplatform orbit --type=merge -p "{
       \"identity\": {
         \"hostAliases\": [{
           \"ip\": \"${DEX_IP}\",
-          \"hostnames\": [\"dex.orbit.test\"]
+          \"hostnames\": [\"dex.orbit.local.clearroute.io\"]
         }]
       }
     },
