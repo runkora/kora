@@ -97,7 +97,7 @@ describe('POST /api/auth/session', () => {
       });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
 
@@ -105,7 +105,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
 
@@ -113,7 +113,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: '', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
 
@@ -121,7 +121,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'some-token' });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
 
@@ -129,7 +129,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'some-token', tenant_id: '' });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
   });
@@ -145,7 +145,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(502);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('upstream_error');
     });
 
@@ -159,7 +159,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(401);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('unauthorized');
     });
 
@@ -173,7 +173,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('bad_request');
     });
 
@@ -187,7 +187,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(502);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('upstream_error');
     });
 
@@ -197,18 +197,20 @@ describe('POST /api/auth/session', () => {
       // production, but a malformed response must not cause an unhandled
       // exception — the route must return a controlled 502.
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
-          new HttpResponse('not-json', {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+        http.post(
+          'http://test-orbit-api/identity/session',
+          () =>
+            new HttpResponse('not-json', {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
         ),
       );
 
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(502);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('upstream_error');
     });
 
@@ -226,7 +228,7 @@ describe('POST /api/auth/session', () => {
       const req = makePostRequest({ id_token: 'tok', tenant_id: 'tenant-1' });
       const res = await POST(req);
       expect(res.status).toBe(502);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe('upstream_error');
     });
   });
@@ -235,9 +237,7 @@ describe('POST /api/auth/session', () => {
     it('returns 200 with an empty body on success', async () => {
       const backendData = createBackendSessionResponse();
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
-          HttpResponse.json(backendData),
-        ),
+        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
       );
       makeMockSession();
 
@@ -251,9 +251,7 @@ describe('POST /api/auth/session', () => {
     it('saves the session cookie on success', async () => {
       const backendData = createBackendSessionResponse();
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
-          HttpResponse.json(backendData),
-        ),
+        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
       );
       const { save } = makeMockSession();
 
@@ -267,13 +265,15 @@ describe('POST /api/auth/session', () => {
       // Verifies the full SessionPayload shape written to the cookie — all five
       // fields. Uses the factory's user override so JWT construction stays in
       // one place (the factory) rather than being duplicated inline.
-      const user = createSessionUser({ sub: 'user-alice-123', email: 'alice@orbit.local', name: 'Alice' });
+      const user = createSessionUser({
+        sub: 'user-alice-123',
+        email: 'alice@orbit.local',
+        name: 'Alice',
+      });
       const backendData = createBackendSessionResponse({}, user);
 
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
-          HttpResponse.json(backendData),
-        ),
+        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
       );
 
       const save = vi.fn().mockResolvedValue(undefined);
@@ -315,7 +315,7 @@ describe('GET /api/auth/session', () => {
     const res = await GET();
 
     expect(res.status).toBe(401);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('unauthorized');
   });
 
@@ -327,7 +327,7 @@ describe('GET /api/auth/session', () => {
     const res = await GET();
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.user).toEqual(payload.user);
     expect(body.expiresAt).toBe(payload.expiresAt);
   });
@@ -340,7 +340,7 @@ describe('GET /api/auth/session', () => {
     vi.mocked(isSessionValid).mockReturnValue(true);
 
     const res = await GET();
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
 
     expect(body).not.toHaveProperty('accessToken');
     expect(body).not.toHaveProperty('refreshToken');

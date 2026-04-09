@@ -83,9 +83,7 @@ describe('HealthStatus', () => {
 
     it('renders "Unreachable" when the response contains an error field', async () => {
       server.use(
-        http.get('/api/identity/health', () =>
-          HttpResponse.json({ error: 'service_unavailable' }),
-        ),
+        http.get('/api/identity/health', () => HttpResponse.json({ error: 'service_unavailable' })),
       );
 
       renderWithProviders(<HealthStatus />);
@@ -94,9 +92,7 @@ describe('HealthStatus', () => {
     });
 
     it('renders "Unreachable" when the network request fails', async () => {
-      server.use(
-        http.get('/api/identity/health', () => HttpResponse.error()),
-      );
+      server.use(http.get('/api/identity/health', () => HttpResponse.error()));
 
       renderWithProviders(<HealthStatus />);
 

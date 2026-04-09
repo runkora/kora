@@ -8,19 +8,19 @@ import { Heading, Text, Code } from './typography';
 // characteristic Tailwind class from headingVariants. Verifying both in one
 // it.each gives us a real contract on CVA output AND the tag-dispatch logic.
 const HEADING_VARIANT = [
-  ['display',    'h1',  'text-5xl'],
-  ['title',      'h1',  'text-3xl'],
-  ['section',    'h2',  'text-2xl'],
-  ['subsection', 'h3',  'text-xl'],
-  ['label',      'h4',  'text-base'],
-  ['metric',     'div', 'tabular-nums'],
+  ['display', 'h1', 'text-5xl'],
+  ['title', 'h1', 'text-3xl'],
+  ['section', 'h2', 'text-2xl'],
+  ['subsection', 'h3', 'text-xl'],
+  ['label', 'h4', 'text-base'],
+  ['metric', 'div', 'tabular-nums'],
 ] as const;
 
 // One characteristic class per color value.
 const HEADING_COLOR_CLASS = {
   foreground: 'text-foreground',
-  muted:      'text-muted',
-  accent:     'text-accent',
+  muted: 'text-muted',
+  accent: 'text-accent',
 } as const;
 
 describe('Heading', () => {
@@ -32,7 +32,15 @@ describe('Heading', () => {
 
     it('forwards ref to the underlying element', () => {
       let ref: HTMLElement | null = null;
-      render(<Heading ref={(el) => { ref = el; }}>Ref test</Heading>);
+      render(
+        <Heading
+          ref={(el) => {
+            ref = el;
+          }}
+        >
+          Ref test
+        </Heading>,
+      );
       // Default variant is "section" which renders as <h2> → HTMLHeadingElement
       expect(ref).toBeInstanceOf(HTMLHeadingElement);
     });
@@ -52,7 +60,9 @@ describe('Heading', () => {
       'renders variant=%s as <%s> with characteristic class',
       (variant, tag, cls) => {
         const { unmount } = render(
-          <Heading data-testid="h" variant={variant}>Heading</Heading>,
+          <Heading data-testid="h" variant={variant}>
+            Heading
+          </Heading>,
         );
         const el = screen.getByTestId('h');
         // Verify HEADING_TAG dispatch — the rendered element must match the
@@ -87,34 +97,34 @@ describe('Heading', () => {
 // ── Text ──────────────────────────────────────────────────────────────────────
 
 const TEXT_SIZE_CLASS = {
-  micro:      'text-[11px]',
-  caption:    'text-xs',
+  micro: 'text-[11px]',
+  caption: 'text-xs',
   supporting: 'text-sm',
-  body:       'text-base',
-  lead:       'text-lg',
+  body: 'text-base',
+  lead: 'text-lg',
 } as const;
 
 const TEXT_COLOR_CLASS = {
-  foreground:       'text-foreground',
-  muted:            'text-muted',
-  subtle:           'text-subtle',
-  accent:           'text-accent',
-  'status-healthy':  'text-status-healthy',
+  foreground: 'text-foreground',
+  muted: 'text-muted',
+  subtle: 'text-subtle',
+  accent: 'text-accent',
+  'status-healthy': 'text-status-healthy',
   'status-degraded': 'text-status-degraded',
-  'status-error':    'text-status-error',
+  'status-error': 'text-status-error',
 } as const;
 
 const TEXT_WEIGHT_CLASS = {
-  regular:  'font-normal',
+  regular: 'font-normal',
   emphasis: 'font-medium',
-  strong:   'font-semibold',
-  heavy:    'font-bold',
+  strong: 'font-semibold',
+  heavy: 'font-bold',
 } as const;
 
 const TEXT_ALIGN_CLASS = {
-  start:  'text-left',
+  start: 'text-left',
   center: 'text-center',
-  end:    'text-right',
+  end: 'text-right',
 } as const;
 
 describe('Text', () => {
@@ -126,7 +136,15 @@ describe('Text', () => {
 
     it('forwards ref to the underlying element', () => {
       let ref: HTMLParagraphElement | null = null;
-      render(<Text ref={(el) => { ref = el; }}>Ref test</Text>);
+      render(
+        <Text
+          ref={(el) => {
+            ref = el;
+          }}
+        >
+          Ref test
+        </Text>,
+      );
       // Default renders a <p> → HTMLParagraphElement
       expect(ref).toBeInstanceOf(HTMLParagraphElement);
     });
@@ -229,8 +247,8 @@ describe('Text', () => {
 // ── Code ──────────────────────────────────────────────────────────────────────
 
 const CODE_VARIANT_CLASS = {
-  inline:    'bg-surface-elevated',
-  bare:      'text-muted',
+  inline: 'bg-surface-elevated',
+  bare: 'text-muted',
   highlight: 'text-accent',
 } as const;
 
@@ -243,7 +261,15 @@ describe('Code', () => {
 
     it('forwards ref to the underlying element', () => {
       let ref: HTMLElement | null = null;
-      render(<Code ref={(el) => { ref = el; }}>Ref test</Code>);
+      render(
+        <Code
+          ref={(el) => {
+            ref = el;
+          }}
+        >
+          Ref test
+        </Code>,
+      );
       expect(ref).toBeInstanceOf(HTMLElement);
     });
 

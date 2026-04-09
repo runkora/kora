@@ -1,4 +1,8 @@
-import type { SessionUser, SessionPayload, BackendSessionResponse } from '@orbit/server/auth-config';
+import type {
+  SessionUser,
+  SessionPayload,
+  BackendSessionResponse,
+} from '@orbit/server/auth-config';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

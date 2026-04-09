@@ -5,22 +5,22 @@ import { Button } from './button';
 // One characteristic Tailwind class per variant — lets the it.each below verify
 // that CVA actually wired the right classes, not just that the component renders.
 const VARIANT_CLASS = {
-  default:     'bg-accent',
-  secondary:   'bg-surface-elevated',
-  outline:     'border',
-  ghost:       'text-foreground',
-  muted:       'text-subtle',
+  default: 'bg-accent',
+  secondary: 'bg-surface-elevated',
+  outline: 'border',
+  ghost: 'text-foreground',
+  muted: 'text-subtle',
   destructive: 'bg-status-error',
 } as const;
 
 // One characteristic Tailwind class per size — height for text sizes, width for
 // icon sizes (icon and md share h-9, so w-9 distinguishes icon; ditto icon-sm/xs).
 const SIZE_CLASS = {
-  xs:       'h-7',
-  sm:       'h-8',
-  md:       'h-9',
-  lg:       'h-10',
-  icon:     'w-9',
+  xs: 'h-7',
+  sm: 'h-8',
+  md: 'h-9',
+  lg: 'h-10',
+  icon: 'w-9',
   'icon-sm': 'w-7',
 } as const;
 
@@ -33,7 +33,15 @@ describe('Button', () => {
 
     it('forwards ref to the underlying button element', () => {
       let ref: HTMLButtonElement | null = null;
-      render(<Button ref={(el) => { ref = el; }}>Ref test</Button>);
+      render(
+        <Button
+          ref={(el) => {
+            ref = el;
+          }}
+        >
+          Ref test
+        </Button>,
+      );
       expect(ref).toBeInstanceOf(HTMLButtonElement);
     });
 

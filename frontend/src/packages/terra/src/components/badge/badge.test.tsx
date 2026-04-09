@@ -11,35 +11,37 @@ describe('Badge', () => {
 
     it('forwards ref to the underlying span element', () => {
       let ref: HTMLSpanElement | null = null;
-      render(<Badge ref={(el) => { ref = el; }}>Ref test</Badge>);
+      render(
+        <Badge
+          ref={(el) => {
+            ref = el;
+          }}
+        >
+          Ref test
+        </Badge>,
+      );
       expect(ref).toBeInstanceOf(HTMLSpanElement);
     });
   });
 
   describe('variants', () => {
-    it.each([
-      'default',
-      'secondary',
-      'outline',
-      'dim',
-      'destructive',
-    ] as const)('renders variant=%s without throwing', (variant) => {
-      const { unmount } = render(<Badge variant={variant}>Badge</Badge>);
-      expect(screen.getByText('Badge')).toBeInTheDocument();
-      unmount();
-    });
+    it.each(['default', 'secondary', 'outline', 'dim', 'destructive'] as const)(
+      'renders variant=%s without throwing',
+      (variant) => {
+        const { unmount } = render(<Badge variant={variant}>Badge</Badge>);
+        expect(screen.getByText('Badge')).toBeInTheDocument();
+        unmount();
+      },
+    );
 
-    it.each([
-      'healthy',
-      'degraded',
-      'error',
-      'idle',
-      'pending',
-    ] as const)('renders status variant=%s without throwing', (variant) => {
-      const { unmount } = render(<Badge variant={variant}>Status</Badge>);
-      expect(screen.getByText('Status')).toBeInTheDocument();
-      unmount();
-    });
+    it.each(['healthy', 'degraded', 'error', 'idle', 'pending'] as const)(
+      'renders status variant=%s without throwing',
+      (variant) => {
+        const { unmount } = render(<Badge variant={variant}>Status</Badge>);
+        expect(screen.getByText('Status')).toBeInTheDocument();
+        unmount();
+      },
+    );
   });
 
   describe('sizes', () => {
@@ -52,7 +54,11 @@ describe('Badge', () => {
 
   describe('dot indicator', () => {
     it('renders a dot element when dot=true', () => {
-      render(<Badge data-testid="badge" dot>With dot</Badge>);
+      render(
+        <Badge data-testid="badge" dot>
+          With dot
+        </Badge>,
+      );
       const badge = screen.getByTestId('badge');
       // Verify the aria-hidden dot span is a child of this badge, not just
       // somewhere on the page.
@@ -66,7 +72,11 @@ describe('Badge', () => {
     });
 
     it('renders dot alongside status variant', () => {
-      render(<Badge data-testid="badge" variant="healthy" dot>Healthy</Badge>);
+      render(
+        <Badge data-testid="badge" variant="healthy" dot>
+          Healthy
+        </Badge>,
+      );
       const badge = screen.getByTestId('badge');
       expect(screen.getByText('Healthy')).toBeInTheDocument();
       expect(badge.querySelector('[aria-hidden="true"]')).toBeInTheDocument();

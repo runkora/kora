@@ -15,5 +15,9 @@ export { renderWithProviders } from './render';
 export { server } from './msw/server';
 
 // Factories
-export { createSessionUser, createSessionPayload, createBackendSessionResponse } from './factories/session';
+export {
+  createSessionUser,
+  createSessionPayload,
+  createBackendSessionResponse,
+} from './factories/session';
 export { createHealthResponse } from './factories/health';

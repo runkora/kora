@@ -230,9 +230,7 @@ describe('DashboardSidebar', () => {
     });
 
     it('silently ignores a failed session fetch and shows "Loading…"', async () => {
-      server.use(
-        http.get('/api/auth/session', () => HttpResponse.error()),
-      );
+      server.use(http.get('/api/auth/session', () => HttpResponse.error()));
 
       renderSidebar();
 
