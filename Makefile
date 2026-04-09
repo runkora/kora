@@ -369,7 +369,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 
 # PLATFORM_SERVICES are orbit-system services owned by the operator.
 # They must be built before 'make cluster-operator' so the operator can pull them.
-PLATFORM_SERVICES := identity identity-proxy inference-gateway
+PLATFORM_SERVICES := identity identity-proxy inference-gateway policy-service policy-gateway
 
 # TENANT_SERVICES are workload images deployed into tenant namespaces.
 # They are built during 'make cluster-deploy'.

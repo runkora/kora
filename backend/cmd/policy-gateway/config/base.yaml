@@ -1,0 +1,15 @@
+app:
+  version: "0.1.0"
+
+server:
+  httpPort: 8084
+  grpcPort: 9090
+  basePath: "/v1"
+  shutdownTimeoutSecs: 30
+
+policy:
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+
+observability:
+  serviceName: "policy-gateway"

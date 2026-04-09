@@ -206,3 +206,50 @@ platform:
 # Should match the value used in the orbit-platform chart.
 networkPolicy:
   enabled: true
+
+# -- Policy Service configuration (PAP — Policy Administration Point).
+policyService:
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-policy-service"
+    tag: ""
+    pullPolicy: ""
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+
+  config:
+    postgresSSLMode: "require"
+    postgresCaptureQueryText: "false"
+    otlpInsecure: "false"
+    logFormat: "json"
+
+  existingSecret: "orbit-secrets"
+  existingConfigMap: "orbit-config"
+
+# -- Policy Gateway configuration (PEP — Policy Enforcement Point).
+policyGateway:
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-policy-gateway"
+    tag: ""
+    pullPolicy: ""
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+
+  config:
+    otlpInsecure: "false"
+    logFormat: "json"

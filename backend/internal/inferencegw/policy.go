@@ -12,6 +12,9 @@ type InferencePolicyRequest struct {
 	PrincipalType string
 	Provider      ProviderName
 	ModelID       string
+	// RawToken is the raw platform JWT for the principal, used by the
+	// PolicyGatewayEvaluator to call the policy gateway check API.
+	RawToken string
 }
 
 // PolicyDecision is the outcome of a policy evaluation.

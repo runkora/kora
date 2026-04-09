@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-policy-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.policyGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.policyGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.policyGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.policyGateway.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.policyGateway.labels" . | nindent 8 }}
+      annotations:
+        inject.istio.io/templates: "sidecar"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+    spec:
+      serviceAccountName: orbit-policy-gateway
+      containers:
+        - name: orbit-policy-gateway
+          image: "{{ .Values.policyGateway.image.repository }}:{{ include "orbit.policyGateway.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.policyGateway.imagePullPolicy" . }}
+          env:
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.policyGateway.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.policyGateway.config.logFormat | quote }}
+          ports:
+            - name: http
+              containerPort: 8084
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.policyGateway.resources | nindent 12 }}

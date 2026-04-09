@@ -153,3 +153,45 @@ Pod-level override → global default → IfNotPresent.
 {{- define "orbit.frontend.imagePullPolicy" -}}
 {{- .Values.frontend.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
 {{- end }}
+
+{{/*
+Policy Service labels.
+*/}}
+{{- define "orbit.policyService.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-policy-service
+app.kubernetes.io/component: policy-service
+{{- end }}
+
+{{- define "orbit.policyService.selectorLabels" -}}
+app: orbit-policy-service
+{{- end }}
+
+{{- define "orbit.policyService.imageTag" -}}
+{{- .Values.policyService.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "orbit.policyService.imagePullPolicy" -}}
+{{- .Values.policyService.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
+Policy Gateway labels.
+*/}}
+{{- define "orbit.policyGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-policy-gateway
+app.kubernetes.io/component: policy-gateway
+{{- end }}
+
+{{- define "orbit.policyGateway.selectorLabels" -}}
+app: orbit-policy-gateway
+{{- end }}
+
+{{- define "orbit.policyGateway.imageTag" -}}
+{{- .Values.policyGateway.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "orbit.policyGateway.imagePullPolicy" -}}
+{{- .Values.policyGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}

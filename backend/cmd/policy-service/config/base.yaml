@@ -1,0 +1,10 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8083
+  basePath: "/api/v1"
+  shutdownTimeoutSecs: 30
+
+observability:
+  serviceName: "policy-service"
