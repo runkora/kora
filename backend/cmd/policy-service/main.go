@@ -132,4 +132,3 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 
 	logger.Info(ctx, "Policy service shutdown complete")
 }
-
