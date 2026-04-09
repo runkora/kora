@@ -1,6 +1,6 @@
 # VirtualService for the Orbit frontend.
 #
-# Routes all traffic for orbit.test through the platform Gateway to the
+# Routes all traffic for orbit.local.clearroute.io through the platform Gateway to the
 # orbit-frontend ClusterIP service. The Gateway resource itself lives in
 # charts/orbit-platform/templates/gateway.yaml (a platform concern shared
 # across all externally-reachable Orbit services).
@@ -15,7 +15,7 @@ metadata:
     {{- include "orbit.frontend.labels" . | nindent 4 }}
 spec:
   hosts:
-    - "orbit.test"
+    - "orbit.local.clearroute.io"
   gateways:
     - {{ include "orbit.systemNamespace" . }}/orbit-gateway
   http:

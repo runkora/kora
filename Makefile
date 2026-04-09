@@ -42,7 +42,7 @@ K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
 # Override for non-local environments (e.g. CI): make docker-build-frontend NEXT_PUBLIC_APP_URL=https://my.host
-NEXT_PUBLIC_APP_URL ?= https://orbit.test:8443
+NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Colors for output
 COLOR_RESET=\033[0m
@@ -88,7 +88,7 @@ setup: install-tools install-tools-cluster tidy frontend-install hooks setup-dns
 	fi
 
 .PHONY: setup-dns
-setup-dns: ## Configure *.orbit.test DNS on macOS via dnsmasq (idempotent, no-op on Linux)
+setup-dns: ## Configure *.orbit.local.clearroute.io DNS on macOS via dnsmasq (idempotent, no-op on Linux)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
@@ -329,8 +329,8 @@ dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go devel
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex + port proxy ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  https://dex.orbit.test:5556/dex"
-	@echo "  Test user:        dev@orbit.test / password"
+	@echo "  Dex OIDC issuer:  https://dex.orbit.local.clearroute.io:5556/dex"
+	@echo "  Test user:        dev@orbit.local.clearroute.io / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
 	@echo ""
 	@echo "  Authenticate:     make auth-device"
@@ -486,8 +486,8 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@until kubectl get deployment orbit-frontend -n orbit-system &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
-	@echo "  Frontend:          https://orbit.test:8443"
-	@echo "  Inference gateway: https://api.orbit.test:8443/v1"
+	@echo "  Frontend:          https://orbit.local.clearroute.io:8443"
+	@echo "  Inference gateway: https://api.orbit.local.clearroute.io:8443/v1"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
@@ -805,7 +805,7 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		exit $$STATUS
 
 .PHONY: setup-tls
-setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.test (installs mkcert + CA if needed)
+setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)
 	@chmod +x scripts/setup-tls.sh
 	@bash scripts/setup-tls.sh
 
@@ -852,7 +852,7 @@ dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-ha
 	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
 	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
 	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
-	echo "  Test user: dev@orbit.test / $(password)"
+	echo "  Test user: dev@orbit.local.clearroute.io / $(password)"
 
 .PHONY: dex-env
 dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)

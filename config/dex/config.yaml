@@ -7,20 +7,20 @@
 # without any cloud accounts or mocking.
 #
 # Test credentials (local dev only):
-#   Email:    dev@orbit.test
+#   Email:    dev@orbit.local.clearroute.io
 #   Password: whatever you set in DEX_USER_PASSWORD_HASH (default: "password")
 #
 # Client:
 #   ID:     orbit-local
 #   Secret: (none — public client, Device Grant does not require a secret)
 #
-# Issuer:  https://dex.orbit.test:5556/dex
+# Issuer:  https://dex.orbit.local.clearroute.io:5556/dex
 #
 # Dex interpolates $VAR references at startup, so credentials stay in .env
 # and never appear in committed config files.
 # =============================================================================
 
-issuer: https://dex.orbit.test:5556/dex
+issuer: https://dex.orbit.local.clearroute.io:5556/dex
 
 # In-memory storage — state is lost on restart, which is fine for local dev.
 storage:
@@ -33,12 +33,12 @@ web:
   # allowedOrigins lets the browser fetch Dex's OIDC discovery document and
   # token endpoints from a different origin (the Next.js dev server).
   # Required because oidc-client-ts runs in the browser at http://localhost:3000
-  # and makes cross-origin requests to https://dex.orbit.test:5556.
+  # and makes cross-origin requests to https://dex.orbit.local.clearroute.io:5556.
   allowedOrigins:
     - http://localhost:3000
-    - https://orbit.test
-    - https://orbit.test:8443
-    - https://dex.orbit.test:8443
+    - https://orbit.local.clearroute.io
+    - https://orbit.local.clearroute.io:8443
+    - https://dex.orbit.local.clearroute.io:8443
 
 oauth2:
   # Enable the Device Authorization Grant (RFC 8628).
@@ -70,8 +70,8 @@ staticClients:
     public: true
     redirectURIs:
       - "http://localhost:3000/auth/callback"
-      - "https://orbit.test/auth/callback"
-      - "https://orbit.test:8443/auth/callback"
+      - "https://orbit.local.clearroute.io/auth/callback"
+      - "https://orbit.local.clearroute.io:8443/auth/callback"
       - "/device/callback"
 
 # ─── Test users ───────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ staticClients:
 enablePasswordDB: true
 
 staticPasswords:
-  - email: dev@orbit.test
+  - email: dev@orbit.local.clearroute.io
     # hashFromEnv tells Dex to read the bcrypt hash directly from an environment
     # variable at startup — no $VAR string interpolation involved, which avoids
     # os.ExpandEnv mangling the $2y$10$ prefix in the hash value.

@@ -43,8 +43,8 @@ services:
   # Runs a real, standards-compliant OIDC server so the full OAuth 2.0 Device
   # Authorization Grant (RFC 8628) protocol executes without any cloud accounts.
   #
-  # Issuer:   https://dex.orbit.test:5556/dex
-  # Test user: dev@orbit.test / (password set via DEX_USER_PASSWORD_HASH in .env)
+  # Issuer:   https://dex.orbit.local.clearroute.io:5556/dex
+  # Test user: dev@orbit.local.clearroute.io / (password set via DEX_USER_PASSWORD_HASH in .env)
   # Client ID: orbit-local  (public client — no secret)
   #
   # Enabled by: make dev-up  (or docker compose up -d dex)
@@ -77,7 +77,7 @@ services:
   # Port proxy — maps standard ports (443/80) to k3d's high ports (8443/8880)
   #
   # Pure TCP passthrough (Layer 4) — no TLS termination, no certificate config.
-  # Lets devs access https://orbit.test instead of https://orbit.test:8443.
+  # Lets devs access https://orbit.local.clearroute.io instead of https://orbit.local.clearroute.io:8443.
   # HAProxy is ~10MB and uses negligible resources in TCP mode.
   # ---------------------------------------------------------------------------
   port-proxy:

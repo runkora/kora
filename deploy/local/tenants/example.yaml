@@ -17,7 +17,7 @@ spec:
   active: true
 
   oidc:
-    issuerURL: "https://dex.orbit.test:5556/dex"
+    issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"
     clientID: "orbit-local"
     # No clientSecretRef — orbit-local is a public Dex client (device flow).
     scopes:
@@ -25,7 +25,7 @@ spec:
       - profile
       - email
     emailDomains:
-      - orbit.test
+      - orbit.local.clearroute.io
 
   # Retain the namespace when this CR is deleted (default). Prevents accidental
   # workload deletion during local dev iteration.

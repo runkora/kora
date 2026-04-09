@@ -66,7 +66,7 @@ The current gaps, by layer:
 - A user completing the OIDC login flow is redirected back to their original destination
 - The browser receives no Orbit `access_token` or `refresh_token` values at any point — they are held in an encrypted cookie after the session handoff
 - `POST /api/auth/logout` revokes the backend token via `POST /identity/revoke` and clears the session cookie
-- The full flow works against the local OIDC provider (`dev@orbit.test` / `password`) with `make dev-up` and no additional setup
+- The full flow works against the local OIDC provider (`dev@orbit.local.clearroute.io` / `password`) with `make dev-up` and no additional setup
 - An expired or revoked session redirects the user back to `/login` on the next request
 
 ### Non-Goals

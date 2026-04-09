@@ -120,7 +120,7 @@ We need to define:
 - **Redis** — JTI blocklist store (session revocation per ADR-0008) and general caching
 - **Dex** — local OIDC identity provider for the Device Authorization Grant flow (ADR-0017)
 
-Dex runs at `https://dex.orbit.test:5556/dex` and is pre-configured with a static test user (`dev@orbit.test`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
+Dex runs at `https://dex.orbit.local.clearroute.io:5556/dex` and is pre-configured with a static test user (`dev@orbit.local.clearroute.io`) and a public client (`orbit-local`). Credentials are auto-generated on first `make dev-up` if not present. See [ADR-0017](0017-oidc-provider-abstraction-and-local-identity-provider.md) for the full rationale.
 
 OPA is **not included** in Tier 1. Its deployment topology (sidecar to the ext_authz service, standalone cluster service, or both) is an open question to be resolved when the ext_authz service is designed. Adding OPA to Docker Compose before that decision is made would presuppose the answer. It will be added to the appropriate tier via a future ADR amendment.
 
@@ -250,7 +250,7 @@ SPIRE is deployed via the `spiffe/spire` Helm umbrella chart. Configuration is l
 
 | Concern | Base (`values.yaml`) | Local (`values.local.yaml`) |
 |---|---|---|
-| Trust domain | `orbit.test` | (same) |
+| Trust domain | `orbit.local.clearroute.io` | (same) |
 | Datastore | PostgreSQL, `sslmode=require`, dedicated `spire` DB, password `REPLACE-VIA-OVERLAY` sentinel | `host=orbit-postgres`, `sslmode=disable`, shared `orbit` DB, password `orbit` |
 | Node attestor | `k8s_psat` | `skipKubeletVerification: true` |
 | Key manager (server) | `disk` | (same) |

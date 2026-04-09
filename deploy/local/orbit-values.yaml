@@ -86,7 +86,7 @@ frontend:
     inferenceGatewayUrl: "http://orbit-inference-gateway.orbit-system/v1"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
-    nextPublicAppUrl: "https://orbit.test:8443"
+    nextPublicAppUrl: "https://orbit.local.clearroute.io:8443"
 
 networkPolicy:
   enabled: true

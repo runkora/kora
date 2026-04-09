@@ -1,5 +1,7 @@
 'use client';
 
+import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
@@ -12,79 +14,26 @@ import {
   Stack,
   Text,
 } from '@orbit/terra';
-import { Edit2, Trash2 } from 'lucide-react';
+import { KeyRound, Trash2 } from 'lucide-react';
+import { revokeToken } from '../_actions/tokens';
+import { CreateTokenModal } from './create-token-modal';
+import { TokenCreatedModal } from './token-created-modal';
+import { RevokeTokenModal } from './revoke-token-modal';
+import type { CreatePATResponse, PAT } from '@orbit/shared/api';
 
-// ── Types & Mock Data ─────────────────────────────────────────────────────────
+// ── View model ────────────────────────────────────────────────────────────────
+//
+// Extends the backend PAT shape with analytics fields that will be populated
+// once the backend supports per-key spend attribution. Until then they are
+// undefined and the UI renders sensible fallbacks.
 
-interface ApiKey {
-  id: string;
-  name: string;
-  created: string;
-  lastUsed: string;
-  status: 'active' | 'expired';
-  spend: number;
-  limit: number;
-  requests: number;
-  rateLimit: string;
+interface PATViewModel extends PAT {
+  // TODO: replace with real usage data once backend supports PAT spend attribution
+  spend?: number;
+  spendLimit?: number;
+  requests?: number;
+  lastUsed?: string;
 }
-
-const MOCK_KEYS: ApiKey[] = [
-  {
-    id: 'key_01HZ9K3V',
-    name: 'Production Agent Fleet',
-    created: '2026-03-12',
-    lastUsed: '2 min ago',
-    status: 'active',
-    spend: 412.3,
-    limit: 500,
-    requests: 182400,
-    rateLimit: '1000 RPM',
-  },
-  {
-    id: 'key_02JA8M4W',
-    name: 'Staging Environment',
-    created: '2026-03-18',
-    lastUsed: '14 min ago',
-    status: 'active',
-    spend: 48.9,
-    limit: 100,
-    requests: 24100,
-    rateLimit: '200 RPM',
-  },
-  {
-    id: 'key_03KB9N5X',
-    name: 'Dev / Local Testing',
-    created: '2026-04-01',
-    lastUsed: '3 hours ago',
-    status: 'active',
-    spend: 12.4,
-    limit: 50,
-    requests: 8900,
-    rateLimit: '50 RPM',
-  },
-  {
-    id: 'key_04LC0P6Y',
-    name: 'CI Pipeline Runner',
-    created: '2026-02-28',
-    lastUsed: '6 hours ago',
-    status: 'active',
-    spend: 89.2,
-    limit: 200,
-    requests: 41200,
-    rateLimit: '500 RPM',
-  },
-  {
-    id: 'key_05MD1Q7Z',
-    name: 'Deprecated v1 Key',
-    created: '2025-12-15',
-    lastUsed: '32 days ago',
-    status: 'expired',
-    spend: 0,
-    limit: 0,
-    requests: 0,
-    rateLimit: '—',
-  },
-];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -102,103 +51,110 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
-// ── Key Card Component ────────────────────────────────────────────────────────
-
-interface KeyCardProps {
-  key_: ApiKey;
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return 'Never expires';
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
-function KeyCard({ key_ }: KeyCardProps) {
-  const spendPercent = key_.limit > 0 ? (key_.spend / key_.limit) * 100 : 0;
-  const spendVariant = getSpendVariant(key_.spend, key_.limit);
-  const statusBadgeVariant = key_.status === 'active' ? 'healthy' : 'error';
+function isExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt) < new Date();
+}
+
+// ── Key Card ──────────────────────────────────────────────────────────────────
+
+interface KeyCardProps {
+  pat: PATViewModel;
+  onRevoke: () => void;
+  revoking: boolean;
+}
+
+function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
+  const expired = isExpired(pat.expires_at);
+  const statusBadgeVariant = expired ? 'error' : 'healthy';
+
+  const hasSpend = pat.spend !== undefined && pat.spendLimit !== undefined && pat.spendLimit > 0;
+  const spendPercent = hasSpend ? ((pat.spend ?? 0) / (pat.spendLimit ?? 1)) * 100 : 0;
+  const spendVariant = hasSpend ? getSpendVariant(pat.spend ?? 0, pat.spendLimit ?? 0) : 'healthy';
 
   return (
     <Stack asChild>
-      <article className="relative">
+      <article className={revoking ? 'pointer-events-none opacity-50' : undefined}>
         <Card>
-          {/* Header */}
           <CardHeader compact>
             <Stack direction="horizontal" align="center" justify="between">
               <Stack direction="horizontal" align="center" gap="snug">
-                <Heading variant="label">{key_.name}</Heading>
+                <Heading variant="label">{pat.name}</Heading>
                 <Badge variant={statusBadgeVariant} size="sm" dot>
-                  {key_.status === 'active' ? 'Active' : 'Expired'}
+                  {expired ? 'Expired' : 'Active'}
                 </Badge>
               </Stack>
-              <Stack direction="horizontal" gap="tight">
-                <button
-                  type="button"
-                  aria-label="Edit key"
-                  className="inline-flex items-center justify-center rounded p-1 transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  <Edit2 className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Delete key"
-                  className="inline-flex items-center justify-center rounded p-1 transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </Stack>
+              <button
+                type="button"
+                aria-label={`Revoke key ${pat.name}`}
+                disabled={revoking}
+                onClick={onRevoke}
+                className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-status-error focus-visible:outline-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </Stack>
           </CardHeader>
 
           <CardContent>
             <Stack gap="snug">
-              {/* Metadata Grid */}
               <Grid cols={{ base: 2, md: 4 }} gap="snug">
-                {/* Created */}
                 <Stack gap="none">
                   <Text size="caption" color="subtle" weight="emphasis">
                     Created
                   </Text>
                   <Text size="supporting" color="foreground" mono>
-                    {key_.created}
+                    {fmtDate(pat.created_at)}
                   </Text>
                 </Stack>
 
-                {/* Last Used */}
+                <Stack gap="none">
+                  <Text size="caption" color="subtle" weight="emphasis">
+                    Expires
+                  </Text>
+                  <Text size="supporting" color="foreground" mono>
+                    {fmtDate(pat.expires_at)}
+                  </Text>
+                </Stack>
+
                 <Stack gap="none">
                   <Text size="caption" color="subtle" weight="emphasis">
                     Last used
                   </Text>
                   <Text size="supporting" color="foreground" mono>
-                    {key_.lastUsed}
+                    {/* TODO: replace with real data once backend supports last-used tracking */}
+                    {pat.lastUsed ?? '—'}
                   </Text>
                 </Stack>
 
-                {/* Requests */}
                 <Stack gap="none">
                   <Text size="caption" color="subtle" weight="emphasis">
                     Requests
                   </Text>
                   <Text size="supporting" color="foreground" mono tabular>
-                    {fmtNum(key_.requests)}
-                  </Text>
-                </Stack>
-
-                {/* Rate Limit */}
-                <Stack gap="none">
-                  <Text size="caption" color="subtle" weight="emphasis">
-                    Rate limit
-                  </Text>
-                  <Text size="supporting" color="foreground" mono>
-                    {key_.rateLimit}
+                    {/* TODO: replace with real data once backend supports PAT spend attribution */}
+                    {pat.requests !== undefined ? fmtNum(pat.requests) : '—'}
                   </Text>
                 </Stack>
               </Grid>
 
-              {/* Spend / Limit with Progress Bar */}
-              {key_.limit > 0 && (
+              {hasSpend && (
                 <Stack gap="snug">
                   <Stack direction="horizontal" justify="between" align="center">
                     <Text size="caption" color="subtle" weight="emphasis">
                       Spend / Limit
                     </Text>
                     <Text size="supporting" color="foreground" mono tabular>
-                      ${key_.spend.toFixed(2)} / ${key_.limit.toFixed(2)}
+                      ${(pat.spend ?? 0).toFixed(2)} / ${(pat.spendLimit ?? 0).toFixed(2)}
                     </Text>
                   </Stack>
                   <Progress
@@ -218,30 +174,119 @@ function KeyCard({ key_ }: KeyCardProps) {
   );
 }
 
-// ── Keys Tab Component ────────────────────────────────────────────────────────
+// ── Keys Tab ──────────────────────────────────────────────────────────────────
 
-export function KeysTab() {
+interface KeysTabProps {
+  initialTokens: PAT[];
+  initialError: string | null;
+}
+
+export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
+  const router = useRouter();
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createdPAT, setCreatedPAT] = useState<CreatePATResponse | null>(null);
+  const [revokeCandidate, setRevokeCandidate] = useState<PATViewModel | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  const handleCreated = useCallback(
+    (pat: CreatePATResponse) => {
+      setCreateOpen(false);
+      setCreatedPAT(pat);
+      router.refresh();
+    },
+    [router],
+  );
+
+  const handleRevokeConfirm = useCallback(
+    async (id: string) => {
+      setRevokeError(null);
+      setRevokingId(id);
+      const result = await revokeToken(id);
+      setRevokingId(null);
+      if (result.ok) {
+        setRevokeCandidate(null);
+        router.refresh();
+      } else {
+        setRevokeError(result.message);
+      }
+    },
+    [router],
+  );
+
   return (
-    <Stack gap="comfortable">
-      {/* Header */}
-      <Stack direction="horizontal" align="start" justify="between">
-        <Stack gap="none">
-          <Heading variant="label">API keys</Heading>
-          <Text size="supporting" color="muted">
-            Manage your API keys and monitor their usage
-          </Text>
+    <>
+      <Stack gap="comfortable">
+        {/* Header */}
+        <Stack direction="horizontal" align="start" justify="between">
+          <Stack gap="none">
+            <Heading variant="label">API keys</Heading>
+            <Text size="supporting" color="muted">
+              Manage your API keys and monitor their usage
+            </Text>
+          </Stack>
+          <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+            Create key
+          </Button>
         </Stack>
-        <Button variant="default" size="sm">
-          Create key
-        </Button>
+
+        {/* Body */}
+        {initialError ? (
+          <Text size="supporting" color="status-error">
+            {initialError}
+          </Text>
+        ) : initialTokens.length === 0 ? (
+          <Card>
+            <CardContent padded>
+              <Stack align="center" justify="center" gap="comfortable">
+                {/* eslint-disable-next-line local/no-raw-div -- fixed-size icon circle */}
+                <div className="flex size-12 items-center justify-center rounded-full bg-surface-elevated">
+                  <KeyRound className="size-5 text-subtle" />
+                </div>
+                <Stack align="center" gap="tight">
+                  <Heading variant="label">No API keys yet</Heading>
+                  <Text size="supporting" color="muted" align="center">
+                    Create a key to start making requests to the inference gateway.
+                  </Text>
+                </Stack>
+                <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+                  Create your first key
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : (
+          <Stack gap="comfortable">
+            {initialTokens.map((pat) => (
+              <KeyCard
+                key={pat.id}
+                pat={pat}
+                onRevoke={() => setRevokeCandidate(pat)}
+                revoking={revokingId === pat.id}
+              />
+            ))}
+          </Stack>
+        )}
       </Stack>
 
-      {/* Key Cards */}
-      <Stack gap="comfortable">
-        {MOCK_KEYS.map((key_) => (
-          <KeyCard key={key_.id} key_={key_} />
-        ))}
-      </Stack>
-    </Stack>
+      {/* Modals */}
+      <CreateTokenModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={handleCreated}
+      />
+      <TokenCreatedModal pat={createdPAT} onClose={() => setCreatedPAT(null)} />
+      <RevokeTokenModal
+        pat={revokeCandidate}
+        revoking={revokingId === revokeCandidate?.id}
+        error={revokeError}
+        onConfirm={(id) => void handleRevokeConfirm(id)}
+        onClose={() => {
+          setRevokeCandidate(null);
+          setRevokeError(null);
+        }}
+      />
+    </>
   );
 }
