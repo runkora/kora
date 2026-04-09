@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup-tls.sh — Generate a TLS certificate for *.orbit.test
+# setup-tls.sh — Generate a TLS certificate for *.orbit.local.clearroute.io
 #
 # macOS (primary):
 #   Uses mkcert to generate a browser-trusted wildcard certificate.
@@ -78,8 +78,8 @@ if [[ "${OS}" == "Darwin" ]]; then
   mkcert -install
   ok "Local CA trusted by system and browsers"
 
-  info "Generating TLS certificate for orbit.test + *.orbit.test..."
-  mkcert -cert-file "${CERT_FILE}" -key-file "${KEY_FILE}" "orbit.test" "*.orbit.test"
+  info "Generating TLS certificate for orbit.local.clearroute.io + *.orbit.local.clearroute.io..."
+  mkcert -cert-file "${CERT_FILE}" -key-file "${KEY_FILE}" "orbit.local.clearroute.io" "*.orbit.local.clearroute.io"
   chmod 600 "${KEY_FILE}"
   ok "Certificate written:"
   echo "    cert: ${CERT_FILE}"
@@ -93,10 +93,10 @@ if [[ "${OS}" == "Darwin" ]]; then
 
   echo ""
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-  echo -e "${GREEN}  TLS certificate for *.orbit.test generated      ${RESET}"
+  echo -e "${GREEN}  TLS certificate for *.orbit.local.clearroute.io generated      ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  Browsers on this machine will trust https://orbit.test:8443"
+  echo "  Browsers on this machine will trust https://orbit.local.clearroute.io:8443"
   echo "  without certificate warnings."
   echo ""
   echo "  To load into the k3d cluster:"
@@ -114,13 +114,13 @@ warn "mkcert not available on ${OS} — generating self-signed certificate via o
 warn "Dex and the local stack will work, but browsers will show a certificate warning."
 warn "For browser-trusted certs, install mkcert: https://github.com/FiloSottile/mkcert#installation"
 
-info "Generating self-signed TLS certificate for orbit.test + *.orbit.test..."
+info "Generating self-signed TLS certificate for orbit.local.clearroute.io + *.orbit.local.clearroute.io..."
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "${KEY_FILE}" \
   -out "${CERT_FILE}" \
   -days 365 \
-  -subj "/CN=orbit.test" \
-  -addext "subjectAltName=DNS:orbit.test,DNS:*.orbit.test" \
+  -subj "/CN=orbit.local.clearroute.io" \
+  -addext "subjectAltName=DNS:orbit.local.clearroute.io,DNS:*.orbit.local.clearroute.io" \
   2>/dev/null
 chmod 600 "${KEY_FILE}"
 ok "Self-signed certificate written:"

@@ -6,7 +6,7 @@
 #
 # Usage (from repo root):
 #   docker build -t orbit-frontend:latest \
-#     --build-arg NEXT_PUBLIC_APP_URL=https://orbit.test:8443 \
+#     --build-arg NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443 \
 #     frontend/
 #
 # NEXT_PUBLIC_APP_URL must be provided as a build arg because Next.js inlines
@@ -43,7 +43,7 @@ WORKDIR /app
 COPY . .
 
 # NEXT_PUBLIC_APP_URL is inlined into the client bundle at build time.
-ARG NEXT_PUBLIC_APP_URL=https://orbit.test:8443
+ARG NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
 # ORBIT_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js

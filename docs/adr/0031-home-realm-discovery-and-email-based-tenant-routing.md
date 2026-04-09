@@ -39,7 +39,7 @@ Design a mechanism by which the frontend can determine which tenant a user belon
 - The OIDC `UserManager` is constructed with per-tenant issuer URL, client ID, and scopes at login time
 - The correct `tenant_id` is passed to `POST /identity/sessions` at callback time
 - The solution is compatible with the multi-tenant OIDC registry introduced in ADR-0026
-- Local development works without modification — the `default` tenant in `config/tenants.yaml` registers `orbit.test` as its email domain
+- Local development works without modification — the `default` tenant in `config/tenants.yaml` registers `orbit.local.clearroute.io` as its email domain
 
 ### Non-Goals
 
@@ -193,9 +193,9 @@ The `config/tenants.yaml` schema becomes:
 version: "v1"
 tenants:
   - id: default
-    emailDomains: ["orbit.test"]
+    emailDomains: ["orbit.local.clearroute.io"]
     oidc:
-      issuerURL: "https://dex.orbit.test:5556/dex"
+      issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"
       clientID: "orbit-local"
       scopes: ["openid", "email", "profile"]
 ```
@@ -361,7 +361,7 @@ Browser                  BFF (Next.js)              Backend
 
 The existing single-tenant OIDC env vars (`ORBIT_OIDC_ISSUER_URL`, `ORBIT_OIDC_CLIENT_ID`) used by the PR #17 implementation are removed. Operators who referenced these vars must migrate to declaring their OIDC configuration in `config/tenants.yaml` (or the Kubernetes ConfigMap equivalent per ADR-0026) and setting `emailDomains` on their tenant record.
 
-Local development requires adding `emailDomains: ["orbit.test"]` to the `default` tenant entry in `config/tenants.yaml`. The local Dex user (`dev@orbit.test`) will then resolve correctly through the discovery flow.
+Local development requires adding `emailDomains: ["orbit.local.clearroute.io"]` to the `default` tenant entry in `config/tenants.yaml`. The local Dex user (`dev@orbit.local.clearroute.io`) will then resolve correctly through the discovery flow.
 
 ---
 
@@ -369,7 +369,7 @@ Local development requires adding `emailDomains: ["orbit.test"]` to the `default
 
 ### Success Metrics
 
-- A user entering `dev@orbit.test` on the login page is redirected to the Dex OIDC provider and completes login successfully
+- A user entering `dev@orbit.local.clearroute.io` on the login page is redirected to the Dex OIDC provider and completes login successfully
 - A user entering an email with an unknown domain receives a clear "organisation not found" error and is not redirected
 - The browser's DevTools network panel shows no `client_secret` or internal tenant config in the `/api/auth/discover` response
 - The `tenant_id` received by `POST /identity/sessions` matches the tenant registered for the user's email domain

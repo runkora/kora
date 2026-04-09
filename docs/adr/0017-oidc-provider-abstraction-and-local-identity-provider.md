@@ -144,7 +144,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 - Any OIDC-compliant provider works without code changes — Entra, Google Workspace, Okta, Keycloak, Auth0, and others can be configured purely via environment variables
 - Local development authentication is fully self-contained — `make dev-up` + `make auth-device` produces a valid Orbit session token against the local Dex instance with no cloud dependencies
 - The full Device Authorization Grant protocol is exercised in local integration testing — not just the application's claim parsing logic
-- New engineers can authenticate on day one with `dev@orbit.test` / `password` without any cloud account provisioning
+- New engineers can authenticate on day one with `dev@orbit.local.clearroute.io` / `password` without any cloud account provisioning
 - The identity service's `OIDCConfig.IssuerURL` is a single field — pointing at Entra is a one-line change in the environment
 
 ### Negative
@@ -191,7 +191,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 
 ```yaml
 oidc:
-  issuerUrl: "https://dex.orbit.test:5556/dex"
+  issuerUrl: "https://dex.orbit.local.clearroute.io:5556/dex"
   scopes:
     - openid
     - profile
@@ -213,7 +213,7 @@ Setting `issuerUrl: ""` disables OIDC; `InitiateDeviceAuth` and `PollDeviceAuth`
 Dex is configured at `config/dex/config.yaml` with:
 - In-memory storage (no separate Dex datastore)
 - One static client: `orbit-local` (public client, no secret)
-- One static test user: `dev@orbit.test`
+- One static test user: `dev@orbit.local.clearroute.io`
 - `oauth2.deviceCodeGrant: true`
 - `oauth2.skipApprovalScreen: true` (no consent screen in local dev)
 

@@ -62,7 +62,7 @@ make dev               # start backend with hot-reload (air)
 
 ```bash
 make auth-device       # Device Authorization Grant against local Dex
-                       # browser → dev@orbit.test / password
+                       # browser → dev@orbit.local.clearroute.io / password
                        # token saved to /tmp/orbit_credentials.json
 ```
 

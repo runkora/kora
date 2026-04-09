@@ -61,3 +61,43 @@ export interface ModelsListResponse {
   object: 'list';
   data: ModelObject[];
 }
+
+// ── Identity — /api/v1/identity/tokens ───────────────────────────────────────
+
+/**
+ * A Personal Access Token summary as returned by LIST.
+ * The raw token value is never included — it is only returned once on creation.
+ * Mirrors Go: identity.PATSummary
+ */
+export interface PAT {
+  id: string;
+  name: string;
+  expires_at: string;
+  created_at: string;
+}
+
+/** Request body for creating a new PAT. Mirrors Go: identity.CreatePATRequest */
+export interface CreatePATRequest {
+  name: string;
+  /** Optional. Defaults to 90 days on the backend. Max 365. */
+  expires_in_days?: number;
+}
+
+/**
+ * Response from POST /tokens — includes the raw `orb_<jwt>` token.
+ * This is the only time the token is returned; it cannot be retrieved again.
+ * Mirrors Go: identity.CreatePATResponse
+ */
+export interface CreatePATResponse {
+  id: string;
+  name: string;
+  /** Raw PAT string (`orb_<jwt>`). Store it securely — shown once only. */
+  token: string;
+  expires_at: string;
+  created_at: string;
+}
+
+/** Top-level response from GET /tokens. Mirrors Go: identity.ListPATsResponse */
+export interface ListPATsResponse {
+  tokens: PAT[];
+}

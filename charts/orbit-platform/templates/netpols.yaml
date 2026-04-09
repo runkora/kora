@@ -204,7 +204,7 @@ spec:
 ---
 # Allow the Istio ingress gateway (istio-system) to reach orbit-system pods.
 # Required for external traffic routed via the orbit-gateway VirtualServices
-# (orbit.test → frontend, api.orbit.test → inference-gateway) to reach
+# (orbit.local.clearroute.io → frontend, api.orbit.local.clearroute.io → inference-gateway) to reach
 # their destination pods' Envoy sidecars.
 # Without this rule, the default-deny-all baseline blocks the gateway connection
 # and Envoy returns 503 "delayed connect error".

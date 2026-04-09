@@ -108,7 +108,7 @@ Starts the Orbit backend with `air` for hot-reload. The server listens on `http:
 You should see startup output including:
 
 ```
-INFO  OIDC provider initialized  issuer=https://dex.orbit.test:5556/dex
+INFO  OIDC provider initialized  issuer=https://dex.orbit.local.clearroute.io:5556/dex
 INFO  Server listening           addr=:6069
 ```
 
@@ -122,7 +122,7 @@ Runs the Device Authorization Grant flow against local Dex:
 
 1. The script calls `POST /api/v1/identity/device` and receives a `user_code` and `verification_uri`
 2. It prints the code and URL — open the URL in your browser and enter the code
-3. Log in as `dev@orbit.test` with password `password` (or your custom password from Step 4)
+3. Log in as `dev@orbit.local.clearroute.io` with password `password` (or your custom password from Step 4)
 4. The script polls `POST /api/v1/identity/session` until authorization completes
 5. On success, the Orbit platform JWT is saved to `/tmp/orbit_credentials.json`
 
@@ -351,10 +351,10 @@ make dev-up
 
 **Cause:** `issuerUrl` is empty in `backend/internal/identity/config/local.yaml` and `ORBIT_OIDC_ISSUER_URL` is not set.
 
-**Fix:** Confirm `local.yaml` has `issuerUrl: "https://dex.orbit.test:5556/dex"` and that the Dex container is healthy:
+**Fix:** Confirm `local.yaml` has `issuerUrl: "https://dex.orbit.local.clearroute.io:5556/dex"` and that the Dex container is healthy:
 ```bash
 docker compose ps
-curl -k https://dex.orbit.test:5556/dex/.well-known/openid-configuration
+curl -k https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration
 ```
 
 ### `POST /api/v1/identity/device` returns 400 `oidc_not_configured`
@@ -376,12 +376,12 @@ make dev               # restart the backend
 **Symptom:** Clicking **Sign In** on the login page immediately shows an error. The browser console reports something like:
 
 ```
-Access to fetch at 'https://dex.orbit.test:5556/dex/.well-known/openid-configuration'
+Access to fetch at 'https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration'
 from origin 'http://localhost:3000' has been blocked by CORS policy:
 No 'Access-Control-Allow-Origin' header is present on the requested resource.
 ```
 
-**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `https://dex.orbit.test:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
+**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `https://dex.orbit.local.clearroute.io:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
 
 **Fix:** Confirm `config/dex/config.yaml` has `allowedOrigins` under the `web:` block:
 
@@ -392,7 +392,7 @@ web:
   tlsKey: /etc/dex/tls.key
   allowedOrigins:
     - http://localhost:3000
-    - https://orbit.test:8443
+    - https://orbit.local.clearroute.io:8443
 ```
 
 Then restart Dex to pick up the change:
@@ -406,6 +406,29 @@ docker compose restart orbit-dex
 **Cause:** The device code expired (default: 5 minutes) before authorization was completed in the browser.
 
 **Fix:** Run `make auth-device` again and complete the browser step promptly.
+
+### `https://orbit.local.clearroute.io/` is unreachable — browser can't connect
+
+**Symptom:** `ping orbit.local.clearroute.io` fails or the browser shows a DNS error.
+
+**Cause:** The wildcard DNS record `*.orbit.local.clearroute.io → 127.0.0.1` is missing or hasn't propagated yet.
+
+**Diagnose:**
+```bash
+dig +short orbit.local.clearroute.io   # should return 127.0.0.1
+make setup-dns                         # verifies the record and prints fix instructions if missing
+```
+
+**Fix:** Add this record in the clearroute.io DNS provider (one-time, done once for the whole team):
+
+| Field | Value |
+|-------|-------|
+| Type  | A |
+| Name  | `*.orbit.local` |
+| Value | `127.0.0.1` |
+| TTL   | 60 |
+
+Once it propagates (usually under a minute), `ping orbit.local.clearroute.io` will resolve and the site will load.
 
 ### Redis fails to start: `FATAL CONFIG FILE ERROR`
 

@@ -64,16 +64,16 @@ else
   exit 1
 fi
 
-# ── Patch CoreDNS for dex.orbit.test → Docker bridge ────────────────────
-# On the host Mac, dnsmasq resolves *.orbit.test → 127.0.0.1.
+# ── Patch CoreDNS for dex.orbit.local.clearroute.io → Docker bridge ────────────────────
+# On the host Mac, dnsmasq resolves *.orbit.local.clearroute.io → 127.0.0.1.
 # Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
 #
 # The k3d Corefile already contains:
 #   import /etc/coredns/custom/*.server
 # which loads any *.server key from the coredns-custom ConfigMap as an
-# additional server block. We write our orbit.test zone there so k3d's
+# additional server block. We write our orbit.local.clearroute.io zone there so k3d's
 # own Corefile (and its NodeHosts block) is never touched or reconciled away.
-step "Patching CoreDNS for orbit.test hostnames"
+step "Patching CoreDNS for orbit.local.clearroute.io hostnames"
 
 DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
@@ -97,15 +97,15 @@ fi
 ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}"
 
 # The key name must end in .server so CoreDNS imports it as a server block.
-# orbit.test and api.orbit.test resolve to the gateway (Istio VirtualService
-# health checks). dex.orbit.test resolves to the Dex container IP directly
+# orbit.local.clearroute.io and api.orbit.local.clearroute.io resolve to the gateway (Istio VirtualService
+# health checks). dex.orbit.local.clearroute.io resolves to the Dex container IP directly
 # because Dex isn't reachable via the gateway — only via its container IP on
 # orbit-network.
-ORBIT_SERVER_BLOCK="orbit.test:53 {
+ORBIT_SERVER_BLOCK="orbit.local.clearroute.io:53 {
     hosts {
-      ${DEX_IP} dex.orbit.test
-      ${DOCKER_BRIDGE_IP} orbit.test
-      ${DOCKER_BRIDGE_IP} api.orbit.test
+      ${DEX_IP} dex.orbit.local.clearroute.io
+      ${DOCKER_BRIDGE_IP} orbit.local.clearroute.io
+      ${DOCKER_BRIDGE_IP} api.orbit.local.clearroute.io
       fallthrough
     }
     forward . /etc/resolv.conf
@@ -114,13 +114,13 @@ ORBIT_SERVER_BLOCK="orbit.test:53 {
 
 kubectl create configmap coredns-custom \
   --namespace kube-system \
-  --from-literal=orbit.test.server="${ORBIT_SERVER_BLOCK}" \
+  --from-literal=orbit.local.clearroute.io.server="${ORBIT_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Restart CoreDNS to pick up the new custom block immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex.orbit.test → ${DEX_IP}, orbit.test/api.orbit.test → ${DOCKER_BRIDGE_IP}"
+ok "CoreDNS patched — dex.orbit.local.clearroute.io → ${DEX_IP}, orbit.local.clearroute.io/api.orbit.local.clearroute.io → ${DOCKER_BRIDGE_IP}"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""

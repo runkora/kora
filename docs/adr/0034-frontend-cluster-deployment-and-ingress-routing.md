@@ -51,7 +51,7 @@ Both gaps require the same foundational piece: an Istio `Gateway` resource that 
 ### Goals
 
 - `make cluster-operator` produces a fully working cluster: browser can reach the frontend at a stable local hostname, agent CLIs can reach the inference gateway at a stable local hostname
-- Both hostnames resolve inside and outside k3d via the existing `*.orbit.test` DNS infrastructure
+- Both hostnames resolve inside and outside k3d via the existing `*.orbit.local.clearroute.io` DNS infrastructure
 - The frontend pod is a first-class mesh citizen: SPIFFE identity, Istio sidecar, mTLS to the identity service
 - The `orbit-frontend-secrets` Secret (BFF session key) follows the same pre-creation pattern as `orbit-secrets` — created by `create-secrets.sh`, referenced by the chart
 - No changes to the operator's reconciliation logic — all new resources are in the existing charts
@@ -71,7 +71,7 @@ Both gaps require the same foundational piece: an Istio `Gateway` resource that 
 * **Mesh citizenship** — the frontend calls the identity service in-cluster. Both must participate in the mTLS mesh to preserve the security properties established in ADR-0015.
 * **Operator transparency** — the operator should not need Go code changes. New resources belong in the Helm charts it already drives.
 * **Host-based routing correctness** — Istio merges multiple VirtualServices that share the same host. Path-based routing on a wildcard host from separate VirtualService resources produces non-deterministic route ordering. The routing design must avoid this.
-* **DNS coherence** — new hostnames should follow the `*.orbit.test` convention already established for `dex.orbit.test`.
+* **DNS coherence** — new hostnames should follow the `*.orbit.local.clearroute.io` convention already established for `dex.orbit.local.clearroute.io`.
 
 ---
 
@@ -107,20 +107,20 @@ One VirtualService per service, all binding to host `*` on the same Gateway.
 
 Each service gets a distinct hostname. Each VirtualService binds exclusively to that hostname — no shared host, no merge.
 
-- `orbit.test` → frontend VirtualService → `orbit-frontend` ClusterIP service
-- `api.orbit.test` → inference gateway VirtualService → `orbit-inference-gateway` ClusterIP service
+- `orbit.local.clearroute.io` → frontend VirtualService → `orbit-frontend` ClusterIP service
+- `api.orbit.local.clearroute.io` → inference gateway VirtualService → `orbit-inference-gateway` ClusterIP service
 
 **Pros:**
 - No Istio merge ambiguity — VirtualServices on different hosts are completely independent
 - Each service owns its routing rules and can evolve them independently (add retries, timeouts, header rewrites) without touching another service's configuration
 - Maps cleanly to production deployment (real subdomains, separate DNS records, independent certificates)
-- `orbit.test` is the natural apex for the user-facing UI; `api.orbit.test` is the natural subdomain for the developer API
+- `orbit.local.clearroute.io` is the natural apex for the user-facing UI; `api.orbit.local.clearroute.io` is the natural subdomain for the developer API
 
 **Cons:**
-- Requires DNS entries for each hostname (`orbit.test`, `api.orbit.test`) in addition to the existing `dex.orbit.test`
+- Requires DNS entries for each hostname (`orbit.local.clearroute.io`, `api.orbit.local.clearroute.io`) in addition to the existing `dex.orbit.local.clearroute.io`
 - `dev-cluster-up.sh` CoreDNS patch must cover both new hostnames
 
-The DNS overhead is trivial — both hostnames are added to the existing `orbit.test.server` CoreDNS block in a single patch. The routing correctness benefit is definitive.
+The DNS overhead is trivial — both hostnames are added to the existing `orbit.local.clearroute.io.server` CoreDNS block in a single patch. The routing correctness benefit is definitive.
 
 ---
 
@@ -157,8 +157,8 @@ spec:
         name: http
         protocol: HTTP
       hosts:
-        - "orbit.test"
-        - "api.orbit.test"
+        - "orbit.local.clearroute.io"
+        - "api.orbit.local.clearroute.io"
 ```
 
 Referenced by VirtualServices as `orbit-system/orbit-gateway`.
@@ -200,7 +200,7 @@ The existing `default-deny-all` policy in `orbit-system` blocks ingress from `is
 
 ### DNS
 
-`dev-cluster-up.sh` patches CoreDNS with an `orbit.test.server` block. `orbit.test` and `api.orbit.test` are added to the existing block alongside `dex.orbit.test`, all resolving to the Docker bridge gateway IP. The host machine's dnsmasq already resolves `*.orbit.test → 127.0.0.1` (configured in `make setup-dns`), so both hostnames work in the browser without additional host-side DNS configuration.
+`dev-cluster-up.sh` patches CoreDNS with an `orbit.local.clearroute.io.server` block. `orbit.local.clearroute.io` and `api.orbit.local.clearroute.io` are added to the existing block alongside `dex.orbit.local.clearroute.io`, all resolving to the Docker bridge gateway IP. The host machine's dnsmasq already resolves `*.orbit.local.clearroute.io → 127.0.0.1` (configured in `make setup-dns`), so both hostnames work in the browser without additional host-side DNS configuration.
 
 ---
 
@@ -211,12 +211,12 @@ The existing `default-deny-all` policy in `orbit-system` blocks ingress from `is
 - `make cluster-operator` produces a complete, self-contained local cluster — browser login and CLI inference work without any host-side service running
 - The frontend participates fully in the SPIFFE/Istio mesh — its traffic to the identity service is mTLS-authenticated with SVID validation, not plain HTTP over localhost
 - Each service owns its VirtualService — future routing changes (timeouts, retries, header injection) are isolated and independently reviewable
-- The routing architecture maps directly to production: replace `orbit.test` with a real domain, add TLS to the Gateway server block, and the structure is unchanged
+- The routing architecture maps directly to production: replace `orbit.local.clearroute.io` with a real domain, add TLS to the Gateway server block, and the structure is unchanged
 
 ### Negative
 
 - `NEXT_PUBLIC_APP_URL` is baked into the Docker image at build time. Changing the external hostname requires a rebuild. This is a fundamental constraint of Next.js's static optimisation for `NEXT_PUBLIC_*` variables, not a consequence of this design.
-- The CoreDNS patch in `dev-cluster-up.sh` now covers three hostnames. Developers who created their cluster before this change must re-run `make dev-cluster` (or apply the CoreDNS patch manually) to get DNS resolution for `orbit.test` and `api.orbit.test`.
+- The CoreDNS patch in `dev-cluster-up.sh` now covers three hostnames. Developers who created their cluster before this change must re-run `make dev-cluster` (or apply the CoreDNS patch manually) to get DNS resolution for `orbit.local.clearroute.io` and `api.orbit.local.clearroute.io`.
 
 ### Neutral
 
@@ -228,10 +228,10 @@ The existing `default-deny-all` policy in `orbit-system` blocks ingress from `is
 
 ### Success Metrics
 
-- `curl -sk https://orbit.test:8443 | grep -q "<!DOCTYPE html>"` returns 0 after `make cluster-operator`
-- `curl -sk https://api.orbit.test:8443/health` returns a 200 from the inference gateway
+- `curl -sk https://orbit.local.clearroute.io:8443 | grep -q "<!DOCTYPE html>"` returns 0 after `make cluster-operator`
+- `curl -sk https://api.orbit.local.clearroute.io:8443/health` returns a 200 from the inference gateway
 - `kubectl get pods -n orbit-system` shows `orbit-frontend-*` with 2/2 containers ready (app + Istio sidecar)
-- Browser login at `https://orbit.test:8443` completes the full OIDC flow and reaches the dashboard
+- Browser login at `https://orbit.local.clearroute.io:8443` completes the full OIDC flow and reaches the dashboard
 
 ---
 
