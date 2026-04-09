@@ -42,11 +42,6 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
     return () => dialog.removeEventListener('close', handler);
   }, [onClose]);
 
-  // Prevent backdrop click from accidentally dismissing — user must click Done.
-  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDialogElement>) => {
-    e.stopPropagation();
-  }, []);
-
   const handleCopy = useCallback(() => {
     if (!pat) return;
     void navigator.clipboard.writeText(pat.token).then(() => {
@@ -58,7 +53,6 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
   return (
     <dialog
       ref={dialogRef}
-      onClick={handleBackdropClick}
       className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
     >
       {pat && (
@@ -109,12 +103,9 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
               )}
             </button>
             <Text size="caption" color="subtle">
-              Expires{' '}
-              {new Date(pat.expires_at).toLocaleDateString(undefined, {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
+              {pat.expires_at
+                ? `Expires ${new Date(pat.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`
+                : 'Never expires'}
             </Text>
           </section>
 

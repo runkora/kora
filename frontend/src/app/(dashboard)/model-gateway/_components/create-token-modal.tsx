@@ -75,22 +75,25 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
         return;
       }
 
-      const days = expiresInDays === '' ? undefined : Number(expiresInDays);
+      const days = expiresInDays === '' ? undefined : parseInt(expiresInDays, 10);
       if (days !== undefined && (isNaN(days) || days < 1 || days > 365)) {
         setError('Expiry must be between 1 and 365 days.');
         return;
       }
 
       setSubmitting(true);
-      const result = await createToken({ name: trimmedName, expires_in_days: days });
-      setSubmitting(false);
-
-      if (!result.ok) {
-        setError(result.message);
-        return;
+      try {
+        const result = await createToken({ name: trimmedName, expires_in_days: days });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
+        onCreated(result.pat);
+      } catch {
+        setError('Something went wrong. Please try again.');
+      } finally {
+        setSubmitting(false);
       }
-
-      onCreated(result.pat);
     },
     [name, expiresInDays, onCreated],
   );

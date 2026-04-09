@@ -51,7 +51,8 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
-function fmtDate(iso: string): string {
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return 'Never expires';
   return new Date(iso).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -59,7 +60,8 @@ function fmtDate(iso: string): string {
   });
 }
 
-function isExpired(expiresAt: string): boolean {
+function isExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
   return new Date(expiresAt) < new Date();
 }
 
@@ -81,7 +83,7 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
 
   return (
     <Stack asChild>
-      <article>
+      <article className={revoking ? 'pointer-events-none opacity-50' : undefined}>
         <Card>
           <CardHeader compact>
             <Stack direction="horizontal" align="center" justify="between">
