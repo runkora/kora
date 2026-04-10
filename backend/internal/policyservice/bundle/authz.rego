@@ -93,8 +93,18 @@ _required_scope := route.required_scope if {
 	route.method == input.attributes.request.http.method
 }
 
+# Wildcard method match — only applies when no exact method route matches,
+# preventing a conflict if both an exact and a wildcard route cover the same path.
+_has_exact_method_route if {
+	_is_envoy
+	some route in data.routes.route_scopes
+	startswith(input.attributes.request.http.path, route.path_prefix)
+	route.method == input.attributes.request.http.method
+}
+
 _required_scope := route.required_scope if {
 	_is_envoy
+	not _has_exact_method_route
 	some route in data.routes.route_scopes
 	startswith(input.attributes.request.http.path, route.path_prefix)
 	route.method == "*"
@@ -225,11 +235,17 @@ reason := concat("", ["delegation:", matched_grant_scope]) if {
 	delegator_covers_required_scope
 }
 
-reason := concat("", ["role:", role_match]) if {
+# matched_role_scopes collects all role+scope pairs that cover the required scope.
+# Using a partial set + min() mirrors matched_grant_scope for determinism.
+matched_roles contains role_match if {
 	_principal_type == "HUMAN"
 	some role_match in _principal_roles
 	some role_scope in data.roles.role_scopes[role_match]
 	scope_covers(role_scope, _required_scope)
+}
+
+reason := concat("", ["role:", min(matched_roles)]) if {
+	count(matched_roles) > 0
 }
 
 reason := "deny:no_delegation_scope" if {
