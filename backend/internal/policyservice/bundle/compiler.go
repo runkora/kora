@@ -71,20 +71,20 @@ type routesDocument struct {
 }
 
 type routeScope struct {
-	Prefix string `json:"prefix"`
-	Method string `json:"method"`
-	Scope  string `json:"scope"`
+	PathPrefix    string `json:"path_prefix"`
+	Method        string `json:"method"`
+	RequiredScope string `json:"required_scope"`
 }
 
 // defaultRouteScopes is the base route→scope mapping bundled into every tenant bundle.
 var defaultRouteScopes = []routeScope{
-	{Prefix: "/v1/inference/", Method: "POST", Scope: "inference:invoke"},
-	{Prefix: "/v1/inference/", Method: "GET", Scope: "inference:list"},
-	{Prefix: "/v1/mcp/", Method: "POST", Scope: "mcp:invoke"},
-	{Prefix: "/v1/mcp/", Method: "GET", Scope: "mcp:list"},
-	{Prefix: "/api/v1/policy/", Method: "GET", Scope: "platform:grants:read"},
-	{Prefix: "/api/v1/policy/", Method: "POST", Scope: "platform:grants:write"},
-	{Prefix: "/api/v1/policy/", Method: "DELETE", Scope: "platform:grants:write"},
+	{PathPrefix: "/v1/inference/", Method: "POST", RequiredScope: "inference:invoke"},
+	{PathPrefix: "/v1/inference/", Method: "GET", RequiredScope: "inference:list"},
+	{PathPrefix: "/v1/mcp/", Method: "POST", RequiredScope: "mcp:invoke"},
+	{PathPrefix: "/v1/mcp/", Method: "GET", RequiredScope: "mcp:list"},
+	{PathPrefix: "/api/v1/policy/", Method: "GET", RequiredScope: "platform:grants:read"},
+	{PathPrefix: "/api/v1/policy/", Method: "POST", RequiredScope: "platform:grants:write"},
+	{PathPrefix: "/api/v1/policy/", Method: "DELETE", RequiredScope: "platform:grants:write"},
 }
 
 // manifest is the OPA bundle manifest.

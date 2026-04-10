@@ -171,6 +171,10 @@ func (e *engine) Check(ctx context.Context, input CheckInput) (Result, error) {
 		return Result{Reason: "no policy configured for tenant"}, nil
 	}
 
+	if input.Delegation != nil && input.Delegation.ActSub != "" && input.Delegation.ActSub != input.Claims.Subject {
+		return Result{Reason: "deny:delegation_act_sub_mismatch"}, nil
+	}
+
 	opaInput := buildOPAInput(input.Claims, input.Delegation, input.ResourceType, input.PathSegments, input.Action, input.Attributes)
 
 	rs, err := tb.query.Eval(ctx, rego.EvalInput(opaInput))
