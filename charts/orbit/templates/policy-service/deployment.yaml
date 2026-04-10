@@ -15,13 +15,20 @@ spec:
       labels:
         {{- include "orbit.policyService.selectorLabels" . | nindent 8 }}
         {{- include "orbit.policyService.labels" . | nindent 8 }}
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: policy-service
       annotations:
-        inject.istio.io/templates: "sidecar"
+        inject.istio.io/templates: "sidecar,spire"
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         # Postgres is external to the mesh — bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
     spec:
       serviceAccountName: orbit-policy-service
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
       containers:
         - name: orbit-policy-service
           image: "{{ .Values.policyService.image.repository }}:{{ include "orbit.policyService.imageTag" . }}"
@@ -62,3 +69,7 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.policyService.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true

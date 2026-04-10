@@ -19,3 +19,7 @@ observability:
 pricing:
   # How often the pricing cache refreshes (seconds). 3600 = 1 hour.
   refreshIntervalSecs: 3600
+
+policy:
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30

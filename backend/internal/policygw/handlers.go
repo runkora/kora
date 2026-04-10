@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 func (c *Controller) handleCheck(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +22,7 @@ func (c *Controller) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := parseDelegationToken(req.DelegationToken)
+	delegation, err := policy.ParseDelegationToken(req.DelegationToken)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)
@@ -53,7 +54,7 @@ func (c *Controller) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := parseDelegationToken(req.DelegationToken)
+	delegation, err := policy.ParseDelegationToken(req.DelegationToken)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)

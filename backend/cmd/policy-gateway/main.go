@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,11 +14,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/policygw"
-	"github.com/clear-route/orbit/internal/policygw/evaluation"
-	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
-	"google.golang.org/grpc"
 )
 
 func main() {
@@ -42,35 +39,16 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Policy gateway starting", logging.Field{Key: "version", Value: pgc.Current.App.Version})
 
-	engine := evaluation.NewEngine(pgc.Current.Policy.BundleEndpoint, pgc.Current.BundlePollInterval(), logger)
-	engine.StartPoller(ctx)
+	eval := policy.NewEvaluator(pgc.Current.Policy.BundleEndpoint, pgc.Current.BundlePollInterval(), logger)
+	eval.Start(ctx)
 
-	// Single service instance shared by the gRPC AuthorizationServer and HTTP controller.
-	svc := policygw.NewService(engine, logger)
+	svc := policygw.NewService(eval, logger)
 
-	// Single verifier instance shared by the gRPC interceptor and HTTP controller.
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
-	// gRPC server for Envoy ext_authz (Layer 1).
-	// ExtAuthzAuthInterceptor handles token validation — Check reads from context.
-	authServer := policygw.NewAuthorizationServer(svc, logger)
-	grpcLis, err := (&net.ListenConfig{}).Listen(ctx, "tcp", fmt.Sprintf(":%d", pgc.Current.Server.GRPCPort))
-	if err != nil {
-		return fmt.Errorf("listen grpc: %w", err)
-	}
-	gs := grpc.NewServer(
-		grpc.UnaryInterceptor(policygw.ExtAuthzAuthInterceptor(verifier, logger)),
-	)
-	authv3.RegisterAuthorizationServer(gs, authServer)
-
-	go func() {
-		logger.Info(ctx, "Starting gRPC server", logging.Field{Key: "port", Value: pgc.Current.Server.GRPCPort})
-		if err := gs.Serve(grpcLis); err != nil {
-			logger.Error(ctx, "gRPC server error", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}()
-
-	// HTTP server for Layer 2 check/query API.
+	// HTTP server for the utility check/query API.
+	// Layer 1 enforcement is now handled by the OPA Envoy plugin sidecar
+	// on agent pods — the gRPC ext_authz server has been removed.
 	controller := policygw.NewController(svc, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
 	httpSrv := apiServer.Server(
@@ -97,7 +75,6 @@ func realMain() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), pgc.Current.ShutdownTimeout())
 	defer cancel()
 
-	gs.GracefulStop()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}

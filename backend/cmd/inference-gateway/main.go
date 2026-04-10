@@ -19,6 +19,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
@@ -125,8 +126,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	// ── Domain layer ──────────────────────────────────────────────────────────
 	pricing := inferencegw.NewNopPricingCache()
 	router := inferencegw.NewRoutingEngine(connectors, pricing)
-	policy := &inferencegw.AllowAllPolicyEvaluator{}
-	logger.Warn(ctx, "WARNING: using AllowAllPolicyEvaluator — all inference requests are permitted without policy evaluation; replace before production use")
+	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
+	pol.Start(ctx)
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 
 	// Warm the alias table before accepting traffic so that alias routing
@@ -140,7 +141,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 		logger.Info(ctx, "model catalog warm-up complete")
 	}
 
-	svc := inferencegw.NewService(policy, router, pricing, usageRepo, logger)
+	svc := inferencegw.NewService(pol, router, pricing, usageRepo, logger)
 
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, logger),

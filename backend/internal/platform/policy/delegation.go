@@ -1,20 +1,19 @@
-package policygw
+package policy
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/policygw/evaluation"
 	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-// parseDelegationToken parses delegation token claims without full verification.
+// ParseDelegationToken parses delegation token claims without full verification.
 // The delegation token is issued by the Orbit identity service alongside the
 // platform token. Its structure: sub = delegator (human), act.sub = agent,
 // scope = space-separated scopes granted for this session (RFC 6749/8693).
 //
-// Returns nil if rawToken is empty.
-func parseDelegationToken(rawToken string) (*evaluation.DelegationClaims, error) {
+// Returns nil, nil if rawToken is empty.
+func ParseDelegationToken(rawToken string) (*DelegationClaims, error) {
 	if rawToken == "" {
 		return nil, nil
 	}
@@ -44,7 +43,7 @@ func parseDelegationToken(rawToken string) (*evaluation.DelegationClaims, error)
 		}
 	}
 
-	return &evaluation.DelegationClaims{
+	return &DelegationClaims{
 		Sub:    sub,
 		ActSub: actSub,
 		Scopes: scopes,

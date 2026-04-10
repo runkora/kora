@@ -10,6 +10,7 @@ import (
 	openai "github.com/openai/openai-go"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -35,7 +36,7 @@ type principal struct {
 // Auth is handled upstream by AuthMiddleware — the service reads
 // the verified principal from context, never from raw headers.
 type Service struct {
-	policy  PolicyEvaluator
+	policy  policy.Evaluator
 	router  *RoutingEngine
 	pricing PricingCache
 	usage   InferenceUsageRepository
@@ -44,14 +45,14 @@ type Service struct {
 
 // NewService constructs a Service with all required dependencies.
 func NewService(
-	policy PolicyEvaluator,
+	pol policy.Evaluator,
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:  policy,
+		policy:  pol,
 		router:  router,
 		pricing: pricing,
 		usage:   usage,
@@ -229,19 +230,20 @@ func (s *Service) ChatCompletionStream(
 
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
+			claims, _ := token.ClaimsFromContext(ctx)
+			result, polErr := s.policy.Check(ctx, policy.CheckInput{
+				Claims:       claims,
+				Delegation:   policy.DelegationFromContext(ctx),
+				ResourceType: "inference",
+				PathSegments: []string{string(target.Provider), target.ModelID},
+				Action:       "invoke",
 			})
 			if polErr != nil {
 				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
 			}
-			if !decision.Allowed {
+			if !result.Allow {
 				s.logger.Info(ctx, "streaming inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "reason", Value: result.Reason},
 					logging.Field{Key: "principal_id", Value: p.PrincipalID},
 					logging.Field{Key: "provider", Value: string(target.Provider)},
 				)
@@ -517,19 +519,20 @@ func (s *Service) callWithFailover(
 ) (*openai.ChatCompletion, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
+			claims, _ := token.ClaimsFromContext(ctx)
+			result, polErr := s.policy.Check(ctx, policy.CheckInput{
+				Claims:       claims,
+				Delegation:   policy.DelegationFromContext(ctx),
+				ResourceType: "inference",
+				PathSegments: []string{string(target.Provider), target.ModelID},
+				Action:       "invoke",
 			})
 			if polErr != nil {
 				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
 			}
-			if !decision.Allowed {
+			if !result.Allow {
 				s.logger.Info(ctx, "inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "reason", Value: result.Reason},
 					logging.Field{Key: "principal_id", Value: p.PrincipalID},
 					logging.Field{Key: "provider", Value: string(target.Provider)},
 				)
@@ -592,19 +595,20 @@ func (s *Service) AnthropicMessages(
 	// are also checked before being attempted.
 	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
+			claims, _ := token.ClaimsFromContext(ctx)
+			result, polErr := s.policy.Check(ctx, policy.CheckInput{
+				Claims:       claims,
+				Delegation:   policy.DelegationFromContext(ctx),
+				ResourceType: "inference",
+				PathSegments: []string{string(target.Provider), target.ModelID},
+				Action:       "invoke",
 			})
 			if polErr != nil {
 				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
 			}
-			if !decision.Allowed {
+			if !result.Allow {
 				s.logger.Info(ctx, "inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "reason", Value: result.Reason},
 					logging.Field{Key: "principal_id", Value: p.PrincipalID},
 					logging.Field{Key: "provider", Value: string(target.Provider)},
 				)
@@ -703,19 +707,20 @@ func (s *Service) AnthropicMessagesStream(
 	// are also checked before being attempted.
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
+			claims, _ := token.ClaimsFromContext(ctx)
+			result, polErr := s.policy.Check(ctx, policy.CheckInput{
+				Claims:       claims,
+				Delegation:   policy.DelegationFromContext(ctx),
+				ResourceType: "inference",
+				PathSegments: []string{string(target.Provider), target.ModelID},
+				Action:       "invoke",
 			})
 			if polErr != nil {
 				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
 			}
-			if !decision.Allowed {
+			if !result.Allow {
 				s.logger.Info(ctx, "streaming anthropic request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
+					logging.Field{Key: "reason", Value: result.Reason},
 					logging.Field{Key: "principal_id", Value: p.PrincipalID},
 					logging.Field{Key: "provider", Value: string(target.Provider)},
 				)

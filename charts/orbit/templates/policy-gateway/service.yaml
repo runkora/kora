@@ -13,7 +13,3 @@ spec:
       port: 80
       targetPort: 8084
       protocol: TCP
-    - name: grpc
-      port: 9090
-      targetPort: 9090
-      protocol: TCP

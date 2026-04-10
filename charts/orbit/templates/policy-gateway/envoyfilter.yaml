@@ -1,0 +1,71 @@
+# EnvoyFilter: wire Envoy ext_authz to the OPA Envoy plugin sidecar on agent pods.
+#
+# Layer 1 coarse-grained enforcement: "Can this principal call this route at all?"
+#
+# The OPA sidecar runs as openpolicyagent/opa:latest-envoy on localhost:9191
+# inside every agent pod (orbit.io/identity-proxy: "enabled"). Envoy's outbound
+# filter chain checks OPA before forwarding any outbound request.
+#
+# Critical ordering: ext_authz is inserted AFTER the identity-proxy ext_proc
+# filter so the platform token is already present in the Authorization header
+# when OPA receives the CheckRequest.
+#
+# failure_mode_allow: false — fail-closed. Requests are denied if OPA is not
+# yet ready. The OPA readiness probe gates pod readiness to prevent this race.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: opa-policy-ext-authz
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: orbit
+    app.kubernetes.io/managed-by: Helm
+spec:
+  workloadSelector:
+    labels:
+      orbit.io/identity-proxy: "enabled"
+  configPatches:
+    # Insert ext_authz HTTP filter after the identity-proxy ext_proc filter.
+    # This ensures the Authorization header is populated before OPA evaluates.
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+              subFilter:
+                name: "envoy.filters.http.ext_proc"
+      patch:
+        operation: INSERT_AFTER
+        value:
+          name: envoy.filters.http.ext_authz
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+            grpc_service:
+              envoy_grpc:
+                cluster_name: opa_policy_local
+              timeout: 10ms
+            failure_mode_allow: false
+            transport_api_version: V3
+
+    # Add a static cluster pointing to the OPA sidecar on localhost:9191.
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value:
+          name: opa_policy_local
+          type: STATIC
+          connect_timeout: 1s
+          load_assignment:
+            cluster_name: opa_policy_local
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 9191
+          http2_protocol_options: {}

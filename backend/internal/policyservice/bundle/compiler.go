@@ -62,6 +62,31 @@ type rolesDocument struct {
 	RoleScopes map[string][]string `json:"role_scopes"`
 }
 
+// routesDocument is the JSON structure of routes/data.json.
+// It maps HTTP method + path prefix to the required OAuth scope.
+// The OPA Envoy plugin sidecar (Layer 1) reads this to derive the required
+// scope for a request without any Go code involvement.
+type routesDocument struct {
+	RouteScopes []routeScope `json:"route_scopes"`
+}
+
+type routeScope struct {
+	Prefix string `json:"prefix"`
+	Method string `json:"method"`
+	Scope  string `json:"scope"`
+}
+
+// defaultRouteScopes is the base route→scope mapping bundled into every tenant bundle.
+var defaultRouteScopes = []routeScope{
+	{Prefix: "/v1/inference/", Method: "POST", Scope: "inference:invoke"},
+	{Prefix: "/v1/inference/", Method: "GET", Scope: "inference:list"},
+	{Prefix: "/v1/mcp/", Method: "POST", Scope: "mcp:invoke"},
+	{Prefix: "/v1/mcp/", Method: "GET", Scope: "mcp:list"},
+	{Prefix: "/api/v1/policy/", Method: "GET", Scope: "platform:grants:read"},
+	{Prefix: "/api/v1/policy/", Method: "POST", Scope: "platform:grants:write"},
+	{Prefix: "/api/v1/policy/", Method: "DELETE", Scope: "platform:grants:write"},
+}
+
 // manifest is the OPA bundle manifest.
 type manifest struct {
 	Revision string    `json:"revision"`
@@ -166,10 +191,17 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", fmt.Errorf("marshal roles: %w", err)
 	}
 
+	// Build routes data document (method+path → required scope for OPA Envoy plugin)
+	routesDoc := routesDocument{RouteScopes: defaultRouteScopes}
+	routesJSON, err := json.Marshal(routesDoc)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal routes: %w", err)
+	}
+
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "data/grants", "data/vocabulary", "data/roles"},
+		Roots:    []string{"orbit/authz", "grants", "vocabulary", "roles", "routes"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -191,9 +223,10 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	}{
 		{".manifest", manifestJSON},
 		{"policy/authz.rego", []byte(authzRego)},
-		{"data/grants/data.json", grantsJSON},
-		{"data/vocabulary/data.json", vocabJSON},
-		{"data/roles/data.json", rolesJSON},
+		{"grants/data.json", grantsJSON},
+		{"vocabulary/data.json", vocabJSON},
+		{"roles/data.json", rolesJSON},
+		{"routes/data.json", routesJSON},
 	}
 
 	for _, f := range files {

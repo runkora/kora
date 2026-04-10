@@ -20,7 +20,6 @@ type Config struct {
 
 	Server struct {
 		HTTPPort            int    `yaml:"httpPort"`
-		GRPCPort            int    `yaml:"grpcPort"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`

@@ -1,6 +1,6 @@
 # 0035. Policy Gateway and Authorisation Model
 
-**Status:** Accepted  
+**Status:** Accepted (revised 2026-04-10)  
 **Date:** 2026-04-02  
 **Deciders:** Engineering Team  
 **Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the Orbit platform — and establishing the architectural model that governs what every principal is permitted to do.
@@ -61,9 +61,9 @@ We need to define:
 
 * **Security:** Default deny. No request reaches a resource without an explicit grant. Policy is the enforcement boundary, not a convenience layer.
 * **Runtime control:** Operational policy changes must not require deployments. Tenant administrators must be able to grant and revoke access through an API.
-* **Latency:** Policy evaluation must not add a synchronous network hop to every request. Local bundle evaluation is required.
+* **Latency:** Policy evaluation must not add a synchronous network hop to every request. OPA must be co-located at every enforcement point — either as a process-embedded library or as a loopback sidecar — so that evaluation is a local operation with no cross-pod call.
 * **Consistency:** The same evaluation model applies to all resource types and at all enforcement points. No per-service policy implementations.
-* **Go-native:** The PDP is a standard Go binary using existing Orbit platform packages. Evaluation logic is `go test`-able.
+* **Go-native:** The Layer 2 PDP is a standard Go library (`internal/platform/policy`) using existing Orbit platform packages. Evaluation logic is `go test`-able.
 * **Delegation correctness:** The scope intersection invariant from ADR-0009 is enforced in the platform layer, not left to individual service implementations.
 
 ---
@@ -115,6 +115,8 @@ We need to define:
 - Requires the PAP (bundle compilation, bundle serving) as an additional service
 
 **Chosen.** The propagation window is acceptable for operational grant changes. Emergency revocation is handled by the JTI blocklist independently.
+
+**Revised enforcement topology (2026-04-10):** The original decision described the PDP as a central multi-replica `policy-gateway` deployment that Envoy and owned services call over the network. This was revised after implementation review: calling a remote pod for every policy decision is a synchronous network hop on every request path — the same latency and availability problem as Option B, just shifted one level. The decision is updated to require OPA co-located at each enforcement point. See the Decision section for the revised topology.
 
 ---
 
@@ -232,26 +234,33 @@ When no delegation token is present (autonomous agent), only the agent's own gra
 │  • REST API for grant CRUD (tenant-scoped)               │
 │  • Scope vocabulary registration                         │
 │  • Compiles per-tenant OPA bundles on grant write        │
-│  • Serves GET /v1/policy/bundles/{tenant_id}             │
+│  • Serves GET /api/v1/policy/bundles/{tenant_id}         │
 └────────────────────────┬─────────────────────────────────┘
-                         │ per-tenant bundle polling (≤ 30s)
-              ┌──────────┴──────────┐
-              ▼                     ▼
-┌─────────────────────┐   ┌─────────────────────┐
-│  cmd/policy-gateway │   │  cmd/policy-gateway │  (replicated)
-│  (PDP)              │   │  (PDP)              │
-│  • OPA in-process   │   │  • OPA in-process   │
-│  • gRPC (Envoy)     │   │  • HTTP (services)  │
-│  • token.Verifier   │   │  • token.Verifier   │
-│  • fail-closed      │   │  • fail-closed      │
-└──────────┬──────────┘   └──────────┬──────────┘
-           │                         │
-    ┌──────┴──────┐           ┌──────┴────────────┐
-    ▼             ▼           ▼                   ▼
- Edge Envoy   Sidecar    Inference GW         MCP Server
- (Layer 1)    Envoy      (Layer 2)            (Layer 2)
-              (Layer 1)
+                         │ per-tenant bundle polling (≤ 30s, background)
+          ┌──────────────┼──────────────────────┐
+          ▼              ▼                       ▼
+┌──────────────────┐  ┌───────────────────────────────────┐
+│  OPA Envoy       │  │  internal/platform/policy         │
+│  Plugin sidecar  │  │  (PDP — Go library)               │
+│  (Layer 1 PDP)   │  │  (Layer 2 PDP)                    │
+│                  │  │                                   │
+│  • OPA in-proc   │  │  • OPA in-process                 │
+│  • ext_authz     │  │  • Evaluator interface            │
+│    gRPC on       │  │  • Check() / Query()              │
+│    localhost:9191│  │  • token.Verifier                 │
+│  • polls bundles │  │  • polls bundles directly         │
+│    directly      │  │  • embedded in service process    │
+└────────┬─────────┘  └──────────────┬────────────────────┘
+         │ loopback                   │ in-process call
+         ▼                            ▼
+ Envoy sidecar              Inference GW / MCP Server
+ (SIDECAR_OUTBOUND)         (owned service process)
+ ext_authz filter
 ```
+
+**Layer 1 (coarse-grained, Envoy):** The OPA Envoy plugin runs as a sidecar container injected into every agent pod. Envoy's outbound ext_authz filter calls the OPA sidecar on `localhost:9191` — a same-pod loopback call with no cross-pod network hop. The OPA sidecar polls the policy-service bundle endpoint directly in the background. This applies to all outbound requests from agent pods regardless of destination service.
+
+**Layer 2 (fine-grained, in-process):** `internal/platform/policy` is a Go library that any owned service imports. It embeds OPA in the service process, polls the policy-service bundle endpoint in the background, and exposes `Check()` and `Query()` methods. Evaluation is a pure in-memory operation with zero network involvement on the hot path. Used by the inference gateway for model-level filtering and per-request resource checks, and by any future owned service requiring payload-aware policy decisions.
 
 ### Policy Service (PAP)
 
@@ -265,35 +274,74 @@ The Policy Service is a standard Orbit Go service (following ADR-0020) with:
 
 **PAP Authorization — OIDC Role Bootstrap:** The grant management API is itself a platform resource (`platform:grants:write`). To avoid a circular dependency (you need a grant to create grants), access to the PAP API is bootstrapped via OIDC role claims rather than grants. When the identity service federates an OIDC token, role or group claims from the IdP (e.g. an Entra group membership) are embedded in `PlatformClaims.Orbit.Claims["roles"]`. The ext_authz Rego evaluates a `role_scopes` mapping (compiled into the bundle) that translates the `tenant-admin` role to `platform:grants:write`. This is the only documented exception to "grants govern all access" — it is explicit, inspectable in the bundle, and constrained to the `platform:` resource type.
 
-### ext_authz Service (PDP)
+### Layer 1 PDP — OPA Envoy Plugin Sidecar
 
-The ext_authz service is a Go binary that exposes two server interfaces:
+The OPA Envoy plugin (`openpolicyagent/opa:latest-envoy`) is injected as a sidecar container into every agent pod via an Istio injection template, following the same pattern as the identity-proxy and SPIRE sidecars. The template is referenced by the pod annotation:
 
-**gRPC — `envoy.service.auth.v3.Authorization`** (for Envoy)  
-Used by the edge Envoy and all Envoy sidecars for Layer 1 path-level decisions. This is the Envoy external authorisation protocol — Envoy calls it on every intercepted request.
-
-**HTTP — check and query API** (for owned services)  
-Used by owned services for Layer 2 in-application enforcement where payload inspection is required (model ID in a request body, tool name in an MCP invocation) and for resource listing endpoints.
-
-```
-POST /v1/policy/check
-Request:  { principal, resource { type, ...attributes }, action }
-Response: { allow: bool, reason: string }
-
-POST /v1/policy/query
-Request:  { principal, resource_type, candidates: [{ id, ...attributes }, ...] }
-Response: { allowed: [resource_id, ...] }
+```yaml
+inject.istio.io/templates: "sidecar,spire,identity-proxy,opa-policy"
 ```
 
-The `candidates` field in the query request is the full resource list the calling service holds (e.g. all models in the catalogue, all tools on an MCP server). The ext_authz service evaluates each candidate against the principal's grants and returns only those the principal is permitted to access. Without a candidate list, OPA can only return the raw grant scope patterns — not a filtered resource list — because the bundle contains no resource catalogue. The calling service owns the catalogue; the policy service owns the grants.
+The OPA sidecar:
+- Runs the OPA Envoy plugin which natively implements the `envoy.service.auth.v3.Authorization` gRPC protocol
+- Listens on `localhost:9191` — same-pod loopback only, not exposed to the mesh
+- Polls the policy-service bundle endpoint directly in the background
+- Evaluates `data.orbit.authz.allow` against the locally loaded bundle on every Check call
 
-Both interfaces evaluate against the same locally loaded OPA bundle. There is no difference in policy semantics between the gRPC and HTTP paths.
+An EnvoyFilter in `istio-system` wires the outbound ext_authz filter on agent pods to `localhost:9191`. It is inserted **after** the identity-proxy ext_proc filter so the platform token is already present in the `Authorization` header when OPA receives the CheckRequest:
 
-### Token Validation in ext_authz
+```yaml
+workloadSelector:
+  labels:
+    orbit.io/identity-proxy: "enabled"
+configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_OUTBOUND
+      subFilter:
+        name: "envoy.filters.http.ext_proc"    # after token injection
+    patch:
+      operation: INSERT_AFTER
+      value:
+        name: envoy.filters.http.ext_authz
+        typed_config:
+          grpc_service:
+            envoy_grpc:
+              cluster_name: opa_policy_local   # static STATIC cluster → 127.0.0.1:9191
+          timeout: 10ms                        # loopback — tight budget
+          failure_mode_allow: false            # fail-closed
+```
 
-The ext_authz service validates platform tokens using `token.Verifier` from `internal/platform/token`. The verifier fetches the JWKS from the identity service's well-known endpoint, caches keys, handles rotation, and verifies signature and expiry. No call to the identity service is made on the request path.
+### Layer 2 PDP — `internal/platform/policy` Go Library
 
-The validated `PlatformClaims` provide `tenant_id`, `principal_type`, and the principal identifier used to construct the OPA input document. Delegation token claims (if present) are validated by the same verifier and provide `delegation_grant_scopes` and `delegator_scopes` for the intersection computation.
+`internal/platform/policy` is the single reusable entry point for any Go service requiring fine-grained in-process policy evaluation. It is not a separate binary — it is a library embedded in the calling service's process.
+
+```go
+type Evaluator interface {
+    Check(ctx context.Context, input CheckInput) (Result, error)
+    Query(ctx context.Context, input QueryInput) ([]string, error)
+    Start(ctx context.Context) // begins background bundle polling
+}
+
+func NewEvaluator(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) Evaluator
+```
+
+The `Evaluator` implementation:
+- Embeds OPA in-process using the OPA Go library
+- Polls the policy-service bundle endpoint in the background on the configured interval
+- Caches a compiled `PreparedEvalQuery` per tenant
+- `Check()` and `Query()` are pure in-memory operations — no network call on the hot path
+
+`CheckInput` carries `*token.PlatformClaims` (already validated by the service's auth middleware), an optional `*DelegationClaims`, and the resource attributes. The library constructs the OPA input document internally. Callers have no knowledge of OPA, bundle format, or polling mechanics.
+
+**`cmd/policy-gateway` utility server (non-enforcement):**  
+The `policy-gateway` binary continues to exist but is no longer on any enforcement hot path. It hosts the HTTP `Check`/`Query` API as a utility interface for non-Go consumers (services in other languages, the frontend BFF, operator tooling). It also embeds `internal/platform/policy` for its own evaluation. It is not a dependency of any Go platform service for enforcement purposes.
+
+### Token Validation
+
+**Layer 1 (OPA sidecar):** OPA's built-in JWT functions parse and validate the `Authorization` header token within the Rego evaluation itself. The JWKS endpoint is configured in the OPA sidecar config and cached after first fetch. No call to the identity service is made on the request path.
+
+**Layer 2 (`platform/policy`):** The calling service's auth middleware has already validated the platform token before calling `Check()` or `Query()`. `CheckInput` accepts `*token.PlatformClaims` — the pre-validated claims — not a raw token string. No re-verification of the JWT signature occurs in the evaluator. This is intentional: the service boundary (auth middleware) is the verification point; the evaluator receives already-trusted claims.
 
 ### OPA Bundle Structure
 
@@ -304,14 +352,17 @@ Bundles are served **per tenant** — each tenant's enforcement points poll `GET
 ├── .manifest
 ├── policy/
 │   └── authz.rego
-└── data/
-    ├── grants/
-    │   └── data.json       # this tenant's grants only
-    ├── vocabulary/
-    │   └── data.json       # scope vocabulary (compiled from Policy Service registry)
-    └── roles/
-        └── data.json       # OIDC role → platform scope mappings
+├── grants/
+│   └── data.json           # this tenant's grants only  → data.grants
+├── vocabulary/
+│   └── data.json           # scope vocabulary           → data.vocabulary
+├── roles/
+│   └── data.json           # OIDC role → scope mappings → data.roles
+└── routes/
+    └── data.json           # path+method → scope map    → data.routes
 ```
+
+Note: data files at `<dir>/data.json` are loaded into `data.<dir>` in OPA's namespace. The `data/` prefix must not be used — `data/grants/data.json` would load into `data.data.grants`, breaking all Rego references to `data.grants.*`.
 
 `data/grants/data.json`:
 ```json
@@ -463,7 +514,7 @@ This contrasts with the identityproxy (`failure_mode_allow: true` in ADR-0021) w
 
 Envoy's `CheckRequest` carries the HTTP method, path, and headers — it does not carry the request body. Layer 1 therefore cannot derive the fine-grained scope a specific resource requires (e.g. `inference:anthropic:claude-sonnet-4-6:invoke`). Instead, Layer 1 enforces a **service-level minimum scope** — the broadest scope required to call the service at all.
 
-A route-to-scope mapping is registered per service in the Policy Service and compiled into every OPA bundle as a `route_scopes` data document:
+The route-to-scope mapping is compiled into every OPA bundle by the policy-service as `routes/data.json` (accessible in Rego as `data.routes.route_scopes`). This keeps route knowledge entirely within the policy system — no Go code at the enforcement point has any knowledge of routes:
 
 ```json
 {
@@ -477,15 +528,15 @@ A route-to-scope mapping is registered per service in the Policy Service and com
 }
 ```
 
-The gRPC `CheckRequest` handler in `server/grpc.go` matches the request path and method against this table to derive `required_scope` before calling OPA. A principal that passes Layer 1 has at least the service-level scope — Layer 2 then enforces the resource-specific scope from the request body. If no route mapping matches, the default is deny.
+The Rego for Layer 1 derives `required_scope` from `data.routes.route_scopes` using the `input.parsed_path` and `input.parsed_body.method` values provided by the OPA Envoy plugin from the Envoy `CheckRequest`. A principal that passes Layer 1 has at least the service-level scope — Layer 2 then enforces the resource-specific scope from the request body. If no route mapping matches, the default deny applies.
 
 ### Layer 1 and Layer 2 Enforcement
 
-**Layer 1 (Envoy):** Handles path-level decisions — can this principal reach this service at this path? Envoy calls ext_authz via the gRPC interface on every intercepted request. Returns 401 (authentication failure) or 403 (policy denial) before the destination service receives the request. Applies to all services, owned and third-party, with no application code changes required.
+**Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.orbit.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
 
-**Layer 2 (in-application, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call the ext_authz HTTP `check` API before invoking the resource. Listing endpoints call the `query` API to filter their response sets. The calling service is responsible for providing full resource context (type, ID, and any attributes used in constraint evaluation) in the check request.
+**Layer 2 (in-process, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call `platform/policy.Evaluator.Check()` or `.Query()` inline in their handler code. Evaluation is pure in-memory against the service's own locally loaded bundle. Listing endpoints call `.Query()` to filter their response sets, passing the full resource catalogue as candidates. The service owns the catalogue; the policy system owns the grants.
 
-The two layers are additive. Layer 1 is the universal baseline. Layer 2 is applied by owned services that have resource-level detail the proxy layer cannot inspect. Third-party services receive Layer 1 enforcement only.
+The two layers are additive. Layer 1 is the universal baseline — no cross-pod hop, enforced for all traffic. Layer 2 is applied by owned services that have resource-level detail the proxy cannot inspect — also no cross-pod hop, in-process. Third-party services receive Layer 1 enforcement only.
 
 ---
 
@@ -496,20 +547,23 @@ The two layers are additive. Layer 1 is the universal baseline. Layer 2 is appli
 - All platform resources — regardless of service ownership — receive a consistent enforcement guarantee
 - Tenant administrators have runtime control over agent access without deployments
 - The delegation scope intersection is enforced uniformly across the platform — not left to individual services
-- Resource listing endpoints across all services can return accurate, principal-scoped views by calling the `query` API
-- The ext_authz service is stateless beyond its bundle cache — horizontal scaling requires no coordination
-- OPA evaluation is in-process — no network hop on the request path
+- Resource listing endpoints across all services can return accurate, principal-scoped views via `Evaluator.Query()`
+- Zero network hops at both enforcement layers — Layer 1 is a same-pod loopback to the OPA sidecar; Layer 2 is a pure in-process call
+- The OPA sidecar and the `platform/policy` library are both stateless beyond their bundle cache — independently scalable with no coordination
+- Policy evaluation latency is sub-millisecond at both layers with no cross-pod dependency on the hot path
 
 ### Negative
 
 - Policy changes propagate on the polling interval (default 30 seconds), not immediately. Grant deletions take effect within one interval.
-- Fail-closed means an ext_authz outage blocks all platform traffic. Multi-replica deployment is a hard operational requirement.
+- Fail-closed at Layer 1 means OPA sidecar unavailability (e.g. startup race before bundle is loaded) blocks outbound requests from agent pods. The OPA readiness probe must gate pod readiness — OPA must have loaded at least one bundle before the pod accepts traffic.
+- Every agent pod carries an additional OPA sidecar container — additional memory footprint per pod (OPA is lightweight, typically ~50MB).
 - Per-tenant bundle compilation on every grant write must remain fast (target: ≤ 500ms). As grant volume per tenant grows, incremental compilation may be required.
 
 ### Neutral
 
-- The Policy Service becomes a first-class platform component that must be designed for high availability alongside the ext_authz service
-- Owned services must integrate the ext_authz HTTP API for Layer 2 enforcement and listing filtering — this is an explicit integration step for each service
+- The Policy Service (PAP) becomes a first-class platform component that must be designed for high availability
+- The `policy-gateway` binary continues to exist as a utility HTTP API but is no longer on any enforcement hot path — it is not a hard availability dependency
+- Owned services must integrate `internal/platform/policy` for Layer 2 enforcement — an explicit integration step per service, but no runtime dependency on any external component
 
 ---
 
@@ -546,14 +600,19 @@ Every policy decision (allow and deny) should be published as a structured event
 
 ## Implementation Notes
 
-### Binary Split — PAP and PDP are Separate Services
+### Component Responsibilities
 
-The Policy Service (PAP) and the ext_authz service (PDP) are **separate binaries** with different operational requirements:
+**Policy Service (`cmd/policy-service`) — PAP**  
+Handles infrequent administrative writes and bundle compilation. Owns the database. Not on any request hot path. Single operational concern: keep bundles fresh on grant changes and serve them reliably to pollers.
 
-- The **PDP** (`policy-gateway`) is on every request path — multi-replica, fail-closed, fast-starting. It is stateless beyond the cached bundle.
-- The **PAP** (`policy-service`) handles infrequent administrative writes and bundle compilation. It owns the database and does not need the same replica count or startup budget as the PDP.
+**Platform Policy Library (`internal/platform/policy`) — Layer 2 PDP**  
+An importable Go library, not a binary. Embedded directly in owned service processes (inference-gateway, MCP servers, etc.). Owns the OPA lifecycle for Layer 2: bundle polling, compilation, caching, and in-process evaluation. No network hop on the evaluation hot path.
 
-Co-locating them would couple these concerns into a single deployment unit and prevent independent scaling.
+**OPA Envoy Plugin (sidecar injection) — Layer 1 PDP**  
+A purpose-built OPA image injected as a sidecar into agent pods via an Istio injection template. Not an Orbit-owned binary. Polls the policy-service bundle endpoint directly. Serves the ext_authz gRPC protocol on `localhost:9191`.
+
+**Policy Gateway (`cmd/policy-gateway`) — utility HTTP API only**  
+A thin HTTP server wrapping `internal/platform/policy`. Provides `POST /v1/policy/check` and `POST /v1/policy/query` for non-Go consumers (frontend BFF, future non-Go services, operator tooling). Not a dependency of any Go platform service for enforcement. Not on any hot path.
 
 ### Package Structure
 
@@ -562,36 +621,36 @@ backend/cmd/policy-service/
 └── main.go                         # PAP: config, grant store, vocabulary, bundle compiler + server
 
 backend/cmd/policy-gateway/
-└── main.go                         # PDP: config, OPA engine, gRPC + HTTP eval servers
+└── main.go                         # Utility HTTP API only — not an enforcement hot path
 
 backend/internal/policyservice/
-├── config.go
 ├── grants/
-│   ├── repository.go               # Postgres-backed grant CRUD
-│   └── repository_test.go
+│   └── repository.go               # Postgres-backed grant CRUD
 ├── vocabulary/
-│   ├── repository.go               # Scope vocabulary store and registration
-│   └── repository_test.go
+│   └── repository.go               # Scope vocabulary store and registration
 ├── bundle/
 │   ├── compiler.go                 # OPA bundle compilation (per-tenant)
-│   ├── compiler_test.go
-│   └── server.go                   # GET /v1/policy/bundles/{tenant_id} polling endpoint
+│   └── server.go                   # GET /api/v1/policy/bundles/{tenant_id}
 └── api/
     └── handlers.go                 # Grant + vocabulary CRUD HTTP handlers
 
+backend/internal/platform/policy/   # Layer 2 PDP — reusable library
+├── evaluator.go                    # Evaluator interface + NewEvaluator constructor
+├── engine.go                       # OPA in-process evaluation, per-tenant bundle loading
+├── input.go                        # OPA input document construction
+├── hierarchy.go                    # Scope hierarchy resolution helpers (ScopeCovers, DeriveRequiredScope)
+└── delegation.go                   # Delegation token parsing, DelegationClaims
+
 backend/internal/policygw/
-├── config.go
-├── evaluation/
-│   ├── engine.go                   # OPA in-process evaluation, per-tenant bundle loading
-│   ├── engine_test.go
-│   ├── input.go                    # OPA input document construction + required_scope derivation
-│   └── hierarchy.go                # Scope hierarchy resolution helpers
-├── server/
-│   ├── grpc.go                     # envoy.service.auth.v3.Authorization gRPC server
-│   ├── http.go                     # POST /v1/policy/check and /v1/policy/query
-│   └── server_test.go
-└── token/
-    └── validation.go               # token.Verifier wiring + delegation token parsing
+├── handlers.go                     # POST /v1/policy/check, /v1/policy/query (utility API)
+└── models.go                       # Request/response types for utility HTTP API
+
+charts/orbit/templates/
+└── policy-gateway/
+    └── envoyfilter.yaml            # OPA ext_authz EnvoyFilter for agent pods (SIDECAR_OUTBOUND)
+
+charts/orbit-platform/templates/
+└── opa-injection-template.yaml     # Istio sidecar injection template for OPA Envoy plugin
 ```
 
 ### Key Dependencies
@@ -612,11 +671,12 @@ No migration required. The policy service is additive. Existing services continu
 
 ### Success Metrics
 
-- 100% of requests to platform services pass through a Layer 1 ext_authz evaluation point
+- 100% of outbound requests from agent pods pass through the OPA sidecar ext_authz evaluation point
 - `GET /v1/models` and MCP tool listings return only resources matching the calling principal's grants
 - Grant deletion propagates to all enforcement points within the configured polling interval
 - No cross-tenant grant evaluation — validated by bundle partitioning tests and penetration testing
-- Policy evaluation p95 latency ≤ 10ms (local OPA, no network hop)
+- Layer 1 policy evaluation p99 latency ≤ 5ms (same-pod loopback to OPA sidecar)
+- Layer 2 policy evaluation p99 latency ≤ 1ms (in-process OPA, pure memory)
 
 ### Monitoring
 
