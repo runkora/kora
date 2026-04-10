@@ -1,7 +1,7 @@
 # 35. Inference Usage Logs
 
-**Status:** Proposed  
-**Date:** 2025-07-15  
+**Status:** Accepted  
+**Date:** 2026-04-10  
 **Deciders:** Platform Engineering  
 **Technical Story:** [Inference Logs PRD](../prd/inference-logs.md) — defines the requirement for per-request usage log visibility with per-PAT attribution in the Model Gateway UI.
 
@@ -58,7 +58,7 @@ Three gaps prevent usage logs from being surfaced to users:
 
 ### Option 1: Add `token_id` column + inferencegw-local `principal.TokenID` field
 
-Add a nullable `token_id UUID` column to `inference_usage`. Extend the inferencegw-local `principal` struct (in `internal/inferencegw/service.go`) with a `TokenID string` field, populated from `claims.Orbit.SessionID` in `principalFromClaims`. Write `token_id` on every `Create` call (null for non-PAT principals). Add a `TokenID *string` filter field to `InferenceUsageFilter`. Expose reading via a new `GET /v1/usage` handler registered in `controller.go`.
+Add a nullable `token_id TEXT` column to `inference_usage` (all ID columns in this schema use `TEXT`, not `UUID`). Extend the inferencegw-local `principal` struct (in `internal/inferencegw/service.go`) with a `TokenID string` field, populated conditionally in `principalFromClaims`: `claims.Orbit.SessionID` is extracted only when `PrincipalType == token.PrincipalTypePAT` — for all other principal types `TokenID` is the empty string and `token_id` is written as `NULL`. Write `token_id` on every `Create` call. Add a `TokenID *string` filter field to `InferenceUsageFilter`. Expose reading via a new `GET /v1/usage` handler registered in `controller.go`.
 
 `token.Principal` — the platform-wide abstraction in `internal/platform/token/claims.go` — is not modified.
 
@@ -141,12 +141,29 @@ Option 2 (explicit `pat_id` on `OrbitClaims`) would be semantically cleaner but 
 
 ### 1. Database Migration
 
-New column on `inference_usage`:
+Two changes to `inference_usage`. All ID columns in this schema use `TEXT`, not `UUID` — `token_id` follows that convention.
 
 ```sql
 -- +goose Up
+
+-- 1. Extend the principal_type CHECK constraint to include PAT.
+--    The original constraint was created unnamed; Postgres auto-names it
+--    inference_usage_principal_type_check.
 ALTER TABLE inference_usage
-    ADD COLUMN token_id UUID NULL;
+    DROP CONSTRAINT inference_usage_principal_type_check;
+
+ALTER TABLE inference_usage
+    ADD CONSTRAINT inference_usage_principal_type_check
+    CHECK (principal_type IN ('AGENT', 'HUMAN', 'SERVICE', 'SYSTEM', 'PAT'));
+
+-- 2. Drop the now-redundant single-column principal_id index.
+--    The new compound index (tenant_id, principal_id, created_at DESC) below
+--    is a strict superset; retaining both wastes storage and write overhead.
+DROP INDEX IF EXISTS idx_inference_usage_principal_id;
+
+-- 3. Add token_id for PAT attribution.
+ALTER TABLE inference_usage
+    ADD COLUMN token_id TEXT NULL;
 
 CREATE INDEX idx_inference_usage_principal
     ON inference_usage (tenant_id, principal_id, created_at DESC);
@@ -159,11 +176,19 @@ CREATE INDEX idx_inference_usage_token
 DROP INDEX IF EXISTS idx_inference_usage_token;
 DROP INDEX IF EXISTS idx_inference_usage_principal;
 ALTER TABLE inference_usage DROP COLUMN IF EXISTS token_id;
+-- Restore the original single-column index that the Up block dropped.
+CREATE INDEX IF NOT EXISTS idx_inference_usage_principal_id
+    ON inference_usage (principal_id, created_at DESC);
+ALTER TABLE inference_usage
+    DROP CONSTRAINT inference_usage_principal_type_check;
+ALTER TABLE inference_usage
+    ADD CONSTRAINT inference_usage_principal_type_check
+    CHECK (principal_type IN ('AGENT', 'HUMAN', 'SERVICE', 'SYSTEM'));
 ```
 
-Two indexes:
+Two new indexes (one existing `idx_inference_usage_tenant_id` is preserved):
 - `(tenant_id, principal_id, created_at DESC)` — primary query pattern (all logs for a user)
-- `(tenant_id, token_id, created_at DESC) WHERE token_id IS NOT NULL` — PAT-filtered query pattern; partial index excludes historical null rows from the index entirely
+- `(tenant_id, token_id, created_at DESC) WHERE token_id IS NOT NULL` — PAT-filtered query pattern; partial index excludes historical null rows entirely
 
 ### 2. Write Path: `principal.TokenID` and `principalFromClaims`
 
@@ -182,7 +207,12 @@ type principal struct {
 }
 ```
 
-Extend `principalFromClaims` to extract `SessionID`:
+Extend `principalFromClaims` to extract `SessionID` conditionally. Two JWT fields are relevant here and must not be confused:
+
+- **`claims.Orbit.SessionID`** (`OrbitClaims.SessionID`, JSON `orbit.session_id`) — the PAT record UUID for PAT-issued tokens; the session record UUID for OIDC-issued tokens. This is the correlation key for log attribution.
+- **`claims.RegisteredClaims.ID`** (the JTI, JSON `jti`) — a per-issuance UUID used exclusively for revocation via the Redis blocklist. It is NOT the PAT record UUID and must not be used as `token_id`.
+
+`PrincipalType` is a direct passthrough — `'PAT'` is now a valid value in the CHECK constraint:
 
 ```go
 func principalFromClaims(ctx context.Context) (principal, error) {
@@ -190,26 +220,48 @@ func principalFromClaims(ctx context.Context) (principal, error) {
     if !ok || claims == nil {
         return principal{}, fmt.Errorf("no verified claims in context: AuthMiddleware may not have run")
     }
+
+    // OrbitClaims.SessionID is set for ALL token types: for OIDC human sessions
+    // it holds the session record UUID; for PATs it holds the PAT record UUID.
+    // Only extract it as TokenID for PAT principals — for all other types TokenID
+    // must be empty so inference_usage.token_id is written as NULL.
+    var tokenID string
+    if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+        tokenID = claims.Orbit.SessionID
+    }
+
     return principal{
         TenantID:       claims.Orbit.TenantID,
         PrincipalID:    claims.Subject,
         PrincipalType:  string(claims.Orbit.PrincipalType),
         IdentitySource: string(claims.Orbit.IdentitySource),
-        TokenID:        claims.Orbit.SessionID, // PAT record UUID; "" for non-PAT tokens
+        TokenID:        tokenID,
     }, nil
 }
 ```
 
-Update all five `InferenceUsageRecord` construction sites to populate `TokenID`:
+Update all five `InferenceUsageRecord` construction sites to populate `TokenID`. All IDs in this schema are `TEXT`, so use a nullable string helper:
 
 ```go
 record := InferenceUsageRecord{
     // ... existing fields ...
-    TokenID: nullableUUID(p.TokenID), // pgtype.UUID; null if empty string
+    TokenID: nullableText(p.TokenID), // *string; nil when TokenID is "" (non-PAT callers)
 }
 ```
 
-### 3. Read Path: Filter, Service Method, Handler, Route
+### 3. Repository Changes Checklist
+
+The following changes are required to the repository and model layer before the read path can be wired up:
+
+> **Pre-implementation:** The new migration's `DROP CONSTRAINT inference_usage_principal_type_check` depends on Postgres auto-naming the original unnamed `principal_type` CHECK constraint in `20260328000000_create_inference_usage.sql`. Verify the constraint exists under that name (`\d inference_usage` in psql) before running the new migration. If the auto-generated name differs, update the new migration's `DROP CONSTRAINT` clause to match. The original migration has been intentionally left unchanged.
+
+- [ ] Add `TokenID *string` field to `InferenceUsageFilter` in `models.go`
+- [ ] Add `token_id` to the `InferenceUsageRecord` struct in `models.go` (type `*string`, nullable)
+- [ ] Update the 17-column INSERT in `PostgresInferenceUsageRepository.Create` to include `token_id` (17th → 18th column; use `nullableText(record.TokenID)`)
+- [ ] Add `token_id` predicate to `buildFilter` in `repository.go` (append when `f.TokenID != nil`)
+- [ ] Extend `PostgresInferenceUsageRepository.List` to return `([]InferenceUsageRecord, int, error)` — add `COUNT(*) OVER()` window function to the SELECT
+
+### 4. Read Path: Filter, Service Method, Handler, Route
 
 **`InferenceUsageFilter`** — add optional `TokenID` field:
 
@@ -217,7 +269,7 @@ record := InferenceUsageRecord{
 type InferenceUsageFilter struct {
     TenantID    string
     PrincipalID string
-    TokenID     *string   // ← new; nil means no token filter
+    TokenID     *string   // ← new; nil means no token filter; TEXT to match schema column type
     // ... existing fields (provider, status, time range, pagination) ...
 }
 ```
@@ -273,11 +325,24 @@ func (h *Handler) listUsage(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+**Response envelope:** The handler returns a flat JSON object with a `data` array and a `total` count:
+
+```go
+type listUsageResponse struct {
+    Data  []InferenceUsageRecord `json:"data"`
+    Total int                    `json:"total"`
+}
+```
+
+A total count is required for the frontend to render page navigation ("Page 1 of N"). `InferenceUsageRepository.List` is extended to return `([]InferenceUsageRecord, int, error)` — the `int` is a `COUNT(*)` over the same filter without the `LIMIT`/`OFFSET` clauses (a single query using `COUNT(*) OVER()` window function avoids a second round-trip).
+
 **Route registration** — in `controller.go`:
 
 ```go
 mux.Handle("GET /v1/usage", chain(h.listUsage))
 ```
+
+`chain` is the same middleware wrapper applied to all inference gateway routes. It runs JWT verification and claims injection before the handler executes — `principalFromClaims` in the handler body is therefore guaranteed to find valid, server-verified claims in the request context.
 
 ### 4. Frontend
 

@@ -201,6 +201,7 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 **Should Have (P1):**
 - [ ] The Logs page displays: timestamp, key display name, key status (active / revoked), model, provider, status, prompt tokens, completion tokens, estimated cost (USD), and latency (ms).
+  > **Note:** `GET /v1/usage` returns `token_id` (the PAT record UUID), not a resolved display name. Key display name and revocation status are resolved on the frontend by cross-referencing the PAT list from the existing `GET /identity/tokens` endpoint — no backend join is required.
 - [ ] Failed requests show the error code alongside status.
 - [ ] The logs list is paginated (offset or cursor — to be decided in ADR).
 - [ ] The filter dropdown on the Logs page is populated from the live PAT list, not hardcoded.
@@ -293,8 +294,8 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 ### Key Milestones
 
-- [ ] PRD Approved
-- [ ] ADR Created
+- [x] PRD Approved
+- [x] ADR Created — [ADR-0035](../adr/0035-inference-usage-logs.md)
 - [ ] Implementation Started
 - [ ] Alpha/Beta
 - [ ] Launch
@@ -305,7 +306,7 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 ### Related Documents
 
-- ADR-TBD — Inference Logs architecture decision
+- [ADR-0035](../adr/0035-inference-usage-logs.md) — Inference Logs architecture decision
 - [ADR-0003](../adr/0003-repository-pattern-and-code-organization.md) — Repository pattern and code organization
 
 ### Glossary
