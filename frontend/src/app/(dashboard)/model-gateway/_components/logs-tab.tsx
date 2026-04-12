@@ -129,6 +129,11 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
+function isExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt) < new Date();
+}
+
 function sortRecords(
   records: InferenceUsageRecord[],
   key: SortKey,
@@ -173,6 +178,7 @@ function SearchInput({
       <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <input
         type="search"
+        aria-label="Search request ID or model"
         placeholder="Search request ID or model…"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
@@ -585,12 +591,15 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                     // Determine key status by presence in the active PAT list.
                     // Revoked PATs are removed from the list endpoint entirely, so a
                     // TokenID that is set but not found in the list implies revocation.
+                    // Expired PATs remain in the list but have an expires_at in the past.
                     const pat = record.TokenID
                       ? pats.find((p) => p.id === record.TokenID)
                       : undefined;
-                    const keyStatus: 'active' | 'revoked' | null = record.TokenID
+                    const keyStatus: 'active' | 'expired' | 'revoked' | null = record.TokenID
                       ? pat
-                        ? 'active'
+                        ? isExpired(pat.expires_at)
+                          ? 'expired'
+                          : 'active'
                         : 'revoked'
                       : null;
 
@@ -657,6 +666,10 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                             {keyStatus === 'revoked' ? (
                               <Badge variant="error" size="sm">
                                 Revoked
+                              </Badge>
+                            ) : keyStatus === 'expired' ? (
+                              <Badge variant="error" size="sm">
+                                Expired
                               </Badge>
                             ) : keyStatus === 'active' ? (
                               <Badge variant="healthy" size="sm" dot>

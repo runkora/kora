@@ -2,8 +2,9 @@
 -- +goose StatementBegin
 
 -- Add token_id column for PAT-authenticated request attribution.
--- NULL for requests authenticated via OIDC or SPIFFE — only PAT-issued
--- JWTs carry a session_id (the PAT record UUID) that we can correlate here.
+-- NULL for non-PAT requests. Both PAT-issued and OIDC-issued JWTs carry
+-- an OrbitClaims.SessionID, but only the PAT value (the PAT record UUID)
+-- is meaningful for usage attribution — OIDC session IDs are not stored here.
 ALTER TABLE inference_usage
     ADD COLUMN IF NOT EXISTS token_id TEXT NULL;
 

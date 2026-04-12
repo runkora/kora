@@ -400,4 +400,4 @@ The `token_id` column is nullable. All existing rows retain their current values
 
 The `token_id` column intentionally has no hard foreign key constraint to `user_pat_tokens.id`. A hard FK with `ON DELETE SET NULL` would silently nullify log attribution when a PAT is deleted; `ON DELETE CASCADE` would destroy log history. The current approach — soft reference via UUID, PAT revocation sets `revoked_at` but preserves the record — means log rows always retain their attribution and the UI can display the PAT display name and revocation state by joining on `user_pat_tokens.id` at read time.
 
-**Last Updated:** 2025-07-15
+**Last Updated:** 2026-04-10
