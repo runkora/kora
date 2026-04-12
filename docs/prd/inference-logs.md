@@ -296,7 +296,7 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 - [x] PRD Approved
 - [x] ADR Created — [ADR-0035](../adr/0035-inference-usage-logs.md)
-- [ ] Implementation Started
+- [x] Implementation Started — Phase 1 complete (backend attribution + API)
 - [ ] Alpha/Beta
 - [ ] Launch
 

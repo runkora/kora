@@ -89,6 +89,7 @@ type InferenceUsageRecord struct {
 	TenantID         string
 	PrincipalID      string
 	PrincipalType    string
+	TokenID          *string // PAT record UUID; nil for non-PAT principals
 	APIDialect       APIDialect
 	Provider         *ProviderName // nil when routing failed
 	ModelID          string
@@ -108,9 +109,14 @@ type InferenceUsageRecord struct {
 // TenantID is required — List and Get both reject an empty value to guarantee
 // tenant isolation. Callers must populate it from the verified principal, never
 // from user-supplied request data.
+//
+// TokenID, when set, restricts results to a single PAT. It must always be
+// paired with PrincipalID — the AND predicate on the verified principal_id
+// prevents any cross-user row access without additional pre-validation.
 type InferenceUsageFilter struct {
 	TenantID      string
 	PrincipalID   *string
+	TokenID       *string // PAT record UUID; nil returns all records for the principal
 	PrincipalType *string
 	Provider      *ProviderName
 	APIDialect    *APIDialect

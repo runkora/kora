@@ -23,11 +23,15 @@ var tracer = otel.Tracer("inferencegw")
 
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
+// TokenID is only populated for PAT-authenticated requests (PrincipalType == "PAT");
+// it holds the PAT record UUID from claims.Orbit.SessionID. It is empty for all
+// other principal types — those callers have no PAT record to reference.
 type principal struct {
 	TenantID       string
 	PrincipalID    string
 	PrincipalType  string
 	IdentitySource string
+	TokenID        string // PAT record UUID; empty for non-PAT principals
 }
 
 // Service is the inference gateway service layer.
@@ -222,6 +226,7 @@ func (s *Service) ChatCompletion(
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectOpenAI,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
@@ -377,6 +382,7 @@ func (s *Service) ChatCompletionStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
+			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectOpenAI,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
@@ -587,16 +593,33 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
+//
+// TokenID is populated only for PAT-authenticated callers. Two distinct fields
+// in the JWT carry related but non-equivalent identifiers:
+//   - claims.RegisteredClaims.ID (JTI) — a per-issuance revocation key stored
+//     in Redis; a new JTI is minted on every token issuance.
+//   - claims.Orbit.SessionID — the stable PAT record UUID; constant for the
+//     lifetime of the PAT regardless of how many tokens have been issued.
+//
+// We use SessionID (not JTI) so that all requests authenticated by the same
+// PAT are attributable to a single token_id in inference_usage.
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
 		return principal{}, fmt.Errorf("no verified claims in context: AuthMiddleware may not have run")
 	}
+
+	var tokenID string
+	if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+		tokenID = claims.Orbit.SessionID
+	}
+
 	return principal{
 		TenantID:       claims.Orbit.TenantID,
 		PrincipalID:    claims.Subject,
 		PrincipalType:  string(claims.Orbit.PrincipalType),
 		IdentitySource: string(claims.Orbit.IdentitySource),
+		TokenID:        tokenID,
 	}, nil
 }
 
@@ -621,6 +644,7 @@ func (s *Service) writeFailedUsage(
 		TenantID:        p.TenantID,
 		PrincipalID:     p.PrincipalID,
 		PrincipalType:   p.PrincipalType,
+		TokenID:         nullableText(p.TokenID),
 		APIDialect:      dialect,
 		Provider:        provider,
 		ModelID:         req.Model,
@@ -805,6 +829,7 @@ func (s *Service) AnthropicMessages(
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectAnthropic,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
@@ -939,6 +964,7 @@ func (s *Service) AnthropicMessagesStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
+			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectAnthropic,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
@@ -962,4 +988,29 @@ func (s *Service) AnthropicMessagesStream(
 	}()
 
 	return out, nil
+}
+
+// ─── ListUsage ───────────────────────────────────────────────────────────────
+
+// ListUsage returns a page of inference usage records for the authenticated
+// principal. TenantID and PrincipalID are always sourced from the verified JWT
+// claims — callers cannot supply their own values. TokenID, when provided,
+// must already belong to the authenticated principal; the compound
+// (tenant_id, principal_id, token_id) predicate prevents cross-user reads
+// without any additional pre-validation.
+func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, int, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	// Always enforce tenant and principal scoping from verified claims.
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = &p.PrincipalID
+
+	records, total, err := s.usage.List(ctx, filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list usage: %w", err)
+	}
+	return records, total, nil
 }
