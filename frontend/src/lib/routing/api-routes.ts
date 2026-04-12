@@ -181,6 +181,18 @@ export const ApiRoute = {
     POST: (): `${typeof API_BASE}/policy/evaluate/simulate` =>
       `${API_BASE}/policy/evaluate/simulate`,
   },
+
+  /**
+   * `/api/usage`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/usage` and returns
+   *       inference usage records for the authenticated user. Accepts an
+   *       optional `key` query param to filter by a specific API key (PAT UUID).
+   */
+  usage: {
+    GET: (key?: string): `${typeof API_BASE}/usage` | `${typeof API_BASE}/usage?key=${string}` =>
+      key ? `${API_BASE}/usage?key=${encodeURIComponent(key)}` : `${API_BASE}/usage`,
+  },
 } as const;
 
 /**
@@ -207,4 +219,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyVocabulary']['GET']>
   | ReturnType<(typeof ApiRoute)['policyRoutes']['GET']>
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
-  | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>;
+  | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
+  | ReturnType<(typeof ApiRoute)['usage']['GET']>;

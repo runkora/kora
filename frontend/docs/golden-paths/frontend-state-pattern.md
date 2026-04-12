@@ -1,8 +1,8 @@
 # Golden Path: Data-Driven Pages with the Custom Hook + Context Pattern
 
 **Audience:** Frontend engineers building new data-driven dashboard pages.  
-**Pattern version:** 1.0 — custom hook + React Context (see [Zustand upgrade path](#zustand-upgrade-path) for when to graduate).  
-**Reference implementation:** `src/app/(dashboard)/model-gateway/models/` — the Models page is the first concrete use of this pattern.
+**Pattern version:** 1.1 — custom hook + React Context (see [Zustand upgrade path](#zustand-upgrade-path) for when to graduate).  
+**Reference implementation:** `src/app/(dashboard)/model-gateway/models/` — the Models page is the canonical use of this pattern.
 
 ---
 
@@ -10,12 +10,13 @@
 
 This guide walks you through every layer required to wire a backend endpoint to a dashboard page. By the end you will have:
 
-- A **BFF route handler** that proxies authenticated requests to the Go backend.
-- A **service module** that is the only code that knows the BFF URL.
+- A **server-side service module** that is the only code that talks to the Go backend — shared by the RSC page and the BFF route.
+- A **BFF route handler** that proxies authenticated client-initiated requests to that service.
+- A **client-side service module** that is the only code that knows the BFF URL.
 - A **custom hook** that owns all state and orchestrates API calls.
 - A **Context provider** that distributes that state to every component without prop drilling.
 - A **React Server Component page** that fetches the initial data server-side so the page renders fully on first paint.
-- A **client shell** that bridges the RSC page and the hook.
+- A **tab shell** that bridges the RSC page and the hook.
 - **Feature components** that only know about context — no fetch calls, no API knowledge.
 
 The example throughout this guide uses a fictional `Widget` resource. Replace every instance of `Widget` / `widget` / `widgets` with your actual resource name.
@@ -28,45 +29,137 @@ The example throughout this guide uses a fictional `Widget` resource. Replace ev
 
 ---
 
-## Step 1 — Add Types to `src/shared/api.ts`
+## Step 1 — Add Types
 
-**Why this file?** `src/shared/api.ts` is the single source of truth for shapes that mirror the Go backend's JSON responses. Both the BFF route handler (server-side) and the client service module import from here — they never define types independently.
+**Two locations, two purposes:**
 
-Open `frontend/src/shared/api.ts` and add your resource types:
+| Location                                        | What goes here                                                                                     |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `src/shared/api.ts`                             | Types that mirror the raw Go backend JSON response — used by the server-side service and the BFF   |
+| `src/app/(dashboard)/{feature}/_types/index.ts` | Feature-local view types (e.g. `WidgetRow`) that may reshape or extend the raw response for UI use |
+
+### `src/shared/api.ts` — raw backend shapes
 
 ```typescript
 // ---------------------------------------------------------------------------
 // Widget domain  (internal/widgets)
 // ---------------------------------------------------------------------------
 
+/** Envelope returned by GET /v1/widgets */
+export interface WidgetsResponse {
+  items: WidgetRaw[];
+  total: number;
+}
+
+/** Raw widget as returned by the Go backend */
+export interface WidgetRaw {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+}
+```
+
+### `_types/index.ts` — feature-local view type
+
+```typescript
+import type { WidgetRaw } from '@orbit/shared/api';
+
 /** Possible lifecycle states a Widget can be in. */
 export type WidgetStatus = 'active' | 'inactive' | 'pending';
 
-/** A single widget returned by GET /v1/widgets */
+/** UI-ready widget row — mapped from the raw backend response. */
 export interface WidgetRow {
   id: string;
   name: string;
   status: WidgetStatus;
   createdAt: string; // ISO 8601 — convert to Date at display time
-  description: string;
 }
 
-/** Envelope returned by GET /v1/widgets */
-export interface WidgetsResponse {
-  items: WidgetRow[];
-  total: number;
+export function toWidgetRow(raw: WidgetRaw): WidgetRow {
+  return {
+    id: raw.id,
+    name: raw.name,
+    status: raw.status as WidgetStatus,
+    createdAt: raw.created_at,
+  };
 }
 ```
 
-> **Tip:** If the backend response shape is not yet finalised, use the best guess you have and mark the field with `// TODO: confirm with backend`. The type lives in one file so updating it later is a one-line change.
+> **Tip:** If the backend response doesn't need reshaping, you can skip the mapping function and use the raw type directly as the view type.
 
 ---
 
-## Step 2 — Add a BFF Route Handler
+## Step 2 — Create the Server-Side Service Module
 
-**Why a BFF route?** The Go backend requires an authenticated session token. Client-side code (browser) must never hold or forward that token directly. A Next.js Route Handler runs server-side, reads the token from the sealed iron-session cookie, and proxies the request — the browser never sees the token.
+**Why a dedicated server service?** This module is the single point of contact with the Go backend. It is imported by _both_ the RSC page (for server-side rendering) and the BFF route handler (for client-initiated refetches). Centralising the upstream fetch here means error handling, timeout configuration, and response parsing live in exactly one place.
 
-Create the handler file:
+```
+src/app/(dashboard)/{your-feature}/_services/widgets-server.ts
+```
+
+```typescript
+import 'server-only';
+
+import { config } from '@orbit/server/config';
+import type { WidgetsResponse } from '@orbit/shared/api';
+import { toWidgetRow } from '../_types';
+import type { WidgetRow } from '../_types';
+
+// Returns a discriminated union so each caller can handle errors in the way
+// that makes sense for its context:
+//   - RSC page: fall back to [] and pass initialError to the shell
+//   - BFF route: return an appropriate HTTP status to the client
+export type GatewayWidgetsResult =
+  | { ok: true; widgets: WidgetRow[] }
+  | { ok: false; status: number; message: string };
+
+export async function fetchWidgetsFromGateway(accessToken: string): Promise<GatewayWidgetsResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${config.orbitApiUrl}/v1/widgets`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[fetchWidgetsFromGateway] ${isTimeout ? 'timeout' : 'network error'}:`, err);
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Request timed out' : 'Failed to reach backend',
+    };
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[fetchWidgetsFromGateway] backend responded ${res.status}`);
+    return { ok: false, status: res.status, message: body || res.statusText };
+  }
+
+  let body: WidgetsResponse;
+  try {
+    body = (await res.json()) as WidgetsResponse;
+  } catch {
+    console.error('[fetchWidgetsFromGateway] failed to parse response as JSON');
+    return { ok: false, status: 502, message: 'Invalid response from backend' };
+  }
+
+  return { ok: true, widgets: (body.items ?? []).map(toWidgetRow) };
+}
+```
+
+> **Security rules:**
+>
+> - Always import `'server-only'` — compile-time guard that prevents this module from being bundled into client code.
+> - The `accessToken` is used here to forward to the backend. It must never appear in a response body.
+
+---
+
+## Step 3 — Add a BFF Route Handler
+
+**Why a BFF route?** The Go backend requires an authenticated session token. Browser code must never hold that token directly. A Next.js Route Handler runs server-side, reads the token from the sealed session cookie, calls the server service, and forwards the result — the token never leaves the server.
 
 ```
 src/app/api/widgets/route.ts
@@ -76,74 +169,59 @@ src/app/api/widgets/route.ts
 /**
  * /api/widgets — BFF proxy for the Widgets resource.
  *
- * GET — fetches all widgets from the Go backend on behalf of the
- *       authenticated user. The session access token is forwarded
- *       in the Authorization header; it is never exposed to the browser.
+ * GET — returns widgets for the authenticated user's session.
  *
- *       Response: 200 WidgetsResponse
- *                 401 { error: 'unauthorized' }
- *                 502 { error: 'upstream_error' }
+ *       Response: 200 { data: WidgetRow[] }
+ *                 401 { code: 'unauthorized', message: string }
+ *                 502 { code: 'upstream_error', message: string }
  */
 import 'server-only';
 
+import { NextResponse } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
-import type { WidgetsResponse } from '@orbit/shared/api';
+import { fetchWidgetsFromGateway } from '../../(dashboard)/{feature}/_services/widgets-server';
 
-export async function GET(): Promise<Response> {
+export async function GET(): Promise<NextResponse> {
   const session = await getSession();
 
   if (!isSessionValid(session)) {
-    return Response.json({ error: 'unauthorized' }, { status: 401 });
+    return NextResponse.json(
+      { code: 'unauthorized', message: 'No valid session' },
+      { status: 401 },
+    );
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${config.orbitApiUrl}/v1/widgets`, {
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    return Response.json({ error: 'upstream_error' }, { status: 502 });
+  const result = await fetchWidgetsFromGateway(session.accessToken);
+
+  if (!result.ok) {
+    console.error(`[GET /api/widgets] upstream error ${result.status}: ${result.message}`);
+    const clientStatus = result.status >= 500 ? 502 : result.status;
+    return NextResponse.json(
+      { code: 'upstream_error', message: 'Failed to load widgets' },
+      { status: clientStatus },
+    );
   }
 
-  if (!upstream.ok) {
-    if (upstream.status === 401) {
-      return Response.json({ error: 'unauthorized' }, { status: 401 });
-    }
-    return Response.json({ error: 'upstream_error' }, { status: 502 });
-  }
-
-  const data = (await upstream.json()) as WidgetsResponse;
-  return Response.json(data);
+  return NextResponse.json({ data: result.widgets });
 }
 ```
 
-> **Security rules:**
+> **Notes:**
 >
-> - Always import `'server-only'` at the top — this is a compile-time guard that prevents this file from being bundled into client code.
-> - Never include `accessToken` in the response body.
-> - Never import `orbitClient` from client-side code — it is server-only.
+> - Use `NextResponse.json` (not the web-standard `Response.json`) — consistent with the rest of the app.
+> - Error responses use `{ code, message }` shape — not `{ error }`.
+> - The handler delegates all upstream logic to the server service — keep handlers thin.
+> - Do **not** add this route to `PUBLIC_PATHS` in `src/proxy.ts` unless it is genuinely unauthenticated.
 
 ---
 
-## Step 3 — Register the Route in `api-routes.ts`
+## Step 4 — Register the Route in `api-routes.ts`
 
-**Why a registry?** Every BFF URL is defined once in `src/lib/routing/api-routes.ts`. TypeScript enforces that all call sites use the registry function — string literals for API paths are banned. This means renaming a route is a one-file change, and broken references are a compile error.
+**Why a registry?** Every BFF URL is defined once in `src/lib/routing/api-routes.ts`. TypeScript enforces that all call sites use the registry function — raw string literals for API paths are banned. Renaming a route is a one-file change; broken references are compile errors.
 
 Open `frontend/src/lib/routing/api-routes.ts` and add an entry:
 
 ```typescript
-// In the ApiRoute object, add alongside the existing entries:
-
-/**
- * `/api/widgets`
- *
- * GET — returns all widgets for the current user's session.
- */
 widgets: {
   GET: (): `${typeof API_BASE}/widgets` => `${API_BASE}/widgets`,
 },
@@ -153,183 +231,157 @@ Also extend the `ApiRoutePath` union at the bottom of the file:
 
 ```typescript
 export type ApiRoutePath =
-  | ReturnType<(typeof ApiRoute)['health']['GET']>
-  | ReturnType<(typeof ApiRoute)['logout']['POST']>
-  | ReturnType<(typeof ApiRoute)['session']['POST']>
-  | ReturnType<(typeof ApiRoute)['session']['GET']>
-  | ReturnType<(typeof ApiRoute)['discover']['PATH']>
-  | `${typeof AUTH_BASE}/discover?email=${string}`
-  | ReturnType<(typeof ApiRoute)['widgets']['GET']>; // ← add this line
+  // ... existing entries ...
+  ReturnType<(typeof ApiRoute)['widgets']['GET']>; // ← add this line
 ```
-
-> **Do not add new routes to `PUBLIC_PATHS` in `src/proxy.ts`** unless the route is genuinely unauthenticated. Feature data routes require a valid session.
 
 ---
 
-## Step 4 — Create the Service Module
+## Step 5 — Create the Client-Side Service Module
 
-**Why a dedicated service module?** The hook needs to call the BFF. If the hook calls `fetch('/api/widgets')` directly, the URL is a magic string inside business logic. The service module is the only place in client code that knows BFF endpoint paths — it wraps `fetch` in a typed function that the hook calls by name.
-
-Create:
+**Why a separate client service?** The hook needs to call the BFF for client-initiated refetches. The client service is the only place in browser code that knows BFF endpoint paths — it wraps `fetch` in a typed function that the hook calls by name. Components never call it directly.
 
 ```
 src/app/(dashboard)/{your-feature}/_services/widgets-api.ts
 ```
 
 ```typescript
-import { ApiRoute } from '@orbit/lib/routing';
-import type { WidgetsResponse } from '@orbit/shared/api';
+// Client-side fetch helper. Calls the BFF route at /api/widgets.
+// Never calls the Go backend directly — that is server-only.
+
+import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import type { WidgetRow } from '../_types';
+
+export interface FetchWidgetsResult {
+  widgets: WidgetRow[];
+  error: string | null;
+}
 
 /**
- * Fetch all widgets from the BFF route handler.
+ * Fetch all widgets from the BFF proxy route.
  *
- * Called by the useWidgets hook. Never called directly by components.
+ * Returns a normalised result object — never throws — so callers can
+ * pattern-match on `error` without a try/catch at every call site.
  */
-export async function fetchWidgets(): Promise<WidgetsResponse> {
-  const res = await fetch(ApiRoute.widgets.GET(), {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `widgets fetch failed: ${res.status}`);
+export async function fetchWidgets(): Promise<FetchWidgetsResult> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.widgets.GET(), { cache: 'no-store' });
+  } catch {
+    return { widgets: [], error: 'Network error — could not reach the server.' };
   }
 
-  return res.json() as Promise<WidgetsResponse>;
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      // ignore parse errors; keep the status-code message
+    }
+    return { widgets: [], error: message };
+  }
+
+  const data = (await res.json()) as { data: WidgetRow[] };
+  return { widgets: data.data ?? [], error: null };
 }
 ```
 
-Rules for service modules:
+Rules for client service modules:
 
 - Pure async functions only — no React, no hooks, no JSX.
 - Import routes from `ApiRoute`, never from string literals.
-- Throw a descriptive `Error` on failure — the hook catches it and sets `status: 'error'`.
+- **Return a result object, never throw** — the hook pattern-matches on `result.error`.
+- Always pass `cache: 'no-store'` — user data must never be served stale from the Next.js fetch cache.
 
 ---
 
-## Step 5 — Define the State Interface and Create the Hook
+## Step 6 — Define the State Interface and Create the Hook
 
-This is the architectural core of the pattern. There are two parts: the **interface** and the **implementation**.
-
-Create:
+This is the architectural core of the pattern. The **interface** is the upgrade contract — both the current hook and any future Zustand store must satisfy it, so components never need to change.
 
 ```
 src/app/(dashboard)/{your-feature}/_hooks/use-widgets.ts
 ```
 
-### 5a — Define `WidgetsStateShape` (the upgrade contract)
-
 ```typescript
-import type { WidgetRow, WidgetStatus } from '@orbit/shared/api';
+'use client';
 
-// ── UI-only types ─────────────────────────────────────────────────────────────
+import { useState, useCallback } from 'react';
+import { fetchWidgets } from '../_services/widgets-api';
+import type { WidgetRow } from '../_types';
 
-export interface WidgetFilterState {
-  search: string;
-  statuses: Set<WidgetStatus>;
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-// ── The upgrade contract ──────────────────────────────────────────────────────
+/** Load state for any async data fetch. */
+export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 /**
  * The complete state and actions interface for the Widgets feature.
  *
- * Both the current useWidgets hook and any future Zustand store must
- * satisfy this type exactly. Components interact only with this interface —
- * they have no knowledge of how state is managed underneath.
+ * Both the current useWidgets hook and any future Zustand store must satisfy
+ * this type exactly. Components interact only with this interface — they have
+ * no knowledge of how state is managed underneath.
  */
 export interface WidgetsStateShape {
   // ── Server state
   widgets: WidgetRow[];
-  status: 'idle' | 'loading' | 'success' | 'error';
+  status: LoadStatus;
   error: string | null;
-
-  // ── UI state
-  filters: WidgetFilterState;
-  selectedWidgetId: string | null;
 
   // ── Actions
   refresh(): Promise<void>;
-  setFilter(update: Partial<WidgetFilterState>): void;
-  setSelectedWidget(id: string | null): void;
 }
-```
 
-### 5b — Implement `useWidgets`
-
-```typescript
-import { useState, useCallback } from 'react';
-import { fetchWidgets } from '../_services/widgets-api';
-
-const DEFAULT_FILTERS: WidgetFilterState = {
-  search: '',
-  statuses: new Set(),
-};
-
-interface UseWidgetsOptions {
-  initialWidgets?: WidgetRow[];
-}
+// ── Hook ──────────────────────────────────────────────────────────────────────
 
 /**
- * Custom hook that owns all state for the Widgets feature.
+ * useWidgets
  *
- * - Accepts `initialWidgets` from the RSC page (server-fetched data).
- *   When provided, initialises to `status: 'success'` immediately —
- *   no on-mount fetch, no loading spinner on first paint.
- * - Exposes a `refresh()` action for client-side refetches.
- * - Returns a value that satisfies `WidgetsStateShape`.
+ * Manages the full state for the Widgets feature. Accepts `initialData` and
+ * `initialError` from the RSC parent — the RSC fetches on the server and
+ * passes the result down so the client renders immediately without a loading
+ * flash.
+ *
+ * Calling `refresh()` triggers a fresh client-side fetch via the BFF.
  */
-export function useWidgets({ initialWidgets = [] }: UseWidgetsOptions = {}): WidgetsStateShape {
-  const [widgets, setWidgets] = useState<WidgetRow[]>(initialWidgets);
-  const [status, setStatus] = useState<WidgetsStateShape['status']>(
-    initialWidgets.length > 0 ? 'success' : 'idle',
+export function useWidgets(
+  initialData: WidgetRow[],
+  initialError: string | null = null,
+): WidgetsStateShape {
+  const [widgets, setWidgets] = useState<WidgetRow[]>(initialData);
+  const [status, setStatus] = useState<LoadStatus>(
+    // Order matters: check initialError first, then data presence
+    initialError ? 'error' : initialData.length > 0 ? 'success' : 'idle',
   );
-  const [error, setError] = useState<string | null>(null);
-  const [filters, setFiltersState] = useState<WidgetFilterState>(DEFAULT_FILTERS);
-  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
 
   const refresh = useCallback(async () => {
     setStatus('loading');
     setError(null);
-    try {
-      const result = await fetchWidgets();
-      setWidgets(result.items);
-      setStatus('success');
-    } catch (e) {
+
+    const result = await fetchWidgets();
+
+    if (result.error) {
+      setError(result.error);
       setStatus('error');
-      setError(e instanceof Error ? e.message : 'Unknown error');
+    } else {
+      setWidgets(result.widgets);
+      setStatus('success');
     }
   }, []);
 
-  const setFilter = useCallback((update: Partial<WidgetFilterState>) => {
-    setFiltersState((prev) => ({ ...prev, ...update }));
-  }, []);
-
-  const setSelectedWidget = useCallback((id: string | null) => {
-    setSelectedWidgetId(id);
-  }, []);
-
-  return {
-    widgets,
-    status,
-    error,
-    filters,
-    selectedWidgetId,
-    refresh,
-    setFilter,
-    setSelectedWidget,
-  };
+  return { widgets, status, error, refresh };
 }
 ```
 
-> **Why `useCallback` on every action?** The context provider memoises the value object. Actions that are stable references (via `useCallback`) prevent unnecessary re-renders of every consumer when unrelated state changes.
+> **Why no try/catch in `refresh()`?** The client service (`fetchWidgets`) never throws — it always returns `{ widgets, error }`. The hook pattern-matches on `result.error` instead of catching exceptions. This keeps the async flow linear and easy to follow.
+
+> **Why `useCallback` on actions?** The context provider passes the hook's return value directly as the context value. Stable action references prevent unnecessary re-renders of every consumer when unrelated state changes.
 
 ---
 
-## Step 6 — Create the Context Provider and Consumer Hook
-
-Create:
+## Step 7 — Create the Context Provider and Consumer Hook
 
 ```
 src/app/(dashboard)/{your-feature}/_context/widgets-context.tsx
@@ -338,10 +390,10 @@ src/app/(dashboard)/{your-feature}/_context/widgets-context.tsx
 ```tsx
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext } from 'react';
 import { useWidgets } from '../_hooks/use-widgets';
 import type { WidgetsStateShape } from '../_hooks/use-widgets';
-import type { WidgetRow } from '@orbit/shared/api';
+import type { WidgetRow } from '../_types';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -350,19 +402,20 @@ const WidgetsContext = createContext<WidgetsStateShape | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 interface WidgetsProviderProps {
-  initialWidgets?: WidgetRow[];
-  children: ReactNode;
+  initialData: WidgetRow[];
+  initialError: string | null;
+  children: React.ReactNode;
 }
 
 /**
- * Renders the WidgetsContext provider, initialising the hook with
- * server-fetched data so the first render is fully populated.
+ * Mounts the WidgetsContext provider, initialising the hook synchronously
+ * from server-fetched data — no useEffect hydration flash.
  *
- * Place this in the client shell, not directly in the RSC page.
+ * Place this in the tab shell, not directly in the RSC page.
  */
-export function WidgetsProvider({ initialWidgets, children }: WidgetsProviderProps) {
-  const value = useWidgets({ initialWidgets });
-  return <WidgetsContext.Provider value={value}>{children}</WidgetsContext.Provider>;
+export function WidgetsProvider({ initialData, initialError, children }: WidgetsProviderProps) {
+  const state = useWidgets(initialData, initialError);
+  return <WidgetsContext.Provider value={state}>{children}</WidgetsContext.Provider>;
 }
 
 // ── Consumer hook ─────────────────────────────────────────────────────────────
@@ -370,13 +423,13 @@ export function WidgetsProvider({ initialWidgets, children }: WidgetsProviderPro
 /**
  * Returns the current WidgetsStateShape from context.
  *
- * Throws if called outside a WidgetsProvider — this is intentional.
- * Components that use this hook must be rendered inside the provider tree.
+ * Throws if called outside a WidgetsProvider — intentional.
+ * Components using this hook must be inside the provider tree.
  */
 export function useWidgetsContext(): WidgetsStateShape {
   const ctx = useContext(WidgetsContext);
   if (!ctx) {
-    throw new Error('useWidgetsContext must be used within a WidgetsProvider');
+    throw new Error('useWidgetsContext must be used inside <WidgetsProvider>');
   }
   return ctx;
 }
@@ -387,106 +440,97 @@ export function useWidgetsContext(): WidgetsStateShape {
 
 ---
 
-## Step 7 — Convert the Page to a React Server Component
+## Step 8 — Create the Tab Shell
 
-The page fetches the initial data server-side, so the HTML delivered to the browser already contains the full model list. No loading spinner, no layout shift.
+The tab shell is the `'use client'` boundary. It receives server-fetched data as props, mounts the provider, and renders the feature component tree. It contains no state, no logic, no effects.
+
+```
+src/app/(dashboard)/{your-feature}/_components/widgets-tab-shell.tsx
+```
+
+```tsx
+'use client';
+
+import { WidgetsProvider } from '../_context/widgets-context';
+import { WidgetsTab } from './widgets-tab';
+import type { WidgetRow } from '../_types';
+
+interface WidgetsTabShellProps {
+  initialWidgets: WidgetRow[];
+  initialError: string | null;
+}
+
+/**
+ * Client boundary for the widgets tab.
+ *
+ * Receives server-prefetched data as props, bootstraps WidgetsProvider, and
+ * renders the tab. The shell itself has no state — it is a thin wiring layer.
+ *
+ * Naming convention: XTabShell (not XClientShell).
+ * Location: feature-level _components/, not nested inside the route folder.
+ */
+export function WidgetsTabShell({ initialWidgets, initialError }: WidgetsTabShellProps) {
+  return (
+    <WidgetsProvider initialData={initialWidgets} initialError={initialError}>
+      <WidgetsTab />
+    </WidgetsProvider>
+  );
+}
+```
+
+> **Prop naming:** The shell accepts `initialX` props (matching the RSC page's variable names), but passes them to the provider as `initialData` / `initialError`. This keeps the provider interface consistent across features while the shell props remain descriptive.
+
+---
+
+## Step 9 — Convert the Page to a React Server Component
+
+The RSC page fetches initial data server-side so the HTML delivered to the browser already contains real content. A co-located `loading.tsx` provides the Suspense skeleton automatically — no `<Suspense>` wrapper is needed in the page itself.
 
 ```
 src/app/(dashboard)/{your-feature}/widgets/page.tsx
 ```
 
 ```tsx
-import { Suspense } from 'react';
-import { getSession } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
-import type { WidgetsResponse, WidgetRow } from '@orbit/shared/api';
-import { WidgetsClientShell } from './_components/widgets-client-shell';
+// RSC — fetches widgets server-side so the page renders with real data.
+// The co-located loading.tsx shows a skeleton while this fetch completes.
 
-/**
- * Server Component — runs on the server only.
- *
- * Fetches widgets directly from the Go backend (no BFF round-trip —
- * server-side code has direct session access). Passes the result to
- * the client shell as props. If the fetch fails, passes an empty array
- * so the hook can show an error state rather than crashing.
- */
-async function fetchInitialWidgets(): Promise<WidgetRow[]> {
-  try {
-    const session = await getSession();
-    const res = await fetch(`${config.orbitApiUrl}/v1/widgets`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as WidgetsResponse;
-    return data.items;
-  } catch {
-    return [];
-  }
-}
+import { getSession, isSessionValid } from '@orbit/server/session';
+import { fetchWidgetsFromGateway } from '../_services/widgets-server';
+import { WidgetsTabShell } from '../_components/widgets-tab-shell';
 
 export default async function WidgetsPage() {
-  const initialWidgets = await fetchInitialWidgets();
+  const session = await getSession();
+  const result = isSessionValid(session)
+    ? await fetchWidgetsFromGateway(session.accessToken)
+    : null;
 
-  return (
-    <Suspense fallback={null}>
-      <WidgetsClientShell initialWidgets={initialWidgets} />
-    </Suspense>
-  );
+  const initialWidgets = result?.ok ? result.widgets : [];
+  const initialError = result && !result.ok ? result.message : null;
+
+  return <WidgetsTabShell initialWidgets={initialWidgets} initialError={initialError} />;
 }
 ```
 
 > **RSC rules:**
 >
-> - No `'use client'` directive — this file is a Server Component by default.
-> - No React hooks (`useState`, `useEffect`, etc.).
-> - Can import `server-only` modules (`session.ts`, `config.ts`, raw `fetch` against the Go backend).
-> - Return an empty array on failure — the hook handles the error state client-side.
+> - No `'use client'` directive.
+> - No React hooks.
+> - Always call `isSessionValid(session)` before fetching — do not assume a session exists.
+> - Use the shared server service (`widgets-server.ts`) — never inline the upstream fetch in the page.
+> - On failure, pass empty data + an error message — let the hook render the error state client-side.
+> - Do **not** wrap the shell in `<Suspense>` — Next.js App Router uses `loading.tsx` for this automatically.
+
+### Co-locate a `loading.tsx`
+
+```
+src/app/(dashboard)/{your-feature}/widgets/loading.tsx
+```
+
+The `loading.tsx` skeleton is required for any page whose components call `useSearchParams()` (which requires a Suspense boundary) or simply to improve perceived performance. Mirror the real layout exactly so the skeleton matches the loaded state.
 
 ---
 
-## Step 8 — Create the Client Shell
-
-The client shell bridges the RSC page and the hook. It is the only `'use client'` component that the page renders directly.
-
-```
-src/app/(dashboard)/{your-feature}/widgets/_components/widgets-client-shell.tsx
-```
-
-```tsx
-'use client';
-
-import { WidgetsProvider } from '../../_context/widgets-context';
-import { WidgetsTable } from './widgets-table';
-import type { WidgetRow } from '@orbit/shared/api';
-
-interface Props {
-  initialWidgets: WidgetRow[];
-}
-
-/**
- * The entry point for the client-side component tree.
- *
- * - Receives server-fetched data as props.
- * - Wraps children in WidgetsProvider, initialising the hook synchronously.
- * - Does NOT call useWidgetsContext() itself — it only sets up the provider.
- * - Does NOT contain any business logic.
- */
-export function WidgetsClientShell({ initialWidgets }: Props) {
-  return (
-    <WidgetsProvider initialWidgets={initialWidgets}>
-      <WidgetsTable />
-      {/* Add more feature components here */}
-    </WidgetsProvider>
-  );
-}
-```
-
-The shell has one job: mount the provider and compose children. Keep it thin — no state, no logic.
-
----
-
-## Step 9 — Write Components That Only Know About Context
+## Step 10 — Write Components That Only Know About Context
 
 Feature components call `useWidgetsContext()` for data and actions. They accept no data props. They contain no `fetch()` calls.
 
@@ -496,23 +540,14 @@ Feature components call `useWidgetsContext()` for data and actions. They accept 
 import { useMemo } from 'react';
 import { useWidgetsContext } from '../../_context/widgets-context';
 
-export function WidgetsTable() {
-  const { widgets, status, error, filters, refresh, setSelectedWidget } = useWidgetsContext();
+export function WidgetsTab() {
+  const { widgets, status, error, refresh } = useWidgetsContext();
 
-  // Derived data: compute filtered list with useMemo — do not store this in hook state
+  // Derived data: compute filtered/sorted list with useMemo.
+  // Never store computed values in hook or component state.
   const visibleWidgets = useMemo(() => {
-    let result = widgets;
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      result = result.filter(
-        (w) => w.name.toLowerCase().includes(q) || w.id.toLowerCase().includes(q),
-      );
-    }
-    if (filters.statuses.size > 0) {
-      result = result.filter((w) => filters.statuses.has(w.status));
-    }
-    return result;
-  }, [widgets, filters]);
+    return widgets.filter((w) => w.status === 'active');
+  }, [widgets]);
 
   if (status === 'loading') return <div>Loading…</div>;
   if (status === 'error')
@@ -527,7 +562,7 @@ export function WidgetsTable() {
     <table>
       <tbody>
         {visibleWidgets.map((w) => (
-          <tr key={w.id} onClick={() => setSelectedWidget(w.id)}>
+          <tr key={w.id}>
             <td>{w.name}</td>
             <td>{w.status}</td>
           </tr>
@@ -543,8 +578,8 @@ export function WidgetsTable() {
 - Read state from `useWidgetsContext()`.
 - Compute derived data (filtered/sorted lists) with `useMemo` — never store computed values in hook state.
 - Call action functions returned by the context for user interactions.
-- Render `status === 'error'` and provide a `retry` button that calls `refresh()`.
-- Accept no data props — the context is the data source.
+- Render `status === 'error'` with a retry button that calls `refresh()`.
+- Accept no data props — the context is the sole data source.
 
 ---
 
@@ -552,17 +587,20 @@ export function WidgetsTable() {
 
 For a feature named `widgets` under a route group `my-feature`:
 
-| File                                                                          | Purpose                                            |
-| ----------------------------------------------------------------------------- | -------------------------------------------------- |
-| `src/shared/api.ts`                                                           | Add `WidgetRow`, `WidgetStatus`, `WidgetsResponse` |
-| `src/lib/routing/api-routes.ts`                                               | Add `ApiRoute.widgets.GET()`                       |
-| `src/app/api/widgets/route.ts`                                                | BFF route handler — proxies to `/v1/widgets`       |
-| `src/app/(dashboard)/my-feature/_services/widgets-api.ts`                     | `fetchWidgets()` — calls BFF via route registry    |
-| `src/app/(dashboard)/my-feature/_hooks/use-widgets.ts`                        | `WidgetsStateShape` interface + `useWidgets` hook  |
-| `src/app/(dashboard)/my-feature/_context/widgets-context.tsx`                 | `WidgetsProvider` + `useWidgetsContext()`          |
-| `src/app/(dashboard)/my-feature/widgets/page.tsx`                             | RSC page — server-fetches initial data             |
-| `src/app/(dashboard)/my-feature/widgets/_components/widgets-client-shell.tsx` | `'use client'` shell — mounts provider             |
-| `src/app/(dashboard)/my-feature/widgets/_components/widgets-table.tsx`        | Feature component — reads from context             |
+| File                                                               | Purpose                                                              |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `src/shared/api.ts`                                                | Raw backend response types (`WidgetRaw`, `WidgetsResponse`)          |
+| `src/lib/routing/api-routes.ts`                                    | Add `ApiRoute.widgets.GET()` + `ApiRoutePath` union                  |
+| `src/app/(dashboard)/my-feature/_types/index.ts`                   | Feature-local view type (`WidgetRow`, `WidgetStatus`, `toWidgetRow`) |
+| `src/app/(dashboard)/my-feature/_services/widgets-server.ts`       | Server-only: fetches from Go backend; shared by RSC page + BFF       |
+| `src/app/api/widgets/route.ts`                                     | BFF route handler — proxies client fetches via the server service    |
+| `src/app/(dashboard)/my-feature/_services/widgets-api.ts`          | Client-only: calls BFF via route registry; returns result object     |
+| `src/app/(dashboard)/my-feature/_hooks/use-widgets.ts`             | `WidgetsStateShape` interface + `useWidgets` hook                    |
+| `src/app/(dashboard)/my-feature/_context/widgets-context.tsx`      | `WidgetsProvider` + `useWidgetsContext()`                            |
+| `src/app/(dashboard)/my-feature/_components/widgets-tab-shell.tsx` | `'use client'` shell — mounts provider, renders tab                  |
+| `src/app/(dashboard)/my-feature/widgets/page.tsx`                  | RSC page — validates session, calls server service, renders shell    |
+| `src/app/(dashboard)/my-feature/widgets/loading.tsx`               | Suspense skeleton — mirrors real layout                              |
+| `src/app/(dashboard)/my-feature/_components/widgets-tab.tsx`       | Feature component — reads from context only                          |
 
 ---
 
@@ -570,66 +608,83 @@ For a feature named `widgets` under a route group `my-feature`:
 
 Use this checklist before opening a PR. Every item must be true.
 
-### Types (`src/shared/api.ts`)
+### Types
 
-- [ ] Resource type mirrors the Go backend JSON shape exactly.
-- [ ] Response envelope type is defined (`WidgetsResponse`).
-- [ ] Types are exported and importable from `@orbit/shared/api`.
+- [ ] Raw backend response types added to `src/shared/api.ts`.
+- [ ] Feature view types live in `_types/index.ts`, not in `src/shared/api.ts`.
+- [ ] `WidgetStatus` is a string union, not a plain `string`.
+
+### Server Service (`widgets-server.ts`)
+
+- [ ] File starts with `import 'server-only'`.
+- [ ] Returns a discriminated union `{ ok: true; ... } | { ok: false; status; message }` — never throws.
+- [ ] `AbortSignal.timeout(10_000)` is set on the upstream fetch.
+- [ ] `console.error` logs include the function name as a prefix `[fetchWidgetsFromGateway]`.
+- [ ] `accessToken` is never included in a return value.
 
 ### BFF Route Handler
 
 - [ ] File starts with `import 'server-only'`.
-- [ ] Session is validated before the upstream fetch — returns 401 if invalid.
-- [ ] `accessToken` is forwarded in `Authorization: Bearer` — never in the response body.
-- [ ] Upstream errors are caught and return 502, not an unhandled exception.
+- [ ] Uses `NextResponse.json(...)`, not `Response.json(...)`.
+- [ ] Session validated with `isSessionValid` before calling the server service.
+- [ ] Error responses use `{ code, message }` shape.
 - [ ] Route is registered in `api-routes.ts` and `ApiRoutePath` union is extended.
 - [ ] Route is **not** added to `PUBLIC_PATHS` in `src/proxy.ts`.
 
-### Service Module
+### Client Service (`widgets-api.ts`)
 
 - [ ] Calls `ApiRoute.widgets.GET()` — no raw URL string literals.
-- [ ] Throws a descriptive `Error` on non-OK response.
+- [ ] **Returns** `{ widgets, error }` — never throws.
+- [ ] `cache: 'no-store'` is set on the fetch call.
 - [ ] Contains no React imports, no hooks, no JSX.
-- [ ] Is never imported directly by a component file.
+- [ ] Never imported directly by a component file.
 
 ### Hook (`use-widgets.ts`)
 
-- [ ] `WidgetsStateShape` interface is a standalone exported type — not inlined in the hook return.
-- [ ] Hook accepts `initialWidgets` as an optional parameter.
-- [ ] When `initialWidgets` is provided, `status` initialises to `'success'` — no on-mount fetch fires.
-- [ ] `refresh()` sets `status: 'loading'` before calling the service function.
-- [ ] `refresh()` sets `status: 'error'` and populates `error` on failure.
-- [ ] All action functions are wrapped with `useCallback`.
-- [ ] Hook return value satisfies `WidgetsStateShape`.
+- [ ] Has `'use client'` directive.
+- [ ] `WidgetsStateShape` is a standalone exported interface.
+- [ ] `LoadStatus` is a standalone exported type.
+- [ ] Hook signature is `(initialData: WidgetRow[], initialError: string | null = null)` — positional params, not an options object.
+- [ ] Status initialises as: `initialError ? 'error' : initialData.length > 0 ? 'success' : 'idle'`.
+- [ ] `refresh()` checks `result.error` on the result object — no try/catch.
+- [ ] All action functions wrapped with `useCallback`.
 
 ### Context (`widgets-context.tsx`)
 
-- [ ] File has `'use client'` directive.
-- [ ] Context default value is `null` (not a partial state object).
+- [ ] Has `'use client'` directive.
+- [ ] Context default value is `null`, not a partial state object.
 - [ ] `useWidgetsContext()` throws if called outside the provider.
-- [ ] Provider renders `useWidgets({ initialWidgets })` — one hook call, one provider render.
+- [ ] Provider calls `useWidgets(initialData, initialError)` — one hook call, one provider render.
+
+### Tab Shell
+
+- [ ] Has `'use client'` directive.
+- [ ] Named `WidgetsTabShell` (not `WidgetsClientShell`).
+- [ ] Lives at feature-level `_components/`, not nested inside the route folder.
+- [ ] Shell props are `initialWidgets` / `initialError`; these are passed to the provider as `initialData` / `initialError`.
+- [ ] Does not call `useWidgetsContext()`.
+- [ ] Contains no business logic, state, or effects.
 
 ### RSC Page (`page.tsx`)
 
 - [ ] No `'use client'` directive.
 - [ ] No React hooks.
-- [ ] Server-side fetch failure returns `[]` — never throws.
-- [ ] Passes `initialWidgets` as a prop to the client shell.
-- [ ] Shell is wrapped in `<Suspense>`.
+- [ ] Calls `isSessionValid(session)` before fetching — does not assume session exists.
+- [ ] Imports and calls the server service — no inline fetch logic.
+- [ ] On failure, passes empty data + error message to the shell.
+- [ ] No `<Suspense>` wrapper — relies on co-located `loading.tsx`.
 
-### Client Shell
+### `loading.tsx`
 
-- [ ] Has `'use client'` directive.
-- [ ] Renders `<WidgetsProvider initialWidgets={initialWidgets}>`.
-- [ ] Does not call `useWidgetsContext()`.
-- [ ] Contains no business logic, no state, no effects.
+- [ ] Co-located in the same route folder as `page.tsx`.
+- [ ] Skeleton mirrors the real layout column-for-column.
 
 ### Feature Components
 
 - [ ] No `fetch()` calls.
 - [ ] No imports from service modules.
 - [ ] No data props — data comes exclusively from `useWidgetsContext()`.
-- [ ] Filtered/sorted lists computed with `useMemo`, not stored in local state.
+- [ ] Filtered/sorted lists computed with `useMemo`, not stored in state.
 - [ ] `status === 'error'` is rendered with a retry button calling `refresh()`.
 
 ---
@@ -665,41 +720,35 @@ Step 2 — Create a store file alongside the existing hook:
   import { fetchWidgets } from '../_services/widgets-api';
 
   export const useWidgetsStore = create<WidgetsStateShape>((set) => ({
-    widgets:          [],
-    status:           'idle',
-    error:            null,
-    filters:          { search: '', statuses: new Set() },
-    selectedWidgetId: null,
+    widgets: [],
+    status:  'idle',
+    error:   null,
 
     refresh: async () => {
       set({ status: 'loading', error: null });
-      try {
-        const result = await fetchWidgets();
-        set({ widgets: result.items, status: 'success' });
-      } catch (e) {
-        set({ status: 'error', error: (e as Error).message });
+      const result = await fetchWidgets();
+      if (result.error) {
+        set({ status: 'error', error: result.error });
+      } else {
+        set({ widgets: result.widgets, status: 'success' });
       }
     },
-
-    setFilter: (update) =>
-      set((s) => ({ filters: { ...s.filters, ...update } })),
-
-    setSelectedWidget: (id) =>
-      set({ selectedWidgetId: id }),
   }));
 
 Step 3 — Update the context provider to use the store:
   // In widgets-context.tsx, replace:
-  const value = useWidgets({ initialWidgets });
+  const state = useWidgets(initialData, initialError);
 
   // With:
-  const value = useWidgetsStore();
+  const state = useWidgetsStore();
   useEffect(() => {
-    if (initialWidgets && initialWidgets.length > 0) {
-      useWidgetsStore.setState({ widgets: initialWidgets, status: 'success' });
+    if (initialData.length > 0) {
+      useWidgetsStore.setState({ widgets: initialData, status: 'success' });
+    }
+    if (initialError) {
+      useWidgetsStore.setState({ error: initialError, status: 'error' });
     }
   }, []);
-  // (Add useEffect to the imports.)
 
 Step 4 — Delete use-widgets.ts once the store is verified.
 
@@ -708,7 +757,7 @@ Step 5 (optional) — Remove the Context layer entirely:
   The WidgetsStateShape interface is unchanged, so component logic is identical.
   Do a safe find-and-replace across the feature directory:
     useWidgetsContext()  →  useWidgetsStore()
-  Delete widgets-context.tsx and the provider from the client shell.
+  Delete widgets-context.tsx and the provider from the tab shell.
   This is optional — the Context layer adds negligible overhead for most features.
 ```
 
@@ -718,18 +767,24 @@ No component files change in steps 1–4. The `WidgetsStateShape` interface is t
 
 ## Reference Implementation
 
-The Models page (`src/app/(dashboard)/model-gateway/models/`) is the first feature built with this pattern. Read it alongside this guide to see every layer in production code.
+The Models page (`src/app/(dashboard)/model-gateway/models/`) is the canonical feature built with this pattern. Read it alongside this guide to see every layer in production code.
 
-| This guide                     | Models page equivalent            |
-| ------------------------------ | --------------------------------- |
-| `WidgetRow`                    | `ModelRow` in `src/shared/api.ts` |
-| `ApiRoute.widgets.GET()`       | `ApiRoute.models.GET()`           |
-| `src/app/api/widgets/route.ts` | `src/app/api/models/route.ts`     |
-| `_services/widgets-api.ts`     | `_services/models-api.ts`         |
-| `_hooks/use-widgets.ts`        | `_hooks/use-models.ts`            |
-| `_context/widgets-context.tsx` | `_context/models-context.tsx`     |
-| `widgets/page.tsx`             | `models/page.tsx`                 |
-| `widgets-client-shell.tsx`     | `models-client-shell.tsx`         |
+| This guide                          | Models page equivalent                       |
+| ----------------------------------- | -------------------------------------------- |
+| `WidgetRaw` in `src/shared/api.ts`  | `ModelRow` raw fields in `src/shared/api.ts` |
+| `WidgetRow` in `_types/index.ts`    | `ModelRow` in `_types/index.ts`              |
+| `_services/widgets-server.ts`       | `_services/models-server.ts`                 |
+| `src/app/api/widgets/route.ts`      | `src/app/api/models/route.ts`                |
+| `ApiRoute.widgets.GET()`            | `ApiRoute.models.GET()`                      |
+| `_services/widgets-api.ts`          | `_services/models-api.ts`                    |
+| `_hooks/use-widgets.ts`             | `_hooks/use-models.ts`                       |
+| `_context/widgets-context.tsx`      | `_context/models-context.tsx`                |
+| `_components/widgets-tab-shell.tsx` | `_components/models-tab-shell.tsx`           |
+| `widgets/page.tsx`                  | `models/page.tsx`                            |
+| `widgets/loading.tsx`               | `models/loading.tsx`                         |
+| `_components/widgets-tab.tsx`       | `_components/models-tab.tsx`                 |
+
+The Logs page (`src/app/(dashboard)/model-gateway/logs/`) is the second feature built with this pattern and demonstrates the same structure for a paginated endpoint with multiple filter parameters.
 
 ---
 
