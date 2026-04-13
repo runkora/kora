@@ -20,9 +20,23 @@ type Config struct {
 
 	Server struct {
 		Port                int    `yaml:"port"`
+		InternalPort        int    `yaml:"internalPort"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
+
+	// Bundle holds cluster-specific values compiled into every OPA bundle.
+	// These are read by authz.rego via data.config.* so the Rego itself
+	// remains cluster-agnostic.
+	Bundle struct {
+		// JWKSURL is the URL of the identity service JWKS endpoint.
+		// Set via POLICY_SERVICE_BUNDLE_JWKS_URL env var.
+		JWKSURL string `yaml:"jwksURL"`
+		// Issuer is the expected JWT issuer claim.
+		Issuer string `yaml:"issuer"`
+		// Audience is the expected JWT audience claim.
+		Audience string `yaml:"audience"`
+	} `yaml:"bundle"`
 
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`

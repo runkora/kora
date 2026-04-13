@@ -16,3 +16,10 @@ type registerScopeRequest struct {
 	Action       string   `json:"action"`
 	Description  string   `json:"description"`
 }
+
+// upsertRoleRequest is the request body for PUT /policy/roles.
+type upsertRoleRequest struct {
+	TenantID string   `json:"tenant_id"`
+	Role     string   `json:"role"`
+	Scopes   []string `json:"scopes"`
+}

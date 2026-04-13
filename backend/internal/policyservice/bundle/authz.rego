@@ -30,7 +30,7 @@ _layer1_token := raw if {
 _layer1_claims := claims if {
 	_is_envoy
 	resp := http.send({
-		"url":                          "http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json",
+		"url":                          data.config.jwks_url,
 		"method":                       "GET",
 		"force_cache":                  true,
 		"force_cache_duration_seconds": 300,
@@ -38,8 +38,8 @@ _layer1_claims := claims if {
 	# io.jwt.decode_verify returns [valid, header, payload]; valid must be true.
 	result := io.jwt.decode_verify(_layer1_token, {
 		"jwks": resp.raw_body,
-		"iss":  "orbit",
-		"aud":  "orbit-platform",
+		"iss":  data.config.issuer,
+		"aud":  data.config.audience,
 	})
 	result[0] == true
 	claims := result[2]

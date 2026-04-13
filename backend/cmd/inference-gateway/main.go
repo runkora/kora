@@ -15,6 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -128,6 +129,23 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	router := inferencegw.NewRoutingEngine(connectors, pricing)
 	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
 	pol.Start(ctx)
+
+	// Register this service's route→scope mappings with the policy service.
+	// Routes are global (no tenant_id) — compiled into every tenant bundle.
+	go func() {
+		client := routescopes.NewClient(igc.Current.Policy.PolicyServiceInternalURL, logger)
+		if err := client.Register(ctx, routescopes.Registration{
+			Service: "inference-gateway",
+			Routes: []routescopes.RouteScope{
+				{PathPrefix: "/v1/inference/", Method: "POST", RequiredScope: "inference:invoke"},
+				{PathPrefix: "/v1/inference/", Method: "GET", RequiredScope: "inference:list"},
+				{PathPrefix: "/v1/chat/", Method: "POST", RequiredScope: "inference:invoke"},
+				{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
+			},
+		}); err != nil {
+			logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 
 	// Warm the alias table before accepting traffic so that alias routing

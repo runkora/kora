@@ -8,25 +8,28 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
 // Server serves per-tenant OPA bundles at GET /v1/policy/bundles/{tenant_id}.
 // On startup it compiles all tenants' bundles from the current DB state.
-// On every grant write the policy service recompiles the affected tenant's bundle.
+// On every grant or role write the policy service recompiles the affected tenant's bundle.
 type Server struct {
 	compiler  *Compiler
 	grantRepo grants.Repository
 	vocabRepo vocabulary.Repository
+	roleRepo  roles.Repository
 	logger    logging.Logger
 }
 
 // NewServer creates a bundle Server wired to the provided repositories.
-func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, logger logging.Logger) *Server {
+func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, logger logging.Logger) *Server {
 	return &Server{
 		compiler:  compiler,
 		grantRepo: grantRepo,
 		vocabRepo: vocabRepo,
+		roleRepo:  roleRepo,
 		logger:    logger,
 	}
 }
@@ -50,8 +53,8 @@ func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {
 }
 
 // Recompile rebuilds the bundle for a single tenant from the current DB state.
-// Called after any grant write or delete. vocabEntries may be nil to trigger
-// a fresh vocabulary load.
+// Called after any grant, role, or route change. vocabEntries may be nil to
+// trigger a fresh vocabulary load.
 func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []*vocabulary.ScopeEntry) error {
 	tenantGrants, err := s.grantRepo.ListByTenant(ctx, tenantID)
 	if err != nil {
@@ -65,7 +68,12 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		}
 	}
 
-	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries)
+	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("list role scopes for tenant %s: %w", tenantID, err)
+	}
+
+	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries, roleEntries)
 	return err
 }
 

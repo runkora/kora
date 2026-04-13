@@ -5,6 +5,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -12,6 +13,21 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
+
+// ReservedRoleError is returned when a request attempts to modify a hardcoded
+// platform admin role (tenant-admin, platform-admin).
+type ReservedRoleError struct {
+	Role string
+}
+
+func (e *ReservedRoleError) Error() string {
+	return fmt.Sprintf("role %q is reserved and cannot be modified", e.Role)
+}
+
+// isScopeVocabularyError is a shared helper for handlers that validate scopes.
+func isScopeVocabularyError(err error, target **ScopeVocabularyError) bool {
+	return errors.As(err, target)
+}
 
 // Controller wires the policy service to HTTP routes.
 type Controller struct {
@@ -38,6 +54,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /policy/vocabulary                       List scope vocabulary
 //	POST   /policy/vocabulary                       Register a scope
 //	DELETE /policy/vocabulary/{scope}               Remove a scope
+//	PUT    /policy/roles                            Create or replace a role→scope mapping
+//	GET    /policy/roles?tenant_id=                 List role→scope mappings for a tenant
+//	DELETE /policy/roles/{role}?tenant_id=          Remove a role→scope mapping
 //	GET    /policy/bundles/{tenant_id}              Serve OPA bundle (polling endpoint)
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("POST /grants", c.handleCreateGrant)
@@ -47,6 +66,9 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /vocabulary", c.handleListVocabulary)
 	mux.Handle("POST /vocabulary", c.handleRegisterScope)
 	mux.Handle("DELETE /vocabulary/{scope}", c.handleDeleteScope)
+	mux.Handle("PUT /roles", c.handleUpsertRole)
+	mux.Handle("GET /roles", c.handleListRoles)
+	mux.Handle("DELETE /roles/{role}", c.handleDeleteRole)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)
 }
 

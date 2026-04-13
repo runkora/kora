@@ -9,6 +9,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/roles"
+	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -25,27 +27,33 @@ func (e *ScopeVocabularyError) Error() string {
 	return fmt.Sprintf("scope %q is not in the scope vocabulary", e.Scope)
 }
 
-// Service orchestrates grant and vocabulary management, including the
-// bundle recompilation side-effect triggered on every grant write.
+// Service orchestrates grant, role, and vocabulary management, including the
+// bundle recompilation side-effect triggered on every write.
 type Service struct {
-	grantRepo grants.Repository
-	vocabRepo vocabulary.Repository
-	bundleSrv *bundle.Server
-	logger    logging.Logger
+	grantRepo  grants.Repository
+	vocabRepo  vocabulary.Repository
+	roleRepo   roles.Repository
+	bundleSrv  *bundle.Server
+	routeStore *routes.Store
+	logger     logging.Logger
 }
 
 // NewService creates a Service wired to the provided repositories and bundle server.
 func NewService(
 	grantRepo grants.Repository,
 	vocabRepo vocabulary.Repository,
+	roleRepo roles.Repository,
 	bundleSrv *bundle.Server,
+	routeStore *routes.Store,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		grantRepo: grantRepo,
-		vocabRepo: vocabRepo,
-		bundleSrv: bundleSrv,
-		logger:    logger,
+		grantRepo:  grantRepo,
+		vocabRepo:  vocabRepo,
+		roleRepo:   roleRepo,
+		bundleSrv:  bundleSrv,
+		routeStore: routeStore,
+		logger:     logger,
 	}
 }
 
@@ -129,6 +137,86 @@ func (s *Service) DeleteScope(ctx context.Context, scope string) error {
 	return s.vocabRepo.Delete(ctx, scope)
 }
 
+// reservedRoles are the hardcoded platform admin roles that cannot be managed
+// via the API — they are compiled directly into every bundle.
+var reservedRoles = map[string]bool{
+	"tenant-admin":   true,
+	"platform-admin": true,
+}
+
+// UpsertRole creates or replaces the scope mapping for a role within a tenant.
+// All scopes must exist in the vocabulary. Reserved platform admin roles cannot
+// be modified.
+func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string) (*roles.RoleEntry, error) {
+	if reservedRoles[role] {
+		return nil, &ReservedRoleError{Role: role}
+	}
+	for _, scope := range scopes {
+		exists, err := s.vocabRepo.Exists(ctx, scope)
+		if err != nil {
+			return nil, fmt.Errorf("vocabulary check: %w", err)
+		}
+		if !exists {
+			return nil, &ScopeVocabularyError{Scope: scope}
+		}
+	}
+	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes}
+	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
+		return nil, fmt.Errorf("upsert role: %w", err)
+	}
+	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	return entry, nil
+}
+
+// ListRoles returns all role→scope mappings for a tenant.
+func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*roles.RoleEntry, error) {
+	return s.roleRepo.ListByTenant(ctx, tenantID)
+}
+
+// DeleteRole removes the scope mapping for a role within a tenant.
+func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
+	if reservedRoles[role] {
+		return &ReservedRoleError{Role: role}
+	}
+	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {
+		return err
+	}
+	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	return nil
+}
+
+// RegisterRoutes stores a service's route→scope mappings and triggers bundle
+// recompilation. Tenant-scoped registrations validate that all required scopes
+// exist in the tenant's vocabulary before accepting the registration.
+// Global registrations (tenantID == "") trigger recompilation for all tenants.
+func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope) error {
+	if tenantID != "" {
+		for _, r := range routeScopes {
+			exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
+			if err != nil {
+				return fmt.Errorf("vocabulary check: %w", err)
+			}
+			if !exists {
+				return &ScopeVocabularyError{Scope: r.RequiredScope}
+			}
+		}
+	}
+
+	s.routeStore.Register(&routes.Registration{
+		Service:  service,
+		TenantID: tenantID,
+		Routes:   routeScopes,
+	})
+
+	if tenantID == "" {
+		go s.recompileAllBundles(context.WithoutCancel(ctx))
+	} else {
+		go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	}
+
+	return nil
+}
+
 // recompileBundle triggers an async bundle recompilation for a tenant.
 // ctx must already be detached from the request lifetime via context.WithoutCancel
 // so the recompilation outlives the HTTP response while preserving trace context.
@@ -138,5 +226,32 @@ func (s *Service) recompileBundle(ctx context.Context, tenantID string) {
 			logging.Field{Key: "tenant_id", Value: tenantID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+	}
+}
+
+// recompileAllBundles recompiles bundles for all active tenants (those with
+// at least one grant). Called after a global route registration change.
+func (s *Service) recompileAllBundles(ctx context.Context) {
+	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		s.logger.Error(ctx, "recompile all: failed to list tenants",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		s.logger.Error(ctx, "recompile all: failed to list vocabulary",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	for _, tenantID := range tenantIDs {
+		if err := s.bundleSrv.Recompile(ctx, tenantID, vocab); err != nil {
+			s.logger.Error(ctx, "recompile all: bundle recompile failed",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 	}
 }

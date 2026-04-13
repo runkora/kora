@@ -9,6 +9,7 @@ server:
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
+  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc:9091"
 
 observability:
   serviceName: "policy-gateway"

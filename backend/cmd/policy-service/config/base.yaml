@@ -3,8 +3,14 @@ app:
 
 server:
   port: 8083
+  internalPort: 9091
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
+
+bundle:
+  jwksURL: "http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json"
+  issuer: "orbit"
+  audience: "orbit-platform"
 
 observability:
   serviceName: "policy-service"
