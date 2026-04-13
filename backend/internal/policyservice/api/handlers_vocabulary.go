@@ -4,44 +4,34 @@ import (
 	"net/http"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
-func (c *Controller) handleRegisterScope(w http.ResponseWriter, r *http.Request) {
+// handleGetScope handles GET /policy/vocabulary/{scope}.
+// Any authenticated principal can read the vocabulary.
+func (c *Controller) handleGetScope(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req registerScopeRequest
-	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
+	if _, ok := c.claimsFromContext(w, r); !ok {
 		return
 	}
 
-	if req.Scope == "" || req.ResourceType == "" || req.Action == "" {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeMissingField, "scope, resource_type, and action are required", nil), nil)
-		return
-	}
-
-	if req.PathSegments == nil {
-		req.PathSegments = []string{}
-	}
-
-	e, err := c.svc.RegisterScope(ctx, &vocabulary.ScopeEntry{
-		Scope:        req.Scope,
-		ResourceType: req.ResourceType,
-		PathSegments: req.PathSegments,
-		Action:       req.Action,
-		Description:  req.Description,
-	})
+	entry, err := c.svc.GetScope(ctx, r.PathValue("scope"))
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, vocabularyErrorResponse(err), err)
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, e)
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, entry)
 }
 
+// handleListVocabulary handles GET /policy/vocabulary.
+// Any authenticated principal can read the vocabulary.
 func (c *Controller) handleListVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	if _, ok := c.claimsFromContext(w, r); !ok {
+		return
+	}
 
 	entries, err := c.svc.ListVocabulary(ctx, r.URL.Query().Get("resource_type"))
 	if err != nil {
@@ -50,15 +40,4 @@ func (c *Controller) handleListVocabulary(w http.ResponseWriter, r *http.Request
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"scopes": entries})
-}
-
-func (c *Controller) handleDeleteScope(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	if err := c.svc.DeleteScope(ctx, r.PathValue("scope")); err != nil {
-		platformapi.ErrorResponse(ctx, w, c.logger, vocabularyErrorResponse(err), err)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
 }

@@ -8,15 +8,6 @@ type createGrantRequest struct {
 	Scopes        []string `json:"scopes"`
 }
 
-// registerScopeRequest is the request body for POST /policy/vocabulary.
-type registerScopeRequest struct {
-	Scope        string   `json:"scope"`
-	ResourceType string   `json:"resource_type"`
-	PathSegments []string `json:"path"`
-	Action       string   `json:"action"`
-	Description  string   `json:"description"`
-}
-
 // upsertRoleRequest is the request body for PUT /policy/roles.
 type upsertRoleRequest struct {
 	TenantID string   `json:"tenant_id"`

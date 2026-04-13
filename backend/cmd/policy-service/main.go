@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	psc "github.com/clear-route/orbit/cmd/policy-service/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
@@ -16,6 +15,7 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/policyservice/api"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
@@ -60,23 +60,6 @@ func realMain() error {
 	roleRepo := roles.NewPostgresRepository(db.Pool())
 	routeStore := routes.NewStore()
 
-	// Self-register the policy service's own route→scope mappings directly into
-	// the store. The policy service owns the store, so no HTTP round-trip is needed.
-	routeStore.Register(&routes.Registration{
-		Service: "policy-service",
-		Routes: []routes.RouteScope{
-			{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
-			{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
-			{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
-			{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-			{PathPrefix: "/api/v1/policy/vocabulary", Method: "POST", RequiredScope: "platform:grants:write"},
-			{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
-			{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
-			{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
-			{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
-		},
-	})
-
 	bundleCfg := bundle.Config{
 		JWKSURL:  psc.Current.Bundle.JWKSURL,
 		Issuer:   psc.Current.Bundle.Issuer,
@@ -92,12 +75,35 @@ func realMain() error {
 		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: err.Error()})
 	}
 
+	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, bundleSrv, routeStore, logger)
-	controller := api.NewController(svc, logger)
-	server := initServer(ctx, logger, controller)
-	internalServer := initInternalServer(psc.Current.Server.InternalPort, api.InternalRegisterHandler(svc))
 
-	run(ctx, logger, server, internalServer)
+	// Self-register the policy service's own routes and platform scope vocabulary.
+	// Direct call — no HTTP round-trip needed since the service owns the store.
+	if err := svc.RegisterRoutes(ctx, "policy-service", "", []routes.RouteScope{
+		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
+	}, []routes.ScopeDeclaration{
+		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
+		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
+		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
+		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
+		{Scope: "platform:agents:read", ResourceType: "platform", PathSegments: []string{"agents"}, Action: "read", Description: "Read agent registrations"},
+		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
+	}); err != nil {
+		logger.Error(ctx, "policy-service self-registration failed", logging.Field{Key: "error", Value: err.Error()})
+	}
+
+	controller := api.NewController(svc, logger, verifier)
+	server := initServer(ctx, logger, controller)
+
+	run(ctx, logger, server)
 	return nil
 }
 
@@ -141,32 +147,11 @@ func initServer(ctx context.Context, logger logging.Logger, controller *api.Cont
 	)
 }
 
-// initInternalServer creates a minimal HTTP server for cluster-internal endpoints.
-// The internal port is not exposed via the Kubernetes Service so it is only
-// reachable from within the cluster. No auth middleware is applied — the cluster
-// network is the trust boundary.
-func initInternalServer(port int, registerHandler http.HandlerFunc) *http.Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /internal/routes/register", registerHandler)
-	return &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-}
-
-func run(ctx context.Context, logger logging.Logger, server, internalServer *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}()
-
-	go func() {
-		logger.Info(ctx, "Starting internal HTTP server", logging.Field{Key: "addr", Value: internalServer.Addr})
-		if err := internalServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error(ctx, "Failed to start internal server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
 
@@ -178,9 +163,6 @@ func run(ctx context.Context, logger logging.Logger, server, internalServer *htt
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-	}
-	if err := internalServer.Shutdown(shutdownCtx); err != nil {
-		logger.Error(ctx, "Internal server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
 
 	logger.Info(ctx, "Policy service shutdown complete")

@@ -117,24 +117,12 @@ func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType
 	return s.grantRepo.ListByTenant(ctx, tenantID)
 }
 
-// RegisterScope adds a scope to the vocabulary. PathSegments is normalised to
-// an empty slice if nil so the stored entry is always well-formed.
-func (s *Service) RegisterScope(ctx context.Context, entry *vocabulary.ScopeEntry) (*vocabulary.ScopeEntry, error) {
-	if entry.PathSegments == nil {
-		entry.PathSegments = []string{}
-	}
-	if err := s.vocabRepo.Register(ctx, entry); err != nil {
-		return nil, err
-	}
-	return entry, nil
-}
-
 func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
 	return s.vocabRepo.List(ctx, resourceType)
 }
 
-func (s *Service) DeleteScope(ctx context.Context, scope string) error {
-	return s.vocabRepo.Delete(ctx, scope)
+func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
+	return s.vocabRepo.GetByScope(ctx, scope)
 }
 
 // reservedRoles are the hardcoded platform admin roles that cannot be managed
@@ -168,6 +156,11 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	return entry, nil
 }
 
+// GetRole returns the scope mapping for a specific role within a tenant.
+func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.RoleEntry, error) {
+	return s.roleRepo.GetByRole(ctx, tenantID, role)
+}
+
 // ListRoles returns all role→scope mappings for a tenant.
 func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*roles.RoleEntry, error) {
 	return s.roleRepo.ListByTenant(ctx, tenantID)
@@ -185,11 +178,33 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
 	return nil
 }
 
-// RegisterRoutes stores a service's route→scope mappings and triggers bundle
-// recompilation. Tenant-scoped registrations validate that all required scopes
-// exist in the tenant's vocabulary before accepting the registration.
+// ListRoutes returns all registered route→scope mappings across all services and tenants.
+func (s *Service) ListRoutes() []*routes.Registration {
+	return s.routeStore.ListAll()
+}
+
+// RegisterRoutes stores a service's route→scope mappings and upserts any declared
+// scopes into the vocabulary. Scope declarations are always upserted — services
+// are the authoritative owners of their scopes.
+//
+// For tenant-scoped registrations (tenantID != ""), any required scopes not
+// covered by the service's own declarations must already exist in the vocabulary.
 // Global registrations (tenantID == "") trigger recompilation for all tenants.
-func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope) error {
+func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	// Upsert declared scopes into vocabulary first so that the existence check
+	// below sees the freshly declared entries.
+	for i := range scopeDecls {
+		if err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
+			Scope:        scopeDecls[i].Scope,
+			ResourceType: scopeDecls[i].ResourceType,
+			PathSegments: scopeDecls[i].PathSegments,
+			Action:       scopeDecls[i].Action,
+			Description:  scopeDecls[i].Description,
+		}); err != nil {
+			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
+		}
+	}
+
 	if tenantID != "" {
 		for _, r := range routeScopes {
 			exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
@@ -206,6 +221,7 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 		Service:  service,
 		TenantID: tenantID,
 		Routes:   routeScopes,
+		Scopes:   scopeDecls,
 	})
 
 	if tenantID == "" {

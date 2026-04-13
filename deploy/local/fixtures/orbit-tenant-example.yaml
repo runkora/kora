@@ -68,6 +68,9 @@ spec:
         # which is the mandatory trust enforcement point: it intercepts every outbound
         # HTTP call and injects the platform Bearer token derived from the pod's SVID.
         orbit.io/identity-proxy: "enabled"
+        # Required on agent pods that run the OPA sidecar. Activates the
+        # opa-policy-ext-authz EnvoyFilter for outbound scope enforcement.
+        orbit.io/opa-policy: "enabled"
       annotations:
         # Inject Istio sidecar + SPIRE socket mount + identity-proxy sidecar.
         # The identity-proxy template patches istio-proxy to mount the shared

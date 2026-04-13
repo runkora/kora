@@ -146,6 +146,7 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		models = append(models, inferencegw.ProviderModel{
 			Provider:         inferencegw.ProviderAzure,
 			ModelID:          id,
+			Family:           inferAzureFamily(id),
 			DisplayName:      displayNameFromID(id),
 			InputModalities:  inputMods,
 			OutputModalities: outputMods,
@@ -157,6 +158,44 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		return nil, fmt.Errorf("azure: list models: %w", err)
 	}
 	return models, nil
+}
+
+// azureFamilyRules maps Azure model ID substrings/prefixes to vendor families.
+// Evaluated in order — first match wins.
+var azureFamilyRules = []struct {
+	contains string
+	family   string
+}{
+	{"claude", "anthropic"},
+	{"llama", "meta"},
+	{"mistral", "mistral"},
+	{"mixtral", "mistral"},
+	{"gemini", "google"},
+	{"deepseek", "deepseek"},
+	{"cohere", "cohere"},
+	{"phi-", "microsoft"},
+	{"gpt-", "openai"},
+	{"dall-e", "openai"},
+	{"dalle", "openai"},
+	{"whisper", "openai"},
+	{"text-embedding", "openai"},
+}
+
+// inferAzureFamily maps an Azure model ID to a canonical vendor family name.
+// Azure hosts models from multiple vendors under a flat deployment namespace,
+// so family must be inferred from model ID patterns.
+func inferAzureFamily(id string) string {
+	lower := strings.ToLower(id)
+	// o-series models: o1, o3, o4, o4-mini, etc.
+	if len(lower) >= 2 && lower[0] == 'o' && lower[1] >= '1' && lower[1] <= '9' {
+		return "openai"
+	}
+	for _, rule := range azureFamilyRules {
+		if strings.Contains(lower, rule.contains) {
+			return rule.family
+		}
+	}
+	return "unknown"
 }
 
 // inferAzureModalities derives input/output modalities from an Azure model ID.

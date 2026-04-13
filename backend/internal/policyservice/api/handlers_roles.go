@@ -11,19 +11,61 @@ import (
 func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
 	var req upsertRoleRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 
-	if req.TenantID == "" || req.Role == "" || len(req.Scopes) == 0 {
+	if req.Role == "" || len(req.Scopes) == 0 {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField,
-				"tenant_id, role, and scopes are required", nil), nil)
+				"role and scopes are required", nil), nil)
 		return
 	}
 
-	entry, err := c.svc.UpsertRole(ctx, req.TenantID, req.Role, req.Scopes)
+	tenantID, ok := c.resolveTenantID(w, r, claims, req.TenantID)
+	if !ok {
+		return
+	}
+	if tenantID == "" {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id is required", nil), nil)
+		return
+	}
+
+	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
+		return
+	}
+
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, entry)
+}
+
+func (c *Controller) handleGetRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
+	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
+	if !ok {
+		return
+	}
+	if tenantID == "" {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id query parameter is required", nil), nil)
+		return
+	}
+
+	entry, err := c.svc.GetRole(ctx, tenantID, r.PathValue("role"))
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return
@@ -34,8 +76,16 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleListRoles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
 
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
+	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
+	if !ok {
+		return
+	}
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id query parameter is required", nil), nil)
@@ -53,16 +103,23 @@ func (c *Controller) handleListRoles(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
-	role := r.PathValue("role")
 
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
+	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
+	if !ok {
+		return
+	}
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id query parameter is required", nil), nil)
 		return
 	}
 
-	if err := c.svc.DeleteRole(ctx, tenantID, role); err != nil {
+	if err := c.svc.DeleteRole(ctx, tenantID, r.PathValue("role")); err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return
 	}

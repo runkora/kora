@@ -26,10 +26,10 @@ type PolicyConfig struct {
 	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
-	// PolicyServiceInternalURL is the base URL for the policy-service internal port.
+	// PolicyServiceURL is the base URL of the policy service.
 	// Used for route registration at startup.
-	// e.g. http://orbit-policy-service.orbit-system.svc:9091
-	PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
+	// e.g. http://orbit-policy-service.orbit-system.svc
+	PolicyServiceURL string `yaml:"policyServiceURL"`
 }
 
 // BundlePollInterval returns the configured poll interval, defaulting to 30s.

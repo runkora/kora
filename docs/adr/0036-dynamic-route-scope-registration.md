@@ -1,6 +1,6 @@
 # 0036. Dynamic Route-Scope Registration
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-04-10  
 **Deciders:** Engineering Team  
 **Technical Story:** Eliminate hardcoded route→scope mappings from the policy service so that any service — platform or tenant-published — can declare the scopes required to access its own routes without a policy-service code change or redeploy.
@@ -75,7 +75,7 @@ Services call a cluster-internal HTTP endpoint on the policy service at startup.
 
 ### Rationale
 
-The cluster network is already the security boundary for east-west traffic (enforced via network policy and the Envoy sidecar). Adding a secret or token for an internal registration call would require secret distribution, rotation, and management — contradicting the platform's design principle of no manual secret handling (ADR-0010, ADR-0018). In-memory storage is sufficient because services register at startup anyway; the policy service restart window is brief and bounded by service readiness probes.
+The identity-proxy sidecar (ADR-0021) already injects platform tokens on all outbound requests. Reusing this mechanism for route registration requires no additional secret distribution or management — the service's SPIFFE SVID is the credential; the identity-proxy exchanges it for a platform token automatically. In-memory storage is sufficient because services register at startup anyway; the policy service restart window is brief and bounded by service readiness probes.
 
 ---
 
@@ -92,33 +92,41 @@ The vocabulary is the trust anchor for tenant registration. Since vocabulary wri
 
 ### Registration request
 
-Sent by each service at startup to the policy service internal port:
+Sent by each service at startup to the policy service API:
 
 ```
-POST /internal/routes/register
+POST /api/v1/policy/routes/register
+Authorization: Bearer <platform-token>   (injected automatically by identity-proxy sidecar)
 Content-Type: application/json
 
 {
   "service":   "inference-gateway",
-  "tenant_id": "",
   "routes": [
-    {"path_prefix": "/v1/inference/", "method": "POST", "required_scope": "inference:invoke"},
-    {"path_prefix": "/v1/inference/", "method": "GET",  "required_scope": "inference:list"}
+    {"path_prefix": "/v1/chat/completions", "method": "POST", "required_scope": "inference:invoke"},
+    {"path_prefix": "/v1/messages",          "method": "POST", "required_scope": "inference:invoke"},
+    {"path_prefix": "/v1/models",            "method": "GET",  "required_scope": "inference:list"}
+  ],
+  "scopes": [
+    {"scope": "inference:invoke", "resource_type": "inference", "path": [], "action": "invoke", "description": "Call the inference endpoints"},
+    {"scope": "inference:use",    "resource_type": "inference", "path": [], "action": "use",    "description": "Use any model across all providers"},
+    {"scope": "inference:anthropic:use", "resource_type": "inference", "path": ["anthropic"], "action": "use", "description": "Use any Anthropic model"}
   ]
 }
 ```
 
-- `tenant_id` empty → global registration, included in every tenant bundle
-- `tenant_id` set → tenant-scoped, included only in that tenant's bundle; all `required_scope` values validated against the tenant's vocabulary before acceptance
-- Re-registration is idempotent and replaces the previous entry for `(service, tenant_id)`
+The `scopes` array is optional vocabulary — services may register new scope entries alongside their routes in a single call. This is used by the inference gateway to register the static top-level inference scopes and to upsert per-model/family scopes dynamically as the catalog changes.
+
+- Registration is global (included in every tenant bundle) when made by a `SYSTEM` or `SERVICE` principal
+- Re-registration is idempotent — replaces the prior route set for the service, upserts vocabulary entries
+- The identity-proxy sidecar exchanges the service's SPIFFE SVID for a platform token; the `routescopes` client retries until the sidecar is ready (typically 15–30s after pod start)
 
 ### Platform client
 
 ```
-internal/platform/routereg/client.go
+internal/platform/clients/routescopes/client.go
 ```
 
-Services import this package and call `Register(ctx, ...)` at startup. The internal policy-service URL is passed via each service's config (`POLICY_SERVICE_INTERNAL_URL` env var). Retry with backoff is built into the client — the policy service may not be ready when a service starts.
+Services import this package and call `Register(ctx, serviceName, routes, scopes)` at startup. The policy-service URL is passed via each service's config (`POLICY_SERVICE_URL` env var). Retry with backoff is built into the client — the policy service or identity-proxy sidecar may not be ready when a service starts.
 
 ### In-memory store
 
@@ -179,18 +187,30 @@ If this window is unacceptable, a future iteration can persist registrations to 
 
 | Path | Purpose |
 |---|---|
-| `internal/platform/routereg/client.go` | Registration client used by all services |
-| `internal/policyservice/routes/store.go` | In-memory registration store |
+| `internal/platform/clients/routescopes/client.go` | Registration client used by all services |
+| `internal/policyservice/routes/store.go` | In-memory route registration store |
 
 ### Modified files
 
 | Path | Change |
 |---|---|
-| `internal/policyservice/api/handlers.go` | Add `POST /internal/routes/register` handler |
-| `internal/policyservice/bundle/compiler.go` | Read routes from store + merge global/tenant; read JWKS URL from config |
+| `internal/policyservice/api/handlers_routes.go` | `POST /policy/routes/register` handler (combined route + vocabulary upsert) |
+| `internal/policyservice/bundle/compiler.go` | Read routes from store; merge global routes into every bundle; read JWKS URL from config |
 | `internal/policyservice/bundle/authz.rego` | Read `data.config.jwks_url/issuer/audience` |
 | `cmd/policy-service/config/config.go` | Add `Bundle.JWKSURL`, `Bundle.Issuer`, `Bundle.Audience` |
-| `internal/inferencegw/`, `internal/policygw/` | Call `routereg.Register` at startup |
+| `cmd/inference-gateway/main.go` | Call `routescopes.Register` at startup; re-register on catalog refresh via `SetCatalogUpdateHook` |
+
+### Inference gateway catalog-driven vocabulary
+
+The inference gateway extends the basic registration pattern with dynamic catalog-driven scope registration. On startup (after catalog warm-up) and on every `GET /v1/models` response, the router calls `SetCatalogUpdateHook` which triggers a re-registration with the full current set of per-family and per-model scopes:
+
+```go
+// main.go
+router.SetCatalogUpdateHook(registerScopes)
+go registerScopes(router.CatalogScopes())  // initial registration
+```
+
+`CatalogScopes()` returns one family-level scope (`inference:{family}:use`) and one model-level scope (`inference:{family}:{alias}:use`) per distinct model in the catalog. All scopes use the `use` action. The upsert is idempotent — re-registering unchanged scopes is a no-op at the database level.
 
 ---
 

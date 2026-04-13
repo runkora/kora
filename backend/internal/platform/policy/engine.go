@@ -101,7 +101,10 @@ func (e *engine) loadBundle(ctx context.Context, tenantID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		e.Logger().Info(ctx, "no bundle available for tenant (no grants configured)",
+		e.mu.Lock()
+		delete(e.bundles, tenantID)
+		e.mu.Unlock()
+		e.Logger().Info(ctx, "bundle evicted for tenant (no grants configured)",
 			logging.Field{Key: "tenant_id", Value: tenantID},
 		)
 		return nil

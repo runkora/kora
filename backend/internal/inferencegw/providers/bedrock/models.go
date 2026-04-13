@@ -65,6 +65,22 @@ func stripRegionPrefix(id string) string {
 	return id
 }
 
+// modelFamily extracts the vendor family from a canonical Bedrock model ID by
+// stripping any cross-region prefix and then matching the provider namespace.
+// e.g. "us.anthropic.claude-sonnet-4-6-..." → "anthropic"
+//
+//	"amazon.nova-pro-v1:0"            → "amazon"
+//	"meta.llama3-8b-instruct-v1:0"   → "meta"
+func modelFamily(canonicalID string) string {
+	base := stripRegionPrefix(canonicalID)
+	for _, ns := range knownNamespacePrefixes {
+		if strings.HasPrefix(base, ns) {
+			return strings.TrimSuffix(ns, ".")
+		}
+	}
+	return "unknown"
+}
+
 // aliases generates clean, stable alias IDs for a canonical Bedrock model ID.
 // The returned slice never contains the canonical ID itself.
 //
@@ -244,6 +260,7 @@ func buildProviderModel(canonicalID, name string, inputMods, outputMods []infere
 	return inferencegw.ProviderModel{
 		Provider:         inferencegw.ProviderBedrock,
 		ModelID:          canonicalID,
+		Family:           modelFamily(canonicalID),
 		DisplayName:      name,
 		Aliases:          aliases(canonicalID),
 		InputModalities:  inputMods,

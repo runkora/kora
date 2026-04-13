@@ -1,23 +1,31 @@
 // Package routescopes provides the client for registering a service's route→scope
-// mappings with the policy service internal endpoint at startup. Each service
-// declares which scopes are required to access its HTTP routes; the policy service
-// compiles these into OPA bundles so the Envoy sidecar can enforce them.
+// mappings and scope vocabulary with the policy service at startup.
+//
+// Each service declares which scopes are required to access its HTTP routes, and
+// declares the scopes it owns. The policy service upserts those scopes into the
+// vocabulary and compiles the routes into OPA bundles for Envoy enforcement.
+//
+// The calling service's platform token (injected automatically by the
+// identity-proxy sidecar) determines registration scope:
+//
+//   - SYSTEM principal  → global registration, compiled into every tenant bundle
+//   - SERVICE principal → tenant-scoped registration, compiled into that tenant's bundle only
 //
 // Usage:
 //
-//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc:9091", logger)
-//	if err := client.Register(ctx, routescopes.Registration{
-//	    Service: "inference-gateway",
-//	    Routes: []routescopes.RouteScope{
+//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", logger)
+//	if err := client.Register(ctx, "inference-gateway",
+//	    []routescopes.RouteScope{
 //	        {PathPrefix: "/v1/inference/", Method: "POST", RequiredScope: "inference:invoke"},
 //	        {PathPrefix: "/v1/inference/", Method: "GET",  RequiredScope: "inference:list"},
 //	    },
-//	}); err != nil {
+//	    []routescopes.ScopeDeclaration{
+//	        {Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Invoke any inference model"},
+//	        {Scope: "inference:list",   ResourceType: "inference", PathSegments: []string{}, Action: "list",   Description: "List inference models"},
+//	    },
+//	); err != nil {
 //	    logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
 //	}
-//
-// Tenant-scoped registration (for tenant-published services) sets TenantID.
-// Global registration (for platform services) omits TenantID.
 package routescopes
 
 import (
@@ -41,19 +49,27 @@ type RouteScope struct {
 	RequiredScope string `json:"required_scope"`
 }
 
-// Registration describes a service's route→scope declarations.
-// TenantID empty means global (compiled into every tenant bundle).
-// TenantID set means tenant-scoped (compiled into that tenant's bundle only).
-type Registration struct {
-	Service  string       `json:"service"`
-	TenantID string       `json:"tenant_id,omitempty"`
-	Routes   []RouteScope `json:"routes"`
+// ScopeDeclaration declares a scope that this service owns. The policy service
+// upserts these into the vocabulary so grants and roles can reference them.
+type ScopeDeclaration struct {
+	Scope        string   `json:"scope"`
+	ResourceType string   `json:"resource_type"`
+	PathSegments []string `json:"path"`
+	Action       string   `json:"action"`
+	Description  string   `json:"description,omitempty"`
 }
 
-// Client registers a service's routes with the policy service internal endpoint.
+// registrationRequest is the wire format for POST /api/v1/policy/routes/register.
+type registrationRequest struct {
+	Service string             `json:"service"`
+	Routes  []RouteScope       `json:"routes"`
+	Scopes  []ScopeDeclaration `json:"scopes,omitempty"`
+}
+
+// Client registers a service's routes and scopes with the policy service.
 type Client struct {
 	*httpclient.Base
-	internalURL string
+	serviceURL string
 }
 
 const (
@@ -61,20 +77,37 @@ const (
 	clientTimeout = 10 * time.Second
 )
 
-// NewClient creates a Client targeting the given policy service internal base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc:9091".
-func NewClient(internalURL string, logger logging.Logger) *Client {
+// NewClient creates a Client targeting the given policy service base URL,
+// e.g. "http://orbit-policy-service.orbit-system.svc".
+func NewClient(serviceURL string, logger logging.Logger) *Client {
 	return &Client{
-		Base:        httpclient.New(tracerName, logger, clientTimeout),
-		internalURL: internalURL,
+		Base:       httpclient.New(tracerName, logger, clientTimeout),
+		serviceURL: serviceURL,
 	}
 }
 
-// Register sends the route registration to the policy service, retrying up to
-// 5 times with exponential backoff. The retry handles the case where the policy
-// service is not yet ready when the calling service starts.
-func (c *Client) Register(ctx context.Context, reg Registration) error {
-	const maxAttempts = 5
+// Register sends the service's route→scope mappings and scope declarations to
+// the policy service. The scope declarations are upserted into the vocabulary so
+// grants and roles can reference them. Routes are compiled into OPA bundles for
+// Envoy enforcement.
+//
+// Retries up to maxAttempts times with exponential backoff (capped at 30s). An
+// initial delay allows the identity-proxy sidecar to exchange its SPIFFE SVID
+// for a platform token before the first attempt.
+func (c *Client) Register(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration) error {
+	const (
+		maxAttempts  = 15
+		initialDelay = 15 * time.Second
+		maxBackoff   = 30 * time.Second
+	)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(initialDelay):
+	}
+
+	reg := registrationRequest{Service: service, Routes: routes, Scopes: scopes}
 	backoff := 2 * time.Second
 
 	var lastErr error
@@ -82,7 +115,7 @@ func (c *Client) Register(ctx context.Context, reg Registration) error {
 		if err := c.doRegister(ctx, reg); err != nil {
 			lastErr = err
 			c.Logger().Warn(ctx, "route scope registration attempt failed, retrying",
-				logging.Field{Key: "service", Value: reg.Service},
+				logging.Field{Key: "service", Value: service},
 				logging.Field{Key: "attempt", Value: attempt},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
@@ -90,27 +123,32 @@ func (c *Client) Register(ctx context.Context, reg Registration) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(backoff):
-				backoff *= 2
+				if backoff < maxBackoff {
+					backoff *= 2
+					if backoff > maxBackoff {
+						backoff = maxBackoff
+					}
+				}
 			}
 			continue
 		}
 		c.Logger().Info(ctx, "route scopes registered",
-			logging.Field{Key: "service", Value: reg.Service},
-			logging.Field{Key: "tenant_id", Value: reg.TenantID},
-			logging.Field{Key: "route_count", Value: len(reg.Routes)},
+			logging.Field{Key: "service", Value: service},
+			logging.Field{Key: "route_count", Value: len(routes)},
+			logging.Field{Key: "scope_count", Value: len(scopes)},
 		)
 		return nil
 	}
 	return fmt.Errorf("route scope registration failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func (c *Client) doRegister(ctx context.Context, reg Registration) error {
+func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error {
 	body, err := c.EncodeJSON(reg)
 	if err != nil {
 		return fmt.Errorf("encode registration: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.internalURL+"/internal/routes/register", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/routes/register", body)
 	if err != nil {
 		return fmt.Errorf("build registration request: %w", err)
 	}

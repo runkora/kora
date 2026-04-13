@@ -15,14 +15,26 @@ type RouteScope struct {
 	RequiredScope string `json:"required_scope"`
 }
 
-// Registration is a single service's route declaration.
+// ScopeDeclaration declares a scope that this service owns. The policy service
+// upserts these into the vocabulary so grants and roles can reference them.
+// ResourceType, PathSegments, and Action mirror the vocabulary.ScopeEntry fields.
+type ScopeDeclaration struct {
+	Scope        string   `json:"scope"`
+	ResourceType string   `json:"resource_type"`
+	PathSegments []string `json:"path"`
+	Action       string   `json:"action"`
+	Description  string   `json:"description,omitempty"`
+}
+
+// Registration is a single service's route and scope declaration.
 // TenantID == "" means global — compiled into every tenant bundle.
 // TenantID set means tenant-scoped — compiled into that tenant's bundle only.
 type Registration struct {
-	Service      string       `json:"service"`
-	TenantID     string       `json:"tenant_id"`
-	Routes       []RouteScope `json:"routes"`
-	RegisteredAt time.Time    `json:"registered_at"`
+	Service      string             `json:"service"`
+	TenantID     string             `json:"tenant_id"`
+	Routes       []RouteScope       `json:"routes"`
+	Scopes       []ScopeDeclaration `json:"scopes,omitempty"`
+	RegisteredAt time.Time          `json:"registered_at"`
 }
 
 type registrationKey struct {
@@ -53,6 +65,19 @@ func (s *Store) Register(reg *Registration) {
 	s.mu.Lock()
 	s.registrations[key] = reg
 	s.mu.Unlock()
+}
+
+// ListAll returns all registrations in the store, regardless of tenant.
+// The returned slice is a snapshot — callers must not modify it.
+func (s *Store) ListAll() []*Registration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*Registration, 0, len(s.registrations))
+	for _, reg := range s.registrations {
+		result = append(result, reg)
+	}
+	return result
 }
 
 // RoutesForTenant returns the merged route scopes for a tenant:

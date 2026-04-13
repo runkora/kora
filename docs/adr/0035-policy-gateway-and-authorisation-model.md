@@ -1,6 +1,6 @@
 # 0035. Policy Gateway and Authorisation Model
 
-**Status:** Accepted (revised 2026-04-10)  
+**Status:** Accepted (revised 2026-04-13)  
 **Date:** 2026-04-02  
 **Deciders:** Engineering Team  
 **Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the Orbit platform — and establishing the architectural model that governs what every principal is permitted to do.
@@ -133,7 +133,7 @@ Grant {
   tenant_id        // tenant scope — cross-tenant grants do not exist
   principal_type   // AGENT | HUMAN | SERVICE
   principal_id     // agent ID, user ID, or service SPIFFE ID
-  scopes[]         // ["inference:anthropic:invoke", "mcp:gmail:invoke"]
+  scopes[]         // ["inference:invoke", "inference:anthropic:use", "mcp:gmail:invoke"]
 }
 ```
 
@@ -150,10 +150,11 @@ Permissions are expressed as OAuth-style scope strings following the format:
 Where `path_segments` are zero or more colon-separated segments that narrow the resource type (provider, server, tool, etc.), and `action` is always the final segment. Examples:
 
 ```
-inference:invoke                      all inference models, invoke
-inference:anthropic:invoke            Anthropic models only, invoke
-inference:anthropic:claude:invoke     Claude models only, invoke
-inference:list                        all inference models, list
+inference:invoke                           call the inference endpoints (Layer 1 route gate)
+inference:use                              use any model across all providers
+inference:anthropic:use                    use any Anthropic model
+inference:anthropic:claude-sonnet-4:use    use a specific model by family alias
+inference:list                             list available models
 
 mcp:invoke                            all MCP tools, invoke
 mcp:gmail:invoke                      Gmail MCP tools, invoke
@@ -169,11 +170,18 @@ platform:grants:write                 create/delete grants
 platform:agents:read                  read agent registrations
 ```
 
-The scope vocabulary is a finite, registered set stored in the Policy Service and compiled into every OPA bundle as a `scope_vocabulary` data document. Adding a new provider or MCP server means registering its scopes in the vocabulary — the grant model itself does not change.
+**Inference scope design — two distinct actions:** The inference resource uses two actions to keep the route gate orthogonal to model access:
+
+- **`invoke`** — call the inference endpoints. Only `inference:invoke` and `inference:list` use this action. Required by Layer 1 to reach `/v1/chat/completions`, `/v1/messages`, or `/v1/models`.
+- **`use`** — use a model. All model and family-level scopes use this action. Required by Layer 2 to use a specific model in a request body, regardless of provider.
+
+Because `scope_covers` requires matching action (last segment), `inference:invoke` never covers `inference:anthropic:use` — the two checks are entirely independent. A principal needs both to make a successful inference request: `inference:invoke` to pass the route gate, and at least one `inference:*:use` scope that covers the requested model's family.
+
+The scope vocabulary is a finite, registered set stored in the Policy Service and compiled into every OPA bundle as a `scope_vocabulary` data document. Static platform scopes are registered by services at startup via the `routescopes` client (ADR-0036). Inference model and family scopes (`inference:{family}:{model}:use`) are registered **dynamically** by the inference gateway on startup after catalog warm-up, and again whenever `GET /v1/models` refreshes the catalog — no migration or manual registration is required as providers add or remove models.
 
 ### Scope Hierarchy
 
-A broader scope **implicitly covers** narrower child scopes. `inference:invoke` grants access to any inference resource with any invoke-level action. `inference:anthropic:invoke` grants access only to Anthropic resources.
+A broader scope **implicitly covers** narrower child scopes. `inference:use` grants access to any model. `inference:anthropic:use` grants access only to Anthropic models.
 
 **Coverage rule:** scope `A` covers scope `B` if and only if:
 1. Same `resource_type`
@@ -181,24 +189,34 @@ A broader scope **implicitly covers** narrower child scopes. `inference:invoke` 
 3. `A`'s path segments are a prefix of `B`'s path segments
 
 ```
-inference:invoke        covers  inference:anthropic:invoke     ✓ (path [] is prefix of [anthropic])
-inference:anthropic:invoke  covers  inference:openai:invoke    ✗ (different path branch)
-mcp:invoke              covers  mcp:gmail:send_email:invoke    ✓ (path [] is prefix of [gmail, send_email])
-inference:invoke        covers  mcp:gmail:invoke               ✗ (different resource_type)
+inference:use               covers  inference:anthropic:use              ✓ (path [] is prefix of [anthropic])
+inference:anthropic:use     covers  inference:anthropic:claude-sonnet-4:use  ✓ (prefix match)
+inference:anthropic:use     covers  inference:google:use                 ✗ (different path branch)
+mcp:invoke                  covers  mcp:gmail:send_email:invoke          ✓ (path [] is prefix of [gmail, send_email])
+inference:invoke            covers  inference:anthropic:use              ✗ (different action: invoke ≠ use)
+inference:use               covers  mcp:gmail:invoke                     ✗ (different resource_type)
 ```
 
 This is evaluated in OPA by parsing the scope string structurally — splitting on `:`, comparing the first segment (resource type), the last segment (action), and testing prefix membership on the middle segments. The `scope_vocabulary` data document is used by the Policy Service for grant validation at write time (rejecting unregistered scopes), not for runtime hierarchy resolution. This means parent scopes automatically cover new resource-specific child scopes as they are added to the catalogue, with no vocabulary update required.
 
 ### Required Scope Derivation
 
-When a check request arrives, the ext_authz service derives the `required_scope` from the resource and action provided by the calling service:
+When a check request arrives, the required scope is derived from the resource type, path segments, and action:
 
+**Layer 1** (route gate — from `data.routes.route_scopes` in the bundle):
 ```
-resource_type: inference, provider: anthropic, model: claude-sonnet-4-6, action: invoke
-→ required_scope: inference:anthropic:claude-sonnet-4-6:invoke
+path: /v1/chat/completions, method: POST  →  required_scope: inference:invoke
+path: /v1/messages,          method: POST  →  required_scope: inference:invoke
+path: /v1/models,            method: GET   →  required_scope: inference:list
 ```
 
-The calling service provides the resource attributes; the ext_authz service constructs the most specific scope string and passes it to OPA. OPA then checks whether any granted scope covers it via the hierarchy rule. This means the policy system remains decoupled from resource catalogues — new resources are automatically covered by existing parent-level grants.
+**Layer 2** (model access — constructed by the inference gateway from the resolved model):
+```
+family: anthropic, alias: claude-sonnet-4, action: use
+→ required_scope: inference:anthropic:claude-sonnet-4:use
+```
+
+The calling service resolves the requested model string to its canonical `(family, alias)` via the catalog and calls `platform/policy.Evaluator.Check()`. OPA checks whether any granted scope covers the required scope via the hierarchy rule. A principal with `inference:anthropic:use` passes this check for any Anthropic model; a principal with only `inference:google:use` is denied.
 
 ### Delegation Intersection — Platform Invariant
 
@@ -371,7 +389,7 @@ Note: data files at `<dir>/data.json` are loaded into `data.<dir>` in OPA's name
     {
       "principal_type": "AGENT",
       "principal_id": "email-summarizer",
-      "scopes": ["mcp:gmail:invoke", "inference:anthropic:invoke"]
+      "scopes": ["inference:invoke", "inference:anthropic:use", "mcp:gmail:invoke"]
     },
     {
       "principal_type": "HUMAN",
@@ -386,11 +404,13 @@ Note: data files at `<dir>/data.json` are loaded into `data.<dir>` in OPA's name
 ```json
 {
   "scope_vocabulary": {
-    "inference:invoke":           { "resource_type": "inference", "path": [],                      "action": "invoke" },
-    "inference:anthropic:invoke": { "resource_type": "inference", "path": ["anthropic"],           "action": "invoke" },
-    "mcp:invoke":                 { "resource_type": "mcp",       "path": [],                      "action": "invoke" },
-    "mcp:gmail:invoke":           { "resource_type": "mcp",       "path": ["gmail"],               "action": "invoke" },
-    "mcp:gmail:send_email:invoke":{ "resource_type": "mcp",       "path": ["gmail","send_email"],  "action": "invoke" }
+    "inference:invoke":                    { "resource_type": "inference", "path": [],                               "action": "invoke" },
+    "inference:use":                       { "resource_type": "inference", "path": [],                               "action": "use"    },
+    "inference:anthropic:use":             { "resource_type": "inference", "path": ["anthropic"],                    "action": "use"    },
+    "inference:anthropic:claude-sonnet-4:use": { "resource_type": "inference", "path": ["anthropic","claude-sonnet-4"], "action": "use" },
+    "mcp:invoke":                          { "resource_type": "mcp",       "path": [],                               "action": "invoke" },
+    "mcp:gmail:invoke":                    { "resource_type": "mcp",       "path": ["gmail"],                        "action": "invoke" },
+    "mcp:gmail:send_email:invoke":         { "resource_type": "mcp",       "path": ["gmail","send_email"],           "action": "invoke" }
   }
 }
 ```
@@ -488,7 +508,7 @@ scope_covers(a, b) if {
     "roles": []
   },
   "delegation_present": true,
-  "delegation_scopes": ["mcp:gmail:invoke", "inference:anthropic:invoke"],
+  "delegation_scopes": ["mcp:gmail:invoke", "inference:invoke", "inference:anthropic:use"],
   "delegator_id": "user:sarah@example.com",
   "required_scope": "mcp:gmail:send_email:invoke",
   "resource": {
@@ -512,18 +532,18 @@ This contrasts with the identityproxy (`failure_mode_allow: true` in ADR-0021) w
 
 ### Layer 1 `required_scope` Derivation — Route-to-Scope Mapping
 
-Envoy's `CheckRequest` carries the HTTP method, path, and headers — it does not carry the request body. Layer 1 therefore cannot derive the fine-grained scope a specific resource requires (e.g. `inference:anthropic:claude-sonnet-4-6:invoke`). Instead, Layer 1 enforces a **service-level minimum scope** — the broadest scope required to call the service at all.
+Envoy's `CheckRequest` carries the HTTP method, path, and headers — it does not carry the request body. Layer 1 therefore cannot derive the fine-grained scope a specific resource requires (e.g. which model is being called). Instead, Layer 1 enforces a **service-level minimum scope** — the broadest scope required to call the service at all.
 
-The route-to-scope mapping is compiled into every OPA bundle by the policy-service as `routes/data.json` (accessible in Rego as `data.routes.route_scopes`). This keeps route knowledge entirely within the policy system — no Go code at the enforcement point has any knowledge of routes:
+The route-to-scope mapping is compiled into every OPA bundle by the policy-service as `routes/data.json` (accessible in Rego as `data.routes.route_scopes`). Services register their own routes at startup via the `routescopes` client (ADR-0036) — no policy-service code change is required to add a new service or route.
+
+Inference gateway routes as registered in production:
 
 ```json
 {
   "route_scopes": [
-    { "path_prefix": "/v1/inference/", "method": "POST", "required_scope": "inference:invoke" },
-    { "path_prefix": "/v1/inference/", "method": "GET",  "required_scope": "inference:list"   },
-    { "path_prefix": "/v1/mcp/",       "method": "POST", "required_scope": "mcp:invoke"       },
-    { "path_prefix": "/v1/mcp/",       "method": "GET",  "required_scope": "mcp:list"         },
-    { "path_prefix": "/api/v1/policy/","method": "*",    "required_scope": "platform:grants:read" }
+    { "path_prefix": "/v1/chat/completions", "method": "POST", "required_scope": "inference:invoke" },
+    { "path_prefix": "/v1/messages",         "method": "POST", "required_scope": "inference:invoke" },
+    { "path_prefix": "/v1/models",           "method": "GET",  "required_scope": "inference:list"  }
   ]
 }
 ```
@@ -714,8 +734,8 @@ No migration required. The policy service is additive. Existing services continu
 
 The policy model is intentionally simple in this release. The grant is the unit of policy, the default is deny, and the evaluation model is "does any granted scope cover the required scope, considering hierarchy?" This is sufficient for all stated use cases. Complexity is deferred to explicit follow-on items (deny rules, PAT policy, audit spine) rather than built speculatively.
 
-Scope strings use a colon-separated hierarchy (`inference:anthropic:invoke`). No wildcards appear in scope strings — breadth is expressed by granting a higher-level scope. Parent-child coverage is evaluated in OPA via the `scope_vocabulary` data document compiled into each bundle. The vocabulary is the authoritative finite set of valid scopes; grants referencing unregistered scopes are rejected at write time by the Policy Service.
+Scope strings use a colon-separated hierarchy (`inference:anthropic:use`). No wildcards appear in scope strings — breadth is expressed by granting a higher-level scope. Parent-child coverage is evaluated in OPA via the `scope_vocabulary` data document compiled into each bundle. The vocabulary is the authoritative finite set of valid scopes; grants referencing unregistered scopes are rejected at write time by the Policy Service.
 
 The delegation intersection is enforced as a platform invariant in Rego — three parallel coverage checks (delegation token scopes, delegator grants, agent grants) that must all pass. It is not configurable by tenants and cannot be bypassed.
 
-**Last Updated:** 2026-04-02
+**Last Updated:** 2026-04-13

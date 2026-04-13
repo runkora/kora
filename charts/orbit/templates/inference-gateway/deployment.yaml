@@ -20,8 +20,11 @@ spec:
         #   spiffe://<trust-domain>/system/inference-gateway
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: inference-gateway
+        # Required for the identity-proxy EnvoyFilter to inject the platform
+        # token on outbound requests (e.g. route registration with policy service).
+        orbit.io/identity-proxy: "enabled"
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
+        inject.istio.io/templates: "sidecar,spire,identity-proxy"
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         # Exclude PostgreSQL from sidecar interception — orbit-postgres is an
         # external container on orbit-network, not a mesh service.

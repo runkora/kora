@@ -20,7 +20,6 @@ type Config struct {
 
 	Server struct {
 		Port                int    `yaml:"port"`
-		InternalPort        int    `yaml:"internalPort"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`

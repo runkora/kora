@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,14 +33,8 @@ type ScopeEntry struct {
 // ErrScopeNotFound is returned when a scope is not in the vocabulary.
 var ErrScopeNotFound = errors.New("scope not found in vocabulary")
 
-// ErrScopeAlreadyExists is returned when registering a duplicate scope.
-var ErrScopeAlreadyExists = errors.New("scope already registered")
-
 // Repository defines the scope vocabulary storage contract.
 type Repository interface {
-	// Register adds a new scope to the vocabulary.
-	Register(ctx context.Context, e *ScopeEntry) error
-
 	// GetByScope retrieves a scope entry by its full scope string.
 	GetByScope(ctx context.Context, scope string) (*ScopeEntry, error)
 
@@ -51,8 +44,9 @@ type Repository interface {
 	// List returns all registered scopes, optionally filtered by resource type.
 	List(ctx context.Context, resourceType string) ([]*ScopeEntry, error)
 
-	// Delete removes a scope from the vocabulary.
-	Delete(ctx context.Context, scope string) error
+	// Upsert inserts a scope entry or updates its metadata if it already exists.
+	// Used by route registration so services can declare their scopes idempotently.
+	Upsert(ctx context.Context, e *ScopeEntry) error
 }
 
 type postgresRepository struct {
@@ -64,8 +58,10 @@ func NewPostgresRepository(pool *pgxpool.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
-func (r *postgresRepository) Register(ctx context.Context, e *ScopeEntry) error {
-	e.CreatedAt = time.Now().UTC()
+func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
+	if e.PathSegments == nil {
+		e.PathSegments = []string{}
+	}
 	pathJSON, err := json.Marshal(e.PathSegments)
 	if err != nil {
 		return fmt.Errorf("marshal path segments: %w", err)
@@ -73,14 +69,15 @@ func (r *postgresRepository) Register(ctx context.Context, e *ScopeEntry) error 
 
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, e.CreatedAt)
+		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (scope) DO UPDATE SET
+			resource_type  = EXCLUDED.resource_type,
+			path_segments  = EXCLUDED.path_segments,
+			action         = EXCLUDED.action,
+			description    = EXCLUDED.description
+	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description)
 	if err != nil {
-		// pgx returns a PgError with Code "23505" for unique violation
-		if isDuplicateKeyError(err) {
-			return ErrScopeAlreadyExists
-		}
-		return fmt.Errorf("register scope: %w", err)
+		return fmt.Errorf("upsert scope: %w", err)
 	}
 	return nil
 }
@@ -132,17 +129,6 @@ func (r *postgresRepository) List(ctx context.Context, resourceType string) ([]*
 	return entries, rows.Err()
 }
 
-func (r *postgresRepository) Delete(ctx context.Context, scope string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_scope_vocabulary WHERE scope = $1`, scope)
-	if err != nil {
-		return fmt.Errorf("delete scope: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrScopeNotFound
-	}
-	return nil
-}
-
 // scanEntry works for both pgx.Row and pgx.Rows.
 type scanner interface {
 	Scan(dest ...any) error
@@ -162,9 +148,4 @@ func (r *postgresRepository) scanEntry(s scanner) (*ScopeEntry, error) {
 		return nil, fmt.Errorf("unmarshal path segments: %w", err)
 	}
 	return &e, nil
-}
-
-func isDuplicateKeyError(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
