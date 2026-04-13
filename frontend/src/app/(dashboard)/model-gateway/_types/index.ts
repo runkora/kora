@@ -16,8 +16,6 @@ export type { ModelObject, ModelsListResponse, Modality, APIDialect, ModelCapabi
 // ── Inference Usage ───────────────────────────────────────────────────────────
 //
 // Mirrors the backend InferenceUsageRecord struct (inferencegw/models.go).
-// Field names are PascalCase because the Go struct has no json tags.
-
 // Mirrors UsageStatus constants in backend/internal/inferencegw/models.go.
 export type InferenceUsageStatus =
   | 'success'
@@ -27,27 +25,30 @@ export type InferenceUsageStatus =
   | 'timeout'
   | 'routing_failed';
 
+// Mirrors InferenceUsageRecord in backend/internal/inferencegw/models.go.
+// Field names are snake_case matching the Go json tags.
 export interface InferenceUsageRecord {
-  ID: string;
-  TenantID: string;
-  PrincipalID: string;
-  PrincipalType: string;
-  TokenID: string | null;
-  APIDialect: string;
-  Provider: string | null;
-  ModelID: string;
-  RoutingStrategy: string | null;
-  PromptTokens: number;
-  CompletionTokens: number;
-  TotalTokens: number;
-  EstimatedCostUSD: number;
-  Status: InferenceUsageStatus;
-  RetryCount: number;
-  ErrorCode: string | null;
-  LatencyMS: number;
-  CreatedAt: string; // RFC3339
+  id: string;
+  tenant_id: string;
+  principal_id: string;
+  principal_type: string;
+  token_id: string | null;
+  api_dialect: string;
+  provider: string | null;
+  model_id: string;
+  routing_strategy: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  status: InferenceUsageStatus;
+  retry_count: number;
+  error_code: string | null;
+  latency_ms: number;
+  created_at: string; // RFC3339
 }
 
+// Mirrors listUsageResponse in backend/internal/inferencegw/handlers_usage.go.
 export interface ListUsageResponse {
   data: InferenceUsageRecord[];
   total: number;

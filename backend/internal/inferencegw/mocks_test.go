@@ -63,4 +63,5 @@ func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id strin
 // strPtr returns a pointer to s. Used to populate *string filter fields.
 //
 //go:fix inline
+//go:fix inline
 func strPtr(s string) *string { return new(s) }

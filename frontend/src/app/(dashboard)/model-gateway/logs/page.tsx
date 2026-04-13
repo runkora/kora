@@ -31,6 +31,11 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
 
   // Fetch PATs and usage in parallel. A PAT fetch failure is non-fatal — logs
   // still render, just without resolved key names.
+  //
+  // TODO(pagination): fetchUsageFromGateway uses the backend default limit (50).
+  // Users with more than 50 records will see a truncated list. The toolbar
+  // "N of Y requests" count will reveal the discrepancy. Implement limit/offset
+  // controls (or cursor-based pagination) before this page exits beta.
   const [patsResult, usageResult] = await Promise.all([
     listPATsFromIdentity(session.accessToken),
     fetchUsageFromGateway(session.accessToken, {

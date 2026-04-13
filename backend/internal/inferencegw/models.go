@@ -85,24 +85,24 @@ const (
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID               string
-	TenantID         string
-	PrincipalID      string
-	PrincipalType    string
-	TokenID          *string // PAT record UUID; nil for non-PAT principals
-	APIDialect       APIDialect
-	Provider         *ProviderName // nil when routing failed
-	ModelID          string
-	RoutingStrategy  *RoutingStrategy // nil when routing failed
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-	EstimatedCostUSD float64
-	Status           UsageStatus
-	RetryCount       int
-	ErrorCode        *string
-	LatencyMS        int
-	CreatedAt        time.Time
+	ID               string           `json:"id"`
+	TenantID         string           `json:"tenant_id"`
+	PrincipalID      string           `json:"principal_id"`
+	PrincipalType    string           `json:"principal_type"`
+	TokenID          *string          `json:"token_id"`
+	APIDialect       APIDialect       `json:"api_dialect"`
+	Provider         *ProviderName    `json:"provider"`
+	ModelID          string           `json:"model_id"`
+	RoutingStrategy  *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens     int              `json:"prompt_tokens"`
+	CompletionTokens int              `json:"completion_tokens"`
+	TotalTokens      int              `json:"total_tokens"`
+	EstimatedCostUSD float64          `json:"estimated_cost_usd"`
+	Status           UsageStatus      `json:"status"`
+	RetryCount       int              `json:"retry_count"`
+	ErrorCode        *string          `json:"error_code"`
+	LatencyMS        int              `json:"latency_ms"`
+	CreatedAt        time.Time        `json:"created_at"`
 }
 
 // InferenceUsageFilter is used to query usage records.

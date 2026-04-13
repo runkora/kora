@@ -15,7 +15,7 @@ import {
   Text,
 } from '@orbit/terra';
 import Link from 'next/link';
-import { BarChart2, KeyRound, Trash2 } from 'lucide-react';
+import { KeyRound, ScrollText, Trash2 } from 'lucide-react';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
@@ -100,7 +100,7 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                   aria-label={`View logs for ${pat.name}`}
                   className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
                 >
-                  <BarChart2 className="h-3.5 w-3.5" />
+                  <ScrollText className="h-3.5 w-3.5" />
                 </Link>
                 <button
                   type="button"

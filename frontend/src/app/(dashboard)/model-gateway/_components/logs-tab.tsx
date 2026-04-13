@@ -144,21 +144,21 @@ function sortRecords(
     let av = 0;
     let bv = 0;
     if (key === 'date') {
-      av = new Date(a.CreatedAt).getTime();
-      bv = new Date(b.CreatedAt).getTime();
+      av = new Date(a.created_at).getTime();
+      bv = new Date(b.created_at).getTime();
     } else if (key === 'latency') {
-      av = a.LatencyMS;
-      bv = b.LatencyMS;
+      av = a.latency_ms;
+      bv = b.latency_ms;
     } else if (key === 'cost') {
-      av = a.EstimatedCostUSD ?? 0;
-      bv = b.EstimatedCostUSD ?? 0;
+      av = a.estimated_cost_usd ?? 0;
+      bv = b.estimated_cost_usd ?? 0;
     } else if (key === 'tokens') {
-      av = a.TotalTokens;
-      bv = b.TotalTokens;
+      av = a.total_tokens;
+      bv = b.total_tokens;
     } else if (key === 'model') {
       return dir === 'asc'
-        ? a.ModelID.localeCompare(b.ModelID)
-        : b.ModelID.localeCompare(a.ModelID);
+        ? a.model_id.localeCompare(b.model_id)
+        : b.model_id.localeCompare(a.model_id);
     }
     return dir === 'asc' ? av - bv : bv - av;
   });
@@ -395,13 +395,13 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     let result = records;
 
     if (statusFilters.size > 0) {
-      result = result.filter((r) => statusFilters.has(r.Status));
+      result = result.filter((r) => statusFilters.has(r.status));
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
-        (r) => r.ID.toLowerCase().includes(q) || r.ModelID.toLowerCase().includes(q),
+        (r) => r.id.toLowerCase().includes(q) || r.model_id.toLowerCase().includes(q),
       );
     }
 
@@ -582,20 +582,20 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                   </TableRow>
                 ) : (
                   filteredRecords.map((record) => {
-                    const statusVariant = getStatusVariant(record.Status);
-                    const keyName = record.TokenID
-                      ? (patNameMap.get(record.TokenID) ?? 'Unknown key')
+                    const statusVariant = getStatusVariant(record.status);
+                    const keyName = record.token_id
+                      ? (patNameMap.get(record.token_id) ?? 'Unknown key')
                       : '—';
-                    const keyId = record.TokenID ?? null;
+                    const keyId = record.token_id ?? null;
 
                     // Determine key status by presence in the active PAT list.
                     // Revoked PATs are removed from the list endpoint entirely, so a
-                    // TokenID that is set but not found in the list implies revocation.
+                    // token_id that is set but not found in the list implies revocation.
                     // Expired PATs remain in the list but have an expires_at in the past.
-                    const pat = record.TokenID
-                      ? pats.find((p) => p.id === record.TokenID)
+                    const pat = record.token_id
+                      ? pats.find((p) => p.id === record.token_id)
                       : undefined;
-                    const keyStatus: 'active' | 'expired' | 'revoked' | null = record.TokenID
+                    const keyStatus: 'active' | 'expired' | 'revoked' | null = record.token_id
                       ? pat
                         ? isExpired(pat.expires_at)
                           ? 'expired'
@@ -604,11 +604,11 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                       : null;
 
                     return (
-                      <TableRow key={record.ID}>
+                      <TableRow key={record.id}>
                         {/* Request ID — always visible */}
                         <TableCell>
                           <Text size="supporting" color="accent" mono>
-                            {record.ID}
+                            {record.id}
                           </Text>
                         </TableCell>
 
@@ -616,11 +616,11 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                         {col('date') && (
                           <TableCell>
                             <Stack gap="none">
-                              <Text size="supporting" color="muted" mono title={record.CreatedAt}>
-                                {fmtDate(record.CreatedAt)}
+                              <Text size="supporting" color="muted" mono title={record.created_at}>
+                                {fmtDate(record.created_at)}
                               </Text>
                               <Text size="caption" color="subtle" mono>
-                                {fmtTime(record.CreatedAt)}
+                                {fmtTime(record.created_at)}
                               </Text>
                             </Stack>
                           </TableCell>
@@ -630,7 +630,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                         {col('model') && (
                           <TableCell>
                             <Text size="supporting" color="foreground" mono>
-                              {record.ModelID}
+                              {record.model_id}
                             </Text>
                           </TableCell>
                         )}
@@ -639,7 +639,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                         {col('status') && (
                           <TableCell>
                             <Badge variant={statusVariant} size="sm">
-                              {fmtStatus(record.Status)}
+                              {fmtStatus(record.status)}
                             </Badge>
                           </TableCell>
                         )}
@@ -688,7 +688,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                           <TableCell>
                             <Stack direction="horizontal" justify="end">
                               <Text size="supporting" color="muted" mono>
-                                {record.LatencyMS}ms
+                                {record.latency_ms}ms
                               </Text>
                             </Stack>
                           </TableCell>
@@ -699,7 +699,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                           <TableCell>
                             <Stack direction="horizontal" justify="end">
                               <Text size="supporting" color="muted" mono>
-                                {fmtNum(record.PromptTokens)} / {fmtNum(record.CompletionTokens)}
+                                {fmtNum(record.prompt_tokens)} / {fmtNum(record.completion_tokens)}
                               </Text>
                             </Stack>
                           </TableCell>
@@ -710,7 +710,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
                           <TableCell>
                             <Stack direction="horizontal" justify="end">
                               <Text size="supporting" color="foreground" mono>
-                                {fmtCost(record.EstimatedCostUSD)}
+                                {fmtCost(record.estimated_cost_usd)}
                               </Text>
                             </Stack>
                           </TableCell>
