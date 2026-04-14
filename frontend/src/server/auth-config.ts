@@ -20,6 +20,14 @@ export interface SessionUser {
   name: string;
 }
 
+/** Cached permission projection from the policy gateway's OPA evaluation. */
+export interface SessionPermissions {
+  /** Complete set of scopes the principal holds (grants + roles). */
+  scopes: string[];
+  /** UTC Unix seconds when the scopes were last evaluated. */
+  evaluatedAt: number;
+}
+
 /**
  * Shape of the data sealed into the `orbit_session` HttpOnly cookie.
  * The access token is kept server-side only — it is never sent to the browser.
@@ -34,6 +42,8 @@ export interface SessionPayload {
   expiresAt: number;
   /** Tenant ID the session was created against (used for token refresh). */
   tenantId: string;
+  /** Cached permission set from the policy gateway. Empty scopes = fail-closed. */
+  permissions: SessionPermissions;
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────

@@ -53,6 +53,7 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 # orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
 ARG ORBIT_API_URL=http://orbit-identity.orbit-system/api/v1
 ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
+ARG POLICY_GATEWAY_URL=http://orbit-policy-gateway.orbit-system/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
@@ -61,6 +62,7 @@ ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
 ARG BFF_SESSION_SECRET=build-time-placeholder-not-used-at-runtime
 ENV ORBIT_API_URL=${ORBIT_API_URL} \
     INFERENCE_GATEWAY_URL=${INFERENCE_GATEWAY_URL} \
+    POLICY_GATEWAY_URL=${POLICY_GATEWAY_URL} \
     BFF_SESSION_SECRET=${BFF_SESSION_SECRET}
 
 # Standalone output traces all runtime dependencies and produces a self-contained

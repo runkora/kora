@@ -38,13 +38,48 @@ services:
       - orbit-network
 
   # ---------------------------------------------------------------------------
+  # glauth — lightweight LDAP directory for local dev identity
+  #
+  # Backs the Dex LDAP connector so that group membership (platform-admin,
+  # tenant-admin, etc.) flows through the OIDC token — replicating the
+  # production pattern where roles come from the corporate directory.
+  #
+  # Test user: dev@orbit.local.clearroute.io / password
+  # Groups:    platform-admin
+  #
+  # Enabled by: make dev-up  (or docker compose up -d glauth)
+  # ---------------------------------------------------------------------------
+  glauth:
+    image: ghcr.io/glauth/glauth:v2.3.2
+    container_name: orbit-glauth
+    restart: unless-stopped
+    # entrypoint.sh substitutes ${GLAUTH_DEV_PASSWORD_HASH} from .env into
+    # the committed config at startup (the glauth image is too minimal for
+    # sed/envsubst, so the script uses pure shell builtins).
+    entrypoint: ["/bin/sh", "/etc/glauth/entrypoint.sh"]
+    environment:
+      - GLAUTH_DEV_PASSWORD_HASH=${GLAUTH_DEV_PASSWORD_HASH}
+    volumes:
+      - ./config/glauth/config.cfg:/etc/glauth/config.cfg.in:ro
+      - ./config/glauth/entrypoint.sh:/etc/glauth/entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /proc/1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+    networks:
+      - orbit-network
+
+  # ---------------------------------------------------------------------------
   # Dex — local OIDC provider
   #
   # Runs a real, standards-compliant OIDC server so the full OAuth 2.0 Device
   # Authorization Grant (RFC 8628) protocol executes without any cloud accounts.
+  # Backed by glauth (LDAP) for user authentication and group membership.
   #
   # Issuer:   https://dex.orbit.local.clearroute.io:5556/dex
-  # Test user: dev@orbit.local.clearroute.io / (password set via DEX_USER_PASSWORD_HASH in .env)
+  # Test user: dev@orbit.local.clearroute.io / password
   # Client ID: orbit-local  (public client — no secret)
   #
   # Enabled by: make dev-up  (or docker compose up -d dex)
@@ -53,11 +88,10 @@ services:
     image: ghcr.io/dexidp/dex:v2.41.1
     container_name: orbit-dex
     restart: unless-stopped
+    depends_on:
+      glauth:
+        condition: service_healthy
     command: ["dex", "serve", "/etc/dex/config.yaml"]
-    # Generate config/dex/.env from the example: cp config/dex/.env.example config/dex/.env
-    env_file:
-      - path: ./config/dex/.env
-        required: true
     ports:
       - "5556:5556"
     volumes:

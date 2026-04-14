@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 // ── hashToken ─────────────────────────────────────────────────────────────────
@@ -701,6 +703,141 @@ func TestExchangeIDToken_UnknownTenant(t *testing.T) {
 	})
 	if !errors.Is(err, ErrOIDCNotConfigured) {
 		t.Errorf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+func TestExchangeIDToken_PropagatesRoles(t *testing.T) {
+	issuer, _, key := newSigningOIDCTestServerWithKey(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	// Issue an ID token that includes a roles claim.
+	idToken := issueIDTokenWithRoles(t, issuer, "test-client", "user-sub-1", "alice@example.com", "Alice", []string{"tenant-admin", "analyst"}, key)
+
+	resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "tenant-1",
+		IDToken:  idToken,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeIDToken: %v", err)
+	}
+
+	// Decode the access token (unverified — trusted from our own service)
+	// and check that orbit.claims.roles was populated.
+	parts := strings.Split(resp.AccessToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected 3-part JWT, got %d parts", len(parts))
+	}
+
+	// jwt.MapClaims.ParseUnverified is fine here — we issued the token.
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	tok, _, err := parser.ParseUnverified(resp.AccessToken, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse access token: %v", err)
+	}
+
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatal("expected MapClaims")
+	}
+
+	orbit, ok := claims["orbit"].(map[string]any)
+	if !ok {
+		t.Fatal("expected orbit claims object")
+	}
+
+	orbitClaims, ok := orbit["claims"].(map[string]any)
+	if !ok {
+		t.Fatal("expected orbit.claims map")
+	}
+
+	rolesRaw, ok := orbitClaims["roles"]
+	if !ok {
+		t.Fatal("expected orbit.claims.roles to be set")
+	}
+
+	rolesStr, ok := rolesRaw.(string)
+	if !ok {
+		t.Fatalf("expected roles to be a string, got %T", rolesRaw)
+	}
+
+	if rolesStr != "tenant-admin,analyst" {
+		t.Errorf("expected roles %q, got %q", "tenant-admin,analyst", rolesStr)
+	}
+}
+
+func TestExchangeIDToken_PropagatesGroupsAsRoles(t *testing.T) {
+	// OIDC providers like Dex (LDAP connector) use the "groups" claim instead
+	// of "roles". The identity service should merge groups into roles.
+	issuer, _, key := newSigningOIDCTestServerWithKey(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	idToken := issueIDTokenWithGroups(t, issuer, "test-client", "user-sub-1", "alice@example.com", "Alice", []string{"platform-admin", "users"}, key)
+
+	resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "tenant-1",
+		IDToken:  idToken,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeIDToken: %v", err)
+	}
+
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	tok, _, err := parser.ParseUnverified(resp.AccessToken, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse access token: %v", err)
+	}
+
+	claims := tok.Claims.(jwt.MapClaims)
+	orbit := claims["orbit"].(map[string]any)
+	orbitClaims := orbit["claims"].(map[string]any)
+
+	rolesStr, ok := orbitClaims["roles"].(string)
+	if !ok {
+		t.Fatal("expected orbit.claims.roles to be set as a string")
+	}
+
+	if rolesStr != "platform-admin,users" {
+		t.Errorf("expected roles %q, got %q", "platform-admin,users", rolesStr)
+	}
+}
+
+func TestExchangeIDToken_NoRolesOmitsClaimField(t *testing.T) {
+	// When the OIDC token has no roles claim, the platform token should NOT
+	// have a roles field in orbit.claims (avoids empty string pollution).
+	issuer, issueIDToken := newSigningOIDCTestServer(t)
+	svc := newTestServiceWithOIDC(t, issuer,
+		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+	)
+
+	idToken := issueIDToken("test-client", "user-sub-1", "bob@example.com", "Bob")
+
+	resp, err := svc.ExchangeIDToken(context.Background(), SessionRequest{
+		TenantID: "tenant-1",
+		IDToken:  idToken,
+	})
+	if err != nil {
+		t.Fatalf("ExchangeIDToken: %v", err)
+	}
+
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	tok, _, err := parser.ParseUnverified(resp.AccessToken, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse access token: %v", err)
+	}
+
+	claims := tok.Claims.(jwt.MapClaims)
+	orbit := claims["orbit"].(map[string]any)
+	orbitClaims, ok := orbit["claims"].(map[string]any)
+	if !ok {
+		t.Fatal("expected orbit.claims map")
+	}
+
+	if _, hasRoles := orbitClaims["roles"]; hasRoles {
+		t.Error("expected no roles field when OIDC token has no roles claim")
 	}
 }
 

@@ -327,6 +327,27 @@ reason := "deny:no_route_match" if {
 	not _required_scope
 }
 
+# ══ PRINCIPAL SCOPE PROJECTION ═══════════════════════════════════════════════
+#
+# Collects the complete set of scopes a principal holds — used by the policy
+# gateway's GET /v1/policy/scopes endpoint to project permissions into the
+# frontend session. This never filters by required_scope; it returns everything.
+
+# Scopes from direct grants.
+principal_all_scopes contains scope if {
+	some grant in data.grants.grants
+	grant.principal_type == _principal_type
+	grant.principal_id == _principal_id
+	some scope in grant.scopes
+}
+
+# Scopes from OIDC role → scope mappings (including reserved roles).
+principal_all_scopes contains scope if {
+	_principal_type == "HUMAN"
+	some role in _principal_roles
+	some scope in data.roles.role_scopes[role]
+}
+
 # ══ SCOPE HIERARCHY ══════════════════════════════════════════════════════════
 #
 # A covers B if same resource_type, same action, A's path is a prefix of B's path.

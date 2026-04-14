@@ -25,8 +25,18 @@ type Evaluator interface {
 	// Uses the same in-process bundle; no OPA round-trip per candidate.
 	Query(ctx context.Context, input QueryInput) ([]string, error)
 
+	// Scopes returns the complete set of scopes the principal holds
+	// (grants + role-derived scopes). Used by the policy gateway to project
+	// permissions into the frontend session.
+	Scopes(ctx context.Context, input ScopesInput) ([]string, error)
+
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
+}
+
+// ScopesInput is the input for collecting all scopes a principal holds.
+type ScopesInput struct {
+	Claims *token.PlatformClaims
 }
 
 // CheckInput is the input to a single allow/deny decision.

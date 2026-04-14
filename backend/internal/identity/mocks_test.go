@@ -578,6 +578,126 @@ func newSigningOIDCTestServer(t *testing.T) (
 	return base, issueIDToken
 }
 
+// issueIDTokenWithRoles creates a signed ID token that includes a "roles" claim.
+// Used by TestExchangeIDToken_PropagatesRoles.
+func issueIDTokenWithRoles(
+	t *testing.T,
+	issuerURL string,
+	clientID, sub, email, name string,
+	roles []string,
+	key *rsa.PrivateKey,
+) string {
+	t.Helper()
+	now := time.Now()
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss":   issuerURL,
+		"aud":   jwt.ClaimStrings{clientID},
+		"sub":   sub,
+		"exp":   now.Add(5 * time.Minute).Unix(),
+		"iat":   now.Unix(),
+		"email": email,
+		"name":  name,
+		"roles": roles,
+	})
+	signed, err := tok.SignedString(key)
+	if err != nil {
+		t.Fatalf("issueIDTokenWithRoles: sign: %v", err)
+	}
+	return signed
+}
+
+// issueIDTokenWithGroups creates a signed ID token that includes a "groups" claim.
+// Used by TestExchangeIDToken_PropagatesGroups.
+func issueIDTokenWithGroups(
+	t *testing.T,
+	issuerURL string,
+	clientID, sub, email, name string,
+	groups []string,
+	key *rsa.PrivateKey,
+) string {
+	t.Helper()
+	now := time.Now()
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss":    issuerURL,
+		"aud":    jwt.ClaimStrings{clientID},
+		"sub":    sub,
+		"exp":    now.Add(5 * time.Minute).Unix(),
+		"iat":    now.Unix(),
+		"email":  email,
+		"name":   name,
+		"groups": groups,
+	})
+	signed, err := tok.SignedString(key)
+	if err != nil {
+		t.Fatalf("issueIDTokenWithGroups: sign: %v", err)
+	}
+	return signed
+}
+
+// newSigningOIDCTestServerWithKey is like newSigningOIDCTestServer but also
+// returns the private key so callers can issue custom tokens with extra claims.
+func newSigningOIDCTestServerWithKey(t *testing.T) (
+	issuerURL string,
+	issueIDToken func(clientID, sub, email, name string) string,
+	privateKey *rsa.PrivateKey,
+) {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+
+	jwksJSON, err := buildJWKS(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("build JWKS: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	base := srv.URL
+
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                base,
+			"authorization_endpoint":                base + "/authorize",
+			"token_endpoint":                        base + "/token",
+			"jwks_uri":                              base + "/keys",
+			"response_types_supported":              []string{"code"},
+			"subject_types_supported":               []string{"public"},
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	})
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jwksJSON)
+	})
+
+	issueIDToken = func(clientID, sub, email, name string) string {
+		now := time.Now()
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+			"iss":   base,
+			"aud":   jwt.ClaimStrings{clientID},
+			"sub":   sub,
+			"exp":   now.Add(5 * time.Minute).Unix(),
+			"iat":   now.Unix(),
+			"email": email,
+			"name":  name,
+		})
+		signed, sigErr := tok.SignedString(key)
+		if sigErr != nil {
+			t.Fatalf("sign id_token: %v", sigErr)
+		}
+		return signed
+	}
+
+	return base, issueIDToken, key
+}
+
 // newTestServiceWithDomains builds a *Service with a single active tenant
 // configured with the given issuerURL and emailDomains. Use for
 // DiscoverTenantByEmail tests that need email routing to be populated.

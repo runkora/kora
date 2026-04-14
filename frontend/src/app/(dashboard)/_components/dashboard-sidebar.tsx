@@ -8,6 +8,7 @@ import { Badge, NavItem, Separator, Stack, Text } from '@orbit/terra';
 import { LogoutButton } from '@orbit/components/logout-button';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { NAV_GROUPS } from '../_utils';
+import { usePermissions } from './permissions-provider';
 
 // ─── DashboardSidebar ─────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ import { NAV_GROUPS } from '../_utils';
  */
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const { scopes } = usePermissions();
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
 
@@ -62,36 +64,44 @@ export function DashboardSidebar() {
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-          {NAV_GROUPS.map(({ label, items }) => (
-            <section key={label} className="space-y-0.5">
-              {/*
-               * px-3 pb-1.5 wrapper: structural spacing for the nav group label
-               * row. Layout concerns belong on the wrapper, not on Text itself.
-               */}
-              <span className="block px-3 pb-1.5">
-                <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
-                  {label}
-                </Text>
-              </span>
-              {items.map(({ label: itemLabel, href, icon: Icon, badge, wip }) =>
-                wip ? (
-                  <NavItem key={itemLabel} state="disabled" icon={<Icon />} badge={badge}>
-                    {itemLabel}
-                  </NavItem>
-                ) : (
-                  <NavItem
-                    key={itemLabel}
-                    state={pathname === href ? 'active' : 'default'}
-                    icon={<Icon />}
-                    badge={badge}
-                    asChild
-                  >
-                    <a href={href}>{itemLabel}</a>
-                  </NavItem>
-                ),
-              )}
-            </section>
-          ))}
+          {NAV_GROUPS.map(({ label, items }) => {
+            // Filter out entries that require a scope the user doesn't have.
+            const visibleItems = items.filter(
+              (entry) => !entry.requiredScope || scopes.includes(entry.requiredScope),
+            );
+            if (visibleItems.length === 0) return null;
+
+            return (
+              <section key={label} className="space-y-0.5">
+                {/*
+                 * px-3 pb-1.5 wrapper: structural spacing for the nav group label
+                 * row. Layout concerns belong on the wrapper, not on Text itself.
+                 */}
+                <span className="block px-3 pb-1.5">
+                  <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
+                    {label}
+                  </Text>
+                </span>
+                {visibleItems.map(({ label: itemLabel, href, icon: Icon, badge, wip }) =>
+                  wip ? (
+                    <NavItem key={itemLabel} state="disabled" icon={<Icon />} badge={badge}>
+                      {itemLabel}
+                    </NavItem>
+                  ) : (
+                    <NavItem
+                      key={itemLabel}
+                      state={pathname === href ? 'active' : 'default'}
+                      icon={<Icon />}
+                      badge={badge}
+                      asChild
+                    >
+                      <a href={href}>{itemLabel}</a>
+                    </NavItem>
+                  ),
+                )}
+              </section>
+            );
+          })}
         </nav>
 
         {/* Footer */}

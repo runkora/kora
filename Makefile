@@ -313,22 +313,18 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 # ===========================================
 
 .PHONY: dev-up
-dev-up: ## Start Postgres + Redis + Dex (local OIDC provider) for daily Go development
+dev-up: ## Start Postgres + Redis + glauth + Dex (local OIDC provider) for daily Go development
 	@if [ ! -f secrets/signing.key ]; then \
 		echo "$(COLOR_YELLOW)→ secrets/signing.key not found — generating RSA signing key...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory gen-signing-key; \
-	fi
-	@if [ ! -f config/dex/.env ]; then \
-		echo "$(COLOR_YELLOW)→ config/dex/.env not found — generating Dex credentials (password: 'password')...$(COLOR_RESET)"; \
-		$(MAKE) --no-print-directory dex-env; \
 	fi
 	@if [ ! -f secrets/tls.crt ] || [ ! -f secrets/tls.key ]; then \
 		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory setup-tls; \
 	fi
-	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + Dex + port proxy)...$(COLOR_RESET)"
-	@docker compose up -d --wait postgres redis dex port-proxy
-	@echo "$(COLOR_GREEN)✓ Postgres + Redis + Dex + port proxy ready$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + glauth + Dex + port proxy)...$(COLOR_RESET)"
+	@docker compose up -d --wait postgres redis glauth dex port-proxy
+	@echo "$(COLOR_GREEN)✓ Postgres + Redis + glauth + Dex + port proxy ready$(COLOR_RESET)"
 	@echo "  Dex OIDC issuer:  https://dex.orbit.local.clearroute.io:5556/dex"
 	@echo "  Test user:        dev@orbit.local.clearroute.io / password"
 	@echo "  Client ID:        orbit-local  (no secret — public client)"
@@ -919,7 +915,7 @@ check: tidy fmt vet fix lint secrets test frontend-check ## Run all checks (tidy
 all: tidy check build-backend ## Run all quality checks and build
 
 .PHONY: bootstrap
-bootstrap: env dex-env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
+bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
 

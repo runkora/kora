@@ -56,10 +56,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 		authed := authChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Only bypass auth for GET requests to the bundle polling endpoint.
-			// strings.HasPrefix matches the mounted /bundles/{tenant_id} route
-			// without accidentally matching other paths that happen to contain
-			// the substring.
-			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/bundles/") {
+			// The controller group prefix (/policy) is part of the URL path at
+			// this point — the server basePath is stripped, but the group prefix
+			// remains. Match the full mounted path to avoid false positives.
+			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/policy/bundles/") {
 				next.ServeHTTP(w, r)
 				return
 			}

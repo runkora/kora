@@ -87,7 +87,11 @@ spec:
             - name: webhook-tls
               mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: webhook-tls
           secret:
             secretName: orbit-operator-webhook-tls

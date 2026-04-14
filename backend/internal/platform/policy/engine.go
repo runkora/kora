@@ -23,12 +23,14 @@ import (
 var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected status")
 
 const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data.orbit.authz.reason}"
+const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
 
-// tenantBundle holds a compiled PreparedEvalQuery for a single tenant.
+// tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
-	query    rego.PreparedEvalQuery
-	loadedAt time.Time
-	revision string
+	query       rego.PreparedEvalQuery
+	scopesQuery rego.PreparedEvalQuery
+	loadedAt    time.Time
+	revision    string
 }
 
 // engine manages per-tenant OPA bundle loading and policy evaluation.
@@ -138,21 +140,37 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("parse bundle: %w", err)
 	}
 
+	// Compile the decision query (allow/reason).
 	r := rego.New(
 		rego.Query(decisionQuery),
 		rego.ParsedBundle(tenantID, &b),
 	)
-
 	pq, err := r.PrepareForEval(ctx)
 	if err != nil {
 		return fmt.Errorf("prepare rego eval: %w", err)
 	}
 
+	// Re-parse the bundle for the scopes projection query. OPA's rego.New
+	// consumes the parsed bundle, so we need a fresh copy.
+	b2, err := bundle.NewReader(bytes.NewReader(bundleBytes)).Read()
+	if err != nil {
+		return fmt.Errorf("parse bundle for scopes query: %w", err)
+	}
+	rs := rego.New(
+		rego.Query(scopesQuery),
+		rego.ParsedBundle(tenantID, &b2),
+	)
+	sq, err := rs.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare scopes rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
-		query:    pq,
-		loadedAt: time.Now().UTC(),
-		revision: revision,
+		query:       pq,
+		scopesQuery: sq,
+		loadedAt:    time.Now().UTC(),
+		revision:    revision,
 	}
 	e.mu.Unlock()
 
@@ -215,6 +233,60 @@ func (e *engine) Query(ctx context.Context, input QueryInput) ([]string, error) 
 		}
 	}
 	return allowed, nil
+}
+
+// Scopes returns all scopes the principal holds (grants + roles). Implements Evaluator.
+func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error) {
+	if input.Claims == nil {
+		return nil, nil
+	}
+	tenantID := input.Claims.Orbit.TenantID
+
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tb == nil {
+		return nil, nil
+	}
+
+	opaInput := principalInput{
+		Type:     string(input.Claims.Orbit.PrincipalType),
+		TenantID: input.Claims.Orbit.TenantID,
+		ID:       input.Claims.Subject,
+		Roles:    extractRoles(input.Claims),
+	}
+
+	rs, err := tb.scopesQuery.Eval(ctx, rego.EvalInput(map[string]any{
+		"principal": opaInput,
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("rego scopes eval: %w", err)
+	}
+
+	return evalScopesResult(rs), nil
+}
+
+func evalScopesResult(rs rego.ResultSet) []string {
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil
+	}
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return nil
+	}
+	// OPA returns sets as []interface{}.
+	rawSlice, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	scopes := make([]string, 0, len(rawSlice))
+	for _, v := range rawSlice {
+		if s, ok := v.(string); ok {
+			scopes = append(scopes, s)
+		}
+	}
+	return scopes
 }
 
 func (e *engine) bundleForTenant(ctx context.Context, tenantID string) (*tenantBundle, error) {
