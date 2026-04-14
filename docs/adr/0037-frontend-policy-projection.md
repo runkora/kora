@@ -1,6 +1,6 @@
 # 0037. Frontend Policy Projection via BFF
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-04-14  
 **Deciders:** Engineering Team  
 **Technical Story:** The frontend has no authorization model — every authenticated user sees every page, button, and navigation entry. Backend services enforce policy on every API call, but the UI provides no feedback until a 403 arrives. The frontend needs a permission-aware rendering model driven by the same OPA policies that protect the backend, without embedding OPA in the browser or duplicating policy logic in TypeScript.

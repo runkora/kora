@@ -63,7 +63,7 @@ services:
       - ./config/glauth/config.cfg:/etc/glauth/config.cfg.in:ro
       - ./config/glauth/entrypoint.sh:/etc/glauth/entrypoint.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "test -d /proc/1 || exit 1"]
+      test: ["CMD-SHELL", "grep -q ':0F35' /proc/net/tcp || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
