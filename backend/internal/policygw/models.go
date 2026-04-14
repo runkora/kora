@@ -47,3 +47,10 @@ type QueryCandidate struct {
 type QueryResponse struct {
 	Allowed []string `json:"allowed"`
 }
+
+// ScopesResponse is the body for GET /v1/policy/scopes.
+type ScopesResponse struct {
+	Scopes      []string `json:"scopes"`
+	TenantID    string   `json:"tenant_id"`
+	EvaluatedAt string   `json:"evaluated_at"`
+}

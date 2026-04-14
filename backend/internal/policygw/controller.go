@@ -27,15 +27,22 @@ func NewController(svc *Service, verifier *token.Verifier, logger logging.Logger
 func (c *Controller) GroupedBy() string                { return "/policy" }
 func (c *Controller) Middleware() mw.MiddlewareHandler { return mw.MiddlewareChain() }
 
-// Boot registers the check and query routes.
+// Boot registers the check, query, and scopes routes.
 //
 // Route map:
 //
 //	POST /policy/check    — binary allow/deny for a principal and resource
 //	POST /policy/query    — filter a candidate resource list to allowed entries
+//	GET  /policy/scopes   — return all scopes the authenticated principal holds
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("POST /check", c.handleCheck)
 	mux.Handle("POST /query", c.handleQuery)
+
+	// The scopes endpoint uses JWT auth middleware — the principal is extracted
+	// from the Authorization header, not from a request body token field.
+	mux.HandleWithMiddleware("GET /scopes",
+		mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger)),
+		c.handleScopes)
 }
 
 // evaluationErrorResponse maps policy evaluation errors to API error responses.

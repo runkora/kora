@@ -49,6 +49,7 @@ tenants:
         - openid
         - profile
         - email
+        - groups
       # No claimBinding — any user authenticated by the local Dex instance is
       # a member of this tenant. In production, add a claimBinding to restrict
       # membership to a specific org, group, or hosted domain.

@@ -53,6 +53,27 @@ func (s *Service) Check(
 	return result, nil
 }
 
+// Scopes returns the complete set of scopes the principal holds.
+func (s *Service) Scopes(
+	ctx context.Context,
+	claims *token.PlatformClaims,
+) ([]string, error) {
+	scopes, err := s.eval.Scopes(ctx, policy.ScopesInput{
+		Claims: claims,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.Info(ctx, "policy scopes projection",
+		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
+		logging.Field{Key: "scopes_count", Value: len(scopes)},
+	)
+
+	return scopes, nil
+}
+
 // Query filters a list of candidate resource IDs to those the principal may access.
 func (s *Service) Query(
 	ctx context.Context,

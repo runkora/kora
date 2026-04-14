@@ -84,6 +84,8 @@ frontend:
     orbitApiUrl: "http://orbit-identity.orbit-system/api/v1"
     # In-cluster inference gateway — server-side BFF only, never sent to the browser.
     inferenceGatewayUrl: "http://orbit-inference-gateway.orbit-system/v1"
+    # In-cluster policy gateway — server-side BFF only, never sent to the browser.
+    policyGatewayUrl: "http://orbit-policy-gateway.orbit-system/v1"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
     nextPublicAppUrl: "https://orbit.local.clearroute.io:8443"

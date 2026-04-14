@@ -34,6 +34,12 @@ export type NavEntry = {
   badge?: number;
   /** True when no page exists yet — renders as disabled (non-navigable). */
   wip?: boolean;
+  /**
+   * When set, the entry is hidden from the sidebar unless the principal's
+   * scope set includes this scope. Entries without this field are always visible.
+   * See ADR-0037 for the permission projection model.
+   */
+  requiredScope?: string;
 };
 
 export type NavGroup = { label: string; items: NavEntry[] };
@@ -48,7 +54,13 @@ const MAIN_NAV: NavEntry[] = [
 ];
 
 const SECURITY_NAV: NavEntry[] = [
-  { label: 'Policy Engine', href: APP_ROUTES.policy, icon: ShieldCheck, wip: true },
+  {
+    label: 'Policy Engine',
+    href: APP_ROUTES.policy,
+    icon: ShieldCheck,
+    wip: true,
+    requiredScope: 'platform:grants:read',
+  },
   { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
 ];
 

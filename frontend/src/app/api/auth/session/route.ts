@@ -32,6 +32,7 @@ import { cookies } from 'next/headers';
 import { getSessionOptions } from '@orbit/server/auth-config';
 import type {
   SessionPayload,
+  SessionPermissions,
   SessionUser,
   BackendSessionResponse,
 } from '@orbit/server/auth-config';
@@ -85,6 +86,48 @@ function decodeJwtPayload(token: string): OrbitJwtPayload {
   const parsed: unknown = JSON.parse(atob(base64));
   if (!isOrbitJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
   return parsed;
+}
+
+// ── Scopes projection ────────────────────────────────────────────────────────
+
+/** Policy gateway response shape for GET /v1/policy/scopes. */
+interface ScopesResponse {
+  scopes: string[];
+  tenant_id: string;
+  evaluated_at: string;
+}
+
+/**
+ * Fetches the principal's effective scope set from the policy gateway.
+ * Fail-closed: returns an empty permission set on any error so the session
+ * is created with no scopes (user sees only ungated pages).
+ */
+async function fetchPermissions(accessToken: string): Promise<SessionPermissions> {
+  const emptyPermissions: SessionPermissions = {
+    scopes: [],
+    evaluatedAt: Math.floor(Date.now() / 1000),
+  };
+
+  try {
+    const res = await fetch(`${config.policyGatewayUrl}/policy/scopes`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (!res.ok) return emptyPermissions;
+
+    const data = (await res.json()) as ScopesResponse;
+    return {
+      scopes: data.scopes ?? [],
+      evaluatedAt: Math.floor(Date.now() / 1000),
+    };
+  } catch {
+    return emptyPermissions;
+  }
 }
 
 // ── POST — exchange id_token for Orbit session ────────────────────────────────
@@ -175,12 +218,17 @@ export async function POST(request: Request): Promise<Response> {
     name: claims.orbit?.display_name ?? '',
   };
 
+  // Fetch the principal's effective scope set from the policy gateway.
+  // Fail-closed: an empty scope set means the user sees only ungated pages.
+  const permissions = await fetchPermissions(data.access_token);
+
   const payload: SessionPayload = {
     user,
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
     tenantId: tenantId as string,
+    permissions,
   };
 
   // Create the session with a maxAge derived from the backend's refresh token
@@ -211,5 +259,6 @@ export async function GET(): Promise<Response> {
   return Response.json({
     user: session.user,
     expiresAt: session.expiresAt,
+    permissions: session.permissions ?? { scopes: [], evaluatedAt: 0 },
   });
 }

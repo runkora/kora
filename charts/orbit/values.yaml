@@ -178,6 +178,10 @@ frontend:
     # URL of the inference gateway service, reachable from inside the cluster.
     # Server-side only — never sent to the browser.
     inferenceGatewayUrl: ""
+    # URL of the policy gateway service, reachable from inside the cluster.
+    # Used by the BFF to fetch the principal's effective scope set (ADR-0037).
+    # Server-side only — never sent to the browser.
+    policyGatewayUrl: ""
     # Public base URL of the frontend, reachable from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.

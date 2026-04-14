@@ -3,6 +3,7 @@ package bundle_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -218,6 +219,187 @@ func defaultRoutes() []routes.RouteScope {
 		{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
+	}
+}
+
+// compileAndPrepareScopesQuery compiles a bundle and prepares the
+// principal_all_scopes query for testing the scope projection rule.
+func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
+	t.Helper()
+
+	cfg := bundle.Config{
+		JWKSURL:  "http://127.0.0.1:1/jwks",
+		Issuer:   "orbit",
+		Audience: "orbit-platform",
+	}
+
+	routeStore := routes.NewStore()
+	if len(opts.routes) > 0 {
+		routeStore.Register(&routes.Registration{
+			Service: "test",
+			Routes:  opts.routes,
+		})
+	}
+
+	compiler := bundle.NewCompiler(cfg, routeStore)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles)
+	if err != nil {
+		t.Fatalf("compile bundle: %v", err)
+	}
+
+	b, err := opabundle.NewReader(bytes.NewReader(cached.Data)).Read()
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+
+	pq, err := rego.New(
+		rego.Query(`x := data.orbit.authz.principal_all_scopes`),
+		rego.ParsedBundle(testTenantID, &b),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		t.Fatalf("prepare scopes rego: %v", err)
+	}
+	return pq
+}
+
+// evalScopes evaluates the principal_all_scopes rule and returns the scope set.
+func evalScopes(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformClaims) []string {
+	t.Helper()
+
+	input := map[string]any{
+		"principal": map[string]any{
+			"type":      string(claims.Orbit.PrincipalType),
+			"tenant_id": claims.Orbit.TenantID,
+			"id":        claims.Subject,
+			"roles":     extractRoles(claims),
+		},
+	}
+
+	rs, err := pq.Eval(context.Background(), rego.EvalInput(input))
+	if err != nil {
+		t.Fatalf("rego scopes eval: %v", err)
+	}
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil
+	}
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return nil
+	}
+	rawSlice, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(rawSlice))
+	for _, v := range rawSlice {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func scopeSetContains(scopes []string, expected string) bool {
+	return slices.Contains(scopes, expected)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Scope projection (principal_all_scopes rule — ADR-0037)
+// ═══════════════════════════════════════════════════════════════════════════
+
+func TestScopes_AgentWithGrants(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{
+		grants: []*grants.Grant{agentGrant(testAgentID, "inference:invoke", "inference:list")},
+	})
+
+	scopes := evalScopes(t, pq, agentClaims(testAgentID))
+	if len(scopes) != 2 {
+		t.Fatalf("expected 2 scopes, got %d: %v", len(scopes), scopes)
+	}
+	if !scopeSetContains(scopes, "inference:invoke") {
+		t.Error("expected inference:invoke in scopes")
+	}
+	if !scopeSetContains(scopes, "inference:list") {
+		t.Error("expected inference:list in scopes")
+	}
+}
+
+func TestScopes_AgentWithNoGrants(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{})
+
+	scopes := evalScopes(t, pq, agentClaims(testAgentID))
+	if len(scopes) != 0 {
+		t.Errorf("expected empty scopes for agent with no grants, got %v", scopes)
+	}
+}
+
+func TestScopes_HumanWithRoleOnly(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{})
+
+	// tenant-admin is a reserved role with hardcoded scopes.
+	claims := humanClaims(testHumanID, "tenant-admin")
+	scopes := evalScopes(t, pq, claims)
+
+	// Must contain the hardcoded tenant-admin scopes.
+	for _, expected := range []string{
+		"platform:grants:read",
+		"platform:grants:write",
+		"platform:roles:read",
+		"platform:roles:write",
+		"platform:agents:read",
+	} {
+		if !scopeSetContains(scopes, expected) {
+			t.Errorf("expected %s in tenant-admin scopes, got %v", expected, scopes)
+		}
+	}
+}
+
+func TestScopes_HumanWithGrantsAndRole(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{
+		grants: []*grants.Grant{humanGrant(testHumanID, "inference:invoke")},
+	})
+
+	claims := humanClaims(testHumanID, "tenant-admin")
+	scopes := evalScopes(t, pq, claims)
+
+	// Must contain both the grant scope and the role scopes.
+	if !scopeSetContains(scopes, "inference:invoke") {
+		t.Errorf("expected inference:invoke from grant, got %v", scopes)
+	}
+	if !scopeSetContains(scopes, "platform:grants:read") {
+		t.Errorf("expected platform:grants:read from tenant-admin role, got %v", scopes)
+	}
+}
+
+func TestScopes_CustomRole(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{
+		roles: []*roles.RoleEntry{
+			{TenantID: testTenantID, Role: "analyst", Scopes: []string{"inference:list", "mcp:gmail:read"}},
+		},
+	})
+
+	claims := humanClaims(testHumanID, "analyst")
+	scopes := evalScopes(t, pq, claims)
+	if len(scopes) != 2 {
+		t.Fatalf("expected 2 scopes from analyst role, got %d: %v", len(scopes), scopes)
+	}
+	if !scopeSetContains(scopes, "inference:list") {
+		t.Error("expected inference:list from analyst role")
+	}
+	if !scopeSetContains(scopes, "mcp:gmail:read") {
+		t.Error("expected mcp:gmail:read from analyst role")
+	}
+}
+
+func TestScopes_WrongPrincipalReturnsEmpty(t *testing.T) {
+	pq := compileAndPrepareScopesQuery(t, bundleOpts{
+		grants: []*grants.Grant{agentGrant(testAgentID, "inference:invoke")},
+	})
+
+	// Different agent — should not see testAgentID's grants.
+	scopes := evalScopes(t, pq, agentClaims("spiffe://other/agent"))
+	if len(scopes) != 0 {
+		t.Errorf("expected empty scopes for wrong principal, got %v", scopes)
 	}
 }
 

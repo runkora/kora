@@ -32,6 +32,13 @@ export const config = {
   inferenceGatewayUrl: requireEnv('INFERENCE_GATEWAY_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the policy gateway (port 8084).
+   * Used by the BFF to fetch the principal's effective scope set on login
+   * and token refresh. Never sent to the browser.
+   */
+  policyGatewayUrl: requireEnv('POLICY_GATEWAY_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

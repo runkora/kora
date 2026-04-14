@@ -8,16 +8,18 @@
 #
 # Test credentials (local dev only):
 #   Email:    dev@orbit.local.clearroute.io
-#   Password: whatever you set in DEX_USER_PASSWORD_HASH (default: "password")
+#   Password: password
+#   Groups:   platform-admin
+#
+# Users are stored in glauth (lightweight LDAP) — see config/glauth/config.cfg.
+# Dex authenticates via its LDAP connector, so group membership flows into the
+# OIDC token just like a production corporate directory (Okta, Entra, etc.).
 #
 # Client:
 #   ID:     orbit-local
 #   Secret: (none — public client, Device Grant does not require a secret)
 #
 # Issuer:  https://dex.orbit.local.clearroute.io:5556/dex
-#
-# Dex interpolates $VAR references at startup, so credentials stay in .env
-# and never appear in committed config files.
 # =============================================================================
 
 issuer: https://dex.orbit.local.clearroute.io:5556/dex
@@ -74,19 +76,39 @@ staticClients:
       - "https://orbit.local.clearroute.io:8443/auth/callback"
       - "/device/callback"
 
-# ─── Test users ───────────────────────────────────────────────────────────────
+# ─── Identity backend ────────────────────────────────────────────────────────
+#
+# Uses the LDAP connector backed by glauth (lightweight Go LDAP server) so
+# that group membership (platform-admin, tenant-admin, etc.) flows through
+# the OIDC token — replicating the production pattern where roles come from
+# the corporate directory.
 
-# Enable the built-in username/password connector so static passwords work.
-enablePasswordDB: true
+connectors:
+  - type: ldap
+    id: local-ldap
+    name: "Email"
+    config:
+      host: glauth:3893
+      insecureNoSSL: true
 
-staticPasswords:
-  - email: dev@orbit.local.clearroute.io
-    # hashFromEnv tells Dex to read the bcrypt hash directly from an environment
-    # variable at startup — no $VAR string interpolation involved, which avoids
-    # os.ExpandEnv mangling the $2y$10$ prefix in the hash value.
-    #
-    # The .env.example default is bcrypt("password"), sufficient for local dev.
-    # To generate a custom hash: make dex-hash password=yourpassword
-    hashFromEnv: DEX_USER_PASSWORD_HASH
-    username: dev
-    userID: "dev-user-001"
+      # Service account — Dex binds as this to search users/groups.
+      bindDN: cn=serviceuser,dc=orbit,dc=local
+      bindPW: password
+
+      userSearch:
+        baseDN: dc=orbit,dc=local
+        filter: "(objectClass=posixAccount)"
+        username: mail
+        idAttr: cn
+        emailAttr: mail
+        nameAttr: givenName
+
+      groupSearch:
+        baseDN: dc=orbit,dc=local
+        filter: "(objectClass=posixGroup)"
+        userMatchers:
+          - userAttr: DN
+            groupAttr: member
+          - userAttr: cn
+            groupAttr: memberUid
+        nameAttr: cn

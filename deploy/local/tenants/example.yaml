@@ -24,6 +24,7 @@ spec:
       - openid
       - profile
       - email
+      - groups
     emailDomains:
       - orbit.local.clearroute.io
 

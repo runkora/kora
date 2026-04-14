@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -354,10 +355,12 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	}
 
 	var claims struct {
-		Sub               string `json:"sub"`
-		Email             string `json:"email"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
+		Sub               string   `json:"sub"`
+		Email             string   `json:"email"`
+		Name              string   `json:"name"`
+		PreferredUsername string   `json:"preferred_username"`
+		Roles             []string `json:"roles"`
+		Groups            []string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		span.RecordError(err)
@@ -371,15 +374,17 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		attribute.String("identity.source", string(IdentitySourceFederated)),
 	)
 
-	displayName := claims.Name
-	if displayName == "" {
-		displayName = claims.PreferredUsername
+	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
+
+	principalClaims := map[string]string{
+		"email":  claims.Email,
+		"issuer": idToken.Issuer,
 	}
-	if displayName == "" {
-		displayName = claims.Email
-	}
-	if displayName == "" {
-		displayName = claims.Sub
+	// OIDC providers use either "roles" (Auth0, Entra) or "groups" (Dex, Okta)
+	// for role-like claims. Merge both into a single roles string.
+	allRoles := slices.Concat(claims.Roles, claims.Groups)
+	if len(allRoles) > 0 {
+		principalClaims["roles"] = strings.Join(allRoles, ",")
 	}
 
 	principal := &Principal{
@@ -388,10 +393,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		TenantID:       req.TenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
-		Claims: map[string]string{
-			"email":  claims.Email,
-			"issuer": idToken.Issuer,
-		},
+		Claims:         principalClaims,
 	}
 
 	return s.createSession(ctx, principal)
@@ -447,10 +449,12 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	}
 
 	var claims struct {
-		Sub               string `json:"sub"`
-		Email             string `json:"email"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
+		Sub               string   `json:"sub"`
+		Email             string   `json:"email"`
+		Name              string   `json:"name"`
+		PreferredUsername string   `json:"preferred_username"`
+		Roles             []string `json:"roles"`
+		Groups            []string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		span.RecordError(err)
@@ -466,16 +470,24 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
 
+	principalClaims := map[string]string{
+		"email":  claims.Email,
+		"issuer": idToken.Issuer,
+	}
+	// OIDC providers use either "roles" (Auth0, Entra) or "groups" (Dex, Okta)
+	// for role-like claims. Merge both into a single roles string.
+	allRoles := slices.Concat(claims.Roles, claims.Groups)
+	if len(allRoles) > 0 {
+		principalClaims["roles"] = strings.Join(allRoles, ",")
+	}
+
 	principal := &Principal{
 		ID:             claims.Sub,
 		Type:           PrincipalTypeHuman,
 		TenantID:       req.TenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
-		Claims: map[string]string{
-			"email":  claims.Email,
-			"issuer": idToken.Issuer,
-		},
+		Claims:         principalClaims,
 	}
 
 	span.SetStatus(codes.Ok, "id_token verified, creating session")

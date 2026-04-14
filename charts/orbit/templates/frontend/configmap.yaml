@@ -16,6 +16,11 @@ data:
   # Never sent to the browser.
   INFERENCE_GATEWAY_URL: {{ required "frontend.config.inferenceGatewayUrl must be set" .Values.frontend.config.inferenceGatewayUrl | quote }}
 
+  # URL of the policy gateway service as seen from inside the cluster.
+  # Used by the Next.js BFF to fetch the principal's effective scope set
+  # on login and token refresh (ADR-0037). Never sent to the browser.
+  POLICY_GATEWAY_URL: {{ required "frontend.config.policyGatewayUrl must be set" .Values.frontend.config.policyGatewayUrl | quote }}
+
   # Public base URL of this frontend, as seen from the browser.
   # Also available at runtime for server-side code that reads process.env.NEXT_PUBLIC_APP_URL.
   # Note: Next.js inlines NEXT_PUBLIC_* values into client bundles at build time —
