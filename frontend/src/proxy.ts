@@ -87,10 +87,12 @@ async function tryRefreshScopes(accessToken: string): Promise<SessionPermissions
 
     if (!res.ok) return null;
 
-    const data = (await res.json()) as { scopes?: string[] };
+    const data = (await res.json()) as { scopes?: string[]; evaluated_at?: string };
     return {
       scopes: data.scopes ?? [],
-      evaluatedAt: Math.floor(Date.now() / 1000),
+      evaluatedAt: data.evaluated_at
+        ? Math.floor(new Date(data.evaluated_at).getTime() / 1000)
+        : Math.floor(Date.now() / 1000),
     };
   } catch {
     return null;

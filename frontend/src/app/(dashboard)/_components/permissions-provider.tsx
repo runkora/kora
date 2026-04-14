@@ -6,30 +6,43 @@ import { ApiRoute } from '@orbit/lib/routing/api-routes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface PermissionsContextValue {
+interface SessionUser {
+  sub: string;
+  email: string;
+  name: string;
+}
+
+interface SessionContextValue {
   /** Complete set of scopes the current principal holds. */
   scopes: string[];
-  /** Whether the permissions have been loaded from the session. */
+  /** Authenticated user identity (email, name, sub). */
+  user: SessionUser | null;
+  /** Whether the session has been loaded from the BFF. */
   loaded: boolean;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
 
-const PermissionsContext = createContext<PermissionsContextValue>({
+const SessionContext = createContext<SessionContextValue>({
   scopes: [],
+  user: null,
   loaded: false,
 });
 
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetches permissions from the BFF session endpoint and provides them to
- * all child components via context. Renders children immediately (scopes
- * arrive asynchronously — components that depend on them check `loaded`).
+ * Fetches the full session (user identity + permissions) from the BFF and
+ * provides both to all child components via a single context. This avoids
+ * duplicate session fetches from multiple consumers.
+ *
+ * Renders children immediately — components that depend on session data
+ * check `loaded` to handle the async loading window.
  */
 export function PermissionsProvider({ children }: { children: ReactNode }) {
-  const [value, setValue] = useState<PermissionsContextValue>({
+  const [value, setValue] = useState<SessionContextValue>({
     scopes: [],
+    user: null,
     loaded: false,
   });
 
@@ -39,20 +52,27 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         setValue({
           scopes: data?.permissions?.scopes ?? [],
+          user: data?.user ?? null,
           loaded: true,
         });
       })
       .catch(() => {
-        setValue({ scopes: [], loaded: true });
+        setValue({ scopes: [], user: null, loaded: true });
       });
   }, []);
 
-  return <PermissionsContext.Provider value={value}>{children}</PermissionsContext.Provider>;
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
-// ── Hook ─────────────────────────────────────────────────────────────────────
+// ── Hooks ────────────────────────────────────────────────────────────────────
 
-/** Returns the current principal's permission set. */
-export function usePermissions(): PermissionsContextValue {
-  return useContext(PermissionsContext);
+/** Returns the current principal's permission set and user identity. */
+export function useSession(): SessionContextValue {
+  return useContext(SessionContext);
+}
+
+/** Returns only the permission scopes and loaded state. */
+export function usePermissions(): { scopes: string[]; loaded: boolean } {
+  const { scopes, loaded } = useContext(SessionContext);
+  return { scopes, loaded };
 }

@@ -1,14 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { User, Zap } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
 import { Badge, NavItem, Separator, Stack, Text } from '@orbit/terra';
 import { LogoutButton } from '@orbit/components/logout-button';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { hasScope } from '@orbit/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
-import { usePermissions } from './permissions-provider';
+import { useSession } from './permissions-provider';
 
 // ─── DashboardSidebar ─────────────────────────────────────────────────────────
 
@@ -20,21 +19,7 @@ import { usePermissions } from './permissions-provider';
  */
 export function DashboardSidebar() {
   const pathname = usePathname();
-  const { scopes } = usePermissions();
-  const [userEmail, setUserEmail] = useState('');
-  const [userName, setUserName] = useState('');
-
-  useEffect(() => {
-    fetch(ApiRoute.session.GET())
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.user) {
-          setUserEmail(data.user.email || '');
-          setUserName(data.user.name || '');
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const { scopes, user } = useSession();
 
   return (
     <Stack direction="vertical" asChild>
@@ -67,7 +52,7 @@ export function DashboardSidebar() {
           {NAV_GROUPS.map(({ label, items }) => {
             // Filter out entries that require a scope the user doesn't have.
             const visibleItems = items.filter(
-              (entry) => !entry.requiredScope || scopes.includes(entry.requiredScope),
+              (entry) => !entry.requiredScope || hasScope(scopes, entry.requiredScope),
             );
             if (visibleItems.length === 0) return null;
 
@@ -118,11 +103,11 @@ export function DashboardSidebar() {
                  * arbitrarily long and must not overflow the sidebar column.
                  */}
                 <Text size="caption" weight="emphasis" truncate>
-                  {userEmail || 'Loading…'}
+                  {user?.email || 'Loading…'}
                 </Text>
-                {userName && (
+                {user?.name && (
                   <Text size="caption" color="subtle" truncate>
-                    {userName}
+                    {user.name}
                   </Text>
                 )}
               </span>
