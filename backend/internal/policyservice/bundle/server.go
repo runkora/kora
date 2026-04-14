@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -11,6 +12,11 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
+
+// validTenantID matches alphanumeric IDs with hyphens, underscores, and dots.
+// Rejects path traversal or arbitrary UTF-8 to prevent DoS via compilation for
+// non-existent tenants.
+var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 // Server serves per-tenant OPA bundles at GET /v1/policy/bundles/{tenant_id}.
 // On startup it compiles all tenants' bundles from the current DB state.
@@ -56,7 +62,7 @@ func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {
 // Called after any grant, role, or route change. vocabEntries may be nil to
 // trigger a fresh vocabulary load.
 func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []*vocabulary.ScopeEntry) error {
-	tenantGrants, err := s.grantRepo.ListByTenant(ctx, tenantID)
+	tenantGrants, err := s.grantRepo.ListByTenant(ctx, tenantID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list grants for tenant %s: %w", tenantID, err)
 	}
@@ -68,7 +74,7 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		}
 	}
 
-	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID)
+	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list role scopes for tenant %s: %w", tenantID, err)
 	}
@@ -86,6 +92,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.PathValue("tenant_id")
 	if tenantID == "" {
 		http.Error(w, "tenant_id required", http.StatusBadRequest)
+		return
+	}
+	if !validTenantID.MatchString(tenantID) {
+		http.Error(w, "invalid tenant_id format", http.StatusBadRequest)
 		return
 	}
 

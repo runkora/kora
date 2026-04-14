@@ -46,11 +46,13 @@ type Repository interface {
 	// GetByID retrieves a grant by its primary ID.
 	GetByID(ctx context.Context, id string) (*Grant, error)
 
-	// ListByPrincipal returns all grants for a given principal within a tenant.
-	ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string) ([]*Grant, error)
+	// ListByPrincipal returns grants for a given principal within a tenant,
+	// paginated by limit and offset. Use limit=0 for unbounded.
+	ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, error)
 
-	// ListByTenant returns all grants for a tenant. Used for bundle compilation.
-	ListByTenant(ctx context.Context, tenantID string) ([]*Grant, error)
+	// ListByTenant returns grants for a tenant, paginated by limit and offset.
+	// Use limit=0 for unbounded (e.g. bundle compilation).
+	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error)
 
 	// Delete removes a grant by ID. Returns ErrGrantNotFound if it does not exist.
 	Delete(ctx context.Context, id string) error
@@ -97,13 +99,17 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, er
 	return r.scanGrant(row)
 }
 
-func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string) ([]*Grant, error) {
-	rows, err := r.pool.Query(ctx, `
+func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, error) {
+	query := `
 		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at
 		FROM policy_grants
 		WHERE tenant_id = $1 AND principal_type = $2 AND principal_id = $3
-		ORDER BY created_at
-	`, tenantID, string(principalType), principalID)
+		ORDER BY created_at`
+	args := []any{tenantID, string(principalType), principalID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+	}
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list grants by principal: %w", err)
 	}
@@ -111,13 +117,17 @@ func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID strin
 	return r.collectGrants(rows)
 }
 
-func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string) ([]*Grant, error) {
-	rows, err := r.pool.Query(ctx, `
+func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error) {
+	query := `
 		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at
 		FROM policy_grants
 		WHERE tenant_id = $1
-		ORDER BY principal_type, principal_id, created_at
-	`, tenantID)
+		ORDER BY principal_type, principal_id, created_at`
+	args := []any{tenantID}
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+	}
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list grants by tenant: %w", err)
 	}

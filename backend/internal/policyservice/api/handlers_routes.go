@@ -75,6 +75,15 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// SERVICE principals can only register routes under their own service identity.
+	// This prevents service-a from registering routes as service-b.
+	if claims.Orbit.PrincipalType == token.PrincipalTypeService && req.Service != claims.Subject {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+				"service identity mismatch: cannot register routes for another service", nil), nil)
+		return
+	}
+
 	if err := c.svc.RegisterRoutes(ctx, req.Service, tenantID, req.Routes, req.Scopes); err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, routesErrorResponse(err), err)
 		return

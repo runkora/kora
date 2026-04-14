@@ -417,10 +417,10 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 }
 
 // ResolveModelForPolicy maps a requested model string to the canonical family
-// and policy alias used to construct inference:{family}:{alias}:invoke scopes.
+// and policy alias used to construct inference:{family}:{alias}:use scopes.
 //
 // Returns ok=false for wildcard routing ("", "*", "failover") — those paths
-// require only the broad inference:use scope enforced at Layer 1 by Envoy.
+// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
 // Also returns ok=false when the catalog is empty (cold start) or the model
 // is not found; in that case the Layer 1 scope check still applies.
 func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
@@ -475,7 +475,7 @@ func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, 
 // CatalogScopes returns the deduplicated set of scope declarations derived
 // from the current model catalog. Includes one family-level scope per vendor
 // (e.g. inference:anthropic:use) and one model-level scope per distinct
-// model (e.g. inference:anthropic:claude-3-5-haiku:invoke).
+// model (e.g. inference:anthropic:claude-3-5-haiku:use).
 //
 // These are registered with the policy service vocabulary so the grants/roles
 // UI can show available model scopes for assignment.

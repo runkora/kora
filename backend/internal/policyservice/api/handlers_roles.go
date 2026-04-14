@@ -92,7 +92,8 @@ func (c *Controller) handleListRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := c.svc.ListRoles(ctx, tenantID)
+	limit, offset := parsePagination(r)
+	entries, err := c.svc.ListRoles(ctx, tenantID, limit, offset)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return

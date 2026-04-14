@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
@@ -27,6 +29,10 @@ func (e *ScopeVocabularyError) Error() string {
 	return fmt.Sprintf("scope %q is not in the scope vocabulary", e.Scope)
 }
 
+// recompileDebounce is the delay before a bundle recompilation fires. Multiple
+// writes within this window are coalesced into a single recompilation.
+const recompileDebounce = 500 * time.Millisecond
+
 // Service orchestrates grant, role, and vocabulary management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
@@ -36,6 +42,10 @@ type Service struct {
 	bundleSrv  *bundle.Server
 	routeStore *routes.Store
 	logger     logging.Logger
+
+	// recompileMu protects recompileTimers from concurrent map access.
+	recompileMu     sync.Mutex
+	recompileTimers map[string]*time.Timer
 }
 
 // NewService creates a Service wired to the provided repositories and bundle server.
@@ -48,12 +58,13 @@ func NewService(
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		grantRepo:  grantRepo,
-		vocabRepo:  vocabRepo,
-		roleRepo:   roleRepo,
-		bundleSrv:  bundleSrv,
-		routeStore: routeStore,
-		logger:     logger,
+		grantRepo:       grantRepo,
+		vocabRepo:       vocabRepo,
+		roleRepo:        roleRepo,
+		bundleSrv:       bundleSrv,
+		routeStore:      routeStore,
+		logger:          logger,
+		recompileTimers: make(map[string]*time.Timer),
 	}
 }
 
@@ -90,7 +101,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, fmt.Errorf("create grant: %w", err)
 	}
 
-	go s.recompileBundle(context.WithoutCancel(ctx), g.TenantID)
+	s.scheduleRecompile(ctx, g.TenantID)
 	return g, nil
 }
 
@@ -102,15 +113,15 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 	if err := s.grantRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
 
-func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string) ([]*grants.Grant, error) {
+func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, error) {
 	if principalID != "" {
-		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID)
+		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID, limit, offset)
 	}
-	return s.grantRepo.ListByTenant(ctx, tenantID)
+	return s.grantRepo.ListByTenant(ctx, tenantID, limit, offset)
 }
 
 func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
@@ -148,7 +159,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
 	}
-	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	s.scheduleRecompile(ctx, tenantID)
 	return entry, nil
 }
 
@@ -158,8 +169,8 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 }
 
 // ListRoles returns all role→scope mappings for a tenant.
-func (s *Service) ListRoles(ctx context.Context, tenantID string) ([]*roles.RoleEntry, error) {
-	return s.roleRepo.ListByTenant(ctx, tenantID)
+func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
+	return s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.
@@ -170,7 +181,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {
 		return err
 	}
-	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
 
@@ -221,29 +232,42 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 	})
 
 	if tenantID == "" {
-		go s.recompileAllBundles(context.WithoutCancel(ctx))
+		go s.scheduleRecompileAll(context.WithoutCancel(ctx))
 	} else {
-		go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
+		s.scheduleRecompile(ctx, tenantID)
 	}
 
 	return nil
 }
 
-// recompileBundle triggers an async bundle recompilation for a tenant.
-// ctx must already be detached from the request lifetime via context.WithoutCancel
-// so the recompilation outlives the HTTP response while preserving trace context.
-func (s *Service) recompileBundle(ctx context.Context, tenantID string) {
-	if err := s.bundleSrv.Recompile(ctx, tenantID, nil); err != nil {
-		s.logger.Error(ctx, "bundle recompile failed",
-			logging.Field{Key: "tenant_id", Value: tenantID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
+// scheduleRecompile debounces bundle recompilation for a tenant. Multiple writes
+// within recompileDebounce are coalesced into a single recompilation, preventing
+// goroutine explosion during bulk provisioning.
+func (s *Service) scheduleRecompile(ctx context.Context, tenantID string) {
+	detachedCtx := context.WithoutCancel(ctx)
+	s.recompileMu.Lock()
+	defer s.recompileMu.Unlock()
+
+	if t, ok := s.recompileTimers[tenantID]; ok {
+		t.Stop()
 	}
+	s.recompileTimers[tenantID] = time.AfterFunc(recompileDebounce, func() {
+		s.recompileMu.Lock()
+		delete(s.recompileTimers, tenantID)
+		s.recompileMu.Unlock()
+
+		if err := s.bundleSrv.Recompile(detachedCtx, tenantID, nil); err != nil {
+			s.logger.Error(detachedCtx, "bundle recompile failed",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	})
 }
 
-// recompileAllBundles recompiles bundles for all active tenants (those with
-// at least one grant). Called after a global route registration change.
-func (s *Service) recompileAllBundles(ctx context.Context) {
+// scheduleRecompileAll schedules recompilation for all active tenants.
+// Called after a global route registration change.
+func (s *Service) scheduleRecompileAll(ctx context.Context) {
 	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
 	if err != nil {
 		s.logger.Error(ctx, "recompile all: failed to list tenants",

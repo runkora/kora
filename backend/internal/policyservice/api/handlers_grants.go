@@ -119,7 +119,8 @@ func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	result, err := c.svc.ListGrants(ctx, tenantID, grants.PrincipalType(q.Get("principal_type")), q.Get("principal_id"))
+	limit, offset := parsePagination(r)
+	result, err := c.svc.ListGrants(ctx, tenantID, grants.PrincipalType(q.Get("principal_type")), q.Get("principal_id"), limit, offset)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return

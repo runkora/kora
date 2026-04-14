@@ -199,23 +199,27 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		RestConfig: restCfg,
-		Logger:     logger,
-		ChartDir:   oc.Current.Operator.ChartDir,
-		Registry:   registry,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		RestConfig:  restCfg,
+		Logger:      logger,
+		ChartDir:    oc.Current.Operator.ChartDir,
+		Registry:    registry,
+		OPAImage:    oc.Current.Operator.OPAImage,
+		OPALogLevel: oc.Current.Operator.OPALogLevel,
 	}
 	if err := platformReconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
 
 	tenantReconciler := &operator.TenantReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Registry:   registry,
-		Aggregator: aggregator,
-		Logger:     logger,
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		Registry:              registry,
+		Aggregator:            aggregator,
+		Logger:                logger,
+		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
+		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
 		return err

@@ -40,9 +40,9 @@ type Repository interface {
 	// GetByRole retrieves the scope mapping for a specific role within a tenant.
 	GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error)
 
-	// ListByTenant returns all role→scope mappings for a tenant.
-	// Used for bundle compilation.
-	ListByTenant(ctx context.Context, tenantID string) ([]*RoleEntry, error)
+	// ListByTenant returns role→scope mappings for a tenant, paginated by limit
+	// and offset. Use limit=0 for unbounded (e.g. bundle compilation).
+	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*RoleEntry, error)
 
 	// Delete removes the scope mapping for a role within a tenant.
 	Delete(ctx context.Context, tenantID, role string) error
@@ -91,11 +91,13 @@ func (r *postgresRepository) GetByRole(ctx context.Context, tenantID, role strin
 	return r.scanEntry(row)
 }
 
-func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string) ([]*RoleEntry, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, role, scopes, created_at
-		FROM policy_role_scopes WHERE tenant_id = $1 ORDER BY role
-	`, tenantID)
+func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*RoleEntry, error) {
+	query := `SELECT id, tenant_id, role, scopes, created_at
+		FROM policy_role_scopes WHERE tenant_id = $1 ORDER BY role`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+	}
+	rows, err := r.pool.Query(ctx, query, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list role scopes: %w", err)
 	}

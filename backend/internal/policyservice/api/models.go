@@ -1,5 +1,10 @@
 package api
 
+import (
+	"net/http"
+	"strconv"
+)
+
 // createGrantRequest is the request body for POST /policy/grants.
 type createGrantRequest struct {
 	TenantID      string   `json:"tenant_id"`
@@ -13,4 +18,28 @@ type upsertRoleRequest struct {
 	TenantID string   `json:"tenant_id"`
 	Role     string   `json:"role"`
 	Scopes   []string `json:"scopes"`
+}
+
+const (
+	defaultPageLimit = 100
+	maxPageLimit     = 1000
+)
+
+// parsePagination extracts limit/offset from query parameters with sensible defaults.
+func parsePagination(r *http.Request) (limit, offset int) {
+	limit = defaultPageLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
 }

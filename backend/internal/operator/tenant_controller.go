@@ -37,6 +37,12 @@ type TenantReconciler struct {
 	Registry   *TenantRegistry
 	Aggregator *ClientSecretAggregator
 	Logger     logging.Logger
+
+	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
+	BundlePollingMinDelay int
+
+	// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
+	BundlePollingMaxDelay int
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitTenant is
@@ -315,10 +321,19 @@ func (r *TenantReconciler) setTenantCondition(
 func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
-	// OPA bundle polling interval: 30–60 seconds. After a grant write, enforcement
-	// is stale for up to 60 seconds until the next bundle poll picks up the change.
-	// Emergency revocation uses the JTI blocklist (ADR-0008), not bundle propagation.
-	const opaConfigYAML = `services:
+	// OPA bundle polling interval is configurable via operator config. After a
+	// grant write, enforcement is stale for up to max_delay_seconds until the
+	// next bundle poll picks up the change. Emergency revocation uses the JTI
+	// blocklist (ADR-0008), not bundle propagation.
+	minDelay := r.BundlePollingMinDelay
+	if minDelay == 0 {
+		minDelay = 30
+	}
+	maxDelay := r.BundlePollingMaxDelay
+	if maxDelay == 0 {
+		maxDelay = 60
+	}
+	opaConfigYAML := fmt.Sprintf(`services:
   policy-service:
     url: http://orbit-policy-service.orbit-system.svc/api/v1/policy
 
@@ -327,8 +342,8 @@ bundles:
     service: policy-service
     resource: "bundles/${ORBIT_TENANT_ID}"
     polling:
-      min_delay_seconds: 30
-      max_delay_seconds: 60
+      min_delay_seconds: %d
+      max_delay_seconds: %d
 
 plugins:
   envoy_ext_authz_grpc:
@@ -338,7 +353,7 @@ plugins:
 
 decision_logs:
   console: true
-`
+`, minDelay, maxDelay)
 
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

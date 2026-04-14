@@ -38,18 +38,18 @@ func buildSpireInjectionTemplate() string {
 //
 // The orbit-opa-config ConfigMap is created in each tenant namespace by the
 // TenantReconciler — it must be present before pods are scheduled.
-func buildOPAPolicyInjectionTemplate() string {
+func buildOPAPolicyInjectionTemplate(opaImage, opaLogLevel string) string {
 	return `spec:
   containers:
   - name: opa
-    image: openpolicyagent/opa:1.15.2-envoy-static
+    image: ` + opaImage + `
     args:
       - "run"
       - "--server"
       - "--config-file=/config/config.yaml"
       - "--addr=0.0.0.0:8181"
       - "--diagnostic-addr=0.0.0.0:8282"
-      - "--log-level=debug"
+      - "--log-level=` + opaLogLevel + `"
     env:
       - name: ORBIT_TENANT_ID
         valueFrom:

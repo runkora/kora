@@ -45,6 +45,22 @@ type Config struct {
 
 		// ShutdownTimeoutSecs is the graceful shutdown timeout.
 		ShutdownTimeoutSecs int `yaml:"shutdownTimeoutSecs"`
+
+		// OPAImage is the OPA Envoy plugin sidecar image injected into tenant pods.
+		// Override via ORBIT_OPA_IMAGE env var to patch CVEs without a code change.
+		OPAImage string `yaml:"opaImage"`
+
+		// OPALogLevel is the log level for the OPA sidecar (e.g. info, debug, error).
+		// Default: info. Override via ORBIT_OPA_LOG_LEVEL.
+		OPALogLevel string `yaml:"opaLogLevel"`
+
+		// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
+		// Override via ORBIT_BUNDLE_POLLING_MIN_DELAY.
+		BundlePollingMinDelay int `yaml:"bundlePollingMinDelay"`
+
+		// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
+		// Override via ORBIT_BUNDLE_POLLING_MAX_DELAY.
+		BundlePollingMaxDelay int `yaml:"bundlePollingMaxDelay"`
 	} `yaml:"operator"`
 
 	Observability struct {
@@ -71,6 +87,25 @@ var Current = func() *Config {
 	// a separate APP_ENV YAML file.
 	if v := os.Getenv("ORBIT_LEADER_ELECTION"); v != "" {
 		cfg.Operator.LeaderElection = v == "true" || v == "1"
+	}
+	if v := os.Getenv("ORBIT_OPA_IMAGE"); v != "" {
+		cfg.Operator.OPAImage = v
+	}
+	if v := os.Getenv("ORBIT_OPA_LOG_LEVEL"); v != "" {
+		cfg.Operator.OPALogLevel = v
+	}
+	// Apply defaults for OPA settings if not set via YAML or env.
+	if cfg.Operator.OPAImage == "" {
+		cfg.Operator.OPAImage = "openpolicyagent/opa:1.15.2-envoy-static"
+	}
+	if cfg.Operator.OPALogLevel == "" {
+		cfg.Operator.OPALogLevel = "info"
+	}
+	if cfg.Operator.BundlePollingMinDelay == 0 {
+		cfg.Operator.BundlePollingMinDelay = 30
+	}
+	if cfg.Operator.BundlePollingMaxDelay == 0 {
+		cfg.Operator.BundlePollingMaxDelay = 60
 	}
 	return cfg
 }()

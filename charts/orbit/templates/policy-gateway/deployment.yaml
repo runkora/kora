@@ -22,6 +22,10 @@ spec:
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-policy-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
       volumes:
         - name: spire-workload-socket
           csi:
@@ -31,6 +35,8 @@ spec:
         - name: orbit-policy-gateway
           image: "{{ .Values.policyGateway.image.repository }}:{{ include "orbit.policyGateway.imageTag" . }}"
           imagePullPolicy: {{ include "orbit.policyGateway.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
           env:
             - name: ORBIT_OTLP_INSECURE
               value: {{ .Values.policyGateway.config.otlpInsecure | quote }}

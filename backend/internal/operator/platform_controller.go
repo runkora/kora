@@ -42,6 +42,13 @@ type PlatformReconciler struct {
 	// starts. Without it, orbit-identity fails to mount the volume on first boot
 	// when no OrbitTenant CRs have been applied yet.
 	Registry *TenantRegistry
+
+	// OPAImage is the OPA Envoy plugin sidecar image. Configurable so operators
+	// can patch CVEs via Helm values without rebuilding the operator binary.
+	OPAImage string
+
+	// OPALogLevel is the log level for the OPA sidecar (info, debug, error).
+	OPALogLevel string
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitPlatform is
@@ -416,7 +423,7 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 				"identity-proxy": buildIdentityProxyInjectionTemplate(
 					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
 				),
-				"opa-policy": buildOPAPolicyInjectionTemplate(),
+				"opa-policy": buildOPAPolicyInjectionTemplate(r.OPAImage, r.OPALogLevel),
 			},
 		},
 	}
