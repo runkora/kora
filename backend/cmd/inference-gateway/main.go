@@ -15,10 +15,12 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
@@ -125,8 +127,9 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	// ── Domain layer ──────────────────────────────────────────────────────────
 	pricing := inferencegw.NewNopPricingCache()
 	router := inferencegw.NewRoutingEngine(connectors, pricing)
-	policy := &inferencegw.AllowAllPolicyEvaluator{}
-	logger.Warn(ctx, "WARNING: using AllowAllPolicyEvaluator — all inference requests are permitted without policy evaluation; replace before production use")
+	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
+	pol.Start(ctx)
+
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 
 	// Warm the alias table before accepting traffic so that alias routing
@@ -140,11 +143,64 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 		logger.Info(ctx, "model catalog warm-up complete")
 	}
 
-	svc := inferencegw.NewService(policy, router, pricing, usageRepo, logger)
+	// Wire scope registration: once now (after warm-up), and again on every
+	// catalog refresh triggered by GET /v1/models.
+	initScopeRegistration(ctx, logger, router)
+
+	svc := inferencegw.NewService(pol, router, pricing, usageRepo, logger)
 
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, logger),
 	}, nil
+}
+
+// initScopeRegistration wires the policy-service scope vocabulary for the
+// inference gateway. It registers once immediately (in a background goroutine,
+// since the routescopes client retries until the identity-proxy sidecar is
+// ready) and installs a hook on the router so the vocabulary is re-synced
+// whenever GET /v1/models refreshes the catalog.
+func initScopeRegistration(ctx context.Context, logger logging.Logger, router *inferencegw.RoutingEngine) {
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
+
+	register := func(catalogScopes []inferencegw.CatalogScope) {
+		scopeDecls := inferenceScopes(catalogScopes)
+		if err := client.Register(ctx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {
+			logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+
+	router.SetCatalogUpdateHook(register)
+	go register(router.CatalogScopes())
+}
+
+// inferenceRoutes returns the static route→scope bindings for the inference gateway.
+func inferenceRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
+		{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
+		{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
+	}
+}
+
+// inferenceScopes builds the full scope declaration list from the current catalog.
+// Static top-level scopes are always included; per-family and per-model scopes
+// are derived from the live catalog so they stay current as providers change.
+func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.ScopeDeclaration {
+	decls := []routescopes.ScopeDeclaration{
+		{Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Call the inference endpoints"},
+		{Scope: "inference:use", ResourceType: "inference", PathSegments: []string{}, Action: "use", Description: "Use any model across all providers"},
+		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
+	}
+	for _, cs := range catalogScopes {
+		decls = append(decls, routescopes.ScopeDeclaration{
+			Scope:        cs.Scope,
+			ResourceType: "inference",
+			PathSegments: cs.PathSegments,
+			Action:       "use",
+			Description:  cs.Description,
+		})
+	}
+	return decls
 }
 
 func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, error) {

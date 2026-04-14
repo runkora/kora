@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-policy-service
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.policyService.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.policyService.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.policyService.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.policyService.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.policyService.labels" . | nindent 8 }}
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: policy-service
+      annotations:
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Postgres is external to the mesh — bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+    spec:
+      serviceAccountName: orbit-policy-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      containers:
+        - name: orbit-policy-service
+          image: "{{ .Values.policyService.image.repository }}:{{ include "orbit.policyService.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.policyService.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.policyService.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.policyService.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.policyService.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.policyService.config.logFormat | quote }}
+          {{- if or .Values.policyService.existingConfigMap .Values.policyService.existingSecret }}
+          envFrom:
+            {{- if .Values.policyService.existingConfigMap }}
+            - configMapRef:
+                name: {{ .Values.policyService.existingConfigMap }}
+            {{- end }}
+            {{- if .Values.policyService.existingSecret }}
+            - secretRef:
+                name: {{ .Values.policyService.existingSecret }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8083
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.policyService.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true

@@ -8,6 +8,22 @@ import (
 	"sync/atomic"
 )
 
+// ResolvedModelInfo is the policy-relevant identity of a model request —
+// the vendor family and the clean canonical alias.
+// Used to build the fine-grained policy scope: inference:{Family}:{Alias}:use.
+type ResolvedModelInfo struct {
+	Family string // e.g. "anthropic"
+	Alias  string // e.g. "claude-3-5-haiku" (shortest clean alias)
+}
+
+// CatalogScope describes a scope entry derived from the live model catalog,
+// ready for registration with the policy service vocabulary.
+type CatalogScope struct {
+	Scope        string   // e.g. "inference:anthropic:claude-3-5-haiku:use"
+	PathSegments []string // e.g. ["anthropic", "claude-3-5-haiku"]
+	Description  string   // human-readable label for the UI
+}
+
 const (
 	// defaultMaxAttemptsPerTarget is the maximum number of retries for a single
 	// provider before moving to the next target in the failover chain.
@@ -46,6 +62,25 @@ type RoutingEngine struct {
 	// successful ListModels call. Used by lowestCostTargets and failoverChain
 	// so those strategies work without a populated pricing cache.
 	modelCatalog atomic.Pointer[[]ProviderModel]
+
+	// onCatalogUpdate is called after every successful ListModels that produces
+	// a non-empty catalog. Wired in main.go to re-register scope vocabulary
+	// with the policy service so new models become grantable immediately.
+	// Stored atomically so SetCatalogUpdateHook is safe to call concurrent
+	// with ListModels.
+	onCatalogUpdate atomic.Pointer[func([]CatalogScope)]
+}
+
+// SetCatalogUpdateHook registers a function to be called after every successful
+// ListModels refresh. The hook receives the current CatalogScopes and runs in
+// the same goroutine as the ListModels caller — implementations should be
+// non-blocking (e.g. spawn their own goroutine if they do I/O).
+func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
+	if fn == nil {
+		r.onCatalogUpdate.Store(nil)
+		return
+	}
+	r.onCatalogUpdate.Store(&fn)
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
@@ -166,6 +201,10 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		}
 		r.aliasTable.Store(&newTable)
 		r.modelCatalog.Store(&models)
+
+		if fn := r.onCatalogUpdate.Load(); fn != nil && *fn != nil {
+			go (*fn)(r.CatalogScopes())
+		}
 
 		return models, nil
 	}
@@ -375,6 +414,110 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 	}
 
 	return targets, StrategyFailoverChain, nil
+}
+
+// ResolveModelForPolicy maps a requested model string to the canonical family
+// and policy alias used to construct inference:{family}:{alias}:use scopes.
+//
+// Returns ok=false for wildcard routing ("", "*", "failover") — those paths
+// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
+// Also returns ok=false when the catalog is empty (cold start) or the model
+// is not found; in that case the Layer 1 scope check still applies.
+func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
+	if model == "" || model == "*" || model == "failover" {
+		return ResolvedModelInfo{}, false
+	}
+
+	catalog := r.modelCatalog.Load()
+	if catalog == nil {
+		return ResolvedModelInfo{}, false
+	}
+
+	// Normalise to a bare model ID (no provider prefix) for catalog lookup.
+	// Provider-qualified form: "bedrock/claude-sonnet-4-6" → resolve alias → strip prefix.
+	// Bare form: "anthropic.claude-sonnet-4-20250514-v1:0" — check as-is, and also
+	// check against catalog aliases after stripping their provider prefix, since
+	// callers may omit the provider and rely on routing to pick one.
+	lookupID := model
+	if strings.Contains(model, "/") {
+		resolved := r.resolveAlias(model)
+		_, modelID, err := parseExplicitModel(resolved)
+		if err != nil {
+			return ResolvedModelInfo{}, false
+		}
+		lookupID = modelID
+	}
+
+	for _, m := range *catalog {
+		// Direct match on canonical model ID (already stripped of provider prefix).
+		_, bareModelID, _ := parseExplicitModel(m.ModelID)
+		if bareModelID == "" {
+			bareModelID = m.ModelID
+		}
+		if bareModelID == lookupID {
+			return ResolvedModelInfo{Family: m.Family, Alias: m.PolicyAlias()}, true
+		}
+		// Match against aliases, stripping provider prefix from each.
+		for _, alias := range m.Aliases {
+			_, bareAlias, _ := parseExplicitModel(alias)
+			if bareAlias == "" {
+				bareAlias = alias
+			}
+			if bareAlias == lookupID {
+				return ResolvedModelInfo{Family: m.Family, Alias: m.PolicyAlias()}, true
+			}
+		}
+	}
+
+	return ResolvedModelInfo{}, false
+}
+
+// CatalogScopes returns the deduplicated set of scope declarations derived
+// from the current model catalog. Includes one family-level scope per vendor
+// (e.g. inference:anthropic:use) and one model-level scope per distinct
+// model (e.g. inference:anthropic:claude-3-5-haiku:use).
+//
+// These are registered with the policy service vocabulary so the grants/roles
+// UI can show available model scopes for assignment.
+func (r *RoutingEngine) CatalogScopes() []CatalogScope {
+	catalog := r.modelCatalog.Load()
+	if catalog == nil {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var scopes []CatalogScope
+
+	for _, m := range *catalog {
+		if m.Family == "" || m.Family == "unknown" {
+			continue
+		}
+		alias := m.PolicyAlias()
+
+		// Family-level scope — one per vendor.
+		familyScope := fmt.Sprintf("inference:%s:use", m.Family)
+		if !seen[familyScope] {
+			seen[familyScope] = true
+			scopes = append(scopes, CatalogScope{
+				Scope:        familyScope,
+				PathSegments: []string{m.Family},
+				Description:  fmt.Sprintf("Use any %s model", m.Family),
+			})
+		}
+
+		// Model-level scope — one per distinct canonical alias.
+		modelScope := fmt.Sprintf("inference:%s:%s:use", m.Family, alias)
+		if !seen[modelScope] {
+			seen[modelScope] = true
+			scopes = append(scopes, CatalogScope{
+				Scope:        modelScope,
+				PathSegments: []string{m.Family, alias},
+				Description:  m.DisplayName,
+			})
+		}
+	}
+
+	return scopes
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────────

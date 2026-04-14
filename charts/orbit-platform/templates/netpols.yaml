@@ -53,6 +53,9 @@ spec:
 # - 3000:  orbit-frontend (Next.js)
 # - 8080:  orbit-identity
 # - 8081:  orbit-inference-gateway
+# - 8083:  orbit-policy-service
+# - 8084:  orbit-policy-gateway
+# - 9090:  orbit-policy-gateway (gRPC ext_authz)
 # - 15006: Envoy inbound iptables redirect
 # - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
 # - 15090: Envoy Prometheus metrics scrape
@@ -82,6 +85,9 @@ spec:
         - port: 3000
         - port: 8080
         - port: 8081
+        - port: 8083
+        - port: 8084
+        - port: 9090
         - port: 15006
         - port: 15008
         - port: 15090
@@ -94,15 +100,19 @@ spec:
         - port: 3000
         - port: 8080
         - port: 8081
+        - port: 8083
+        - port: 8084
+        - port: 9090
         - port: 15006
         - port: 15008
 ---
 # Allow inbound mTLS mesh traffic from tenant namespaces into orbit-system.
-# The identity-proxy sidecar in each tenant namespace calls orbit-identity's
-# /api/v1/identity/exchange endpoint. With Istio mTLS, this means the source
-# Envoy connects to the destination pod on port 15006 (inbound redirect) or
-# 15008 (HBONE tunnel). Without this rule, the default-deny-all blocks the
-# connection and Envoy returns 503 "delayed connect error: Connection refused".
+# Two cross-namespace flows require this:
+# - identity-proxy sidecar calls orbit-identity (/api/v1/identity/exchange) on port 8080
+# - OPA sidecar polls orbit-policy-service for bundles on port 8083
+# With Istio mTLS, the source Envoy connects on the original destination port before
+# iptables redirect. Without this rule, the default-deny-all blocks the connection
+# and Envoy returns 503 "delayed connect error: Connection refused".
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -121,6 +131,8 @@ spec:
               orbit.io/role: tenant
       ports:
         - port: 8080
+          protocol: TCP
+        - port: 8083
           protocol: TCP
         - port: 15006
           protocol: TCP
@@ -231,11 +243,20 @@ spec:
         # 3000: orbit-frontend (Next.js)
         # 8080: orbit-identity
         # 8081: orbit-inference-gateway
+        # 8083: orbit-policy-service
+        # 8084: orbit-policy-gateway
+        # 9090: orbit-policy-gateway (gRPC ext_authz)
         - port: 3000
           protocol: TCP
         - port: 8080
           protocol: TCP
         - port: 8081
+          protocol: TCP
+        - port: 8083
+          protocol: TCP
+        - port: 8084
+          protocol: TCP
+        - port: 9090
           protocol: TCP
         # Envoy inbound redirect port — in case any mesh-internal traffic arrives
         # here (e.g. HBONE or direct sidecar-to-sidecar mTLS).

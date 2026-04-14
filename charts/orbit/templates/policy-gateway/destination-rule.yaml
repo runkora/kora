@@ -1,0 +1,17 @@
+{{- if .Values.platform.spiffe.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: orbit-policy-gateway-client-policy
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.policyGateway.labels" . | nindent 4 }}
+spec:
+  host: orbit-policy-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "orbit.trustDomain" . }}/system/policy-gateway"
+{{- end }}

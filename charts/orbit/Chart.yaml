@@ -5,8 +5,8 @@ description: >
   Kubernetes resources (ServiceAccount, Deployment, Service, DestinationRule,
   EnvoyFilter). Requires orbit-platform to be installed first.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.5.2
+appVersion: "0.3.0"
 
 keywords:
   - orbit

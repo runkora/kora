@@ -10,6 +10,7 @@ import (
 	openai "github.com/openai/openai-go"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -35,7 +36,7 @@ type principal struct {
 // Auth is handled upstream by AuthMiddleware — the service reads
 // the verified principal from context, never from raw headers.
 type Service struct {
-	policy  PolicyEvaluator
+	policy  policy.Evaluator
 	router  *RoutingEngine
 	pricing PricingCache
 	usage   InferenceUsageRepository
@@ -44,14 +45,14 @@ type Service struct {
 
 // NewService constructs a Service with all required dependencies.
 func NewService(
-	policy PolicyEvaluator,
+	pol policy.Evaluator,
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:  policy,
+		policy:  pol,
 		router:  router,
 		pricing: pricing,
 		usage:   usage,
@@ -102,7 +103,18 @@ func (s *Service) ChatCompletion(
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
-	// ── 2. Route request ──────────────────────────────────────────────────────
+	// ── 2. Policy check ───────────────────────────────────────────────────────
+	// Fine-grained check: inference:{family}:{alias}:use.
+	// Wildcard routing and unknown models fall through to the coarse
+	// inference:invoke scope enforced at Layer 1 by Envoy.
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
+	// ── 3. Route request ──────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -112,9 +124,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
-	// Policy is evaluated per target inside callWithFailover so that failover
-	// targets are also checked before being attempted.
-	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, p, targets, params)
+	resp, usedTarget, retryCount, callErr := s.callWithFailover(ctx, targets, params)
 
 	latencyMS := int(time.Since(start).Milliseconds())
 
@@ -206,7 +216,16 @@ func (s *Service) ChatCompletionStream(
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
 
-	// ── 2. Route ───────────────────────────────────────────────────────────────
+	// ── 2. Policy check ───────────────────────────────────────────────────────
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
+	// ── 3. Route ───────────────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -215,10 +234,6 @@ func (s *Service) ChatCompletionStream(
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
-
-	// ── 3. Policy ──────────────────────────────────────────────────────────────
-	// Evaluated per target inside retryTargets so that failover targets are
-	// also checked before being attempted.
 
 	// ── 4. Open stream from provider ──────────────────────────────────────────
 	// Inject stream_options so providers that support it return usage data.
@@ -229,24 +244,6 @@ func (s *Service) ChatCompletionStream(
 
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
-			})
-			if polErr != nil {
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
-			}
-			if !decision.Allowed {
-				s.logger.Info(ctx, "streaming inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
-					logging.Field{Key: "principal_id", Value: p.PrincipalID},
-					logging.Field{Key: "provider", Value: string(target.Provider)},
-				)
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
-			}
 			q := streamParams
 			q.Model = target.ModelID
 			return c.ChatCompletionStream(ctx, q)
@@ -395,6 +392,39 @@ func drainAnthropicStream(
 	return
 }
 
+// checkModelPolicy performs the fine-grained Layer 2 policy check for a specific
+// model request. It resolves the requested model to its canonical (family, alias)
+// and checks inference:{family}:{alias}:use against the OPA bundle.
+//
+// This check runs once before routing, not per-target inside the failover loop.
+// Failover targets are not independently re-checked — a principal allowed to
+// invoke the requested model is allowed to reach any provider that serves it.
+//
+// Returns nil for wildcard routing ("", "*", "failover") and for models not yet
+// in the catalog — in both cases the coarse inference:invoke scope enforced by
+// the Envoy Layer 1 check is the only gate.
+func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
+	info, ok := s.router.ResolveModelForPolicy(model)
+	if !ok {
+		return nil
+	}
+	claims, _ := token.ClaimsFromContext(ctx)
+	result, err := s.policy.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "inference",
+		PathSegments: []string{info.Family, info.Alias},
+		Action:       "use",
+	})
+	if err != nil {
+		return fmt.Errorf("policy check: %w", err)
+	}
+	if !result.Allow {
+		return ErrPolicyDenied
+	}
+	return nil
+}
+
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
 func principalFromClaims(ctx context.Context) (principal, error) {
@@ -511,30 +541,11 @@ func retryTargets[T any](
 // Policy is evaluated per target so that failover targets are also checked.
 func (s *Service) callWithFailover(
 	ctx context.Context,
-	p principal,
 	targets []RouteTarget,
 	params openai.ChatCompletionNewParams,
 ) (*openai.ChatCompletion, *RouteTarget, int, error) {
 	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*openai.ChatCompletion, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
-			})
-			if polErr != nil {
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
-			}
-			if !decision.Allowed {
-				s.logger.Info(ctx, "inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
-					logging.Field{Key: "principal_id", Value: p.PrincipalID},
-					logging.Field{Key: "provider", Value: string(target.Provider)},
-				)
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
-			}
 			q := params
 			q.Model = target.ModelID
 			return c.ChatCompletion(ctx, q)
@@ -580,6 +591,15 @@ func (s *Service) AnthropicMessages(
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	// ── Policy check ──────────────────────────────────────────────────────────
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -588,28 +608,8 @@ func (s *Service) AnthropicMessages(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	// Policy is evaluated per target inside retryTargets so that failover targets
-	// are also checked before being attempted.
 	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
-			})
-			if polErr != nil {
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
-			}
-			if !decision.Allowed {
-				s.logger.Info(ctx, "inference request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
-					logging.Field{Key: "principal_id", Value: p.PrincipalID},
-					logging.Field{Key: "provider", Value: string(target.Provider)},
-				)
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
-			}
 			q := params
 			q.Model = target.ModelID
 			return c.AnthropicMessages(ctx, q)
@@ -690,6 +690,16 @@ func (s *Service) AnthropicMessagesStream(
 	)
 
 	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	// ── Policy check ──────────────────────────────────────────────────────────
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -699,28 +709,8 @@ func (s *Service) AnthropicMessagesStream(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	// Policy is evaluated per target inside retryTargets so that failover targets
-	// are also checked before being attempted.
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
-			decision, polErr := s.policy.EvaluateInferenceRequest(ctx, &InferencePolicyRequest{
-				TenantID:      p.TenantID,
-				PrincipalID:   p.PrincipalID,
-				PrincipalType: p.PrincipalType,
-				Provider:      target.Provider,
-				ModelID:       target.ModelID,
-			})
-			if polErr != nil {
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_ERROR", Retryable: false, Underlying: polErr}
-			}
-			if !decision.Allowed {
-				s.logger.Info(ctx, "streaming anthropic request denied by policy",
-					logging.Field{Key: "reason", Value: decision.Reason},
-					logging.Field{Key: "principal_id", Value: p.PrincipalID},
-					logging.Field{Key: "provider", Value: string(target.Provider)},
-				)
-				return nil, &ConnectorError{Provider: target.Provider, Code: "POLICY_DENIED", Retryable: false, Underlying: ErrPolicyDenied}
-			}
 			q := params
 			q.Model = target.ModelID
 			return c.AnthropicMessagesStream(ctx, q)

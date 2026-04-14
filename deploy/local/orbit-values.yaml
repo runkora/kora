@@ -90,3 +90,23 @@ frontend:
 
 networkPolicy:
   enabled: true
+
+policyService:
+  image:
+    repository: orbit-registry:5001/orbit-policy-service
+    tag: latest
+  replicas: 1
+  config:
+    postgresSSLMode: "disable"
+    postgresCaptureQueryText: "true"
+    otlpInsecure: "true"
+    logFormat: "console"
+
+policyGateway:
+  image:
+    repository: orbit-registry:5001/orbit-policy-gateway
+    tag: latest
+  replicas: 1
+  config:
+    otlpInsecure: "true"
+    logFormat: "console"

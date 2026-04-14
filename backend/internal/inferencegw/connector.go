@@ -126,6 +126,13 @@ type ProviderModel struct {
 	// model ID.
 	ModelID string
 
+	// Family is the canonical vendor/model-family identifier used for policy
+	// scope construction. It is provider-agnostic — the same family may be
+	// served by multiple providers (e.g. "anthropic" models are available on
+	// both Bedrock and Vertex AI).
+	// Examples: "anthropic", "amazon", "meta", "mistral", "google", "cohere".
+	Family string
+
 	// DisplayName is a human-readable label suitable for UIs.
 	// e.g. "Claude Sonnet 4.6", "Llama 3.3 70B Instruct".
 	// Auto-generated from ModelID when no curated name is available.
@@ -158,6 +165,20 @@ type ProviderModel struct {
 	// e.g. ["chat"] for LLMs, ["embedding"] for embedding models,
 	//      ["image"] for image-generation models.
 	Capabilities []ModelCapability
+}
+
+// PolicyAlias returns the shortest clean alias for use in policy scope
+// construction (e.g. "claude-3-5-haiku", "nova-pro-v1").
+// Picks the shortest entry across ModelID and Aliases so that policy scopes
+// remain human-readable regardless of which provider canonical form is stored.
+func (m ProviderModel) PolicyAlias() string {
+	best := m.ModelID
+	for _, a := range m.Aliases {
+		if len(a) < len(best) {
+			best = a
+		}
+	}
+	return best
 }
 
 // ============================================================================

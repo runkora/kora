@@ -37,6 +37,12 @@ type TenantReconciler struct {
 	Registry   *TenantRegistry
 	Aggregator *ClientSecretAggregator
 	Logger     logging.Logger
+
+	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
+	BundlePollingMinDelay int
+
+	// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
+	BundlePollingMaxDelay int
 }
 
 // Reconcile is called by controller-runtime whenever an OrbitTenant is
@@ -109,7 +115,19 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	_ = r.setTenantCondition(ctx, tenant, ConditionRegistryUpdated, metav1.ConditionTrue,
 		"Synced", "orbit-tenants ConfigMap updated")
 
-	// Step 3: rebuild the aggregated OIDC client secrets Secret so that
+	// Step 3: ensure the orbit-opa-config ConfigMap exists in the tenant namespace.
+	// The OPA injection template mounts this ConfigMap to configure the OPA sidecar
+	// with the policy-service bundle endpoint and the tenant-specific bundle path.
+	if err := r.ensureOPAConfig(ctx, tenant); err != nil {
+		log.Error(ctx, "failed to ensure OPA config",
+			logging.Field{Key: "tenant", Value: tenant.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
+	// Step 4: rebuild the aggregated OIDC client secrets Secret so that
 	// confidential tenants are served without an identity service pod restart.
 	if err := r.Aggregator.Sync(ctx); err != nil {
 		log.Error(ctx, "failed to sync aggregated client secrets",
@@ -120,7 +138,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
-	// Step 4: mark ready and record timestamp.
+	// Step 5: mark ready and record timestamp.
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
@@ -291,6 +309,92 @@ func (r *TenantReconciler) setTenantCondition(
 	})
 	if err := r.Status().Patch(ctx, t, patch); err != nil {
 		return fmt.Errorf("patch OrbitTenant %q condition %q: %w", t.Name, condType, err)
+	}
+	return nil
+}
+
+// ensureOPAConfig creates or updates the orbit-opa-config ConfigMap in the
+// tenant namespace. The OPA injection template mounts this ConfigMap to
+// configure the OPA Envoy plugin sidecar — specifically the policy-service
+// bundle endpoint and the tenant-specific bundle path (resolved at runtime
+// from the pod's orbit.io/tenant-id annotation via env var substitution).
+func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
+	ns := tenantNamespace(tenant)
+
+	// OPA bundle polling interval is configurable via operator config. After a
+	// grant write, enforcement is stale for up to max_delay_seconds until the
+	// next bundle poll picks up the change. Emergency revocation uses the JTI
+	// blocklist (ADR-0008), not bundle propagation.
+	minDelay := r.BundlePollingMinDelay
+	if minDelay == 0 {
+		minDelay = 30
+	}
+	maxDelay := r.BundlePollingMaxDelay
+	if maxDelay == 0 {
+		maxDelay = 60
+	}
+	opaConfigYAML := fmt.Sprintf(`services:
+  policy-service:
+    url: http://orbit-policy-service.orbit-system.svc/api/v1/policy
+
+bundles:
+  authz:
+    service: policy-service
+    resource: "bundles/${ORBIT_TENANT_ID}"
+    polling:
+      min_delay_seconds: %d
+      max_delay_seconds: %d
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: localhost:9191
+    path: orbit/authz/allow
+    allow_if_undefined: false
+
+decision_logs:
+  console: true
+`, minDelay, maxDelay)
+
+	desired := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "orbit-opa-config",
+			Namespace: ns,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "orbit-operator",
+				"orbit.io/tenant":              tenant.Name,
+			},
+		},
+		Data: map[string]string{
+			"config.yaml": opaConfigYAML,
+		},
+	}
+
+	existing := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKey{Name: "orbit-opa-config", Namespace: ns}, existing)
+	if apierrors.IsNotFound(err) {
+		if createErr := r.Create(ctx, desired); createErr != nil {
+			return fmt.Errorf("create orbit-opa-config in %q: %w", ns, createErr)
+		}
+		r.Logger.Info(ctx, "created orbit-opa-config",
+			logging.Field{Key: "namespace", Value: ns},
+			logging.Field{Key: "tenant", Value: tenant.Name},
+		)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get orbit-opa-config in %q: %w", ns, err)
+	}
+
+	// Update if data has drifted.
+	if existing.Data["config.yaml"] != opaConfigYAML {
+		patch := client.MergeFrom(existing.DeepCopy())
+		existing.Data = desired.Data
+		if err := r.Patch(ctx, existing, patch); err != nil {
+			return fmt.Errorf("patch orbit-opa-config in %q: %w", ns, err)
+		}
+		r.Logger.Info(ctx, "patched orbit-opa-config",
+			logging.Field{Key: "namespace", Value: ns},
+		)
 	}
 	return nil
 }

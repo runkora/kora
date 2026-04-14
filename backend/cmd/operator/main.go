@@ -11,6 +11,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	oc "github.com/clear-route/orbit/cmd/operator/config"
 	"github.com/clear-route/orbit/internal/operator"
@@ -64,6 +66,9 @@ func main() {
 		shutdownObservability()
 		os.Exit(1)
 	}
+
+	// Wire up admission webhooks.
+	initWebhooks(mgr)
 
 	// Register health + readiness probes (served by controller-runtime).
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -161,6 +166,10 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		LeaderElectionNamespace: oc.Current.Operator.Namespace,
 		LeaderElectionID:        "orbit-operator-leader",
 		HealthProbeBindAddress:  ":8081",
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port:    9443,
+			CertDir: oc.Current.Operator.WebhookCertDir,
+		}),
 	}
 
 	// Wire a discard logr into controller-runtime so it doesn't emit the
@@ -171,6 +180,18 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 	return ctrl.NewManager(restCfg, opts)
 }
 
+// initWebhooks registers the admission webhook handlers with the manager's
+// built-in webhook server (port 9443, TLS from WebhookCertDir).
+func initWebhooks(mgr ctrl.Manager) {
+	decoder := admission.NewDecoder(mgr.GetScheme())
+	mgr.GetWebhookServer().Register("/mutate-pod", &webhook.Admission{
+		Handler: &operator.PodMutator{
+			Client:  mgr.GetClient(),
+			Decoder: decoder,
+		},
+	})
+}
+
 // initControllers registers the PlatformReconciler and TenantReconciler with
 // the controller-runtime Manager.
 func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logger) error {
@@ -178,23 +199,27 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		RestConfig: restCfg,
-		Logger:     logger,
-		ChartDir:   oc.Current.Operator.ChartDir,
-		Registry:   registry,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		RestConfig:  restCfg,
+		Logger:      logger,
+		ChartDir:    oc.Current.Operator.ChartDir,
+		Registry:    registry,
+		OPAImage:    oc.Current.Operator.OPAImage,
+		OPALogLevel: oc.Current.Operator.OPALogLevel,
 	}
 	if err := platformReconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
 
 	tenantReconciler := &operator.TenantReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Registry:   registry,
-		Aggregator: aggregator,
-		Logger:     logger,
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		Registry:              registry,
+		Aggregator:            aggregator,
+		Logger:                logger,
+		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
+		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
 		return err

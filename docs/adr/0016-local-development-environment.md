@@ -136,7 +136,7 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 
 `make dev-cluster` provisions:
 - A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`). k3d nodes can reach `orbit-postgres` at the IP level via this shared network, but pods inside the cluster use **CoreDNS** for name resolution — Docker's embedded DNS is invisible to CoreDNS. `dev-cluster-up.sh` registers `orbit-postgres` in CoreDNS by creating a headless `Service` + manual `Endpoints` object pointing at the container's Docker IP. See [CoreDNS DNS Injection](#coredns-dns-injection) below.
-- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.test`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
+- **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local.clearroute.io`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
 - **SPIRE Agent** — deployed as a DaemonSet with the `k8s_psat` attestation plugin (Kubernetes projected service account tokens — works without hardware TPM)
 - **Istio** — installed via `helm upgrade --install` (`istio/base` + `istio/istiod`) with sidecar injection enabled for the `orbit-system` namespace; no `istioctl` dependency
 - **SPIRE Controller Manager** — deployed as a sidecar on the SPIRE Server pod (included in the `spiffe/spire` umbrella chart); watches `ClusterSPIFFEID` CRDs and automatically creates SPIRE registration entries — no manual `spire-server entry create` calls required
@@ -202,7 +202,7 @@ Testing this endpoint requires a real SVID, which requires a running SPIRE Agent
 ### Neutral
 
 - All Go services must be written to support both tiers — configuration must be environment-aware (SPIRE endpoint configurable, external service endpoints configurable, etc.)
-- SPIRE trust domain for local development is `spiffe://orbit.test` — distinct from staging/production trust domains to prevent accidental cross-environment SVID acceptance
+- SPIRE trust domain for local development is `spiffe://orbit.local.clearroute.io` — distinct from staging/production trust domains to prevent accidental cross-environment SVID acceptance
 
 ---
 

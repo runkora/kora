@@ -150,6 +150,7 @@ func publisherModelToProviderModel(publisher, resourceName string) *inferencegw.
 	return &inferencegw.ProviderModel{
 		Provider:         inferencegw.ProviderVertexAI,
 		ModelID:          modelID,
+		Family:           publisher,
 		DisplayName:      modelIDToDisplayName(rawModelID),
 		Aliases:          aliases,
 		InputModalities:  inputMods,

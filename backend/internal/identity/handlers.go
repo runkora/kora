@@ -74,7 +74,7 @@ func rejectPATMiddleware(logger logging.Logger) mw.Middleware {
 			if claims, ok := token.ClaimsFromContext(r.Context()); ok && claims != nil {
 				if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
 					api.ErrorResponse(r.Context(), w, logger,
-						api.ForbiddenError("pat_not_allowed",
+						api.ForbiddenError(api.ErrCodeForbidden,
 							"personal access tokens are not permitted on this endpoint", nil), nil)
 					return
 				}
