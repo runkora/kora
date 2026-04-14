@@ -45,6 +45,10 @@ _layer1_claims := claims if {
 	jwks := json.unmarshal(resp.raw_body)
 	# io.jwt.decode_verify returns [valid, header, payload]; valid must be true.
 	# Use "cert" with the serialised JWK to work around the OPA 1.15.x "jwks" bug.
+	# NOTE: jwks.keys[0] assumes a single signing key. If key rotation with two
+	# simultaneous keys is needed, match on the JWT header "kid" claim instead —
+	# `some key in jwks.keys` does not work reliably with io.jwt.decode_verify
+	# in OPA 1.15.x (non-matching keys return undefined, killing the rule).
 	result := io.jwt.decode_verify(_layer1_token, {
 		"cert": json.marshal(jwks.keys[0]),
 		"iss":  data.config.issuer,
@@ -169,6 +173,11 @@ _delegator_id := _layer1_delegation_claims.sub if {
 #
 # These paths use mTLS workload identity (SPIFFE) for authentication — they
 # carry no user JWT and must not be evaluated against the grant/scope model.
+#
+# Security: this bypass relies on Istio PeerAuthentication STRICT mode enforcing
+# mTLS on all inbound traffic to these services. Without STRICT mode, requests
+# from outside the mesh reach these paths without any credential check.
+#
 # Each entry is an explicit, narrow bypass:
 #
 #   /api/v1/identity/exchange          — identity-proxy acquires platform token
@@ -207,8 +216,11 @@ allow if {
 	delegator_covers_required_scope
 }
 
-# HUMAN principals with an OIDC admin role (PAP access, bootstrapping)
+# HUMAN principals with an OIDC admin role (PAP access, bootstrapping).
+# Must not fire for delegated requests — delegation constrains the effective
+# permissions to the intersection of delegator grants and delegation scopes.
 allow if {
+	not _is_delegated
 	_principal_type == "HUMAN"
 	some role in _principal_roles
 	some role_scope in data.roles.role_scopes[role]
