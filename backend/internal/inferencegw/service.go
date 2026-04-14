@@ -396,6 +396,10 @@ func drainAnthropicStream(
 // model request. It resolves the requested model to its canonical (family, alias)
 // and checks inference:{family}:{alias}:invoke against the OPA bundle.
 //
+// This check runs once before routing, not per-target inside the failover loop.
+// Failover targets are not independently re-checked — a principal allowed to
+// invoke the requested model is allowed to reach any provider that serves it.
+//
 // Returns nil for wildcard routing ("", "*", "failover") and for models not yet
 // in the catalog — in both cases the coarse inference:invoke scope enforced by
 // the Envoy Layer 1 check is the only gate.

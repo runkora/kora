@@ -613,10 +613,16 @@ build-backend: ## Build all service binaries to .bin directory
 # ===========================================
 
 .PHONY: test-integration
-test-integration: ## Run integration tests (requires dev-cluster to be running)
+test-integration: auth-refresh-k3d ## Run integration tests (requires dev-cluster to be running)
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...
-	@echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"
+	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
+		PF_PID=$$!; \
+		sleep 2; \
+		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...; \
+		STATUS=$$?; \
+		kill $$PF_PID 2>/dev/null || true; \
+		if [ $$STATUS -eq 0 ]; then echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"; fi; \
+		exit $$STATUS
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
@@ -813,6 +819,35 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
+
+.PHONY: auth-refresh-k3d
+auth-refresh-k3d: ## Refresh the access token in /tmp/orbit_credentials.json (k3d cluster via port-forward)
+	@CREDS="/tmp/orbit_credentials.json"; \
+	if [ ! -f "$$CREDS" ]; then \
+		echo "$(COLOR_RED)✗ No credentials file at $$CREDS — run: make auth-device-k3d$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	RT=$$(jq -r '.refresh_token // ""' "$$CREDS"); \
+	if [ -z "$$RT" ]; then \
+		echo "$(COLOR_RED)✗ No refresh_token in $$CREDS — run: make auth-device-k3d$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	TENANT="$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+	echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"; \
+	kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+	PF_PID=$$!; \
+	RESP=$$(curl -sf --retry 5 --retry-connrefused --retry-delay 1 -X POST "http://localhost:6069/api/v1/identity/session" \
+		-H "Content-Type: application/json" \
+		-d "{\"grant_type\": \"refresh_token\", \"refresh_token\": \"$$RT\", \"tenant_id\": \"$$TENANT\"}"); \
+	STATUS=$$?; \
+	kill $$PF_PID 2>/dev/null || true; \
+	if [ $$STATUS -ne 0 ]; then \
+		echo "$(COLOR_RED)✗ Refresh failed — token may be expired. Run: make auth-device-k3d$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	echo "$$RESP" > "$$CREDS"; \
+	chmod 600 "$$CREDS"; \
+	echo "$(COLOR_GREEN)✓ Token refreshed — saved to $$CREDS$(COLOR_RESET)"
 
 .PHONY: setup-tls
 setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)

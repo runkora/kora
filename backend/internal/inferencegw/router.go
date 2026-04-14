@@ -66,7 +66,9 @@ type RoutingEngine struct {
 	// onCatalogUpdate is called after every successful ListModels that produces
 	// a non-empty catalog. Wired in main.go to re-register scope vocabulary
 	// with the policy service so new models become grantable immediately.
-	onCatalogUpdate func([]CatalogScope)
+	// Stored atomically so SetCatalogUpdateHook is safe to call concurrent
+	// with ListModels.
+	onCatalogUpdate atomic.Pointer[func([]CatalogScope)]
 }
 
 // SetCatalogUpdateHook registers a function to be called after every successful
@@ -74,7 +76,7 @@ type RoutingEngine struct {
 // the same goroutine as the ListModels caller — implementations should be
 // non-blocking (e.g. spawn their own goroutine if they do I/O).
 func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
-	r.onCatalogUpdate = fn
+	r.onCatalogUpdate.Store(&fn)
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
@@ -196,8 +198,8 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		r.aliasTable.Store(&newTable)
 		r.modelCatalog.Store(&models)
 
-		if r.onCatalogUpdate != nil {
-			go r.onCatalogUpdate(r.CatalogScopes())
+		if fn := r.onCatalogUpdate.Load(); fn != nil {
+			go (*fn)(r.CatalogScopes())
 		}
 
 		return models, nil

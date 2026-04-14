@@ -69,21 +69,38 @@ type registrationRequest struct {
 // Client registers a service's routes and scopes with the policy service.
 type Client struct {
 	*httpclient.Base
-	serviceURL string
+	serviceURL   string
+	initialDelay time.Duration
 }
 
 const (
-	tracerName    = "orbit.routescopes-client"
-	clientTimeout = 10 * time.Second
+	tracerName          = "orbit.routescopes-client"
+	clientTimeout       = 10 * time.Second
+	defaultInitialDelay = 15 * time.Second
 )
+
+// Option configures the Client.
+type Option func(*Client)
+
+// WithInitialDelay overrides the default 15-second startup delay that allows
+// the identity-proxy sidecar to acquire a platform token before the first
+// registration attempt.
+func WithInitialDelay(d time.Duration) Option {
+	return func(c *Client) { c.initialDelay = d }
+}
 
 // NewClient creates a Client targeting the given policy service base URL,
 // e.g. "http://orbit-policy-service.orbit-system.svc".
-func NewClient(serviceURL string, logger logging.Logger) *Client {
-	return &Client{
-		Base:       httpclient.New(tracerName, logger, clientTimeout),
-		serviceURL: serviceURL,
+func NewClient(serviceURL string, logger logging.Logger, opts ...Option) *Client {
+	c := &Client{
+		Base:         httpclient.New(tracerName, logger, clientTimeout),
+		serviceURL:   serviceURL,
+		initialDelay: defaultInitialDelay,
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // Register sends the service's route→scope mappings and scope declarations to
@@ -96,15 +113,16 @@ func NewClient(serviceURL string, logger logging.Logger) *Client {
 // for a platform token before the first attempt.
 func (c *Client) Register(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration) error {
 	const (
-		maxAttempts  = 15
-		initialDelay = 15 * time.Second
-		maxBackoff   = 30 * time.Second
+		maxAttempts = 15
+		maxBackoff  = 30 * time.Second
 	)
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(initialDelay):
+	if c.initialDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.initialDelay):
+		}
 	}
 
 	reg := registrationRequest{Service: service, Routes: routes, Scopes: scopes}

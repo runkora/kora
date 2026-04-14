@@ -26,7 +26,7 @@
 {{- $tlsKey = index $existing.data "tls.key" -}}
 {{- else -}}
 {{- $ca := genCA "orbit-operator-ca" 3650 -}}
-{{- $cert := genSignedCert $svcName nil (list $svcName (printf "%s.cluster.local" $svcName)) 3650 $ca -}}
+{{- $cert := genSignedCert $svcName nil (list "orbit-operator-webhook" $svcName (printf "%s.cluster.local" $svcName)) 3650 $ca -}}
 {{- $caCert = $ca.Cert | b64enc -}}
 {{- $tlsCert = $cert.Cert | b64enc -}}
 {{- $tlsKey = $cert.Key | b64enc -}}

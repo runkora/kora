@@ -92,7 +92,7 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.svc.DeleteGrant(ctx, g.ID); err != nil {
+	if err := c.svc.DeleteGrant(ctx, g.ID, g.TenantID); err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return
 	}

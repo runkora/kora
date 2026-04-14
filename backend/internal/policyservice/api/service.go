@@ -98,15 +98,11 @@ func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error
 	return s.grantRepo.GetByID(ctx, id)
 }
 
-func (s *Service) DeleteGrant(ctx context.Context, id string) error {
-	g, err := s.grantRepo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
+func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) error {
 	if err := s.grantRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	go s.recompileBundle(context.WithoutCancel(ctx), g.TenantID)
+	go s.recompileBundle(context.WithoutCancel(ctx), tenantID)
 	return nil
 }
 

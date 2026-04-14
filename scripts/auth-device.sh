@@ -187,6 +187,13 @@ echo ""
 echo -e "  Expires in ${EXPIRES_IN}s — polling every ${POLL_INTERVAL}s"
 echo ""
 
+# Auto-open the verification URL in the default browser (best-effort).
+if command -v open >/dev/null 2>&1; then
+  open "$VERIFY_URI" 2>/dev/null || true
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$VERIFY_URI" 2>/dev/null || true
+fi
+
 # ─── Step 3: Poll until authorised ────────────────────────────────────────────
 
 ELAPSED=0

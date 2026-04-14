@@ -315,6 +315,9 @@ func (r *TenantReconciler) setTenantCondition(
 func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
+	// OPA bundle polling interval: 30–60 seconds. After a grant write, enforcement
+	// is stale for up to 60 seconds until the next bundle poll picks up the change.
+	// Emergency revocation uses the JTI blocklist (ADR-0008), not bundle propagation.
 	const opaConfigYAML = `services:
   policy-service:
     url: http://orbit-policy-service.orbit-system.svc/api/v1/policy

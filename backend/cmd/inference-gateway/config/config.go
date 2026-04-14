@@ -10,6 +10,7 @@ import (
 //
 // Values are loaded from cmd/inference-gateway/config/{APP_ENV}.yaml at
 // startup. The YAML provides build-time defaults that are baked into the
+// binary via embed and can be overridden by environment variables at runtime.
 type Config struct {
 	App           config.AppConfig    `yaml:"app"`
 	Server        config.ServerConfig `yaml:"server"`
