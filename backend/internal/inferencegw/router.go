@@ -420,7 +420,7 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 // and policy alias used to construct inference:{family}:{alias}:use scopes.
 //
 // Returns ok=false for wildcard routing ("", "*", "failover") — those paths
-// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
+// require only the broad inference:use scope enforced at Layer 1 by Envoy.
 // Also returns ok=false when the catalog is empty (cold start) or the model
 // is not found; in that case the Layer 1 scope check still applies.
 func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {

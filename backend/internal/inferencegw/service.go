@@ -106,7 +106,7 @@ func (s *Service) ChatCompletion(
 	// ── 2. Policy check ───────────────────────────────────────────────────────
 	// Fine-grained check: inference:{family}:{alias}:use.
 	// Wildcard routing and unknown models fall through to the coarse
-	// inference:invoke scope enforced at Layer 1 by Envoy.
+	// inference:use scope enforced at Layer 1 by Envoy.
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
@@ -401,7 +401,7 @@ func drainAnthropicStream(
 // invoke the requested model is allowed to reach any provider that serves it.
 //
 // Returns nil for wildcard routing ("", "*", "failover") and for models not yet
-// in the catalog — in both cases the coarse inference:invoke scope enforced by
+// in the catalog — in both cases the coarse inference:use scope enforced by
 // the Envoy Layer 1 check is the only gate.
 func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 	info, ok := s.router.ResolveModelForPolicy(model)
