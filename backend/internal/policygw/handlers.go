@@ -22,7 +22,7 @@ func (c *Controller) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := policy.ParseDelegationToken(req.DelegationToken)
+	delegation, err := policy.ParseDelegationToken(ctx, req.DelegationToken, c.verifier)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)
@@ -54,7 +54,7 @@ func (c *Controller) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delegation, err := policy.ParseDelegationToken(req.DelegationToken)
+	delegation, err := policy.ParseDelegationToken(ctx, req.DelegationToken, c.verifier)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)

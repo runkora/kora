@@ -10,7 +10,7 @@ import (
 
 // ResolvedModelInfo is the policy-relevant identity of a model request —
 // the vendor family and the clean canonical alias.
-// Used to build the fine-grained policy scope: inference:{Family}:{Alias}:invoke.
+// Used to build the fine-grained policy scope: inference:{Family}:{Alias}:use.
 type ResolvedModelInfo struct {
 	Family string // e.g. "anthropic"
 	Alias  string // e.g. "claude-3-5-haiku" (shortest clean alias)
@@ -19,7 +19,7 @@ type ResolvedModelInfo struct {
 // CatalogScope describes a scope entry derived from the live model catalog,
 // ready for registration with the policy service vocabulary.
 type CatalogScope struct {
-	Scope        string   // e.g. "inference:anthropic:claude-3-5-haiku:invoke"
+	Scope        string   // e.g. "inference:anthropic:claude-3-5-haiku:use"
 	PathSegments []string // e.g. ["anthropic", "claude-3-5-haiku"]
 	Description  string   // human-readable label for the UI
 }
@@ -76,6 +76,10 @@ type RoutingEngine struct {
 // the same goroutine as the ListModels caller — implementations should be
 // non-blocking (e.g. spawn their own goroutine if they do I/O).
 func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
+	if fn == nil {
+		r.onCatalogUpdate.Store(nil)
+		return
+	}
 	r.onCatalogUpdate.Store(&fn)
 }
 
@@ -198,7 +202,7 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		r.aliasTable.Store(&newTable)
 		r.modelCatalog.Store(&models)
 
-		if fn := r.onCatalogUpdate.Load(); fn != nil {
+		if fn := r.onCatalogUpdate.Load(); fn != nil && *fn != nil {
 			go (*fn)(r.CatalogScopes())
 		}
 
@@ -416,7 +420,7 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 // and policy alias used to construct inference:{family}:{alias}:invoke scopes.
 //
 // Returns ok=false for wildcard routing ("", "*", "failover") — those paths
-// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
+// require only the broad inference:use scope enforced at Layer 1 by Envoy.
 // Also returns ok=false when the catalog is empty (cold start) or the model
 // is not found; in that case the Layer 1 scope check still applies.
 func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
@@ -470,7 +474,7 @@ func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, 
 
 // CatalogScopes returns the deduplicated set of scope declarations derived
 // from the current model catalog. Includes one family-level scope per vendor
-// (e.g. inference:anthropic:invoke) and one model-level scope per distinct
+// (e.g. inference:anthropic:use) and one model-level scope per distinct
 // model (e.g. inference:anthropic:claude-3-5-haiku:invoke).
 //
 // These are registered with the policy service vocabulary so the grants/roles

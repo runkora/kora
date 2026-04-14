@@ -67,3 +67,15 @@ func (v *Verifier) Verify(ctx context.Context, rawToken string) (*PlatformClaims
 
 	return &claims, nil
 }
+
+// VerifyAndExtract verifies rawToken against the JWKS (signature, issuer,
+// audience, expiry) then deserializes the payload into claims. Use this for
+// tokens that share the same signing key and issuer/audience as platform
+// tokens but carry a different claims structure (e.g. delegation tokens).
+func (v *Verifier) VerifyAndExtract(ctx context.Context, rawToken string, claims any) error {
+	idToken, err := v.inner.Verify(ctx, rawToken)
+	if err != nil {
+		return fmt.Errorf("verify token: %w", err)
+	}
+	return idToken.Claims(claims)
+}

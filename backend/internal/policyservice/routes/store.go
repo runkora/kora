@@ -61,9 +61,19 @@ func NewStore() *Store {
 // Idempotent: re-registration replaces the previous entry.
 func (s *Store) Register(reg *Registration) {
 	key := registrationKey{service: reg.Service, tenantID: reg.TenantID}
-	reg.RegisteredAt = time.Now().UTC()
+
+	// Defensive copy so the caller cannot mutate store internals after Register returns.
+	cpy := *reg
+	cpy.Routes = make([]RouteScope, len(reg.Routes))
+	copy(cpy.Routes, reg.Routes)
+	if reg.Scopes != nil {
+		cpy.Scopes = make([]ScopeDeclaration, len(reg.Scopes))
+		copy(cpy.Scopes, reg.Scopes)
+	}
+	cpy.RegisteredAt = time.Now().UTC()
+
 	s.mu.Lock()
-	s.registrations[key] = reg
+	s.registrations[key] = &cpy
 	s.mu.Unlock()
 }
 

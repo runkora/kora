@@ -49,7 +49,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 		xAPIKeyMiddleware(),
 		orbCredentialMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
-		mw.DelegationMiddleware(c.logger),
+		mw.DelegationMiddleware(c.logger, c.verifier),
 	)
 }
 

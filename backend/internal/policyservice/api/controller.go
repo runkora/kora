@@ -55,7 +55,11 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		authed := authChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.Contains(r.URL.Path, "/bundles/") {
+			// Only bypass auth for GET requests to the bundle polling endpoint.
+			// strings.HasPrefix matches the mounted /bundles/{tenant_id} route
+			// without accidentally matching other paths that happen to contain
+			// the substring.
+			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/bundles/") {
 				next.ServeHTTP(w, r)
 				return
 			}

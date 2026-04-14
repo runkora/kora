@@ -126,12 +126,12 @@ _required_scope := route.required_scope if {
 # ══ NORMALISED DELEGATION ════════════════════════════════════════════════════
 #
 # Layer 2: delegation fields are pre-processed by buildOPAInput; the Go caller
-#          has already parsed ParseDelegationToken from the request context.
+#          has already verified and parsed the delegation token via
+#          ParseDelegationToken (signature, issuer, audience, expiry).
 #
 # Layer 1: delegation token is read from the X-Orbit-Delegation-Token header.
-#          Signature is not re-verified (consistent with ParseDelegationToken
-#          which uses ParseUnverified — the platform token is the cryptographic
-#          trust anchor; delegation token presence is trusted alongside it).
+#          Signature verification is handled by the DelegationMiddleware before
+#          the request reaches OPA evaluation.
 
 _is_delegated if {
 	not _is_envoy

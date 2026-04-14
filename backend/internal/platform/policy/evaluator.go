@@ -64,8 +64,11 @@ type Candidate struct {
 
 // Result is the outcome of a Check call.
 type Result struct {
-	Allow  bool
-	Reason string // "allow" or deny reason — log only, never return to caller
+	Allow bool
+	// Reason is a coarse "allow" or deny-reason string. Safe to return to
+	// callers in API responses — must not contain sensitive policy internals
+	// or materialized grant details.
+	Reason string
 }
 
 // DelegationClaims holds parsed delegation token fields.
