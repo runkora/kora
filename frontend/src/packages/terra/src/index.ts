@@ -88,6 +88,29 @@ export {
   TableRow,
   TableHead,
   TableCell,
+  // Table system additions
+  TableContainer,
+  TableEmpty,
+  nextSortDir,
+  // Table toolbar
+  TableToolbar,
+  // Table column header
+  TableColumnHeader,
+  // Data table (TanStack-backed, fully opinionated)
+  DataTable,
+} from './components/table';
+export type {
+  SortDir,
+  TableColumnVisibility,
+  TableToolbarProps,
+  TableColumnHeaderProps,
+  TableColumnFilter,
+  TableColumnFilterOption,
+  DataTableProps,
+  DataTableColumn,
+  DataTableColumnFilter,
+  DataTableClientFilter,
+  DataTableServerFilter,
 } from './components/table';
 
 // ─── Layout ──────────────────────────────────────────────────────────────────

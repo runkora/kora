@@ -2,19 +2,30 @@ import * as React from 'react';
 import { cn } from '../../utils';
 
 /**
- * Table
+ * Table — raw primitives
  *
- * A full-featured data table primitive composed of semantic HTML table parts.
- * Designed for Orbit's dense, dark, technical aesthetic — hairline dividers
- * between rows, monospaced values, and sticky headers on overflow.
+ * Semantic HTML table building blocks for Orbit's dense, dark, technical
+ * aesthetic — hairline row dividers, monospaced values, horizontal overflow
+ * scrolling via `TableRoot`.
  *
- * Compose with `TableHeader`, `TableBody`, `TableHead`, `TableRow`, and
- * `TableCell` for consistent layout and spacing.
+ * ## When to use these primitives
  *
- * The outer `TableRoot` wrapper handles horizontal overflow so the table
- * scrolls cleanly inside cards or page sections.
+ * Use raw primitives only for **static, display-only** tables — data that is
+ * read-only with no sort, filter, or column-visibility controls.
+ *
+ * | Use case | Component |
+ * |---|---|
+ * | Sort / filter / column visibility | `DataTable` |
+ * | Static display-only | Raw primitives (`Table`, `TableRow`, …) |
+ * | Suspense skeleton mirroring `DataTable` layout | Raw primitives |
+ * | Inside `DataTable` itself | Raw primitives (internal) |
+ *
+ * For any interactive table, use `DataTable` instead — it encapsulates
+ * TanStack Table, toolbar, search, filters, sort, and column visibility so
+ * consumers only declare columns and pass data.
  *
  * ```tsx
+ * // Static display-only — raw primitives are correct here
  * <TableRoot>
  *   <Table>
  *     <TableHeader>
@@ -200,3 +211,70 @@ export {
   TableHead,
   TableCell,
 };
+
+// ─── Sort utilities ───────────────────────────────────────────────────────────
+
+/**
+ * The three possible sort directions for a column.
+ * `null` means unsorted.
+ */
+export type SortDir = 'asc' | 'desc' | null;
+
+/**
+ * Advances the sort cycle: null → asc → desc → null.
+ * Pass the column's current `SortDir` and apply the returned value.
+ */
+export function nextSortDir(current: SortDir): SortDir {
+  if (current === null) return 'asc';
+  if (current === 'asc') return 'desc';
+  return null;
+}
+
+// ─── Column visibility ────────────────────────────────────────────────────────
+
+/**
+ * Describes the show/hide state of a single table column.
+ * Used by `TableToolbar` to render the column visibility popover.
+ */
+export interface TableColumnVisibility {
+  /** Unique column identifier — must match the key you use in your state. */
+  id: string;
+  /** Human-readable label shown in the Columns toggle popover. */
+  label: string;
+  /** Whether the column is currently visible. */
+  visible: boolean;
+}
+
+// ─── TableEmpty ───────────────────────────────────────────────────────────────
+
+/**
+ * TableEmpty
+ *
+ * Drop-in empty-state row. Renders a single full-width `<td>` spanning all
+ * columns with a centred message. Use inside `TableBody` when your filtered
+ * or fetched result set is empty.
+ *
+ * ```tsx
+ * <TableBody>
+ *   {rows.length === 0
+ *     ? <TableEmpty colSpan={6} />
+ *     : rows.map(r => <TableRow key={r.id}>…</TableRow>)
+ *   }
+ * </TableBody>
+ * ```
+ */
+export function TableEmpty({
+  colSpan,
+  message = 'No records found.',
+}: {
+  colSpan: number;
+  message?: string;
+}) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-4 py-10 text-center text-sm text-subtle">
+        {message}
+      </td>
+    </tr>
+  );
+}

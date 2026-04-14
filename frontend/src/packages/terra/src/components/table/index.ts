@@ -1,3 +1,4 @@
+// ─── Base table primitives ───────────────────────────────────────────────────
 export {
   TableRoot,
   Table,
@@ -8,4 +9,32 @@ export {
   TableRow,
   TableHead,
   TableCell,
+  TableEmpty,
+  nextSortDir,
 } from './table';
+export type { SortDir, TableColumnVisibility } from './table';
+
+// ─── Table container ─────────────────────────────────────────────────────────
+export { TableContainer } from './table-extras';
+
+// ─── Table toolbar ───────────────────────────────────────────────────────────
+export { TableToolbar } from './table-toolbar';
+export type { TableToolbarProps } from './table-toolbar';
+
+// ─── Table column header ─────────────────────────────────────────────────────
+export { TableColumnHeader } from './table-column-header';
+export type {
+  TableColumnHeaderProps,
+  TableColumnFilter,
+  TableColumnFilterOption,
+} from './table-column-header';
+
+// ─── Data table (TanStack-backed, fully opinionated) ─────────────────────────
+export { DataTable } from './data-table';
+export type {
+  DataTableProps,
+  DataTableColumn,
+  DataTableColumnFilter,
+  DataTableClientFilter,
+  DataTableServerFilter,
+} from './data-table';
