@@ -330,6 +330,38 @@ configPatches:
           failure_mode_allow: false            # fail-closed
 ```
 
+### Agent Pod Injection — MutatingAdmissionWebhook
+
+The identity-proxy and OPA sidecars are a **coupled pair** for Layer 1 enforcement and must be injected together:
+
+- **identity-proxy** intercepts outbound requests and injects the `Authorization: Bearer <platform-token>` header using the pod's SPIFFE SVID
+- **OPA sidecar** receives the Envoy `CheckRequest` and validates the now-present JWT against the tenant's grant bundle
+
+Without identity-proxy, the `Authorization` header is absent and OPA denies all requests with `deny:invalid_token`. Without OPA, the ext_authz filter has no handler and requests are blocked (fail-closed). They must always be present together.
+
+The operator registers a `MutatingWebhookConfiguration` that automatically injects the required labels and annotations onto every pod created in a tenant namespace (any namespace labelled `orbit.io/role: "tenant"`). This ensures Layer 1 enforcement is universal — no per-pod opt-in, no accidental gaps.
+
+**Injected by the webhook on every tenant pod:**
+
+| Field | Value | Purpose |
+|---|---|---|
+| label `orbit.io/identity-proxy` | `"enabled"` | Activates the identity-proxy EnvoyFilter (ext_proc) |
+| label `orbit.io/opa-policy` | `"enabled"` | Activates the OPA ext_authz EnvoyFilter |
+| annotation `orbit.io/tenant-id` | `<tenant-name>` | Tells the OPA sidecar which bundle to fetch from the policy service |
+| annotation `inject.istio.io/templates` | `"sidecar,spire,identity-proxy,opa-policy"` | Injects all four Istio sidecars; merged with any templates already set |
+
+The tenant name is read from the namespace label `orbit.io/tenant`, which is set by the operator's `TenantReconciler` at namespace provisioning time.
+
+**Failure policy: `Ignore`**
+
+If the webhook is temporarily unavailable (e.g. operator restart), pods start without the enforcement labels and Layer 1 sidecars are not injected. Layer 2 (in-process OPA in owned services) continues to enforce independently and is the authoritative check — so no security gap exists at the Layer 2 boundary. The Layer 1 gap is bounded by the webhook's recovery time, which is covered by the operator's readiness probe.
+
+**SPIFFE identity prerequisite**
+
+The identity-proxy exchanges the pod's SPIFFE SVID for a platform token. For this to succeed, the pod must match a `ClusterSPIFFEID` selector — either `spiffe.io/agent: <name>` (autonomous agents) or `spiffe.io/service: <name>` (tenant-deployed services). Without a SPIFFE identity, the identity-proxy fails its readiness probe and the pod never becomes Ready. This is the correct fail-closed behaviour: an agent without a declared identity cannot reach platform services.
+
+**Implementation:** `internal/operator/pod_webhook.go` — `PodMutator` registered with the controller-runtime webhook server on port 9443. TLS for the webhook server is provisioned by the Helm chart (`charts/orbit-operator/templates/webhook.yaml`) using Helm's `genCA`/`genSignedCert` with `lookup` to prevent cert regeneration on upgrade.
+
 ### Layer 2 PDP — `internal/platform/policy` Go Library
 
 `internal/platform/policy` is the single reusable entry point for any Go service requiring fine-grained in-process policy evaluation. It is not a separate binary — it is a library embedded in the calling service's process.

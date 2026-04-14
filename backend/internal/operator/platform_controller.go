@@ -416,6 +416,7 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 				"identity-proxy": buildIdentityProxyInjectionTemplate(
 					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
 				),
+				"opa-policy": buildOPAPolicyInjectionTemplate(),
 			},
 		},
 	}

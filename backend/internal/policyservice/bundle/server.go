@@ -107,7 +107,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Type", "application/vnd.openpolicyagent.bundle")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cached.Data)))
 	w.Header().Set("ETag", fmt.Sprintf("%q", cached.Revision))
 	w.Header().Set("Last-Modified", cached.CompiledAt.Format(time.RFC1123))
 	w.WriteHeader(http.StatusOK)

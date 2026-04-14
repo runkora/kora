@@ -11,6 +11,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	oc "github.com/clear-route/orbit/cmd/operator/config"
 	"github.com/clear-route/orbit/internal/operator"
@@ -64,6 +66,9 @@ func main() {
 		shutdownObservability()
 		os.Exit(1)
 	}
+
+	// Wire up admission webhooks.
+	initWebhooks(mgr)
 
 	// Register health + readiness probes (served by controller-runtime).
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -161,6 +166,10 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		LeaderElectionNamespace: oc.Current.Operator.Namespace,
 		LeaderElectionID:        "orbit-operator-leader",
 		HealthProbeBindAddress:  ":8081",
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port:    9443,
+			CertDir: oc.Current.Operator.WebhookCertDir,
+		}),
 	}
 
 	// Wire a discard logr into controller-runtime so it doesn't emit the
@@ -169,6 +178,18 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 	ctrl.SetLogger(logr.Discard())
 
 	return ctrl.NewManager(restCfg, opts)
+}
+
+// initWebhooks registers the admission webhook handlers with the manager's
+// built-in webhook server (port 9443, TLS from WebhookCertDir).
+func initWebhooks(mgr ctrl.Manager) {
+	decoder := admission.NewDecoder(mgr.GetScheme())
+	mgr.GetWebhookServer().Register("/mutate-pod", &webhook.Admission{
+		Handler: &operator.PodMutator{
+			Client:  mgr.GetClient(),
+			Decoder: decoder,
+		},
+	})
 }
 
 // initControllers registers the PlatformReconciler and TenantReconciler with

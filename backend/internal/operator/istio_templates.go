@@ -24,6 +24,73 @@ func buildSpireInjectionTemplate() string {
 `
 }
 
+// buildOPAPolicyInjectionTemplate returns the Istio sidecar injection template
+// that injects the OPA Envoy plugin sidecar into tenant agent pods.
+//
+// The OPA sidecar implements the envoy.service.auth.v3.Authorization gRPC
+// protocol and listens on localhost:9191. The EnvoyFilter in the orbit chart
+// wires Envoy's outbound ext_authz filter to this port on pods labeled
+// orbit.io/opa-policy=enabled.
+//
+// The tenant ID is read at runtime from the pod annotation orbit.io/tenant-id
+// (injected by the PodMutator webhook) so the OPA sidecar fetches the correct
+// per-tenant bundle from the policy service.
+//
+// The orbit-opa-config ConfigMap is created in each tenant namespace by the
+// TenantReconciler — it must be present before pods are scheduled.
+func buildOPAPolicyInjectionTemplate() string {
+	return `spec:
+  containers:
+  - name: opa
+    image: openpolicyagent/opa:1.15.2-envoy-static
+    args:
+      - "run"
+      - "--server"
+      - "--config-file=/config/config.yaml"
+      - "--addr=0.0.0.0:8181"
+      - "--diagnostic-addr=0.0.0.0:8282"
+      - "--log-level=debug"
+    env:
+      - name: ORBIT_TENANT_ID
+        valueFrom:
+          fieldRef:
+            fieldPath: "metadata.annotations['orbit.io/tenant-id']"
+    ports:
+      - name: opa-grpc
+        containerPort: 9191
+        protocol: TCP
+      - name: opa-http
+        containerPort: 8181
+        protocol: TCP
+      - name: opa-diag
+        containerPort: 8282
+        protocol: TCP
+    securityContext:
+      runAsUser: 1337
+    readinessProbe:
+      httpGet:
+        path: /health?bundles=true
+        port: 8282
+      initialDelaySeconds: 3
+      periodSeconds: 5
+      failureThreshold: 12
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8282
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    volumeMounts:
+      - name: orbit-opa-config
+        mountPath: /config
+        readOnly: true
+  volumes:
+  - name: orbit-opa-config
+    configMap:
+      name: orbit-opa-config
+`
+}
+
 // buildIdentityProxyInjectionTemplate returns the Istio sidecar injection
 // template that injects the identity-proxy container alongside istio-proxy.
 // The identity-proxy intercepts outbound agent HTTP calls and attaches a

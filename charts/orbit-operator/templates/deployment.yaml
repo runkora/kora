@@ -34,6 +34,10 @@ spec:
           image: "{{ .Values.image.repository }}:{{ include "orbit-operator.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            # Helm SDK needs a writable home for its repo/cache files.
+            # The container runs as non-root (65532) and cannot write to /.
+            - name: HOME
+              value: /tmp
             # Leader election is the only in-cluster tunable that differs between
             # dev and production. Driven by the chart value so operators running
             # in Kind/minikube can set leaderElection: false without APP_ENV.
@@ -41,6 +45,13 @@ spec:
               value: {{ .Values.leaderElection | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
@@ -57,4 +68,12 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: orbit-operator-webhook-tls
       terminationGracePeriodSeconds: 60

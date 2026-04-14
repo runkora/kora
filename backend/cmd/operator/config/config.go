@@ -34,6 +34,11 @@ type Config struct {
 		// LeaderElection enables leader election for HA deployments.
 		LeaderElection bool `yaml:"leaderElection"`
 
+		// WebhookCertDir is the directory containing the TLS cert and key for
+		// the admission webhook server (tls.crt, tls.key). Provisioned by the
+		// Helm chart from the orbit-operator-webhook-tls Secret.
+		WebhookCertDir string `yaml:"webhookCertDir"`
+
 		// SyncPeriod is how often the operator re-reconciles all resources
 		// even when no events are received (drift detection).
 		SyncPeriodSecs int `yaml:"syncPeriodSecs"`

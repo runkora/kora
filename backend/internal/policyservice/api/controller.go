@@ -6,6 +6,8 @@ package api
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -43,8 +45,23 @@ func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier
 }
 
 func (c *Controller) GroupedBy() string { return "/policy" }
+
+// Middleware applies JWT auth to all policy routes except GET /bundles/{tenant_id},
+// which is polled by OPA sidecars running inside the cluster with no credentials.
+// The bundle payload is compiled policy logic (not credentials or PII), so
+// unauthenticated cluster-internal access is acceptable.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
+	authChain := mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
+	return func(next http.Handler) http.Handler {
+		authed := authChain(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/bundles/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authed.ServeHTTP(w, r)
+		})
+	}
 }
 
 // Boot registers all policy service routes.

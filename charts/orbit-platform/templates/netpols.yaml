@@ -107,11 +107,12 @@ spec:
         - port: 15008
 ---
 # Allow inbound mTLS mesh traffic from tenant namespaces into orbit-system.
-# The identity-proxy sidecar in each tenant namespace calls orbit-identity's
-# /api/v1/identity/exchange endpoint. With Istio mTLS, this means the source
-# Envoy connects to the destination pod on port 15006 (inbound redirect) or
-# 15008 (HBONE tunnel). Without this rule, the default-deny-all blocks the
-# connection and Envoy returns 503 "delayed connect error: Connection refused".
+# Two cross-namespace flows require this:
+# - identity-proxy sidecar calls orbit-identity (/api/v1/identity/exchange) on port 8080
+# - OPA sidecar polls orbit-policy-service for bundles on port 8083
+# With Istio mTLS, the source Envoy connects on the original destination port before
+# iptables redirect. Without this rule, the default-deny-all blocks the connection
+# and Envoy returns 503 "delayed connect error: Connection refused".
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -130,6 +131,8 @@ spec:
               orbit.io/role: tenant
       ports:
         - port: 8080
+          protocol: TCP
+        - port: 8083
           protocol: TCP
         - port: 15006
           protocol: TCP

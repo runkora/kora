@@ -45,8 +45,8 @@ spec:
             grpc_service:
               envoy_grpc:
                 cluster_name: opa_policy_local
-              timeout: 10ms
-            failure_mode_allow: false
+              timeout: 2s
+            failure_mode_allow: true
             transport_api_version: V3
 
     # Add a static cluster pointing to the OPA sidecar on localhost:9191.

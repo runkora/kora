@@ -20,6 +20,13 @@ _is_envoy if input.attributes.request.http
 #
 # OPA fetches the identity service JWKS on first evaluation and caches the
 # response for 5 minutes. Signature, issuer, and audience are all validated.
+# The OPA container runs as UID 1337 so its outbound traffic bypasses Envoy's
+# iptables redirect — preventing recursive ext_authz calls during JWKS fetch.
+#
+# NOTE: OPA 1.15.x has a bug where io.jwt.decode_verify with the "jwks"
+# constraint silently returns undefined for RSA tokens. We work around this
+# by extracting the first key from the JWKS and passing it as a serialised
+# JWK via the "cert" constraint, which handles RSA correctly.
 
 _layer1_token := raw if {
 	_is_envoy
@@ -35,9 +42,11 @@ _layer1_claims := claims if {
 		"force_cache":                  true,
 		"force_cache_duration_seconds": 300,
 	})
+	jwks := json.unmarshal(resp.raw_body)
 	# io.jwt.decode_verify returns [valid, header, payload]; valid must be true.
+	# Use "cert" with the serialised JWK to work around the OPA 1.15.x "jwks" bug.
 	result := io.jwt.decode_verify(_layer1_token, {
-		"jwks": resp.raw_body,
+		"cert": json.marshal(jwks.keys[0]),
 		"iss":  data.config.issuer,
 		"aud":  data.config.audience,
 	})
@@ -156,7 +165,33 @@ _delegator_id := _layer1_delegation_claims.sub if {
 	_is_delegated
 }
 
+# ══ INTERNAL PLATFORM BYPASS ════════════════════════════════════════════════
+#
+# These paths use mTLS workload identity (SPIFFE) for authentication — they
+# carry no user JWT and must not be evaluated against the grant/scope model.
+# Each entry is an explicit, narrow bypass:
+#
+#   /api/v1/identity/exchange          — identity-proxy acquires platform token
+#   /api/v1/identity/.well-known/      — OPA fetches JWKS to validate JWTs
+#   /api/v1/policy/bundles/            — OPA polls bundle from policy service
+#
+# All other paths are deny-by-default; unregistered paths without a matching
+# route in data.routes.route_scopes will produce deny:no_route_match.
+
+_is_platform_internal_path if {
+	_is_envoy
+	some prefix in [
+		"/api/v1/identity/exchange",
+		"/api/v1/identity/.well-known/",
+		"/api/v1/policy/bundles/",
+	]
+	startswith(input.attributes.request.http.path, prefix)
+}
+
 # ══ ALLOW RULES ══════════════════════════════════════════════════════════════
+
+# Platform-internal infrastructure calls (mTLS authenticated, no user JWT).
+allow if _is_platform_internal_path
 
 # All principal types — autonomous (no delegation token)
 allow if {
