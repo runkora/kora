@@ -1,3 +1,4 @@
 export { DashboardHeader } from './dashboard-header';
 export { DashboardSidebar } from './dashboard-sidebar';
-export { PermissionsProvider } from './permissions-provider';
+export { PermissionsProvider, useSession } from './permissions-provider';
+export { ScopeGuard } from './scope-guard';

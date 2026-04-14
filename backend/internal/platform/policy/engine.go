@@ -150,15 +150,10 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare rego eval: %w", err)
 	}
 
-	// Re-parse the bundle for the scopes projection query. OPA's rego.New
-	// consumes the parsed bundle, so we need a fresh copy.
-	b2, err := bundle.NewReader(bytes.NewReader(bundleBytes)).Read()
-	if err != nil {
-		return fmt.Errorf("parse bundle for scopes query: %w", err)
-	}
+	// Reuse the same parsed bundle — rego.New reads from it without mutation.
 	rs := rego.New(
 		rego.Query(scopesQuery),
-		rego.ParsedBundle(tenantID, &b2),
+		rego.ParsedBundle(tenantID, &b),
 	)
 	sq, err := rs.PrepareForEval(ctx)
 	if err != nil {

@@ -103,9 +103,10 @@ interface ScopesResponse {
  * is created with no scopes (user sees only ungated pages).
  */
 async function fetchPermissions(accessToken: string): Promise<SessionPermissions> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const emptyPermissions: SessionPermissions = {
     scopes: [],
-    evaluatedAt: Math.floor(Date.now() / 1000),
+    evaluatedAt: nowSeconds,
   };
 
   try {
@@ -123,7 +124,9 @@ async function fetchPermissions(accessToken: string): Promise<SessionPermissions
     const data = (await res.json()) as ScopesResponse;
     return {
       scopes: data.scopes ?? [],
-      evaluatedAt: Math.floor(Date.now() / 1000),
+      evaluatedAt: data.evaluated_at
+        ? Math.floor(new Date(data.evaluated_at).getTime() / 1000)
+        : Math.floor(Date.now() / 1000),
     };
   } catch {
     return emptyPermissions;

@@ -58,7 +58,6 @@ const SECURITY_NAV: NavEntry[] = [
     label: 'Policy Engine',
     href: APP_ROUTES.policy,
     icon: ShieldCheck,
-    wip: true,
     requiredScope: 'platform:grants:read',
   },
   { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
