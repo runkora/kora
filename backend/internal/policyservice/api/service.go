@@ -43,9 +43,10 @@ type Service struct {
 	routeStore *routes.Store
 	logger     logging.Logger
 
-	// recompileMu protects recompileTimers from concurrent map access.
+	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
 	recompileMu     sync.Mutex
 	recompileTimers map[string]*time.Timer
+	lastWriteAt     map[string]time.Time
 }
 
 // NewService creates a Service wired to the provided repositories and bundle server.
@@ -65,6 +66,7 @@ func NewService(
 		routeStore:      routeStore,
 		logger:          logger,
 		recompileTimers: make(map[string]*time.Timer),
+		lastWriteAt:     make(map[string]time.Time),
 	}
 }
 
@@ -101,6 +103,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, fmt.Errorf("create grant: %w", err)
 	}
 
+	s.recordWrite(g.TenantID)
 	s.scheduleRecompile(ctx, g.TenantID)
 	return g, nil
 }
@@ -113,6 +116,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 	if err := s.grantRepo.Delete(ctx, id, tenantID); err != nil {
 		return err
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
@@ -189,10 +193,16 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 	tenantBundles := []tenantBundleStatus{}
 	cached := s.bundleSrv.Compiler().Get(tenantID)
 	if cached != nil {
+		status := "current"
+		s.recompileMu.Lock()
+		if lastWrite, ok := s.lastWriteAt[tenantID]; ok && lastWrite.After(cached.CompiledAt) {
+			status = "stale"
+		}
+		s.recompileMu.Unlock()
 		tenantBundles = append(tenantBundles, tenantBundleStatus{
 			TenantID:       tenantID,
 			LastCompiledAt: cached.CompiledAt.Format("2006-01-02T15:04:05Z07:00"),
-			Status:         "current", // Staleness requires tracking last write time.
+			Status:         status,
 		})
 	}
 
@@ -257,6 +267,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return entry, nil
 }
@@ -300,6 +311,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {
 		return err
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
@@ -351,12 +363,37 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 	})
 
 	if tenantID == "" {
+		s.recordWriteAll(ctx)
 		go s.scheduleRecompileAll(context.WithoutCancel(ctx))
 	} else {
+		s.recordWrite(tenantID)
 		s.scheduleRecompile(ctx, tenantID)
 	}
 
 	return nil
+}
+
+// recordWrite marks the current time as the last policy-affecting write for a
+// tenant. Used by Stats to determine bundle staleness.
+func (s *Service) recordWrite(tenantID string) {
+	s.recompileMu.Lock()
+	s.lastWriteAt[tenantID] = time.Now()
+	s.recompileMu.Unlock()
+}
+
+// recordWriteAll marks a write for all active tenants (used after global route
+// registration changes).
+func (s *Service) recordWriteAll(ctx context.Context) {
+	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	s.recompileMu.Lock()
+	for _, tid := range tenantIDs {
+		s.lastWriteAt[tid] = now
+	}
+	s.recompileMu.Unlock()
 }
 
 // scheduleRecompile debounces bundle recompilation for a tenant. Multiple writes
