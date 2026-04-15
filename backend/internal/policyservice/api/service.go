@@ -184,26 +184,16 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 		routeTotal += len(reg.Routes)
 	}
 
-	// Bundle status: check all tenants with compiled bundles.
-	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list tenants: %w", err)
-	}
-
-	var tenantBundles []tenantBundleStatus
-	for _, tid := range tenantIDs {
-		cached := s.bundleSrv.Compiler().Get(tid)
-		if cached == nil {
-			continue
-		}
+	// Bundle status: only return status for the requested tenant to avoid
+	// leaking other tenant identifiers and bundle timestamps.
+	tenantBundles := []tenantBundleStatus{}
+	cached := s.bundleSrv.Compiler().Get(tenantID)
+	if cached != nil {
 		tenantBundles = append(tenantBundles, tenantBundleStatus{
-			TenantID:       tid,
+			TenantID:       tenantID,
 			LastCompiledAt: cached.CompiledAt.Format("2006-01-02T15:04:05Z07:00"),
-			Status:         "current", // Staleness requires tracking last write time — see below.
+			Status:         "current", // Staleness requires tracking last write time.
 		})
-	}
-	if tenantBundles == nil {
-		tenantBundles = []tenantBundleStatus{}
 	}
 
 	return &statsResponse{

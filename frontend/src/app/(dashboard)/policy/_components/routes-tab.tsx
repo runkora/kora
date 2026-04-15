@@ -215,9 +215,9 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           </CardContent>
           <footer className="px-4 py-2.5 border-t border-border-subtle">
             <Text size="caption" color="muted">
-              {filtered.length} {filtered.length === 1 ? 'registration' : 'registrations'} ·{' '}
-              {services.length} {services.length === 1 ? 'service' : 'services'} · recompiled into
-              OPA bundles on every change
+              {filtered.length} {filtered.length === 1 ? 'route' : 'routes'} · {services.length}{' '}
+              {services.length === 1 ? 'service' : 'services'} · recompiled into OPA bundles on
+              every change
             </Text>
           </footer>
         </Card>

@@ -149,10 +149,23 @@ type scanner interface {
 
 func (r *postgresRepository) ListWithUsage(ctx context.Context, resourceType, tenantID string) ([]*ScopeEntryWithUsage, error) {
 	query := `
+		WITH grant_usage AS (
+			SELECT scope, COUNT(*) AS grant_count
+			FROM policy_grants g, jsonb_array_elements_text(g.scopes) AS scope
+			WHERE g.tenant_id = $1
+			GROUP BY scope
+		), role_usage AS (
+			SELECT scope, COUNT(*) AS role_count
+			FROM policy_role_scopes r, jsonb_array_elements_text(r.scopes) AS scope
+			WHERE r.tenant_id = $1
+			GROUP BY scope
+		)
 		SELECT v.scope, v.resource_type, v.path_segments, v.action, v.description, v.created_at,
-			COALESCE((SELECT COUNT(*) FROM policy_grants g WHERE g.tenant_id = $1 AND g.scopes ? v.scope), 0),
-			COALESCE((SELECT COUNT(*) FROM policy_role_scopes r WHERE r.tenant_id = $1 AND r.scopes ? v.scope), 0)
-		FROM policy_scope_vocabulary v`
+			COALESCE(gu.grant_count, 0),
+			COALESCE(ru.role_count, 0)
+		FROM policy_scope_vocabulary v
+		LEFT JOIN grant_usage gu ON gu.scope = v.scope
+		LEFT JOIN role_usage ru ON ru.scope = v.scope`
 	args := []any{tenantID}
 	if resourceType != "" {
 		query += ` WHERE v.resource_type = $2`

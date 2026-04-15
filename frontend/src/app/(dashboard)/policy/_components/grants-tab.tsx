@@ -22,6 +22,8 @@ import {
 } from '@orbit/terra';
 import type { Grant, PrincipalType } from '../_types';
 import { createGrantAction, deleteGrantAction } from '../_actions/grants';
+import { usePermissions } from '../../_components/permissions-provider';
+import { hasScope } from '@orbit/lib/permissions';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
 import { EmptyState } from './empty-state';
@@ -39,6 +41,8 @@ interface GrantsTabProps {
 
 export function GrantsTab({ initialGrants, availableScopes, initialError }: GrantsTabProps) {
   const router = useRouter();
+  const { scopes: sessionScopes } = usePermissions();
+  const canWrite = hasScope(sessionScopes, 'platform:grants:write');
   const [grants, setGrants] = useState(initialGrants);
   const [error, setError] = useState(initialError);
 
@@ -111,10 +115,12 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
             Permission grants assigned to principals in your tenant.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus className="size-4 mr-1" />
-          Create Grant
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4 mr-1" />
+            Create Grant
+          </Button>
+        )}
       </Stack>
 
       {/* Info box */}
@@ -201,17 +207,19 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
             title="No grants yet"
             description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
             action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus className="size-4 mr-1" />
-                Create Grant
-              </Button>
+              canWrite ? (
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  <Plus className="size-4 mr-1" />
+                  Create Grant
+                </Button>
+              ) : undefined
             }
           />
         )
       ) : viewMode === 'cards' ? (
-        <GrantCardGrid grants={filtered} onDelete={setDeleteCandidate} />
+        <GrantCardGrid grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
       ) : (
-        <GrantTable grants={filtered} onDelete={setDeleteCandidate} />
+        <GrantTable grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
       )}
 
       {/* Delete confirmation modal */}
@@ -289,7 +297,7 @@ function GrantCardGrid({
   onDelete,
 }: {
   grants: Grant[];
-  onDelete: (grant: Grant) => void;
+  onDelete?: (grant: Grant) => void;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
@@ -325,14 +333,16 @@ function GrantCardGrid({
             <span className="text-xs text-subtle ml-auto">
               Created {formatDate(grant.created_at)}
             </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onDelete(grant)}
-              aria-label="Delete grant"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onDelete(grant)}
+                aria-label="Delete grant"
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            )}
           </footer>
         </section>
       ))}
@@ -342,7 +352,7 @@ function GrantCardGrid({
 
 // ── Table view ──────────────────────────────────────────────────────────────
 
-function GrantTable({ grants, onDelete }: { grants: Grant[]; onDelete: (grant: Grant) => void }) {
+function GrantTable({ grants, onDelete }: { grants: Grant[]; onDelete?: (grant: Grant) => void }) {
   return (
     <Card column>
       <CardContent flush>
@@ -354,9 +364,11 @@ function GrantTable({ grants, onDelete }: { grants: Grant[]; onDelete: (grant: G
                 <TableHead>Type</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead>
-                  <span className="sr-only">Actions</span>
-                </TableHead>
+                {onDelete && (
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -382,11 +394,13 @@ function GrantTable({ grants, onDelete }: { grants: Grant[]; onDelete: (grant: G
                       {formatDate(grant.created_at)}
                     </Text>
                   </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="icon-sm" onClick={() => onDelete(grant)}>
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </TableCell>
+                  {onDelete && (
+                    <TableCell>
+                      <Button variant="ghost" size="icon-sm" onClick={() => onDelete(grant)}>
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

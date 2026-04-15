@@ -22,6 +22,8 @@ import {
 } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
+import { usePermissions } from '../../_components/permissions-provider';
+import { hasScope } from '@orbit/lib/permissions';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
 import { EmptyState } from './empty-state';
@@ -43,6 +45,8 @@ interface RolesTabProps {
 
 export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
   const router = useRouter();
+  const { scopes: sessionScopes } = usePermissions();
+  const canWrite = hasScope(sessionScopes, 'platform:roles:write');
   const [roles, setRoles] = useState(initialRoles);
   const [error, setError] = useState(initialError);
 
@@ -99,10 +103,12 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
             Map OIDC role names to platform scopes.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus className="size-4 mr-1" />
-          Create Role
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4 mr-1" />
+            Create Role
+          </Button>
+        )}
       </Stack>
 
       {/* Info box */}
@@ -164,17 +170,27 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
             title="No roles yet"
             description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
             action={
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus className="size-4 mr-1" />
-                Create Role
-              </Button>
+              canWrite ? (
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  <Plus className="size-4 mr-1" />
+                  Create Role
+                </Button>
+              ) : undefined
             }
           />
         )
       ) : viewMode === 'cards' ? (
-        <RoleCardGrid roles={filtered} onEdit={setEditingRole} onDelete={setDeleteCandidate} />
+        <RoleCardGrid
+          roles={filtered}
+          onEdit={canWrite ? setEditingRole : undefined}
+          onDelete={canWrite ? setDeleteCandidate : undefined}
+        />
       ) : (
-        <RoleTable roles={filtered} onEdit={setEditingRole} onDelete={setDeleteCandidate} />
+        <RoleTable
+          roles={filtered}
+          onEdit={canWrite ? setEditingRole : undefined}
+          onDelete={canWrite ? setDeleteCandidate : undefined}
+        />
       )}
 
       {/* Delete confirmation modal */}
@@ -217,8 +233,8 @@ function RoleCardGrid({
   onDelete,
 }: {
   roles: RoleEntry[];
-  onEdit: (role: RoleEntry) => void;
-  onDelete: (role: RoleEntry) => void;
+  onEdit?: (role: RoleEntry) => void;
+  onDelete?: (role: RoleEntry) => void;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
@@ -270,25 +286,25 @@ function RoleCardGrid({
                   Created {formatDate(role.created_at)}
                 </span>
               )}
-              {!isReserved && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onEdit(role)}
-                    aria-label="Edit role"
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onDelete(role)}
-                    aria-label="Delete role"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </>
+              {!isReserved && onEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => onEdit(role)}
+                  aria-label="Edit role"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              )}
+              {!isReserved && onDelete && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => onDelete(role)}
+                  aria-label="Delete role"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
               )}
             </footer>
           </section>
@@ -306,9 +322,10 @@ function RoleTable({
   onDelete,
 }: {
   roles: RoleEntry[];
-  onEdit: (role: RoleEntry) => void;
-  onDelete: (role: RoleEntry) => void;
+  onEdit?: (role: RoleEntry) => void;
+  onDelete?: (role: RoleEntry) => void;
 }) {
+  const hasActions = onEdit || onDelete;
   return (
     <Card column>
       <CardContent flush>
@@ -319,9 +336,11 @@ function RoleTable({
                 <TableHead>Role</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead>
-                  <span className="sr-only">Actions</span>
-                </TableHead>
+                {hasActions && (
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -360,18 +379,24 @@ function RoleTable({
                         </Text>
                       )}
                     </TableCell>
-                    <TableCell>
-                      {!isReserved && (
-                        <Stack direction="horizontal" gap="tight">
-                          <Button variant="ghost" size="icon-sm" onClick={() => onEdit(role)}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon-sm" onClick={() => onDelete(role)}>
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </Stack>
-                      )}
-                    </TableCell>
+                    {hasActions && (
+                      <TableCell>
+                        {!isReserved && (
+                          <Stack direction="horizontal" gap="tight">
+                            {onEdit && (
+                              <Button variant="ghost" size="icon-sm" onClick={() => onEdit(role)}>
+                                <Pencil className="size-3.5" />
+                              </Button>
+                            )}
+                            {onDelete && (
+                              <Button variant="ghost" size="icon-sm" onClick={() => onDelete(role)}>
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            )}
+                          </Stack>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
