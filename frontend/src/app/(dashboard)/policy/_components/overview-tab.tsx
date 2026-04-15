@@ -32,6 +32,7 @@ import type {
   StatsResponse,
 } from '../_types';
 import { ScopeChip } from './scope-chip';
+import { ErrorBanner } from './error-banner';
 
 interface OverviewTabProps {
   stats: StatsResponse | null;
@@ -61,13 +62,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
     return (
       <Stack gap="comfortable">
         <Heading variant="title">Policy Engine</Heading>
-        <Card column>
-          <CardContent>
-            <Text color="muted">
-              Unable to load policy stats. The policy service may be unavailable.
-            </Text>
-          </CardContent>
-        </Card>
+        <ErrorBanner message="Unable to load policy stats. The policy service may be unavailable." />
       </Stack>
     );
   }

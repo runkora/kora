@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Library, Search } from 'lucide-react';
 import {
   Button,
   Card,
@@ -19,6 +19,8 @@ import {
 } from '@orbit/terra';
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from './scope-chip';
+import { EmptyState } from './empty-state';
+import { ErrorBanner } from './error-banner';
 
 interface VocabularyTabProps {
   initialScopes: ScopeEntryWithUsage[];
@@ -106,13 +108,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
         </Text>
       </section>
 
-      {initialError && (
-        <Card column>
-          <CardContent>
-            <Text color="status-error">{initialError}</Text>
-          </CardContent>
-        </Card>
-      )}
+      {initialError && <ErrorBanner message={initialError} />}
 
       {/* Search */}
       <span className="relative max-w-xs">
@@ -152,15 +148,19 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
 
       {/* Grouped tables */}
       {groups.length === 0 ? (
-        <Card column>
-          <CardContent>
-            <Text color="muted" size="caption">
-              {search || activeFilter !== 'all'
-                ? 'No scopes match your filters.'
-                : 'No scopes registered.'}
-            </Text>
-          </CardContent>
-        </Card>
+        search || activeFilter !== 'all' ? (
+          <EmptyState
+            icon={<Search className="size-5" />}
+            title="No matches"
+            description="No scopes match your current filters. Try adjusting your search or selecting a different resource type."
+          />
+        ) : (
+          <EmptyState
+            icon={<Library className="size-5" />}
+            title="No scopes registered"
+            description="Scopes are declared by services when they register their routes. Once a service registers its route→scope mappings, they will appear here."
+          />
+        )
       ) : (
         groups.map((group) => (
           <section key={group.resourceType}>

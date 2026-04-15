@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, Pencil, Trash2, Plus, X } from 'lucide-react';
+import { LayoutGrid, List, Pencil, Search, Trash2, Plus, UserCheck, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -24,6 +24,8 @@ import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
+import { EmptyState } from './empty-state';
+import { ErrorBanner } from './error-banner';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 
@@ -106,13 +108,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         </Text>
       </section>
 
-      {error && (
-        <Card column>
-          <CardContent>
-            <Text color="status-error">{error}</Text>
-          </CardContent>
-        </Card>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       {/* Search + view toggle */}
       <Stack direction="horizontal" align="center" justify="between">
@@ -151,13 +147,25 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
 
       {/* Content */}
       {filtered.length === 0 ? (
-        <Card column>
-          <CardContent>
-            <Text color="muted" size="caption">
-              {search ? 'No roles match your search.' : 'No roles configured.'}
-            </Text>
-          </CardContent>
-        </Card>
+        search ? (
+          <EmptyState
+            icon={<Search className="size-5" />}
+            title="No matches"
+            description="No roles match your search. Try a different query."
+          />
+        ) : (
+          <EmptyState
+            icon={<UserCheck className="size-5" />}
+            title="No roles yet"
+            description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
+            action={
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus className="size-4 mr-1" />
+                Create Role
+              </Button>
+            }
+          />
+        )
       ) : viewMode === 'cards' ? (
         <RoleCardGrid roles={filtered} onEdit={setEditingRole} onDelete={setDeleteCandidate} />
       ) : (
