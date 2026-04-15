@@ -28,6 +28,17 @@ func (c *Controller) handleScopesExplain(w http.ResponseWriter, r *http.Request)
 	principalType := q.Get("principal_type")
 	principalID := q.Get("principal_id")
 
+	if principalType != "" {
+		switch token.PrincipalType(principalType) {
+		case token.PrincipalTypeAgent, token.PrincipalTypeHuman, token.PrincipalTypeService:
+		default:
+			platformapi.ErrorResponse(ctx, w, c.logger,
+				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+					"principal_type must be AGENT, HUMAN, or SERVICE", nil), nil)
+			return
+		}
+	}
+
 	if principalType != "" && principalID != "" {
 		// If looking up yourself, use original claims (preserves OIDC roles etc).
 		isSelf := principalID == claims.Subject &&

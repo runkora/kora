@@ -54,8 +54,8 @@ type Repository interface {
 	// Use limit=0 for unbounded (e.g. bundle compilation).
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error)
 
-	// Delete removes a grant by ID. Returns ErrGrantNotFound if it does not exist.
-	Delete(ctx context.Context, id string) error
+	// Delete removes a grant by ID within a tenant. Returns ErrGrantNotFound if it does not exist.
+	Delete(ctx context.Context, id, tenantID string) error
 
 	// ListDistinctTenants returns the unique tenant IDs that have at least one grant.
 	// Used at startup to pre-compile bundles for all active tenants.
@@ -139,8 +139,8 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 	return r.collectGrants(rows)
 }
 
-func (r *postgresRepository) Delete(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_grants WHERE id = $1`, id)
+func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_grants WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete grant: %w", err)
 	}

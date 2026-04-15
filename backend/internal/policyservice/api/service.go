@@ -110,7 +110,7 @@ func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error
 }
 
 func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) error {
-	if err := s.grantRepo.Delete(ctx, id); err != nil {
+	if err := s.grantRepo.Delete(ctx, id, tenantID); err != nil {
 		return err
 	}
 	s.scheduleRecompile(ctx, tenantID)
