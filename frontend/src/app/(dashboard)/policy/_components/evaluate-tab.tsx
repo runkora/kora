@@ -110,27 +110,30 @@ export function EvaluateTab({
   }, [availableScopes]);
 
   const handleLookup = useCallback(async () => {
-    if (!lookupId) return;
+    const trimmedId = lookupId.trim();
+    if (!trimmedId) return;
     setLookupLoading(true);
     setLookupError(null);
-    const result = await fetchPolicyScopesExplain(lookupType, lookupId);
+    const result = await fetchPolicyScopesExplain(lookupType, trimmedId);
     if (result.data) {
       setExplain(result.data);
     } else {
+      setExplain(null);
       setLookupError(result.error);
     }
     setLookupLoading(false);
   }, [lookupType, lookupId]);
 
   const handleSimulate = useCallback(async () => {
-    if (!simPrincipalId || !simScope) return;
+    const trimmedId = simPrincipalId.trim();
+    if (!trimmedId || !simScope) return;
     setSimLoading(true);
     setSimError(null);
     setSimResult(null);
     const parsed = parseScope(simScope);
     const body: CheckSimulateRequest = {
       principal_type: simPrincipalType,
-      principal_id: simPrincipalId,
+      principal_id: trimmedId,
       roles: simRole ? [simRole] : undefined,
       resource: {
         type: parsed.resourceType,
@@ -187,6 +190,7 @@ export function EvaluateTab({
                 <select
                   value={lookupType}
                   onChange={(e) => setLookupType(e.target.value as PrincipalType)}
+                  aria-label="Principal type"
                   className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                 >
                   <option value="AGENT">AGENT</option>
@@ -335,6 +339,7 @@ export function EvaluateTab({
                 <select
                   value={simPrincipalType}
                   onChange={(e) => setSimPrincipalType(e.target.value as PrincipalType)}
+                  aria-label="Principal type"
                   className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                 >
                   <option value="AGENT">AGENT</option>
@@ -368,6 +373,7 @@ export function EvaluateTab({
                   <select
                     value={simRole}
                     onChange={(e) => setSimRole(e.target.value)}
+                    aria-label="Role"
                     className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
                   >
                     <option value="">No role (grants only)</option>
@@ -387,6 +393,7 @@ export function EvaluateTab({
                   <select
                     value={simScope}
                     onChange={(e) => setSimScope(e.target.value)}
+                    aria-label="Scope to check"
                     className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
                   >
                     <option value="">Select a scope...</option>

@@ -59,7 +59,7 @@ async function policyServiceFetch<T>(
 
   // 204 No Content — successful mutation with no body.
   if (res.status === 204) {
-    return { ok: true, data: undefined as unknown as T };
+    return { ok: true, data: undefined } as Result<T>;
   }
 
   try {

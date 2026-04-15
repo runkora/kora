@@ -44,7 +44,12 @@ interface RolesTabProps {
 export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
-  const [error] = useState(initialError);
+  const [error, setError] = useState(initialError);
+
+  // Sync error state when parent re-renders with new error
+  useEffect(() => {
+    setError(initialError);
+  }, [initialError]);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
   const [editingRole, setEditingRole] = useState<RoleEntry | null>(null);
