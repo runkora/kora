@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import {
   Badge,
   Card,
@@ -12,17 +13,50 @@ import {
   Separator,
   Stack,
   Text,
+  TableRoot,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
-import { FileCheck2, Library, Route, Shield, ShieldCheck, UserCheck } from 'lucide-react';
-import type { StatsResponse } from '../_types';
+import { FileCheck2, FlaskConical, Library, Route, ShieldCheck, UserCheck } from 'lucide-react';
+import type {
+  Grant,
+  RoleEntry,
+  RouteRegistration,
+  ScopeEntryWithUsage,
+  StatsResponse,
+} from '../_types';
+import { ScopeChip } from './scope-chip';
 
 interface OverviewTabProps {
   stats: StatsResponse | null;
+  recentGrants: Grant[];
+  roles: RoleEntry[];
+  vocabulary: ScopeEntryWithUsage[];
+  routes: RouteRegistration[];
 }
 
-export function OverviewTab({ stats }: OverviewTabProps) {
+export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: OverviewTabProps) {
+  const scopeCoverage = useMemo(() => {
+    const total = vocabulary.length;
+    const used = vocabulary.filter((s) => s.grant_count > 0 || s.role_count > 0).length;
+    const unused = total - used;
+    return { total, used, unused, pct: total > 0 ? Math.round((used / total) * 100) : 0 };
+  }, [vocabulary]);
+
+  const totalRouteCount = useMemo(() => {
+    return routes.reduce((sum, reg) => sum + reg.routes.length, 0);
+  }, [routes]);
+
+  const serviceCount = useMemo(() => {
+    return new Set(routes.map((r) => r.service)).size;
+  }, [routes]);
+
   if (!stats) {
     return (
       <Stack gap="comfortable">
@@ -110,52 +144,243 @@ export function OverviewTab({ stats }: OverviewTabProps) {
           <KPICard
             icon={<Route className="size-4" />}
             label="Routes"
-            value={stats.routes.total}
+            value={totalRouteCount}
             href={APP_ROUTES.policy.routes}
+            breakdown={[
+              { label: 'Services', value: serviceCount },
+              { label: 'Endpoints', value: totalRouteCount },
+            ]}
           />
         </Grid>
 
-        {/* Bundle Status */}
-        {stats.bundles.tenants.length > 0 && (
+        {/* Middle row: Scope coverage + Bundle status */}
+        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+          {/* Scope coverage */}
+          <Card column>
+            <CardHeader compact icon={<Library className="size-4" />}>
+              <CardTitle>Scope Coverage</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Stack gap="snug">
+                <Text size="caption" color="muted">
+                  Scopes assigned to at least one grant or role vs unassigned scopes in the
+                  vocabulary.
+                </Text>
+                <Separator />
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="muted">
+                    Assigned
+                  </Text>
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <Text size="caption" weight="emphasis" mono tabular>
+                      {scopeCoverage.used}
+                    </Text>
+                    <Text size="caption" color="subtle">
+                      / {scopeCoverage.total}
+                    </Text>
+                  </Stack>
+                </Stack>
+                <section className="h-2 rounded-full bg-surface-elevated overflow-hidden">
+                  <section
+                    className="h-full rounded-full bg-accent transition-all"
+                    style={{ width: `${scopeCoverage.pct}%` }}
+                  />
+                </section>
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="subtle">
+                    {scopeCoverage.pct}% coverage
+                  </Text>
+                  {scopeCoverage.unused > 0 && (
+                    <Text size="caption" color="status-degraded">
+                      {scopeCoverage.unused} unused
+                    </Text>
+                  )}
+                </Stack>
+              </Stack>
+            </CardContent>
+            <CardFooter compact justify="between">
+              <span />
+              <Link
+                href={APP_ROUTES.policy.vocabulary}
+                className="text-xs text-subtle hover:text-foreground transition-colors"
+              >
+                View vocabulary →
+              </Link>
+            </CardFooter>
+          </Card>
+
+          {/* Bundle Status */}
           <Card column>
             <CardHeader compact icon={<FileCheck2 className="size-4" />}>
               <CardTitle>Bundle Status</CardTitle>
             </CardHeader>
             <CardContent>
               <Stack gap="snug">
-                {stats.bundles.tenants.map((tenant) => (
-                  <Stack
-                    key={tenant.tenant_id}
-                    direction="horizontal"
-                    align="center"
-                    justify="between"
-                  >
-                    <Stack direction="horizontal" align="center" gap="snug">
-                      <Shield className="size-3.5 text-subtle" />
-                      <Text size="caption" mono>
-                        {tenant.tenant_id}
-                      </Text>
-                    </Stack>
-                    <Stack direction="horizontal" align="center" gap="snug">
-                      <Text size="caption" color="subtle">
-                        {formatTimestamp(tenant.last_compiled_at)}
-                      </Text>
-                      <Badge
-                        variant={tenant.status === 'current' ? 'healthy' : 'degraded'}
-                        size="sm"
+                <Text size="caption" color="muted">
+                  OPA policy bundles compiled per tenant. Bundles are recompiled on every grant,
+                  role, or route change.
+                </Text>
+                {stats.bundles.tenants.length > 0 ? (
+                  <>
+                    <Separator />
+                    {stats.bundles.tenants.map((tenant) => (
+                      <Stack
+                        key={tenant.tenant_id}
+                        direction="horizontal"
+                        align="center"
+                        justify="between"
                       >
-                        {tenant.status}
-                      </Badge>
-                    </Stack>
-                  </Stack>
-                ))}
+                        <Text size="caption" mono>
+                          {tenant.tenant_id}
+                        </Text>
+                        <Stack direction="horizontal" align="center" gap="snug">
+                          <Text size="caption" color="subtle">
+                            {formatTimestamp(tenant.last_compiled_at)}
+                          </Text>
+                          <Badge
+                            variant={tenant.status === 'current' ? 'healthy' : 'degraded'}
+                            size="sm"
+                          >
+                            {tenant.status}
+                          </Badge>
+                        </Stack>
+                      </Stack>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <Separator />
+                    <Text size="caption" color="subtle">
+                      No bundles compiled yet.
+                    </Text>
+                  </>
+                )}
               </Stack>
             </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Recent Grants */}
+        {recentGrants.length > 0 && (
+          <Card column>
+            <CardHeader compact icon={<ShieldCheck className="size-4" />}>
+              <CardTitle>Recent Grants</CardTitle>
+            </CardHeader>
+            <CardContent flush>
+              <TableRoot>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Principal</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Scopes</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentGrants.map((grant) => (
+                      <TableRow key={grant.id}>
+                        <TableCell>
+                          <Text size="caption" mono>
+                            {grant.principal_id}
+                          </Text>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              grant.principal_type === 'AGENT'
+                                ? 'default'
+                                : grant.principal_type === 'HUMAN'
+                                  ? 'healthy'
+                                  : 'degraded'
+                            }
+                            size="sm"
+                          >
+                            {grant.principal_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="horizontal" gap="tight" wrap>
+                            {grant.scopes.slice(0, 3).map((s) => (
+                              <ScopeChip key={s} scope={s} />
+                            ))}
+                            {grant.scopes.length > 3 && (
+                              <Text size="caption" color="subtle">
+                                +{grant.scopes.length - 3} more
+                              </Text>
+                            )}
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
+                          <Text size="caption" color="subtle">
+                            {formatDate(grant.created_at)}
+                          </Text>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableRoot>
+            </CardContent>
+            <CardFooter compact justify="between">
+              <span />
+              <Link
+                href={APP_ROUTES.policy.grants}
+                className="text-xs text-subtle hover:text-foreground transition-colors"
+              >
+                View all grants →
+              </Link>
+            </CardFooter>
+          </Card>
+        )}
+
+        {/* Role summary */}
+        {roles.length > 0 && (
+          <Card column>
+            <CardHeader compact icon={<UserCheck className="size-4" />}>
+              <CardTitle>Roles</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Stack gap="snug">
+                <Text size="caption" color="muted">
+                  OIDC role→scope mappings. Reserved roles are maintained by the platform.
+                </Text>
+                <Separator />
+                <Stack direction="horizontal" gap="tight" wrap>
+                  {roles.map((role) => {
+                    const isReserved =
+                      role.role === 'tenant-admin' || role.role === 'platform-admin';
+                    return (
+                      <span
+                        key={role.id}
+                        className={`inline-flex items-center gap-1.5 font-mono text-xs px-2.5 py-1 rounded-full border ${
+                          isReserved
+                            ? 'border-accent/30 bg-accent/5 text-accent'
+                            : 'border-border-subtle bg-surface-elevated text-foreground'
+                        }`}
+                      >
+                        {role.role}
+                        <span className="text-subtle font-sans">{(role.scopes ?? []).length}</span>
+                      </span>
+                    );
+                  })}
+                </Stack>
+              </Stack>
+            </CardContent>
+            <CardFooter compact justify="between">
+              <span />
+              <Link
+                href={APP_ROUTES.policy.roles}
+                className="text-xs text-subtle hover:text-foreground transition-colors"
+              >
+                Manage roles →
+              </Link>
+            </CardFooter>
           </Card>
         )}
 
         {/* Quick Links */}
-        <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
+        <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
           <QuickLinkCard
             icon={<ShieldCheck className="size-4" />}
             title="Manage Grants"
@@ -167,6 +392,18 @@ export function OverviewTab({ stats }: OverviewTabProps) {
             title="Manage Roles"
             description="Map OIDC roles to platform scopes for role-based access control."
             href={APP_ROUTES.policy.roles}
+          />
+          <QuickLinkCard
+            icon={<Route className="size-4" />}
+            title="View Routes"
+            description="See registered route→scope mappings across all services."
+            href={APP_ROUTES.policy.routes}
+          />
+          <QuickLinkCard
+            icon={<FlaskConical className="size-4" />}
+            title="Evaluate"
+            description="Look up effective scopes and dry-run policy decisions."
+            href={APP_ROUTES.policy.evaluate}
           />
         </Grid>
       </section>
@@ -254,6 +491,18 @@ function formatTimestamp(iso: string): string {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
     });
   } catch {
     return iso;
