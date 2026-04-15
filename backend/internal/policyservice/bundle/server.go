@@ -40,6 +40,10 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 	}
 }
 
+// Compiler returns the underlying bundle compiler. Used by the stats endpoint
+// to read bundle compilation timestamps.
+func (s *Server) Compiler() *Compiler { return s.compiler }
+
 // Bootstrap pre-compiles bundles for all tenants that have at least one grant.
 // Called once at startup so enforcement points do not receive a 404 on first poll.
 func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {

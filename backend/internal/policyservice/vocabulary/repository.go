@@ -30,6 +30,13 @@ type ScopeEntry struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// ScopeEntryWithUsage extends ScopeEntry with usage counts from grants and roles.
+type ScopeEntryWithUsage struct {
+	ScopeEntry
+	GrantCount int `json:"grant_count"`
+	RoleCount  int `json:"role_count"`
+}
+
 // ErrScopeNotFound is returned when a scope is not in the vocabulary.
 var ErrScopeNotFound = errors.New("scope not found in vocabulary")
 
@@ -47,6 +54,12 @@ type Repository interface {
 	// Upsert inserts a scope entry or updates its metadata if it already exists.
 	// Used by route registration so services can declare their scopes idempotently.
 	Upsert(ctx context.Context, e *ScopeEntry) error
+
+	// ListWithUsage returns all scopes with grant and role usage counts for a tenant.
+	ListWithUsage(ctx context.Context, resourceType, tenantID string) ([]*ScopeEntryWithUsage, error)
+
+	// CountByResourceType returns the count of scopes grouped by resource type.
+	CountByResourceType(ctx context.Context) (map[string]int, error)
 }
 
 type postgresRepository struct {
@@ -132,6 +145,59 @@ func (r *postgresRepository) List(ctx context.Context, resourceType string) ([]*
 // scanEntry works for both pgx.Row and pgx.Rows.
 type scanner interface {
 	Scan(dest ...any) error
+}
+
+func (r *postgresRepository) ListWithUsage(ctx context.Context, resourceType, tenantID string) ([]*ScopeEntryWithUsage, error) {
+	query := `
+		SELECT v.scope, v.resource_type, v.path_segments, v.action, v.description, v.created_at,
+			COALESCE((SELECT COUNT(*) FROM policy_grants g WHERE g.tenant_id = $1 AND g.scopes ? v.scope), 0),
+			COALESCE((SELECT COUNT(*) FROM policy_role_scopes r WHERE r.tenant_id = $1 AND r.scopes ? v.scope), 0)
+		FROM policy_scope_vocabulary v`
+	args := []any{tenantID}
+	if resourceType != "" {
+		query += ` WHERE v.resource_type = $2`
+		args = append(args, resourceType)
+	}
+	query += ` ORDER BY v.scope`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary with usage: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*ScopeEntryWithUsage
+	for rows.Next() {
+		var e ScopeEntryWithUsage
+		var pathJSON []byte
+		if err := rows.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.CreatedAt, &e.GrantCount, &e.RoleCount); err != nil {
+			return nil, fmt.Errorf("scan scope entry with usage: %w", err)
+		}
+		if err := json.Unmarshal(pathJSON, &e.PathSegments); err != nil {
+			return nil, fmt.Errorf("unmarshal path segments: %w", err)
+		}
+		entries = append(entries, &e)
+	}
+	return entries, rows.Err()
+}
+
+func (r *postgresRepository) CountByResourceType(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx, `SELECT resource_type, COUNT(*) FROM policy_scope_vocabulary GROUP BY resource_type`)
+	if err != nil {
+		return nil, fmt.Errorf("count vocabulary by resource type: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int)
+	for rows.Next() {
+		var rt string
+		var count int
+		if err := rows.Scan(&rt, &count); err != nil {
+			return nil, fmt.Errorf("scan vocabulary count: %w", err)
+		}
+		result[rt] = count
+	}
+	return result, rows.Err()
 }
 
 func (r *postgresRepository) scanEntry(s scanner) (*ScopeEntry, error) {

@@ -72,6 +72,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 // Route map:
 //
+//	GET    /policy/stats?tenant_id=                 Aggregate counts for dashboard overview
 //	POST   /policy/grants                           Create a grant
 //	GET    /policy/grants/{id}                      Get a grant by ID
 //	DELETE /policy/grants/{id}                      Delete a grant
@@ -86,6 +87,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /policy/routes/register                  Register route→scope mappings (SYSTEM or SERVICE principal)
 //	GET    /policy/bundles/{tenant_id}              Serve OPA bundle (polling endpoint)
 func (c *Controller) Boot(mux *platformapi.Mux) {
+	mux.Handle("GET /stats", c.handleStats)
 	mux.Handle("POST /grants", c.handleCreateGrant)
 	mux.Handle("GET /grants/{id}", c.handleGetGrant)
 	mux.Handle("DELETE /grants/{id}", c.handleDeleteGrant)

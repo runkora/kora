@@ -24,13 +24,17 @@ var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected 
 
 const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data.orbit.authz.reason}"
 const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
+const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
+const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
-	query       rego.PreparedEvalQuery
-	scopesQuery rego.PreparedEvalQuery
-	loadedAt    time.Time
-	revision    string
+	query            rego.PreparedEvalQuery
+	scopesQuery      rego.PreparedEvalQuery
+	grantDetailQuery rego.PreparedEvalQuery
+	roleDetailQuery  rego.PreparedEvalQuery
+	loadedAt         time.Time
+	revision         string
 }
 
 // engine manages per-tenant OPA bundle loading and policy evaluation.
@@ -160,12 +164,32 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare scopes rego eval: %w", err)
 	}
 
+	gd := rego.New(
+		rego.Query(grantDetailQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	gdq, err := gd.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare grant detail rego eval: %w", err)
+	}
+
+	rd := rego.New(
+		rego.Query(roleDetailQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	rdq, err := rd.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare role detail rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
-		query:       pq,
-		scopesQuery: sq,
-		loadedAt:    time.Now().UTC(),
-		revision:    revision,
+		query:            pq,
+		scopesQuery:      sq,
+		grantDetailQuery: gdq,
+		roleDetailQuery:  rdq,
+		loadedAt:         time.Now().UTC(),
+		revision:         revision,
 	}
 	e.mu.Unlock()
 
@@ -260,6 +284,123 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	}
 
 	return evalScopesResult(rs), nil
+}
+
+// ScopesExplain returns the principal's scopes broken down by source. Implements Evaluator.
+func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error) {
+	if input.Claims == nil {
+		return &ScopesExplainResult{}, nil
+	}
+	tenantID := input.Claims.Orbit.TenantID
+
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if tb == nil {
+		return &ScopesExplainResult{}, nil
+	}
+
+	opaInput := map[string]any{
+		"principal": principalInput{
+			Type:     string(input.Claims.Orbit.PrincipalType),
+			TenantID: input.Claims.Orbit.TenantID,
+			ID:       input.Claims.Subject,
+			Roles:    extractRoles(input.Claims),
+		},
+	}
+
+	// Query grant details.
+	grantRS, err := tb.grantDetailQuery.Eval(ctx, rego.EvalInput(opaInput))
+	if err != nil {
+		return nil, fmt.Errorf("rego grant detail eval: %w", err)
+	}
+	fromGrants := evalGrantDetailResult(grantRS)
+
+	// Query role details.
+	roleRS, err := tb.roleDetailQuery.Eval(ctx, rego.EvalInput(opaInput))
+	if err != nil {
+		return nil, fmt.Errorf("rego role detail eval: %w", err)
+	}
+	fromRoles := evalRoleDetailResult(roleRS)
+
+	// Get effective scopes (flat union).
+	scopesRS, err := tb.scopesQuery.Eval(ctx, rego.EvalInput(opaInput))
+	if err != nil {
+		return nil, fmt.Errorf("rego scopes eval: %w", err)
+	}
+	effective := evalScopesResult(scopesRS)
+	if effective == nil {
+		effective = []string{}
+	}
+
+	return &ScopesExplainResult{
+		FromGrants:      fromGrants,
+		FromRoles:       fromRoles,
+		EffectiveScopes: effective,
+	}, nil
+}
+
+func evalGrantDetailResult(rs rego.ResultSet) []GrantDetail {
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return []GrantDetail{}
+	}
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return []GrantDetail{}
+	}
+	rawSlice, ok := raw.([]any)
+	if !ok {
+		return []GrantDetail{}
+	}
+	details := make([]GrantDetail, 0, len(rawSlice))
+	for _, v := range rawSlice {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		grantID, _ := m["grant_id"].(string)
+		scopesRaw, _ := m["scopes"].([]any)
+		scopes := make([]string, 0, len(scopesRaw))
+		for _, s := range scopesRaw {
+			if str, ok := s.(string); ok {
+				scopes = append(scopes, str)
+			}
+		}
+		details = append(details, GrantDetail{GrantID: grantID, Scopes: scopes})
+	}
+	return details
+}
+
+func evalRoleDetailResult(rs rego.ResultSet) []RoleDetail {
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return []RoleDetail{}
+	}
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return []RoleDetail{}
+	}
+	rawSlice, ok := raw.([]any)
+	if !ok {
+		return []RoleDetail{}
+	}
+	details := make([]RoleDetail, 0, len(rawSlice))
+	for _, v := range rawSlice {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := m["role"].(string)
+		scopesRaw, _ := m["scopes"].([]any)
+		scopes := make([]string, 0, len(scopesRaw))
+		for _, s := range scopesRaw {
+			if str, ok := s.(string); ok {
+				scopes = append(scopes, str)
+			}
+		}
+		details = append(details, RoleDetail{Role: role, Scopes: scopes})
+	}
+	return details
 }
 
 func evalScopesResult(rs rego.ResultSet) []string {

@@ -182,6 +182,10 @@ frontend:
     # Used by the BFF to fetch the principal's effective scope set (ADR-0037).
     # Server-side only — never sent to the browser.
     policyGatewayUrl: ""
+    # URL of the policy service (PAP), reachable from inside the cluster.
+    # Used by the BFF to proxy grant/role/vocabulary admin endpoints.
+    # Server-side only — never sent to the browser.
+    policyServiceUrl: ""
     # Public base URL of the frontend, reachable from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
