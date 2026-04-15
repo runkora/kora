@@ -40,7 +40,12 @@ interface GrantsTabProps {
 export function GrantsTab({ initialGrants, availableScopes, initialError }: GrantsTabProps) {
   const router = useRouter();
   const [grants, setGrants] = useState(initialGrants);
-  const [error] = useState(initialError);
+  const [error, setError] = useState(initialError);
+
+  // Sync error state when parent re-renders with new error
+  useEffect(() => {
+    setError(initialError);
+  }, [initialError]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<PrincipalType | 'all'>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
@@ -526,12 +531,13 @@ function CreateGrantModal({
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
-    if (!principalId || selectedScopes.length === 0) return;
+    const trimmedId = principalId.trim();
+    if (!trimmedId || selectedScopes.length === 0) return;
     setSubmitting(true);
     setSubmitError(null);
     const result = await createGrantAction({
       principal_type: principalType,
-      principal_id: principalId,
+      principal_id: trimmedId,
       scopes: selectedScopes,
     });
     if (result.ok) {

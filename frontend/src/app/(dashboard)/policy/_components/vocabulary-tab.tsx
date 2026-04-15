@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Check, Library, Search } from 'lucide-react';
 import {
   Button,
@@ -47,6 +47,14 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [copiedScope, setCopiedScope] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  // Clean up copy timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const resourceTypes = useMemo(() => {
     const counts = new Map<string, number>();
@@ -76,7 +84,8 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
   const handleCopy = useCallback((scope: string) => {
     navigator.clipboard.writeText(scope);
     setCopiedScope(scope);
-    setTimeout(() => setCopiedScope(null), 1500);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopiedScope(null), 1500);
   }, []);
 
   return (
@@ -103,8 +112,6 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
           <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
             mcp:github:write
           </code>
-          . <strong className="text-foreground">Read-only</strong> — declared by registered
-          services.
         </Text>
       </section>
 

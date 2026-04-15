@@ -128,6 +128,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         <select
           value={serviceFilter}
           onChange={(e) => setServiceFilter(e.target.value)}
+          aria-label="Filter by service"
           className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
         >
           <option value="">All services</option>
@@ -140,6 +141,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         <select
           value={methodFilter}
           onChange={(e) => setMethodFilter(e.target.value)}
+          aria-label="Filter by method"
           className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
         >
           <option value="">All methods</option>
@@ -183,8 +185,10 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((route, idx) => (
-                    <TableRow key={`${route.service}-${route.method}-${route.pathPrefix}-${idx}`}>
+                  {filtered.map((route) => (
+                    <TableRow
+                      key={`${route.service}-${route.method}-${route.pathPrefix}-${route.requiredScope}`}
+                    >
                       <TableCell>
                         <Badge variant="secondary" size="sm">
                           {route.service}
