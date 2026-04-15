@@ -1,0 +1,216 @@
+import 'server-only';
+
+import { config } from '@orbit/server/config';
+import type {
+  StatsResponse,
+  GrantsListResponse,
+  Grant,
+  CreateGrantRequest,
+  RolesListResponse,
+  RoleEntry,
+  UpsertRoleRequest,
+  VocabularyWithUsageListResponse,
+  RoutesListResponse,
+  ScopesExplainResponse,
+  CheckSimulateRequest,
+  CheckResponse,
+} from '../_types/api';
+
+// ── Result types ─────────────────────────────────────────────────────────────
+
+type Ok<T> = { ok: true; data: T };
+type Err = { ok: false; status: number; message: string };
+type Result<T> = Ok<T> | Err;
+
+// ── Internal fetch helper ────────────────────────────────────────────────────
+
+async function policyServiceFetch<T>(
+  path: string,
+  accessToken: string,
+  init?: RequestInit,
+): Promise<Result<T>> {
+  let res: Response;
+  try {
+    res = await fetch(`${config.policyServiceUrl}/policy${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[policyServiceFetch] ${path}: ${isTimeout ? 'timeout' : 'network error'}`, err);
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Policy service timed out' : 'Failed to reach policy service',
+    };
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[policyServiceFetch] ${path}: ${res.status} ${res.statusText}`);
+    return { ok: false, status: res.status, message: body || res.statusText };
+  }
+
+  // 204 No Content — successful mutation with no body.
+  if (res.status === 204) {
+    return { ok: true, data: undefined as unknown as T };
+  }
+
+  try {
+    const data = (await res.json()) as T;
+    return { ok: true, data };
+  } catch {
+    console.error(`[policyServiceFetch] ${path}: failed to parse JSON`);
+    return { ok: false, status: 502, message: 'Invalid response from policy service' };
+  }
+}
+
+async function policyGatewayFetch<T>(
+  path: string,
+  accessToken: string,
+  init?: RequestInit,
+): Promise<Result<T>> {
+  let res: Response;
+  try {
+    res = await fetch(`${config.policyGatewayUrl}/policy${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[policyGatewayFetch] ${path}: ${isTimeout ? 'timeout' : 'network error'}`, err);
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Policy gateway timed out' : 'Failed to reach policy gateway',
+    };
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[policyGatewayFetch] ${path}: ${res.status} ${res.statusText}`);
+    return { ok: false, status: res.status, message: body || res.statusText };
+  }
+
+  try {
+    const data = (await res.json()) as T;
+    return { ok: true, data };
+  } catch {
+    console.error(`[policyGatewayFetch] ${path}: failed to parse JSON`);
+    return { ok: false, status: 502, message: 'Invalid response from policy gateway' };
+  }
+}
+
+// ── Policy Service (PAP) endpoints ───────────────────────────────────────────
+
+export async function fetchStats(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<StatsResponse>> {
+  return policyServiceFetch(`/stats?tenant_id=${encodeURIComponent(tenantId)}`, accessToken);
+}
+
+export async function fetchGrants(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<GrantsListResponse>> {
+  return policyServiceFetch(
+    `/grants?tenant_id=${encodeURIComponent(tenantId)}&limit=500`,
+    accessToken,
+  );
+}
+
+export async function createGrant(
+  accessToken: string,
+  body: CreateGrantRequest,
+): Promise<Result<Grant>> {
+  return policyServiceFetch('/grants', accessToken, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteGrant(accessToken: string, id: string): Promise<Result<void>> {
+  return policyServiceFetch(`/grants/${encodeURIComponent(id)}`, accessToken, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchRoles(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<RolesListResponse>> {
+  return policyServiceFetch(
+    `/roles?tenant_id=${encodeURIComponent(tenantId)}&limit=500`,
+    accessToken,
+  );
+}
+
+export async function upsertRole(
+  accessToken: string,
+  body: UpsertRoleRequest,
+): Promise<Result<RoleEntry>> {
+  return policyServiceFetch('/roles', accessToken, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteRole(
+  accessToken: string,
+  tenantId: string,
+  role: string,
+): Promise<Result<void>> {
+  return policyServiceFetch(
+    `/roles/${encodeURIComponent(role)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    accessToken,
+    { method: 'DELETE' },
+  );
+}
+
+export async function fetchVocabulary(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<VocabularyWithUsageListResponse>> {
+  return policyServiceFetch(`/vocabulary?tenant_id=${encodeURIComponent(tenantId)}`, accessToken);
+}
+
+export async function fetchRoutes(accessToken: string): Promise<Result<RoutesListResponse>> {
+  return policyServiceFetch('/routes', accessToken);
+}
+
+// ── Policy Gateway (PDP) endpoints ───────────────────────────────────────────
+
+export async function fetchScopesExplain(
+  accessToken: string,
+  principalType?: string,
+  principalId?: string,
+): Promise<Result<ScopesExplainResponse>> {
+  const params = new URLSearchParams();
+  if (principalType) params.set('principal_type', principalType);
+  if (principalId) params.set('principal_id', principalId);
+  const qs = params.toString();
+  return policyGatewayFetch(`/scopes/explain${qs ? `?${qs}` : ''}`, accessToken);
+}
+
+export async function checkSimulate(
+  accessToken: string,
+  body: CheckSimulateRequest,
+): Promise<Result<CheckResponse>> {
+  return policyGatewayFetch('/check/simulate', accessToken, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}

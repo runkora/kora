@@ -1,5 +1,7 @@
 package policygw
 
+import "github.com/clear-route/orbit/internal/platform/policy"
+
 // CheckRequest is the body for POST /v1/policy/check.
 type CheckRequest struct {
 	// Token is the raw platform JWT for the principal being checked.
@@ -53,4 +55,26 @@ type ScopesResponse struct {
 	Scopes      []string `json:"scopes"`
 	TenantID    string   `json:"tenant_id"`
 	EvaluatedAt string   `json:"evaluated_at"`
+}
+
+// ScopesExplainResponse is the body for GET /v1/policy/scopes/explain.
+type ScopesExplainResponse struct {
+	PrincipalType   string               `json:"principal_type"`
+	PrincipalID     string               `json:"principal_id"`
+	TenantID        string               `json:"tenant_id"`
+	FromRoles       []policy.RoleDetail  `json:"from_roles"`
+	FromGrants      []policy.GrantDetail `json:"from_grants"`
+	EffectiveScopes []string             `json:"effective_scopes"`
+	EvaluatedAt     string               `json:"evaluated_at"`
+}
+
+// CheckSimulateRequest is the body for POST /v1/policy/check/simulate.
+// Unlike CheckRequest, it identifies the principal by type and ID rather
+// than requiring a raw platform JWT.
+type CheckSimulateRequest struct {
+	PrincipalType string        `json:"principal_type"`
+	PrincipalID   string        `json:"principal_id"`
+	Roles         []string      `json:"roles,omitempty"`
+	Resource      CheckResource `json:"resource"`
+	Action        string        `json:"action"`
 }

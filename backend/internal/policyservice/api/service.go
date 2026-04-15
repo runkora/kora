@@ -128,6 +128,107 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 	return s.vocabRepo.List(ctx, resourceType)
 }
 
+// ListVocabularyWithUsage returns all scopes with grant and role usage counts
+// scoped to a specific tenant. Reserved roles (tenant-admin, platform-admin)
+// are not stored in the DB, so their scope usage is counted in-memory.
+func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
+	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build a set of scopes used by reserved roles and count how many
+	// reserved roles reference each scope.
+	reservedCounts := make(map[string]int)
+	for _, scopes := range reservedRoleScopes {
+		for _, s := range scopes {
+			reservedCounts[s]++
+		}
+	}
+
+	// Add reserved role counts to the DB-sourced role_count.
+	for _, e := range entries {
+		if extra, ok := reservedCounts[e.Scope]; ok {
+			e.RoleCount += extra
+		}
+	}
+
+	return entries, nil
+}
+
+// Stats returns aggregate counts across grants, roles, vocabulary, routes,
+// and bundle compilation status for a tenant.
+func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, error) {
+	grantTotal, grantByType, err := s.grantRepo.CountByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("count grants: %w", err)
+	}
+
+	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("count roles: %w", err)
+	}
+
+	vocabByType, err := s.vocabRepo.CountByResourceType(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count vocabulary: %w", err)
+	}
+	vocabTotal := 0
+	for _, c := range vocabByType {
+		vocabTotal += c
+	}
+
+	allRoutes := s.routeStore.ListAll()
+	routeTotal := 0
+	for _, reg := range allRoutes {
+		routeTotal += len(reg.Routes)
+	}
+
+	// Bundle status: check all tenants with compiled bundles.
+	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list tenants: %w", err)
+	}
+
+	var tenantBundles []tenantBundleStatus
+	for _, tid := range tenantIDs {
+		cached := s.bundleSrv.Compiler().Get(tid)
+		if cached == nil {
+			continue
+		}
+		tenantBundles = append(tenantBundles, tenantBundleStatus{
+			TenantID:       tid,
+			LastCompiledAt: cached.CompiledAt.Format("2006-01-02T15:04:05Z07:00"),
+			Status:         "current", // Staleness requires tracking last write time — see below.
+		})
+	}
+	if tenantBundles == nil {
+		tenantBundles = []tenantBundleStatus{}
+	}
+
+	return &statsResponse{
+		Grants: grantStats{
+			Total:           grantTotal,
+			ByPrincipalType: grantByType,
+		},
+		Roles: roleStats{
+			Total:    len(reservedRoles) + customRoleCount,
+			Reserved: len(reservedRoles),
+			Custom:   customRoleCount,
+		},
+		Vocabulary: vocabStats{
+			Total:          vocabTotal,
+			ByResourceType: vocabByType,
+		},
+		Routes: routeStats{
+			Total: routeTotal,
+		},
+		Bundles: bundleStats{
+			Tenants: tenantBundles,
+		},
+	}, nil
+}
+
 func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
@@ -137,6 +238,13 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 var reservedRoles = map[string]bool{
 	"tenant-admin":   true,
 	"platform-admin": true,
+}
+
+// reservedRoleScopes mirrors bundle.defaultRoleScopes so ListRoles can include
+// them in API responses without importing the bundle package.
+var reservedRoleScopes = map[string][]string{
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage"},
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
@@ -168,9 +276,30 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 	return s.roleRepo.GetByRole(ctx, tenantID, role)
 }
 
-// ListRoles returns all role→scope mappings for a tenant.
+// ListRoles returns all role→scope mappings for a tenant, including the
+// hardcoded reserved roles (tenant-admin, platform-admin) prepended on
+// the first page so the dashboard can display them.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
-	return s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only prepend reserved roles on the first page.
+	if offset > 0 {
+		return custom, nil
+	}
+
+	reserved := make([]*roles.RoleEntry, 0, len(reservedRoleScopes))
+	for _, name := range []string{"tenant-admin", "platform-admin"} {
+		reserved = append(reserved, &roles.RoleEntry{
+			ID:       "reserved-" + name,
+			TenantID: tenantID,
+			Role:     name,
+			Scopes:   reservedRoleScopes[name],
+		})
+	}
+	return append(reserved, custom...), nil
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.

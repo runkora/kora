@@ -46,6 +46,9 @@ type Repository interface {
 
 	// Delete removes the scope mapping for a role within a tenant.
 	Delete(ctx context.Context, tenantID, role string) error
+
+	// CountByTenant returns the number of custom (non-reserved) roles for a tenant.
+	CountByTenant(ctx context.Context, tenantID string) (int, error)
 }
 
 type postgresRepository struct {
@@ -125,6 +128,15 @@ func (r *postgresRepository) Delete(ctx context.Context, tenantID, role string) 
 		return ErrRoleNotFound
 	}
 	return nil
+}
+
+func (r *postgresRepository) CountByTenant(ctx context.Context, tenantID string) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policy_role_scopes WHERE tenant_id = $1`, tenantID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count roles by tenant: %w", err)
+	}
+	return count, nil
 }
 
 type scanner interface {

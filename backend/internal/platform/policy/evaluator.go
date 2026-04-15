@@ -30,8 +30,32 @@ type Evaluator interface {
 	// permissions into the frontend session.
 	Scopes(ctx context.Context, input ScopesInput) ([]string, error)
 
+	// ScopesExplain returns the principal's scopes broken down by source
+	// (grants with IDs, roles with names). Used by the admin dashboard's
+	// evaluate page for permission inspection.
+	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
+
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
+}
+
+// ScopesExplainResult holds the scope breakdown by source.
+type ScopesExplainResult struct {
+	FromGrants      []GrantDetail `json:"from_grants"`
+	FromRoles       []RoleDetail  `json:"from_roles"`
+	EffectiveScopes []string      `json:"effective_scopes"`
+}
+
+// GrantDetail is a single grant's contribution to the scope set.
+type GrantDetail struct {
+	GrantID string   `json:"grant_id"`
+	Scopes  []string `json:"scopes"`
+}
+
+// RoleDetail is a single role's contribution to the scope set.
+type RoleDetail struct {
+	Role   string   `json:"role"`
+	Scopes []string `json:"scopes"`
 }
 
 // ScopesInput is the input for collecting all scopes a principal holds.

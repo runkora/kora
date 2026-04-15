@@ -39,6 +39,13 @@ export const config = {
   policyGatewayUrl: requireEnv('POLICY_GATEWAY_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the policy service PAP (port 8083).
+   * Used by the BFF to proxy grant/role/vocabulary/route admin endpoints.
+   * Never sent to the browser.
+   */
+  policyServiceUrl: requireEnv('POLICY_SERVICE_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

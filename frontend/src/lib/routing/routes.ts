@@ -36,7 +36,14 @@ export const APP_ROUTES = {
   credentials: '/credentials',
 
   // ── Security ─────────────────────────────────────────────────────────────
-  policy: '/policy',
+  policy: {
+    overview: '/policy/overview',
+    grants: '/policy/grants',
+    roles: '/policy/roles',
+    vocabulary: '/policy/vocabulary',
+    routes: '/policy/routes',
+    evaluate: '/policy/evaluate',
+  },
   identity: '/identity',
 
   // ── System ───────────────────────────────────────────────────────────────
