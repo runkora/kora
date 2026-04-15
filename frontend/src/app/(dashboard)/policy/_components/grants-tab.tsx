@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, Trash2, Plus, X } from 'lucide-react';
+import { LayoutGrid, List, Search, ShieldCheck, Trash2, Plus, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -24,6 +24,8 @@ import type { Grant, PrincipalType } from '../_types';
 import { createGrantAction, deleteGrantAction } from '../_actions/grants';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
+import { EmptyState } from './empty-state';
+import { ErrorBanner } from './error-banner';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -119,13 +121,7 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
         </Text>
       </section>
 
-      {error && (
-        <Card column>
-          <CardContent>
-            <Text color="status-error">{error}</Text>
-          </CardContent>
-        </Card>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       {/* Search + view toggle */}
       <Stack direction="horizontal" align="center" justify="between">
@@ -188,15 +184,25 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
 
       {/* Content */}
       {filtered.length === 0 ? (
-        <Card column>
-          <CardContent>
-            <Text color="muted" size="caption">
-              {search || typeFilter !== 'all'
-                ? 'No grants match your filters.'
-                : 'No grants configured.'}
-            </Text>
-          </CardContent>
-        </Card>
+        search || typeFilter !== 'all' ? (
+          <EmptyState
+            icon={<Search className="size-5" />}
+            title="No matches"
+            description="No grants match your current filters. Try adjusting your search or clearing the filter."
+          />
+        ) : (
+          <EmptyState
+            icon={<ShieldCheck className="size-5" />}
+            title="No grants yet"
+            description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
+            action={
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus className="size-4 mr-1" />
+                Create Grant
+              </Button>
+            }
+          />
+        )
       ) : viewMode === 'cards' ? (
         <GrantCardGrid grants={filtered} onDelete={setDeleteCandidate} />
       ) : (

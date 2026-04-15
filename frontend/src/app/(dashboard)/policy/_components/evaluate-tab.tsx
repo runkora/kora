@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
 } from '@orbit/terra';
-import { CheckCircle2, Search, XCircle } from 'lucide-react';
+import { CheckCircle2, Search, ShieldOff, XCircle } from 'lucide-react';
 import type {
   CheckResponse,
   CheckSimulateRequest,
@@ -22,6 +22,7 @@ import type {
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
 import { ScopeChip } from './scope-chip';
+import { ErrorBanner } from './error-banner';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;
@@ -212,11 +213,7 @@ export function EvaluateTab({
               </Button>
             </Stack>
 
-            {lookupError && (
-              <Text color="status-error" size="caption">
-                {lookupError}
-              </Text>
-            )}
+            {lookupError && <ErrorBanner message={lookupError} />}
 
             {explain && (
               <Stack gap="comfortable">
@@ -293,15 +290,22 @@ export function EvaluateTab({
                   <Text size="caption" weight="emphasis" color="subtle">
                     Effective scope set ({explain.effective_scopes.length})
                   </Text>
-                  <Stack direction="horizontal" gap="tight" wrap>
-                    {explain.effective_scopes.length === 0 ? (
-                      <Text size="caption" color="muted">
-                        No scopes — this principal has no permissions.
-                      </Text>
-                    ) : (
-                      explain.effective_scopes.map((s) => <ScopeChip key={s} scope={s} />)
-                    )}
-                  </Stack>
+                  {explain.effective_scopes.length === 0 ? (
+                    <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
+                      <Stack gap="snug" align="center">
+                        <ShieldOff className="size-5 text-subtle" />
+                        <Text size="caption" color="muted">
+                          No effective scopes — this principal has no permissions.
+                        </Text>
+                      </Stack>
+                    </section>
+                  ) : (
+                    <Stack direction="horizontal" gap="tight" wrap>
+                      {explain.effective_scopes.map((s) => (
+                        <ScopeChip key={s} scope={s} />
+                      ))}
+                    </Stack>
+                  )}
                 </Stack>
               </Stack>
             )}
@@ -407,11 +411,7 @@ export function EvaluateTab({
               </Button>
             </Stack>
 
-            {simError && (
-              <Text color="status-error" size="caption">
-                {simError}
-              </Text>
-            )}
+            {simError && <ErrorBanner message={simError} />}
 
             {simResult && (
               <section

@@ -16,8 +16,11 @@ import {
   TableHead,
   TableCell,
 } from '@orbit/terra';
+import { Route, Search } from 'lucide-react';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
+import { EmptyState } from './empty-state';
+import { ErrorBanner } from './error-banner';
 
 interface RoutesTabProps {
   initialRegistrations: RouteRegistration[];
@@ -109,13 +112,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </section>
 
-      {initialError && (
-        <Card column>
-          <CardContent>
-            <Text color="status-error">{initialError}</Text>
-          </CardContent>
-        </Card>
-      )}
+      {initialError && <ErrorBanner message={initialError} />}
 
       {/* Filters */}
       <Stack direction="horizontal" align="center" gap="snug" wrap>
@@ -157,32 +154,36 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </Stack>
 
-      {/* Table */}
-      <Card column>
-        <CardContent flush>
-          <TableRoot>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Service</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Path Prefix</TableHead>
-                  <TableHead>Required Scope</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.length === 0 ? (
+      {/* Content */}
+      {filtered.length === 0 ? (
+        search || serviceFilter || methodFilter ? (
+          <EmptyState
+            icon={<Search className="size-5" />}
+            title="No matches"
+            description="No routes match your current filters. Try adjusting your search or clearing the service/method filter."
+          />
+        ) : (
+          <EmptyState
+            icon={<Route className="size-5" />}
+            title="No routes registered"
+            description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
+          />
+        )
+      ) : (
+        <Card column>
+          <CardContent flush>
+            <TableRoot>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={4}>
-                      <Text color="muted" size="caption">
-                        {search || serviceFilter || methodFilter
-                          ? 'No routes match your filters.'
-                          : 'No routes registered.'}
-                      </Text>
-                    </TableCell>
+                    <TableHead>Service</TableHead>
+                    <TableHead>Method</TableHead>
+                    <TableHead>Path Prefix</TableHead>
+                    <TableHead>Required Scope</TableHead>
                   </TableRow>
-                ) : (
-                  filtered.map((route, idx) => (
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((route, idx) => (
                     <TableRow key={`${route.service}-${route.method}-${route.pathPrefix}-${idx}`}>
                       <TableCell>
                         <Badge variant="secondary" size="sm">
@@ -203,13 +204,11 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
                         <ScopeChip scope={route.requiredScope} />
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableRoot>
-        </CardContent>
-        {filtered.length > 0 && (
+                  ))}
+                </TableBody>
+              </Table>
+            </TableRoot>
+          </CardContent>
           <footer className="px-4 py-2.5 border-t border-border-subtle">
             <Text size="caption" color="muted">
               {filtered.length} {filtered.length === 1 ? 'registration' : 'registrations'} ·{' '}
@@ -217,8 +216,8 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
               OPA bundles on every change
             </Text>
           </footer>
-        )}
-      </Card>
+        </Card>
+      )}
     </Stack>
   );
 }
