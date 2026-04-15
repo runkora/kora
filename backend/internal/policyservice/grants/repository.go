@@ -54,12 +54,16 @@ type Repository interface {
 	// Use limit=0 for unbounded (e.g. bundle compilation).
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error)
 
-	// Delete removes a grant by ID. Returns ErrGrantNotFound if it does not exist.
-	Delete(ctx context.Context, id string) error
+	// Delete removes a grant by ID within a tenant. Returns ErrGrantNotFound if it does not exist.
+	Delete(ctx context.Context, id, tenantID string) error
 
 	// ListDistinctTenants returns the unique tenant IDs that have at least one grant.
 	// Used at startup to pre-compile bundles for all active tenants.
 	ListDistinctTenants(ctx context.Context) ([]string, error)
+
+	// CountByTenant returns the total grant count and a breakdown by principal type
+	// for a single tenant. Used by the stats endpoint.
+	CountByTenant(ctx context.Context, tenantID string) (total int, byType map[PrincipalType]int, err error)
 }
 
 // postgresRepository is the Postgres-backed implementation.
@@ -135,8 +139,8 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 	return r.collectGrants(rows)
 }
 
-func (r *postgresRepository) Delete(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_grants WHERE id = $1`, id)
+func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_grants WHERE id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("delete grant: %w", err)
 	}
@@ -162,6 +166,30 @@ func (r *postgresRepository) ListDistinctTenants(ctx context.Context) ([]string,
 		tenants = append(tenants, id)
 	}
 	return tenants, rows.Err()
+}
+
+func (r *postgresRepository) CountByTenant(ctx context.Context, tenantID string) (int, map[PrincipalType]int, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT principal_type, COUNT(*) FROM policy_grants
+		WHERE tenant_id = $1 GROUP BY principal_type
+	`, tenantID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("count grants by tenant: %w", err)
+	}
+	defer rows.Close()
+
+	byType := make(map[PrincipalType]int)
+	total := 0
+	for rows.Next() {
+		var pt string
+		var count int
+		if err := rows.Scan(&pt, &count); err != nil {
+			return 0, nil, fmt.Errorf("scan grant count: %w", err)
+		}
+		byType[PrincipalType(pt)] = count
+		total += count
+	}
+	return total, byType, rows.Err()
 }
 
 func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {

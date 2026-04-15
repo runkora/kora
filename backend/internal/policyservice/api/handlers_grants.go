@@ -28,6 +28,13 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.PrincipalID) > 255 {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+				"principal_id must not exceed 255 characters", nil), nil)
+		return
+	}
+
 	tenantID, ok := c.resolveTenantID(w, r, claims, req.TenantID)
 	if !ok {
 		return
@@ -108,13 +115,12 @@ func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
-	if !ok {
-		return
+	supplied := r.URL.Query().Get("tenant_id")
+	if supplied == "" {
+		supplied = claims.Orbit.TenantID
 	}
-	if tenantID == "" {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeMissingField, "tenant_id query parameter is required", nil), nil)
+	tenantID, ok := c.resolveTenantID(w, r, claims, supplied)
+	if !ok {
 		return
 	}
 

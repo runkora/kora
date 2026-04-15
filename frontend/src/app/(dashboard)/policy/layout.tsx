@@ -7,5 +7,9 @@ import { ScopeGuard } from '../_components';
  * handles direct URL navigation).
  */
 export default function PolicyLayout({ children }: { children: React.ReactNode }) {
-  return <ScopeGuard scope="platform:grants:read">{children}</ScopeGuard>;
+  return (
+    <ScopeGuard scope="platform:grants:read">
+      <main className="px-6 py-8">{children}</main>
+    </ScopeGuard>
+  );
 }

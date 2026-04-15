@@ -18,16 +18,13 @@ type registerRoutesRequest struct {
 }
 
 // handleListRoutes handles GET /policy/routes.
-// Returns all registered route→scope mappings. SYSTEM principal only —
-// this view spans all tenants and services.
+// Returns all registered route→scope mappings.
+// Any authenticated principal can read routes — the data is not sensitive
+// and platform-admins need visibility for the policy dashboard.
 func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	claims, ok := c.claimsFromContext(w, r)
-	if !ok {
-		return
-	}
-	if !c.requireSystem(w, r, claims) {
+	if _, ok := c.claimsFromContext(w, r); !ok {
 		return
 	}
 

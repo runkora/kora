@@ -40,15 +40,3 @@ func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, cla
 	}
 	return claims.Orbit.TenantID, true
 }
-
-// requireSystem returns false and writes a 403 if the caller is not a SYSTEM principal.
-func (c *Controller) requireSystem(w http.ResponseWriter, r *http.Request, claims *token.PlatformClaims) bool {
-	ctx := r.Context()
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
-				"this operation requires a SYSTEM principal", nil), nil)
-		return false
-	}
-	return true
-}

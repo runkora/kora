@@ -93,6 +93,94 @@ export const ApiRoute = {
   models: {
     GET: (): `${typeof API_BASE}/models` => `${API_BASE}/models`,
   },
+
+  /**
+   * `/api/policy/stats`
+   *
+   * GET — proxies to the policy-service `GET /api/v1/policy/stats`.
+   */
+  policyStats: {
+    GET: (): `${typeof API_BASE}/policy/stats` => `${API_BASE}/policy/stats`,
+  },
+
+  /**
+   * `/api/policy/grants`
+   *
+   * GET  — list grants for the caller's tenant.
+   * POST — create a new grant.
+   */
+  policyGrants: {
+    GET: (): `${typeof API_BASE}/policy/grants` => `${API_BASE}/policy/grants`,
+    POST: (): `${typeof API_BASE}/policy/grants` => `${API_BASE}/policy/grants`,
+  },
+
+  /**
+   * `/api/policy/grants/[id]`
+   *
+   * DELETE — revoke a grant by ID.
+   */
+  policyGrant: {
+    DELETE: (id: string): `${typeof API_BASE}/policy/grants/${string}` =>
+      `${API_BASE}/policy/grants/${id}`,
+  },
+
+  /**
+   * `/api/policy/roles`
+   *
+   * GET — list role→scope mappings for the caller's tenant.
+   * PUT — create or replace a role→scope mapping.
+   */
+  policyRoles: {
+    GET: (): `${typeof API_BASE}/policy/roles` => `${API_BASE}/policy/roles`,
+    PUT: (): `${typeof API_BASE}/policy/roles` => `${API_BASE}/policy/roles`,
+  },
+
+  /**
+   * `/api/policy/roles/[role]`
+   *
+   * DELETE — remove a role→scope mapping.
+   */
+  policyRole: {
+    DELETE: (role: string): `${typeof API_BASE}/policy/roles/${string}` =>
+      `${API_BASE}/policy/roles/${encodeURIComponent(role)}`,
+  },
+
+  /**
+   * `/api/policy/vocabulary`
+   *
+   * GET — list scope vocabulary with optional usage counts.
+   */
+  policyVocabulary: {
+    GET: (): `${typeof API_BASE}/policy/vocabulary` => `${API_BASE}/policy/vocabulary`,
+  },
+
+  /**
+   * `/api/policy/routes`
+   *
+   * GET — list all registered route→scope mappings.
+   */
+  policyRoutes: {
+    GET: (): `${typeof API_BASE}/policy/routes` => `${API_BASE}/policy/routes`,
+  },
+
+  /**
+   * `/api/policy/evaluate/explain`
+   *
+   * GET — scope explain for a principal (proxies to policy-gateway).
+   */
+  policyExplain: {
+    GET: (): `${typeof API_BASE}/policy/evaluate/explain` => `${API_BASE}/policy/evaluate/explain`,
+  },
+
+  /**
+   * `/api/policy/evaluate/simulate`
+   *
+   * POST — simulate a policy check (proxies to policy-gateway).
+   */
+  policySimulate: {
+    POST: (): `${typeof API_BASE}/policy/evaluate/simulate` =>
+      `${API_BASE}/policy/evaluate/simulate`,
+  },
 } as const;
 
 /**
@@ -108,4 +196,15 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['session']['GET']>
   | ReturnType<(typeof ApiRoute)['discover']['PATH']>
   | `${typeof AUTH_BASE}/discover?email=${string}`
-  | ReturnType<(typeof ApiRoute)['models']['GET']>;
+  | ReturnType<(typeof ApiRoute)['models']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyStats']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyGrants']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyGrants']['POST']>
+  | ReturnType<(typeof ApiRoute)['policyGrant']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['policyRoles']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyRoles']['PUT']>
+  | ReturnType<(typeof ApiRoute)['policyRole']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['policyVocabulary']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyRoutes']['GET']>
+  | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
+  | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>;

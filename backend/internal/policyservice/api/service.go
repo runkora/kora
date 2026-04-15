@@ -43,9 +43,10 @@ type Service struct {
 	routeStore *routes.Store
 	logger     logging.Logger
 
-	// recompileMu protects recompileTimers from concurrent map access.
+	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
 	recompileMu     sync.Mutex
 	recompileTimers map[string]*time.Timer
+	lastWriteAt     map[string]time.Time
 }
 
 // NewService creates a Service wired to the provided repositories and bundle server.
@@ -65,6 +66,7 @@ func NewService(
 		routeStore:      routeStore,
 		logger:          logger,
 		recompileTimers: make(map[string]*time.Timer),
+		lastWriteAt:     make(map[string]time.Time),
 	}
 }
 
@@ -101,6 +103,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, fmt.Errorf("create grant: %w", err)
 	}
 
+	s.recordWrite(g.TenantID)
 	s.scheduleRecompile(ctx, g.TenantID)
 	return g, nil
 }
@@ -110,9 +113,10 @@ func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error
 }
 
 func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) error {
-	if err := s.grantRepo.Delete(ctx, id); err != nil {
+	if err := s.grantRepo.Delete(ctx, id, tenantID); err != nil {
 		return err
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
@@ -128,6 +132,103 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 	return s.vocabRepo.List(ctx, resourceType)
 }
 
+// ListVocabularyWithUsage returns all scopes with grant and role usage counts
+// scoped to a specific tenant. Reserved roles (tenant-admin, platform-admin)
+// are not stored in the DB, so their scope usage is counted in-memory.
+func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
+	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build a set of scopes used by reserved roles and count how many
+	// reserved roles reference each scope.
+	reservedCounts := make(map[string]int)
+	for _, scopes := range reservedRoleScopes {
+		for _, s := range scopes {
+			reservedCounts[s]++
+		}
+	}
+
+	// Add reserved role counts to the DB-sourced role_count.
+	for _, e := range entries {
+		if extra, ok := reservedCounts[e.Scope]; ok {
+			e.RoleCount += extra
+		}
+	}
+
+	return entries, nil
+}
+
+// Stats returns aggregate counts across grants, roles, vocabulary, routes,
+// and bundle compilation status for a tenant.
+func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, error) {
+	grantTotal, grantByType, err := s.grantRepo.CountByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("count grants: %w", err)
+	}
+
+	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("count roles: %w", err)
+	}
+
+	vocabByType, err := s.vocabRepo.CountByResourceType(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count vocabulary: %w", err)
+	}
+	vocabTotal := 0
+	for _, c := range vocabByType {
+		vocabTotal += c
+	}
+
+	allRoutes := s.routeStore.ListAll()
+	routeTotal := 0
+	for _, reg := range allRoutes {
+		routeTotal += len(reg.Routes)
+	}
+
+	// Bundle status: only return status for the requested tenant to avoid
+	// leaking other tenant identifiers and bundle timestamps.
+	tenantBundles := []tenantBundleStatus{}
+	cached := s.bundleSrv.Compiler().Get(tenantID)
+	if cached != nil {
+		status := "current"
+		s.recompileMu.Lock()
+		if lastWrite, ok := s.lastWriteAt[tenantID]; ok && lastWrite.After(cached.CompiledAt) {
+			status = "stale"
+		}
+		s.recompileMu.Unlock()
+		tenantBundles = append(tenantBundles, tenantBundleStatus{
+			TenantID:       tenantID,
+			LastCompiledAt: cached.CompiledAt.Format("2006-01-02T15:04:05Z07:00"),
+			Status:         status,
+		})
+	}
+
+	return &statsResponse{
+		Grants: grantStats{
+			Total:           grantTotal,
+			ByPrincipalType: grantByType,
+		},
+		Roles: roleStats{
+			Total:    len(reservedRoles) + customRoleCount,
+			Reserved: len(reservedRoles),
+			Custom:   customRoleCount,
+		},
+		Vocabulary: vocabStats{
+			Total:          vocabTotal,
+			ByResourceType: vocabByType,
+		},
+		Routes: routeStats{
+			Total: routeTotal,
+		},
+		Bundles: bundleStats{
+			Tenants: tenantBundles,
+		},
+	}, nil
+}
+
 func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
@@ -137,6 +238,13 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 var reservedRoles = map[string]bool{
 	"tenant-admin":   true,
 	"platform-admin": true,
+}
+
+// reservedRoleScopes mirrors bundle.defaultRoleScopes so ListRoles can include
+// them in API responses without importing the bundle package.
+var reservedRoleScopes = map[string][]string{
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage"},
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
@@ -159,6 +267,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return entry, nil
 }
@@ -168,9 +277,30 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 	return s.roleRepo.GetByRole(ctx, tenantID, role)
 }
 
-// ListRoles returns all role→scope mappings for a tenant.
+// ListRoles returns all role→scope mappings for a tenant, including the
+// hardcoded reserved roles (tenant-admin, platform-admin) prepended on
+// the first page so the dashboard can display them.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
-	return s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only prepend reserved roles on the first page.
+	if offset > 0 {
+		return custom, nil
+	}
+
+	reserved := make([]*roles.RoleEntry, 0, len(reservedRoleScopes))
+	for _, name := range []string{"tenant-admin", "platform-admin"} {
+		reserved = append(reserved, &roles.RoleEntry{
+			ID:       "reserved-" + name,
+			TenantID: tenantID,
+			Role:     name,
+			Scopes:   reservedRoleScopes[name],
+		})
+	}
+	return append(reserved, custom...), nil
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.
@@ -181,6 +311,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {
 		return err
 	}
+	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
 	return nil
 }
@@ -232,12 +363,37 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 	})
 
 	if tenantID == "" {
+		s.recordWriteAll(ctx)
 		go s.scheduleRecompileAll(context.WithoutCancel(ctx))
 	} else {
+		s.recordWrite(tenantID)
 		s.scheduleRecompile(ctx, tenantID)
 	}
 
 	return nil
+}
+
+// recordWrite marks the current time as the last policy-affecting write for a
+// tenant. Used by Stats to determine bundle staleness.
+func (s *Service) recordWrite(tenantID string) {
+	s.recompileMu.Lock()
+	s.lastWriteAt[tenantID] = time.Now()
+	s.recompileMu.Unlock()
+}
+
+// recordWriteAll marks a write for all active tenants (used after global route
+// registration changes).
+func (s *Service) recordWriteAll(ctx context.Context) {
+	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	s.recompileMu.Lock()
+	for _, tid := range tenantIDs {
+		s.lastWriteAt[tid] = now
+	}
+	s.recompileMu.Unlock()
 }
 
 // scheduleRecompile debounces bundle recompilation for a tenant. Multiple writes

@@ -348,6 +348,26 @@ principal_all_scopes contains scope if {
 	some scope in data.roles.role_scopes[role]
 }
 
+# ══ PRINCIPAL SCOPE DETAIL (EXPLAIN) ═════════════════════════════════════════
+#
+# Returns scopes grouped by their source — used by the policy gateway's
+# GET /v1/policy/scopes/explain endpoint to show administrators where each
+# scope comes from. Each entry includes the grant ID or role name.
+
+# Grants: one entry per matching grant with its ID and scopes.
+principal_grant_detail contains {"grant_id": grant.id, "scopes": grant.scopes} if {
+	some grant in data.grants.grants
+	grant.principal_type == _principal_type
+	grant.principal_id == _principal_id
+}
+
+# Roles: one entry per matching role with the role name and its resolved scopes.
+principal_role_detail contains {"role": role, "scopes": role_scopes} if {
+	_principal_type == "HUMAN"
+	some role in _principal_roles
+	role_scopes := data.roles.role_scopes[role]
+}
+
 # ══ SCOPE HIERARCHY ══════════════════════════════════════════════════════════
 #
 # A covers B if same resource_type, same action, A's path is a prefix of B's path.

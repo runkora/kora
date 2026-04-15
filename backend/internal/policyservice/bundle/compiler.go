@@ -55,6 +55,7 @@ type grantsDocument struct {
 }
 
 type grantEntry struct {
+	ID            string   `json:"id"`
 	PrincipalType string   `json:"principal_type"`
 	PrincipalID   string   `json:"principal_id"`
 	Scopes        []string `json:"scopes"`
@@ -168,6 +169,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants))}
 	for _, g := range tenantGrants {
 		grantDoc.Grants = append(grantDoc.Grants, grantEntry{
+			ID:            g.ID,
 			PrincipalType: string(g.PrincipalType),
 			PrincipalID:   g.PrincipalID,
 			Scopes:        g.Scopes,

@@ -3,14 +3,18 @@ import {
   BarChart3,
   Bot,
   Database,
+  FlaskConical,
   Key,
   KeyRound,
   LayoutDashboard,
+  Library,
   LineChart,
+  Route,
   Settings,
   ShieldCheck,
   Sparkles,
   User,
+  UserCheck,
   Wrench,
 } from 'lucide-react';
 
@@ -54,13 +58,46 @@ const MAIN_NAV: NavEntry[] = [
 ];
 
 const SECURITY_NAV: NavEntry[] = [
+  { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
+];
+
+const POLICY_NAV: NavEntry[] = [
   {
-    label: 'Policy Engine',
-    href: APP_ROUTES.policy,
+    label: 'Overview',
+    href: APP_ROUTES.policy.overview,
+    icon: BarChart3,
+    requiredScope: 'platform:grants:read',
+  },
+  {
+    label: 'Grants',
+    href: APP_ROUTES.policy.grants,
     icon: ShieldCheck,
     requiredScope: 'platform:grants:read',
   },
-  { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
+  {
+    label: 'Roles',
+    href: APP_ROUTES.policy.roles,
+    icon: UserCheck,
+    requiredScope: 'platform:roles:read',
+  },
+  {
+    label: 'Vocabulary',
+    href: APP_ROUTES.policy.vocabulary,
+    icon: Library,
+    requiredScope: 'platform:grants:read',
+  },
+  {
+    label: 'Routes',
+    href: APP_ROUTES.policy.routes,
+    icon: Route,
+    requiredScope: 'platform:grants:read',
+  },
+  {
+    label: 'Evaluate',
+    href: APP_ROUTES.policy.evaluate,
+    icon: FlaskConical,
+    requiredScope: 'platform:grants:read',
+  },
 ];
 
 const SYSTEM_NAV: NavEntry[] = [
@@ -81,6 +118,7 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
 
 export const NAV_GROUPS: NavGroup[] = [
   { label: 'Control Plane', items: MAIN_NAV },
+  { label: 'Policy Engine', items: POLICY_NAV },
   { label: 'Security', items: SECURITY_NAV },
   { label: 'Model Gateway', items: MODEL_GATEWAY_NAV },
   { label: 'System', items: SYSTEM_NAV },

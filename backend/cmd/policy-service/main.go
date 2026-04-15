@@ -81,6 +81,7 @@ func realMain() error {
 	// Self-register the policy service's own routes and platform scope vocabulary.
 	// Direct call — no HTTP round-trip needed since the service owns the store.
 	if err := svc.RegisterRoutes(ctx, "policy-service", "", []routes.RouteScope{
+		{PathPrefix: "/api/v1/policy/stats", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},

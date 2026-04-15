@@ -2,6 +2,7 @@ package policygw
 
 import (
 	"context"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -72,6 +73,81 @@ func (s *Service) Scopes(
 	)
 
 	return scopes, nil
+}
+
+// ScopesExplain returns the principal's scopes broken down by source.
+func (s *Service) ScopesExplain(
+	ctx context.Context,
+	claims *token.PlatformClaims,
+) (*policy.ScopesExplainResult, error) {
+	result, err := s.eval.ScopesExplain(ctx, policy.ScopesInput{
+		Claims: claims,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.logger.Info(ctx, "policy scopes explain",
+		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
+		logging.Field{Key: "effective_scopes_count", Value: len(result.EffectiveScopes)},
+	)
+
+	return result, nil
+}
+
+// CheckSimulate evaluates a policy decision for a specified principal without
+// requiring their JWT. Constructs synthetic claims from the provided identity.
+func (s *Service) CheckSimulate(
+	ctx context.Context,
+	callerClaims *token.PlatformClaims,
+	principalType string,
+	principalID string,
+	roles []string,
+	resourceType string,
+	pathSegments []string,
+	action string,
+	attrs map[string]string,
+) (policy.Result, error) {
+	// If simulating ourselves with no explicit roles, use original claims
+	// (preserves OIDC roles). Otherwise build synthetic claims with the
+	// provided roles so OPA can resolve role-based scopes.
+	effectiveClaims := callerClaims
+	isSelf := principalID == callerClaims.Subject &&
+		token.PrincipalType(principalType) == callerClaims.Orbit.PrincipalType &&
+		len(roles) == 0
+	if !isSelf {
+		effectiveClaims = &token.PlatformClaims{}
+		effectiveClaims.Subject = principalID
+		effectiveClaims.Orbit.PrincipalType = token.PrincipalType(principalType)
+		effectiveClaims.Orbit.TenantID = callerClaims.Orbit.TenantID
+		if len(roles) > 0 {
+			effectiveClaims.Orbit.Claims = map[string]string{
+				"roles": strings.Join(roles, ","),
+			}
+		}
+	}
+
+	result, err := s.eval.Check(ctx, policy.CheckInput{
+		Claims:       effectiveClaims,
+		ResourceType: resourceType,
+		PathSegments: pathSegments,
+		Action:       action,
+		Attributes:   attrs,
+	})
+	if err != nil {
+		return policy.Result{}, err
+	}
+
+	s.logger.Info(ctx, "policy check simulate",
+		logging.Field{Key: "tenant_id", Value: callerClaims.Orbit.TenantID},
+		logging.Field{Key: "simulated_principal", Value: principalID},
+		logging.Field{Key: "simulated_type", Value: principalType},
+		logging.Field{Key: "resource_type", Value: resourceType},
+		logging.Field{Key: "allow", Value: result.Allow},
+	)
+
+	return result, nil
 }
 
 // Query filters a list of candidate resource IDs to those the principal may access.
