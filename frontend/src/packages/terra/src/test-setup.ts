@@ -8,4 +8,4 @@
  * when it detects a global `afterEach` — which requires `globals: true` in the
  * Vitest config. See vitest.config.ts.
  */
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';

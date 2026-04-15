@@ -519,10 +519,7 @@ frontend-test-unit:
 frontend-test-integration:
 	cd $(FRONTEND_DIR) && pnpm run test:integration
 
-frontend-test-e2e:
-	cd $(FRONTEND_DIR) && pnpm exec playwright test
-
-frontend-test: frontend-test-unit frontend-test-integration frontend-test-e2e
+frontend-test: frontend-test-unit frontend-test-integration
 ```
 
 The existing `frontend-check` target gains `frontend-test` as a dependency:
@@ -531,7 +528,7 @@ The existing `frontend-check` target gains `frontend-test` as a dependency:
 frontend-check: frontend-lint frontend-type-check frontend-fmt frontend-test
 ```
 
-`make check` therefore gates on all frontend test tiers without requiring any additional developer commands.
+`make check` therefore gates on all frontend test tiers without requiring any additional developer commands. `frontend-test-e2e` is a Phase 2 target — it is not added until Playwright is installed and `frontend/e2e/` is populated.
 
 **pnpm scripts** (in `frontend/package.json`):
 
@@ -550,9 +547,9 @@ frontend-check: frontend-lint frontend-type-check frontend-fmt frontend-test
 "test":      "pnpm run test:unit"
 ```
 
-Terra has no integration tests — it is a pure rendering library with no HTTP calls. Its `test` script is an alias for `test:unit`. CI uses the explicit Makefile targets (`make frontend-test-terra`, `make frontend-test-unit`, `make frontend-test-integration`, `make frontend-test-e2e`) — never a single workspace-wide command. `make frontend-test-terra` is also the isolation target for local development when working exclusively on Terra components.
+Terra has no integration tests — it is a pure rendering library with no HTTP calls. Its `test` script is an alias for `test:unit`. CI uses the explicit Makefile targets (`make frontend-test-terra`, `make frontend-test-unit`, `make frontend-test-integration`) — never a single workspace-wide command. `make frontend-test-terra` is also the isolation target for local development when working exclusively on Terra components.
 
-The three Makefile targets are separate CI steps. A unit test failure does not suppress integration test results; an integration test failure does not suppress E2E results. Each tier's outcome is independently attributable in CI logs.
+The Makefile targets are separate CI steps. A unit test failure does not suppress integration test results. Each tier's outcome is independently attributable in CI logs.
 
 ### Coverage Model
 
@@ -631,7 +628,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 10. Write `health-status.integration.test.tsx` for `src/components/health-status.tsx` (loading, ok, error states) via MSW
 11. Write `dashboard-sidebar.integration.test.tsx` for the dashboard sidebar (nav items, session data) via MSW + `next/navigation` module mock
 12. Write unit tests (`*.test.ts`) for `lib/routing/api-routes.ts` and `lib/routing/routes.ts`
-13. Add `frontend-test-terra`, `frontend-test-unit`, `frontend-test-integration`, `frontend-test-e2e`, and `frontend-test` Makefile targets; wire `frontend-test` into `frontend-check`
+13. Add `frontend-test-terra`, `frontend-test-unit`, `frontend-test-integration`, and `frontend-test` Makefile targets; wire `frontend-test` into `frontend-check` (`frontend-test-e2e` is Phase 2 — deferred until Playwright is installed)
 14. Add CI step for `make frontend-test`
 
 **Phase 2 (E2E and Coverage):**

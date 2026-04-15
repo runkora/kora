@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "storybook dev -p 6006",
     "build": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"

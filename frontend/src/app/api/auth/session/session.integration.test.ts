@@ -67,8 +67,7 @@ afterAll(() => {
 /** Returns a mock iron-session object with a tracked save() function. */
 function makeMockSession() {
   const save = vi.fn().mockResolvedValue(undefined);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.mocked(getIronSession).mockResolvedValue({ save } as any);
+  vi.mocked(getIronSession).mockResolvedValue({ save } as unknown as IronSession<SessionPayload>);
   return { save };
 }
 

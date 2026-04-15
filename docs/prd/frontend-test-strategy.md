@@ -470,8 +470,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 - [ ] Tests for at least 3 Terra components covering: rendering with props, variant switching, and disabled/loading states where applicable — named `*.test.tsx`
 - [ ] `HealthStatus` integration tests covering: loading, healthy, and error display states — named `health-status.integration.test.tsx`, all HTTP via MSW
 - [ ] `DashboardSidebar` integration tests covering: renders nav items, renders user email from session response — named `dashboard-sidebar.integration.test.tsx`, all HTTP via MSW
-- [ ] Playwright config exists and at least 1 E2E test covers: app loads and health status is displayed (with mocked Go backend via `page.route()`); unmatched routes return an error response
-- [ ] All tests run in CI on every PR via separate `make frontend-test-unit`, `make frontend-test-integration`, and `make frontend-test-e2e` targets; `make frontend-test-terra` is available for local Terra-only development workflows
+- [ ] All tests run in CI on every PR via `make frontend-test-unit` and `make frontend-test-integration` targets; `make frontend-test-terra` is available for local Terra-only development workflows
 - [ ] Coverage reports are generated (not gated) on every CI run
 
 **Should Have (P1):**
@@ -648,7 +647,7 @@ All open questions have been resolved.
 
 4. **Test script naming convention and separation**: Should unit and integration tests share a single script or be split?
    - **Status:** Resolved
-   - **Decision:** Unit and integration tests use distinct scripts and Makefile targets. `test:unit` runs only `*.test.ts(x)` (excluding `*.integration.test.ts(x)`). `test:integration` runs only `*.integration.test.ts(x)`. `test` is a convenience alias that runs both. Four Makefile targets exist: `make frontend-test-terra` (Terra in isolation, `happy-dom`), `make frontend-test-unit` (Terra then app, both under their correct environments), `make frontend-test-integration`, and `make frontend-test-e2e`. They are separate steps so a unit test failure does not skip integration test reporting and vice versa. `frontend-test-terra` is also the fast local target when working exclusively on Terra components.
+   - **Decision:** Unit and integration tests use distinct scripts and Makefile targets. `test:unit` runs only `*.test.ts(x)` (excluding `*.integration.test.ts(x)`). `test:integration` runs only `*.integration.test.ts(x)`. `test` is a convenience alias that runs both. Three Phase 1 Makefile targets exist: `make frontend-test-terra` (Terra in isolation, `happy-dom`), `make frontend-test-unit` (Terra then app, both under their correct environments), and `make frontend-test-integration`. They are separate steps so a unit test failure does not skip integration test reporting and vice versa. `frontend-test-terra` is also the fast local target when working exclusively on Terra components. `make frontend-test-e2e` is a Phase 2 target, deferred until Playwright is installed.
 
 ---
 
@@ -832,10 +831,7 @@ frontend-test-unit:
 frontend-test-integration:
 	cd $(FRONTEND_DIR) && pnpm run test:integration
 
-frontend-test-e2e:
-	cd $(FRONTEND_DIR) && pnpm exec playwright test
-
-frontend-test: frontend-test-unit frontend-test-integration frontend-test-e2e
+frontend-test: frontend-test-unit frontend-test-integration
 ```
 
 > **Note:** `frontend-test-terra` is the isolation target — use it when working exclusively on Terra components. `frontend-test-unit` always runs Terra first, then the app. The two Makefile lines in `frontend-test-unit` are both necessary: `pnpm run test:unit` at the workspace root does not recurse into workspace packages. The app's `vitest.config.unit.ts` excludes `src/packages/**` to prevent Terra's tests from running a second time under `jsdom`.
