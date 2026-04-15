@@ -111,12 +111,13 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 		exit 1; \
 	fi; \
 	echo "$(COLOR_YELLOW)Creating worktree for branch '$(BRANCH)'...$(COLOR_RESET)"; \
+	git fetch origin main --quiet; \
 	if git show-ref --verify --quiet "refs/heads/$(BRANCH)"; then \
 		git worktree add "$$WORKTREE_DIR" "$(BRANCH)"; \
 	elif git show-ref --verify --quiet "refs/remotes/origin/$(BRANCH)"; then \
 		git worktree add --track -b "$(BRANCH)" "$$WORKTREE_DIR" "origin/$(BRANCH)"; \
 	else \
-		git worktree add -b "$(BRANCH)" "$$WORKTREE_DIR"; \
+		git worktree add -b "$(BRANCH)" "$$WORKTREE_DIR" origin/main; \
 	fi; \
 	echo "$(COLOR_YELLOW)Symlinking local dev files...$(COLOR_RESET)"; \
 	ln -s "$(CURDIR)/.env" "$$WORKTREE_DIR/.env"; \
