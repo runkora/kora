@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 //	PUT    /virtual-models/{id}         replace a virtual model by UUID
 //	DELETE /virtual-models/{id}         delete a virtual model by UUID
 //	GET    /provider-models             list discovered provider models with override status
+//	POST   /provider-models/refresh     trigger a live provider model discovery sweep
 //	PUT    /provider-models/{provider}/{modelId}  enable or disable a provider model
 type CatalogController struct {
 	store    *CatalogStore
@@ -50,6 +52,7 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("PUT /virtual-models/{id}", c.handleUpdateVirtualModel)
 	mux.Handle("DELETE /virtual-models/{id}", c.handleDeleteVirtualModel)
 	mux.Handle("GET /provider-models", c.handleListProviderModels)
+	mux.Handle("POST /provider-models/refresh", c.handleRefreshProviderModels)
 	mux.Handle("PUT /provider-models/{provider}/{modelId}", c.handleSetProviderModelEnabled)
 }
 
@@ -79,7 +82,8 @@ type routeJSON struct {
 	Enabled         bool    `json:"enabled"`
 }
 
-type createVirtualModelRequest struct {
+// virtualModelRequest is the shared request body for create and update operations.
+type virtualModelRequest struct {
 	Family      string       `json:"family"`
 	Name        string       `json:"name"`
 	DisplayName string       `json:"display_name"`
@@ -90,6 +94,7 @@ type createVirtualModelRequest struct {
 }
 
 type routeInput struct {
+	ID              string  `json:"id"`
 	Provider        string  `json:"provider"`
 	ModelID         string  `json:"model_id"`
 	Priority        int     `json:"priority"`
@@ -97,16 +102,6 @@ type routeInput struct {
 	InputCostPer1M  float64 `json:"input_cost_per_1m"`
 	OutputCostPer1M float64 `json:"output_cost_per_1m"`
 	Enabled         bool    `json:"enabled"`
-}
-
-type updateVirtualModelRequest struct {
-	Family      string       `json:"family"`
-	Name        string       `json:"name"`
-	DisplayName string       `json:"display_name"`
-	Description string       `json:"description"`
-	Strategy    string       `json:"strategy"`
-	Enabled     bool         `json:"enabled"`
-	Routes      []routeInput `json:"routes"`
 }
 
 type setProviderModelEnabledRequest struct {
@@ -146,18 +141,19 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req createVirtualModelRequest
+	var req virtualModelRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if err := validateVirtualModelRequest(req.Family, req.Name, req.DisplayName, req.Strategy); err != nil {
+	if err := validateVirtualModelRequest(req); err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", err.Error(), nil), nil)
 		return
 	}
 
+	vmID := uuid.New().String()
 	now := time.Now().UTC()
 	vm := VirtualModel{
-		ID:          uuid.New().String(),
+		ID:          vmID,
 		Family:      req.Family,
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
@@ -166,12 +162,11 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		Enabled:     req.Enabled,
 		CreatedAt:   now,
 		UpdatedAt:   now,
-		Routes:      toVirtualModelRoutes(uuid.New().String(), req.Routes),
+		Routes:      toVirtualModelRoutes(vmID, req.Routes),
 	}
-	// Each route needs its own ID.
+	// Assign a unique ID to each route; VirtualModelID is already set by toVirtualModelRoutes.
 	for i := range vm.Routes {
 		vm.Routes[i].ID = uuid.New().String()
-		vm.Routes[i].VirtualModelID = vm.ID
 	}
 
 	if err := c.store.CreateVirtualModel(ctx, vm); err != nil {
@@ -203,11 +198,11 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	var req updateVirtualModelRequest
+	var req virtualModelRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if err := validateVirtualModelRequest(req.Family, req.Name, req.DisplayName, req.Strategy); err != nil {
+	if err := validateVirtualModelRequest(req); err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", err.Error(), nil), nil)
 		return
 	}
@@ -217,7 +212,6 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		if routes[i].ID == "" {
 			routes[i].ID = uuid.New().String()
 		}
-		routes[i].VirtualModelID = id
 	}
 
 	vm := VirtualModel{
@@ -231,7 +225,8 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		Routes:      routes,
 	}
 
-	if err := c.store.UpdateVirtualModel(ctx, vm); err != nil {
+	updated, err := c.store.UpdateVirtualModel(ctx, vm)
+	if err != nil {
 		if errors.Is(err, ErrVirtualModelNotFound) {
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "virtual model not found", nil), nil)
 			return
@@ -240,12 +235,6 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Re-fetch to get the updated timestamps.
-	updated, err := c.store.GetVirtualModel(ctx, id)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to fetch updated virtual model", nil), err)
-		return
-	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated)})
 }
 
@@ -283,12 +272,10 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		}
 	}
 
-	// Merge with live discovery cache. Trigger a sweep if nothing is cached yet.
+	// Merge with live discovery cache. The cache is warmed at startup via
+	// CatalogStore.WarmupProviderModels and can be refreshed via
+	// POST /provider-models/refresh — no side effects in GET.
 	discovered := c.store.ListProviderModels()
-	if len(discovered) == 0 {
-		_ = c.store.RefreshProviderModels(ctx)
-		discovered = c.store.ListProviderModels()
-	}
 	items := make([]providerModelJSON, 0, len(discovered))
 	for _, m := range discovered {
 		caps := make([]string, len(m.Capabilities))
@@ -324,9 +311,29 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
 
+// handleRefreshProviderModels triggers a live discovery sweep across all
+// configured providers and updates the in-memory cache.
+func (c *CatalogController) handleRefreshProviderModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := c.store.RefreshProviderModels(ctx); err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "provider model refresh failed", nil), err)
+		return
+	}
+	c.logger.Info(ctx, "provider model cache refreshed via admin API")
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": map[string]any{"refreshed": true}})
+}
+
 func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
+	if !isValidProvider(provider) {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.BadRequestError("invalid_provider",
+				fmt.Sprintf("provider %q is not valid; must be one of: bedrock, vertexai, azure", provider),
+				nil),
+			nil)
+		return
+	}
 	modelID := r.PathValue("modelId")
 
 	var req setProviderModelEnabledRequest
@@ -376,6 +383,7 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	routes := make([]VirtualModelRoute, len(inputs))
 	for i, r := range inputs {
 		routes[i] = VirtualModelRoute{
+			ID:              r.ID, // preserved when provided; callers assign a new UUID if empty
 			VirtualModelID:  vmID,
 			Provider:        ProviderName(r.Provider),
 			ModelID:         r.ModelID,
@@ -389,20 +397,56 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	return routes
 }
 
-func validateVirtualModelRequest(family, name, displayName, strategy string) error {
-	if family == "" {
-		return ErrInvalidRequest
+// isValidProvider reports whether p is one of the known provider constants.
+func isValidProvider(p ProviderName) bool {
+	switch p {
+	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
+		return true
 	}
-	if name == "" {
-		return ErrInvalidRequest
+	return false
+}
+
+// validateVirtualModelRequest validates the fields common to create and update
+// requests, returning a descriptive error for the first failing constraint.
+func validateVirtualModelRequest(req virtualModelRequest) error {
+	if req.Family == "" {
+		return fmt.Errorf("family is required")
 	}
-	if displayName == "" {
-		return ErrInvalidRequest
+	if req.Name == "" {
+		return fmt.Errorf("name is required")
 	}
-	switch VirtualModelStrategy(strategy) {
+	if req.DisplayName == "" {
+		return fmt.Errorf("display_name is required")
+	}
+	switch VirtualModelStrategy(req.Strategy) {
 	case VirtualStrategyPriority, VirtualStrategyWeighted, VirtualStrategyLowestCost:
 	default:
-		return ErrInvalidRequest
+		return fmt.Errorf("strategy must be one of: priority, weighted, lowest_cost; got %q", req.Strategy)
 	}
+
+	// Route-level validation.
+	for i, r := range req.Routes {
+		if !isValidProvider(ProviderName(r.Provider)) {
+			return fmt.Errorf("route[%d].provider %q is not valid; must be one of: bedrock, vertexai, azure", i, r.Provider)
+		}
+		if r.ModelID == "" {
+			return fmt.Errorf("route[%d].model_id is required", i)
+		}
+		if r.Priority < 1 {
+			return fmt.Errorf("route[%d].priority must be ≥ 1 (got %d)", i, r.Priority)
+		}
+	}
+
+	// Weighted strategy: weights must sum to 100.
+	if VirtualModelStrategy(req.Strategy) == VirtualStrategyWeighted && len(req.Routes) > 0 {
+		total := 0
+		for _, r := range req.Routes {
+			total += r.Weight
+		}
+		if total != 100 {
+			return fmt.Errorf("route weights must sum to 100 for the weighted strategy (current total: %d)", total)
+		}
+	}
+
 	return nil
 }

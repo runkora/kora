@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,7 +22,8 @@ type CatalogRepository interface {
 
 	// UpdateVirtualModel replaces a virtual model and its routes atomically.
 	// The existing routes are deleted and replaced with vm.Routes.
-	UpdateVirtualModel(ctx context.Context, vm VirtualModel) error
+	// Returns the updated model (with DB-generated timestamps).
+	UpdateVirtualModel(ctx context.Context, vm VirtualModel) (VirtualModel, error)
 
 	// DeleteVirtualModel removes a virtual model and cascades to its routes.
 	DeleteVirtualModel(ctx context.Context, id string) error
@@ -30,7 +32,7 @@ type CatalogRepository interface {
 	GetVirtualModel(ctx context.Context, id string) (VirtualModel, error)
 
 	// ListVirtualModels returns all virtual models with their routes, ordered
-	// by (family, name).
+	// by (family, name, priority).
 	ListVirtualModels(ctx context.Context) ([]VirtualModel, error)
 
 	// SetProviderModelEnabled records an admin enable/disable decision for a
@@ -41,8 +43,17 @@ type CatalogRepository interface {
 	ListProviderModelOverrides(ctx context.Context) ([]ProviderModelOverride, error)
 
 	// LoadSnapshot builds the in-memory projection of the full catalog in a
-	// single query. Called after every write to refresh the routing engine cache.
+	// single read-only transaction. Called after every write to refresh the
+	// routing engine cache.
 	LoadSnapshot(ctx context.Context) (*virtualCatalogSnapshot, error)
+}
+
+// ─── rowQuerier ─────────────────────────────────────────────────────────────
+
+// rowQuerier abstracts *pgxpool.Pool and pgx.Tx so the same query helpers can
+// run inside or outside a transaction.
+type rowQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // ─── PostgresCatalogRepository ──────────────────────────────────────────────
@@ -75,28 +86,46 @@ func (r *PostgresCatalogRepository) CreateVirtualModel(ctx context.Context, vm V
 }
 
 // UpdateVirtualModel replaces a virtual model's fields and routes atomically.
-func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm VirtualModel) error {
-	return r.inTx(ctx, func(tx pgx.Tx) error {
+// Returns the updated model with DB-generated timestamps via RETURNING.
+func (r *PostgresCatalogRepository) UpdateVirtualModel(ctx context.Context, vm VirtualModel) (VirtualModel, error) {
+	var result VirtualModel
+	err := r.inTx(ctx, func(tx pgx.Tx) error {
 		const q = `
 			UPDATE virtual_models
-			SET family=$2, name=$3, display_name=$4, description=$5, strategy=$6, enabled=$7, updated_at=$8
-			WHERE id=$1`
-		tag, err := tx.Exec(ctx, q,
+			SET family=$2, name=$3, display_name=$4, description=$5, strategy=$6, enabled=$7, updated_at=now()
+			WHERE id=$1
+			RETURNING id, family, name, display_name, description, strategy, enabled, created_at, updated_at`
+
+		var strategy string
+		row := tx.QueryRow(ctx, q,
 			vm.ID, vm.Family, vm.Name, vm.DisplayName, vm.Description,
-			string(vm.Strategy), vm.Enabled, time.Now(),
+			string(vm.Strategy), vm.Enabled,
 		)
-		if err != nil {
+		if err := row.Scan(
+			&result.ID, &result.Family, &result.Name, &result.DisplayName, &result.Description,
+			&strategy, &result.Enabled, &result.CreatedAt, &result.UpdatedAt,
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelNotFound)
+			}
 			return fmt.Errorf("update virtual model: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("update virtual model %s: %w", vm.ID, ErrVirtualModelNotFound)
-		}
+		result.Strategy = VirtualModelStrategy(strategy)
+
 		// Replace routes: delete existing, insert new set.
 		if _, err := tx.Exec(ctx, `DELETE FROM virtual_model_routes WHERE virtual_model_id=$1`, vm.ID); err != nil {
 			return fmt.Errorf("delete old routes: %w", err)
 		}
-		return r.insertRoutes(ctx, tx, vm.ID, vm.Routes)
+		if err := r.insertRoutes(ctx, tx, vm.ID, vm.Routes); err != nil {
+			return err
+		}
+		result.Routes = vm.Routes
+		return nil
 	})
+	if err != nil {
+		return VirtualModel{}, err
+	}
+	return result, nil
 }
 
 // DeleteVirtualModel removes the virtual model; routes cascade via FK.
@@ -113,7 +142,7 @@ func (r *PostgresCatalogRepository) DeleteVirtualModel(ctx context.Context, id s
 
 // GetVirtualModel returns a single virtual model with routes.
 func (r *PostgresCatalogRepository) GetVirtualModel(ctx context.Context, id string) (VirtualModel, error) {
-	vms, err := r.queryVirtualModels(ctx, `WHERE vm.id=$1`, id)
+	vms, err := r.getByID(ctx, r.pool, id)
 	if err != nil {
 		return VirtualModel{}, err
 	}
@@ -123,9 +152,9 @@ func (r *PostgresCatalogRepository) GetVirtualModel(ctx context.Context, id stri
 	return vms[0], nil
 }
 
-// ListVirtualModels returns all virtual models ordered by (family, name).
+// ListVirtualModels returns all virtual models ordered by (family, name, priority).
 func (r *PostgresCatalogRepository) ListVirtualModels(ctx context.Context) ([]VirtualModel, error) {
-	return r.queryVirtualModels(ctx, `ORDER BY vm.family, vm.name` /* no args */)
+	return r.listAll(ctx, r.pool)
 }
 
 // SetProviderModelEnabled upserts an admin override for a provider model.
@@ -146,38 +175,30 @@ func (r *PostgresCatalogRepository) SetProviderModelEnabled(
 
 // ListProviderModelOverrides returns all stored admin overrides.
 func (r *PostgresCatalogRepository) ListProviderModelOverrides(ctx context.Context) ([]ProviderModelOverride, error) {
-	const q = `SELECT provider, model_id, enabled, updated_at FROM provider_model_overrides ORDER BY provider, model_id`
-	rows, err := r.pool.Query(ctx, q)
-	if err != nil {
-		return nil, fmt.Errorf("list provider model overrides: %w", err)
-	}
-	defer rows.Close()
-
-	var overrides []ProviderModelOverride
-	for rows.Next() {
-		var o ProviderModelOverride
-		var provider string
-		if err := rows.Scan(&provider, &o.ModelID, &o.Enabled, &o.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan provider model override: %w", err)
-		}
-		o.Provider = ProviderName(provider)
-		overrides = append(overrides, o)
-	}
-	return overrides, rows.Err()
+	return r.queryOverrides(ctx, r.pool)
 }
 
-// LoadSnapshot builds the full in-memory projection of the catalog. It runs
-// two queries (virtual models + routes, provider overrides) and assembles the
-// virtualCatalogSnapshot used by the routing engine's atomic pointer.
+// LoadSnapshot builds the full in-memory projection of the catalog. Both
+// queries run inside a single read-only transaction to avoid an inconsistent
+// snapshot if a concurrent admin write occurs between the two reads.
 func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualCatalogSnapshot, error) {
-	vms, err := r.ListVirtualModels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("catalog snapshot list models: %w", err)
-	}
+	var vms []VirtualModel
+	var overrides []ProviderModelOverride
 
-	overrides, err := r.ListProviderModelOverrides(ctx)
+	err := r.inTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		vms, err = r.listAll(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("catalog snapshot list models: %w", err)
+		}
+		overrides, err = r.queryOverrides(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("catalog snapshot list overrides: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("catalog snapshot list overrides: %w", err)
+		return nil, err
 	}
 
 	disabledRoutes := make(map[string]bool, len(overrides))
@@ -188,10 +209,16 @@ func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualC
 	}
 
 	byID := make(map[string]*VirtualModel, len(vms))
+	byRouteKey := make(map[string]*VirtualModel)
 	var list []VirtualModel
 	for i := range vms {
 		vm := &vms[i]
 		byID[vm.FullID()] = vm
+		// Build reverse route index: "provider/modelID" → *VirtualModel.
+		for j := range vm.Routes {
+			key := string(vm.Routes[j].Provider) + "/" + vm.Routes[j].ModelID
+			byRouteKey[key] = vm
+		}
 		if vm.Enabled {
 			list = append(list, *vm)
 		}
@@ -202,6 +229,7 @@ func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualC
 		list:           list,
 		all:            vms,
 		disabledRoutes: disabledRoutes,
+		byRouteKey:     byRouteKey,
 	}, nil
 }
 
@@ -238,11 +266,9 @@ func (r *PostgresCatalogRepository) insertRoutes(ctx context.Context, tx pgx.Tx,
 	return nil
 }
 
-// queryVirtualModels runs a JOIN query over virtual_models + virtual_model_routes.
-// whereClause is appended as-is after the FROM clause (e.g. "WHERE vm.id=$1" or
-// "ORDER BY vm.family, vm.name"). args are the positional parameters.
-func (r *PostgresCatalogRepository) queryVirtualModels(ctx context.Context, whereClause string, args ...any) ([]VirtualModel, error) {
-	q := fmt.Sprintf(`
+// getByID runs a filtered JOIN query for a single virtual model ID.
+func (r *PostgresCatalogRepository) getByID(ctx context.Context, q rowQuerier, id string) ([]VirtualModel, error) {
+	const sql = `
 		SELECT
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
 			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
@@ -251,9 +277,52 @@ func (r *PostgresCatalogRepository) queryVirtualModels(ctx context.Context, wher
 		FROM virtual_models vm
 		LEFT JOIN virtual_model_routes rt
 			ON rt.virtual_model_id = vm.id
-		%s`, whereClause)
+		WHERE vm.id = $1
+		ORDER BY rt.priority ASC`
+	return r.scanVirtualModelRows(ctx, q, sql, id)
+}
 
-	rows, err := r.pool.Query(ctx, q, args...)
+// listAll returns all virtual models ordered by (family, name, priority).
+func (r *PostgresCatalogRepository) listAll(ctx context.Context, q rowQuerier) ([]VirtualModel, error) {
+	const sql = `
+		SELECT
+			vm.id, vm.family, vm.name, vm.display_name, vm.description,
+			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
+			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
+			rt.input_cost_per_1m, rt.output_cost_per_1m, rt.enabled
+		FROM virtual_models vm
+		LEFT JOIN virtual_model_routes rt
+			ON rt.virtual_model_id = vm.id
+		ORDER BY vm.family ASC, vm.name ASC, rt.priority ASC`
+	return r.scanVirtualModelRows(ctx, q, sql)
+}
+
+// queryOverrides fetches all provider model overrides using the given querier.
+func (r *PostgresCatalogRepository) queryOverrides(ctx context.Context, q rowQuerier) ([]ProviderModelOverride, error) {
+	const sql = `SELECT provider, model_id, enabled, updated_at FROM provider_model_overrides ORDER BY provider, model_id`
+	rows, err := q.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("list provider model overrides: %w", err)
+	}
+	defer rows.Close()
+
+	var overrides []ProviderModelOverride
+	for rows.Next() {
+		var o ProviderModelOverride
+		var provider string
+		if err := rows.Scan(&provider, &o.ModelID, &o.Enabled, &o.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan provider model override: %w", err)
+		}
+		o.Provider = ProviderName(provider)
+		overrides = append(overrides, o)
+	}
+	return overrides, rows.Err()
+}
+
+// scanVirtualModelRows executes sql against q and assembles the VirtualModel
+// slice. Routes share the parent model ID via LEFT JOIN.
+func (r *PostgresCatalogRepository) scanVirtualModelRows(ctx context.Context, q rowQuerier, sql string, args ...any) ([]VirtualModel, error) {
+	rows, err := q.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query virtual models: %w", err)
 	}
@@ -267,7 +336,7 @@ func (r *PostgresCatalogRepository) queryVirtualModels(ctx context.Context, wher
 		var (
 			vm       VirtualModel
 			strategy string
-			// route fields are nullable (LEFT JOIN — a model with no routes has NULLs)
+			// Route fields are nullable (LEFT JOIN — a model with no routes has NULLs).
 			rtID         *string
 			rtProvider   *string
 			rtModelID    *string
@@ -318,3 +387,7 @@ func (r *PostgresCatalogRepository) queryVirtualModels(ctx context.Context, wher
 	}
 	return result, nil
 }
+
+// updatedAtProvider is satisfied by pgxpool.Pool and pgx.Tx for use in
+// updatedAt-only write helpers; currently used via inTx.
+var _ = time.Now // retain time import

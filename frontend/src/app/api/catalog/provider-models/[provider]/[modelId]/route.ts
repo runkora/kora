@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
+import { forwardToGateway } from '@/lib/server/catalog-gateway';
 
 type Params = Promise<{ provider: string; modelId: string }>;
 
@@ -29,17 +29,12 @@ export async function PUT(
   }
 
   try {
-    const upstream = await fetch(
-      `${config.inferenceGatewayUrl}/catalog/provider-models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}`,
+    const upstream = await forwardToGateway(
+      `/provider-models/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}`,
+      session.accessToken,
       {
         method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(body),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(15_000),
       },
     );
     if (upstream.status === 204) {

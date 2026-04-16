@@ -37,13 +37,18 @@ func (s *stubConnector) AnthropicMessagesStream(_ context.Context, _ anthropic.M
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 // newTestSnap builds a virtualCatalogSnapshot from a slice of virtual models.
-// All models are added to byID and all; only enabled ones appear in list.
+// All models are added to byID, byRouteKey, and all; only enabled ones appear in list.
 func newTestSnap(vms []VirtualModel, disabledRoutes map[string]bool) *virtualCatalogSnapshot {
 	byID := make(map[string]*VirtualModel, len(vms))
+	byRouteKey := make(map[string]*VirtualModel)
 	list := make([]VirtualModel, 0, len(vms))
 	for i := range vms {
 		vm := &vms[i]
 		byID[vm.FullID()] = vm
+		for j := range vm.Routes {
+			key := string(vm.Routes[j].Provider) + "/" + vm.Routes[j].ModelID
+			byRouteKey[key] = vm
+		}
 		if vm.Enabled {
 			list = append(list, *vm)
 		}
@@ -51,7 +56,7 @@ func newTestSnap(vms []VirtualModel, disabledRoutes map[string]bool) *virtualCat
 	if disabledRoutes == nil {
 		disabledRoutes = make(map[string]bool)
 	}
-	return &virtualCatalogSnapshot{byID: byID, list: list, all: vms, disabledRoutes: disabledRoutes}
+	return &virtualCatalogSnapshot{byID: byID, byRouteKey: byRouteKey, list: list, all: vms, disabledRoutes: disabledRoutes}
 }
 
 // dualConnectors returns Bedrock + VertexAI stub connectors.

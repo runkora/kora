@@ -1,5 +1,22 @@
 import 'server-only';
 
+/**
+ * Server-side catalog data fetching for RSC (React Server Component) initial load.
+ *
+ * Architecture note — RSC load vs client mutations:
+ *   - Initial data (page load): fetched here using the server session token via
+ *     the direct catalogFetch helper. Results are passed as props into the
+ *     CatalogTab client component.
+ *   - Subsequent mutations (create, update, delete, toggle): performed by client
+ *     components via the Next.js API route layer at /api/catalog/*, which also
+ *     holds the session token server-side. This keeps the access token out of
+ *     the browser while still allowing interactive updates without a full page
+ *     reload.
+ *
+ * If the initial load is needed at the component level (e.g. for Suspense),
+ * move the fetch calls into a loader function co-located with the page.
+ */
+
 import { config } from '@orbit/server/config';
 
 // ── Result types ─────────────────────────────────────────────────────────────

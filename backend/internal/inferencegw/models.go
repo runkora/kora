@@ -34,7 +34,14 @@ const (
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
 
-// RoutingStrategy controls how the routing engine selects a provider+model.
+// RoutingStrategy is the strategy value recorded in InferenceUsageRecord.
+// It is the resolved, dispatch-time strategy — distinct from VirtualModelStrategy
+// (defined in virtual_model.go) which is the catalog-config strategy configured
+// by admins on each virtual model.
+//
+// At dispatch time, targetsForVirtualModel maps VirtualModelStrategy → RoutingStrategy
+// so usage records carry a consistent strategy label regardless of which catalog
+// config type drove the decision.
 type RoutingStrategy string
 
 const (
@@ -42,7 +49,9 @@ const (
 	StrategyLowestCost RoutingStrategy = "lowest_cost"
 	// StrategyFailoverChain tries providers in priority order, advancing on error.
 	StrategyFailoverChain RoutingStrategy = "failover_chain"
-	// StrategyExplicit honors the model field in the request exactly.
+	// StrategyExplicit honored the model field in the request exactly.
+	// Retained in the DB CHECK constraint for historical usage records;
+	// no longer produced by any current routing code path.
 	StrategyExplicit RoutingStrategy = "explicit"
 	// StrategyPriority tries virtual model routes in configured priority order.
 	StrategyPriority RoutingStrategy = "priority"

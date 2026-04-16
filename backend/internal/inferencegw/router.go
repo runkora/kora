@@ -161,7 +161,9 @@ func (r *RoutingEngine) targetsForVirtualModel(
 		return routesToTargets(ordered), StrategyWeighted, nil
 
 	case VirtualStrategyLowestCost:
-		sort.Slice(enabled, func(i, j int) bool {
+		// SliceStable preserves the configured priority order as a tiebreaker
+		// when two routes have equal unit costs.
+		sort.SliceStable(enabled, func(i, j int) bool {
 			return enabled[i].unitCost() < enabled[j].unitCost()
 		})
 		return routesToTargets(enabled), StrategyLowestCost, nil
@@ -188,7 +190,8 @@ func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnap
 		}
 		out = append(out, route)
 	}
-	// Routes are stored ordered by priority; preserve that order.
+	// Ensure ascending priority order. The SQL query includes ORDER BY rt.priority ASC,
+	// but this re-sort is cheap and guards against any future query changes.
 	sort.Slice(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out
 }
@@ -267,20 +270,17 @@ func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, 
 // ResolveTargetForPolicy maps an internal (provider, modelID) pair back to a
 // virtual model's policy identity. Used by filterTargetsByPolicy when policy
 // must be checked per target rather than per request.
+// Uses the byRouteKey reverse index for O(1) lookup.
 func (r *RoutingEngine) ResolveTargetForPolicy(provider ProviderName, modelID string) (ResolvedModelInfo, bool) {
 	snap := r.virtualCatalog.Load()
 	if snap == nil {
 		return ResolvedModelInfo{}, false
 	}
-	// Reverse lookup: find the virtual model whose routes include this provider+model.
-	for _, vm := range snap.list {
-		for _, route := range vm.Routes {
-			if route.Provider == provider && route.ModelID == modelID {
-				return ResolvedModelInfo{Family: vm.Family, Alias: vm.Name}, true
-			}
-		}
+	vm, ok := snap.byRouteKey[string(provider)+"/"+modelID]
+	if !ok {
+		return ResolvedModelInfo{}, false
 	}
-	return ResolvedModelInfo{}, false
+	return ResolvedModelInfo{Family: vm.Family, Alias: vm.Name}, true
 }
 
 // CatalogScopes returns the deduplicated set of policy scope declarations
@@ -368,14 +368,17 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 	return nil, ErrNoProvidersEnabled
 }
 
-// ProviderModels returns the most recently discovered provider model list.
-// Returns nil if no ListModels call has succeeded yet.
+// ProviderModels returns a copy of the most recently discovered provider model
+// list. Returns nil if no ListModels call has succeeded yet.
+// A copy is returned so callers cannot accidentally mutate the shared atomic slice.
 func (r *RoutingEngine) ProviderModels() []ProviderModel {
 	catalog := r.modelCatalog.Load()
 	if catalog == nil {
 		return nil
 	}
-	return *catalog
+	out := make([]ProviderModel, len(*catalog))
+	copy(out, *catalog)
+	return out
 }
 
 // VirtualModels returns all virtual models from the current catalog snapshot,

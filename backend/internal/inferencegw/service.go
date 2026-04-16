@@ -482,13 +482,14 @@ func drainAnthropicStream(
 // Failover targets are not independently re-checked — a principal allowed to
 // invoke the requested model is allowed to reach any provider that serves it.
 //
-// Wildcard routing ("", "*", "failover") returns nil here — those paths are
-// policy-filtered post-routing via filterTargetsByPolicy.
-//
-// For all other models, if the model cannot be resolved to a catalog entry,
-// the request is denied (fail closed).
+// NOTE: IsWildcardModel always returns false — the virtual model catalog requires
+// consumers to specify an explicit virtual model ID. The wildcard branch below
+// is intentionally unreachable with the current implementation. If wildcard
+// routing is added in the future, filterTargetsByPolicy provides the per-target
+// policy filter needed for that path.
 func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 	// Wildcards are handled post-routing by filterTargetsByPolicy.
+	// TODO: implement wildcard model support when required.
 	if s.router.IsWildcardModel(model) {
 		return nil
 	}

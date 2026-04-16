@@ -104,6 +104,12 @@ type virtualCatalogSnapshot struct {
 	// key: "anthropic/claude-sonnet-4-6"
 	byID map[string]*VirtualModel
 
+	// byRouteKey maps "provider/modelID" → *VirtualModel for O(1) reverse lookup.
+	// Used by ResolveTargetForPolicy to map a provider+model pair back to its
+	// virtual model's policy identity without a linear scan.
+	// key: "bedrock/us.anthropic.claude-sonnet-4-6"
+	byRouteKey map[string]*VirtualModel
+
 	// list is the ordered set of enabled virtual models used by GET /v1/models.
 	list []VirtualModel
 

@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
+import { forwardToGateway } from '@/lib/server/catalog-gateway';
 
 export async function GET(): Promise<NextResponse> {
   const session = await getSession();
@@ -13,14 +13,7 @@ export async function GET(): Promise<NextResponse> {
   }
 
   try {
-    const upstream = await fetch(`${config.inferenceGatewayUrl}/catalog/provider-models`, {
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(15_000),
-    });
+    const upstream = await forwardToGateway('/provider-models', session.accessToken);
     const body = await upstream.json();
     const status = upstream.ok ? upstream.status : upstream.status >= 500 ? 502 : upstream.status;
     return NextResponse.json(body, { status });

@@ -145,6 +145,18 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 		logger.Info(ctx, "virtual model catalog loaded", logging.Field{Key: "models", Value: count})
 	}
 
+	// Warm up the provider model discovery cache in the background. A failure is
+	// non-fatal — the cache will be empty until POST /catalog/provider-models/refresh
+	// is called or the gateway restarts.
+	go func() {
+		if err := catalog.WarmupProviderModels(ctx); err != nil {
+			logger.Warn(ctx, "provider model warm-up failed — provider catalog will be empty until refreshed",
+				logging.Field{Key: "error", Value: err.Error()})
+		} else {
+			logger.Info(ctx, "provider model cache warmed up")
+		}
+	}()
+
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	initScopeRegistration(ctx, logger, router)

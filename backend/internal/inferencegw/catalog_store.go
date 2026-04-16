@@ -47,11 +47,13 @@ func (s *CatalogStore) CreateVirtualModel(ctx context.Context, vm VirtualModel) 
 }
 
 // UpdateVirtualModel replaces a virtual model and refreshes the cache.
-func (s *CatalogStore) UpdateVirtualModel(ctx context.Context, vm VirtualModel) error {
-	if err := s.repo.UpdateVirtualModel(ctx, vm); err != nil {
-		return err
+// Returns the updated model with DB-generated timestamps.
+func (s *CatalogStore) UpdateVirtualModel(ctx context.Context, vm VirtualModel) (VirtualModel, error) {
+	updated, err := s.repo.UpdateVirtualModel(ctx, vm)
+	if err != nil {
+		return VirtualModel{}, err
 	}
-	return s.refresh(ctx)
+	return updated, s.refresh(ctx)
 }
 
 // DeleteVirtualModel removes a virtual model and refreshes the cache.
@@ -106,13 +108,17 @@ func (s *CatalogStore) RefreshProviderModels(ctx context.Context) error {
 	return err
 }
 
+// WarmupProviderModels triggers an async provider discovery sweep. Intended
+// for startup warm-up; errors are non-fatal and returned for logging.
+func (s *CatalogStore) WarmupProviderModels(ctx context.Context) error {
+	return s.RefreshProviderModels(ctx)
+}
+
 // ── internal ─────────────────────────────────────────────────────────────────
 
+// refresh reloads the full catalog snapshot into the routing engine.
+// Delegates to Load to avoid duplicating snapshot-assembly logic.
 func (s *CatalogStore) refresh(ctx context.Context) error {
-	snap, err := s.repo.LoadSnapshot(ctx)
-	if err != nil {
-		return fmt.Errorf("catalog refresh: %w", err)
-	}
-	s.router.LoadVirtualCatalog(snap)
-	return nil
+	_, err := s.Load(ctx)
+	return err
 }

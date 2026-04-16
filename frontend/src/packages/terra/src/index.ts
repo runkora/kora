@@ -34,6 +34,9 @@ export {
 export { Input } from './components/input';
 export type { InputProps } from './components/input';
 
+export { NativeSelect } from './components/native-select';
+export type { NativeSelectProps } from './components/native-select';
+
 export { Field, FieldHint, FieldError } from './components/field';
 export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';
 

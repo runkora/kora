@@ -1,24 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
-
-async function forwardToGateway(
-  path: string,
-  accessToken: string,
-  init?: RequestInit,
-): Promise<Response> {
-  return fetch(`${config.inferenceGatewayUrl}/catalog${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15_000),
-  });
-}
+import { forwardToGateway } from '@/lib/server/catalog-gateway';
 
 type Params = Promise<{ id: string }>;
 

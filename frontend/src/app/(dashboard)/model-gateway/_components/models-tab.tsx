@@ -39,7 +39,6 @@ import { ModelCardGrid } from './model-card-grid';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type SortDir = 'asc' | 'desc' | null;
-type SortKey = 'name' | null;
 
 interface FilterState {
   search: string;
@@ -61,8 +60,8 @@ function matchesSearch(row: ModelRow, search: string): boolean {
   );
 }
 
-function sortRows(rows: ModelRow[], key: SortKey, dir: SortDir): ModelRow[] {
-  if (!key || !dir) return rows;
+function sortRows(rows: ModelRow[], dir: SortDir): ModelRow[] {
+  if (!dir) return rows;
   return [...rows].sort((a, b) => {
     const cmp = a.name.localeCompare(b.name);
     return dir === 'asc' ? cmp : -cmp;
@@ -116,14 +115,12 @@ function SearchInput({
 
 interface SortButtonProps {
   label: string;
-  columnKey: SortKey;
-  currentKey: SortKey;
+  active: boolean;
   direction: SortDir;
-  onSort: (key: SortKey) => void;
+  onSort: () => void;
 }
 
-function SortButton({ label, columnKey, currentKey, direction, onSort }: SortButtonProps) {
-  const active = currentKey === columnKey;
+function SortButton({ label, active, direction, onSort }: SortButtonProps) {
   const Icon =
     active && direction === 'asc'
       ? ArrowUp
@@ -134,7 +131,7 @@ function SortButton({ label, columnKey, currentKey, direction, onSort }: SortBut
   return (
     <button
       type="button"
-      onClick={() => onSort(columnKey)}
+      onClick={onSort}
       className={[
         'inline-flex items-center gap-1 rounded px-0.5 py-0.5 transition-colors',
         'hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
@@ -254,19 +251,11 @@ export function ModelsTab() {
     statuses: new Set(),
   });
   const [visible, setVisible] = useState<Set<ColumnId>>(DEFAULT_VISIBLE);
-  const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [selectedModel, setSelectedModel] = useState<ModelRow | null>(null);
 
-  const handleSort = useCallback((key: SortKey) => {
-    setSortKey((prev) => {
-      if (prev === key) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
-        return prev;
-      }
-      setSortDir('asc');
-      return key;
-    });
+  const handleSort = useCallback(() => {
+    setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
   }, []);
 
   const toggleColumn = useCallback((id: ColumnId) => {
@@ -293,8 +282,8 @@ export function ModelsTab() {
       if (!matchesSearch(row, filters.search)) return false;
       return true;
     });
-    return sortRows(rows, sortKey, sortDir);
-  }, [models, filters, sortKey, sortDir]);
+    return sortRows(rows, sortDir);
+  }, [models, filters, sortDir]);
 
   // Group sorted rows by family for rendering.
   const familyGroups = useMemo(() => {
@@ -349,8 +338,7 @@ export function ModelsTab() {
                     <TableHead>
                       <SortButton
                         label="Model"
-                        columnKey="name"
-                        currentKey={sortKey}
+                        active={sortDir !== null}
                         direction={sortDir}
                         onSort={handleSort}
                       />
