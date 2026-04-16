@@ -3,7 +3,9 @@ package inferencegw
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -21,8 +23,65 @@ type listUsageResponse struct {
 	Offset int                    `json:"offset"`
 }
 
-// parseUsageFilter extracts and validates all recognized query parameters from
-// q, returning a populated InferenceUsageFilter with defaults applied.
+// Allowed values for each enum query parameter.
+var (
+	providerNames = []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
+	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic}
+	usageStatuses = []UsageStatus{
+		UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
+		UsageStatusAuthError, UsageStatusTimeout, UsageStatusRoutingFailed,
+	}
+)
+
+// usageParamBinder extracts a single query parameter from q and writes its
+// value into f. It returns a non-nil *api.APIError on validation failure
+// (always 400) and the underlying parse error for logging.
+type usageParamBinder func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error)
+
+// usageParamBinders is the declarative list of all query parameters accepted by
+// GET /v1/usage. To add a new filter, append one entry here — no other code
+// changes are required.
+var usageParamBinders = []usageParamBinder{
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		if raw := q.Get("token_id"); raw != "" {
+			v := raw
+			f.TokenID = &v
+		}
+		return nil, nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		return parseEnumParam(q.Get("provider"), "'provider'", providerNames, &f.Provider), nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		return parseEnumParam(q.Get("api_dialect"), "'api_dialect'", apiDialects, &f.APIDialect), nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		return parseEnumParam(q.Get("status"), "'status'", usageStatuses, &f.Status), nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		v, apiErr, err := parseTimeParam(q.Get("from"), "'from'")
+		f.From = v
+		return apiErr, err
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		v, apiErr, err := parseTimeParam(q.Get("to"), "'to'")
+		f.To = v
+		return apiErr, err
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		v, apiErr, err := parsePosIntParam(q.Get("limit"), "'limit'", 50)
+		f.Limit = v
+		return apiErr, err
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		v, apiErr, err := parseNonNegIntParam(q.Get("offset"), "'offset'", 0)
+		f.Offset = v
+		return apiErr, err
+	},
+}
+
+// parseUsageFilter extracts and validates all recognized query parameters from q,
+// returning a populated InferenceUsageFilter with defaults applied.
 //
 // On any validation failure it returns a non-nil *api.APIError (always 400) and
 // the underlying parse error for logging; both are nil on success.
@@ -38,105 +97,38 @@ type listUsageResponse struct {
 //	limit       — page size, default 50
 //	offset      — zero-based page offset, default 0
 func parseUsageFilter(q url.Values) (InferenceUsageFilter, *api.APIError, error) {
-	filter := InferenceUsageFilter{Limit: 50}
-
-	filter.TokenID = parseTokenID(q.Get("token_id"))
-
-	if v, apiErr := parseProviderParam(q.Get("provider")); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, nil
-	} else {
-		filter.Provider = v
+	f := InferenceUsageFilter{}
+	for _, bind := range usageParamBinders {
+		if apiErr, err := bind(q, &f); apiErr != nil {
+			return InferenceUsageFilter{}, apiErr, err
+		}
 	}
-
-	if v, apiErr := parseDialectParam(q.Get("api_dialect")); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, nil
-	} else {
-		filter.APIDialect = v
-	}
-
-	if v, apiErr := parseStatusParam(q.Get("status")); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, nil
-	} else {
-		filter.Status = v
-	}
-
-	if v, apiErr, err := parseTimeParam(q.Get("from"), "'from'"); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, err
-	} else {
-		filter.From = v
-	}
-
-	if v, apiErr, err := parseTimeParam(q.Get("to"), "'to'"); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, err
-	} else {
-		filter.To = v
-	}
-
-	if v, apiErr, err := parsePosIntParam(q.Get("limit"), "'limit'", 50); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, err
-	} else {
-		filter.Limit = v
-	}
-
-	if v, apiErr, err := parseNonNegIntParam(q.Get("offset"), "'offset'", 0); apiErr != nil {
-		return InferenceUsageFilter{}, apiErr, err
-	} else {
-		filter.Offset = v
-	}
-
-	return filter, nil, nil
+	return f, nil, nil
 }
 
-// parseTokenID returns a pointer to raw, or nil when raw is empty.
-func parseTokenID(raw string) *string {
+// parseEnumParam validates an enum query parameter against a set of allowed
+// values. It writes the result into dest and returns a 400 APIError if the
+// value is unrecognized.
+func parseEnumParam[T ~string](raw, paramLabel string, allowed []T, dest **T) *api.APIError {
 	if raw == "" {
 		return nil
 	}
-	v := raw
-	return &v
+	v := T(raw)
+	if slices.Contains(allowed, v) {
+		*dest = &v
+		return nil
+	}
+	return api.BadRequestError("invalid_param", paramLabel+" must be one of: "+joinEnumValues(allowed), nil)
 }
 
-// parseProviderParam validates the provider query parameter.
-func parseProviderParam(raw string) (*ProviderName, *api.APIError) {
-	if raw == "" {
-		return nil, nil
+// joinEnumValues returns a comma-separated string of the allowed enum values
+// for use in human-readable error messages.
+func joinEnumValues[T ~string](values []T) string {
+	strs := make([]string, len(values))
+	for i, v := range values {
+		strs[i] = string(v)
 	}
-	v := ProviderName(raw)
-	switch v {
-	case ProviderBedrock, ProviderVertexAI, ProviderAzure:
-		return &v, nil
-	default:
-		return nil, api.BadRequestError("invalid_param", "'provider' must be one of: bedrock, vertexai, azure", nil)
-	}
-}
-
-// parseDialectParam validates the api_dialect query parameter.
-func parseDialectParam(raw string) (*APIDialect, *api.APIError) {
-	if raw == "" {
-		return nil, nil
-	}
-	v := APIDialect(raw)
-	switch v {
-	case DialectOpenAI, DialectAnthropic:
-		return &v, nil
-	default:
-		return nil, api.BadRequestError("invalid_param", "'api_dialect' must be one of: openai, anthropic", nil)
-	}
-}
-
-// parseStatusParam validates the status query parameter.
-func parseStatusParam(raw string) (*UsageStatus, *api.APIError) {
-	if raw == "" {
-		return nil, nil
-	}
-	v := UsageStatus(raw)
-	switch v {
-	case UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
-		UsageStatusAuthError, UsageStatusTimeout, UsageStatusRoutingFailed:
-		return &v, nil
-	default:
-		return nil, api.BadRequestError("invalid_param", "'status' must be one of: success, provider_error, policy_denied, auth_error, timeout, routing_failed", nil)
-	}
+	return strings.Join(strs, ", ")
 }
 
 // parseTimeParam parses an RFC3339 timestamp. paramLabel is used in error messages.

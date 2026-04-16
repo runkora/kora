@@ -265,6 +265,50 @@ func TestHandleListUsage_NegativeOffset_Returns400(t *testing.T) {
 	}
 }
 
+// ── GET /usage — invalid enum parameters ─────────────────────────────────────
+
+func TestHandleListUsage_InvalidProvider_Returns400(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"provider": "invalid-provider",
+	})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleListUsage_InvalidAPIDialect_Returns400(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"api_dialect": "invalid-dialect",
+	})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleListUsage_InvalidStatus_Returns400(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"status": "invalid-status",
+	})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
 // ── GET /usage — repo / service errors ────────────────────────────────────────
 
 func TestHandleListUsage_RepoError_Returns500(t *testing.T) {
