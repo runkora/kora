@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Badge, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { useLogsContext } from '../_context/logs-context';
@@ -28,13 +28,13 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
-  const { records, total, pats, error } = useLogsContext();
+  const { records, total, pats, error, refresh } = useLogsContext();
 
-  const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Key filter changes re-navigate the RSC so a fresh server-side fetch is
-  // issued with the correct token_id query parameter.
+  // Key filter changes update the URL for shareability (deep-links) and call
+  // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
+  // loading skeleton flash on every dropdown selection.
   const handleKeyChange = useCallback(
     (keyId: string) => {
       const params = new URLSearchParams(searchParams.toString());
@@ -43,9 +43,10 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       } else {
         params.delete('key');
       }
-      router.push(`?${params.toString()}`);
+      window.history.replaceState(null, '', `?${params.toString()}`);
+      refresh(keyId || undefined);
     },
-    [searchParams, router],
+    [searchParams, refresh],
   );
 
   // PAT ID → name lookup for the Key column cell.
@@ -117,8 +118,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       ),
     },
 
-    // Key — server-side filter: selecting a key triggers a router navigation
-    // so the RSC re-fetches with the new token_id query parameter.
+    // Key — server-side filter: selecting a key calls refresh() for a
+    // client-side BFF fetch; the URL is updated via replaceState for shareability.
     {
       id: 'key',
       header: 'Key',

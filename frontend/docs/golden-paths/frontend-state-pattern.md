@@ -574,6 +574,79 @@ export function WidgetsTab() {
 - Render `status === 'error'` with a retry button that calls `refresh()`.
 - Accept no data props — the context is the sole data source.
 
+### Server-side filter columns
+
+When a `DataTable` column has `mode: 'server'`, selecting a filter value must trigger a BFF re-fetch rather than an RSC navigation. **Do not use `router.push()`** for filter changes — it causes a full RSC re-render and a loading skeleton flash on every dropdown selection.
+
+Use the following pattern instead:
+
+```tsx
+'use client';
+
+import { useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useWidgetsContext } from '../../_context/widgets-context';
+
+export function WidgetsTab() {
+  const { records, refresh } = useWidgetsContext();
+  const searchParams = useSearchParams();
+
+  // Server-side filter: update the URL for shareability, then re-fetch
+  // client-side via the BFF — no RSC navigation, no skeleton flash.
+  const handleFilterChange = useCallback(
+    (filterId: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (filterId) {
+        params.set('filter', filterId);
+      } else {
+        params.delete('filter');
+      }
+      // Silently update the URL so deep-links remain shareable.
+      window.history.replaceState(null, '', `?${params.toString()}`);
+      // Re-fetch via the BFF, passing the new filter value as a param.
+      refresh(filterId || undefined);
+    },
+    [searchParams, refresh],
+  );
+
+  // ...column definition using mode: 'server':
+  // filter: {
+  //   mode: 'server',
+  //   options: filterOptions,
+  //   selected: new Set(selectedFilterId ? [selectedFilterId] : []),
+  //   onToggle: (val) => handleFilterChange(val === selectedFilterId ? '' : val),
+  //   onClear: () => handleFilterChange(''),
+  // },
+}
+```
+
+For this to work, the hook's `refresh` action must accept the filter value as an optional parameter and forward it to the client service:
+
+```typescript
+// In use-widgets.ts — extend the state shape and hook signature:
+export interface WidgetsStateShape {
+  // ...
+  refresh(filter?: string): Promise<void>;
+}
+
+// In useWidgets — the refresh callback forwards the param to fetchWidgets:
+const refresh = useCallback(async (filter?: string) => {
+  setStatus('loading');
+  setError(null);
+  const result = await fetchWidgets(filter);
+  // ...
+}, []);
+```
+
+**Why `window.history.replaceState` and not `router.push`?**
+
+| Approach                     | URL update | RSC navigation      | Skeleton flash       |
+| ---------------------------- | ---------- | ------------------- | -------------------- |
+| `router.push('?filter=x')`   | ✅         | ✅ (full re-render) | ✅ (every selection) |
+| `replaceState` + `refresh()` | ✅         | ❌                  | ❌                   |
+
+The RSC page reads `?filter=` on first load (deep-link support, zero flash on first render). After that, all filter changes go client-side through the BFF. The two paths are intentionally separate: SSR for initial load, BFF fetch for subsequent interactions.
+
 ---
 
 ## Complete File Map
@@ -681,6 +754,14 @@ Use this checklist before opening a PR. Every item must be true.
 - [ ] Filtered/sorted lists computed with `useMemo`, not stored in state.
 - [ ] `status === 'error'` is rendered with a retry button calling `refresh()`.
 
+### Server-side filter columns (if applicable)
+
+- [ ] Filter changes use `window.history.replaceState(...)` to update the URL — **not** `router.push(...)`.
+- [ ] `refresh(filterId)` is called immediately after `replaceState` to trigger a BFF re-fetch.
+- [ ] `handleFilterChange` is wrapped in `useCallback` with `[searchParams, refresh]` as deps.
+- [ ] `useRouter` is **not** imported — it is unused when this pattern is applied.
+- [ ] The hook's `refresh` signature accepts the filter param (`refresh(filter?: string)`) and forwards it to the client service.
+
 ---
 
 ## Zustand Upgrade Path
@@ -783,5 +864,5 @@ The Logs page (`src/app/(dashboard)/model-gateway/logs/`) is the second feature 
 ---
 
 _Guide owned by: Frontend Engineering_  
-_Last updated: 2025-07-14_  
+_Last updated: 2026-04-16_  
 _Source PRD: `docs/prd/model-gateway-state-architecture.md`_
