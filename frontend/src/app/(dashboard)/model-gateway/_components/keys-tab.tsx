@@ -21,6 +21,7 @@ import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
 import { RevokeTokenModal } from './revoke-token-modal';
 import type { CreatePATResponse, PAT } from '@orbit/shared/api';
+import { fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
 
 // ── View model ────────────────────────────────────────────────────────────────
 //
@@ -44,26 +45,6 @@ function getSpendVariant(spend: number, limit: number): 'healthy' | 'degraded' |
   if (percent > 80) return 'error';
   if (percent > 60) return 'degraded';
   return 'healthy';
-}
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return 'Never expires';
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function isExpired(expiresAt: string | null | undefined): boolean {
-  if (!expiresAt) return false;
-  return new Date(expiresAt) < new Date();
 }
 
 // ── Key Card ──────────────────────────────────────────────────────────────────
@@ -123,7 +104,7 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                     Created
                   </Text>
                   <Text size="supporting" color="foreground" mono>
-                    {fmtDate(pat.created_at)}
+                    {fmtExpiry(pat.created_at)}
                   </Text>
                 </Stack>
 
@@ -132,7 +113,7 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                     Expires
                   </Text>
                   <Text size="supporting" color="foreground" mono>
-                    {fmtDate(pat.expires_at)}
+                    {fmtExpiry(pat.expires_at)}
                   </Text>
                 </Stack>
 
@@ -152,7 +133,7 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                   </Text>
                   <Text size="supporting" color="foreground" mono tabular>
                     {/* TODO: replace with real data once backend supports PAT spend attribution */}
-                    {pat.requests !== undefined ? fmtNum(pat.requests) : '—'}
+                    {pat.requests !== undefined ? fmtNumCompact(pat.requests) : '—'}
                   </Text>
                 </Stack>
               </Grid>

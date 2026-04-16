@@ -5,57 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Badge, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { useLogsContext } from '../_context/logs-context';
-import type { InferenceUsageRecord, InferenceUsageStatus } from '../_types';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getStatusVariant(status: InferenceUsageStatus) {
-  switch (status) {
-    case 'success':
-      return 'healthy' as const;
-    case 'policy_denied':
-    case 'auth_error':
-      return 'degraded' as const;
-    default:
-      return 'error' as const;
-  }
-}
-
-function fmtStatus(status: InferenceUsageStatus): string {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function fmtCost(usd: number | null): string {
-  if (usd === null || usd === undefined) return '—';
-  if (usd === 0) return '$0.00';
-  if (usd < 0.0001) return '<$0.0001';
-  return `$${usd.toFixed(4)}`;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString();
-}
-
-function isExpired(expiresAt: string | null | undefined): boolean {
-  if (!expiresAt) return false;
-  return new Date(expiresAt) < new Date();
-}
+import type { InferenceUsageRecord } from '../_types';
+import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
+import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
 
 // ── Status filter options ─────────────────────────────────────────────────────
 
@@ -159,8 +111,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         filterFn: (row, selected) => selected.has(row.status),
       },
       cell: (row) => (
-        <Badge variant={getStatusVariant(row.status)} size="sm">
-          {fmtStatus(row.status)}
+        <Badge variant={getInferenceStatusVariant(row.status)} size="sm">
+          {fmtInferenceStatus(row.status)}
         </Badge>
       ),
     },
