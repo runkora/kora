@@ -448,11 +448,11 @@ export function ModelsTab() {
                           {col('name') && (
                             <TableCell>
                               <Stack gap="none">
-                                <div className="mb-0.5 text-[10px] uppercase tracking-wider">
+                                <span className="mb-0.5 block text-[10px] uppercase tracking-wider">
                                   <Text size="caption" color="subtle">
                                     {family}
                                   </Text>
-                                </div>
+                                </span>
                                 <Text size="supporting" weight="emphasis" mono>
                                   {row.id}
                                 </Text>

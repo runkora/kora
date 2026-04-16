@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -330,7 +331,7 @@ function RoutesTab({
         <Text size="supporting" weight="emphasis">
           Routing Strategy
         </Text>
-        <div className="grid grid-cols-3 gap-2">
+        <Grid cols={3} gap="snug">
           {[
             {
               value: 'priority' as const,
@@ -363,9 +364,9 @@ function RoutesTab({
               ].join(' ')}
             >
               <Stack gap="tight">
-                <div className={model.strategy === s.value ? 'text-accent' : 'text-muted'}>
+                <span className={model.strategy === s.value ? 'text-accent' : 'text-muted'}>
                   {s.icon}
-                </div>
+                </span>
                 <Text size="caption" weight="emphasis">
                   {s.label}
                 </Text>
@@ -375,18 +376,18 @@ function RoutesTab({
               </Stack>
             </button>
           ))}
-        </div>
+        </Grid>
       </Stack>
 
       <Separator />
 
       <Stack gap="snug">
         <Stack direction="horizontal" align="center" gap="snug">
-          <div className="flex-1">
+          <span className="flex-1">
             <Text size="supporting" weight="emphasis">
               Routes
             </Text>
-          </div>
+          </span>
           <Button
             variant="ghost"
             size="sm"
@@ -415,7 +416,7 @@ function RoutesTab({
         </Stack>
 
         {model.strategy === 'weighted' && (
-          <div className="flex items-center gap-2 rounded-md border border-[#a855f7]/30 bg-[#a855f7]/10 px-3 py-2">
+          <section className="flex items-center gap-2 rounded-md border border-[#a855f7]/30 bg-[#a855f7]/10 px-3 py-2">
             <AlertCircle className="size-3.5 shrink-0 text-[#a855f7]" />
             <Text size="caption" color="muted">
               Weights must sum to 100%. Current total:{' '}
@@ -423,12 +424,12 @@ function RoutesTab({
                 {model.routes.reduce((s, r) => s + r.weight, 0)}%
               </span>
             </Text>
-          </div>
+          </section>
         )}
 
         <Stack gap="snug">
           {model.routes.map((route, idx) => (
-            <div
+            <section
               key={route.id || idx}
               draggable
               onDragStart={() => handleDragStart(idx)}
@@ -446,17 +447,17 @@ function RoutesTab({
               ].join(' ')}
             >
               {/* Left column: drag handle + priority number */}
-              <div className="flex shrink-0 flex-col items-center gap-1 pt-2">
+              <span className="flex shrink-0 flex-col items-center gap-1 pt-2">
                 <GripVertical className="size-4 cursor-grab text-muted active:cursor-grabbing" />
                 {model.strategy === 'priority' && (
                   <span className="flex size-4 items-center justify-center rounded-full bg-surface text-[10px] font-bold text-muted">
                     {idx + 1}
                   </span>
                 )}
-              </div>
+              </span>
 
               {/* Center column: all fields stacked */}
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <span className="flex min-w-0 flex-1 flex-col gap-2">
                 <select
                   value={route.provider}
                   onChange={(e) => {
@@ -501,7 +502,7 @@ function RoutesTab({
                       ))}
                   </select>
                 ) : (
-                  <div className="font-mono">
+                  <span className="font-mono">
                     <Input
                       value={route.modelId}
                       onChange={(e) => {
@@ -512,11 +513,11 @@ function RoutesTab({
                       }}
                       placeholder="Provider model ID"
                     />
-                  </div>
+                  </span>
                 )}
 
-                <div className="flex gap-3">
-                  <div className="flex-1">
+                <Stack direction="horizontal" gap="snug">
+                  <span className="flex-1">
                     <Field>
                       <Label>
                         <Text size="caption" color="muted">
@@ -538,8 +539,8 @@ function RoutesTab({
                         }}
                       />
                     </Field>
-                  </div>
-                  <div className="flex-1">
+                  </span>
+                  <span className="flex-1">
                     <Field>
                       <Label>
                         <Text size="caption" color="muted">
@@ -561,15 +562,15 @@ function RoutesTab({
                         }}
                       />
                     </Field>
-                  </div>
-                </div>
-              </div>
+                  </span>
+                </Stack>
+              </span>
 
               {/* Right column: weight (weighted only) + toggle + delete */}
-              <div className="flex shrink-0 flex-col items-end gap-2">
+              <span className="flex shrink-0 flex-col items-end gap-2">
                 {model.strategy === 'weighted' && (
-                  <div className="flex items-center gap-1">
-                    <div className="w-16 text-center">
+                  <Stack direction="horizontal" align="center" gap="tight">
+                    <span className="w-16 text-center">
                       <Input
                         type="number"
                         value={route.weight}
@@ -582,13 +583,13 @@ function RoutesTab({
                           onChange({ ...model, routes: updated });
                         }}
                       />
-                    </div>
+                    </span>
                     <Text size="caption" color="muted">
                       %
                     </Text>
-                  </div>
+                  </Stack>
                 )}
-                <div className="flex items-center gap-1">
+                <Stack direction="horizontal" align="center" gap="tight">
                   <Toggle
                     checked={route.enabled}
                     onChange={(v) => {
@@ -607,9 +608,9 @@ function RoutesTab({
                   >
                     <Trash2 className="size-3.5" />
                   </button>
-                </div>
-              </div>
-            </div>
+                </Stack>
+              </span>
+            </section>
           ))}
         </Stack>
 
@@ -691,10 +692,10 @@ function EditorPanel({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-[580px] flex-col bg-surface shadow-2xl">
+      <span className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden />
+      <section className="fixed inset-y-0 right-0 z-50 flex w-[580px] flex-col bg-surface shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <header className="flex items-center justify-between border-b border-border px-5 py-4">
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" gap="snug">
               <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
@@ -723,11 +724,11 @@ function EditorPanel({
           >
             <X className="size-4" />
           </button>
-        </div>
+        </header>
 
         {/* Identity fields */}
-        <div className="border-b border-border px-5 py-4">
-          <div className="grid grid-cols-2 gap-3">
+        <section className="border-b border-border px-5 py-4">
+          <Grid cols={2} gap="snug">
             <Field>
               <Label>Family</Label>
               {knownFamilies.length > 0 ? (
@@ -744,25 +745,25 @@ function EditorPanel({
                   ))}
                 </select>
               ) : (
-                <div className="font-mono">
+                <span className="font-mono">
                   <Input
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     placeholder="e.g. anthropic"
                   />
-                </div>
+                </span>
               )}
             </Field>
 
             <Field>
               <Label>Model name</Label>
-              <div className="font-mono">
+              <span className="font-mono">
                 <Input
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="e.g. claude-sonnet-4-6"
                 />
-              </div>
+              </span>
             </Field>
 
             <Field>
@@ -776,16 +777,16 @@ function EditorPanel({
 
             <Field>
               <Label>Scope (derived)</Label>
-              <div className="flex h-9 items-center rounded-md border border-border bg-surface px-3">
-                <div className="truncate">
+              <span className="flex h-9 items-center rounded-md border border-border bg-surface px-3">
+                <span className="truncate">
                   <Text size="caption" color="muted" mono>
                     {fullId ? vmPolicyScope(draft) : '—'}
                   </Text>
-                </div>
-              </div>
+                </span>
+              </span>
             </Field>
 
-            <div className="col-span-2">
+            <span className="col-span-2">
               <Field>
                 <Label>Description</Label>
                 <Input
@@ -794,32 +795,34 @@ function EditorPanel({
                   placeholder="Optional description"
                 />
               </Field>
-            </div>
-          </div>
-        </div>
+            </span>
+          </Grid>
+        </section>
 
         {/* Routes content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <section className="flex-1 overflow-y-auto px-5 py-4">
           <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
-        </div>
+        </section>
 
         {error && (
-          <div className="mx-5 mb-3 flex items-center gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2">
-            <AlertCircle className="size-3.5 shrink-0 text-status-error" />
-            <Text size="caption" color="muted">
-              {error}
-            </Text>
-          </div>
+          <span className="mx-5 mb-3 block">
+            <Alert variant="error">
+              <AlertCircle className="size-3.5 shrink-0 text-status-error" />
+              <Text size="caption" color="muted">
+                {error}
+              </Text>
+            </Alert>
+          </span>
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-5 py-4">
-          <div className="flex items-center gap-2">
+        <footer className="flex items-center justify-between border-t border-border px-5 py-4">
+          <Stack direction="horizontal" align="center" gap="snug">
             <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
             <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
               {draft.enabled ? 'Enabled' : 'Disabled'}
             </Text>
-          </div>
+          </Stack>
           <Stack direction="horizontal" gap="snug">
             <Button variant="ghost" onClick={onClose}>
               Cancel
@@ -828,8 +831,8 @@ function EditorPanel({
               {saving ? 'Saving…' : 'Save Changes'}
             </Button>
           </Stack>
-        </div>
-      </div>
+        </footer>
+      </section>
     </>
   );
 }
@@ -856,14 +859,14 @@ function VirtualModelsSection({
   return (
     <Stack gap="snug">
       <Stack direction="horizontal" align="center" gap="snug">
-        <div className="relative flex-1 max-w-xs [&>input]:pl-9">
+        <span className="relative flex-1 max-w-xs [&>input]:pl-9">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search virtual models…"
           />
-        </div>
+        </span>
         <Button
           size="sm"
           onClick={() =>
@@ -926,11 +929,11 @@ function VirtualModelsSection({
                         >
                           <TableCell>
                             <Stack gap="none">
-                              <div className="mb-0.5 text-[10px] uppercase tracking-wider">
+                              <span className="mb-0.5 block text-[10px] uppercase tracking-wider">
                                 <Text size="caption" color="subtle">
                                   {family}
                                 </Text>
-                              </div>
+                              </span>
                               <Text size="supporting" weight="emphasis" mono>
                                 {m.name}
                               </Text>
@@ -945,7 +948,7 @@ function VirtualModelsSection({
                           <TableCell>
                             <Stack direction="horizontal" align="center" gap="tight">
                               <Text size="supporting">{m.routes.length}</Text>
-                              <div className="flex gap-0.5">
+                              <span className="flex gap-0.5">
                                 {m.routes.map((r, ri) => (
                                   <span
                                     key={r.id || ri}
@@ -953,7 +956,7 @@ function VirtualModelsSection({
                                     title={`${PROVIDER_LABELS[r.provider] ?? r.provider} — ${r.enabled ? 'active' : 'disabled'}`}
                                   />
                                 ))}
-                              </div>
+                              </span>
                             </Stack>
                           </TableCell>
                           <TableCell>
@@ -1043,14 +1046,14 @@ function ProviderCatalogSection({ models }: { models: ProviderModel[] }) {
   return (
     <Stack gap="snug">
       <Stack direction="horizontal" align="center" gap="snug" wrap>
-        <div className="relative max-w-xs flex-1 [&>input]:pl-9">
+        <span className="relative max-w-xs flex-1 [&>input]:pl-9">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter models…"
           />
-        </div>
+        </span>
 
         <Stack direction="horizontal" gap="tight">
           <Button
@@ -1279,12 +1282,12 @@ export function CatalogTab({
           — no gateway restart required.
         </Text>
         {initialError && (
-          <div className="flex items-center gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2">
+          <Alert variant="error">
             <AlertCircle className="size-3.5 shrink-0 text-status-error" />
             <Text size="caption" color="muted">
               Failed to load catalog: {initialError}
             </Text>
-          </div>
+          </Alert>
         )}
       </Stack>
 

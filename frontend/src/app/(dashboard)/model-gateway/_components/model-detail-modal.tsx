@@ -59,7 +59,7 @@ interface ChipRowProps {
 
 function ChipRow({ label, values }: ChipRowProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 px-2 py-1">
+    <span className="flex flex-wrap items-center gap-2 px-2 py-1">
       <Text size="caption" color="muted">
         {label}
       </Text>
@@ -76,7 +76,7 @@ function ChipRow({ label, values }: ChipRowProps) {
           —
         </Text>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -137,22 +137,22 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
           </header>
 
           {/* Status */}
-          <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+          <section className="flex items-center gap-2 border-b border-border px-4 py-2">
             <AvailabilityDot status={model.status} />
             <Text size="supporting">
               {model.status === 'available' ? 'Available' : 'Unavailable'}
             </Text>
-          </div>
+          </section>
 
           {/* Scrollable body */}
-          <div className="max-h-[60vh] overflow-y-auto">
+          <section className="max-h-[60vh] overflow-y-auto">
             {/* Identity */}
             <section className="px-2 py-2">
-              <div className="px-2 pb-1">
+              <header className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Identity
                 </Text>
-              </div>
+              </header>
               <CopyRow label="Model ID" value={model.id} mono />
               <CopyRow label="Provider" value={model.owned_by} />
               <CopyRow label="Display Name" value={model.name} />
@@ -163,11 +163,11 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
 
             {/* Capabilities */}
             <section className="px-2 py-2">
-              <div className="px-2 pb-1">
+              <header className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Capabilities
                 </Text>
-              </div>
+              </header>
               <ChipRow label="Capabilities" values={model.capabilities} />
               <ChipRow label="API Dialects" values={model.dialects} />
             </section>
@@ -176,15 +176,15 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
 
             {/* Modalities */}
             <section className="px-2 py-2">
-              <div className="px-2 pb-1">
+              <header className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Modalities
                 </Text>
-              </div>
+              </header>
               <ChipRow label="Input" values={model.input_modalities} />
               <ChipRow label="Output" values={model.output_modalities} />
             </section>
-          </div>
+          </section>
 
           {/* Footer */}
           <footer className="border-t border-border px-4 py-2">
