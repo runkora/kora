@@ -16,6 +16,7 @@ import {
   User,
   UserCheck,
   Wrench,
+  Layers,
 } from 'lucide-react';
 
 import { APP_ROUTES, AppRoute } from '@orbit/lib/routing';
@@ -108,6 +109,12 @@ const SYSTEM_NAV: NavEntry[] = [
 const MODEL_GATEWAY_NAV: NavEntry[] = [
   { label: 'Overview', href: APP_ROUTES.modelGateway.overview, icon: BarChart3 },
   { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
+  {
+    label: 'Catalog',
+    href: APP_ROUTES.modelGateway.catalog,
+    icon: Layers,
+    requiredScope: 'platform:catalog:write',
+  },
   { label: 'Usage', href: APP_ROUTES.modelGateway.usage, icon: LineChart },
   { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: Activity },
   { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: Key },

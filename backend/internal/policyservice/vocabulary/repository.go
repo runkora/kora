@@ -26,8 +26,11 @@ type ScopeEntry struct {
 	// Action is the last segment, e.g. "invoke".
 	Action string `json:"action"`
 	// Description is a human-readable label.
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	Description string `json:"description,omitempty"`
+	// RegisteredBy is the service that owns this scope (e.g. "inference-gateway").
+	// Empty for manually-created scopes.
+	RegisteredBy string    `json:"registered_by,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // ScopeEntryWithUsage extends ScopeEntry with usage counts from grants and roles.
@@ -55,6 +58,11 @@ type Repository interface {
 	// Used by route registration so services can declare their scopes idempotently.
 	Upsert(ctx context.Context, e *ScopeEntry) error
 
+	// DeleteOrphans deletes all scopes owned by registeredBy whose scope strings
+	// are not in keepScopes, and returns the deleted scope strings. Called on
+	// re-registration to prune scopes for virtual models that have been deleted.
+	DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error)
+
 	// ListWithUsage returns all scopes with grant and role usage counts for a tenant.
 	ListWithUsage(ctx context.Context, resourceType, tenantID string) ([]*ScopeEntryWithUsage, error)
 
@@ -80,19 +88,53 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
 		return fmt.Errorf("marshal path segments: %w", err)
 	}
 
+	var registeredBy *string
+	if e.RegisteredBy != "" {
+		registeredBy = &e.RegisteredBy
+	}
+
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
 		ON CONFLICT (scope) DO UPDATE SET
 			resource_type  = EXCLUDED.resource_type,
 			path_segments  = EXCLUDED.path_segments,
 			action         = EXCLUDED.action,
-			description    = EXCLUDED.description
-	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description)
+			description    = EXCLUDED.description,
+			registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by)
+	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy)
 	if err != nil {
 		return fmt.Errorf("upsert scope: %w", err)
 	}
 	return nil
+}
+
+func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy string, keepScopes []string) ([]string, error) {
+	var rows pgx.Rows
+	var err error
+	if len(keepScopes) == 0 {
+		rows, err = r.pool.Query(ctx,
+			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 RETURNING scope`,
+			registeredBy)
+	} else {
+		rows, err = r.pool.Query(ctx,
+			`DELETE FROM policy_scope_vocabulary WHERE registered_by = $1 AND scope != ALL($2) RETURNING scope`,
+			registeredBy, keepScopes)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("delete orphan scopes: %w", err)
+	}
+	defer rows.Close()
+
+	var deleted []string
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			return nil, fmt.Errorf("scan deleted scope: %w", err)
+		}
+		deleted = append(deleted, scope)
+	}
+	return deleted, rows.Err()
 }
 
 func (r *postgresRepository) GetByScope(ctx context.Context, scope string) (*ScopeEntry, error) {

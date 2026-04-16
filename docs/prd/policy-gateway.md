@@ -61,7 +61,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 
 3. **Delegation integrity:** The delegation scope intersection model from ADR-0009 is enforced as a platform invariant. An agent acting under a delegation token can never exceed the intersection of the delegation grant, the delegator's own permissions, and the agent's configured ceiling. This is not configurable — it is always enforced.
 
-4. **Developer transparency:** Services expose filtered views of their resources based on the calling principal's permissions. Agents never receive resource lists (model lists, tool lists, service catalogues) containing entries they cannot actually invoke.
+4. **Developer transparency:** Services expose filtered views of their resources based on the calling principal's permissions. Agents never receive resource lists (model lists, tool lists, service catalogs) containing entries they cannot actually invoke.
 
 5. **Zero implicit trust:** Service-to-service traffic within the platform is subject to the same policy evaluation as external inbound traffic. There is no trusted internal network.
 
@@ -69,7 +69,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 
 - 100% of requests to platform resources pass through a policy evaluation point before the resource is reached
 - Policy changes propagate to all enforcement points within the configured polling interval (target: ≤ 30 seconds)
-- Resource listing endpoints (models, MCP tools, service catalogues) return only entries the calling principal has grants for
+- Resource listing endpoints (models, MCP tools, service catalogs) return only entries the calling principal has grants for
 - Zero cross-tenant grant evaluations — tenant A's policy never influences tenant B's decisions
 - Policy evaluation adds ≤ 10ms p95 to request latency (local OPA bundle evaluation, no synchronous policy service call on the request path)
 
@@ -118,7 +118,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 **So that** agents never encounter 403s at invocation time for resources the platform presented as available.
 
 **Acceptance Criteria:**
-- [ ] Resource listing endpoints (inference models, MCP tools, service catalogues) return only entries the calling principal has grants for
+- [ ] Resource listing endpoints (inference models, MCP tools, service catalogs) return only entries the calling principal has grants for
 - [ ] An attempt to invoke a resource outside the principal's grants returns a 403 before the resource executes
 - [ ] A delegated agent request is evaluated against the intersection of delegation grant, delegator scopes, and agent ceiling
 
@@ -155,7 +155,7 @@ The ext_authz service loads OPA policy bundles locally and evaluates them in-pro
 
 **Policy Enforcement Points (PEP)**  
 - **Layer 1 — Envoy (edge and sidecar):** Intercepts all requests. The ext_authz gRPC interface handles path-level decisions — can this principal reach this service at this path? Returns 401 or 403 before the destination service receives the request.
-- **Layer 2 — In-application (owned services):** Owned services call the ext_authz HTTP API for decisions that require payload inspection — a model ID in a request body, a tool name in an MCP call. This is also where resource listing endpoints call `POST /v1/policy/query` to filter their responses. The calling service provides full resource context (type, ID, attributes) in the check request — the policy service has no independent knowledge of resource catalogues.
+- **Layer 2 — In-application (owned services):** Owned services call the ext_authz HTTP API for decisions that require payload inspection — a model ID in a request body, a tool name in an MCP call. This is also where resource listing endpoints call `POST /v1/policy/query` to filter their responses. The calling service provides full resource context (type, ID, attributes) in the check request — the policy service has no independent knowledge of resource catalogs.
 
 ### Policy Model
 
@@ -202,7 +202,7 @@ All three are expressed in the same OAuth scope vocabulary. The intersection is 
 
 `POST /v1/policy/check` — binary allow/deny for a specific principal and resource. Used by Envoy (via gRPC) for path-level decisions and by owned services for pre-invocation checks.
 
-`POST /v1/policy/query` — accepts the calling service's full candidate resource list and returns only those the principal is permitted to access. The calling service owns the resource catalogue; the policy service owns the grants. Used by any listing endpoint (model list, MCP tool list, service catalogue) before returning to the caller.
+`POST /v1/policy/query` — accepts the calling service's full candidate resource list and returns only those the principal is permitted to access. The calling service owns the resource catalog; the policy service owns the grants. Used by any listing endpoint (model list, MCP tool list, service catalog) before returning to the caller.
 
 ### Token Validation
 
@@ -345,7 +345,7 @@ All product and architecture decisions are resolved. The following implementatio
 - [ADR-0014](../adr/0014-scope-gated-tool-exposure-via-mcp.md) — Scope-gated tool exposure via MCP
 - [ADR-0021](../adr/0021-envoy-ext-proc-sidecar-token-injection.md) — Identity proxy ext_proc sidecar
 - [ADR-0023](../adr/0023-inference-gateway-architecture.md) — Inference gateway architecture
-- [ADR-0024](../adr/0024-provider-model-catalogue-and-alias-routing.md) — Model catalogue and alias routing
+- [ADR-0024](../adr/0024-provider-model-catalog-and-alias-routing.md) — Model catalog and alias routing
 
 ### Glossary
 

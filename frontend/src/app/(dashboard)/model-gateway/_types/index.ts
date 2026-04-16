@@ -57,7 +57,7 @@ export function toModelRow(m: ModelObject): ModelRow {
     output_modalities: m.output_modalities ?? [],
     dialects: m.dialects ?? [],
     capabilities: m.capabilities ?? [],
-    status: 'available',
+    status: m.status ?? 'available',
     favourite: false,
   };
 }

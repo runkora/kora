@@ -49,6 +49,10 @@ type Repository interface {
 
 	// CountByTenant returns the number of custom (non-reserved) roles for a tenant.
 	CountByTenant(ctx context.Context, tenantID string) (int, error)
+
+	// PurgeScopeFromAll removes a scope string from every role's scopes array
+	// across all tenants. Called when a vocabulary scope is deleted.
+	PurgeScopeFromAll(ctx context.Context, scope string) error
 }
 
 type postgresRepository struct {
@@ -126,6 +130,22 @@ func (r *postgresRepository) Delete(ctx context.Context, tenantID, role string) 
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrRoleNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE policy_role_scopes
+		SET scopes = (
+			SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+			FROM jsonb_array_elements_text(scopes) AS elem
+			WHERE elem != $1
+		)
+		WHERE scopes @> jsonb_build_array($1)
+	`, scope)
+	if err != nil {
+		return fmt.Errorf("purge scope from roles: %w", err)
 	}
 	return nil
 }

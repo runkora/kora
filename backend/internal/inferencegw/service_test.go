@@ -77,14 +77,14 @@ func ctxWithClaims(t *testing.T) context.Context {
 	return token.WithClaims(context.Background(), testClaims("tenant-1"))
 }
 
-func buildTestRouter(models []ProviderModel) *RoutingEngine {
+func buildTestRouter(vms []VirtualModel) *RoutingEngine {
 	connectors := map[ProviderName]ProviderConnector{
 		ProviderBedrock:  &stubConnector{name: ProviderBedrock},
 		ProviderVertexAI: &stubConnector{name: ProviderVertexAI},
 	}
-	r := NewRoutingEngine(connectors, NewNopPricingCache())
-	if models != nil {
-		r.modelCatalog.Store(&models)
+	r := NewRoutingEngine(connectors)
+	if vms != nil {
+		r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	}
 	return r
 }
@@ -93,12 +93,12 @@ func buildTestRouter(models []ProviderModel) *RoutingEngine {
 
 func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "known-model", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
+	vms := []VirtualModel{
+		{Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true},
 	}
 	svc := NewService(
 		&stubEvaluator{},
-		buildTestRouter(catalog),
+		buildTestRouter(vms),
 		NewNopPricingCache(),
 		nil,
 		nil,
@@ -110,61 +110,43 @@ func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 	}
 }
 
-func TestCheckModelPolicy_AllowsWildcards(t *testing.T) {
+func TestCheckModelPolicy_VirtualModelAllowed(t *testing.T) {
 	t.Parallel()
-	svc := NewService(
-		&stubEvaluator{},
-		buildTestRouter(nil),
-		NewNopPricingCache(),
-		nil,
-		nil,
-	)
-	ctx := ctxWithClaims(t)
-	for _, model := range []string{"", "*", "failover"} {
-		if err := svc.checkModelPolicy(ctx, model); err != nil {
-			t.Errorf("checkModelPolicy(%q) = %v, want nil (wildcards deferred)", model, err)
-		}
-	}
-}
-
-func TestCheckModelPolicy_ExplicitModel_Allowed(t *testing.T) {
-	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
+	vms := []VirtualModel{
+		{Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true},
 	}
 	allow := true
 	svc := NewService(
 		&stubEvaluator{checkAllow: &allow},
-		buildTestRouter(catalog),
+		buildTestRouter(vms),
 		NewNopPricingCache(),
 		nil,
 		nil,
 	)
 	ctx := ctxWithClaims(t)
-	// Use the alias form that ResolveModelForPolicy can match.
-	err := svc.checkModelPolicy(ctx, "claude-sonnet")
+	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
 	if err != nil {
-		t.Errorf("expected nil for allowed model, got: %v", err)
+		t.Errorf("expected nil for allowed virtual model, got: %v", err)
 	}
 }
 
-func TestCheckModelPolicy_ExplicitModel_Denied(t *testing.T) {
+func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
+	vms := []VirtualModel{
+		{Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true},
 	}
 	deny := false
 	svc := NewService(
 		&stubEvaluator{checkAllow: &deny},
-		buildTestRouter(catalog),
+		buildTestRouter(vms),
 		NewNopPricingCache(),
 		nil,
 		nil,
 	)
 	ctx := ctxWithClaims(t)
-	err := svc.checkModelPolicy(ctx, "claude-sonnet")
+	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
 	if !errors.Is(err, ErrPolicyDenied) {
-		t.Errorf("expected ErrPolicyDenied for denied model, got: %v", err)
+		t.Errorf("expected ErrPolicyDenied for denied virtual model, got: %v", err)
 	}
 }
 
@@ -172,18 +154,29 @@ func TestCheckModelPolicy_ExplicitModel_Denied(t *testing.T) {
 
 func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 	t.Parallel()
-	// Use realistic ModelIDs (longer than aliases) so PolicyAlias() picks the alias.
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
-		{Provider: ProviderBedrock, ModelID: "us.meta.llama-3-70b-instruct-v1:0", Family: "meta", Aliases: []string{"llama-3-70b"}},
-		{Provider: ProviderVertexAI, ModelID: "claude-sonnet-4-6@20250514", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
+	// Virtual models with routes to realistic provider model IDs.
+	// ResolveTargetForPolicy does a reverse lookup through virtual catalog routes.
+	vms := []VirtualModel{
+		{
+			Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true,
+			Routes: []VirtualModelRoute{
+				{ID: "r1", Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Priority: 1, Enabled: true},
+				{ID: "r2", Provider: ProviderVertexAI, ModelID: "claude-sonnet-4-6@20250514", Priority: 2, Enabled: true},
+			},
+		},
+		{
+			Family: "meta", Name: "llama-3-70b", Enabled: true,
+			Routes: []VirtualModelRoute{
+				{ID: "r3", Provider: ProviderBedrock, ModelID: "us.meta.llama-3-70b-instruct-v1:0", Priority: 1, Enabled: true},
+			},
+		},
 	}
 	svc := NewService(
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{
-			"anthropic:claude-sonnet": true,
+			"anthropic:claude-sonnet-4-6": true,
 			// meta:llama-3-70b NOT allowed
 		}},
-		buildTestRouter(catalog),
+		buildTestRouter(vms),
 		NewNopPricingCache(),
 		nil,
 		nil,
@@ -199,7 +192,7 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Both anthropic targets should survive. Meta should be filtered out.
+	// Both anthropic targets survive; meta is filtered out.
 	if len(filtered) != 2 {
 		t.Fatalf("len(filtered) = %d, want 2", len(filtered))
 	}
@@ -212,12 +205,17 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 
 func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
+	vms := []VirtualModel{
+		{
+			Family: "anthropic", Name: "claude-sonnet-4-6", Enabled: true,
+			Routes: []VirtualModelRoute{
+				{ID: "r1", Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Priority: 1, Enabled: true},
+			},
+		},
 	}
 	svc := NewService(
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{}}, // nothing allowed
-		buildTestRouter(catalog),
+		buildTestRouter(vms),
 		NewNopPricingCache(),
 		nil,
 		nil,
@@ -230,67 +228,5 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 	_, err := svc.filterTargetsByPolicy(ctx, targets)
 	if !errors.Is(err, ErrPolicyDenied) {
 		t.Errorf("expected ErrPolicyDenied when all targets filtered, got: %v", err)
-	}
-}
-
-// ─── filterModelsByPolicy ───────────────────────────────────────────────────
-
-func TestFilterModelsByPolicy_DeduplicatesAndFilters(t *testing.T) {
-	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
-		{Provider: ProviderVertexAI, ModelID: "claude-sonnet-4-6@20250514", Family: "anthropic", Aliases: []string{"claude-sonnet"}},
-		{Provider: ProviderBedrock, ModelID: "us.meta.llama-3-70b-instruct-v1:0", Family: "meta", Aliases: []string{"llama-3-70b"}},
-	}
-	svc := NewService(
-		&stubEvaluator{allowedCandidateIDs: map[string]bool{
-			"anthropic:claude-sonnet": true,
-		}},
-		buildTestRouter(catalog),
-		NewNopPricingCache(),
-		nil,
-		nil,
-	)
-	ctx := ctxWithClaims(t)
-
-	filtered, err := svc.filterModelsByPolicy(ctx, catalog)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Both anthropic variants should survive, meta should be filtered.
-	if len(filtered) != 2 {
-		t.Fatalf("len(filtered) = %d, want 2", len(filtered))
-	}
-	for _, m := range filtered {
-		if m.Family != "anthropic" {
-			t.Errorf("unexpected family %q in filtered results", m.Family)
-		}
-	}
-}
-
-func TestFilterModelsByPolicy_ExcludesUnknownFamily(t *testing.T) {
-	t.Parallel()
-	catalog := []ProviderModel{
-		{Provider: ProviderBedrock, ModelID: "mystery", Family: "unknown"},
-		{Provider: ProviderBedrock, ModelID: "no-family", Family: ""},
-	}
-	svc := NewService(
-		&stubEvaluator{allowedCandidateIDs: map[string]bool{
-			"unknown:mystery": true,
-			":no-family":      true,
-		}},
-		buildTestRouter(catalog),
-		NewNopPricingCache(),
-		nil,
-		nil,
-	)
-	ctx := ctxWithClaims(t)
-
-	filtered, err := svc.filterModelsByPolicy(ctx, catalog)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(filtered) != 0 {
-		t.Errorf("len(filtered) = %d, want 0 (unknown/empty families excluded)", len(filtered))
 	}
 }

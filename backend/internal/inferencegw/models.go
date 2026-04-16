@@ -44,6 +44,10 @@ const (
 	StrategyFailoverChain RoutingStrategy = "failover_chain"
 	// StrategyExplicit honors the model field in the request exactly.
 	StrategyExplicit RoutingStrategy = "explicit"
+	// StrategyPriority tries virtual model routes in configured priority order.
+	StrategyPriority RoutingStrategy = "priority"
+	// StrategyWeighted selects a virtual model route probabilistically by weight.
+	StrategyWeighted RoutingStrategy = "weighted"
 )
 
 // ─── Request (routing only) ───────────────────────────────────────────────────
@@ -119,4 +123,6 @@ var (
 	ErrInvalidRequest        = errors.New("invalid inference request")
 	ErrTokenParseFailed      = errors.New("failed to parse platform token")
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
+	ErrVirtualModelNotFound  = errors.New("virtual model not found")
+	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
 )

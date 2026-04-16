@@ -254,7 +254,7 @@ The change is additive and non-breaking:
 ## Related Decisions
 
 - [ADR-0023](0023-inference-gateway-architecture.md) — Inference Gateway architecture; defines the provider connector interface and handler structure.
-- [ADR-0024](0024-provider-model-catalogue-and-alias-routing.md) — Provider Model Catalogue; introduced `ProviderModel`, `InputModalities`, `OutputModalities`, `Dialects`.
+- [ADR-0024](0024-provider-model-catalog-and-alias-routing.md) — Provider Model Catalog; introduced `ProviderModel`, `InputModalities`, `OutputModalities`, `Dialects`.
 - [ADR-0025](0025-anthropic-zero-translation-path.md) — Anthropic zero-translation path; defines the two chat dialect wire formats.
 
 ---

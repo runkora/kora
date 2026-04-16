@@ -316,7 +316,7 @@ orbit/
 │   └── observability/         # Tracing, logging, and OTel configuration docs
 ├── rules/                     # Custom golangci-lint AST rules (enforces ADRs)
 │   ├── orbit_rules.go         # ruleguard patterns (Tier 1 lint rules)
-│   └── README.md              # Rule catalogue and rationale
+│   └── README.md              # Rule catalog and rationale
 ├── scripts/
 │   └── auth-device.sh         # Device Authorization Grant CLI script
 ├── secrets/                   # Gitignored — local signing keys

@@ -1,4 +1,4 @@
-# 0024. Provider Model Catalogue and Alias Routing
+# 0024. Provider Model Catalog and Alias Routing
 
 **Status:** Accepted (Amended 2025-07-22)
 **Date:** 2025-07-17
@@ -41,7 +41,7 @@ The two APIs overlap: the same underlying model (e.g. Claude Sonnet 4.6) appears
 
 - Operator-managed alias curation (deferred — this ADR establishes the data model and resolution path).
 - Filtering models by capability beyond on-demand throughput support (e.g. vision, function calling).
-- Caching the model catalogue between requests (handled separately by a future cache layer).
+- Caching the model catalog between requests (handled separately by a future cache layer).
 - Changing the Vertex AI or Azure `ListModels` implementations beyond the interface signature update.
 
 ---
@@ -109,7 +109,7 @@ Change `ProviderConnector.ListModels` to return `[]ProviderModel` (was `[]string
 
 ### Rationale
 
-Option 1 is operationally untenable — the AWS model catalogue changes frequently enough that a static list would become a maintenance burden within weeks. Option 2 solves correctness but leaves the UX problems (opaque IDs, no routing from clean aliases) unaddressed. Option 3 has the highest upfront change surface but produces the correct end-state: clients see clean IDs, can use friendly aliases, and receive display names. The interface change to `[]ProviderModel` is contained to four call sites (three connectors + the router) and the extension point it creates (the `Aliases` field) eliminates the need for a further interface revision when operator curation is added.
+Option 1 is operationally untenable — the AWS model catalog changes frequently enough that a static list would become a maintenance burden within weeks. Option 2 solves correctness but leaves the UX problems (opaque IDs, no routing from clean aliases) unaddressed. Option 3 has the highest upfront change surface but produces the correct end-state: clients see clean IDs, can use friendly aliases, and receive display names. The interface change to `[]ProviderModel` is contained to four call sites (three connectors + the router) and the extension point it creates (the `Aliases` field) eliminates the need for a further interface revision when operator curation is added.
 
 ---
 
@@ -257,7 +257,7 @@ The static `DefaultPricing()` function and its hardcoded model entries have been
 
 ### 8. Anthropic zero-translation path
 
-A parallel inference path was added alongside the catalogue work: `POST /v1/messages` now decodes directly into `anthropic.MessageNewParams` (native Anthropic SDK type) and encodes the response as `*anthropic.Message`, with no conversion through Orbit domain types. This eliminates all lossy translation on the Anthropic dialect path. See **[ADR-0025](0025-anthropic-zero-translation-path.md)** for the full design and rationale.
+A parallel inference path was added alongside the catalog work: `POST /v1/messages` now decodes directly into `anthropic.MessageNewParams` (native Anthropic SDK type) and encodes the response as `*anthropic.Message`, with no conversion through Orbit domain types. This eliminates all lossy translation on the Anthropic dialect path. See **[ADR-0025](0025-anthropic-zero-translation-path.md)** for the full design and rationale.
 
 ### Migration Path
 
@@ -281,7 +281,7 @@ Implemented immediately following ADR acceptance, within the same development cy
 
 ### Monitoring
 
-- Routing failures with `error_code: ROUTING_FAILED` should decrease after deployment as broken IDs are removed from the catalogue.
+- Routing failures with `error_code: ROUTING_FAILED` should decrease after deployment as broken IDs are removed from the catalog.
 - Track `inference_usage` records where `model_id` contains a `us.` / `eu.` / `ap.` prefix to confirm alias usage is working in practice (the stored ID should be canonical, not the alias).
 
 ---

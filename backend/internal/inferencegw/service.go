@@ -62,14 +62,69 @@ func NewService(
 
 // ─── ListModels ───────────────────────────────────────────────────────────────
 
-// ListModels queries all enabled provider connectors for their live model lists,
-// then filters the results to only models the principal is granted access to.
-func (s *Service) ListModels(ctx context.Context) ([]ProviderModel, error) {
-	models, err := s.router.ListModels(ctx)
-	if err != nil {
-		return nil, err
+// ListModels returns the enabled virtual models from the catalog that the
+// principal is granted access to. This is the consumer-facing model list —
+// clients request models by virtual model ID (family/name).
+func (s *Service) ListModels(ctx context.Context) ([]VirtualModel, error) {
+	vms := s.router.VirtualModels()
+	return s.filterVirtualModelsByPolicy(ctx, vms)
+}
+
+// ProviderModels returns the most recently discovered provider model list from
+// the routing engine's cache. Used to enrich the consumer /v1/models response.
+func (s *Service) ProviderModels() []ProviderModel {
+	return s.router.ProviderModels()
+}
+
+// DiscoverProviderModels triggers a live discovery sweep and returns the results.
+// Used as a lazy fallback when the cache is empty.
+func (s *Service) DiscoverProviderModels(ctx context.Context) ([]ProviderModel, error) {
+	return s.router.ListModels(ctx)
+}
+
+// filterVirtualModelsByPolicy filters virtual models to only those the
+// principal holds a policy grant for.
+func (s *Service) filterVirtualModelsByPolicy(ctx context.Context, vms []VirtualModel) ([]VirtualModel, error) {
+	if len(vms) == 0 {
+		return nil, nil
 	}
-	return s.filterModelsByPolicy(ctx, models)
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return nil, fmt.Errorf("%w: no verified claims in context", ErrTokenParseFailed)
+	}
+
+	candidates := make([]policy.Candidate, len(vms))
+	for i, vm := range vms {
+		candidates[i] = policy.Candidate{
+			ID:           vm.Family + ":" + vm.Name,
+			PathSegments: []string{vm.Family, vm.Name},
+		}
+	}
+
+	allowedIDs, err := s.policy.Query(ctx, policy.QueryInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "inference",
+		Action:       "use",
+		Candidates:   candidates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("policy query: %w", err)
+	}
+
+	allowed := make(map[string]bool, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowed[id] = true
+	}
+
+	out := make([]VirtualModel, 0, len(vms))
+	for _, vm := range vms {
+		if allowed[vm.Family+":"+vm.Name] {
+			out = append(out, vm)
+		}
+	}
+	return out, nil
 }
 
 // ─── ChatCompletion (non-streaming) ──────────────────────────────────────────
@@ -526,69 +581,6 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 	if len(filtered) == 0 {
 		return nil, ErrPolicyDenied
 	}
-	return filtered, nil
-}
-
-// filterModelsByPolicy filters the model catalog to only models the principal
-// is granted access to. Models are deduplicated by (family, PolicyAlias) before
-// querying OPA — if a logical model is allowed, all provider variants are returned.
-func (s *Service) filterModelsByPolicy(ctx context.Context, models []ProviderModel) ([]ProviderModel, error) {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return nil, fmt.Errorf("%w: no verified claims in context", ErrTokenParseFailed)
-	}
-
-	type policyKey struct{ family, alias string }
-	seen := make(map[policyKey]string)
-	var candidates []policy.Candidate
-
-	for _, m := range models {
-		if m.Family == "" || m.Family == "unknown" {
-			continue
-		}
-		alias := m.PolicyAlias()
-		pk := policyKey{m.Family, alias}
-		if _, exists := seen[pk]; exists {
-			continue
-		}
-		id := m.Family + ":" + alias
-		seen[pk] = id
-		candidates = append(candidates, policy.Candidate{
-			ID:           id,
-			PathSegments: []string{m.Family, alias},
-		})
-	}
-
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-
-	allowedIDs, err := s.policy.Query(ctx, policy.QueryInput{
-		Claims:       claims,
-		Delegation:   policy.DelegationFromContext(ctx),
-		ResourceType: "inference",
-		Action:       "use",
-		Candidates:   candidates,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("policy filter: %w", err)
-	}
-
-	allowedSet := make(map[string]bool, len(allowedIDs))
-	for _, id := range allowedIDs {
-		allowedSet[id] = true
-	}
-
-	filtered := make([]ProviderModel, 0, len(models))
-	for _, m := range models {
-		if m.Family == "" || m.Family == "unknown" {
-			continue
-		}
-		if allowedSet[m.Family+":"+m.PolicyAlias()] {
-			filtered = append(filtered, m)
-		}
-	}
-
 	return filtered, nil
 }
 

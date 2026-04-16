@@ -243,8 +243,8 @@ var reservedRoles = map[string]bool{
 // reservedRoleScopes mirrors bundle.defaultRoleScopes so ListRoles can include
 // them in API responses without importing the bundle package.
 var reservedRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage"},
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:catalog:write"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:write"},
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
@@ -331,15 +331,40 @@ func (s *Service) ListRoutes() []*routes.Registration {
 func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
 	// Upsert declared scopes into vocabulary first so that the existence check
 	// below sees the freshly declared entries.
+	incomingScopes := make([]string, len(scopeDecls))
 	for i := range scopeDecls {
+		incomingScopes[i] = scopeDecls[i].Scope
 		if err := s.vocabRepo.Upsert(ctx, &vocabulary.ScopeEntry{
 			Scope:        scopeDecls[i].Scope,
 			ResourceType: scopeDecls[i].ResourceType,
 			PathSegments: scopeDecls[i].PathSegments,
 			Action:       scopeDecls[i].Action,
 			Description:  scopeDecls[i].Description,
+			RegisteredBy: service,
 		}); err != nil {
 			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
+		}
+	}
+
+	// For global registrations, reconcile owned scopes: any scope previously
+	// registered by this service that is no longer in the catalog means the
+	// virtual model was deleted. Remove it from vocab and cascade to grants/roles.
+	if tenantID == "" {
+		deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
+		if err != nil {
+			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)
+		}
+		for _, scope := range deleted {
+			if err := s.grantRepo.PurgeScopeFromAll(ctx, scope); err != nil {
+				s.logger.Error(ctx, "purge deleted scope from grants",
+					logging.Field{Key: "scope", Value: scope},
+					logging.Field{Key: "error", Value: err})
+			}
+			if err := s.roleRepo.PurgeScopeFromAll(ctx, scope); err != nil {
+				s.logger.Error(ctx, "purge deleted scope from roles",
+					logging.Field{Key: "scope", Value: scope},
+					logging.Field{Key: "error", Value: err})
+			}
 		}
 	}
 

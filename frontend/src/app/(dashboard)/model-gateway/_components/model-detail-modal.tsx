@@ -28,7 +28,7 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
     <button
       type="button"
       onClick={handleCopy}
-      className="group flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      className="group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       <Stack gap="none">
         <Text size="caption" color="muted">
@@ -39,10 +39,7 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
         </Text>
       </Stack>
       {copied ? (
-        <Check
-          className="ml-3 size-3.5 shrink-0 text-status-healthy transition-opacity"
-          aria-hidden
-        />
+        <Check className="ml-3 size-3.5 shrink-0 text-status-healthy" aria-hidden />
       ) : (
         <Copy
           className="ml-3 size-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
@@ -62,40 +59,24 @@ interface ChipRowProps {
 
 function ChipRow({ label, values }: ChipRowProps) {
   return (
-    <Stack asChild gap="tight">
-      <section className="rounded-md px-3 py-2.5">
-        <Text size="caption" color="muted">
-          {label}
+    <div className="flex flex-wrap items-center gap-2 px-2 py-1">
+      <Text size="caption" color="muted">
+        {label}
+      </Text>
+      {values.length > 0 ? (
+        <Stack direction="horizontal" wrap gap="tight">
+          {values.map((v) => (
+            <Badge key={v} variant="outline" size="sm">
+              {v}
+            </Badge>
+          ))}
+        </Stack>
+      ) : (
+        <Text size="supporting" color="subtle">
+          —
         </Text>
-        {values.length > 0 ? (
-          <Stack direction="horizontal" wrap gap="tight">
-            {values.map((v) => (
-              <Badge key={v} variant="outline" size="sm">
-                {v}
-              </Badge>
-            ))}
-          </Stack>
-        ) : (
-          <Text size="supporting" color="subtle">
-            —
-          </Text>
-        )}
-      </section>
-    </Stack>
-  );
-}
-
-// ── SectionHeader ─────────────────────────────────────────────────────────────
-
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <Stack asChild>
-      <header className="px-3 pb-1 pt-3 uppercase tracking-wider">
-        <Text size="caption" color="muted">
-          {label}
-        </Text>
-      </header>
-    </Stack>
+      )}
+    </div>
   );
 }
 
@@ -109,7 +90,6 @@ interface ModelDetailModalProps {
 export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  // Open / close the native dialog
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -120,7 +100,6 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
     }
   }, [model]);
 
-  // Close on Escape (native dialog handles this, but we sync state)
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -129,7 +108,6 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
     return () => dialog.removeEventListener('close', handler);
   }, [onClose]);
 
-  // Close on backdrop click
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent<HTMLDialogElement>) => {
       if (e.target === dialogRef.current) onClose();
@@ -141,83 +119,79 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
     <dialog
       ref={dialogRef}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
+      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
     >
       {model && (
         <>
           {/* Header */}
-          <Stack asChild direction="horizontal" align="start" justify="between" gap="comfortable">
-            <header className="border-b border-border p-5">
-              <Stack direction="horizontal" align="center" gap="snug">
-                <Stack gap="none">
-                  <Heading variant="section">{model.name}</Heading>
-                  <Text size="caption" color="muted" mono>
-                    {model.id}
-                  </Text>
-                </Stack>
-              </Stack>
-              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-                <X className="size-4" />
-              </Button>
-            </header>
-          </Stack>
-
-          {/* Status row */}
-          <Stack asChild direction="horizontal" align="center" gap="comfortable">
-            <section className="border-b border-border px-5 py-3">
-              <AvailabilityDot status={model.status} />
-              <Text size="supporting">
-                {model.status === 'available' ? 'Available' : 'Unavailable'}
+          <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+            <Stack gap="none">
+              <Heading variant="section">{model.name}</Heading>
+              <Text size="caption" color="muted" mono>
+                {model.id}
               </Text>
+            </Stack>
+            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+              <X className="size-4" />
+            </Button>
+          </header>
+
+          {/* Status */}
+          <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+            <AvailabilityDot status={model.status} />
+            <Text size="supporting">
+              {model.status === 'available' ? 'Available' : 'Unavailable'}
+            </Text>
+          </div>
+
+          {/* Scrollable body */}
+          <div className="max-h-[60vh] overflow-y-auto">
+            {/* Identity */}
+            <section className="px-2 py-2">
+              <div className="px-2 pb-1">
+                <Text size="caption" color="muted">
+                  Identity
+                </Text>
+              </div>
+              <CopyRow label="Model ID" value={model.id} mono />
+              <CopyRow label="Provider" value={model.owned_by} />
+              <CopyRow label="Display Name" value={model.name} />
+              {model.aliases.length > 0 && <ChipRow label="Aliases" values={model.aliases} />}
             </section>
-          </Stack>
 
-          {/* Data rows */}
-          <Stack asChild>
-            <article className="flex-1 overflow-y-auto">
-              {/* Identity */}
-              <Stack asChild>
-                <section className="px-2 pb-2">
-                  <SectionHeader label="Identity" />
-                  <CopyRow label="Model ID" value={model.id} mono />
-                  <CopyRow label="Provider" value={model.owned_by} />
-                  <CopyRow label="Display Name" value={model.name} />
-                  {model.aliases.length > 0 && <ChipRow label="Aliases" values={model.aliases} />}
-                </section>
-              </Stack>
+            <Separator />
 
-              <Separator />
+            {/* Capabilities */}
+            <section className="px-2 py-2">
+              <div className="px-2 pb-1">
+                <Text size="caption" color="muted">
+                  Capabilities
+                </Text>
+              </div>
+              <ChipRow label="Capabilities" values={model.capabilities} />
+              <ChipRow label="API Dialects" values={model.dialects} />
+            </section>
 
-              {/* Capabilities */}
-              <Stack asChild>
-                <section className="px-2 pb-2">
-                  <SectionHeader label="Capabilities" />
-                  <ChipRow label="Capabilities" values={model.capabilities} />
-                  <ChipRow label="API Dialects" values={model.dialects} />
-                </section>
-              </Stack>
+            <Separator />
 
-              <Separator />
-
-              {/* Modalities */}
-              <Stack asChild>
-                <section className="px-2 pb-2">
-                  <SectionHeader label="Modalities" />
-                  <ChipRow label="Input" values={model.input_modalities} />
-                  <ChipRow label="Output" values={model.output_modalities} />
-                </section>
-              </Stack>
-            </article>
-          </Stack>
+            {/* Modalities */}
+            <section className="px-2 py-2">
+              <div className="px-2 pb-1">
+                <Text size="caption" color="muted">
+                  Modalities
+                </Text>
+              </div>
+              <ChipRow label="Input" values={model.input_modalities} />
+              <ChipRow label="Output" values={model.output_modalities} />
+            </section>
+          </div>
 
           {/* Footer */}
-          <Stack asChild>
-            <footer className="border-t border-border px-5 py-3">
-              <Text size="caption" color="subtle">
-                Click any identity row to copy the value to your clipboard.
-              </Text>
-            </footer>
-          </Stack>
+          <footer className="border-t border-border px-4 py-2">
+            <Text size="caption" color="subtle">
+              Click any identity row to copy to clipboard.
+            </Text>
+          </footer>
         </>
       )}
     </dialog>
