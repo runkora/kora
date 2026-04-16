@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -13,14 +14,20 @@ import (
 
 // ─── GET /v1/usage ───────────────────────────────────────────────────────────
 
+const (
+	defaultUsageLimit = 20
+	maxUsageLimit     = 200
+)
+
 // listUsageResponse is the envelope returned by GET /v1/usage.
-// Total reflects the full result count before pagination, enabling clients
-// to render page controls without a separate count round-trip.
+// HasNextPage indicates whether more rows follow the current page.
+// NextCursor is an opaque token the client passes as ?cursor= on the next
+// request; it is nil when HasNextPage is false.
 type listUsageResponse struct {
-	Data   []InferenceUsageRecord `json:"data"`
-	Total  int                    `json:"total"`
-	Limit  int                    `json:"limit"`
-	Offset int                    `json:"offset"`
+	Data        []InferenceUsageRecord `json:"data"`
+	HasNextPage bool                   `json:"has_next_page"`
+	NextCursor  *string                `json:"next_cursor"`
+	Limit       int                    `json:"limit"`
 }
 
 // Allowed values for each enum query parameter.
@@ -69,14 +76,19 @@ var usageParamBinders = []usageParamBinder{
 		return apiErr, err
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
-		v, apiErr, err := parsePosIntParam(q.Get("limit"), "'limit'", 50)
+		v, apiErr, err := parsePosIntParam(q.Get("limit"), "'limit'", defaultUsageLimit)
+		if apiErr != nil {
+			return apiErr, err
+		}
+		if v > maxUsageLimit {
+			return api.BadRequestError("invalid_param",
+				fmt.Sprintf("'limit' must be between 1 and %d", maxUsageLimit), nil), nil
+		}
 		f.Limit = v
-		return apiErr, err
+		return nil, nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
-		v, apiErr, err := parseNonNegIntParam(q.Get("offset"), "'offset'", 0)
-		f.Offset = v
-		return apiErr, err
+		return parseCursorParam(q.Get("cursor"), f)
 	},
 }
 
@@ -95,7 +107,7 @@ var usageParamBinders = []usageParamBinder{
 //	from        — lower bound on created_at (RFC3339)
 //	to          — upper bound on created_at (RFC3339)
 //	limit       — page size, default 50
-//	offset      — zero-based page offset, default 0
+//	cursor      — opaque pagination cursor returned by the previous response
 func parseUsageFilter(q url.Values) (InferenceUsageFilter, *api.APIError, error) {
 	f := InferenceUsageFilter{}
 	for _, bind := range usageParamBinders {
@@ -131,6 +143,28 @@ func joinEnumValues[T ~string](values []T) string {
 	return strings.Join(strs, ", ")
 }
 
+// parseCursorParam decodes an opaque cursor string of the form
+// "<RFC3339Nano>|<id>" and writes CursorTime and CursorID into f.
+// Returns a 400 APIError when the cursor is present but malformed.
+func parseCursorParam(raw string, f *InferenceUsageFilter) (*api.APIError, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.SplitN(raw, "|", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		err := fmt.Errorf("cursor %q: expected <timestamp>|<id>", raw)
+		return api.BadRequestError("invalid_param", "'cursor' is not a valid pagination cursor", nil), err
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return api.BadRequestError("invalid_param", "'cursor' is not a valid pagination cursor", nil), err
+	}
+	id := parts[1]
+	f.CursorTime = &t
+	f.CursorID = &id
+	return nil, nil
+}
+
 // parseTimeParam parses an RFC3339 timestamp. paramLabel is used in error messages.
 func parseTimeParam(raw, paramLabel string) (*time.Time, *api.APIError, error) {
 	if raw == "" {
@@ -155,18 +189,6 @@ func parsePosIntParam(raw, paramLabel string, defaultVal int) (int, *api.APIErro
 	return v, nil, nil
 }
 
-// parseNonNegIntParam parses a non-negative integer. defaultVal is returned when raw is empty.
-func parseNonNegIntParam(raw, paramLabel string, defaultVal int) (int, *api.APIError, error) {
-	if raw == "" {
-		return defaultVal, nil, nil
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 0 {
-		return 0, api.BadRequestError("invalid_param", paramLabel+" must be a non-negative integer", nil), err
-	}
-	return v, nil, nil
-}
-
 // handleListUsage handles GET /v1/usage.
 //
 // TenantID and PrincipalID are always sourced from the verified JWT claims;
@@ -180,7 +202,7 @@ func (c *Controller) handleListUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, total, err := c.svc.ListUsage(ctx, filter)
+	records, hasNextPage, err := c.svc.ListUsage(ctx, filter)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
@@ -191,10 +213,17 @@ func (c *Controller) handleListUsage(w http.ResponseWriter, r *http.Request) {
 		records = []InferenceUsageRecord{}
 	}
 
+	var nextCursor *string
+	if hasNextPage && len(records) > 0 {
+		last := records[len(records)-1]
+		s := last.CreatedAt.Format(time.RFC3339Nano) + "|" + last.ID
+		nextCursor = &s
+	}
+
 	api.JSON(ctx, w, c.logger, http.StatusOK, listUsageResponse{
-		Data:   records,
-		Total:  total,
-		Limit:  filter.Limit,
-		Offset: filter.Offset,
+		Data:        records,
+		HasNextPage: hasNextPage,
+		NextCursor:  nextCursor,
+		Limit:       filter.Limit,
 	})
 }

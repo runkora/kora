@@ -20,7 +20,8 @@ const LogsContext = createContext<LogsStateShape | null>(null);
 
 interface LogsProviderProps {
   initialRecords: InferenceUsageRecord[];
-  initialTotal: number;
+  initialHasNextPage: boolean;
+  initialNextCursor: string | null;
   initialPats: PAT[];
   initialError: string | null;
   children: React.ReactNode;
@@ -28,12 +29,19 @@ interface LogsProviderProps {
 
 export function LogsProvider({
   initialRecords,
-  initialTotal,
+  initialHasNextPage,
+  initialNextCursor,
   initialPats,
   initialError,
   children,
 }: LogsProviderProps) {
-  const state = useLogs(initialRecords, initialTotal, initialPats, initialError);
+  const state = useLogs(
+    initialRecords,
+    initialHasNextPage,
+    initialNextCursor,
+    initialPats,
+    initialError,
+  );
   return <LogsContext.Provider value={state}>{children}</LogsContext.Provider>;
 }
 

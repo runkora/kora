@@ -124,7 +124,8 @@ type InferenceUsageFilter struct {
 	From          *time.Time
 	To            *time.Time
 	Limit         int
-	Offset        int
+	CursorTime    *time.Time // if set, return rows strictly before this timestamp
+	CursorID      *string    // paired with CursorTime for stable sub-second ordering
 }
 
 // ─── Sentinel errors ─────────────────────────────────────────────────────────

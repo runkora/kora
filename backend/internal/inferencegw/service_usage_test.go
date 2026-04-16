@@ -113,7 +113,6 @@ func TestListUsage_NoClaims_ReturnsErrTokenParseFailed(t *testing.T) {
 func TestListUsage_EnforcesTenantScoping(t *testing.T) {
 	t.Parallel()
 	repo := newMockUsageRepo()
-	repo.total = 0
 	svc := newTestUsageService(t, repo)
 
 	ctx := ctxWithClaims(makeClaims("tenant-X", "user-Y", token.PrincipalTypeHuman, ""))
@@ -136,26 +135,26 @@ func TestListUsage_EnforcesTenantScoping(t *testing.T) {
 	}
 }
 
-func TestListUsage_ReturnsRecordsAndTotal(t *testing.T) {
+func TestListUsage_ReturnsRecordsAndHasNextPage(t *testing.T) {
 	t.Parallel()
 	repo := newMockUsageRepo()
 	repo.records = []InferenceUsageRecord{
 		{ID: "rec-1", TenantID: "t1", PrincipalID: "u1"},
 		{ID: "rec-2", TenantID: "t1", PrincipalID: "u1"},
 	}
-	repo.total = 42 // simulates total > page size
+	repo.hasNextPage = true // simulates more pages available
 	svc := newTestUsageService(t, repo)
 
 	ctx := ctxWithClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
-	records, total, err := svc.ListUsage(ctx, InferenceUsageFilter{Limit: 2})
+	records, hasNextPage, err := svc.ListUsage(ctx, InferenceUsageFilter{Limit: 2})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(records) != 2 {
 		t.Errorf("len(records): got %d, want 2", len(records))
 	}
-	if total != 42 {
-		t.Errorf("total: got %d, want 42", total)
+	if !hasNextPage {
+		t.Error("hasNextPage: got false, want true")
 	}
 }
 

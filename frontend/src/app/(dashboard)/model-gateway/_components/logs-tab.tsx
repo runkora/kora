@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
@@ -28,7 +28,8 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
-  const { records, total, pats, error, refresh } = useLogsContext();
+  const { records, hasNextPage, hasPrevPage, pats, error, refresh, goNext, goPrev } =
+    useLogsContext();
 
   const searchParams = useSearchParams();
 
@@ -244,7 +245,6 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         data={records}
         columns={columns}
         getRowKey={(row) => row.id}
-        totalCount={total}
         noun="requests"
         searchPlaceholder="Search request ID or model…"
         searchFn={(row, q) =>
@@ -255,6 +255,17 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         emptyMessage="No inference requests yet."
         filteredEmptyMessage="No logs match your filters."
       />
+
+      {(hasPrevPage || hasNextPage) && (
+        <Stack direction="horizontal" gap="tight" justify="end">
+          <Button variant="outline" size="sm" onClick={goPrev} disabled={!hasPrevPage}>
+            Previous
+          </Button>
+          <Button variant="outline" size="sm" onClick={goNext} disabled={!hasNextPage}>
+            Next
+          </Button>
+        </Stack>
+      )}
     </Stack>
   );
 }

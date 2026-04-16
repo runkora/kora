@@ -13,13 +13,19 @@ export interface ListUsageParams {
   from?: string;
   to?: string;
   limit?: number;
-  offset?: number;
+  cursor?: string;
 }
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type ListUsageResult =
-  | { ok: true; records: InferenceUsageRecord[]; total: number; limit: number; offset: number }
+  | {
+      ok: true;
+      records: InferenceUsageRecord[];
+      hasNextPage: boolean;
+      nextCursor: string | null;
+      limit: number;
+    }
   | { ok: false; status: number; message: string };
 
 // ── fetchUsageFromGateway ─────────────────────────────────────────────────────
@@ -42,7 +48,7 @@ export async function fetchUsageFromGateway(
   if (params.from) qs.set('from', params.from);
   if (params.to) qs.set('to', params.to);
   if (params.limit !== undefined) qs.set('limit', String(params.limit));
-  if (params.offset !== undefined) qs.set('offset', String(params.offset));
+  if (params.cursor) qs.set('cursor', params.cursor);
 
   const url = `${config.inferenceGatewayUrl}/usage${qs.size > 0 ? `?${qs.toString()}` : ''}`;
 
@@ -80,8 +86,8 @@ export async function fetchUsageFromGateway(
   return {
     ok: true,
     records: body.data ?? [],
-    total: body.total,
+    hasNextPage: body.has_next_page,
+    nextCursor: body.next_cursor,
     limit: body.limit,
-    offset: body.offset,
   };
 }

@@ -15,10 +15,11 @@ type InferenceUsageRepository interface {
 	// Create persists a new usage record. id and created_at must be set by the caller.
 	Create(ctx context.Context, record InferenceUsageRecord) error
 
-	// List returns usage records matching the filter plus the total count of rows
-	// matching the filter (ignoring LIMIT/OFFSET) for pagination metadata.
+	// List returns usage records matching the filter and a boolean indicating whether
+	// a next page exists (hasNextPage). Uses cursor-based pagination via
+	// filter.CursorTime and filter.CursorID — no total count is computed.
 	// filter.TenantID must be non-empty; the method returns ErrInvalidRequest otherwise.
-	List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, int, error)
+	List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error)
 
 	// Get returns a single usage record by ID scoped to tenantID.
 	// Passing a tenantID that does not match the record returns ErrUsageRecordNotFound,
@@ -98,89 +99,64 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id
 	return rec, nil
 }
 
-// List retrieves usage records matching the filter with limit/offset pagination.
-// The second return value is the total number of rows matching the filter
-// (ignoring LIMIT/OFFSET), computed via COUNT(*) OVER() in a single query.
+// List retrieves usage records matching the filter with cursor-based pagination.
+// It fetches limit+1 rows to determine whether a next page exists without a
+// COUNT(*) query. The second return value is true when more rows follow.
 // filter.TenantID must be non-empty; the method returns ErrInvalidRequest otherwise.
-func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, int, error) {
+func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
 	if filter.TenantID == "" {
-		return nil, 0, fmt.Errorf("%w: tenant_id is required for usage list", ErrInvalidRequest)
+		return nil, false, fmt.Errorf("%w: tenant_id is required for usage list", ErrInvalidRequest)
 	}
 
 	where, args := buildFilter(filter)
 
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = defaultUsageLimit
 	}
-	if limit > 1000 {
-		limit = 1000
+	if limit > maxUsageLimit {
+		limit = maxUsageLimit
 	}
 
-	offset := max(filter.Offset, 0)
-
-	// LIMIT and OFFSET are appended as parameters rather than formatted into the
-	// query string so the query plan can be cached by the connection pool.
+	// Fetch one extra row so we can detect whether a next page exists without
+	// a COUNT(*) OVER() window function.
+	fetch := limit + 1
 	limitIdx := len(args) + 1
-	offsetIdx := len(args) + 2
-	args = append(args, limit, offset)
+	args = append(args, fetch)
 
-	// COUNT(*) OVER() computes the total matching row count in a single round-trip.
-	// The value is identical on every row of the result set — we capture it once
-	// on the first row and ignore it on subsequent rows.
 	q := fmt.Sprintf(`
 		SELECT id, tenant_id, principal_id, principal_type, token_id, api_dialect,
 		       provider, model_id, routing_strategy,
 		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
-		       status, retry_count, error_code, latency_ms, created_at,
-		       COUNT(*) OVER() AS total_count
+		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
 		%s
-		ORDER BY created_at DESC
-		LIMIT $%d OFFSET $%d`, where, limitIdx, offsetIdx)
+		ORDER BY created_at DESC, id DESC
+		LIMIT $%d`, where, limitIdx)
 
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("inference usage list: %w", err)
+		return nil, false, fmt.Errorf("inference usage list: %w", err)
 	}
 	defer rows.Close()
 
 	var records []InferenceUsageRecord
-	var total int
 	for rows.Next() {
-		var rec InferenceUsageRecord
-		var provider *string
-		var strategy *string
-		var dialect string
-		var status string
-
-		if err := rows.Scan(
-			&rec.ID, &rec.TenantID, &rec.PrincipalID, &rec.PrincipalType, &rec.TokenID, &dialect,
-			&provider, &rec.ModelID, &strategy,
-			&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens, &rec.EstimatedCostUSD,
-			&status, &rec.RetryCount, &rec.ErrorCode, &rec.LatencyMS, &rec.CreatedAt,
-			&total,
-		); err != nil {
-			return nil, 0, fmt.Errorf("inference usage list scan: %w", err)
+		rec, err := scanUsageRecord(rows)
+		if err != nil {
+			return nil, false, fmt.Errorf("inference usage list scan: %w", err)
 		}
-
-		rec.APIDialect = APIDialect(dialect)
-		rec.Status = UsageStatus(status)
-		if provider != nil {
-			p := ProviderName(*provider)
-			rec.Provider = &p
-		}
-		if strategy != nil {
-			s := RoutingStrategy(*strategy)
-			rec.RoutingStrategy = &s
-		}
-
 		records = append(records, rec)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("inference usage list rows: %w", err)
+		return nil, false, fmt.Errorf("inference usage list rows: %w", err)
 	}
-	return records, total, nil
+
+	hasNextPage := len(records) > limit
+	if hasNextPage {
+		records = records[:limit]
+	}
+	return records, hasNextPage, nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -189,8 +165,8 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-// scanUsageRecord scans a single row from Get (18 columns, no total_count).
-// List uses its own inline scan that includes the COUNT(*) OVER() column.
+// scanUsageRecord scans a single row into an InferenceUsageRecord.
+// Used by both Get and List (18 columns).
 func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	var rec InferenceUsageRecord
 	var provider *string
@@ -259,6 +235,17 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 	}
 	if f.To != nil {
 		add("created_at <= $%d", *f.To)
+	}
+	if f.CursorTime != nil && f.CursorID != nil {
+		// Cursor narrows within any from/to date window already applied above.
+		// Row-tuple predicate gives a stable page boundary even when two records
+		// share the same created_at timestamp. Strictly-less-than excludes the
+		// anchor row itself. If cursor_ts < from the result set will be empty —
+		// this is correct; it means the caller is paginating past the end of the
+		// filtered window.
+		clauses = append(clauses, fmt.Sprintf("(created_at, id) < ($%d::timestamptz, $%d)", n, n+1))
+		args = append(args, *f.CursorTime, *f.CursorID)
+		n += 2
 	}
 
 	if len(clauses) == 0 {

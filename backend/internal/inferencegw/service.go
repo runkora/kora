@@ -998,19 +998,19 @@ func (s *Service) AnthropicMessagesStream(
 // must already belong to the authenticated principal; the compound
 // (tenant_id, principal_id, token_id) predicate prevents cross-user reads
 // without any additional pre-validation.
-func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, int, error) {
+func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
 	p, err := principalFromClaims(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+		return nil, false, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
 	}
 
 	// Always enforce tenant and principal scoping from verified claims.
 	filter.TenantID = p.TenantID
 	filter.PrincipalID = &p.PrincipalID
 
-	records, total, err := s.usage.List(ctx, filter)
+	records, hasNextPage, err := s.usage.List(ctx, filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list usage: %w", err)
+		return nil, false, fmt.Errorf("list usage: %w", err)
 	}
-	return records, total, nil
+	return records, hasNextPage, nil
 }

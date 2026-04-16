@@ -11,13 +11,13 @@ var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
 // ── mockInferenceUsageRepository ──────────────────────────────────────────────
 
 type mockInferenceUsageRepository struct {
-	mu         sync.Mutex
-	records    []InferenceUsageRecord
-	total      int
-	createErr  error
-	listErr    error
-	getErr     error
-	lastFilter InferenceUsageFilter // captured on each List call
+	mu          sync.Mutex
+	records     []InferenceUsageRecord
+	hasNextPage bool
+	createErr   error
+	listErr     error
+	getErr      error
+	lastFilter  InferenceUsageFilter // captured on each List call
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {
@@ -34,14 +34,22 @@ func (m *mockInferenceUsageRepository) Create(_ context.Context, record Inferenc
 	return nil
 }
 
-func (m *mockInferenceUsageRepository) List(_ context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, int, error) {
+func (m *mockInferenceUsageRepository) List(_ context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
 	if m.listErr != nil {
-		return nil, 0, m.listErr
+		return nil, false, m.listErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastFilter = filter
-	return m.records, m.total, nil
+	return m.records, m.hasNextPage, nil
+}
+
+// LastFilter returns a copy of the filter captured by the most recent List call.
+// Reading via this accessor keeps the access race-detector-clean.
+func (m *mockInferenceUsageRepository) LastFilter() InferenceUsageFilter {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastFilter
 }
 
 func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id string) (InferenceUsageRecord, error) {
@@ -62,6 +70,5 @@ func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id strin
 
 // strPtr returns a pointer to s. Used to populate *string filter fields.
 //
-//go:fix inline
 //go:fix inline
 func strPtr(s string) *string { return new(s) }

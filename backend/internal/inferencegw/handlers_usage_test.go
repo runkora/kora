@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -94,13 +95,18 @@ func TestHandleListUsage_NoRecords_Returns200WithEmptySlice(t *testing.T) {
 	}
 }
 
-func TestHandleListUsage_WithRecords_ReturnsTotalAndData(t *testing.T) {
+func TestHandleListUsage_WithRecords_ReturnsDataAndHasNextPage(t *testing.T) {
 	t.Parallel()
 	repo := newMockUsageRepo()
 	repo.records = []InferenceUsageRecord{
-		{ID: "r1", TenantID: "t1", PrincipalID: "u1"},
+		{
+			ID:          "r1",
+			TenantID:    "t1",
+			PrincipalID: "u1",
+			CreatedAt:   time.Date(2024, 6, 1, 12, 0, 0, 123456000, time.UTC),
+		},
 	}
-	repo.total = 99
+	repo.hasNextPage = true
 	c := newUsageController(t, repo)
 
 	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), nil)
@@ -112,8 +118,22 @@ func TestHandleListUsage_WithRecords_ReturnsTotalAndData(t *testing.T) {
 	if len(resp.Data) != 1 {
 		t.Errorf("Data length: got %d, want 1", len(resp.Data))
 	}
-	if resp.Total != 99 {
-		t.Errorf("Total: got %d, want 99", resp.Total)
+	if !resp.HasNextPage {
+		t.Error("HasNextPage: got false, want true")
+	}
+	if resp.NextCursor == nil {
+		t.Error("NextCursor: got nil, want non-nil when HasNextPage is true")
+	}
+	// Verify the cursor round-trips through parseCursorParam without error.
+	if resp.NextCursor != nil {
+		f := InferenceUsageFilter{}
+		apiErr, err := parseCursorParam(*resp.NextCursor, &f)
+		if err != nil || apiErr != nil {
+			t.Errorf("NextCursor %q does not round-trip: apiErr=%v err=%v", *resp.NextCursor, apiErr, err)
+		}
+		if f.CursorTime == nil || f.CursorID == nil {
+			t.Errorf("NextCursor round-trip: CursorTime=%v CursorID=%v, want both non-nil", f.CursorTime, f.CursorID)
+		}
 	}
 }
 
@@ -128,22 +148,18 @@ func TestHandleListUsage_DefaultPagination(t *testing.T) {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusOK)
 	}
 	resp := decodeUsageResponse(t, w)
-	if resp.Limit != 50 {
-		t.Errorf("Limit: got %d, want 50 (default)", resp.Limit)
-	}
-	if resp.Offset != 0 {
-		t.Errorf("Offset: got %d, want 0 (default)", resp.Offset)
+	if resp.Limit != defaultUsageLimit {
+		t.Errorf("Limit: got %d, want %d (default)", resp.Limit, defaultUsageLimit)
 	}
 }
 
-func TestHandleListUsage_CustomLimitAndOffset(t *testing.T) {
+func TestHandleListUsage_CustomLimit(t *testing.T) {
 	t.Parallel()
 	repo := newMockUsageRepo()
 	c := newUsageController(t, repo)
 
 	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
-		"limit":  "10",
-		"offset": "20",
+		"limit": "10",
 	})
 
 	if w.Code != http.StatusOK {
@@ -153,8 +169,25 @@ func TestHandleListUsage_CustomLimitAndOffset(t *testing.T) {
 	if resp.Limit != 10 {
 		t.Errorf("Limit: got %d, want 10", resp.Limit)
 	}
-	if resp.Offset != 20 {
-		t.Errorf("Offset: got %d, want 20", resp.Offset)
+}
+
+func TestHandleListUsage_NoNextPage_NextCursorIsNil(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.hasNextPage = false
+	c := newUsageController(t, repo)
+
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), nil)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusOK)
+	}
+	resp := decodeUsageResponse(t, w)
+	if resp.HasNextPage {
+		t.Error("HasNextPage: got true, want false")
+	}
+	if resp.NextCursor != nil {
+		t.Errorf("NextCursor: got %q, want nil when HasNextPage is false", *resp.NextCursor)
 	}
 }
 
@@ -251,17 +284,54 @@ func TestHandleListUsage_ZeroLimit_Returns400(t *testing.T) {
 	}
 }
 
-func TestHandleListUsage_NegativeOffset_Returns400(t *testing.T) {
+func TestHandleListUsage_OverMaxLimit_Returns400(t *testing.T) {
 	t.Parallel()
 	repo := newMockUsageRepo()
 	c := newUsageController(t, repo)
 
 	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
-		"offset": "-1",
+		"limit": "5000",
+	})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
+	}
+}
+
+func TestHandleListUsage_InvalidCursor_Returns400(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"cursor": "not-a-valid-cursor",
 	})
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleListUsage_ValidCursor_PassedToRepo(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	c := newUsageController(t, repo)
+
+	// A well-formed cursor: RFC3339Nano timestamp + "|" + UUID.
+	cursor := "2024-01-15T10:30:00.123456Z|550e8400-e29b-41d4-a716-446655440000"
+	w := getUsage(t, c, humanClaimsForHandler("t1", "u1"), map[string]string{
+		"cursor": cursor,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+	f := repo.LastFilter()
+	if f.CursorTime == nil {
+		t.Error("CursorTime: got nil, want non-nil after valid cursor")
+	}
+	if f.CursorID == nil || *f.CursorID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Errorf("CursorID: got %v, want %q", f.CursorID, "550e8400-e29b-41d4-a716-446655440000")
 	}
 }
 

@@ -187,11 +187,17 @@ export const ApiRoute = {
    *
    * GET — proxies to the Go inference gateway `GET /v1/usage` and returns
    *       inference usage records for the authenticated user. Accepts an
-   *       optional `key` query param to filter by a specific API key (PAT UUID).
+   *       optional `key` query param to filter by a specific API key (PAT UUID)
+   *       and an optional `cursor` for cursor-based pagination.
    */
   usage: {
-    GET: (key?: string): `${typeof API_BASE}/usage` | `${typeof API_BASE}/usage?key=${string}` =>
-      key ? `${API_BASE}/usage?key=${encodeURIComponent(key)}` : `${API_BASE}/usage`,
+    GET: (params?: { key?: string; cursor?: string }): string => {
+      const qs = new URLSearchParams();
+      if (params?.key) qs.set('key', params.key);
+      if (params?.cursor) qs.set('cursor', params.cursor);
+      const q = qs.toString();
+      return q ? `${API_BASE}/usage?${q}` : `${API_BASE}/usage`;
+    },
   },
 } as const;
 

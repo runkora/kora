@@ -51,9 +51,9 @@ export interface InferenceUsageRecord {
 // Mirrors listUsageResponse in backend/internal/inferencegw/handlers_usage.go.
 export interface ListUsageResponse {
   data: InferenceUsageRecord[];
-  total: number;
+  has_next_page: boolean;
+  next_cursor: string | null;
   limit: number;
-  offset: number;
 }
 
 // ── Value-type unions ─────────────────────────────────────────────────────────

@@ -6,9 +6,10 @@ import { listPATsFromIdentity } from '../../(dashboard)/model-gateway/_services/
 
 export const GET = withAuth(async (req: NextRequest, session) => {
   const key = req.nextUrl.searchParams.get('key') ?? undefined;
+  const cursor = req.nextUrl.searchParams.get('cursor') ?? undefined;
 
   const [usageResult, patsResult] = await Promise.all([
-    fetchUsageFromGateway(session.accessToken, { tokenId: key }),
+    fetchUsageFromGateway(session.accessToken, { tokenId: key, cursor }),
     listPATsFromIdentity(session.accessToken),
   ]);
 
@@ -23,9 +24,9 @@ export const GET = withAuth(async (req: NextRequest, session) => {
 
   return NextResponse.json({
     records: usageResult.records,
-    total: usageResult.total,
+    hasNextPage: usageResult.hasNextPage,
+    nextCursor: usageResult.nextCursor,
     limit: usageResult.limit,
-    offset: usageResult.offset,
     pats: patsResult.ok ? patsResult.tokens : [],
   });
 });

@@ -9,7 +9,8 @@ import type { PAT } from '@orbit/shared/api';
 
 export interface FetchUsageResult {
   records: InferenceUsageRecord[];
-  total: number;
+  hasNextPage: boolean;
+  nextCursor: string | null;
   pats: PAT[];
   error: string | null;
 }
@@ -17,22 +18,23 @@ export interface FetchUsageResult {
 /**
  * Fetch usage records from the BFF proxy route.
  *
- * Pass an optional `key` (PAT UUID) to filter by a specific API key.
+ * Pass an optional `key` (PAT UUID) to filter by a specific API key and an
+ * optional `cursor` for cursor-based pagination.
  *
  * Returns a normalised result object — never throws — so callers can
  * pattern-match on `error` without a try/catch at every call site.
  */
-export async function fetchUsage(key?: string): Promise<FetchUsageResult> {
+export async function fetchUsage(params?: {
+  key?: string;
+  cursor?: string;
+}): Promise<FetchUsageResult> {
+  const empty = { records: [], hasNextPage: false, nextCursor: null, pats: [] };
+
   let res: Response;
   try {
-    res = await fetch(ApiRoute.usage.GET(key), { cache: 'no-store' });
+    res = await fetch(ApiRoute.usage.GET(params), { cache: 'no-store' });
   } catch {
-    return {
-      records: [],
-      total: 0,
-      pats: [],
-      error: 'Network error — could not reach the server.',
-    };
+    return { ...empty, error: 'Network error — could not reach the server.' };
   }
 
   if (!res.ok) {
@@ -43,17 +45,19 @@ export async function fetchUsage(key?: string): Promise<FetchUsageResult> {
     } catch {
       // ignore parse errors; keep the status-code message
     }
-    return { records: [], total: 0, pats: [], error: message };
+    return { ...empty, error: message };
   }
 
   const data = (await res.json()) as {
     records: InferenceUsageRecord[];
-    total: number;
+    hasNextPage: boolean;
+    nextCursor: string | null;
     pats: PAT[];
   };
   return {
     records: data.records ?? [],
-    total: data.total ?? 0,
+    hasNextPage: data.hasNextPage ?? false,
+    nextCursor: data.nextCursor ?? null,
     pats: data.pats ?? [],
     error: null,
   };

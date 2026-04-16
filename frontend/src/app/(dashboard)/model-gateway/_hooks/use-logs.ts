@@ -6,8 +6,12 @@
 // explicit interface (`LogsStateShape`) that doubles as the upgrade contract:
 // when this feature graduates to Zustand, the store's state + actions must
 // satisfy this same interface so callers need zero changes.
+//
+// Pagination uses cursor-based navigation. The hook maintains an internal
+// cursor stack: advancing pushes the current `nextCursor` onto the stack;
+// going back pops it. Changing the key filter resets the stack.
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { fetchUsage } from '../_services/usage-api';
 import type { InferenceUsageRecord } from '../_types';
 import type { PAT } from '@orbit/shared/api';
@@ -19,7 +23,9 @@ export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 export interface LogsStateShape {
   // ── data ────────────────────────────────────────────────────────────────────
   records: InferenceUsageRecord[];
-  total: number;
+  hasNextPage: boolean;
+  nextCursor: string | null;
+  hasPrevPage: boolean;
   pats: PAT[];
   status: LoadStatus;
   error: string | null;
@@ -27,9 +33,13 @@ export interface LogsStateShape {
   // ── actions ─────────────────────────────────────────────────────────────────
   /**
    * Re-fetch usage records from the BFF. Pass `key` to filter by a specific
-   * API key (PAT UUID). Pass `undefined` or omit to fetch all records.
+   * API key (PAT UUID). Resets pagination to the first page.
    */
   refresh: (key?: string) => Promise<void>;
+  /** Advance to the next page. No-op if `hasNextPage` is false. */
+  goNext: () => Promise<void>;
+  /** Go back to the previous page. No-op if `hasPrevPage` is false. */
+  goPrev: () => Promise<void>;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -42,38 +52,86 @@ export interface LogsStateShape {
  * the client renders immediately without a loading flash.
  *
  * Calling `refresh(key?)` triggers a fresh client-side fetch (e.g. after the
- * user changes the key filter or manually reloads the tab).
+ * user changes the key filter or manually reloads the tab) and resets the
+ * cursor stack to page 1.
  */
 export function useLogs(
   initialRecords: InferenceUsageRecord[],
-  initialTotal: number,
+  initialHasNextPage: boolean,
+  initialNextCursor: string | null,
   initialPats: PAT[],
   initialError: string | null = null,
 ): LogsStateShape {
   const [records, setRecords] = useState<InferenceUsageRecord[]>(initialRecords);
-  const [total, setTotal] = useState<number>(initialTotal);
+  const [hasNextPage, setHasNextPage] = useState<boolean>(initialHasNextPage);
+  const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
   const [pats, setPats] = useState<PAT[]>(initialPats);
   const [status, setStatus] = useState<LoadStatus>(
     initialError ? 'error' : initialRecords.length > 0 ? 'success' : 'idle',
   );
   const [error, setError] = useState<string | null>(initialError);
 
-  const refresh = useCallback(async (key?: string) => {
+  // Cursor stack for previous-page navigation. Each entry is the nextCursor
+  // value used to reach the current page — popping it goes back one page.
+  const cursorStack = useRef<string[]>([]);
+  const [hasPrevPage, setHasPrevPage] = useState<boolean>(false);
+
+  // Active key filter — tracked so goNext/goPrev can pass it through.
+  const activeKey = useRef<string | undefined>(undefined);
+
+  const load = useCallback(async (key: string | undefined, cursor: string | undefined) => {
     setStatus('loading');
     setError(null);
 
-    const result = await fetchUsage(key);
+    const result = await fetchUsage({ key, cursor });
 
     if (result.error) {
       setError(result.error);
       setStatus('error');
     } else {
       setRecords(result.records);
-      setTotal(result.total);
+      setHasNextPage(result.hasNextPage);
+      setNextCursor(result.nextCursor);
       setPats(result.pats);
       setStatus('success');
     }
   }, []);
 
-  return { records, total, pats, status, error, refresh };
+  const refresh = useCallback(
+    async (key?: string) => {
+      activeKey.current = key;
+      cursorStack.current = [];
+      setHasPrevPage(false);
+      await load(key, undefined);
+    },
+    [load],
+  );
+
+  const goNext = useCallback(async () => {
+    if (!nextCursor) return;
+    cursorStack.current.push(nextCursor);
+    setHasPrevPage(true);
+    await load(activeKey.current, nextCursor);
+  }, [nextCursor, load]);
+
+  const goPrev = useCallback(async () => {
+    if (cursorStack.current.length === 0) return;
+    cursorStack.current.pop();
+    const prevCursor = cursorStack.current[cursorStack.current.length - 1];
+    setHasPrevPage(cursorStack.current.length > 0);
+    await load(activeKey.current, prevCursor);
+  }, [load]);
+
+  return {
+    records,
+    hasNextPage,
+    nextCursor,
+    hasPrevPage,
+    pats,
+    status,
+    error,
+    refresh,
+    goNext,
+    goPrev,
+  };
 }
