@@ -1,19 +1,10 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { withAuth } from '@orbit/server/route-helpers';
 import { fetchUsageFromGateway } from '../../(dashboard)/model-gateway/_services/usage-server';
 import { listPATsFromIdentity } from '../../(dashboard)/model-gateway/_services/tokens-server';
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const session = await getSession();
-
-  if (!isSessionValid(session)) {
-    return NextResponse.json(
-      { code: 'unauthorized', message: 'No valid session' },
-      { status: 401 },
-    );
-  }
-
+export const GET = withAuth(async (req: NextRequest, session) => {
   const key = req.nextUrl.searchParams.get('key') ?? undefined;
 
   const [usageResult, patsResult] = await Promise.all([
@@ -37,4 +28,4 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     offset: usageResult.offset,
     pats: patsResult.ok ? patsResult.tokens : [],
   });
-}
+});

@@ -1,0 +1,62 @@
+/**
+ * BFF route helpers — server-side only.
+ *
+ * Provides `withAuth`, a higher-order function that wraps a Next.js Route
+ * Handler, performs the session validity check once, and forwards the
+ * validated session to the inner handler. Use this instead of repeating the
+ * manual `getSession()` + `isSessionValid()` guard in every BFF route.
+ *
+ * Usage:
+ * ```ts
+ * export const GET = withAuth(async (req, session) => {
+ *   const result = await fetchWidgetsFromGateway(session.accessToken);
+ *   // ...
+ * });
+ * ```
+ */
+import 'server-only';
+
+import { type NextRequest, NextResponse } from 'next/server';
+import { type IronSession } from 'iron-session';
+
+import { getSession, isSessionValid } from '@orbit/server/session';
+import { type SessionPayload } from '@orbit/server/auth-config';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A BFF handler that has already been authenticated. The validated session is
+ * passed as the second argument — `session.accessToken` is guaranteed to be
+ * present and non-expired.
+ */
+export type AuthedHandler = (
+  req: NextRequest,
+  session: IronSession<SessionPayload>,
+) => Promise<NextResponse>;
+
+// ── withAuth ──────────────────────────────────────────────────────────────────
+
+/**
+ * Wraps a BFF Route Handler with a session validity check.
+ *
+ * - Returns `401 { code: "unauthorized" }` if no valid session exists.
+ * - Otherwise calls `handler(req, session)` with the validated session.
+ *
+ * The proxy (src/proxy.ts) already redirects unauthenticated *page* requests
+ * to /login. This guard covers the case where a BFF API route is called
+ * directly (e.g., client-side re-fetch) and the session has since expired.
+ */
+export function withAuth(handler: AuthedHandler): (req: NextRequest) => Promise<NextResponse> {
+  return async (req: NextRequest) => {
+    const session = await getSession();
+
+    if (!isSessionValid(session)) {
+      return NextResponse.json(
+        { code: 'unauthorized', message: 'No valid session' },
+        { status: 401 },
+      );
+    }
+
+    return handler(req, session);
+  };
+}

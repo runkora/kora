@@ -177,20 +177,11 @@ src/app/api/widgets/route.ts
  */
 import 'server-only';
 
-import { NextResponse } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { type NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@orbit/server/route-helpers';
 import { fetchWidgetsFromGateway } from '../../(dashboard)/{feature}/_services/widgets-server';
 
-export async function GET(): Promise<NextResponse> {
-  const session = await getSession();
-
-  if (!isSessionValid(session)) {
-    return NextResponse.json(
-      { code: 'unauthorized', message: 'No valid session' },
-      { status: 401 },
-    );
-  }
-
+export const GET = withAuth(async (_req: NextRequest, session) => {
   const result = await fetchWidgetsFromGateway(session.accessToken);
 
   if (!result.ok) {
@@ -203,11 +194,13 @@ export async function GET(): Promise<NextResponse> {
   }
 
   return NextResponse.json({ data: result.widgets });
-}
+});
 ```
 
 > **Notes:**
 >
+> - `withAuth` handles the session check and returns `401` automatically — no manual `getSession()` / `isSessionValid()` call needed in the handler body.
+> - `withAuth` lives in `src/server/route-helpers.ts` and is importable as `@orbit/server/route-helpers`.
 > - Use `NextResponse.json` (not the web-standard `Response.json`) — consistent with the rest of the app.
 > - Error responses use `{ code, message }` shape — not `{ error }`.
 > - The handler delegates all upstream logic to the server service — keep handlers thin.
@@ -590,6 +583,7 @@ For a feature named `widgets` under a route group `my-feature`:
 | File                                                               | Purpose                                                              |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | `src/shared/api.ts`                                                | Raw backend response types (`WidgetRaw`, `WidgetsResponse`)          |
+| `src/server/route-helpers.ts`                                      | `withAuth` HOF — session guard shared by all BFF route handlers      |
 | `src/lib/routing/api-routes.ts`                                    | Add `ApiRoute.widgets.GET()` + `ApiRoutePath` union                  |
 | `src/app/(dashboard)/my-feature/_types/index.ts`                   | Feature-local view type (`WidgetRow`, `WidgetStatus`, `toWidgetRow`) |
 | `src/app/(dashboard)/my-feature/_services/widgets-server.ts`       | Server-only: fetches from Go backend; shared by RSC page + BFF       |
@@ -626,7 +620,7 @@ Use this checklist before opening a PR. Every item must be true.
 
 - [ ] File starts with `import 'server-only'`.
 - [ ] Uses `NextResponse.json(...)`, not `Response.json(...)`.
-- [ ] Session validated with `isSessionValid` before calling the server service.
+- [ ] Route is wrapped with `withAuth` from `@orbit/server/route-helpers` — no manual `getSession()` / `isSessionValid()` call in the handler body.
 - [ ] Error responses use `{ code, message }` shape.
 - [ ] Route is registered in `api-routes.ts` and `ApiRoutePath` union is extended.
 - [ ] Route is **not** added to `PUBLIC_PATHS` in `src/proxy.ts`.
