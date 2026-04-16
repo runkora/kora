@@ -93,6 +93,7 @@ type InferenceUsageRecord struct {
 	APIDialect       APIDialect       `json:"api_dialect"`
 	Provider         *ProviderName    `json:"provider"`
 	ModelID          string           `json:"model_id"`
+	ModelFamily      *string          `json:"model_family"`
 	RoutingStrategy  *RoutingStrategy `json:"routing_strategy"`
 	PromptTokens     int              `json:"prompt_tokens"`
 	CompletionTokens int              `json:"completion_tokens"`
@@ -119,6 +120,8 @@ type InferenceUsageFilter struct {
 	TokenID       *string // PAT record UUID; nil returns all records for the principal
 	PrincipalType *string
 	Provider      *ProviderName
+	ModelID       *string // filter by model_id column value
+	ModelFamily   *string // filter by model_family column value
 	APIDialect    *APIDialect
 	Status        *UsageStatus
 	From          *time.Time

@@ -44,14 +44,14 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 	const q = `
 		INSERT INTO inference_usage (
 			id, tenant_id, principal_id, principal_type, token_id, api_dialect,
-			provider, model_id, routing_strategy,
+			provider, model_id, model_family, routing_strategy,
 			prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
 			status, retry_count, error_code, latency_ms, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9,
-			$10, $11, $12, $13,
-			$14, $15, $16, $17, $18
+			$6, $7, $8, $9, $10,
+			$11, $12, $13, $14,
+			$15, $16, $17, $18, $19
 		)`
 
 	var provider *string
@@ -68,7 +68,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 
 	_, err := r.pool.Exec(ctx, q,
 		rec.ID, rec.TenantID, rec.PrincipalID, rec.PrincipalType, rec.TokenID, string(rec.APIDialect),
-		provider, rec.ModelID, strategy,
+		provider, rec.ModelID, rec.ModelFamily, strategy,
 		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens, rec.EstimatedCostUSD,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, rec.LatencyMS, rec.CreatedAt,
 	)
@@ -82,7 +82,7 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id string) (InferenceUsageRecord, error) {
 	const q = `
 		SELECT id, tenant_id, principal_id, principal_type, token_id, api_dialect,
-		       provider, model_id, routing_strategy,
+		       provider, model_id, model_family, routing_strategy,
 		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
 		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
@@ -126,7 +126,7 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 
 	q := fmt.Sprintf(`
 		SELECT id, tenant_id, principal_id, principal_type, token_id, api_dialect,
-		       provider, model_id, routing_strategy,
+		       provider, model_id, model_family, routing_strategy,
 		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
 		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
@@ -166,7 +166,7 @@ type scannable interface {
 }
 
 // scanUsageRecord scans a single row into an InferenceUsageRecord.
-// Used by both Get and List (18 columns).
+// Used by both Get and List (19 columns).
 func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	var rec InferenceUsageRecord
 	var provider *string
@@ -176,7 +176,7 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 
 	err := row.Scan(
 		&rec.ID, &rec.TenantID, &rec.PrincipalID, &rec.PrincipalType, &rec.TokenID, &dialect,
-		&provider, &rec.ModelID, &strategy,
+		&provider, &rec.ModelID, &rec.ModelFamily, &strategy,
 		&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens, &rec.EstimatedCostUSD,
 		&status, &rec.RetryCount, &rec.ErrorCode, &rec.LatencyMS, &rec.CreatedAt,
 	)
@@ -223,6 +223,12 @@ func buildFilter(f InferenceUsageFilter) (string, []any) {
 	}
 	if f.Provider != nil {
 		add("provider = $%d", string(*f.Provider))
+	}
+	if f.ModelID != nil {
+		add("model_id = $%d", *f.ModelID)
+	}
+	if f.ModelFamily != nil {
+		add("model_family = $%d", *f.ModelFamily)
 	}
 	if f.APIDialect != nil {
 		add("api_dialect = $%d", string(*f.APIDialect))

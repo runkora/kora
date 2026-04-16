@@ -29,8 +29,8 @@ func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID 
 	}
 }
 
-// ctxWithClaims returns a context carrying the given platform claims.
-func ctxWithClaims(claims *token.PlatformClaims) context.Context {
+// ctxFromClaims returns a context carrying the given platform claims.
+func ctxFromClaims(claims *token.PlatformClaims) context.Context {
 	return token.WithClaims(context.Background(), claims)
 }
 
@@ -56,7 +56,7 @@ func TestPrincipalFromClaims_NoClaims_ReturnsError(t *testing.T) {
 
 func TestPrincipalFromClaims_HumanPrincipal_TokenIDEmpty(t *testing.T) {
 	t.Parallel()
-	ctx := ctxWithClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypeHuman, "session-uuid"))
+	ctx := ctxFromClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypeHuman, "session-uuid"))
 	p, err := principalFromClaims(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -77,7 +77,7 @@ func TestPrincipalFromClaims_HumanPrincipal_TokenIDEmpty(t *testing.T) {
 func TestPrincipalFromClaims_PATPrincipal_TokenIDIsSessionID(t *testing.T) {
 	t.Parallel()
 	const patUUID = "pat-record-uuid-abc123"
-	ctx := ctxWithClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypePAT, patUUID))
+	ctx := ctxFromClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypePAT, patUUID))
 	p, err := principalFromClaims(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -89,7 +89,7 @@ func TestPrincipalFromClaims_PATPrincipal_TokenIDIsSessionID(t *testing.T) {
 
 func TestPrincipalFromClaims_AgentPrincipal_TokenIDEmpty(t *testing.T) {
 	t.Parallel()
-	ctx := ctxWithClaims(makeClaims("tenant-1", "agent-1", token.PrincipalTypeAgent, "some-session"))
+	ctx := ctxFromClaims(makeClaims("tenant-1", "agent-1", token.PrincipalTypeAgent, "some-session"))
 	p, err := principalFromClaims(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -115,7 +115,7 @@ func TestListUsage_EnforcesTenantScoping(t *testing.T) {
 	repo := newMockUsageRepo()
 	svc := newTestUsageService(t, repo)
 
-	ctx := ctxWithClaims(makeClaims("tenant-X", "user-Y", token.PrincipalTypeHuman, ""))
+	ctx := ctxFromClaims(makeClaims("tenant-X", "user-Y", token.PrincipalTypeHuman, ""))
 
 	// Caller-supplied values must be overwritten by service.
 	callerFilter := InferenceUsageFilter{
@@ -145,7 +145,7 @@ func TestListUsage_ReturnsRecordsAndHasNextPage(t *testing.T) {
 	repo.hasNextPage = true // simulates more pages available
 	svc := newTestUsageService(t, repo)
 
-	ctx := ctxWithClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
 	records, hasNextPage, err := svc.ListUsage(ctx, InferenceUsageFilter{Limit: 2})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -164,7 +164,7 @@ func TestListUsage_RepoError_IsWrapped(t *testing.T) {
 	repo.listErr = errors.New("db connection lost")
 	svc := newTestUsageService(t, repo)
 
-	ctx := ctxWithClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
 	_, _, err := svc.ListUsage(ctx, InferenceUsageFilter{})
 	if err == nil {
 		t.Fatal("expected error from repo, got nil")
@@ -177,7 +177,7 @@ func TestListUsage_PATScoping_TokenIDPassedThrough(t *testing.T) {
 	repo := newMockUsageRepo()
 	svc := newTestUsageService(t, repo)
 
-	ctx := ctxWithClaims(makeClaims("t1", "u1", token.PrincipalTypePAT, patID))
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypePAT, patID))
 	// Caller requests no token_id filter — service should not inject one.
 	// Token attribution happens at write time, not read time.
 	_, _, err := svc.ListUsage(ctx, InferenceUsageFilter{})

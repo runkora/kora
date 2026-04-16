@@ -57,6 +57,20 @@ var usageParamBinders = []usageParamBinder{
 		return nil, nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		if raw := q.Get("model_name"); raw != "" {
+			v := raw
+			f.ModelID = &v
+		}
+		return nil, nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
+		if raw := q.Get("model_family"); raw != "" {
+			v := raw
+			f.ModelFamily = &v
+		}
+		return nil, nil
+	},
+	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
 		return parseEnumParam(q.Get("provider"), "'provider'", providerNames, &f.Provider), nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
@@ -100,14 +114,16 @@ var usageParamBinders = []usageParamBinder{
 //
 // Query parameters:
 //
-//	token_id    — filter to a specific PAT (UUID string)
-//	provider    — filter by provider name  (bedrock | vertexai | azure)
-//	api_dialect — filter by API dialect    (openai | anthropic)
-//	status      — filter by status         (success | provider_error | policy_denied | auth_error | timeout | routing_failed)
-//	from        — lower bound on created_at (RFC3339)
-//	to          — upper bound on created_at (RFC3339)
-//	limit       — page size, default 50
-//	cursor      — opaque pagination cursor returned by the previous response
+//	token_id     — filter to a specific PAT (UUID string)
+//	model_name   — filter by model ID (e.g. "claude-sonnet-4-5-20250929-v1")
+//	model_family — filter by model family (e.g. "claude")
+//	provider     — filter by provider name  (bedrock | vertexai | azure)
+//	api_dialect  — filter by API dialect    (openai | anthropic)
+//	status       — filter by status         (success | provider_error | policy_denied | auth_error | timeout | routing_failed)
+//	from         — lower bound on created_at (RFC3339)
+//	to           — upper bound on created_at (RFC3339)
+//	limit        — page size, default 20
+//	cursor       — opaque pagination cursor returned by the previous response
 func parseUsageFilter(q url.Values) (InferenceUsageFilter, *api.APIError, error) {
 	f := InferenceUsageFilter{}
 	for _, bind := range usageParamBinders {

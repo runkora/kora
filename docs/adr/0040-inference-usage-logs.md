@@ -1,4 +1,4 @@
-# 35. Inference Usage Logs
+# 40. Inference Usage Logs
 
 **Status:** Accepted  
 **Date:** 2026-04-10  

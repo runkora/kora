@@ -36,6 +36,7 @@ export interface InferenceUsageRecord {
   api_dialect: string;
   provider: string | null;
   model_id: string;
+  model_family: string | null;
   routing_strategy: string | null;
   prompt_tokens: number;
   completion_tokens: number;

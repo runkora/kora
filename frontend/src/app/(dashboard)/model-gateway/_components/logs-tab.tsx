@@ -57,6 +57,9 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     return m;
   }, [pats]);
 
+  // PAT ID → full PAT record lookup for the Key status column cell.
+  const patMap = useMemo(() => new Map(pats.map((p) => [p.id, p])), [pats]);
+
   const keyOptions = useMemo(() => pats.map((p) => ({ value: p.id, label: p.name })), [pats]);
 
   const columns: DataTableColumn<InferenceUsageRecord>[] = [
@@ -155,7 +158,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       id: 'keyStatus',
       header: 'Key status',
       cell: (row) => {
-        const pat = row.token_id ? pats.find((p) => p.id === row.token_id) : undefined;
+        const pat = row.token_id ? patMap.get(row.token_id) : undefined;
         const keyStatus: 'active' | 'expired' | 'revoked' | null = row.token_id
           ? pat
             ? isExpired(pat.expires_at)
