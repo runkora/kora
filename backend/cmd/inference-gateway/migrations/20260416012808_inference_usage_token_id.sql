@@ -1,9 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- Note: this migration is future-dated (20260601) intentionally, to ensure it
--- runs after all existing migrations regardless of when it is applied.
-
 -- Add token_id column for PAT-authenticated request attribution.
 -- NULL for non-PAT requests. Both PAT-issued and OIDC-issued JWTs carry
 -- an OrbitClaims.SessionID, but only the PAT value (the PAT record UUID)
