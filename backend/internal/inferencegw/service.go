@@ -62,10 +62,14 @@ func NewService(
 
 // ─── ListModels ───────────────────────────────────────────────────────────────
 
-// ListModels queries all enabled provider connectors for their live model lists
-// and returns the aggregated results.
+// ListModels queries all enabled provider connectors for their live model lists,
+// then filters the results to only models the principal is granted access to.
 func (s *Service) ListModels(ctx context.Context) ([]ProviderModel, error) {
-	return s.router.ListModels(ctx)
+	models, err := s.router.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.filterModelsByPolicy(ctx, models)
 }
 
 // ─── ChatCompletion (non-streaming) ──────────────────────────────────────────
@@ -121,6 +125,17 @@ func (s *Service) ChatCompletion(
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	// ── 3b. Policy-filter targets for wildcard routing ────────────────────────
+	if s.router.IsWildcardModel(params.Model) {
+		targets, err = s.filterTargetsByPolicy(ctx, targets)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			return nil, err
+		}
 	}
 
 	// ── 4. Call provider with retry / failover ────────────────────────────────
@@ -233,6 +248,18 @@ func (s *Service) ChatCompletionStream(
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	// ── 3b. Policy-filter targets for wildcard routing ────────────────────────
+	if s.router.IsWildcardModel(params.Model) {
+		targets, err = s.filterTargetsByPolicy(ctx, targets)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			span.End()
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			return nil, err
+		}
 	}
 
 	// ── 4. Open stream from provider ──────────────────────────────────────────
@@ -400,13 +427,21 @@ func drainAnthropicStream(
 // Failover targets are not independently re-checked — a principal allowed to
 // invoke the requested model is allowed to reach any provider that serves it.
 //
-// Returns nil for wildcard routing ("", "*", "failover") and for models not yet
-// in the catalog — in both cases the coarse inference:invoke scope enforced by
-// the Envoy Layer 1 check is the only gate.
+// Wildcard routing ("", "*", "failover") returns nil here — those paths are
+// policy-filtered post-routing via filterTargetsByPolicy.
+//
+// For all other models, if the model cannot be resolved to a catalog entry,
+// the request is denied (fail closed).
 func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
+	// Wildcards are handled post-routing by filterTargetsByPolicy.
+	if s.router.IsWildcardModel(model) {
+		return nil
+	}
+
 	info, ok := s.router.ResolveModelForPolicy(model)
 	if !ok {
-		return nil
+		// Model not in catalog — fail closed.
+		return ErrPolicyDenied
 	}
 	claims, _ := token.ClaimsFromContext(ctx)
 	result, err := s.policy.Check(ctx, policy.CheckInput{
@@ -423,6 +458,138 @@ func (s *Service) checkModelPolicy(ctx context.Context, model string) error {
 		return ErrPolicyDenied
 	}
 	return nil
+}
+
+// filterTargetsByPolicy batch-filters routing targets through the OPA policy
+// engine. Used for wildcard routing strategies where multiple targets are
+// resolved and each must be individually checked against the principal's grants.
+//
+// Targets whose model cannot be resolved in the catalog are excluded (fail closed).
+// Returns ErrPolicyDenied if no targets survive the filter.
+func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarget) ([]RouteTarget, error) {
+	claims, _ := token.ClaimsFromContext(ctx)
+
+	// Deduplicate candidates by (family, alias) — multiple providers may serve
+	// the same logical model and share the same policy scope.
+	type policyKey struct{ family, alias string }
+	seen := make(map[policyKey]string) // policyKey → candidate ID
+	var candidates []policy.Candidate
+
+	for _, t := range targets {
+		info, ok := s.router.ResolveTargetForPolicy(t.Provider, t.ModelID)
+		if !ok {
+			continue // not in catalog — excluded
+		}
+		pk := policyKey{info.Family, info.Alias}
+		if _, exists := seen[pk]; exists {
+			continue
+		}
+		id := info.Family + ":" + info.Alias
+		seen[pk] = id
+		candidates = append(candidates, policy.Candidate{
+			ID:           id,
+			PathSegments: []string{info.Family, info.Alias},
+		})
+	}
+
+	if len(candidates) == 0 {
+		return nil, ErrPolicyDenied
+	}
+
+	allowedIDs, err := s.policy.Query(ctx, policy.QueryInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "inference",
+		Action:       "use",
+		Candidates:   candidates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("policy filter: %w", err)
+	}
+
+	allowedSet := make(map[string]bool, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowedSet[id] = true
+	}
+
+	filtered := make([]RouteTarget, 0, len(targets))
+	for _, t := range targets {
+		info, ok := s.router.ResolveTargetForPolicy(t.Provider, t.ModelID)
+		if !ok {
+			continue
+		}
+		if allowedSet[info.Family+":"+info.Alias] {
+			filtered = append(filtered, t)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return nil, ErrPolicyDenied
+	}
+	return filtered, nil
+}
+
+// filterModelsByPolicy filters the model catalog to only models the principal
+// is granted access to. Models are deduplicated by (family, PolicyAlias) before
+// querying OPA — if a logical model is allowed, all provider variants are returned.
+func (s *Service) filterModelsByPolicy(ctx context.Context, models []ProviderModel) ([]ProviderModel, error) {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return nil, fmt.Errorf("%w: no verified claims in context", ErrTokenParseFailed)
+	}
+
+	type policyKey struct{ family, alias string }
+	seen := make(map[policyKey]string)
+	var candidates []policy.Candidate
+
+	for _, m := range models {
+		if m.Family == "" || m.Family == "unknown" {
+			continue
+		}
+		alias := m.PolicyAlias()
+		pk := policyKey{m.Family, alias}
+		if _, exists := seen[pk]; exists {
+			continue
+		}
+		id := m.Family + ":" + alias
+		seen[pk] = id
+		candidates = append(candidates, policy.Candidate{
+			ID:           id,
+			PathSegments: []string{m.Family, alias},
+		})
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	allowedIDs, err := s.policy.Query(ctx, policy.QueryInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "inference",
+		Action:       "use",
+		Candidates:   candidates,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("policy filter: %w", err)
+	}
+
+	allowedSet := make(map[string]bool, len(allowedIDs))
+	for _, id := range allowedIDs {
+		allowedSet[id] = true
+	}
+
+	filtered := make([]ProviderModel, 0, len(models))
+	for _, m := range models {
+		if m.Family == "" || m.Family == "unknown" {
+			continue
+		}
+		if allowedSet[m.Family+":"+m.PolicyAlias()] {
+			filtered = append(filtered, m)
+		}
+	}
+
+	return filtered, nil
 }
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
@@ -608,6 +775,17 @@ func (s *Service) AnthropicMessages(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
+	// Policy-filter targets for wildcard routing.
+	if s.router.IsWildcardModel(params.Model) {
+		targets, err = s.filterTargetsByPolicy(ctx, targets)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			return nil, err
+		}
+	}
+
 	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
 			q := params
@@ -707,6 +885,18 @@ func (s *Service) AnthropicMessagesStream(
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	// Policy-filter targets for wildcard routing.
+	if s.router.IsWildcardModel(params.Model) {
+		targets, err = s.filterTargetsByPolicy(ctx, targets)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+			span.End()
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			return nil, err
+		}
 	}
 
 	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",

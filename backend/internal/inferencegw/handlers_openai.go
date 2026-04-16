@@ -177,6 +177,7 @@ type modelObject struct {
 	Object           string            `json:"object"`
 	Created          int64             `json:"created"`
 	OwnedBy          string            `json:"owned_by"`
+	Family           string            `json:"family,omitempty"`
 	DisplayName      string            `json:"display_name,omitempty"`
 	Aliases          []string          `json:"aliases,omitempty"`
 	InputModalities  []Modality        `json:"input_modalities,omitempty"`
@@ -220,6 +221,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			Object:           "model",
 			Created:          now,
 			OwnedBy:          string(m.Provider),
+			Family:           m.Family,
 			DisplayName:      m.DisplayName,
 			Aliases:          prefixedAliases,
 			InputModalities:  m.InputModalities,

@@ -377,3 +377,89 @@ func TestListModels_NoProviders(t *testing.T) {
 		t.Errorf("expected ErrNoProvidersEnabled, got: %v", err)
 	}
 }
+
+// ─── IsWildcardModel ─────────────────────────────────────────────────────────
+
+func TestIsWildcardModel(t *testing.T) {
+	t.Parallel()
+	r := NewRoutingEngine(nil, NewNopPricingCache())
+
+	wildcards := []string{"", "*", "failover"}
+	for _, m := range wildcards {
+		if !r.IsWildcardModel(m) {
+			t.Errorf("IsWildcardModel(%q) = false, want true", m)
+		}
+	}
+
+	nonWildcards := []string{"bedrock/claude-sonnet-4-6", "claude-sonnet-4-6", "bedrock/model"}
+	for _, m := range nonWildcards {
+		if r.IsWildcardModel(m) {
+			t.Errorf("IsWildcardModel(%q) = true, want false", m)
+		}
+	}
+}
+
+// ─── ResolveTargetForPolicy ──────────────────────────────────────────────────
+
+func TestResolveTargetForPolicy_Found(t *testing.T) {
+	t.Parallel()
+	r := NewRoutingEngine(nil, NewNopPricingCache())
+	catalog := []ProviderModel{
+		{
+			Provider: ProviderBedrock,
+			ModelID:  "us.anthropic.claude-sonnet-4-6",
+			Family:   "anthropic",
+			Aliases:  []string{"claude-sonnet-4-6"},
+		},
+	}
+	r.modelCatalog.Store(&catalog)
+
+	info, ok := r.ResolveTargetForPolicy(ProviderBedrock, "us.anthropic.claude-sonnet-4-6")
+	if !ok {
+		t.Fatal("expected ok=true for known target")
+	}
+	if info.Family != "anthropic" {
+		t.Errorf("Family = %q, want anthropic", info.Family)
+	}
+	if info.Alias != "claude-sonnet-4-6" {
+		t.Errorf("Alias = %q, want claude-sonnet-4-6", info.Alias)
+	}
+}
+
+func TestResolveTargetForPolicy_NotFound(t *testing.T) {
+	t.Parallel()
+	r := NewRoutingEngine(nil, NewNopPricingCache())
+	catalog := []ProviderModel{
+		{Provider: ProviderBedrock, ModelID: "model-a", Family: "anthropic"},
+	}
+	r.modelCatalog.Store(&catalog)
+
+	_, ok := r.ResolveTargetForPolicy(ProviderBedrock, "nonexistent-model")
+	if ok {
+		t.Error("expected ok=false for unknown model")
+	}
+}
+
+func TestResolveTargetForPolicy_NilCatalog(t *testing.T) {
+	t.Parallel()
+	r := NewRoutingEngine(nil, NewNopPricingCache())
+
+	_, ok := r.ResolveTargetForPolicy(ProviderBedrock, "model-a")
+	if ok {
+		t.Error("expected ok=false with nil catalog")
+	}
+}
+
+func TestResolveTargetForPolicy_UnknownFamily(t *testing.T) {
+	t.Parallel()
+	r := NewRoutingEngine(nil, NewNopPricingCache())
+	catalog := []ProviderModel{
+		{Provider: ProviderBedrock, ModelID: "mystery-model", Family: "unknown"},
+	}
+	r.modelCatalog.Store(&catalog)
+
+	_, ok := r.ResolveTargetForPolicy(ProviderBedrock, "mystery-model")
+	if ok {
+		t.Error("expected ok=false for unknown family")
+	}
+}

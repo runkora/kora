@@ -416,15 +416,22 @@ func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, Rou
 	return targets, StrategyFailoverChain, nil
 }
 
+// IsWildcardModel reports whether the model string represents a wildcard
+// routing strategy ("", "*", "failover") rather than a specific model.
+// Wildcard requests are policy-filtered after routing resolves targets.
+func (r *RoutingEngine) IsWildcardModel(model string) bool {
+	return model == "" || model == "*" || model == "failover"
+}
+
 // ResolveModelForPolicy maps a requested model string to the canonical family
 // and policy alias used to construct inference:{family}:{alias}:use scopes.
 //
-// Returns ok=false for wildcard routing ("", "*", "failover") — those paths
-// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
+// Returns ok=false for wildcard routing — those paths are policy-filtered
+// post-routing via filterTargetsByPolicy.
 // Also returns ok=false when the catalog is empty (cold start) or the model
-// is not found; in that case the Layer 1 scope check still applies.
+// is not found; callers should treat this as a deny (fail closed).
 func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
-	if model == "" || model == "*" || model == "failover" {
+	if r.IsWildcardModel(model) {
 		return ResolvedModelInfo{}, false
 	}
 
@@ -469,6 +476,25 @@ func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, 
 		}
 	}
 
+	return ResolvedModelInfo{}, false
+}
+
+// ResolveTargetForPolicy maps a (provider, modelID) pair from a RouteTarget
+// to its canonical policy identity. Used by filterTargetsByPolicy to check
+// each resolved routing target against the principal's grants.
+func (r *RoutingEngine) ResolveTargetForPolicy(provider ProviderName, modelID string) (ResolvedModelInfo, bool) {
+	catalog := r.modelCatalog.Load()
+	if catalog == nil {
+		return ResolvedModelInfo{}, false
+	}
+	for _, m := range *catalog {
+		if m.Provider == provider && m.ModelID == modelID {
+			if m.Family == "" || m.Family == "unknown" {
+				return ResolvedModelInfo{}, false
+			}
+			return ResolvedModelInfo{Family: m.Family, Alias: m.PolicyAlias()}, true
+		}
+	}
 	return ResolvedModelInfo{}, false
 }
 

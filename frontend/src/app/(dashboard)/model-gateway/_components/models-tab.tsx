@@ -54,6 +54,7 @@ function matchesSearch(row: ModelRow, search: string): boolean {
   const q = search.toLowerCase();
   return (
     row.owned_by.toLowerCase().includes(q) ||
+    row.family.toLowerCase().includes(q) ||
     row.name.toLowerCase().includes(q) ||
     row.id.toLowerCase().includes(q) ||
     row.capabilities.some((c) => c.toLowerCase().includes(q)) ||
@@ -71,6 +72,9 @@ function sortRows(rows: ModelRow[], key: SortKey, dir: SortDir): ModelRow[] {
         break;
       case 'provider':
         cmp = a.owned_by.localeCompare(b.owned_by);
+        break;
+      case 'family':
+        cmp = a.family.localeCompare(b.family);
         break;
       default:
         cmp = 0;
@@ -240,6 +244,7 @@ const DEFAULT_VISIBLE: Set<ColumnId> = new Set([
   'favourite',
   'status',
   'provider',
+  'family',
   'name',
   'capabilities',
   'dialects',
@@ -393,6 +398,18 @@ export function ModelsTab() {
                     </TableHead>
                   )}
 
+                  {col('family') && (
+                    <TableHead>
+                      <SortButton
+                        label="Family"
+                        columnKey="family"
+                        currentKey={sortKey}
+                        direction={sortDir}
+                        onSort={handleSort}
+                      />
+                    </TableHead>
+                  )}
+
                   {col('status') && (
                     <TableHead>
                       <Stack direction="horizontal" align="center" gap="tight">
@@ -500,6 +517,14 @@ export function ModelsTab() {
                           <TableCell>
                             <Text size="supporting" color="muted">
                               {row.owned_by}
+                            </Text>
+                          </TableCell>
+                        )}
+
+                        {col('family') && (
+                          <TableCell>
+                            <Text size="supporting" color="muted">
+                              {row.family || '—'}
                             </Text>
                           </TableCell>
                         )}

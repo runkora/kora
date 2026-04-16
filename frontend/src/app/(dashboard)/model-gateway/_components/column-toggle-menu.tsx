@@ -9,6 +9,7 @@ export type ColumnId =
   | 'favourite'
   | 'status'
   | 'provider'
+  | 'family'
   | 'name'
   | 'capabilities'
   | 'dialects'
@@ -25,6 +26,7 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'favourite', label: 'Favourite', locked: true },
   { id: 'status', label: 'Availability', locked: false },
   { id: 'provider', label: 'Provider', locked: false },
+  { id: 'family', label: 'Family', locked: false },
   { id: 'name', label: 'Model Name', locked: true },
   { id: 'capabilities', label: 'Capabilities', locked: false },
   { id: 'dialects', label: 'Dialects', locked: false },
