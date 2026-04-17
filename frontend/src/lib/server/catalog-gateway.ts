@@ -16,9 +16,9 @@ export async function forwardToGateway(
   return fetch(`${config.inferenceGatewayUrl}/catalog${path}`, {
     ...init,
     headers: {
+      ...init?.headers,
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      ...init?.headers,
     },
     cache: 'no-store',
     signal: AbortSignal.timeout(15_000),

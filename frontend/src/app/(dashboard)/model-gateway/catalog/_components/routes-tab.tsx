@@ -152,7 +152,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                 routes: [
                   ...model.routes,
                   {
-                    id: '',
+                    id: crypto.randomUUID(),
                     provider: 'bedrock',
                     modelId: '',
                     priority: model.routes.length + 1,

@@ -195,7 +195,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
-		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:write"},
+		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:read"},
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "PUT", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"},
@@ -210,6 +210,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 		{Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Call the inference endpoints"},
 		{Scope: "inference:use", ResourceType: "inference", PathSegments: []string{}, Action: "use", Description: "Use any model across all providers"},
 		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
+		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 	}
 	for _, cs := range catalogScopes {

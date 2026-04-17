@@ -2,9 +2,8 @@ package inferencegw
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
+	"math/rand/v2"
 	"sort"
 	"sync/atomic"
 )
@@ -212,8 +211,7 @@ func weightedOrder(routes []VirtualModelRoute) []VirtualModelRoute {
 		return routes
 	}
 
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(total)))
-	pick := int(n.Int64())
+	pick := rand.IntN(total) // #nosec G404 — route selection is not security-sensitive
 	cum := 0
 	selected := 0
 	for i, r := range routes {

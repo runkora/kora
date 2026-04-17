@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	openai "github.com/openai/openai-go"
@@ -185,15 +186,23 @@ func buildProviderModelIndex(providerModels []ProviderModel) map[pmKey]*Provider
 }
 
 // vmAvailabilityStatus returns "available" if the virtual model is enabled and
-// has at least one enabled route, otherwise "unavailable".
-func vmAvailabilityStatus(vm VirtualModel) string {
+// has at least one effectively routable target — i.e. a route that is enabled,
+// not disabled by a provider override, and backed by a configured connector.
+func vmAvailabilityStatus(vm VirtualModel, snap *virtualCatalogSnapshot, connectors map[ProviderName]ProviderConnector) string {
 	if !vm.Enabled {
 		return "unavailable"
 	}
 	for _, r := range vm.Routes {
-		if r.Enabled {
-			return "available"
+		if !r.Enabled {
+			continue
 		}
+		if snap != nil && snap.disabledRoutes[string(r.Provider)+"/"+r.ModelID] {
+			continue
+		}
+		if _, ok := connectors[r.Provider]; !ok {
+			continue
+		}
+		return "available"
 	}
 	return "unavailable"
 }
@@ -243,6 +252,10 @@ func aggregateVMMetadata(vm VirtualModel, idx map[pmKey]*ProviderModel) (
 	for c := range capSet {
 		caps = append(caps, c)
 	}
+	slices.Sort(inputMods)
+	slices.Sort(outputMods)
+	slices.Sort(dialects)
+	slices.Sort(caps)
 	return
 }
 
@@ -268,10 +281,12 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	pmIdx := buildProviderModelIndex(providerModels)
 
+	snap := c.svc.router.virtualCatalog.Load()
+
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(vms))
 	for _, vm := range vms {
-		status := vmAvailabilityStatus(vm)
+		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectors)
 
 		var inputMods []Modality
 		var outputMods []Modality

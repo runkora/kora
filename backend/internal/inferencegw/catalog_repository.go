@@ -215,8 +215,16 @@ func (r *PostgresCatalogRepository) LoadSnapshot(ctx context.Context) (*virtualC
 		vm := &vms[i]
 		byID[vm.FullID()] = vm
 		// Build reverse route index: "provider/modelID" → *VirtualModel.
+		// Two different virtual models must not reference the same provider route —
+		// that would make policy resolution ambiguous. Fail fast if detected.
 		for j := range vm.Routes {
 			key := string(vm.Routes[j].Provider) + "/" + vm.Routes[j].ModelID
+			if existing, conflict := byRouteKey[key]; conflict && existing.FullID() != vm.FullID() {
+				return nil, fmt.Errorf(
+					"catalog snapshot: duplicate route ownership for %q: claimed by %q and %q",
+					key, existing.FullID(), vm.FullID(),
+				)
+			}
 			byRouteKey[key] = vm
 		}
 		if vm.Enabled {

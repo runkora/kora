@@ -243,8 +243,8 @@ var reservedRoles = map[string]bool{
 // reservedRoleScopes mirrors bundle.defaultRoleScopes so ListRoles can include
 // them in API responses without importing the bundle package.
 var reservedRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:catalog:write"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:write"},
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write"},
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.

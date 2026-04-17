@@ -424,29 +424,49 @@ func validateVirtualModelRequest(req virtualModelRequest) error {
 		return fmt.Errorf("strategy must be one of: priority, weighted, lowest_cost; got %q", req.Strategy)
 	}
 
-	// Route-level validation.
 	for i, r := range req.Routes {
-		if !isValidProvider(ProviderName(r.Provider)) {
-			return fmt.Errorf("route[%d].provider %q is not valid; must be one of: bedrock, vertexai, azure", i, r.Provider)
-		}
-		if r.ModelID == "" {
-			return fmt.Errorf("route[%d].model_id is required", i)
-		}
-		if r.Priority < 1 {
-			return fmt.Errorf("route[%d].priority must be ≥ 1 (got %d)", i, r.Priority)
+		if err := validateRouteInput(i, r); err != nil {
+			return err
 		}
 	}
 
-	// Weighted strategy: weights must sum to 100.
-	if VirtualModelStrategy(req.Strategy) == VirtualStrategyWeighted && len(req.Routes) > 0 {
-		total := 0
+	// Weighted strategy: enabled route weights must sum to 100.
+	// Disabled routes are excluded from routing and therefore from the sum.
+	if VirtualModelStrategy(req.Strategy) == VirtualStrategyWeighted {
+		total, enabledCount := 0, 0
 		for _, r := range req.Routes {
-			total += r.Weight
+			if r.Enabled {
+				total += r.Weight
+				enabledCount++
+			}
 		}
-		if total != 100 {
-			return fmt.Errorf("route weights must sum to 100 for the weighted strategy (current total: %d)", total)
+		if enabledCount > 0 && total != 100 {
+			return fmt.Errorf("enabled route weights must sum to 100 for the weighted strategy (current total: %d)", total)
 		}
 	}
 
+	return nil
+}
+
+// validateRouteInput validates a single route entry within a virtual model request.
+func validateRouteInput(i int, r routeInput) error {
+	if !isValidProvider(ProviderName(r.Provider)) {
+		return fmt.Errorf("route[%d].provider %q is not valid; must be one of: bedrock, vertexai, azure", i, r.Provider)
+	}
+	if r.ModelID == "" {
+		return fmt.Errorf("route[%d].model_id is required", i)
+	}
+	if r.Priority < 1 {
+		return fmt.Errorf("route[%d].priority must be ≥ 1 (got %d)", i, r.Priority)
+	}
+	if r.Weight < 0 || r.Weight > 100 {
+		return fmt.Errorf("route[%d].weight must be between 0 and 100 (got %d)", i, r.Weight)
+	}
+	if r.InputCostPer1M < 0 {
+		return fmt.Errorf("route[%d].input_cost_per_1m must be non-negative (got %v)", i, r.InputCostPer1M)
+	}
+	if r.OutputCostPer1M < 0 {
+		return fmt.Errorf("route[%d].output_cost_per_1m must be non-negative (got %v)", i, r.OutputCostPer1M)
+	}
 	return nil
 }

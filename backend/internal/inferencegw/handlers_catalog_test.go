@@ -110,6 +110,26 @@ func TestValidateVirtualModelRequest_RouteValidation(t *testing.T) {
 			route:   routeInput{Provider: "vertexai", ModelID: "some-model", Priority: -1},
 			wantMsg: "route[0].priority must be ≥ 1",
 		},
+		{
+			name:    "weight above 100",
+			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, Weight: 101},
+			wantMsg: "route[0].weight must be between 0 and 100",
+		},
+		{
+			name:    "weight negative",
+			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, Weight: -1},
+			wantMsg: "route[0].weight must be between 0 and 100",
+		},
+		{
+			name:    "input cost negative",
+			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, InputCostPer1M: -0.01},
+			wantMsg: "route[0].input_cost_per_1m must be non-negative",
+		},
+		{
+			name:    "output cost negative",
+			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, OutputCostPer1M: -1},
+			wantMsg: "route[0].output_cost_per_1m must be non-negative",
+		},
 	}
 
 	for _, tc := range cases {
@@ -174,6 +194,19 @@ func TestValidateVirtualModelRequest_WeightedStrategy(t *testing.T) {
 		req.Routes = nil
 		if err := validateVirtualModelRequest(req); err != nil {
 			t.Errorf("expected no error for weighted strategy with no routes, got: %v", err)
+		}
+	})
+
+	t.Run("disabled routes excluded from weight sum", func(t *testing.T) {
+		t.Parallel()
+		req := base
+		// Enabled routes sum to 100; disabled route's weight is irrelevant.
+		req.Routes = []routeInput{
+			{Provider: "bedrock", ModelID: "model-a", Priority: 1, Weight: 100, Enabled: true},
+			{Provider: "vertexai", ModelID: "model-b", Priority: 2, Weight: 50, Enabled: false},
+		}
+		if err := validateVirtualModelRequest(req); err != nil {
+			t.Errorf("expected no error when enabled weights sum to 100 (disabled routes ignored), got: %v", err)
 		}
 	})
 }

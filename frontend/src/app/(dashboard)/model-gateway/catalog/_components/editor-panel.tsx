@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import {
   Alert,
@@ -36,9 +36,12 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
     .filter(Boolean)
     .sort();
 
-  if (model && draft && model.id !== draft.id) {
-    setDraft(model);
-  }
+  // Sync draft when the parent swaps to a different model (e.g. user clicks a
+  // different row while the panel is open). Must be in useEffect — calling
+  // setState during render triggers React warnings and potential render loops.
+  useEffect(() => {
+    if (model) setDraft(model);
+  }, [model?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!draft) return null;
 
