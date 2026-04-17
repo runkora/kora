@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -25,6 +26,9 @@ type PATRepository interface {
 	// Returns ErrPATNotFound if no matching active record exists.
 	GetByID(ctx context.Context, tenantID, userID, id string) (*PAT, error)
 
+	// UpdateScopes replaces the scopes and grant_id on an existing PAT.
+	UpdateScopes(ctx context.Context, tenantID, userID, id string, scopes []string, grantID string) error
+
 	// Revoke marks a PAT as revoked. Returns ErrPATNotFound if the PAT does not
 	// exist or belongs to a different user (prevents cross-user information leakage).
 	Revoke(ctx context.Context, tenantID, userID, id string, revokedAt time.Time) error
@@ -42,11 +46,15 @@ func NewPostgresPATRepository(pool *pgxpool.Pool) PATRepository {
 }
 
 func (r *postgresPATRepository) CreatePAT(ctx context.Context, pat *PAT, tokenHash string) error {
-	_, err := r.pool.Exec(ctx, `
+	scopesJSON, err := json.Marshal(pat.Scopes)
+	if err != nil {
+		return fmt.Errorf("marshal scopes: %w", err)
+	}
+	_, err = r.pool.Exec(ctx, `
 		INSERT INTO user_pat_tokens
-			(id, tenant_id, user_id, name, token_hash, jti, expires_at, created_at)
+			(id, tenant_id, user_id, name, token_hash, jti, scopes, grant_id, expires_at, created_at)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`,
 		pat.ID,
 		pat.TenantID,
@@ -54,6 +62,8 @@ func (r *postgresPATRepository) CreatePAT(ctx context.Context, pat *PAT, tokenHa
 		pat.Name,
 		tokenHash,
 		pat.JTI,
+		scopesJSON,
+		pat.GrantID,
 		pat.ExpiresAt,
 		pat.CreatedAt,
 	)
@@ -65,7 +75,7 @@ func (r *postgresPATRepository) CreatePAT(ctx context.Context, pat *PAT, tokenHa
 
 func (r *postgresPATRepository) ListByUser(ctx context.Context, tenantID, userID string) ([]PAT, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, user_id, name, jti, expires_at, created_at, revoked_at
+		SELECT id, tenant_id, user_id, name, jti, scopes, grant_id, expires_at, created_at, revoked_at
 		FROM   user_pat_tokens
 		WHERE  tenant_id  = $1
 		  AND  user_id    = $2
@@ -81,11 +91,15 @@ func (r *postgresPATRepository) ListByUser(ctx context.Context, tenantID, userID
 	var pats []PAT
 	for rows.Next() {
 		var p PAT
+		var scopesJSON []byte
 		if err := rows.Scan(
 			&p.ID, &p.TenantID, &p.UserID, &p.Name,
-			&p.JTI, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
+			&p.JTI, &scopesJSON, &p.GrantID, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan PAT row: %w", err)
+		}
+		if err := json.Unmarshal(scopesJSON, &p.Scopes); err != nil {
+			return nil, fmt.Errorf("unmarshal scopes: %w", err)
 		}
 		pats = append(pats, p)
 	}
@@ -97,8 +111,9 @@ func (r *postgresPATRepository) ListByUser(ctx context.Context, tenantID, userID
 
 func (r *postgresPATRepository) GetByID(ctx context.Context, tenantID, userID, id string) (*PAT, error) {
 	var p PAT
+	var scopesJSON []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, user_id, name, jti, expires_at, created_at, revoked_at
+		SELECT id, tenant_id, user_id, name, jti, scopes, grant_id, expires_at, created_at, revoked_at
 		FROM   user_pat_tokens
 		WHERE  id        = $1
 		  AND  tenant_id = $2
@@ -106,7 +121,7 @@ func (r *postgresPATRepository) GetByID(ctx context.Context, tenantID, userID, i
 		  AND  revoked_at IS NULL
 	`, id, tenantID, userID).Scan(
 		&p.ID, &p.TenantID, &p.UserID, &p.Name,
-		&p.JTI, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
+		&p.JTI, &scopesJSON, &p.GrantID, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -114,7 +129,33 @@ func (r *postgresPATRepository) GetByID(ctx context.Context, tenantID, userID, i
 		}
 		return nil, fmt.Errorf("get PAT by ID: %w", err)
 	}
+	if err := json.Unmarshal(scopesJSON, &p.Scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal scopes: %w", err)
+	}
 	return &p, nil
+}
+
+func (r *postgresPATRepository) UpdateScopes(ctx context.Context, tenantID, userID, id string, scopes []string, grantID string) error {
+	scopesJSON, err := json.Marshal(scopes)
+	if err != nil {
+		return fmt.Errorf("marshal scopes: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE user_pat_tokens
+		SET    scopes   = $1,
+		       grant_id = $2
+		WHERE  id        = $3
+		  AND  tenant_id = $4
+		  AND  user_id   = $5
+		  AND  revoked_at IS NULL
+	`, scopesJSON, grantID, id, tenantID, userID)
+	if err != nil {
+		return fmt.Errorf("update PAT scopes: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPATNotFound
+	}
+	return nil
 }
 
 func (r *postgresPATRepository) Revoke(ctx context.Context, tenantID, userID, id string, revokedAt time.Time) error {

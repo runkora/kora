@@ -1,7 +1,13 @@
 import 'server-only';
 
 import { ApiError, orbitClient } from '@orbit/server/client';
-import type { CreatePATRequest, CreatePATResponse, ListPATsResponse, PAT } from '@orbit/shared/api';
+import type {
+  CreatePATRequest,
+  CreatePATResponse,
+  ListPATsResponse,
+  PAT,
+  UpdatePATScopesRequest,
+} from '@orbit/shared/api';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -14,6 +20,8 @@ export type CreatePATResult =
   | { ok: false; status: number; message: string };
 
 export type RevokePATResult = { ok: true } | { ok: false; status: number; message: string };
+
+export type UpdatePATScopesResult = { ok: true } | { ok: false; status: number; message: string };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +72,21 @@ export async function revokePATInIdentity(
 ): Promise<RevokePATResult> {
   try {
     await orbitClient.delete(`/identity/tokens/${patId}`, {
+      Authorization: `Bearer ${accessToken}`,
+    });
+    return { ok: true };
+  } catch (err) {
+    return fromApiError(err);
+  }
+}
+
+export async function updatePATScopesInIdentity(
+  accessToken: string,
+  patId: string,
+  req: UpdatePATScopesRequest,
+): Promise<UpdatePATScopesResult> {
+  try {
+    await orbitClient.patch(`/identity/tokens/${patId}/scopes`, req, {
       Authorization: `Bearer ${accessToken}`,
     });
     return { ok: true };

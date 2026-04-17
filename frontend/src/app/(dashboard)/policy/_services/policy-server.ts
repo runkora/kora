@@ -115,6 +115,12 @@ async function policyGatewayFetch<T>(
 
 // ── Policy Service (PAP) endpoints ───────────────────────────────────────────
 
+export async function fetchEffectiveScopes(
+  accessToken: string,
+): Promise<Result<{ scopes: string[] }>> {
+  return policyServiceFetch('/effective-scopes', accessToken);
+}
+
 export async function fetchStats(
   accessToken: string,
   tenantId: string,

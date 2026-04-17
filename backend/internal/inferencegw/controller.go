@@ -60,11 +60,13 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /chat/completions  OpenAI-dialect completions (streaming and non-streaming)
 //	POST   /messages          Anthropic Messages API dialect
 //	GET    /models            List available models
+//	GET    /usage/stats       Per-PAT usage aggregates (request count, last used)
 //	GET    /usage             Inference usage log (authenticated principal, paginated)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
 	mux.Handle("GET /models", c.handleListModels)
+	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage", c.handleListUsage)
 }
 

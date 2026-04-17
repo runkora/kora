@@ -34,6 +34,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -57,6 +58,13 @@ type tenantOIDCState struct {
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+// PolicyClient abstracts grant management calls to the policy service.
+// Implemented by platform/clients/policy.Client in production.
+type PolicyClient interface {
+	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string) (string, error)
+	DeleteGrant(ctx context.Context, grantID string) error
+}
+
 // Service implements the identity business logic: federated OIDC authentication
 // via the Device Authorization Grant and oidc_id_token browser flow,
 // SPIFFE SVID exchange, JWT issuance, session management, and token revocation.
@@ -66,6 +74,8 @@ type Service struct {
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
 	pats          PATRepository
+	policyClient  PolicyClient
+	policyEval    policy.Evaluator
 	logger        logging.Logger
 	tracer        trace.Tracer
 
@@ -120,6 +130,8 @@ func NewService(
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
 	pats PATRepository,
+	policyClient PolicyClient,
+	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
 ) (*Service, error) {
@@ -129,6 +141,8 @@ func NewService(
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
 		pats:          pats,
+		policyClient:  policyClient,
+		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
@@ -793,7 +807,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	)
 
 	// Sign before persisting — if signing fails nothing is written to the DB.
-	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
+	accessToken, err = s.signToken(principal, jti, sessionID, "", now, ttl)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "token signing failed")
@@ -907,7 +921,8 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 }
 
 // signToken constructs and signs an RS256 platform JWT.
-func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, ttl time.Duration) (string, error) {
+// Exactly one of sessionID or patID should be non-empty depending on principal type.
+func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time.Time, ttl time.Duration) (string, error) {
 	claims := PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti,
@@ -924,11 +939,25 @@ func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, 
 			IdentitySource: p.IdentitySource,
 			DisplayName:    p.DisplayName,
 			Claims:         p.Claims,
+			PatID:          patID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = keyID(&s.signingKey.PublicKey)
 	return token.SignedString(s.signingKey)
+}
+
+// SystemToken mints a short-lived RS256 JWT for identity-service internal calls
+// to other platform services (e.g. policy service grant management).
+// The SYSTEM principal type allows cross-tenant operations in the policy service.
+func (s *Service) SystemToken(ctx context.Context) (string, error) {
+	principal := &Principal{
+		ID:             "orbit-identity-service",
+		Type:           token.PrincipalTypeSystem,
+		TenantID:       "",
+		IdentitySource: IdentitySourcePlatform,
+	}
+	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), 5*time.Minute)
 }
 
 // AuthMiddleware returns a Middleware that verifies a platform JWT on the
@@ -1446,7 +1475,6 @@ func intToBytes(i int) []byte {
 	return b
 }
 
-// hashToken returns the hex-encoded SHA-256 hash of a token string.
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return fmt.Sprintf("%x", h)

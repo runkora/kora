@@ -131,6 +131,13 @@ type InferenceUsageFilter struct {
 	CursorID      *string    // paired with CursorTime for stable sub-second ordering
 }
 
+// TokenUsageStat holds aggregated usage metrics for a single PAT.
+type TokenUsageStat struct {
+	TokenID      string `json:"token_id"`
+	RequestCount int64  `json:"request_count"`
+	LastUsed     string `json:"last_used"` // RFC3339
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (

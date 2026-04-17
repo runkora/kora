@@ -374,7 +374,7 @@ func TestRevokeToken_AccessToken_Success(t *testing.T) {
 	sessionID := "test-session-1"
 	now := time.Now()
 	ttl := time.Hour
-	token, err := svc.signToken(principal, jti, sessionID, now, ttl)
+	token, err := svc.signToken(principal, jti, sessionID, "", now, ttl)
 	if err != nil {
 		t.Fatalf("signToken: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestRevokeToken_AccessToken_AlreadyBlocked(t *testing.T) {
 		IdentitySource: IdentitySourceFederated,
 	}
 	jti := "blocked-jti"
-	token, err := svc.signToken(principal, jti, "sess-1", time.Now(), time.Hour)
+	token, err := svc.signToken(principal, jti, "sess-1", "", time.Now(), time.Hour)
 	if err != nil {
 		t.Fatalf("signToken: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestRevokeToken_AccessToken_SessionNotFoundIsOK(t *testing.T) {
 		TenantID:       "tenant-1",
 		IdentitySource: IdentitySourceFederated,
 	}
-	token, err := svc.signToken(principal, "jti-no-session", "sess-missing", time.Now(), time.Hour)
+	token, err := svc.signToken(principal, "jti-no-session", "sess-missing", "", time.Now(), time.Hour)
 	if err != nil {
 		t.Fatalf("signToken: %v", err)
 	}

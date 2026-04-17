@@ -86,8 +86,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/routes                           List all registered route→scope mappings
 //	POST   /policy/routes/register                  Register route→scope mappings (SYSTEM or SERVICE principal)
 //	GET    /policy/bundles/{tenant_id}              Serve OPA bundle (polling endpoint)
+//	GET    /policy/effective-scopes                 Return the caller's full effective scope set
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /stats", c.handleStats)
+	mux.Handle("GET /effective-scopes", c.handleEffectiveScopes)
 	mux.Handle("POST /grants", c.handleCreateGrant)
 	mux.Handle("GET /grants/{id}", c.handleGetGrant)
 	mux.Handle("DELETE /grants/{id}", c.handleDeleteGrant)

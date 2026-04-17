@@ -151,7 +151,7 @@ func TestHandleCreatePAT_TTLOverMax_Returns400(t *testing.T) {
 func TestHandleCreatePAT_Success_Returns201(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
 	claims := humanClaims("t1", "user-1")
-	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "ci-token", "expires_in_days": 30})
+	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "ci-token", "expires_in_days": 30, "scopes": []string{"inference:invoke"}})
 	if w.Code != http.StatusCreated {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusCreated, w.Body)
 	}
@@ -177,7 +177,7 @@ func TestHandleCreatePAT_Success_Returns201(t *testing.T) {
 func TestHandleCreatePAT_TokenPrefixed(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
 	claims := humanClaims("t1", "user-1")
-	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "ci-token"})
+	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "ci-token", "scopes": []string{"inference:invoke"}})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status: got %d, want 201 (body: %s)", w.Code, w.Body)
 	}
@@ -185,8 +185,31 @@ func TestHandleCreatePAT_TokenPrefixed(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(resp.Token) < 4 || resp.Token[:4] != "orb_" {
-		t.Errorf("token should be prefixed with orb_, got: %q", resp.Token[:min(10, len(resp.Token))])
+	prefix := PatTokenPrefix
+	if len(resp.Token) < len(prefix) || resp.Token[:len(prefix)] != prefix {
+		t.Errorf("token should be prefixed with %q, got: %q", prefix, resp.Token[:min(10, len(resp.Token))])
+	}
+}
+
+func TestHandleCreatePAT_TooManyScopes_Returns400(t *testing.T) {
+	c, _, _, _, _, _ := newTestController(t)
+	claims := humanClaims("t1", "user-1")
+	scopes := make([]string, 101)
+	for i := range scopes {
+		scopes[i] = "inference:invoke"
+	}
+	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "my-pat", "scopes": scopes})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
+	}
+}
+
+func TestHandleCreatePAT_InvalidScopeName_Returns400(t *testing.T) {
+	c, _, _, _, _, _ := newTestController(t)
+	claims := humanClaims("t1", "user-1")
+	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "my-pat", "scopes": []string{"INVALID SCOPE!"}})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
 	}
 }
 
@@ -194,7 +217,7 @@ func TestHandleCreatePAT_DefaultTTL_WhenZero(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
 	claims := humanClaims("t1", "user-1")
 	// No expires_in_days — service should default to PATDefaultTTLDays (90).
-	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "default-ttl-token"})
+	w := postJSONWithClaims(t, c.handleCreatePAT, claims, map[string]any{"name": "default-ttl-token", "scopes": []string{"inference:invoke"}})
 	if w.Code != http.StatusCreated {
 		t.Errorf("status: got %d, want 201 (body: %s)", w.Code, w.Body)
 	}

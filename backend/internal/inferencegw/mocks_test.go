@@ -52,6 +52,10 @@ func (m *mockInferenceUsageRepository) LastFilter() InferenceUsageFilter {
 	return m.lastFilter
 }
 
+func (m *mockInferenceUsageRepository) UsageStats(_ context.Context, _, _ string) ([]TokenUsageStat, error) {
+	return nil, nil
+}
+
 func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id string) (InferenceUsageRecord, error) {
 	if m.getErr != nil {
 		return InferenceUsageRecord{}, m.getErr

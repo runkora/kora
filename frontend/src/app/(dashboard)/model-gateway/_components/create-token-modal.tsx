@@ -4,28 +4,36 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button, Heading, Stack, Text } from '@orbit/terra';
 import { createToken } from '../_actions/tokens';
+import { ScopePicker } from '../../policy/_components/scope-picker';
 import type { CreatePATResponse } from '@orbit/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CreateTokenModalProps {
   open: boolean;
+  availableScopes: string[];
   onClose: () => void;
   onCreated: (pat: CreatePATResponse) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalProps) {
+export function CreateTokenModal({
+  open,
+  availableScopes,
+  onClose,
+  onCreated,
+}: CreateTokenModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState('');
   const [expiresInDays, setExpiresInDays] = useState<string>('90');
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync dialog open/close with the external <dialog> element.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -37,15 +45,14 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
     }
   }, [open]);
 
-  // Reset form state and notify parent when the dialog closes (Escape, backdrop,
-  // or programmatic close). setState is called inside the event callback — not
-  // synchronously in the effect body — so it does not cause cascading renders.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     const handler = () => {
       setName('');
       setExpiresInDays('90');
+      setSelectedScopes([]);
+      setScopeSearch('');
       setError(null);
       onClose();
     };
@@ -59,6 +66,17 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
     },
     [onClose],
   );
+
+  const handleToggleScope = useCallback((scope: string, checked: boolean) => {
+    setSelectedScopes((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)));
+  }, []);
+
+  const handleToggleScopeGroup = useCallback((scopes: string[], checked: boolean) => {
+    setSelectedScopes((prev) => {
+      const without = prev.filter((s) => !scopes.includes(s));
+      return checked ? [...without, ...scopes] : without;
+    });
+  }, []);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -81,9 +99,18 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
         return;
       }
 
+      if (selectedScopes.length === 0) {
+        setError('Select at least one scope.');
+        return;
+      }
+
       setSubmitting(true);
       try {
-        const result = await createToken({ name: trimmedName, expires_in_days: days });
+        const result = await createToken({
+          name: trimmedName,
+          expires_in_days: days,
+          scopes: selectedScopes,
+        });
         if (!result.ok) {
           setError(result.message);
           return;
@@ -95,14 +122,14 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
         setSubmitting(false);
       }
     },
-    [name, expiresInDays, onCreated],
+    [name, expiresInDays, selectedScopes, onCreated],
   );
 
   return (
     <dialog
       ref={dialogRef}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-md rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
+      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
     >
       <form onSubmit={(e) => void handleSubmit(e)} noValidate>
         {/* Header */}
@@ -126,7 +153,6 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
           </header>
         </Stack>
 
-        {/* Body — native section used as padding wrapper so className stays off Terra Stack */}
         <section className="flex flex-col gap-5 p-5">
           {/* Name */}
           <Stack gap="tight">
@@ -166,6 +192,37 @@ export function CreateTokenModal({ open, onClose, onCreated }: CreateTokenModalP
             />
             <Text size="caption" color="subtle">
               Defaults to 90 days. Maximum 365 days.
+            </Text>
+          </Stack>
+
+          {/* Scopes */}
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" justify="between">
+              <label className="text-sm font-medium text-foreground">
+                Permissions <span aria-hidden>*</span>
+              </label>
+              {selectedScopes.length > 0 && (
+                <Text size="caption" color="muted">
+                  {selectedScopes.length} selected
+                </Text>
+              )}
+            </Stack>
+            {availableScopes.length === 0 ? (
+              <Text size="supporting" color="muted">
+                No scopes available — your account has no granted permissions.
+              </Text>
+            ) : (
+              <ScopePicker
+                availableScopes={availableScopes}
+                selectedScopes={selectedScopes}
+                onToggle={handleToggleScope}
+                onToggleGroup={handleToggleScopeGroup}
+                search={scopeSearch}
+                onSearchChange={setScopeSearch}
+              />
+            )}
+            <Text size="caption" color="subtle">
+              Choose which permissions this key should carry. Keys cannot exceed your own access.
             </Text>
           </Stack>
 

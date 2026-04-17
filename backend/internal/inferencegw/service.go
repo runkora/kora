@@ -600,10 +600,10 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 // in the JWT carry related but non-equivalent identifiers:
 //   - claims.RegisteredClaims.ID (JTI) — a per-issuance revocation key stored
 //     in Redis; a new JTI is minted on every token issuance.
-//   - claims.Orbit.SessionID — the stable PAT record UUID; constant for the
+//   - claims.Orbit.PatID — the stable PAT record UUID; constant for the
 //     lifetime of the PAT regardless of how many tokens have been issued.
 //
-// We use SessionID (not JTI) so that all requests authenticated by the same
+// We use PatID (not JTI) so that all requests authenticated by the same
 // PAT are attributable to a single token_id in inference_usage.
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
@@ -613,7 +613,7 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 
 	var tokenID string
 	if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
-		tokenID = claims.Orbit.SessionID
+		tokenID = claims.Orbit.PatID
 	}
 
 	return principal{
@@ -1027,4 +1027,18 @@ func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([
 		return nil, false, fmt.Errorf("list usage: %w", err)
 	}
 	return records, hasNextPage, nil
+}
+
+// UsageStats returns per-PAT aggregates (request count, last used) for the
+// authenticated principal. Scoping is always enforced from the verified JWT.
+func (s *Service) UsageStats(ctx context.Context) ([]TokenUsageStat, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	stats, err := s.usage.UsageStats(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		return nil, fmt.Errorf("usage stats: %w", err)
+	}
+	return stats, nil
 }

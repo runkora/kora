@@ -17,7 +17,7 @@ import (
 // makeClaims builds a minimal *token.PlatformClaims for injection via
 // token.WithClaims. Only the fields consumed by principalFromClaims are set.
 func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID string) *token.PlatformClaims {
-	return &token.PlatformClaims{
+	c := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: principalID,
 		},
@@ -27,6 +27,10 @@ func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID 
 			SessionID:     sessionID,
 		},
 	}
+	if pt == token.PrincipalTypePAT {
+		c.Orbit.PatID = sessionID
+	}
+	return c
 }
 
 // ctxFromClaims returns a context carrying the given platform claims.
@@ -67,14 +71,13 @@ func TestPrincipalFromClaims_HumanPrincipal_TokenIDEmpty(t *testing.T) {
 	if p.PrincipalID != "user-1" {
 		t.Errorf("PrincipalID: got %q, want %q", p.PrincipalID, "user-1")
 	}
-	// SessionID must NOT be extracted as TokenID for non-PAT principals —
-	// OIDC sessions also populate OrbitClaims.SessionID with a session UUID.
+	// PatID must NOT be extracted as TokenID for non-PAT principals.
 	if p.TokenID != "" {
 		t.Errorf("TokenID: got %q, want empty string for HUMAN principal", p.TokenID)
 	}
 }
 
-func TestPrincipalFromClaims_PATPrincipal_TokenIDIsSessionID(t *testing.T) {
+func TestPrincipalFromClaims_PATPrincipal_TokenIDIsPatID(t *testing.T) {
 	t.Parallel()
 	const patUUID = "pat-record-uuid-abc123"
 	ctx := ctxFromClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypePAT, patUUID))

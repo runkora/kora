@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,6 +26,10 @@ type InferenceUsageRepository interface {
 	// Passing a tenantID that does not match the record returns ErrUsageRecordNotFound,
 	// preventing cross-tenant reads.
 	Get(ctx context.Context, tenantID, id string) (InferenceUsageRecord, error)
+
+	// UsageStats returns per-token aggregates (request count and last-used timestamp)
+	// for all PATs belonging to the given principal within the given tenant.
+	UsageStats(ctx context.Context, tenantID, principalID string) ([]TokenUsageStat, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -157,6 +162,36 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		records = records[:limit]
 	}
 	return records, hasNextPage, nil
+}
+
+// UsageStats returns per-token aggregates for all PATs owned by principalID in tenantID.
+func (r *PostgresInferenceUsageRepository) UsageStats(ctx context.Context, tenantID, principalID string) ([]TokenUsageStat, error) {
+	const q = `
+		SELECT token_id, COUNT(*) AS request_count, MAX(created_at) AS last_used
+		FROM inference_usage
+		WHERE tenant_id = $1 AND principal_id = $2 AND token_id IS NOT NULL
+		GROUP BY token_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, principalID)
+	if err != nil {
+		return nil, fmt.Errorf("usage stats query: %w", err)
+	}
+	defer rows.Close()
+
+	var stats []TokenUsageStat
+	for rows.Next() {
+		var s TokenUsageStat
+		var lastUsed time.Time
+		if err := rows.Scan(&s.TokenID, &s.RequestCount, &lastUsed); err != nil {
+			return nil, fmt.Errorf("usage stats scan: %w", err)
+		}
+		s.LastUsed = lastUsed.UTC().Format(time.RFC3339)
+		stats = append(stats, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("usage stats rows: %w", err)
+	}
+	return stats, nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

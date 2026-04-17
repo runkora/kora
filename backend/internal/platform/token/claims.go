@@ -76,4 +76,8 @@ type OrbitClaims struct {
 	IdentitySource IdentitySource    `json:"identity_source"`
 	DisplayName    string            `json:"display_name"`
 	Claims         map[string]string `json:"claims,omitempty"`
+	// PatID carries the PAT UUID when PrincipalType == PrincipalTypePAT.
+	// It is used as the grant principal_id in OPA evaluation, since sub holds
+	// the issuing user's OIDC subject for attribution purposes.
+	PatID string `json:"pat_id,omitempty"`
 }

@@ -22,6 +22,7 @@ const (
 	PrincipalTypeAgent   PrincipalType = "AGENT"
 	PrincipalTypeHuman   PrincipalType = "HUMAN"
 	PrincipalTypeService PrincipalType = "SERVICE"
+	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
 // Grant asserts that a named principal within a tenant holds a set of

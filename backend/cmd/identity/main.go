@@ -7,14 +7,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	ic "github.com/clear-route/orbit/cmd/identity/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
+	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
@@ -130,19 +133,39 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
 	patRepo := identity.NewPostgresPATRepository(db.Pool())
 
+	// Policy service integration for PAT grant management and scope validation.
+	policySvcURL := os.Getenv("ORBIT_POLICY_SERVICE_URL")
+	if policySvcURL == "" {
+		policySvcURL = "http://orbit-policy-service.orbit-system.svc"
+	}
+
+	// The policy client needs a token func, but the token func needs the identity
+	// service (to call SystemToken). Break the circular dependency with a lazy
+	// closure that is only invoked at request time, after svc is constructed.
+	var svc *identity.Service
+	policyClient := policyclient.NewClient(policySvcURL, func(ctx context.Context) (string, error) {
+		return svc.SystemToken(ctx)
+	}, logger)
+
+	bundleEndpoint := policySvcURL + "/api/v1/policy/bundles"
+	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
+	policyEval.Start(ctx)
+
 	// XFCCPrincipalExtractor reads the Envoy-injected x-forwarded-client-cert
 	// header after mTLS termination. In local development, callers simply set
 	// the header directly — no stub or special dev path needed
 	// (ADR-0010, ADR-0011, ADR-0015).
 	extractor := &identity.XFCCPrincipalExtractor{}
 
-	svc, err := identity.NewService(
+	svc, err = identity.NewService(
 		ctx,
 		identityCfg,
 		sessionRepo,
 		refreshRepo,
 		blocklist,
 		patRepo,
+		policyClient,
+		policyEval,
 		extractor,
 		logger,
 	)

@@ -39,9 +39,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /identity/.well-known/jwks.json  Public key set for downstream token verification.
 //	GET    /identity/tenants/discover       Home Realm Discovery — resolve tenant by email domain.
 //
-//	POST   /identity/tokens                 Create a Personal Access Token (requires auth).
-//	GET    /identity/tokens                 List the caller's active PATs (requires auth).
-//	DELETE /identity/tokens/{id}            Revoke a PAT by ID (requires auth).
+//	POST   /identity/tokens                    Create a Personal Access Token (requires auth).
+//	GET    /identity/tokens                    List the caller's active PATs (requires auth).
+//	PATCH  /identity/tokens/{id}/scopes        Update PAT scopes (requires auth).
+//	DELETE /identity/tokens/{id}               Revoke a PAT by ID (requires auth).
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /device", c.handleInitiateDeviceAuth)
@@ -58,6 +59,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	auth := mw.MiddlewareChain(c.svc.AuthMiddleware(c.logger), rejectPATMiddleware(c.logger))
 	mux.HandleWithMiddleware("POST /tokens", auth, c.handleCreatePAT)
 	mux.HandleWithMiddleware("GET /tokens", auth, c.handleListPATs)
+	mux.HandleWithMiddleware("PATCH /tokens/{id}/scopes", auth, c.handleUpdatePATScopes)
 	mux.HandleWithMiddleware("DELETE /tokens/{id}", auth, c.handleRevokePAT)
 }
 
