@@ -197,7 +197,7 @@ inference:invoke            covers  inference:anthropic:use              ✗ (di
 inference:use               covers  mcp:gmail:invoke                     ✗ (different resource_type)
 ```
 
-This is evaluated in OPA by parsing the scope string structurally — splitting on `:`, comparing the first segment (resource type), the last segment (action), and testing prefix membership on the middle segments. The `scope_vocabulary` data document is used by the Policy Service for grant validation at write time (rejecting unregistered scopes), not for runtime hierarchy resolution. This means parent scopes automatically cover new resource-specific child scopes as they are added to the catalogue, with no vocabulary update required.
+This is evaluated in OPA by parsing the scope string structurally — splitting on `:`, comparing the first segment (resource type), the last segment (action), and testing prefix membership on the middle segments. The `scope_vocabulary` data document is used by the Policy Service for grant validation at write time (rejecting unregistered scopes), not for runtime hierarchy resolution. This means parent scopes automatically cover new resource-specific child scopes as they are added to the catalog, with no vocabulary update required.
 
 ### Required Scope Derivation
 
@@ -586,7 +586,7 @@ The Rego for Layer 1 derives `required_scope` from `data.routes.route_scopes` us
 
 **Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.orbit.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
 
-**Layer 2 (in-process, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call `platform/policy.Evaluator.Check()` or `.Query()` inline in their handler code. Evaluation is pure in-memory against the service's own locally loaded bundle. Listing endpoints call `.Query()` to filter their response sets, passing the full resource catalogue as candidates. The service owns the catalogue; the policy system owns the grants.
+**Layer 2 (in-process, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call `platform/policy.Evaluator.Check()` or `.Query()` inline in their handler code. Evaluation is pure in-memory against the service's own locally loaded bundle. Listing endpoints call `.Query()` to filter their response sets, passing the full resource catalog as candidates. The service owns the catalog; the policy system owns the grants.
 
 The two layers are additive. Layer 1 is the universal baseline — no cross-pod hop, enforced for all traffic. Layer 2 is applied by owned services that have resource-level detail the proxy cannot inspect — also no cross-pod hop, in-process. Third-party services receive Layer 1 enforcement only.
 

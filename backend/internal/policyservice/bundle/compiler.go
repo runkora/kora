@@ -37,7 +37,7 @@ var authzRego string
 // platform:grants:write without requiring a prior grant to exist.
 var defaultRoleScopes = map[string][]string{
 	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write"},
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's

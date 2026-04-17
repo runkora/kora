@@ -237,7 +237,7 @@ func (c *Connector) ChatCompletion(ctx context.Context, req ChatCompletionReques
 ## Related Decisions
 
 - [ADR-0023](0023-inference-gateway-architecture.md) — Inference Gateway architecture.
-- [ADR-0024](0024-provider-model-catalogue-and-alias-routing.md) — Provider model catalogue and alias routing; implemented concurrently with this ADR.
+- [ADR-0024](0024-provider-model-catalog-and-alias-routing.md) — Provider model catalog and alias routing; implemented concurrently with this ADR.
 
 ---
 

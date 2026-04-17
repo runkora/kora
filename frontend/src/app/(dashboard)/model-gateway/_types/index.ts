@@ -28,6 +28,7 @@ export interface ModelRow {
   id: string;
   name: string; // display_name ?? id
   owned_by: string; // hosting provider: "bedrock" | "vertexai" | "azure"
+  family: string; // vendor/model-family: "anthropic" | "google" | "meta" | …
   aliases: string[];
 
   // ── Capabilities (always populated from the API) ──────────────────────────
@@ -50,12 +51,13 @@ export function toModelRow(m: ModelObject): ModelRow {
     id: m.id,
     name: m.display_name || m.id,
     owned_by: m.owned_by,
+    family: m.family ?? '',
     aliases: m.aliases ?? [],
     input_modalities: m.input_modalities ?? [],
     output_modalities: m.output_modalities ?? [],
     dialects: m.dialects ?? [],
     capabilities: m.capabilities ?? [],
-    status: 'available',
+    status: m.status ?? 'available',
     favourite: false,
   };
 }

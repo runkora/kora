@@ -3,24 +3,24 @@ package inferencegw
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
+	"math/rand/v2"
+	"sort"
 	"sync/atomic"
 )
 
 // ResolvedModelInfo is the policy-relevant identity of a model request —
-// the vendor family and the clean canonical alias.
-// Used to build the fine-grained policy scope: inference:{Family}:{Alias}:use.
+// the vendor family and the virtual model name.
+// Used to build the fine-grained policy scope: inference:{Family}:{Name}:use.
 type ResolvedModelInfo struct {
 	Family string // e.g. "anthropic"
-	Alias  string // e.g. "claude-3-5-haiku" (shortest clean alias)
+	Alias  string // e.g. "claude-sonnet-4-6" (the virtual model Name)
 }
 
-// CatalogScope describes a scope entry derived from the live model catalog,
+// CatalogScope describes a scope entry derived from the virtual model catalog,
 // ready for registration with the policy service vocabulary.
 type CatalogScope struct {
-	Scope        string   // e.g. "inference:anthropic:claude-3-5-haiku:use"
-	PathSegments []string // e.g. ["anthropic", "claude-3-5-haiku"]
+	Scope        string   // e.g. "inference:anthropic:claude-sonnet-4-6:use"
+	PathSegments []string // e.g. ["anthropic", "claude-sonnet-4-6"]
 	Description  string   // human-readable label for the UI
 }
 
@@ -48,33 +48,27 @@ type RouteTarget struct {
 // up to MaxAttemptsPerTarget times, bounded by MaxTotalAttempts overall.
 type RoutingEngine struct {
 	connectors           map[ProviderName]ProviderConnector
-	pricing              PricingCache
 	maxAttemptsPerTarget int
 	maxTotalAttempts     int
 
-	// aliasTable maps "provider/alias" → "provider/canonicalModelID".
-	// It is rebuilt on every successful ListModels call via an atomic pointer
+	// virtualCatalog is the in-memory projection of the virtual model catalog.
+	// It is rebuilt from the database on every admin write via an atomic pointer
 	// swap, so RouteRequest reads are never blocked — not even briefly — by a
-	// concurrent ListModels write.
-	aliasTable atomic.Pointer[map[string]string]
+	// concurrent catalog update.
+	virtualCatalog atomic.Pointer[virtualCatalogSnapshot]
 
-	// modelCatalog holds the full list of ProviderModels returned by the last
-	// successful ListModels call. Used by lowestCostTargets and failoverChain
-	// so those strategies work without a populated pricing cache.
+	// modelCatalog holds the most recent provider-discovered models, used only
+	// for the admin Provider Catalog view. Not consulted during request routing.
 	modelCatalog atomic.Pointer[[]ProviderModel]
 
-	// onCatalogUpdate is called after every successful ListModels that produces
-	// a non-empty catalog. Wired in main.go to re-register scope vocabulary
-	// with the policy service so new models become grantable immediately.
-	// Stored atomically so SetCatalogUpdateHook is safe to call concurrent
-	// with ListModels.
+	// onCatalogUpdate is called after every successful LoadVirtualCatalog.
+	// Wired in main.go to re-register scope vocabulary with the policy service.
 	onCatalogUpdate atomic.Pointer[func([]CatalogScope)]
 }
 
 // SetCatalogUpdateHook registers a function to be called after every successful
-// ListModels refresh. The hook receives the current CatalogScopes and runs in
-// the same goroutine as the ListModels caller — implementations should be
-// non-blocking (e.g. spawn their own goroutine if they do I/O).
+// catalog load. The hook receives the current CatalogScopes and runs in a
+// background goroutine — implementations may do I/O.
 func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 	if fn == nil {
 		r.onCatalogUpdate.Store(nil)
@@ -84,14 +78,9 @@ func (r *RoutingEngine) SetCatalogUpdateHook(fn func([]CatalogScope)) {
 }
 
 // NewRoutingEngine constructs a RoutingEngine.
-// connectors is the set of enabled provider connectors keyed by ProviderName.
-func NewRoutingEngine(
-	connectors map[ProviderName]ProviderConnector,
-	pricing PricingCache,
-) *RoutingEngine {
+func NewRoutingEngine(connectors map[ProviderName]ProviderConnector) *RoutingEngine {
 	return &RoutingEngine{
 		connectors:           connectors,
-		pricing:              pricing,
 		maxAttemptsPerTarget: defaultMaxAttemptsPerTarget,
 		maxTotalAttempts:     defaultMaxTotalAttempts,
 	}
@@ -109,66 +98,248 @@ func (r *RoutingEngine) Connector(p ProviderName) (ProviderConnector, bool) {
 	return c, ok
 }
 
-// RouteRequest resolves a request to an ordered list of RouteTargets and the
-// strategy that was used. The service layer iterates targets in order.
+// LoadVirtualCatalog atomically replaces the in-memory catalog snapshot and
+// fires the catalog update hook. Called at startup and after every admin write.
+func (r *RoutingEngine) LoadVirtualCatalog(snap *virtualCatalogSnapshot) {
+	r.virtualCatalog.Store(snap)
+	if fn := r.onCatalogUpdate.Load(); fn != nil && *fn != nil {
+		go (*fn)(r.CatalogScopes())
+	}
+}
+
+// RouteRequest resolves a virtual model ID to an ordered list of RouteTargets
+// and the routing strategy that was applied. The service layer iterates targets
+// in order, retrying within each up to MaxAttemptsPerTarget times.
 //
-// Routing strategy is determined by the request's model field:
-//
-//   - "*"                   → LowestCost across all enabled providers
-//   - "provider/model"      → Explicit single target
-//   - "failover"            → FailoverChain in canonical provider priority order
-//   - "provider/model"      → falls through to explicit if "/" is present
+// Only virtual model IDs ("family/name", e.g. "anthropic/claude-sonnet-4-6")
+// are accepted. Provider-prefixed IDs and bare model names are not valid consumer
+// inputs — the provider is an internal platform concern.
 func (r *RoutingEngine) RouteRequest(
 	ctx context.Context,
 	req ChatCompletionRequest,
 ) ([]RouteTarget, RoutingStrategy, error) {
-	_ = ctx // reserved for future policy-aware routing
+	_ = ctx
 
-	switch {
-	case req.Model == "*" || req.Model == "":
-		targets, err := r.lowestCostTargets()
-		return targets, StrategyLowestCost, err
+	snap := r.virtualCatalog.Load()
+	if snap == nil {
+		return nil, "", ErrNoCatalog
+	}
 
-	case req.Model == "failover":
-		targets, err := r.failoverChain()
-		return targets, StrategyFailoverChain, err
+	vm, ok := snap.byID[req.Model]
+	if !ok {
+		return nil, "", fmt.Errorf("%w: model %q not found in catalog", ErrInvalidRequest, req.Model)
+	}
+	if !vm.Enabled {
+		return nil, "", fmt.Errorf("%w: model %q is disabled", ErrInvalidRequest, req.Model)
+	}
 
-	case strings.Contains(req.Model, "/"):
-		// Resolve clean aliases (e.g. "bedrock/claude-sonnet-4-6") to their
-		// canonical routing IDs (e.g. "bedrock/us.anthropic.claude-sonnet-4-6")
-		// before handing off to explicitTarget. If the model is already
-		// canonical or unknown, resolveAlias returns it unchanged.
-		resolved := r.resolveAlias(req.Model)
-		target, err := r.explicitTarget(resolved)
-		if err != nil {
-			return nil, StrategyExplicit, err
-		}
-		return []RouteTarget{target}, StrategyExplicit, nil
+	targets, strategy, err := r.targetsForVirtualModel(vm, snap)
+	if err != nil {
+		return nil, "", err
+	}
+	return targets, strategy, nil
+}
+
+// targetsForVirtualModel builds the ordered RouteTarget slice from a virtual
+// model's enabled routes, applying the configured routing strategy.
+func (r *RoutingEngine) targetsForVirtualModel(
+	vm *VirtualModel,
+	snap *virtualCatalogSnapshot,
+) ([]RouteTarget, RoutingStrategy, error) {
+	enabled := r.enabledRoutes(vm, snap)
+	if len(enabled) == 0 {
+		return nil, "", fmt.Errorf("%w: no enabled routes for model %q", ErrNoProvidersEnabled, vm.FullID())
+	}
+
+	switch vm.Strategy {
+	case VirtualStrategyPriority:
+		return routesToTargets(enabled), StrategyPriority, nil
+
+	case VirtualStrategyWeighted:
+		ordered := weightedOrder(enabled)
+		return routesToTargets(ordered), StrategyWeighted, nil
+
+	case VirtualStrategyLowestCost:
+		// SliceStable preserves the configured priority order as a tiebreaker
+		// when two routes have equal unit costs.
+		sort.SliceStable(enabled, func(i, j int) bool {
+			return enabled[i].unitCost() < enabled[j].unitCost()
+		})
+		return routesToTargets(enabled), StrategyLowestCost, nil
 
 	default:
-		// Bare model name — try each enabled provider in canonical order.
-		return r.modelAcrossProviders(req.Model)
+		return nil, "", fmt.Errorf("unknown virtual model strategy %q", vm.Strategy)
 	}
 }
 
-// ListModels queries every enabled connector concurrently and aggregates
-// the results into a deduplicated list of ProviderModels.
+// enabledRoutes returns the routes for vm that are individually enabled and
+// whose underlying provider model has not been disabled by a platform admin.
+// Routes are returned in ascending Priority order.
+func (r *RoutingEngine) enabledRoutes(vm *VirtualModel, snap *virtualCatalogSnapshot) []VirtualModelRoute {
+	out := make([]VirtualModelRoute, 0, len(vm.Routes))
+	for _, route := range vm.Routes {
+		if !route.Enabled {
+			continue
+		}
+		if snap.isRouteDisabled(route.Provider, route.ModelID) {
+			continue
+		}
+		if _, ok := r.connectors[route.Provider]; !ok {
+			continue // provider not configured in this deployment
+		}
+		out = append(out, route)
+	}
+	// Ensure ascending priority order. The SQL query includes ORDER BY rt.priority ASC,
+	// but this re-sort is cheap and guards against any future query changes.
+	sort.Slice(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
+	return out
+}
+
+// weightedOrder selects one route probabilistically by weight, then appends the
+// remaining routes in ascending priority order as the failover chain.
+func weightedOrder(routes []VirtualModelRoute) []VirtualModelRoute {
+	if len(routes) == 1 {
+		return routes
+	}
+
+	total := 0
+	for _, r := range routes {
+		total += r.Weight
+	}
+	if total <= 0 {
+		// Weights are misconfigured — fall back to priority order.
+		return routes
+	}
+
+	pick := rand.IntN(total) // #nosec G404 — route selection is not security-sensitive
+	cum := 0
+	selected := 0
+	for i, r := range routes {
+		cum += r.Weight
+		if pick < cum {
+			selected = i
+			break
+		}
+	}
+
+	result := make([]VirtualModelRoute, 0, len(routes))
+	result = append(result, routes[selected])
+	for i, r := range routes {
+		if i != selected {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
+// routesToTargets converts VirtualModelRoutes to RouteTargets, using each
+// route's stored cost data for usage attribution.
+func routesToTargets(routes []VirtualModelRoute) []RouteTarget {
+	targets := make([]RouteTarget, len(routes))
+	for i, r := range routes {
+		targets[i] = RouteTarget{
+			Provider: r.Provider,
+			ModelID:  r.ModelID,
+			Pricing:  r.pricing(),
+		}
+	}
+	return targets
+}
+
+// IsWildcardModel always returns false. Wildcard routing is not supported with
+// the virtual model catalog — every request must specify a virtual model ID.
+func (r *RoutingEngine) IsWildcardModel(_ string) bool { return false }
+
+// ResolveModelForPolicy maps a virtual model ID to the family and name used to
+// construct the policy scope inference:{family}:{name}:use.
+// Returns ok=false when the catalog is empty or the model is not found.
+func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
+	snap := r.virtualCatalog.Load()
+	if snap == nil {
+		return ResolvedModelInfo{}, false
+	}
+	vm, ok := snap.byID[model]
+	if !ok {
+		return ResolvedModelInfo{}, false
+	}
+	return ResolvedModelInfo{Family: vm.Family, Alias: vm.Name}, true
+}
+
+// ResolveTargetForPolicy maps an internal (provider, modelID) pair back to a
+// virtual model's policy identity. Used by filterTargetsByPolicy when policy
+// must be checked per target rather than per request.
+// Uses the byRouteKey reverse index for O(1) lookup.
+func (r *RoutingEngine) ResolveTargetForPolicy(provider ProviderName, modelID string) (ResolvedModelInfo, bool) {
+	snap := r.virtualCatalog.Load()
+	if snap == nil {
+		return ResolvedModelInfo{}, false
+	}
+	vm, ok := snap.byRouteKey[string(provider)+"/"+modelID]
+	if !ok {
+		return ResolvedModelInfo{}, false
+	}
+	return ResolvedModelInfo{Family: vm.Family, Alias: vm.Name}, true
+}
+
+// CatalogScopes returns the deduplicated set of policy scope declarations
+// derived from the virtual model catalog. Includes one family-level scope per
+// vendor and one model-level scope per virtual model.
+//
+// Both enabled and disabled virtual models are included — disabling a model
+// preserves its vocab entry so existing grants remain intact. Only deleting
+// a model removes its scope from the vocabulary.
+func (r *RoutingEngine) CatalogScopes() []CatalogScope {
+	snap := r.virtualCatalog.Load()
+	if snap == nil {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(snap.all)*2)
+	var scopes []CatalogScope
+
+	for _, vm := range snap.all {
+		familyScope := fmt.Sprintf("inference:%s:use", vm.Family)
+		if !seen[familyScope] {
+			seen[familyScope] = true
+			scopes = append(scopes, CatalogScope{
+				Scope:        familyScope,
+				PathSegments: []string{vm.Family},
+				Description:  fmt.Sprintf("Use any %s model", vm.Family),
+			})
+		}
+
+		modelScope := vm.PolicyScope()
+		if !seen[modelScope] {
+			seen[modelScope] = true
+			scopes = append(scopes, CatalogScope{
+				Scope:        modelScope,
+				PathSegments: []string{vm.Family, vm.Name},
+				Description:  vm.DisplayName,
+			})
+		}
+	}
+
+	return scopes
+}
+
+// ListModels queries every enabled connector concurrently and returns the
+// aggregated provider model list. Used exclusively for the admin Provider
+// Catalog view — it does NOT drive routing or the consumer /v1/models endpoint.
 func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error) {
 	if len(r.connectors) == 0 {
 		return nil, ErrNoProvidersEnabled
 	}
 
 	type result struct {
-		provider ProviderName
-		models   []ProviderModel
-		err      error
+		models []ProviderModel
+		err    error
 	}
 
 	ch := make(chan result, len(r.connectors))
 	for _, c := range r.connectors {
 		go func() {
 			ms, err := c.ListModels(ctx)
-			ch <- result{provider: c.Name(), models: ms, err: err}
+			ch <- result{models: ms, err: err}
 		}()
 	}
 
@@ -178,34 +349,15 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 		res := <-ch
 		if res.err != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("list models from %s: %w", res.provider, res.err)
+				firstErr = res.err
 			}
 			continue
 		}
 		models = append(models, res.models...)
 	}
 
-	// Return partial results if at least one provider succeeded.
 	if len(models) > 0 {
-		// Rebuild the alias lookup table from the live model catalog.
-		// Key: "provider/alias", Value: "provider/canonicalModelID".
-		newTable := make(map[string]string, len(models)*3)
-		for _, m := range models {
-			canonicalKey := string(m.Provider) + "/" + m.ModelID
-			for _, alias := range m.Aliases {
-				aliasKey := string(m.Provider) + "/" + alias
-				if aliasKey != canonicalKey {
-					newTable[aliasKey] = canonicalKey
-				}
-			}
-		}
-		r.aliasTable.Store(&newTable)
 		r.modelCatalog.Store(&models)
-
-		if fn := r.onCatalogUpdate.Load(); fn != nil && *fn != nil {
-			go (*fn)(r.CatalogScopes())
-		}
-
 		return models, nil
 	}
 	if firstErr != nil {
@@ -214,323 +366,28 @@ func (r *RoutingEngine) ListModels(ctx context.Context) ([]ProviderModel, error)
 	return nil, ErrNoProvidersEnabled
 }
 
-// resolveAlias translates a potentially-aliased "provider/model" string to
-// the canonical "provider/canonicalModelID" form. Returns the input unchanged
-// if it is not in the alias table (i.e. it is already canonical or unknown).
-func (r *RoutingEngine) resolveAlias(model string) string {
-	tbl := r.aliasTable.Load()
-	if tbl == nil {
-		return model
-	}
-	if resolved, ok := (*tbl)[model]; ok {
-		return resolved
-	}
-	return model
-}
-
-// ─── strategy implementations ─────────────────────────────────────────────────
-
-// lowestCostTargets returns all enabled provider/model pairs sorted ascending
-// by the estimated cost to process a 1k-token prompt + 1k-token completion
-// (a representative unit for comparison purposes). When pricing data is
-// unavailable (nop cache) the sort is a no-op and all models are returned in
-// catalog order.
-func (r *RoutingEngine) lowestCostTargets() ([]RouteTarget, error) {
-	if len(r.connectors) == 0 {
-		return nil, ErrNoProvidersEnabled
-	}
-
-	catalog := r.modelCatalog.Load()
-	if catalog == nil || len(*catalog) == 0 {
-		return nil, ErrNoProvidersEnabled
-	}
-
-	targets := make([]RouteTarget, 0, len(*catalog))
-	for _, m := range *catalog {
-		if _, ok := r.connectors[m.Provider]; !ok {
-			continue
-		}
-		// Only include chat-capable models. lowestCostTargets is invoked by the
-		// wildcard ("*") routing path for chat completions — routing to an embedding
-		// or image-generation model would produce a provider error (ADR-0027).
-		if !slices.Contains(m.Capabilities, CapabilityChat) {
-			continue
-		}
-		pricing, _ := r.pricing.Price(m.Provider, m.ModelID)
-		pricing.Provider = m.Provider
-		pricing.ModelID = m.ModelID
-		targets = append(targets, RouteTarget{
-			Provider: m.Provider,
-			ModelID:  m.ModelID,
-			Pricing:  pricing,
-		})
-	}
-
-	if len(targets) == 0 {
-		return nil, ErrNoProvidersEnabled
-	}
-
-	// Insertion-sort by representative cost (small list — O(n²) is fine).
-	// When pricing is unavailable all costs are 0 and order is preserved.
-	unitCost := func(t RouteTarget) float64 { return t.Pricing.EstimatedCostUSD(1000, 1000) }
-	for i := 1; i < len(targets); i++ {
-		for j := i; j > 0 && unitCost(targets[j]) < unitCost(targets[j-1]); j-- {
-			targets[j], targets[j-1] = targets[j-1], targets[j]
-		}
-	}
-
-	return targets, nil
-}
-
-// explicitTarget resolves a "provider/model" string to a single RouteTarget.
-func (r *RoutingEngine) explicitTarget(model string) (RouteTarget, error) {
-	provider, modelID, err := parseExplicitModel(model)
-	if err != nil {
-		return RouteTarget{}, err
-	}
-
-	if _, ok := r.connectors[provider]; !ok {
-		return RouteTarget{}, fmt.Errorf("%w: provider %q is not enabled or recognized", ErrInvalidRequest, provider)
-	}
-
-	pricing, ok := r.pricing.Price(provider, modelID)
-	if !ok {
-		// Model not in pricing cache — use zero-cost pricing so the call still
-		// proceeds; cost attribution will be $0.00.
-		pricing = ModelPricing{Provider: provider, ModelID: modelID}
-	}
-
-	return RouteTarget{
-		Provider: provider,
-		ModelID:  modelID,
-		Pricing:  pricing,
-	}, nil
-}
-
-// failoverChain returns enabled providers in canonical priority order.
-// Priority: Bedrock → Vertex AI → Azure.
-// Picks the first model from the live catalog for each provider.
-func (r *RoutingEngine) failoverChain() ([]RouteTarget, error) {
-	priority := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
-
-	catalog := r.modelCatalog.Load()
-
-	targets := make([]RouteTarget, 0, len(priority))
-	for _, p := range priority {
-		if _, ok := r.connectors[p]; !ok {
-			continue
-		}
-		if catalog == nil {
-			continue
-		}
-		// Pick the first chat-capable model from the live catalog for this provider.
-		for _, m := range *catalog {
-			if m.Provider != p {
-				continue
-			}
-			if !slices.Contains(m.Capabilities, CapabilityChat) {
-				continue // skip embedding/image/video models
-			}
-			pricing, _ := r.pricing.Price(p, m.ModelID)
-			pricing.Provider = p
-			pricing.ModelID = m.ModelID
-			targets = append(targets, RouteTarget{
-				Provider: p,
-				ModelID:  m.ModelID,
-				Pricing:  pricing,
-			})
-			break
-		}
-	}
-
-	if len(targets) == 0 {
-		return nil, ErrNoProvidersEnabled
-	}
-
-	return targets, nil
-}
-
-// modelAcrossProviders resolves a bare model name across all enabled providers
-// in canonical failover order.
-//
-// When the model catalog has been populated by a prior ListModels call, only
-// providers that actually advertise the model (by canonical ID or alias) are
-// included as targets. This prevents spurious cross-provider calls when only a
-// subset of providers supports the requested model.
-//
-// When the catalog is empty (cold start before the first ListModels sweep) we
-// fall back to broadcasting to every enabled provider so the gateway remains
-// functional without a warm-up dependency.
-func (r *RoutingEngine) modelAcrossProviders(modelID string) ([]RouteTarget, RoutingStrategy, error) {
-	priority := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
-
-	// Build a set of providers known to carry this model and resolve any alias
-	// to the canonical model ID the provider expects.
-	type providerEntry struct {
-		canonicalID string
-	}
-	var catalogProviders map[ProviderName]providerEntry
-	if catalog := r.modelCatalog.Load(); catalog != nil {
-		catalogProviders = make(map[ProviderName]providerEntry, len(priority))
-		for _, m := range *catalog {
-			if m.ModelID == modelID {
-				catalogProviders[m.Provider] = providerEntry{canonicalID: m.ModelID}
-				continue
-			}
-			if slices.Contains(m.Aliases, modelID) {
-				catalogProviders[m.Provider] = providerEntry{canonicalID: m.ModelID}
-			}
-		}
-	}
-
-	targets := make([]RouteTarget, 0, len(priority))
-	for _, p := range priority {
-		if _, ok := r.connectors[p]; !ok {
-			continue
-		}
-		// When catalog data is available, skip providers that don't carry this model.
-		// Resolve alias to the canonical provider model ID.
-		canonicalID := modelID
-		if catalogProviders != nil {
-			entry, known := catalogProviders[p]
-			if !known {
-				continue
-			}
-			canonicalID = entry.canonicalID
-		}
-		pricing, ok := r.pricing.Price(p, canonicalID)
-		if !ok {
-			pricing = ModelPricing{Provider: p, ModelID: canonicalID}
-		}
-		targets = append(targets, RouteTarget{
-			Provider: p,
-			ModelID:  canonicalID,
-			Pricing:  pricing,
-		})
-	}
-
-	if len(targets) == 0 {
-		return nil, StrategyFailoverChain, ErrNoProvidersEnabled
-	}
-
-	return targets, StrategyFailoverChain, nil
-}
-
-// ResolveModelForPolicy maps a requested model string to the canonical family
-// and policy alias used to construct inference:{family}:{alias}:use scopes.
-//
-// Returns ok=false for wildcard routing ("", "*", "failover") — those paths
-// require only the broad inference:invoke scope enforced at Layer 1 by Envoy.
-// Also returns ok=false when the catalog is empty (cold start) or the model
-// is not found; in that case the Layer 1 scope check still applies.
-func (r *RoutingEngine) ResolveModelForPolicy(model string) (ResolvedModelInfo, bool) {
-	if model == "" || model == "*" || model == "failover" {
-		return ResolvedModelInfo{}, false
-	}
-
-	catalog := r.modelCatalog.Load()
-	if catalog == nil {
-		return ResolvedModelInfo{}, false
-	}
-
-	// Normalise to a bare model ID (no provider prefix) for catalog lookup.
-	// Provider-qualified form: "bedrock/claude-sonnet-4-6" → resolve alias → strip prefix.
-	// Bare form: "anthropic.claude-sonnet-4-20250514-v1:0" — check as-is, and also
-	// check against catalog aliases after stripping their provider prefix, since
-	// callers may omit the provider and rely on routing to pick one.
-	lookupID := model
-	if strings.Contains(model, "/") {
-		resolved := r.resolveAlias(model)
-		_, modelID, err := parseExplicitModel(resolved)
-		if err != nil {
-			return ResolvedModelInfo{}, false
-		}
-		lookupID = modelID
-	}
-
-	for _, m := range *catalog {
-		// Direct match on canonical model ID (already stripped of provider prefix).
-		_, bareModelID, _ := parseExplicitModel(m.ModelID)
-		if bareModelID == "" {
-			bareModelID = m.ModelID
-		}
-		if bareModelID == lookupID {
-			return ResolvedModelInfo{Family: m.Family, Alias: m.PolicyAlias()}, true
-		}
-		// Match against aliases, stripping provider prefix from each.
-		for _, alias := range m.Aliases {
-			_, bareAlias, _ := parseExplicitModel(alias)
-			if bareAlias == "" {
-				bareAlias = alias
-			}
-			if bareAlias == lookupID {
-				return ResolvedModelInfo{Family: m.Family, Alias: m.PolicyAlias()}, true
-			}
-		}
-	}
-
-	return ResolvedModelInfo{}, false
-}
-
-// CatalogScopes returns the deduplicated set of scope declarations derived
-// from the current model catalog. Includes one family-level scope per vendor
-// (e.g. inference:anthropic:use) and one model-level scope per distinct
-// model (e.g. inference:anthropic:claude-3-5-haiku:use).
-//
-// These are registered with the policy service vocabulary so the grants/roles
-// UI can show available model scopes for assignment.
-func (r *RoutingEngine) CatalogScopes() []CatalogScope {
+// ProviderModels returns a copy of the most recently discovered provider model
+// list. Returns nil if no ListModels call has succeeded yet.
+// A copy is returned so callers cannot accidentally mutate the shared atomic slice.
+func (r *RoutingEngine) ProviderModels() []ProviderModel {
 	catalog := r.modelCatalog.Load()
 	if catalog == nil {
 		return nil
 	}
-
-	seen := make(map[string]bool)
-	var scopes []CatalogScope
-
-	for _, m := range *catalog {
-		if m.Family == "" || m.Family == "unknown" {
-			continue
-		}
-		alias := m.PolicyAlias()
-
-		// Family-level scope — one per vendor.
-		familyScope := fmt.Sprintf("inference:%s:use", m.Family)
-		if !seen[familyScope] {
-			seen[familyScope] = true
-			scopes = append(scopes, CatalogScope{
-				Scope:        familyScope,
-				PathSegments: []string{m.Family},
-				Description:  fmt.Sprintf("Use any %s model", m.Family),
-			})
-		}
-
-		// Model-level scope — one per distinct canonical alias.
-		modelScope := fmt.Sprintf("inference:%s:%s:use", m.Family, alias)
-		if !seen[modelScope] {
-			seen[modelScope] = true
-			scopes = append(scopes, CatalogScope{
-				Scope:        modelScope,
-				PathSegments: []string{m.Family, alias},
-				Description:  m.DisplayName,
-			})
-		}
-	}
-
-	return scopes
+	out := make([]ProviderModel, len(*catalog))
+	copy(out, *catalog)
+	return out
 }
 
-// ─── helpers ───────────────────────────────────────────────────────────────────
-
-// parseExplicitModel splits "provider/model-id" into its components.
-// Returns an error if the format is invalid.
-func parseExplicitModel(model string) (ProviderName, string, error) {
-	idx := strings.Index(model, "/")
-	if idx <= 0 || idx == len(model)-1 {
-		return "", "", fmt.Errorf("%w: model %q must be in 'provider/model-id' format",
-			ErrInvalidRequest, model)
+// VirtualModels returns all virtual models from the current catalog snapshot,
+// including disabled ones. Callers are responsible for computing availability
+// based on vm.Enabled and route state. Returns nil if no catalog has been loaded.
+func (r *RoutingEngine) VirtualModels() []VirtualModel {
+	snap := r.virtualCatalog.Load()
+	if snap == nil {
+		return nil
 	}
-	provider := ProviderName(model[:idx])
-	modelID := model[idx+1:]
-	return provider, modelID, nil
+	out := make([]VirtualModel, len(snap.all))
+	copy(out, snap.all)
+	return out
 }

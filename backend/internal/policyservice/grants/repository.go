@@ -64,6 +64,10 @@ type Repository interface {
 	// CountByTenant returns the total grant count and a breakdown by principal type
 	// for a single tenant. Used by the stats endpoint.
 	CountByTenant(ctx context.Context, tenantID string) (total int, byType map[PrincipalType]int, err error)
+
+	// PurgeScopeFromAll removes a scope string from every grant's scopes array
+	// across all tenants. Called when a vocabulary scope is deleted.
+	PurgeScopeFromAll(ctx context.Context, scope string) error
 }
 
 // postgresRepository is the Postgres-backed implementation.
@@ -146,6 +150,22 @@ func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) er
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrGrantNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE policy_grants
+		SET scopes = (
+			SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+			FROM jsonb_array_elements_text(scopes) AS elem
+			WHERE elem != $1
+		)
+		WHERE scopes @> jsonb_build_array($1)
+	`, scope)
+	if err != nil {
+		return fmt.Errorf("purge scope from grants: %w", err)
 	}
 	return nil
 }

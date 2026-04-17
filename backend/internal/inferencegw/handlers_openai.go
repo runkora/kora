@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
+	"slices"
 	"time"
 
 	openai "github.com/openai/openai-go"
@@ -14,31 +14,6 @@ import (
 )
 
 // ─── Request envelope ────────────────────────────────────────────────────────
-
-// activeCapabilities is the set of ModelCapability values for which the gateway
-// has a live handler implementation. Models whose capabilities have no overlap
-// with this set are suppressed from GET /v1/models (per ADR-0027).
-//
-// When a new endpoint is shipped (e.g. /v1/embeddings), add the corresponding
-// capability constant here and the model will automatically surface in the list.
-var activeCapabilities = map[ModelCapability]bool{
-	CapabilityChat: true,
-	// CapabilityEmbedding:       false,  // handler not yet implemented
-	// CapabilityImageGeneration: false,  // handler not yet implemented
-	// CapabilityVideoGeneration: false,  // handler not yet implemented
-	// CapabilityRerank:          false,  // handler not yet implemented
-}
-
-// hasActiveCapability returns true if at least one of the model's capabilities
-// is in the active set. Models with no capabilities (empty slice) are suppressed.
-func hasActiveCapability(caps []ModelCapability) bool {
-	for _, c := range caps {
-		if activeCapabilities[c] {
-			return true
-		}
-	}
-	return false
-}
 
 // chatCompletionEnvelope wraps openai.ChatCompletionNewParams to additionally
 // capture the stream boolean. ChatCompletionNewParams is an outbound SDK type
@@ -177,7 +152,9 @@ type modelObject struct {
 	Object           string            `json:"object"`
 	Created          int64             `json:"created"`
 	OwnedBy          string            `json:"owned_by"`
+	Family           string            `json:"family,omitempty"`
 	DisplayName      string            `json:"display_name,omitempty"`
+	Status           string            `json:"status"`
 	Aliases          []string          `json:"aliases,omitempty"`
 	InputModalities  []Modality        `json:"input_modalities,omitempty"`
 	OutputModalities []Modality        `json:"output_modalities,omitempty"`
@@ -185,47 +162,152 @@ type modelObject struct {
 	Capabilities     []ModelCapability `json:"capabilities,omitempty"`
 }
 
-// handleListModels queries all enabled provider connectors for their live model
-// lists and returns the aggregated results in OpenAI list format.
-//
-// Query parameters:
-//
-//	capability=all              — return every model regardless of capability
-//	capability=chat,embedding   — return models matching any of the listed capabilities
-//	(omitted)                   — default: only models with an active handler (ADR-0027)
+// pmKey is the composite key used to look up provider models by (provider, modelID).
+type pmKey struct {
+	provider ProviderName
+	modelID  string
+}
+
+// buildProviderModelIndex constructs a lookup map from (provider, modelID) to
+// ProviderModel. Aliases are also indexed so routes stored with a shorter or
+// alternative ID (e.g. without a region prefix) still resolve.
+func buildProviderModelIndex(providerModels []ProviderModel) map[pmKey]*ProviderModel {
+	idx := make(map[pmKey]*ProviderModel, len(providerModels))
+	for i := range providerModels {
+		pm := &providerModels[i]
+		idx[pmKey{pm.Provider, pm.ModelID}] = pm
+		for _, alias := range pm.Aliases {
+			if _, exists := idx[pmKey{pm.Provider, alias}]; !exists {
+				idx[pmKey{pm.Provider, alias}] = pm
+			}
+		}
+	}
+	return idx
+}
+
+// vmAvailabilityStatus returns "available" if the virtual model is enabled and
+// has at least one effectively routable target — i.e. a route that is enabled,
+// not disabled by a provider override, and backed by a configured connector.
+func vmAvailabilityStatus(vm VirtualModel, snap *virtualCatalogSnapshot, connectors map[ProviderName]ProviderConnector) string {
+	if !vm.Enabled {
+		return "unavailable"
+	}
+	for _, r := range vm.Routes {
+		if !r.Enabled {
+			continue
+		}
+		if snap != nil && snap.disabledRoutes[string(r.Provider)+"/"+r.ModelID] {
+			continue
+		}
+		if _, ok := connectors[r.Provider]; !ok {
+			continue
+		}
+		return "available"
+	}
+	return "unavailable"
+}
+
+// aggregateVMMetadata unions the modalities, dialects, and capabilities from
+// all enabled routes of vm, using the provider model index for enrichment.
+// Returns empty slices when the model is unavailable or no provider data exists.
+func aggregateVMMetadata(vm VirtualModel, idx map[pmKey]*ProviderModel) (
+	inputMods []Modality, outputMods []Modality, dialects []APIDialect, caps []ModelCapability,
+) {
+	inputSet := map[Modality]bool{}
+	outputSet := map[Modality]bool{}
+	dialectSet := map[APIDialect]bool{}
+	capSet := map[ModelCapability]bool{}
+
+	for _, route := range vm.Routes {
+		if !route.Enabled {
+			continue
+		}
+		pm, ok := idx[pmKey{route.Provider, route.ModelID}]
+		if !ok {
+			continue
+		}
+		for _, m := range pm.InputModalities {
+			inputSet[m] = true
+		}
+		for _, m := range pm.OutputModalities {
+			outputSet[m] = true
+		}
+		for _, d := range pm.Dialects {
+			dialectSet[d] = true
+		}
+		for _, c := range pm.Capabilities {
+			capSet[c] = true
+		}
+	}
+
+	for m := range inputSet {
+		inputMods = append(inputMods, m)
+	}
+	for m := range outputSet {
+		outputMods = append(outputMods, m)
+	}
+	for d := range dialectSet {
+		dialects = append(dialects, d)
+	}
+	for c := range capSet {
+		caps = append(caps, c)
+	}
+	slices.Sort(inputMods)
+	slices.Sort(outputMods)
+	slices.Sort(dialects)
+	slices.Sort(caps)
+	return
+}
+
+// handleListModels returns all virtual models in the catalog, enriched with
+// provider metadata. Status reflects whether the model is enabled and has at
+// least one active route — disabled models or those with no enabled routes are
+// returned as "unavailable" without enrichment.
 func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	models, err := c.svc.ListModels(ctx)
+	vms, err := c.svc.ListModels(ctx)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return
 	}
 
-	// Build the capability filter from the ?capability= query param.
-	capFilter := buildCapabilityFilter(r.URL.Query().Get("capability"))
+	// Build provider model index, triggering discovery if the cache is empty.
+	providerModels := c.svc.ProviderModels()
+	if len(providerModels) == 0 {
+		if discovered, err := c.svc.DiscoverProviderModels(ctx); err == nil {
+			providerModels = discovered
+		}
+	}
+	pmIdx := buildProviderModelIndex(providerModels)
+
+	snap := c.svc.router.virtualCatalog.Load()
 
 	now := time.Now().Unix()
-	data := make([]modelObject, 0, len(models))
-	for _, m := range models {
-		if !capFilter(m.Capabilities) {
-			continue
+	data := make([]modelObject, 0, len(vms))
+	for _, vm := range vms {
+		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectors)
+
+		var inputMods []Modality
+		var outputMods []Modality
+		var dialects []APIDialect
+		var caps []ModelCapability
+		if status == "available" {
+			inputMods, outputMods, dialects, caps = aggregateVMMetadata(vm, pmIdx)
 		}
-		var prefixedAliases []string
-		for _, a := range m.Aliases {
-			prefixedAliases = append(prefixedAliases, fmt.Sprintf("%s/%s", m.Provider, a))
-		}
+
 		data = append(data, modelObject{
-			ID:               fmt.Sprintf("%s/%s", m.Provider, m.ModelID),
+			ID:               vm.FullID(),
 			Object:           "model",
 			Created:          now,
-			OwnedBy:          string(m.Provider),
-			DisplayName:      m.DisplayName,
-			Aliases:          prefixedAliases,
-			InputModalities:  m.InputModalities,
-			OutputModalities: m.OutputModalities,
-			Dialects:         m.Dialects,
-			Capabilities:     m.Capabilities,
+			OwnedBy:          vm.Family,
+			Family:           vm.Family,
+			DisplayName:      vm.DisplayName,
+			Status:           status,
+			InputModalities:  inputMods,
+			OutputModalities: outputMods,
+			Dialects:         dialects,
+			Capabilities:     caps,
 		})
 	}
 
@@ -233,35 +315,4 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   data,
 	})
-}
-
-// buildCapabilityFilter returns a predicate function for filtering models by
-// capability based on the raw value of the ?capability= query parameter:
-//
-//   - ""          → default: use activeCapabilities (ADR-0027 gate)
-//   - "all"       → accept every model
-//   - "chat,..."  → accept models that have any of the listed capabilities
-func buildCapabilityFilter(param string) func([]ModelCapability) bool {
-	if param == "" {
-		// Default: only models with an active handler implementation.
-		return hasActiveCapability
-	}
-	if param == "all" {
-		return func(_ []ModelCapability) bool { return true }
-	}
-	// Comma-separated explicit list.
-	requested := map[ModelCapability]bool{}
-	for s := range strings.SplitSeq(param, ",") {
-		if c := ModelCapability(strings.TrimSpace(s)); c != "" {
-			requested[c] = true
-		}
-	}
-	return func(caps []ModelCapability) bool {
-		for _, c := range caps {
-			if requested[c] {
-				return true
-			}
-		}
-		return false
-	}
 }

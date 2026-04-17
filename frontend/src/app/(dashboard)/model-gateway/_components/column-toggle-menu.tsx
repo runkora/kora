@@ -8,8 +8,8 @@ import { Button, Popover, PopoverTrigger, PopoverContent, Stack, Text } from '@o
 export type ColumnId =
   | 'favourite'
   | 'status'
-  | 'provider'
   | 'name'
+  | 'displayName'
   | 'capabilities'
   | 'dialects'
   | 'inputModalities'
@@ -23,9 +23,9 @@ export interface ColumnDef {
 
 export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'favourite', label: 'Favourite', locked: true },
+  { id: 'name', label: 'Model', locked: true },
+  { id: 'displayName', label: 'Name', locked: false },
   { id: 'status', label: 'Availability', locked: false },
-  { id: 'provider', label: 'Provider', locked: false },
-  { id: 'name', label: 'Model Name', locked: true },
   { id: 'capabilities', label: 'Capabilities', locked: false },
   { id: 'dialects', label: 'Dialects', locked: false },
   { id: 'inputModalities', label: 'Input Modalities', locked: false },

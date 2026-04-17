@@ -39,11 +39,9 @@ import { ModelCardGrid } from './model-card-grid';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type SortDir = 'asc' | 'desc' | null;
-type SortKey = ColumnId | null;
 
 interface FilterState {
   search: string;
-  providers: Set<string>;
   statuses: Set<ModelStatus>;
 }
 
@@ -54,6 +52,7 @@ function matchesSearch(row: ModelRow, search: string): boolean {
   const q = search.toLowerCase();
   return (
     row.owned_by.toLowerCase().includes(q) ||
+    row.family.toLowerCase().includes(q) ||
     row.name.toLowerCase().includes(q) ||
     row.id.toLowerCase().includes(q) ||
     row.capabilities.some((c) => c.toLowerCase().includes(q)) ||
@@ -61,20 +60,10 @@ function matchesSearch(row: ModelRow, search: string): boolean {
   );
 }
 
-function sortRows(rows: ModelRow[], key: SortKey, dir: SortDir): ModelRow[] {
-  if (!key || !dir) return rows;
+function sortRows(rows: ModelRow[], dir: SortDir): ModelRow[] {
+  if (!dir) return rows;
   return [...rows].sort((a, b) => {
-    let cmp = 0;
-    switch (key) {
-      case 'name':
-        cmp = a.name.localeCompare(b.name);
-        break;
-      case 'provider':
-        cmp = a.owned_by.localeCompare(b.owned_by);
-        break;
-      default:
-        cmp = 0;
-    }
+    const cmp = a.name.localeCompare(b.name);
     return dir === 'asc' ? cmp : -cmp;
   });
 }
@@ -126,14 +115,12 @@ function SearchInput({
 
 interface SortButtonProps {
   label: string;
-  columnKey: ColumnId;
-  currentKey: SortKey;
+  active: boolean;
   direction: SortDir;
-  onSort: (key: ColumnId) => void;
+  onSort: () => void;
 }
 
-function SortButton({ label, columnKey, currentKey, direction, onSort }: SortButtonProps) {
-  const active = currentKey === columnKey;
+function SortButton({ label, active, direction, onSort }: SortButtonProps) {
   const Icon =
     active && direction === 'asc'
       ? ArrowUp
@@ -144,7 +131,7 @@ function SortButton({ label, columnKey, currentKey, direction, onSort }: SortBut
   return (
     <button
       type="button"
-      onClick={() => onSort(columnKey)}
+      onClick={onSort}
       className={[
         'inline-flex items-center gap-1 rounded px-0.5 py-0.5 transition-colors',
         'hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
@@ -238,9 +225,9 @@ function FilterPopover({ options, selected, onToggle, onClear }: FilterPopoverPr
 
 const DEFAULT_VISIBLE: Set<ColumnId> = new Set([
   'favourite',
-  'status',
-  'provider',
   'name',
+  'displayName',
+  'status',
   'capabilities',
   'dialects',
 ]);
@@ -261,26 +248,14 @@ export function ModelsTab() {
   );
   const [filters, setFilters] = useState<FilterState>({
     search: '',
-    providers: new Set(),
     statuses: new Set(),
   });
   const [visible, setVisible] = useState<Set<ColumnId>>(DEFAULT_VISIBLE);
-  const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [selectedModel, setSelectedModel] = useState<ModelRow | null>(null);
 
-  const PROVIDERS = useMemo(() => Array.from(new Set(models.map((m) => m.owned_by))), [models]);
-  const providerOptions: FilterOption[] = PROVIDERS.map((p) => ({ value: p, label: p }));
-
-  const handleSort = useCallback((key: ColumnId) => {
-    setSortKey((prev) => {
-      if (prev === key) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
-        return prev;
-      }
-      setSortDir('asc');
-      return key;
-    });
+  const handleSort = useCallback(() => {
+    setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
   }, []);
 
   const toggleColumn = useCallback((id: ColumnId) => {
@@ -289,15 +264,6 @@ export function ModelsTab() {
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
-    });
-  }, []);
-
-  const toggleProvider = useCallback((p: string) => {
-    setFilters((prev) => {
-      const next = new Set(prev.providers);
-      if (next.has(p)) next.delete(p);
-      else next.add(p);
-      return { ...prev, providers: next };
     });
   }, []);
 
@@ -312,13 +278,21 @@ export function ModelsTab() {
 
   const filteredRows = useMemo(() => {
     const rows = models.filter((row) => {
-      if (filters.providers.size > 0 && !filters.providers.has(row.owned_by)) return false;
       if (filters.statuses.size > 0 && !filters.statuses.has(row.status)) return false;
       if (!matchesSearch(row, filters.search)) return false;
       return true;
     });
-    return sortRows(rows, sortKey, sortDir);
-  }, [models, filters, sortKey, sortDir]);
+    return sortRows(rows, sortDir);
+  }, [models, filters, sortDir]);
+
+  // Group sorted rows by family for rendering.
+  const familyGroups = useMemo(() => {
+    const families = Array.from(new Set(filteredRows.map((r) => r.family))).sort();
+    return families.map((family) => ({
+      family,
+      rows: filteredRows.filter((r) => r.family === family),
+    }));
+  }, [filteredRows]);
 
   function col(id: ColumnId) {
     return visible.has(id);
@@ -360,39 +334,17 @@ export function ModelsTab() {
                       <span className="w-10 block" />
                     </TableHead>
                   )}
-
                   {col('name') && (
                     <TableHead>
                       <SortButton
                         label="Model"
-                        columnKey="name"
-                        currentKey={sortKey}
+                        active={sortDir !== null}
                         direction={sortDir}
                         onSort={handleSort}
                       />
                     </TableHead>
                   )}
-
-                  {col('provider') && (
-                    <TableHead>
-                      <Stack direction="horizontal" align="center" gap="tight">
-                        <SortButton
-                          label="Provider"
-                          columnKey="provider"
-                          currentKey={sortKey}
-                          direction={sortDir}
-                          onSort={handleSort}
-                        />
-                        <FilterPopover
-                          options={providerOptions}
-                          selected={filters.providers as Set<string>}
-                          onToggle={toggleProvider}
-                          onClear={() => setFilters((prev) => ({ ...prev, providers: new Set() }))}
-                        />
-                      </Stack>
-                    </TableHead>
-                  )}
-
+                  {col('displayName') && <TableHead>Name</TableHead>}
                   {col('status') && (
                     <TableHead>
                       <Stack direction="horizontal" align="center" gap="tight">
@@ -406,12 +358,10 @@ export function ModelsTab() {
                       </Stack>
                     </TableHead>
                   )}
-
                   {col('capabilities') && <TableHead>Capabilities</TableHead>}
                   {col('dialects') && <TableHead>Dialects</TableHead>}
                   {col('inputModalities') && <TableHead>Input</TableHead>}
                   {col('outputModalities') && <TableHead>Output</TableHead>}
-
                   <TableHead>
                     <span className="w-10 block" />
                   </TableHead>
@@ -422,140 +372,139 @@ export function ModelsTab() {
                 {status === 'error' ? (
                   <TableRow>
                     <TableCell colSpan={visibleCount + 1}>
-                      <Stack align="center" justify="center">
-                        <figure className="py-12 text-center m-0">
-                          <Stack gap="snug" align="center">
-                            <Text size="supporting" color="muted">
-                              Couldn&apos;t load models. The inference gateway may be unavailable.
-                            </Text>
-                            <button
-                              type="button"
-                              onClick={() => void refresh()}
-                              className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
-                            >
-                              Try again
-                            </button>
-                          </Stack>
-                        </figure>
-                      </Stack>
+                      <figure className="py-12 text-center m-0">
+                        <Stack gap="snug" align="center">
+                          <Text size="supporting" color="muted">
+                            Couldn&apos;t load models. The inference gateway may be unavailable.
+                          </Text>
+                          <button
+                            type="button"
+                            onClick={() => void refresh()}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
+                          >
+                            Try again
+                          </button>
+                        </Stack>
+                      </figure>
                     </TableCell>
                   </TableRow>
                 ) : filteredRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={visibleCount + 1}>
-                      <Stack align="center" justify="center">
-                        <figure className="py-8 text-center m-0">
-                          <Text size="supporting" color="muted">
-                            {filters.search ||
-                            filters.providers.size > 0 ||
-                            filters.statuses.size > 0
-                              ? 'No models match your filters.'
-                              : 'No models available.'}
-                          </Text>
-                        </figure>
-                      </Stack>
+                      <figure className="py-8 text-center m-0">
+                        <Text size="supporting" color="muted">
+                          {filters.search || filters.statuses.size > 0
+                            ? 'No models match your filters.'
+                            : 'No models available.'}
+                        </Text>
+                      </figure>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredRows.map((row) => {
-                    const isFav = favourites.has(row.id);
-                    return (
-                      <TableRow
-                        key={row.id}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => setSelectedModel(row)}
-                      >
-                        {col('favourite') && (
+                  familyGroups.flatMap(({ family, rows }) =>
+                    rows.map((row) => {
+                      const isFav = favourites.has(row.id);
+                      return (
+                        <TableRow
+                          key={row.id}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedModel(row)}
+                        >
+                          {col('favourite') && (
+                            <TableCell>
+                              <button
+                                type="button"
+                                aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavourite(row.id);
+                                }}
+                                className="inline-flex items-center justify-center rounded p-1 transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
+                              >
+                                <Heart
+                                  className={[
+                                    'size-3.5 transition-colors',
+                                    isFav
+                                      ? 'fill-rose-500 text-rose-500'
+                                      : 'text-muted-foreground opacity-30 hover:opacity-100',
+                                  ].join(' ')}
+                                />
+                              </button>
+                            </TableCell>
+                          )}
+
+                          {col('name') && (
+                            <TableCell>
+                              <Stack gap="none">
+                                <span className="mb-0.5 block text-[10px] uppercase tracking-wider">
+                                  <Text size="caption" color="subtle">
+                                    {family}
+                                  </Text>
+                                </span>
+                                <Text size="supporting" weight="emphasis" mono>
+                                  {row.id}
+                                </Text>
+                              </Stack>
+                            </TableCell>
+                          )}
+
+                          {col('displayName') && (
+                            <TableCell>
+                              <Text size="supporting" color="muted">
+                                {row.name}
+                              </Text>
+                            </TableCell>
+                          )}
+
+                          {col('status') && (
+                            <TableCell>
+                              <Stack direction="horizontal" align="center" gap="tight">
+                                <AvailabilityDot status={row.status} />
+                                <Text size="supporting" color="muted">
+                                  {row.status}
+                                </Text>
+                              </Stack>
+                            </TableCell>
+                          )}
+
+                          {col('capabilities') && (
+                            <TableCell>
+                              <Chips values={row.capabilities} />
+                            </TableCell>
+                          )}
+                          {col('dialects') && (
+                            <TableCell>
+                              <Chips values={row.dialects} />
+                            </TableCell>
+                          )}
+                          {col('inputModalities') && (
+                            <TableCell>
+                              <Chips values={row.input_modalities} />
+                            </TableCell>
+                          )}
+                          {col('outputModalities') && (
+                            <TableCell>
+                              <Chips values={row.output_modalities} />
+                            </TableCell>
+                          )}
+
                           <TableCell>
-                            <button
-                              type="button"
-                              aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="View model details"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleFavourite(row.id);
+                                setSelectedModel(row);
                               }}
-                              className="inline-flex items-center justify-center rounded p-1 transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
                             >
-                              <Heart
-                                className={[
-                                  'size-3.5 transition-colors',
-                                  isFav
-                                    ? 'fill-rose-500 text-rose-500'
-                                    : 'text-muted-foreground opacity-30 hover:opacity-100',
-                                ].join(' ')}
-                              />
-                            </button>
+                              <MoreVertical className="size-3.5" />
+                            </Button>
                           </TableCell>
-                        )}
-
-                        {col('name') && (
-                          <TableCell>
-                            <Text size="supporting" weight="emphasis" mono>
-                              {row.id}
-                            </Text>
-                          </TableCell>
-                        )}
-
-                        {col('provider') && (
-                          <TableCell>
-                            <Text size="supporting" color="muted">
-                              {row.owned_by}
-                            </Text>
-                          </TableCell>
-                        )}
-
-                        {col('status') && (
-                          <TableCell>
-                            <Stack direction="horizontal" align="center" gap="tight">
-                              <AvailabilityDot status={row.status} />
-                              <Text size="supporting" color="muted">
-                                {row.status}
-                              </Text>
-                            </Stack>
-                          </TableCell>
-                        )}
-
-                        {col('capabilities') && (
-                          <TableCell>
-                            <Chips values={row.capabilities} />
-                          </TableCell>
-                        )}
-
-                        {col('dialects') && (
-                          <TableCell>
-                            <Chips values={row.dialects} />
-                          </TableCell>
-                        )}
-
-                        {col('inputModalities') && (
-                          <TableCell>
-                            <Chips values={row.input_modalities} />
-                          </TableCell>
-                        )}
-
-                        {col('outputModalities') && (
-                          <TableCell>
-                            <Chips values={row.output_modalities} />
-                          </TableCell>
-                        )}
-
-                        {/* Actions */}
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="View model details"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedModel(row);
-                            }}
-                          >
-                            <MoreVertical className="size-3.5" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                        </TableRow>
+                      );
+                    }),
+                  )
                 )}
               </TableBody>
             </Table>

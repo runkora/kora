@@ -118,6 +118,8 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 		git worktree add --track -b "$(BRANCH)" "$$WORKTREE_DIR" "origin/$(BRANCH)"; \
 	else \
 		git worktree add -b "$(BRANCH)" "$$WORKTREE_DIR" origin/main; \
+		git push origin "$(BRANCH)"; \
+		git -C "$$WORKTREE_DIR" branch --set-upstream-to="origin/$(BRANCH)" "$(BRANCH)"; \
 	fi; \
 	echo "$(COLOR_YELLOW)Symlinking local dev files...$(COLOR_RESET)"; \
 	ln -s "$(CURDIR)/.env" "$$WORKTREE_DIR/.env"; \
@@ -132,7 +134,8 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 	echo "  Path:    $$(cd "$$WORKTREE_DIR" && pwd)"; \
 	echo ""; \
 	echo "  Next steps:"; \
-	echo "    cd $$WORKTREE_DIR && make dev-up"
+	echo "    cd $$WORKTREE_DIR && make dev-up"; \
+	echo ""
 
 .PHONY: worktree-remove
 worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature [FORCE=1])

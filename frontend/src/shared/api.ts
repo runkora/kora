@@ -47,7 +47,10 @@ export interface ModelObject {
   object: string;
   created: number;
   owned_by: string;
+  /** Canonical vendor/model-family identifier used for policy scope (e.g. "anthropic", "google", "meta"). */
+  family: string;
   display_name: string;
+  status: 'available' | 'unavailable';
   aliases: string[];
   input_modalities: Modality[];
   output_modalities: Modality[];
