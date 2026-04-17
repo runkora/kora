@@ -1,18 +1,9 @@
 import 'server-only';
-import { NextResponse } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { type NextRequest, NextResponse } from 'next/server';
+import { withAuth } from '@orbit/server/route-helpers';
 import { fetchModelsFromGateway } from '../../(dashboard)/model-gateway/_services/models-server';
 
-export async function GET(): Promise<NextResponse> {
-  const session = await getSession();
-
-  if (!isSessionValid(session)) {
-    return NextResponse.json(
-      { code: 'unauthorized', message: 'No valid session' },
-      { status: 401 },
-    );
-  }
-
+export const GET = withAuth(async (_req: NextRequest, session) => {
   const result = await fetchModelsFromGateway(session.accessToken);
 
   if (!result.ok) {
@@ -25,4 +16,4 @@ export async function GET(): Promise<NextResponse> {
   }
 
   return NextResponse.json({ data: result.models });
-}
+});

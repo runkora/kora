@@ -60,10 +60,12 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /chat/completions  OpenAI-dialect completions (streaming and non-streaming)
 //	POST   /messages          Anthropic Messages API dialect
 //	GET    /models            List available models
+//	GET    /usage             Inference usage log (authenticated principal, paginated)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
 	mux.Handle("GET /models", c.handleListModels)
+	mux.Handle("GET /usage", c.handleListUsage)
 }
 
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.

@@ -1,25 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutGrid, List, Search, ShieldCheck, Trash2, Plus, X } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  Heading,
-  Stack,
-  Text,
-  TableRoot,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@orbit/terra';
+import { Badge, Button, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
 import type { Grant, PrincipalType } from '../_types';
 import { createGrantAction, deleteGrantAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
@@ -134,92 +119,80 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
 
       {error && <ErrorBanner message={error} />}
 
-      {/* Search + view toggle */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <span className="relative max-w-xs flex-1">
-          <input
-            type="text"
-            placeholder="Search grants..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          />
-        </span>
-        <Stack direction="horizontal" gap="none">
-          <span className="[&>button]:rounded-r-none">
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'outline'}
-              size="icon-sm"
-              onClick={() => setViewMode('cards')}
-              aria-label="Card view"
-            >
-              <LayoutGrid className="size-3.5" />
-            </Button>
-          </span>
-          <span className="[&>button]:rounded-l-none -ml-px">
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'outline'}
-              size="icon-sm"
-              onClick={() => setViewMode('list')}
-              aria-label="List view"
-            >
-              <List className="size-3.5" />
-            </Button>
-          </span>
-        </Stack>
-      </Stack>
+      {/* Search + filter chips + view toggle — card mode only; list mode toolbar is owned by DataTable */}
+      {viewMode === 'cards' && (
+        <>
+          <Stack direction="horizontal" align="center" justify="between">
+            <span className="relative max-w-xs flex-1">
+              <input
+                type="text"
+                placeholder="Search grants..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              />
+            </span>
+            <GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />
+          </Stack>
 
-      {/* Filter chips */}
-      <Stack direction="horizontal" align="center" gap="snug" wrap>
-        <FilterChip
-          label="All"
-          count={grants.length}
-          active={typeFilter === 'all'}
-          onClick={() => setTypeFilter('all')}
-        />
-        {(['AGENT', 'HUMAN', 'SERVICE'] as PrincipalType[]).map((type) => (
-          <FilterChip
-            key={type}
-            label={type}
-            count={typeCounts[type] ?? 0}
-            active={typeFilter === type}
-            onClick={() => setTypeFilter(type)}
-          />
-        ))}
-        <span className="ml-auto">
-          <Text size="caption" color="subtle">
-            {filtered.length} of {grants.length} grants
-          </Text>
-        </span>
-      </Stack>
+          <Stack direction="horizontal" align="center" gap="snug" wrap>
+            <FilterChip
+              label="All"
+              count={grants.length}
+              active={typeFilter === 'all'}
+              onClick={() => setTypeFilter('all')}
+            />
+            {(['AGENT', 'HUMAN', 'SERVICE'] as PrincipalType[]).map((type) => (
+              <FilterChip
+                key={type}
+                label={type}
+                count={typeCounts[type] ?? 0}
+                active={typeFilter === type}
+                onClick={() => setTypeFilter(type)}
+              />
+            ))}
+            <span className="ml-auto">
+              <Text size="caption" color="subtle">
+                {filtered.length} of {grants.length} grants
+              </Text>
+            </span>
+          </Stack>
+        </>
+      )}
 
       {/* Content */}
-      {filtered.length === 0 ? (
-        search || typeFilter !== 'all' ? (
-          <EmptyState
-            icon={<Search className="size-5" />}
-            title="No matches"
-            description="No grants match your current filters. Try adjusting your search or clearing the filter."
-          />
+      {viewMode === 'cards' ? (
+        filtered.length === 0 ? (
+          search || typeFilter !== 'all' ? (
+            <EmptyState
+              icon={<Search className="size-5" />}
+              title="No matches"
+              description="No grants match your current filters. Try adjusting your search or clearing the filter."
+            />
+          ) : (
+            <EmptyState
+              icon={<ShieldCheck className="size-5" />}
+              title="No grants yet"
+              description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
+              action={
+                canWrite ? (
+                  <Button size="sm" onClick={() => setCreating(true)}>
+                    <Plus className="size-4 mr-1" />
+                    Create Grant
+                  </Button>
+                ) : undefined
+              }
+            />
+          )
         ) : (
-          <EmptyState
-            icon={<ShieldCheck className="size-5" />}
-            title="No grants yet"
-            description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
-            action={
-              canWrite ? (
-                <Button size="sm" onClick={() => setCreating(true)}>
-                  <Plus className="size-4 mr-1" />
-                  Create Grant
-                </Button>
-              ) : undefined
-            }
-          />
+          <GrantCardGrid grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
         )
-      ) : viewMode === 'cards' ? (
-        <GrantCardGrid grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
       ) : (
-        <GrantTable grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
+        <GrantTable
+          grants={grants}
+          onDelete={canWrite ? setDeleteCandidate : undefined}
+          viewToggle={<GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />}
+        />
       )}
 
       {/* Delete confirmation modal */}
@@ -350,64 +323,148 @@ function GrantCardGrid({
   );
 }
 
+// ── View toggle ──────────────────────────────────────────────────────────────
+
+function GrantViewToggle({
+  viewMode,
+  onToggle,
+}: {
+  viewMode: 'cards' | 'list';
+  onToggle: (mode: 'cards' | 'list') => void;
+}) {
+  return (
+    <Stack direction="horizontal" gap="none">
+      <span className="[&>button]:rounded-r-none">
+        <Button
+          variant={viewMode === 'cards' ? 'default' : 'outline'}
+          size="icon-sm"
+          onClick={() => onToggle('cards')}
+          aria-label="Card view"
+        >
+          <LayoutGrid className="size-3.5" />
+        </Button>
+      </span>
+      <span className="[&>button]:rounded-l-none -ml-px">
+        <Button
+          variant={viewMode === 'list' ? 'default' : 'outline'}
+          size="icon-sm"
+          onClick={() => onToggle('list')}
+          aria-label="List view"
+        >
+          <List className="size-3.5" />
+        </Button>
+      </span>
+    </Stack>
+  );
+}
+
 // ── Table view ──────────────────────────────────────────────────────────────
 
-function GrantTable({ grants, onDelete }: { grants: Grant[]; onDelete?: (grant: Grant) => void }) {
+const TYPE_OPTIONS = [
+  { value: 'AGENT', label: 'Agent' },
+  { value: 'HUMAN', label: 'Human' },
+  { value: 'SERVICE', label: 'Service' },
+];
+
+function GrantTable({
+  grants,
+  onDelete,
+  viewToggle,
+}: {
+  grants: Grant[];
+  onDelete?: (grant: Grant) => void;
+  viewToggle: React.ReactNode;
+}) {
+  const columns = useMemo<DataTableColumn<Grant>[]>(
+    () => [
+      {
+        id: 'principal',
+        header: 'Principal',
+        locked: true,
+        sortable: true,
+        sortAccessor: (g) => g.principal_id,
+        cell: (g) => (
+          <Text size="caption" mono>
+            {g.principal_id}
+          </Text>
+        ),
+      },
+      {
+        id: 'type',
+        header: 'Type',
+        sortable: true,
+        sortAccessor: (g) => g.principal_type,
+        filter: {
+          mode: 'client',
+          options: TYPE_OPTIONS,
+          filterFn: (g, selected) => selected.has(g.principal_type),
+        },
+        cell: (g) => <PrincipalBadge type={g.principal_type} />,
+      },
+      {
+        id: 'scopes',
+        header: 'Scopes',
+        cell: (g) => (
+          <Stack direction="horizontal" gap="tight" wrap>
+            {g.scopes.map((scope) => (
+              <ScopeChip key={scope} scope={scope} />
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        id: 'created',
+        header: 'Created',
+        sortable: true,
+        sortAccessor: (g) => g.created_at,
+        cell: (g) => (
+          <Text size="caption" color="subtle">
+            {formatDate(g.created_at)}
+          </Text>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        locked: true,
+        width: '3rem',
+        cell: (g) =>
+          onDelete ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(g);
+              }}
+              aria-label="Delete grant"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          ) : null,
+      },
+    ],
+    [onDelete],
+  );
+
   return (
-    <Card column>
-      <CardContent flush>
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Principal</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Scopes</TableHead>
-                <TableHead>Created</TableHead>
-                {onDelete && (
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {grants.map((grant) => (
-                <TableRow key={grant.id}>
-                  <TableCell>
-                    <Text size="caption" mono>
-                      {grant.principal_id}
-                    </Text>
-                  </TableCell>
-                  <TableCell>
-                    <PrincipalBadge type={grant.principal_type} />
-                  </TableCell>
-                  <TableCell>
-                    <Stack direction="horizontal" gap="tight" wrap>
-                      {grant.scopes.map((scope) => (
-                        <ScopeChip key={scope} scope={scope} />
-                      ))}
-                    </Stack>
-                  </TableCell>
-                  <TableCell>
-                    <Text size="caption" color="subtle">
-                      {formatDate(grant.created_at)}
-                    </Text>
-                  </TableCell>
-                  {onDelete && (
-                    <TableCell>
-                      <Button variant="ghost" size="icon-sm" onClick={() => onDelete(grant)}>
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </CardContent>
-    </Card>
+    <DataTable
+      data={grants}
+      columns={columns}
+      getRowKey={(g) => g.id}
+      noun="grants"
+      searchPlaceholder="Search grants…"
+      searchFn={(g, q) =>
+        g.principal_id.toLowerCase().includes(q) ||
+        g.principal_type.toLowerCase().includes(q) ||
+        g.scopes.some((s) => s.toLowerCase().includes(q))
+      }
+      defaultSortId="principal"
+      defaultSortDir="asc"
+      emptyMessage="No grants yet."
+      filteredEmptyMessage="No grants match your filters."
+      toolbarActions={viewToggle}
+    />
   );
 }
 

@@ -23,11 +23,15 @@ var tracer = otel.Tracer("inferencegw")
 
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
+// TokenID is only populated for PAT-authenticated requests (PrincipalType == "PAT");
+// it holds the PAT record UUID from claims.Orbit.SessionID. It is empty for all
+// other principal types — those callers have no PAT record to reference.
 type principal struct {
 	TenantID       string
 	PrincipalID    string
 	PrincipalType  string
 	IdentitySource string
+	TokenID        string // PAT record UUID; empty for non-PAT principals
 }
 
 // Service is the inference gateway service layer.
@@ -169,7 +173,7 @@ func (s *Service) ChatCompletion(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, err
 	}
 
@@ -178,7 +182,7 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -188,7 +192,7 @@ func (s *Service) ChatCompletion(
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 			return nil, err
 		}
 	}
@@ -202,7 +206,7 @@ func (s *Service) ChatCompletion(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -222,9 +226,11 @@ func (s *Service) ChatCompletion(
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectOpenAI,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
+		ModelFamily:      nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:  &strategy,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -291,7 +297,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, err
 	}
 
@@ -301,7 +307,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -312,7 +318,7 @@ func (s *Service) ChatCompletionStream(
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 			span.End()
-			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 			return nil, err
 		}
 	}
@@ -335,7 +341,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -363,7 +369,7 @@ func (s *Service) ChatCompletionStream(
 		if streamErr != nil {
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
 			return
 		}
 
@@ -377,9 +383,11 @@ func (s *Service) ChatCompletionStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
+			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectOpenAI,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
+			ModelFamily:      nullableText(capturedTarget.ModelFamily),
 			RoutingStrategy:  &capturedStrategy,
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
@@ -587,16 +595,33 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
+//
+// TokenID is populated only for PAT-authenticated callers. Two distinct fields
+// in the JWT carry related but non-equivalent identifiers:
+//   - claims.RegisteredClaims.ID (JTI) — a per-issuance revocation key stored
+//     in Redis; a new JTI is minted on every token issuance.
+//   - claims.Orbit.SessionID — the stable PAT record UUID; constant for the
+//     lifetime of the PAT regardless of how many tokens have been issued.
+//
+// We use SessionID (not JTI) so that all requests authenticated by the same
+// PAT are attributable to a single token_id in inference_usage.
 func principalFromClaims(ctx context.Context) (principal, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
 		return principal{}, fmt.Errorf("no verified claims in context: AuthMiddleware may not have run")
 	}
+
+	var tokenID string
+	if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+		tokenID = claims.Orbit.SessionID
+	}
+
 	return principal{
 		TenantID:       claims.Orbit.TenantID,
 		PrincipalID:    claims.Subject,
 		PrincipalType:  string(claims.Orbit.PrincipalType),
 		IdentitySource: string(claims.Orbit.IdentitySource),
+		TokenID:        tokenID,
 	}, nil
 }
 
@@ -606,6 +631,7 @@ func (s *Service) writeFailedUsage(
 	req ChatCompletionRequest,
 	dialect APIDialect,
 	provider *ProviderName,
+	modelFamily *string,
 	strategy *RoutingStrategy,
 	status UsageStatus,
 	errorCode string,
@@ -621,9 +647,11 @@ func (s *Service) writeFailedUsage(
 		TenantID:        p.TenantID,
 		PrincipalID:     p.PrincipalID,
 		PrincipalType:   p.PrincipalType,
+		TokenID:         nullableText(p.TokenID),
 		APIDialect:      dialect,
 		Provider:        provider,
 		ModelID:         req.Model,
+		ModelFamily:     modelFamily,
 		RoutingStrategy: strategy,
 		Status:          status,
 		ErrorCode:       errCodePtr,
@@ -720,6 +748,14 @@ func nthProvider(targets []RouteTarget) *ProviderName {
 	return nil
 }
 
+func nthModelFamily(targets []RouteTarget) *string {
+	if len(targets) > 0 && targets[0].ModelFamily != "" {
+		f := targets[0].ModelFamily
+		return &f
+	}
+	return nil
+}
+
 // ─── AnthropicMessages (zero-translation, non-streaming) ─────────────────────
 
 // AnthropicMessages handles a non-streaming POST /v1/messages request using the
@@ -756,7 +792,7 @@ func (s *Service) AnthropicMessages(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, err
 	}
 
@@ -764,7 +800,7 @@ func (s *Service) AnthropicMessages(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -774,7 +810,7 @@ func (s *Service) AnthropicMessages(
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 			return nil, err
 		}
 	}
@@ -791,7 +827,7 @@ func (s *Service) AnthropicMessages(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -805,9 +841,11 @@ func (s *Service) AnthropicMessages(
 		TenantID:         p.TenantID,
 		PrincipalID:      p.PrincipalID,
 		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectAnthropic,
 		Provider:         &usedTarget.Provider,
 		ModelID:          usedTarget.ModelID,
+		ModelFamily:      nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:  &strategy,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -867,7 +905,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 		return nil, err
 	}
 
@@ -876,7 +914,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -887,7 +925,7 @@ func (s *Service) AnthropicMessagesStream(
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 			span.End()
-			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
 			return nil, err
 		}
 	}
@@ -903,7 +941,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -923,7 +961,7 @@ func (s *Service) AnthropicMessagesStream(
 		if streamErr != nil {
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
 			return
 		}
 
@@ -939,9 +977,11 @@ func (s *Service) AnthropicMessagesStream(
 			TenantID:         p.TenantID,
 			PrincipalID:      p.PrincipalID,
 			PrincipalType:    p.PrincipalType,
+			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectAnthropic,
 			Provider:         &capturedTarget.Provider,
 			ModelID:          capturedTarget.ModelID,
+			ModelFamily:      nullableText(capturedTarget.ModelFamily),
 			RoutingStrategy:  &capturedStrategy,
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
@@ -962,4 +1002,29 @@ func (s *Service) AnthropicMessagesStream(
 	}()
 
 	return out, nil
+}
+
+// ─── ListUsage ───────────────────────────────────────────────────────────────
+
+// ListUsage returns a page of inference usage records for the authenticated
+// principal. TenantID and PrincipalID are always sourced from the verified JWT
+// claims — callers cannot supply their own values. TokenID, when provided,
+// must already belong to the authenticated principal; the compound
+// (tenant_id, principal_id, token_id) predicate prevents cross-user reads
+// without any additional pre-validation.
+func (s *Service) ListUsage(ctx context.Context, filter InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	// Always enforce tenant and principal scoping from verified claims.
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = &p.PrincipalID
+
+	records, hasNextPage, err := s.usage.List(ctx, filter)
+	if err != nil {
+		return nil, false, fmt.Errorf("list usage: %w", err)
+	}
+	return records, hasNextPage, nil
 }

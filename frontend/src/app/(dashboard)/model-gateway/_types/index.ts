@@ -13,6 +13,50 @@ import type {
 
 export type { ModelObject, ModelsListResponse, Modality, APIDialect, ModelCapability };
 
+// ── Inference Usage ───────────────────────────────────────────────────────────
+//
+// Mirrors the backend InferenceUsageRecord struct (inferencegw/models.go).
+// Mirrors UsageStatus constants in backend/internal/inferencegw/models.go.
+export type InferenceUsageStatus =
+  | 'success'
+  | 'provider_error'
+  | 'policy_denied'
+  | 'auth_error'
+  | 'timeout'
+  | 'routing_failed';
+
+// Mirrors InferenceUsageRecord in backend/internal/inferencegw/models.go.
+// Field names are snake_case matching the Go json tags.
+export interface InferenceUsageRecord {
+  id: string;
+  tenant_id: string;
+  principal_id: string;
+  principal_type: string;
+  token_id: string | null;
+  api_dialect: string;
+  provider: string | null;
+  model_id: string;
+  model_family: string | null;
+  routing_strategy: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  status: InferenceUsageStatus;
+  retry_count: number;
+  error_code: string | null;
+  latency_ms: number;
+  created_at: string; // RFC3339
+}
+
+// Mirrors listUsageResponse in backend/internal/inferencegw/handlers_usage.go.
+export interface ListUsageResponse {
+  data: InferenceUsageRecord[];
+  has_next_page: boolean;
+  next_cursor: string | null;
+  limit: number;
+}
+
 // ── Value-type unions ─────────────────────────────────────────────────────────
 
 export type ModelStatus = 'available' | 'unavailable';

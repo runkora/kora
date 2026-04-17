@@ -12,6 +12,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRoot,
@@ -21,6 +22,7 @@ import {
 import { DAILY_REQUESTS, type DailyRequestRow } from '../../_data/mock';
 import { TableControls, type Granularity, type Period } from './table-controls';
 import { aggregateByWeek, aggregateByMonth, filterByPeriod } from './utils/table-utils';
+import { fmtNumCompact } from '@orbit/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -55,12 +57,6 @@ function buildRows(
     successful: rows.reduce((s, r) => s + r.successful, 0),
     errored: rows.reduce((s, r) => s + r.errored, 0),
   }));
-}
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -118,19 +114,7 @@ export function RequestsTable() {
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5}>
-                    <Stack align="center" justify="center">
-                      <Stack asChild>
-                        <figure className="py-8 text-center m-0">
-                          <Text size="supporting" color="muted">
-                            No data for selected period
-                          </Text>
-                        </figure>
-                      </Stack>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
+                <TableEmpty colSpan={5} message="No data for selected period." />
               ) : (
                 rows.map((row) => {
                   const errorRate = ((row.errored / row.total) * 100).toFixed(1);
@@ -145,14 +129,14 @@ export function RequestsTable() {
                       <TableCell>
                         <Stack direction="horizontal" justify="end">
                           <Text size="supporting" mono tabular weight="emphasis">
-                            {fmtNum(row.total)}
+                            {fmtNumCompact(row.total)}
                           </Text>
                         </Stack>
                       </TableCell>
                       <TableCell>
                         <Stack direction="horizontal" justify="end">
                           <Text size="supporting" mono tabular color="status-healthy">
-                            {fmtNum(row.successful)}
+                            {fmtNumCompact(row.successful)}
                           </Text>
                         </Stack>
                       </TableCell>
@@ -164,7 +148,7 @@ export function RequestsTable() {
                             tabular
                             color={row.errored > 0 ? 'status-error' : 'muted'}
                           >
-                            {fmtNum(row.errored)}
+                            {fmtNumCompact(row.errored)}
                           </Text>
                         </Stack>
                       </TableCell>

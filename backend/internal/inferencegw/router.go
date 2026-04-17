@@ -36,11 +36,14 @@ const (
 
 // RouteTarget describes a single provider + model pair resolved by the routing
 // engine. Pricing is attached so the service layer can compute cost attribution
-// without a second cache lookup.
+// without a second cache lookup. ModelFamily carries the virtual model family
+// (e.g. "anthropic") so the service layer can persist it in inference_usage
+// without a second catalog lookup.
 type RouteTarget struct {
-	Provider ProviderName
-	ModelID  string
-	Pricing  ModelPricing
+	Provider    ProviderName
+	ModelID     string
+	ModelFamily string
+	Pricing     ModelPricing
 }
 
 // RoutingEngine resolves an inference request to an ordered list of provider
@@ -151,13 +154,18 @@ func (r *RoutingEngine) targetsForVirtualModel(
 		return nil, "", fmt.Errorf("%w: no enabled routes for model %q", ErrNoProvidersEnabled, vm.FullID())
 	}
 
+	// The switch only determines ordering; family propagation happens once below.
+	var ordered []VirtualModelRoute
+	var strategy RoutingStrategy
+
 	switch vm.Strategy {
 	case VirtualStrategyPriority:
-		return routesToTargets(enabled), StrategyPriority, nil
+		ordered = enabled
+		strategy = StrategyPriority
 
 	case VirtualStrategyWeighted:
-		ordered := weightedOrder(enabled)
-		return routesToTargets(ordered), StrategyWeighted, nil
+		ordered = weightedOrder(enabled)
+		strategy = StrategyWeighted
 
 	case VirtualStrategyLowestCost:
 		// SliceStable preserves the configured priority order as a tiebreaker
@@ -165,11 +173,14 @@ func (r *RoutingEngine) targetsForVirtualModel(
 		sort.SliceStable(enabled, func(i, j int) bool {
 			return enabled[i].unitCost() < enabled[j].unitCost()
 		})
-		return routesToTargets(enabled), StrategyLowestCost, nil
+		ordered = enabled
+		strategy = StrategyLowestCost
 
 	default:
 		return nil, "", fmt.Errorf("unknown virtual model strategy %q", vm.Strategy)
 	}
+
+	return routesToTargets(ordered, vm.Family), strategy, nil
 }
 
 // enabledRoutes returns the routes for vm that are individually enabled and
@@ -232,15 +243,17 @@ func weightedOrder(routes []VirtualModelRoute) []VirtualModelRoute {
 	return result
 }
 
-// routesToTargets converts VirtualModelRoutes to RouteTargets, using each
-// route's stored cost data for usage attribution.
-func routesToTargets(routes []VirtualModelRoute) []RouteTarget {
+// routesToTargets converts VirtualModelRoutes to RouteTargets, attaching the
+// model family for usage attribution. family comes from the parent VirtualModel
+// and is passed explicitly — it is not stored on the route row.
+func routesToTargets(routes []VirtualModelRoute, family string) []RouteTarget {
 	targets := make([]RouteTarget, len(routes))
 	for i, r := range routes {
 		targets[i] = RouteTarget{
-			Provider: r.Provider,
-			ModelID:  r.ModelID,
-			Pricing:  r.pricing(),
+			Provider:    r.Provider,
+			ModelID:     r.ModelID,
+			ModelFamily: family,
+			Pricing:     r.pricing(),
 		}
 	}
 	return targets

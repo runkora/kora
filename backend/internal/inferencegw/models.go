@@ -85,40 +85,50 @@ const (
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID               string
-	TenantID         string
-	PrincipalID      string
-	PrincipalType    string
-	APIDialect       APIDialect
-	Provider         *ProviderName // nil when routing failed
-	ModelID          string
-	RoutingStrategy  *RoutingStrategy // nil when routing failed
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-	EstimatedCostUSD float64
-	Status           UsageStatus
-	RetryCount       int
-	ErrorCode        *string
-	LatencyMS        int
-	CreatedAt        time.Time
+	ID               string           `json:"id"`
+	TenantID         string           `json:"tenant_id"`
+	PrincipalID      string           `json:"principal_id"`
+	PrincipalType    string           `json:"principal_type"`
+	TokenID          *string          `json:"token_id"`
+	APIDialect       APIDialect       `json:"api_dialect"`
+	Provider         *ProviderName    `json:"provider"`
+	ModelID          string           `json:"model_id"`
+	ModelFamily      *string          `json:"model_family"`
+	RoutingStrategy  *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens     int              `json:"prompt_tokens"`
+	CompletionTokens int              `json:"completion_tokens"`
+	TotalTokens      int              `json:"total_tokens"`
+	EstimatedCostUSD float64          `json:"estimated_cost_usd"`
+	Status           UsageStatus      `json:"status"`
+	RetryCount       int              `json:"retry_count"`
+	ErrorCode        *string          `json:"error_code"`
+	LatencyMS        int              `json:"latency_ms"`
+	CreatedAt        time.Time        `json:"created_at"`
 }
 
 // InferenceUsageFilter is used to query usage records.
 // TenantID is required — List and Get both reject an empty value to guarantee
 // tenant isolation. Callers must populate it from the verified principal, never
 // from user-supplied request data.
+//
+// TokenID, when set, restricts results to a single PAT. It must always be
+// paired with PrincipalID — the AND predicate on the verified principal_id
+// prevents any cross-user row access without additional pre-validation.
 type InferenceUsageFilter struct {
 	TenantID      string
 	PrincipalID   *string
+	TokenID       *string // PAT record UUID; nil returns all records for the principal
 	PrincipalType *string
 	Provider      *ProviderName
+	ModelID       *string // filter by model_id column value
+	ModelFamily   *string // filter by model_family column value
 	APIDialect    *APIDialect
 	Status        *UsageStatus
 	From          *time.Time
 	To            *time.Time
 	Limit         int
-	Offset        int
+	CursorTime    *time.Time // if set, return rows strictly before this timestamp
+	CursorID      *string    // paired with CursorTime for stable sub-second ordering
 }
 
 // ─── Sentinel errors ─────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRoot,
@@ -107,19 +108,7 @@ export function TokensTable() {
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <Stack align="center" justify="center">
-                      <Stack asChild>
-                        <figure className="py-8 text-center m-0">
-                          <Text size="supporting" color="muted">
-                            No data for selected period
-                          </Text>
-                        </figure>
-                      </Stack>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
+                <TableEmpty colSpan={4} message="No data for selected period." />
               ) : (
                 rows.map((row) => (
                   <TableRow key={row.period}>
