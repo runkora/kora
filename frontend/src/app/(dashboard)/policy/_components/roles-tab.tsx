@@ -1,25 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutGrid, List, Pencil, Search, Trash2, Plus, UserCheck, X } from 'lucide-react';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  Grid,
-  Heading,
-  Stack,
-  Text,
-  TableRoot,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@orbit/terra';
+import { Badge, Button, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
@@ -121,75 +106,59 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
 
       {error && <ErrorBanner message={error} />}
 
-      {/* Search + view toggle */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <span className="relative max-w-xs flex-1">
-          <input
-            type="text"
-            placeholder="Search roles..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          />
-        </span>
-        <Stack direction="horizontal" gap="none">
-          <span className="[&>button]:rounded-r-none">
-            <Button
-              variant={viewMode === 'cards' ? 'default' : 'outline'}
-              size="icon-sm"
-              onClick={() => setViewMode('cards')}
-              aria-label="Card view"
-            >
-              <LayoutGrid className="size-3.5" />
-            </Button>
+      {/* Search + view toggle — card mode only; list mode toolbar is owned by DataTable */}
+      {viewMode === 'cards' && (
+        <Stack direction="horizontal" align="center" justify="between">
+          <span className="relative max-w-xs flex-1">
+            <input
+              type="text"
+              placeholder="Search roles..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            />
           </span>
-          <span className="[&>button]:rounded-l-none -ml-px">
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'outline'}
-              size="icon-sm"
-              onClick={() => setViewMode('list')}
-              aria-label="List view"
-            >
-              <List className="size-3.5" />
-            </Button>
-          </span>
+          <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
         </Stack>
-      </Stack>
+      )}
 
       {/* Content */}
-      {filtered.length === 0 ? (
-        search ? (
-          <EmptyState
-            icon={<Search className="size-5" />}
-            title="No matches"
-            description="No roles match your search. Try a different query."
-          />
+      {viewMode === 'cards' ? (
+        filtered.length === 0 ? (
+          search ? (
+            <EmptyState
+              icon={<Search className="size-5" />}
+              title="No matches"
+              description="No roles match your search. Try a different query."
+            />
+          ) : (
+            <EmptyState
+              icon={<UserCheck className="size-5" />}
+              title="No roles yet"
+              description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
+              action={
+                canWrite ? (
+                  <Button size="sm" onClick={() => setCreating(true)}>
+                    <Plus className="size-4 mr-1" />
+                    Create Role
+                  </Button>
+                ) : undefined
+              }
+            />
+          )
         ) : (
-          <EmptyState
-            icon={<UserCheck className="size-5" />}
-            title="No roles yet"
-            description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
-            action={
-              canWrite ? (
-                <Button size="sm" onClick={() => setCreating(true)}>
-                  <Plus className="size-4 mr-1" />
-                  Create Role
-                </Button>
-              ) : undefined
-            }
+          <RoleCardGrid
+            roles={filtered}
+            onEdit={canWrite ? setEditingRole : undefined}
+            onDelete={canWrite ? setDeleteCandidate : undefined}
           />
         )
-      ) : viewMode === 'cards' ? (
-        <RoleCardGrid
-          roles={filtered}
-          onEdit={canWrite ? setEditingRole : undefined}
-          onDelete={canWrite ? setDeleteCandidate : undefined}
-        />
       ) : (
         <RoleTable
-          roles={filtered}
+          roles={roles}
           onEdit={canWrite ? setEditingRole : undefined}
           onDelete={canWrite ? setDeleteCandidate : undefined}
+          viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
 
@@ -314,97 +283,164 @@ function RoleCardGrid({
   );
 }
 
+// ── View toggle ──────────────────────────────────────────────────────────────
+
+function ViewToggle({
+  viewMode,
+  onToggle,
+}: {
+  viewMode: 'cards' | 'list';
+  onToggle: (mode: 'cards' | 'list') => void;
+}) {
+  return (
+    <Stack direction="horizontal" gap="none">
+      <span className="[&>button]:rounded-r-none">
+        <Button
+          variant={viewMode === 'cards' ? 'default' : 'outline'}
+          size="icon-sm"
+          onClick={() => onToggle('cards')}
+          aria-label="Card view"
+        >
+          <LayoutGrid className="size-3.5" />
+        </Button>
+      </span>
+      <span className="[&>button]:rounded-l-none -ml-px">
+        <Button
+          variant={viewMode === 'list' ? 'default' : 'outline'}
+          size="icon-sm"
+          onClick={() => onToggle('list')}
+          aria-label="List view"
+        >
+          <List className="size-3.5" />
+        </Button>
+      </span>
+    </Stack>
+  );
+}
+
 // ── Table view ──────────────────────────────────────────────────────────────
 
 function RoleTable({
   roles,
   onEdit,
   onDelete,
+  viewToggle,
 }: {
   roles: RoleEntry[];
   onEdit?: (role: RoleEntry) => void;
   onDelete?: (role: RoleEntry) => void;
+  viewToggle: React.ReactNode;
 }) {
-  const hasActions = onEdit || onDelete;
+  const columns = useMemo<DataTableColumn<RoleEntry>[]>(
+    () => [
+      {
+        id: 'role',
+        header: 'Role',
+        locked: true,
+        sortable: true,
+        sortAccessor: (r) => r.role,
+        cell: (r) => {
+          const isReserved = RESERVED_ROLES.has(r.role);
+          return (
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Text size="caption" mono weight="emphasis">
+                {r.role}
+              </Text>
+              {isReserved && (
+                <Badge variant="secondary" size="sm">
+                  reserved
+                </Badge>
+              )}
+            </Stack>
+          );
+        },
+      },
+      {
+        id: 'scopes',
+        header: 'Scopes',
+        cell: (r) => (
+          <Stack direction="horizontal" gap="tight" wrap>
+            {(r.scopes ?? []).map((scope) => (
+              <ScopeChip key={scope} scope={scope} />
+            ))}
+          </Stack>
+        ),
+      },
+      {
+        id: 'created',
+        header: 'Created',
+        sortable: true,
+        sortAccessor: (r) => r.created_at ?? '',
+        cell: (r) => {
+          const isReserved = RESERVED_ROLES.has(r.role);
+          return (
+            <Text size="caption" color="subtle">
+              {!isReserved && r.created_at ? formatDate(r.created_at) : '—'}
+            </Text>
+          );
+        },
+      },
+      {
+        id: 'actions',
+        header: '',
+        locked: true,
+        width: '5rem',
+        cell: (r) => {
+          const isReserved = RESERVED_ROLES.has(r.role);
+          if (isReserved || (!onEdit && !onDelete)) return null;
+          return (
+            <Stack direction="horizontal" gap="tight">
+              {onEdit && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(r);
+                  }}
+                  aria-label="Edit role"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(r);
+                  }}
+                  aria-label="Delete role"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              )}
+            </Stack>
+          );
+        },
+      },
+    ],
+    [onEdit, onDelete],
+  );
+
   return (
-    <Card column>
-      <CardContent flush>
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Role</TableHead>
-                <TableHead>Scopes</TableHead>
-                <TableHead>Created</TableHead>
-                {hasActions && (
-                  <TableHead>
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {roles.map((role) => {
-                const isReserved = RESERVED_ROLES.has(role.role);
-                const scopes = role.scopes ?? [];
-                return (
-                  <TableRow key={role.id}>
-                    <TableCell>
-                      <Stack direction="horizontal" align="center" gap="tight">
-                        <Text size="caption" mono weight="emphasis">
-                          {role.role}
-                        </Text>
-                        {isReserved && (
-                          <Badge variant="secondary" size="sm">
-                            reserved
-                          </Badge>
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="horizontal" gap="tight" wrap>
-                        {scopes.map((scope) => (
-                          <ScopeChip key={scope} scope={scope} />
-                        ))}
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      {!isReserved && role.created_at ? (
-                        <Text size="caption" color="subtle">
-                          {formatDate(role.created_at)}
-                        </Text>
-                      ) : (
-                        <Text size="caption" color="subtle">
-                          —
-                        </Text>
-                      )}
-                    </TableCell>
-                    {hasActions && (
-                      <TableCell>
-                        {!isReserved && (
-                          <Stack direction="horizontal" gap="tight">
-                            {onEdit && (
-                              <Button variant="ghost" size="icon-sm" onClick={() => onEdit(role)}>
-                                <Pencil className="size-3.5" />
-                              </Button>
-                            )}
-                            {onDelete && (
-                              <Button variant="ghost" size="icon-sm" onClick={() => onDelete(role)}>
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            )}
-                          </Stack>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </CardContent>
-    </Card>
+    <DataTable
+      data={roles}
+      columns={columns}
+      getRowKey={(r) => r.id}
+      noun="roles"
+      searchPlaceholder="Search roles…"
+      searchFn={(r, q) =>
+        r.role.toLowerCase().includes(q) ||
+        (r.scopes ?? []).some((s) => s.toLowerCase().includes(q))
+      }
+      defaultSortId="role"
+      defaultSortDir="asc"
+      emptyMessage="No roles yet."
+      filteredEmptyMessage="No roles match your search."
+      toolbarActions={viewToggle}
+    />
   );
 }
 

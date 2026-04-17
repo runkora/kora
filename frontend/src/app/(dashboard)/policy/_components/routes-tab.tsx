@@ -1,22 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import {
-  Badge,
-  Card,
-  CardContent,
-  Heading,
-  Stack,
-  Text,
-  TableRoot,
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@orbit/terra';
-import { Route, Search } from 'lucide-react';
+import { useMemo } from 'react';
+import { DataTable, Heading, Stack, Text } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/terra';
+import { Route } from 'lucide-react';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
 import { EmptyState } from './empty-state';
@@ -44,10 +31,6 @@ const METHOD_COLORS: Record<string, string> = {
 };
 
 export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps) {
-  const [search, setSearch] = useState('');
-  const [serviceFilter, setServiceFilter] = useState('');
-  const [methodFilter, setMethodFilter] = useState('');
-
   const flatRoutes = useMemo(() => {
     const rows: FlatRoute[] = [];
     for (const reg of initialRegistrations) {
@@ -64,35 +47,98 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
     return rows;
   }, [initialRegistrations]);
 
-  const services = useMemo(
-    () => Array.from(new Set(flatRoutes.map((r) => r.service))).sort(),
+  const serviceOptions = useMemo(
+    () =>
+      Array.from(new Set(flatRoutes.map((r) => r.service)))
+        .sort()
+        .map((s) => ({ value: s, label: s })),
     [flatRoutes],
   );
 
-  const methods = useMemo(
-    () => Array.from(new Set(flatRoutes.map((r) => r.method))).sort(),
+  const methodOptions = useMemo(
+    () =>
+      Array.from(new Set(flatRoutes.map((r) => r.method)))
+        .sort()
+        .map((m) => ({ value: m, label: m })),
     [flatRoutes],
   );
 
-  const filtered = useMemo(() => {
-    let result = flatRoutes;
-    if (serviceFilter) {
-      result = result.filter((r) => r.service === serviceFilter);
-    }
-    if (methodFilter) {
-      result = result.filter((r) => r.method === methodFilter);
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.pathPrefix.toLowerCase().includes(q) ||
-          r.requiredScope.toLowerCase().includes(q) ||
-          r.service.toLowerCase().includes(q),
-      );
-    }
-    return result;
-  }, [flatRoutes, search, serviceFilter, methodFilter]);
+  const columns = useMemo<DataTableColumn<FlatRoute>[]>(
+    () => [
+      {
+        id: 'service',
+        header: 'Service',
+        sortable: true,
+        sortAccessor: (r) => r.service,
+        filter: {
+          mode: 'client',
+          options: serviceOptions,
+          filterFn: (r, selected) => selected.has(r.service),
+        },
+        cell: (r) => (
+          <span className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
+            {r.service}
+          </span>
+        ),
+      },
+      {
+        id: 'method',
+        header: 'Method',
+        sortable: true,
+        sortAccessor: (r) => r.method,
+        filter: {
+          mode: 'client',
+          options: methodOptions,
+          filterFn: (r, selected) => selected.has(r.method),
+        },
+        cell: (r) => (
+          <span className={`font-mono text-xs ${METHOD_COLORS[r.method] ?? 'text-muted'}`}>
+            {r.method}
+          </span>
+        ),
+      },
+      {
+        id: 'pathPrefix',
+        header: 'Path Prefix',
+        sortable: true,
+        sortAccessor: (r) => r.pathPrefix,
+        cell: (r) => <span className="font-mono text-xs text-subtle">{r.pathPrefix}</span>,
+      },
+      {
+        id: 'requiredScope',
+        header: 'Required Scope',
+        sortable: true,
+        sortAccessor: (r) => r.requiredScope,
+        cell: (r) => <ScopeChip scope={r.requiredScope} />,
+      },
+    ],
+    [serviceOptions, methodOptions],
+  );
+
+  if (flatRoutes.length === 0 && !initialError) {
+    return (
+      <Stack gap="comfortable">
+        <Stack gap="none">
+          <Heading variant="title">Routes</Heading>
+          <Text size="supporting" color="muted">
+            Registered route→scope mappings across all services.
+          </Text>
+        </Stack>
+        <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+          <Text size="caption" color="muted">
+            Services register their route→scope mappings at startup. This is the source of truth for
+            what scope is required to call each endpoint — compiled into OPA bundles and enforced by
+            Envoy sidecars.
+          </Text>
+        </section>
+        <EmptyState
+          icon={<Route className="size-5" />}
+          title="No routes registered"
+          description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
+        />
+      </Stack>
+    );
+  }
 
   return (
     <Stack gap="comfortable">
@@ -103,7 +149,6 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </Stack>
 
-      {/* Info box */}
       <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Text size="caption" color="muted">
           Services register their route→scope mappings at startup. This is the source of truth for
@@ -114,114 +159,22 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
 
       {initialError && <ErrorBanner message={initialError} />}
 
-      {/* Filters */}
-      <Stack direction="horizontal" align="center" gap="snug" wrap>
-        <span className="relative flex-1 max-w-xs">
-          <input
-            type="text"
-            placeholder="Search routes..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          />
-        </span>
-        <select
-          value={serviceFilter}
-          onChange={(e) => setServiceFilter(e.target.value)}
-          aria-label="Filter by service"
-          className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
-        >
-          <option value="">All services</option>
-          {services.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={methodFilter}
-          onChange={(e) => setMethodFilter(e.target.value)}
-          aria-label="Filter by method"
-          className="h-8 rounded-md border border-border bg-surface px-3 text-sm text-foreground"
-        >
-          <option value="">All methods</option>
-          {methods.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <Text size="caption" color="subtle">
-          {filtered.length} routes
-        </Text>
-      </Stack>
-
-      {/* Content */}
-      {filtered.length === 0 ? (
-        search || serviceFilter || methodFilter ? (
-          <EmptyState
-            icon={<Search className="size-5" />}
-            title="No matches"
-            description="No routes match your current filters. Try adjusting your search or clearing the service/method filter."
-          />
-        ) : (
-          <EmptyState
-            icon={<Route className="size-5" />}
-            title="No routes registered"
-            description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
-          />
-        )
-      ) : (
-        <Card column>
-          <CardContent flush>
-            <TableRoot>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Service</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Path Prefix</TableHead>
-                    <TableHead>Required Scope</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((route) => (
-                    <TableRow
-                      key={`${route.service}-${route.method}-${route.pathPrefix}-${route.requiredScope}`}
-                    >
-                      <TableCell>
-                        <Badge variant="secondary" size="sm">
-                          {route.service}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`font-mono text-xs ${METHOD_COLORS[route.method] ?? 'text-muted'}`}
-                        >
-                          {route.method}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-mono text-xs text-subtle">{route.pathPrefix}</span>
-                      </TableCell>
-                      <TableCell>
-                        <ScopeChip scope={route.requiredScope} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableRoot>
-          </CardContent>
-          <footer className="px-4 py-2.5 border-t border-border-subtle">
-            <Text size="caption" color="muted">
-              {filtered.length} {filtered.length === 1 ? 'route' : 'routes'} · {services.length}{' '}
-              {services.length === 1 ? 'service' : 'services'} · recompiled into OPA bundles on
-              every change
-            </Text>
-          </footer>
-        </Card>
-      )}
+      <DataTable
+        data={flatRoutes}
+        columns={columns}
+        getRowKey={(r) => `${r.service}-${r.method}-${r.pathPrefix}-${r.requiredScope}`}
+        noun="routes"
+        searchPlaceholder="Search routes…"
+        searchFn={(r, q) =>
+          r.pathPrefix.toLowerCase().includes(q) ||
+          r.requiredScope.toLowerCase().includes(q) ||
+          r.service.toLowerCase().includes(q)
+        }
+        defaultSortId="service"
+        defaultSortDir="asc"
+        emptyMessage="No routes registered."
+        filteredEmptyMessage="No routes match your filters."
+      />
     </Stack>
   );
 }

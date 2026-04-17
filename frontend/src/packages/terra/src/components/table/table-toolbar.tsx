@@ -50,11 +50,14 @@ export interface TableToolbarProps {
     items: TableColumnVisibility[];
     onToggle: (id: string) => void;
   };
+
+  /** Extra content rendered in the toolbar after the search input. */
+  actions?: React.ReactNode;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function TableToolbar({ search, count, columns }: TableToolbarProps) {
+export function TableToolbar({ search, count, columns, actions }: TableToolbarProps) {
   const hasRight = count !== undefined || columns !== undefined;
 
   return (
@@ -66,6 +69,8 @@ export function TableToolbar({ search, count, columns }: TableToolbarProps) {
           placeholder={search.placeholder ?? 'Search…'}
         />
       )}
+
+      {actions}
 
       {hasRight && (
         <div className="ml-auto flex items-center gap-3">

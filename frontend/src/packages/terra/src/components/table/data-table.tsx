@@ -211,6 +211,8 @@ export interface DataTableProps<TData> {
   filteredEmptyMessage?: string;
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
+  /** Extra content rendered in the toolbar after the search input. */
+  toolbarActions?: React.ReactNode;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -237,6 +239,7 @@ export function DataTable<TData>({
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   onRowClick,
+  toolbarActions,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -410,6 +413,7 @@ export function DataTable<TData>({
           items: toolbarColumnItems,
           onToggle: (id) => table.getColumn(id)?.toggleVisibility(),
         }}
+        actions={toolbarActions}
       />
 
       <TableRoot>
