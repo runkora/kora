@@ -57,7 +57,7 @@ var usageParamBinders = []usageParamBinder{
 		return nil, nil
 	},
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
-		if raw := q.Get("model_name"); raw != "" {
+		if raw := q.Get("model_id"); raw != "" {
 			v := raw
 			f.ModelID = &v
 		}
@@ -115,7 +115,7 @@ var usageParamBinders = []usageParamBinder{
 // Query parameters:
 //
 //	token_id     — filter to a specific PAT (UUID string)
-//	model_name   — filter by model ID (e.g. "claude-sonnet-4-5-20250929-v1")
+//	model_id     — filter by model ID (e.g. "claude-sonnet-4-5-20250929-v1")
 //	model_family — filter by model family (e.g. "claude")
 //	provider     — filter by provider name  (bedrock | vertexai | azure)
 //	api_dialect  — filter by API dialect    (openai | anthropic)

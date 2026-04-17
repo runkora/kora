@@ -79,23 +79,28 @@ export function useLogs(
   // Active key filter — tracked so goNext/goPrev can pass it through.
   const activeKey = useRef<string | undefined>(undefined);
 
-  const load = useCallback(async (key: string | undefined, cursor: string | undefined) => {
-    setStatus('loading');
-    setError(null);
+  const load = useCallback(
+    async (key: string | undefined, cursor: string | undefined): Promise<boolean> => {
+      setStatus('loading');
+      setError(null);
 
-    const result = await fetchUsage({ key, cursor });
+      const result = await fetchUsage({ key, cursor });
 
-    if (result.error) {
-      setError(result.error);
-      setStatus('error');
-    } else {
-      setRecords(result.records);
-      setHasNextPage(result.hasNextPage);
-      setNextCursor(result.nextCursor);
-      setPats(result.pats);
-      setStatus('success');
-    }
-  }, []);
+      if (result.error) {
+        setError(result.error);
+        setStatus('error');
+        return false;
+      } else {
+        setRecords(result.records);
+        setHasNextPage(result.hasNextPage);
+        setNextCursor(result.nextCursor);
+        setPats(result.pats);
+        setStatus('success');
+        return true;
+      }
+    },
+    [],
+  );
 
   const refresh = useCallback(
     async (key?: string) => {
@@ -109,9 +114,14 @@ export function useLogs(
 
   const goNext = useCallback(async () => {
     if (!nextCursor) return;
+    const prevStack = [...cursorStack.current];
     cursorStack.current.push(nextCursor);
     setHasPrevPage(true);
-    await load(activeKey.current, nextCursor);
+    const ok = await load(activeKey.current, nextCursor);
+    if (!ok) {
+      cursorStack.current = prevStack;
+      setHasPrevPage(prevStack.length > 0);
+    }
   }, [nextCursor, load]);
 
   const goPrev = useCallback(async () => {

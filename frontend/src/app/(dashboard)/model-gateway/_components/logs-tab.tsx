@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
@@ -33,6 +33,11 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
 
   const searchParams = useSearchParams();
 
+  // Local state so the key filter's `selected` set stays in sync after changes.
+  // `replaceState` doesn't trigger Next.js router updates, so we can't derive
+  // this from searchParams; we own it here.
+  const [activeKeyId, setActiveKeyId] = useState(selectedKeyId);
+
   // Key filter changes update the URL for shareability (deep-links) and call
   // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
   // loading skeleton flash on every dropdown selection.
@@ -45,6 +50,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         params.delete('key');
       }
       window.history.replaceState(null, '', `?${params.toString()}`);
+      setActiveKeyId(keyId);
       refresh(keyId || undefined);
     },
     [searchParams, refresh],
@@ -130,9 +136,9 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       filter: {
         mode: 'server',
         options: keyOptions,
-        selected: new Set(selectedKeyId ? [selectedKeyId] : []),
+        selected: new Set(activeKeyId ? [activeKeyId] : []),
         // Single-select radio behaviour: clicking the active key deselects it.
-        onToggle: (val) => handleKeyChange(val === selectedKeyId ? '' : val),
+        onToggle: (val) => handleKeyChange(val === activeKeyId ? '' : val),
         onClear: () => handleKeyChange(''),
       },
       cell: (row) => {
@@ -159,18 +165,18 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       header: 'Key status',
       cell: (row) => {
         const pat = row.token_id ? patMap.get(row.token_id) : undefined;
-        const keyStatus: 'active' | 'expired' | 'revoked' | null = row.token_id
+        const keyStatus: 'active' | 'expired' | 'unknown' | null = row.token_id
           ? pat
             ? isExpired(pat.expires_at)
               ? 'expired'
               : 'active'
-            : 'revoked'
+            : 'unknown'
           : null;
 
-        if (keyStatus === 'revoked')
+        if (keyStatus === 'unknown')
           return (
-            <Badge variant="error" size="sm">
-              Revoked
+            <Badge variant="secondary" size="sm">
+              Unknown
             </Badge>
           );
         if (keyStatus === 'expired')
