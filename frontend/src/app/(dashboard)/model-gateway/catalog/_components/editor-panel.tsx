@@ -13,12 +13,12 @@ import {
   NativeSelect,
   Stack,
   Text,
+  Toggle,
 } from '@orbit/terra';
 import type { VirtualModel, ProviderModel } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
-import { Toggle } from '@/shared/ui/toggle';
 
 interface EditorPanelProps {
   model: VirtualModel | null;

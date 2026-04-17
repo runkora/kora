@@ -37,6 +37,9 @@ export type { InputProps } from './components/input';
 export { NativeSelect } from './components/native-select';
 export type { NativeSelectProps } from './components/native-select';
 
+export { Toggle } from './components/toggle';
+export type { ToggleProps } from './components/toggle';
+
 export { Field, FieldHint, FieldError } from './components/field';
 export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';
 

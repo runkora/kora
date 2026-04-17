@@ -20,10 +20,10 @@ import {
   Separator,
   Stack,
   Text,
+  Toggle,
 } from '@orbit/terra';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
-import { Toggle } from '@/shared/ui/toggle';
 
 interface RoutesTabProps {
   model: VirtualModel;

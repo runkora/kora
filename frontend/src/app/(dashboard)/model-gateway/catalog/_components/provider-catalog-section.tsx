@@ -18,11 +18,11 @@ import {
   TableRoot,
   TableRow,
   Text,
+  Toggle,
 } from '@orbit/terra';
 import type { ProviderModel, Provider } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
 import { ProviderBadge } from './provider-badge';
-import { Toggle } from '@/shared/ui/toggle';
 
 interface ProviderCatalogSectionProps {
   models: ProviderModel[];

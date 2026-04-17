@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { forwardToGateway } from '@/lib/server/catalog-gateway';
+import { forwardToGateway } from '@orbit/server/catalog-gateway';
 
 type Params = Promise<{ provider: string; modelId: string }>;
 
