@@ -3,7 +3,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutGrid, List, Pencil, Search, Trash2, Plus, UserCheck, X } from 'lucide-react';
-import { Badge, Button, Card, CardContent, CardFooter, CardHeader, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  DataTable,
+  Grid,
+  Heading,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
