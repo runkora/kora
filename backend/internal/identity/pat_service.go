@@ -18,8 +18,9 @@ import (
 )
 
 // CreatePAT issues a new Personal Access Token for the authenticated user.
-// The requested scopes are validated against the user's current effective scopes
-// and a policy grant is created atomically with the PAT record.
+// The requested scopes are validated against the user's current effective scopes.
+// A corresponding policy grant is created as part of PAT issuance, but this is
+// not atomic with PAT persistence; if a later step fails, cleanup is best-effort.
 // The raw JWT is returned exactly once in CreatePATResponse.Token — prefixed
 // with "orb_" for visual identification. Only the SHA-256 hash is persisted.
 func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userClaims *PlatformClaims, req CreatePATRequest) (*CreatePATResponse, error) {
@@ -197,16 +198,12 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 		return err
 	}
 
-	// Delete old grant, create new one.
-	if pat.GrantID != nil {
-		err = s.policyClient.DeleteGrant(ctx, *pat.GrantID)
-		if err != nil && !errors.Is(err, policyclient.ErrGrantNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "delete old grant failed")
-			return fmt.Errorf("delete old PAT grant: %w", err)
-		}
-	}
-
+	// Create new grant first, then persist the PAT update, then remove old grant.
+	// This ordering ensures the PAT is never left without a valid grant:
+	//   - If CreateGrant fails:    old grant still active, no change.
+	//   - If UpdateScopes fails:   new grant is cleaned up, old grant still referenced.
+	//   - If old grant deletion fails: it becomes an inert orphan — the PAT now
+	//     references the new grant so no live token can exercise the old grant.
 	newGrantID, err := s.policyClient.CreateGrant(ctx, tenantID, "PAT", patID, req.Scopes)
 	if err != nil {
 		span.RecordError(err)
@@ -214,11 +211,13 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 		return fmt.Errorf("create new PAT grant: %w", err)
 	}
 
+	oldGrantID := pat.GrantID
+
 	if err := s.pats.UpdateScopes(ctx, tenantID, userID, patID, req.Scopes, newGrantID); err != nil {
-		// Grant created but PAT update failed — attempt cleanup.
+		// DB update failed — clean up the new grant; old grant remains active.
 		if delErr := s.policyClient.DeleteGrant(ctx, newGrantID); delErr != nil {
 			span.RecordError(delErr)
-			s.logger.Error(ctx, "PAT scope update failed and grant cleanup failed",
+			s.logger.Error(ctx, "PAT scope update failed and new grant cleanup failed",
 				logging.Field{Key: "pat.id", Value: patID},
 				logging.Field{Key: "grant_id", Value: newGrantID},
 				logging.Field{Key: "error", Value: delErr.Error()},
@@ -227,6 +226,19 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPATUpdateFailed.Error())
 		return fmt.Errorf("update PAT scopes: %w", err)
+	}
+
+	// PAT now references newGrantID. Remove the old grant — best-effort; failure
+	// leaves an inert orphan (no live token can exercise it).
+	if oldGrantID != nil {
+		if delErr := s.policyClient.DeleteGrant(ctx, *oldGrantID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
+			span.RecordError(delErr)
+			s.logger.Error(ctx, "failed to delete old PAT grant after scope update",
+				logging.Field{Key: "pat.id", Value: patID},
+				logging.Field{Key: "grant_id", Value: *oldGrantID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+		}
 	}
 
 	span.SetStatus(codes.Ok, "PAT scopes updated")

@@ -174,6 +174,74 @@ func TestListUsage_RepoError_IsWrapped(t *testing.T) {
 	}
 }
 
+// ── UsageStats ────────────────────────────────────────────────────────────────
+
+func TestUsageStats_NoClaims_ReturnsErrTokenParseFailed(t *testing.T) {
+	t.Parallel()
+	svc := newTestUsageService(t, newMockUsageRepo())
+	_, err := svc.UsageStats(context.Background())
+	if !errors.Is(err, ErrTokenParseFailed) {
+		t.Errorf("error: got %v, want wrapping ErrTokenParseFailed", err)
+	}
+}
+
+func TestUsageStats_EnforcesTenantAndPrincipalScoping(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.statsResult = []TokenUsageStat{
+		{TokenID: "pat-1", RequestCount: 5, LastUsed: "2026-04-18T10:00:00Z"},
+	}
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("tenant-X", "user-Y", token.PrincipalTypeHuman, ""))
+	stats, err := svc.UsageStats(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("stats: got %d entries, want 1", len(stats))
+	}
+	if stats[0].TokenID != "pat-1" {
+		t.Errorf("TokenID: got %q, want %q", stats[0].TokenID, "pat-1")
+	}
+	// Verify scoping — repo captures tenantID and principalID.
+	f := repo.LastFilter()
+	if f.TenantID != "tenant-X" {
+		t.Errorf("TenantID passed to repo: got %q, want %q", f.TenantID, "tenant-X")
+	}
+	if f.PrincipalID == nil || *f.PrincipalID != "user-Y" {
+		t.Errorf("PrincipalID passed to repo: got %v, want pointer to %q", f.PrincipalID, "user-Y")
+	}
+}
+
+func TestUsageStats_RepoError_IsWrapped(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.statsErr = errors.New("db connection lost")
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	_, err := svc.UsageStats(ctx)
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+func TestUsageStats_EmptyResult_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo() // statsResult is nil by default
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	stats, err := svc.UsageStats(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stats) != 0 {
+		t.Errorf("expected empty stats, got %d entries", len(stats))
+	}
+}
+
 func TestListUsage_PATScoping_TokenIDPassedThrough(t *testing.T) {
 	t.Parallel()
 	const patID = "pat-abc"

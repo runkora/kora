@@ -17,6 +17,8 @@ type mockInferenceUsageRepository struct {
 	createErr   error
 	listErr     error
 	getErr      error
+	statsResult []TokenUsageStat
+	statsErr    error
 	lastFilter  InferenceUsageFilter // captured on each List call
 }
 
@@ -52,8 +54,14 @@ func (m *mockInferenceUsageRepository) LastFilter() InferenceUsageFilter {
 	return m.lastFilter
 }
 
-func (m *mockInferenceUsageRepository) UsageStats(_ context.Context, _, _ string) ([]TokenUsageStat, error) {
-	return nil, nil
+func (m *mockInferenceUsageRepository) UsageStats(_ context.Context, tenantID, principalID string) ([]TokenUsageStat, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastFilter = InferenceUsageFilter{TenantID: tenantID, PrincipalID: &principalID}
+	if m.statsErr != nil {
+		return nil, m.statsErr
+	}
+	return m.statsResult, nil
 }
 
 func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id string) (InferenceUsageRecord, error) {

@@ -1,6 +1,6 @@
 // Package policy provides an HTTP client for managing policy grants via the
 // policy service API. Used by the identity service to create and delete PAT
-// grants atomically with PAT lifecycle operations.
+// grants as part of PAT lifecycle workflows via separate HTTP operations.
 package policy
 
 import (

@@ -232,10 +232,10 @@ The identity service handler:
 1. Resolves the caller's effective scopes using the in-process policy evaluator (same library used by the inference gateway — `internal/platform/policy`).
 2. Validates each requested scope exists in the tenant vocabulary.
 3. Validates each requested scope is covered by the caller's effective scopes. Requests containing out-of-bounds scopes are rejected with `400 Bad Request` and a descriptive error identifying the offending scopes.
-4. Creates the PAT record in `user_pat_tokens`.
-5. Creates a `policy_grant` row: `(tenant_id, principal_type=PAT, principal_id=<pat_id>, scopes=[...])`.
+4. Creates a `policy_grant` via the policy service HTTP API: `(tenant_id, principal_type=PAT, principal_id=<pat_id>, scopes=[...])`.
+5. Persists the PAT record in `user_pat_tokens`.
 
-Steps 4 and 5 are executed in a single database transaction. If the grant creation fails, the PAT record is rolled back.
+These steps are **not** executed in a single database transaction. Grant creation occurs through an HTTP call before PAT persistence. If PAT persistence fails after the grant is created, the identity service attempts best-effort deletion of the newly created grant. If that cleanup also fails, a temporary orphaned grant may remain — it is inert (no PAT JWT was issued, so no token can exercise it) and can be resolved by operational cleanup.
 
 The PAT `id` (UUID) is used as `principal_id` in the grant, not the issuing user's `sub`. This ensures each PAT has its own independently revocable grant.
 
@@ -256,7 +256,7 @@ The handler first verifies that the PAT identified by `{id}` belongs to the call
 
 Validation is otherwise identical to creation: the new scope set must be a subset of the caller's current effective scopes at update time. The full scope set is replaced (not merged) — the caller must send the complete desired scope list.
 
-The grant is updated via delete + recreate within a transaction, consistent with the existing grants no-update pattern.
+The grant is updated via create-new → update-DB → delete-old. This ordering ensures the PAT always references a valid grant: if the DB update fails the new grant is cleaned up and the old grant remains active; if old-grant deletion fails it becomes an inert orphan (no live token references it).
 
 **Scope reduction** (removing scopes the user still holds) is always permitted without re-validation — a user can always narrow a PAT's access.
 

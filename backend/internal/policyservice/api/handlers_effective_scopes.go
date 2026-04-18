@@ -29,8 +29,8 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 
 	var roles []string
 	if raw := claims.Orbit.Claims["roles"]; raw != "" {
-		for r := range strings.SplitSeq(raw, ",") {
-			if t := strings.TrimSpace(r); t != "" {
+		for role := range strings.SplitSeq(raw, ",") {
+			if t := strings.TrimSpace(role); t != "" {
 				roles = append(roles, t)
 			}
 		}
