@@ -38,6 +38,9 @@ interface GrantsTabProps {
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
   initialError: string | null;
+  page: number;
+  limit: number;
+  total: number;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -48,6 +51,9 @@ export function GrantsTab({
   patAttribution,
   userAttribution,
   initialError,
+  page,
+  limit,
+  total,
 }: GrantsTabProps) {
   const router = useRouter();
   const { scopes: sessionScopes } = usePermissions();
@@ -183,7 +189,7 @@ export function GrantsTab({
             ))}
             <span className="ml-auto">
               <Text size="caption" color="subtle">
-                {filtered.length} of {grants.length} grants
+                {filtered.length} shown · {total} total
               </Text>
             </span>
           </Stack>
@@ -232,6 +238,9 @@ export function GrantsTab({
         />
       )}
 
+      {/* Pagination */}
+      {total > limit && <GrantsPagination page={page} limit={limit} total={total} />}
+
       {/* Delete confirmation modal */}
       <DeleteGrantModal
         grant={deleteCandidate}
@@ -255,6 +264,46 @@ export function GrantsTab({
           router.refresh();
         }}
       />
+    </Stack>
+  );
+}
+
+// ── Pagination ───────────────────────────────────────────────────────────────
+
+function GrantsPagination({ page, limit, total }: { page: number; limit: number; total: number }) {
+  const router = useRouter();
+  const totalPages = Math.ceil(total / limit);
+  const start = (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+
+  return (
+    <Stack direction="horizontal" align="center" justify="between">
+      <Text size="caption" color="subtle">
+        {start}–{end} of {total} grants
+      </Text>
+      <Stack direction="horizontal" gap="snug">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => router.push(`?page=${page - 1}`)}
+        >
+          Previous
+        </Button>
+        <span className="flex items-center px-2">
+          <Text size="caption" color="muted">
+            Page {page} of {totalPages}
+          </Text>
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => router.push(`?page=${page + 1}`)}
+        >
+          Next
+        </Button>
+      </Stack>
     </Stack>
   );
 }

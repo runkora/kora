@@ -19,6 +19,9 @@ export interface Grant {
 
 export interface GrantsListResponse {
   grants: Grant[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CreateGrantRequest {

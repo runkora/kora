@@ -289,7 +289,7 @@ Steps 1 and 2 are best-effort ordered: JTI blocklisting is the primary revocatio
 }
 ```
 
-Scopes are read from the grant, not from the JWT (the JWT does not carry scopes). If no grant exists for a PAT (e.g., it was created before this ADR landed), `scopes` is returned as an empty array.
+Scopes are read from the `user_pat_tokens.scopes` JSONB column, which is written at PAT creation and updated via `PATCH /tokens/{id}/scopes`. The JWT does not carry scopes. If a PAT was created before this ADR and has a null scopes column, `scopes` is returned as an empty array.
 
 ### OPA Policy: `authz.rego`
 

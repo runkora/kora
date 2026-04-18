@@ -126,11 +126,16 @@ func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	limit, offset := parsePagination(r)
-	result, err := c.svc.ListGrants(ctx, tenantID, grants.PrincipalType(q.Get("principal_type")), q.Get("principal_id"), limit, offset)
+	result, total, err := c.svc.ListGrants(ctx, tenantID, grants.PrincipalType(q.Get("principal_type")), q.Get("principal_id"), limit, offset)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"grants": result})
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"grants": result,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }

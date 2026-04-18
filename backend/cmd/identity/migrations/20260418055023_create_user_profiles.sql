@@ -4,7 +4,7 @@ CREATE TABLE user_profiles (
     id           TEXT        NOT NULL,
     tenant_id    TEXT        NOT NULL,
     email        TEXT        NOT NULL,
-    display_name TEXT        NOT NULL,
+    display_name TEXT        NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (id, tenant_id)

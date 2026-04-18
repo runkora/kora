@@ -123,7 +123,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 	return nil
 }
 
-func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, error) {
+func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, int, error) {
 	if principalID != "" {
 		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID, limit, offset)
 	}
@@ -264,7 +264,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID str
 		}
 	}
 
-	grantList, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
+	grantList, _, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("list grants: %w", err)
 	}

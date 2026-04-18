@@ -67,8 +67,6 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("DELETE /tokens/{id}", auth, c.handleRevokePAT)
 
 	// User profile resolution: requires a human session token.
-	// GET /users?ids=... must be registered before GET /users/{id} so the
-	// query-string variant is not captured as a path parameter.
 	mux.HandleWithMiddleware("GET /users", auth, c.handleListUsers)
 	mux.HandleWithMiddleware("GET /users/{id}", auth, c.handleGetUser)
 }
