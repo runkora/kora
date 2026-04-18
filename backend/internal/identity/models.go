@@ -221,6 +221,64 @@ type ListPATsResponse struct {
 	Tokens []PATSummary `json:"tokens"`
 }
 
+// ─── PAT attribution types ────────────────────────────────────────────────────
+
+// PATOwnerInfo carries the user_id and token name for a single PAT, used
+// internally when resolving attribution without a round-trip through profiles.
+type PATOwnerInfo struct {
+	UserID  string
+	PATName string
+}
+
+// PATGrantAttribution is a single entry in PATAttributionResponse, bundling
+// the token's human-readable name with its owning user's profile.
+type PATGrantAttribution struct {
+	PATName string               `json:"pat_name"`
+	Owner   *UserProfileResponse `json:"owner,omitempty"`
+}
+
+// PATAttributionResponse is returned by GET /identity/tokens/attribution.
+// The Attribution map key is the PAT UUID.
+type PATAttributionResponse struct {
+	Attribution map[string]PATGrantAttribution `json:"attribution"`
+}
+
+// ─── User profile types ───────────────────────────────────────────────────────
+
+// UserProfile is a persistent, upserted record of a human principal's identity
+// attributes. Populated from verified OIDC claims on every successful login.
+type UserProfile struct {
+	ID          string    `db:"id"`
+	TenantID    string    `db:"tenant_id"`
+	Email       string    `db:"email"`
+	DisplayName string    `db:"display_name"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+}
+
+// UserProfileResponse is a single user entry in list and detail responses.
+type UserProfileResponse struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+}
+
+// UserProfilesResponse is returned by GET /identity/users.
+type UserProfilesResponse struct {
+	Users []UserProfileResponse `json:"users"`
+	Total int                   `json:"total"`
+	Page  int                   `json:"page"`
+	Limit int                   `json:"limit"`
+}
+
+// UserProfileFilter is the query model for listing user profiles.
+type UserProfileFilter struct {
+	IDs    []string // optional; when non-empty, only these IDs are returned
+	Search string   // optional; when non-empty, filters by email/display_name ILIKE
+	Page   int      // 1-based; defaults to 1
+	Limit  int      // defaults to 20, max 100
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
@@ -247,6 +305,7 @@ var (
 	ErrPATRevokeFailed        = errors.New("PAT revocation failed")
 	ErrPATScopesRequired      = errors.New("at least one scope is required")
 	ErrPATUpdateFailed        = errors.New("PAT scope update failed")
+	ErrUserProfileNotFound    = errors.New("user profile not found")
 )
 
 // ErrPATScopesForbiddenError is returned when the requested scopes exceed the

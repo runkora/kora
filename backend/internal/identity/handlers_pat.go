@@ -11,6 +11,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
+const maxAttributionIDs = 100
+
 const maxScopesPerPAT = 100
 
 var scopeNameRe = regexp.MustCompile(`^[a-z0-9:_-]{1,255}$`)
@@ -221,4 +223,50 @@ func (c *Controller) handleRevokePAT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// handleGetPATAttribution handles GET /identity/tokens/attribution?ids=<comma-separated PAT UUIDs>.
+// Resolves a batch of PAT IDs to the user profiles that own them.
+// Intended for admin dashboards that display PAT grants with human-readable attribution.
+// IDs not found or whose owners have no profile are silently omitted from the response.
+func (c *Controller) handleGetPATAttribution(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+
+	rawIDs := r.URL.Query().Get("ids")
+	if rawIDs == "" {
+		api.JSON(ctx, w, c.logger, http.StatusOK, PATAttributionResponse{
+			Attribution: map[string]PATGrantAttribution{},
+		})
+		return
+	}
+
+	var patIDs []string
+	for id := range strings.SplitSeq(rawIDs, ",") {
+		if t := strings.TrimSpace(id); t != "" {
+			patIDs = append(patIDs, t)
+		}
+	}
+	if len(patIDs) > maxAttributionIDs {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeInvalidField,
+				fmt.Sprintf("ids must not exceed %d entries", maxAttributionIDs),
+				map[string]any{"field": "ids", "max": maxAttributionIDs}), nil)
+		return
+	}
+
+	attribution, err := c.svc.GetPATAttribution(ctx, claims.Orbit.TenantID, patIDs)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "failed to resolve PAT attribution", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, PATAttributionResponse{Attribution: attribution})
 }

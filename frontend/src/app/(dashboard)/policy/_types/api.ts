@@ -6,7 +6,7 @@
 
 // ── Grants ───────────────────────────────────────────────────────────────────
 
-export type PrincipalType = 'AGENT' | 'HUMAN' | 'SERVICE';
+export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
 
 export interface Grant {
   id: string;

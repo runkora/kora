@@ -9,6 +9,25 @@ import type {
   UpdatePATScopesRequest,
 } from '@orbit/shared/api';
 
+export interface PATAttributionEntry {
+  id: string;
+  email: string;
+  display_name: string;
+}
+
+export interface PATGrantAttribution {
+  pat_name: string;
+  owner?: PATAttributionEntry;
+}
+
+export interface PATAttributionResponse {
+  attribution: Record<string, PATGrantAttribution>;
+}
+
+export type GetPATAttributionResult =
+  | { ok: true; attribution: Record<string, PATGrantAttribution> }
+  | { ok: false; status: number; message: string };
+
 // ── Result types ──────────────────────────────────────────────────────────────
 
 export type ListPATsResult =
@@ -90,6 +109,71 @@ export async function updatePATScopesInIdentity(
       Authorization: `Bearer ${accessToken}`,
     });
     return { ok: true };
+  } catch (err) {
+    return fromApiError(err);
+  }
+}
+
+export async function fetchPATAttribution(
+  accessToken: string,
+  patIds: string[],
+): Promise<GetPATAttributionResult> {
+  if (patIds.length === 0) return { ok: true, attribution: {} };
+  try {
+    const ids = patIds.join(',');
+    const data = await orbitClient.get<PATAttributionResponse>(
+      `/identity/tokens/attribution?ids=${encodeURIComponent(ids)}`,
+      { Authorization: `Bearer ${accessToken}` },
+    );
+    return { ok: true, attribution: data?.attribution ?? {} };
+  } catch (err) {
+    return fromApiError(err);
+  }
+}
+
+// ── Identity user profiles ────────────────────────────────────────────────────
+
+interface IdentityUsersResponse {
+  users: PATAttributionEntry[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type GetUsersResult =
+  | { ok: true; users: PATAttributionEntry[] }
+  | { ok: false; status: number; message: string };
+
+export async function fetchUsersByIDs(
+  accessToken: string,
+  userIds: string[],
+): Promise<GetUsersResult> {
+  if (userIds.length === 0) return { ok: true, users: [] };
+  try {
+    const ids = userIds.join(',');
+    const data = await orbitClient.get<IdentityUsersResponse>(
+      `/identity/users?ids=${encodeURIComponent(ids)}&limit=100`,
+      { Authorization: `Bearer ${accessToken}` },
+    );
+    return { ok: true, users: data?.users ?? [] };
+  } catch (err) {
+    return fromApiError(err);
+  }
+}
+
+export async function searchUsers(
+  accessToken: string,
+  query: string,
+  limit = 20,
+): Promise<GetUsersResult> {
+  try {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (query.trim()) params.set('search', query.trim());
+    const data = await orbitClient.get<IdentityUsersResponse>(
+      `/identity/users?${params.toString()}`,
+      { Authorization: `Bearer ${accessToken}` },
+    );
+    return { ok: true, users: data?.users ?? [] };
   } catch (err) {
     return fromApiError(err);
   }

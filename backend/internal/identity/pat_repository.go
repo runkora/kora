@@ -26,6 +26,10 @@ type PATRepository interface {
 	// Returns ErrPATNotFound if no matching active record exists.
 	GetByID(ctx context.Context, tenantID, userID, id string) (*PAT, error)
 
+	// GetOwnersByIDs returns a map of pat_id → PATOwnerInfo for the given PAT IDs
+	// within a tenant. IDs not found in the table are simply omitted.
+	GetOwnersByIDs(ctx context.Context, tenantID string, ids []string) (map[string]PATOwnerInfo, error)
+
 	// UpdateScopes replaces the scopes and grant_id on an existing PAT.
 	UpdateScopes(ctx context.Context, tenantID, userID, id string, scopes []string, grantID string) error
 
@@ -133,6 +137,36 @@ func (r *postgresPATRepository) GetByID(ctx context.Context, tenantID, userID, i
 		return nil, fmt.Errorf("unmarshal scopes: %w", err)
 	}
 	return &p, nil
+}
+
+func (r *postgresPATRepository) GetOwnersByIDs(ctx context.Context, tenantID string, ids []string) (map[string]PATOwnerInfo, error) {
+	if len(ids) == 0 {
+		return map[string]PATOwnerInfo{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, user_id, name
+		FROM   user_pat_tokens
+		WHERE  tenant_id = $1
+		  AND  id        = ANY($2)
+	`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get PAT owners: %w", err)
+	}
+	defer rows.Close()
+
+	owners := make(map[string]PATOwnerInfo, len(ids))
+	for rows.Next() {
+		var patID string
+		var info PATOwnerInfo
+		if err := rows.Scan(&patID, &info.UserID, &info.PATName); err != nil {
+			return nil, fmt.Errorf("scan PAT owner row: %w", err)
+		}
+		owners[patID] = info
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate PAT owner rows: %w", err)
+	}
+	return owners, nil
 }
 
 func (r *postgresPATRepository) UpdateScopes(ctx context.Context, tenantID, userID, id string, scopes []string, grantID string) error {

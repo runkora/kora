@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutGrid, List, Pencil, Search, Trash2, Plus, UserCheck, X } from 'lucide-react';
-import { Badge, Button, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Card, CardContent, CardFooter, CardHeader, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
@@ -211,28 +211,21 @@ function RoleCardGrid({
         const isReserved = RESERVED_ROLES.has(role.role);
         const scopes = role.scopes ?? [];
         return (
-          <section
-            key={role.id}
-            className={`rounded-lg border bg-surface overflow-hidden transition-colors ${
-              isReserved
-                ? 'border-accent/25 hover:border-accent/40'
-                : 'border-border-subtle hover:border-border'
-            }`}
-          >
-            {/* Header */}
-            <header className="px-5 pt-4 pb-3">
+          <Card key={role.id} column>
+            <CardHeader compact>
               <Stack direction="horizontal" align="center" gap="tight">
-                <span className="font-semibold text-sm font-mono text-foreground">{role.role}</span>
+                <Text size="caption" mono weight="emphasis">
+                  {role.role}
+                </Text>
                 {isReserved && (
                   <Badge variant="secondary" size="sm">
                     reserved
                   </Badge>
                 )}
               </Stack>
-            </header>
+            </CardHeader>
 
-            {/* Scopes */}
-            <section className="px-5 pb-3">
+            <CardContent grow>
               <Stack direction="horizontal" gap="tight" wrap>
                 {scopes.map((scope) => (
                   <ScopeChip key={scope} scope={scope} />
@@ -243,40 +236,43 @@ function RoleCardGrid({
                   </Text>
                 )}
               </Stack>
-            </section>
+            </CardContent>
 
-            {/* Footer */}
-            <footer className="px-5 py-2.5 border-t border-border-subtle flex items-center gap-2">
-              <span className="text-xs text-subtle">
+            <CardFooter compact justify="between">
+              <Text size="caption" color="subtle">
                 {scopes.length} {scopes.length === 1 ? 'scope' : 'scopes'}
-              </span>
-              {!isReserved && role.created_at && (
-                <span className="text-xs text-subtle ml-auto">
-                  Created {formatDate(role.created_at)}
-                </span>
+              </Text>
+              {!isReserved && (
+                <Stack direction="horizontal" align="center" gap="snug">
+                  {role.created_at && (
+                    <Text size="caption" color="subtle">
+                      Created {formatDate(role.created_at)}
+                    </Text>
+                  )}
+                  {onEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onEdit(role)}
+                      aria-label="Edit role"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  )}
+                  {onDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onDelete(role)}
+                      aria-label="Delete role"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
+                </Stack>
               )}
-              {!isReserved && onEdit && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onEdit(role)}
-                  aria-label="Edit role"
-                >
-                  <Pencil className="size-3.5" />
-                </Button>
-              )}
-              {!isReserved && onDelete && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onDelete(role)}
-                  aria-label="Delete role"
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              )}
-            </footer>
-          </section>
+            </CardFooter>
+          </Card>
         );
       })}
     </Grid>

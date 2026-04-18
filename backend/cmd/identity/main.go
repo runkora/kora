@@ -132,6 +132,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
 	patRepo := identity.NewPostgresPATRepository(db.Pool())
+	profileRepo := identity.NewPostgresUserProfileRepository(db.Pool())
 
 	// Policy service integration for PAT grant management and scope validation.
 	policySvcURL := os.Getenv("ORBIT_POLICY_SERVICE_URL")
@@ -164,6 +165,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		refreshRepo,
 		blocklist,
 		patRepo,
+		profileRepo,
 		policyClient,
 		policyEval,
 		extractor,
