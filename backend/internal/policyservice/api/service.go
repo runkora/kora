@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +19,7 @@ import (
 )
 
 // ErrInvalidPrincipalType is returned when principal_type is not a known value.
-var ErrInvalidPrincipalType = errors.New("principal_type must be AGENT, HUMAN, or SERVICE")
+var ErrInvalidPrincipalType = errors.New("principal_type must be AGENT, HUMAN, PAT, or SERVICE")
 
 // ScopeVocabularyError is returned when a grant includes a scope that is not
 // registered in the scope vocabulary.
@@ -78,7 +80,7 @@ func (s *Service) BundleHandler() http.Handler {
 
 func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string) (*grants.Grant, error) {
 	switch principalType {
-	case grants.PrincipalTypeAgent, grants.PrincipalTypeHuman, grants.PrincipalTypeService:
+	case grants.PrincipalTypeAgent, grants.PrincipalTypeHuman, grants.PrincipalTypePAT, grants.PrincipalTypeService:
 	default:
 		return nil, ErrInvalidPrincipalType
 	}
@@ -121,7 +123,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 	return nil
 }
 
-func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, error) {
+func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, int, error) {
 	if principalID != "" {
 		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID, limit, offset)
 	}
@@ -231,6 +233,53 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 
 func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
 	return s.vocabRepo.GetByScope(ctx, scope)
+}
+
+// EffectiveScopes returns the union of all scopes a HUMAN principal holds,
+// derived from their OIDC roles (reserved + custom) and any explicit grants.
+// Used by the effective-scopes endpoint to populate the PAT scope selector UI.
+func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID string, principalRoles []string) ([]string, error) {
+	scopeSet := make(map[string]struct{})
+
+	for _, role := range principalRoles {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			continue
+		}
+		if scopes, ok := reservedRoleScopes[role]; ok {
+			for _, sc := range scopes {
+				scopeSet[sc] = struct{}{}
+			}
+			continue
+		}
+		entry, err := s.roleRepo.GetByRole(ctx, tenantID, role)
+		if err != nil {
+			if !errors.Is(err, roles.ErrRoleNotFound) {
+				return nil, fmt.Errorf("get role scopes: %w", err)
+			}
+			continue
+		}
+		for _, sc := range entry.Scopes {
+			scopeSet[sc] = struct{}{}
+		}
+	}
+
+	grantList, _, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list grants: %w", err)
+	}
+	for _, g := range grantList {
+		for _, sc := range g.Scopes {
+			scopeSet[sc] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(scopeSet))
+	for sc := range scopeSet {
+		result = append(result, sc)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 // reservedRoles are the hardcoded platform admin roles that cannot be managed

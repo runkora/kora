@@ -3,10 +3,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutGrid, List, Search, ShieldCheck, Trash2, Plus, X } from 'lucide-react';
-import { Badge, Button, DataTable, Grid, Heading, Stack, Text } from '@orbit/terra';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  DataTable,
+  Grid,
+  Heading,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
+import type {
+  PATAttributionEntry,
+  PATGrantAttribution,
+} from '../../model-gateway/_services/tokens-server';
 import type { Grant, PrincipalType } from '../_types';
-import { createGrantAction, deleteGrantAction } from '../_actions/grants';
+import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { ScopeChip } from './scope-chip';
@@ -19,12 +35,26 @@ import { ErrorBanner } from './error-banner';
 interface GrantsTabProps {
   initialGrants: Grant[];
   availableScopes: string[];
+  patAttribution: Record<string, PATGrantAttribution>;
+  userAttribution: Record<string, PATAttributionEntry>;
   initialError: string | null;
+  page: number;
+  limit: number;
+  total: number;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function GrantsTab({ initialGrants, availableScopes, initialError }: GrantsTabProps) {
+export function GrantsTab({
+  initialGrants,
+  availableScopes,
+  patAttribution,
+  userAttribution,
+  initialError,
+  page,
+  limit,
+  total,
+}: GrantsTabProps) {
   const router = useRouter();
   const { scopes: sessionScopes } = usePermissions();
   const canWrite = hasScope(sessionScopes, 'platform:grants:write');
@@ -63,15 +93,21 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
     }
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(
-        (g) =>
+      result = result.filter((g) => {
+        const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
+        return (
+          identity.primary.toLowerCase().includes(q) ||
+          (identity.email?.toLowerCase().includes(q) ?? false) ||
+          (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
+          (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
           g.principal_id.toLowerCase().includes(q) ||
           g.principal_type.toLowerCase().includes(q) ||
-          g.scopes.some((s) => s.toLowerCase().includes(q)),
-      );
+          g.scopes.some((s) => s.toLowerCase().includes(q))
+        );
+      });
     }
     return result;
-  }, [grants, search, typeFilter]);
+  }, [grants, search, typeFilter, patAttribution, userAttribution]);
 
   const handleDeleteConfirm = useCallback(
     async (id: string) => {
@@ -142,7 +178,7 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
               active={typeFilter === 'all'}
               onClick={() => setTypeFilter('all')}
             />
-            {(['AGENT', 'HUMAN', 'SERVICE'] as PrincipalType[]).map((type) => (
+            {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
               <FilterChip
                 key={type}
                 label={type}
@@ -153,7 +189,7 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
             ))}
             <span className="ml-auto">
               <Text size="caption" color="subtle">
-                {filtered.length} of {grants.length} grants
+                {filtered.length} shown · {total} total
               </Text>
             </span>
           </Stack>
@@ -185,15 +221,25 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
             />
           )
         ) : (
-          <GrantCardGrid grants={filtered} onDelete={canWrite ? setDeleteCandidate : undefined} />
+          <GrantCardGrid
+            grants={filtered}
+            patAttribution={patAttribution}
+            userAttribution={userAttribution}
+            onDelete={canWrite ? setDeleteCandidate : undefined}
+          />
         )
       ) : (
         <GrantTable
           grants={grants}
+          patAttribution={patAttribution}
+          userAttribution={userAttribution}
           onDelete={canWrite ? setDeleteCandidate : undefined}
           viewToggle={<GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
+
+      {/* Pagination */}
+      {total > limit && <GrantsPagination page={page} limit={limit} total={total} />}
 
       {/* Delete confirmation modal */}
       <DeleteGrantModal
@@ -218,6 +264,46 @@ export function GrantsTab({ initialGrants, availableScopes, initialError }: Gran
           router.refresh();
         }}
       />
+    </Stack>
+  );
+}
+
+// ── Pagination ───────────────────────────────────────────────────────────────
+
+function GrantsPagination({ page, limit, total }: { page: number; limit: number; total: number }) {
+  const router = useRouter();
+  const totalPages = Math.ceil(total / limit);
+  const start = (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+
+  return (
+    <Stack direction="horizontal" align="center" justify="between">
+      <Text size="caption" color="subtle">
+        {start}–{end} of {total} grants
+      </Text>
+      <Stack direction="horizontal" gap="snug">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => router.push(`?page=${page - 1}`)}
+        >
+          Previous
+        </Button>
+        <span className="flex items-center px-2">
+          <Text size="caption" color="muted">
+            Page {page} of {totalPages}
+          </Text>
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => router.push(`?page=${page + 1}`)}
+        >
+          Next
+        </Button>
+      </Stack>
     </Stack>
   );
 }
@@ -255,7 +341,14 @@ function FilterChip({
 // ── PrincipalBadge ───────────────────────────────────────────────────────────
 
 function PrincipalBadge({ type }: { type: PrincipalType }) {
-  const variant = type === 'AGENT' ? 'default' : type === 'HUMAN' ? 'healthy' : 'degraded';
+  const variant =
+    type === 'AGENT'
+      ? 'default'
+      : type === 'HUMAN'
+        ? 'healthy'
+        : type === 'PAT'
+          ? 'secondary'
+          : 'degraded';
   return (
     <Badge variant={variant} size="sm">
       {type}
@@ -265,60 +358,121 @@ function PrincipalBadge({ type }: { type: PrincipalType }) {
 
 // ── Card grid view ──────────────────────────────────────────────────────────
 
+interface GrantIdentity {
+  primary: string; // display name for HUMAN, UUID for others
+  email?: string; // email for HUMAN
+  ownerName?: string; // PAT owner display name
+  ownerEmail?: string; // PAT owner email
+  rawId?: string; // principal_id, shown when primary is a resolved name
+}
+
+function resolveGrantIdentity(
+  grant: Grant,
+  patAttribution: Record<string, PATGrantAttribution>,
+  userAttribution: Record<string, PATAttributionEntry>,
+): GrantIdentity {
+  if (grant.principal_type === 'HUMAN') {
+    const u = userAttribution[grant.principal_id];
+    if (u) {
+      return {
+        primary: u.display_name || u.email,
+        email: u.display_name ? u.email : undefined,
+        rawId: grant.principal_id,
+      };
+    }
+    return { primary: grant.principal_id };
+  }
+  if (grant.principal_type === 'PAT') {
+    const pat = patAttribution[grant.principal_id];
+    const owner = pat?.owner;
+    return {
+      primary: pat?.pat_name ?? grant.principal_id,
+      ownerName: owner ? owner.display_name || owner.email : undefined,
+      ownerEmail: owner?.display_name ? owner.email : undefined,
+      rawId: grant.principal_id,
+    };
+  }
+  return { primary: grant.principal_id };
+}
+
 function GrantCardGrid({
   grants,
+  patAttribution,
+  userAttribution,
   onDelete,
 }: {
   grants: Grant[];
+  patAttribution: Record<string, PATGrantAttribution>;
+  userAttribution: Record<string, PATAttributionEntry>;
   onDelete?: (grant: Grant) => void;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
-      {grants.map((grant) => (
-        <section
-          key={grant.id}
-          className="rounded-lg border border-border-subtle bg-surface overflow-hidden transition-colors hover:border-border"
-        >
-          {/* Header */}
-          <header className="px-5 pt-4 pb-3">
-            <Stack direction="horizontal" align="center" gap="snug">
-              <PrincipalBadge type={grant.principal_type} />
-              <Text size="caption" mono weight="emphasis">
-                {grant.principal_id}
+      {grants.map((grant) => {
+        const identity = resolveGrantIdentity(grant, patAttribution, userAttribution);
+        return (
+          <Card key={grant.id} column>
+            <CardHeader compact>
+              <Stack gap="snug">
+                <Stack gap="tight">
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <PrincipalBadge type={grant.principal_type} />
+                    <Text size="caption" mono={grant.principal_type !== 'HUMAN'} weight="emphasis">
+                      {identity.primary}
+                    </Text>
+                  </Stack>
+                  {identity.email && (
+                    <Text size="caption" color="muted">
+                      {identity.email}
+                    </Text>
+                  )}
+                  {identity.ownerName && (
+                    <Text size="caption" color="muted">
+                      {identity.ownerEmail
+                        ? `${identity.ownerName} · ${identity.ownerEmail}`
+                        : identity.ownerName}
+                    </Text>
+                  )}
+                </Stack>
+                {identity.rawId && (
+                  <Text size="caption" color="subtle" mono>
+                    {identity.rawId}
+                  </Text>
+                )}
+              </Stack>
+            </CardHeader>
+
+            <CardContent grow>
+              <Stack direction="horizontal" gap="tight" wrap>
+                {grant.scopes.map((scope) => (
+                  <ScopeChip key={scope} scope={scope} />
+                ))}
+              </Stack>
+            </CardContent>
+
+            <CardFooter compact justify="between">
+              <Text size="caption" color="subtle">
+                {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
               </Text>
-            </Stack>
-          </header>
-
-          {/* Scopes */}
-          <section className="px-5 pb-3">
-            <Stack direction="horizontal" gap="tight" wrap>
-              {grant.scopes.map((scope) => (
-                <ScopeChip key={scope} scope={scope} />
-              ))}
-            </Stack>
-          </section>
-
-          {/* Footer */}
-          <footer className="px-5 py-2.5 border-t border-border-subtle flex items-center gap-2">
-            <span className="text-xs text-subtle">
-              {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
-            </span>
-            <span className="text-xs text-subtle ml-auto">
-              Created {formatDate(grant.created_at)}
-            </span>
-            {onDelete && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => onDelete(grant)}
-                aria-label="Delete grant"
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            )}
-          </footer>
-        </section>
-      ))}
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="subtle">
+                  Created {formatDate(grant.created_at)}
+                </Text>
+                {onDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onDelete(grant)}
+                    aria-label="Delete grant"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                )}
+              </Stack>
+            </CardFooter>
+          </Card>
+        );
+      })}
     </Grid>
   );
 }
@@ -363,15 +517,20 @@ function GrantViewToggle({
 const TYPE_OPTIONS = [
   { value: 'AGENT', label: 'Agent' },
   { value: 'HUMAN', label: 'Human' },
+  { value: 'PAT', label: 'PAT' },
   { value: 'SERVICE', label: 'Service' },
 ];
 
 function GrantTable({
   grants,
+  patAttribution,
+  userAttribution,
   onDelete,
   viewToggle,
 }: {
   grants: Grant[];
+  patAttribution: Record<string, PATGrantAttribution>;
+  userAttribution: Record<string, PATAttributionEntry>;
   onDelete?: (grant: Grant) => void;
   viewToggle: React.ReactNode;
 }) {
@@ -382,12 +541,44 @@ function GrantTable({
         header: 'Principal',
         locked: true,
         sortable: true,
-        sortAccessor: (g) => g.principal_id,
-        cell: (g) => (
-          <Text size="caption" mono>
-            {g.principal_id}
-          </Text>
-        ),
+        sortAccessor: (g) => resolveGrantIdentity(g, patAttribution, userAttribution).primary,
+        cell: (g) => {
+          const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
+          return (
+            <Stack gap="none">
+              <Text size="caption" mono={g.principal_type !== 'HUMAN'} weight="emphasis">
+                {identity.primary}
+              </Text>
+              {identity.email && (
+                <Text size="caption" color="muted">
+                  {identity.email}
+                </Text>
+              )}
+              {identity.ownerName && (
+                <Text size="caption" color="muted">
+                  {identity.ownerEmail
+                    ? `${identity.ownerName} · ${identity.ownerEmail}`
+                    : identity.ownerName}
+                </Text>
+              )}
+            </Stack>
+          );
+        },
+      },
+      {
+        id: 'id',
+        header: 'ID',
+        cell: (g) => {
+          const { rawId, primary } = resolveGrantIdentity(g, patAttribution, userAttribution);
+          const id = rawId ?? primary;
+          return (
+            <span className="whitespace-nowrap">
+              <Text size="caption" color="subtle" mono>
+                {id}
+              </Text>
+            </span>
+          );
+        },
       },
       {
         id: 'type',
@@ -418,9 +609,11 @@ function GrantTable({
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
-          <Text size="caption" color="subtle">
-            {formatDate(g.created_at)}
-          </Text>
+          <span className="whitespace-nowrap">
+            <Text size="caption" color="subtle">
+              {formatDate(g.created_at)}
+            </Text>
+          </span>
         ),
       },
       {
@@ -444,7 +637,7 @@ function GrantTable({
           ) : null,
       },
     ],
-    [onDelete],
+    [onDelete, patAttribution, userAttribution],
   );
 
   return (
@@ -454,11 +647,18 @@ function GrantTable({
       getRowKey={(g) => g.id}
       noun="grants"
       searchPlaceholder="Search grants…"
-      searchFn={(g, q) =>
-        g.principal_id.toLowerCase().includes(q) ||
-        g.principal_type.toLowerCase().includes(q) ||
-        g.scopes.some((s) => s.toLowerCase().includes(q))
-      }
+      searchFn={(g, q) => {
+        const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
+        return (
+          identity.primary.toLowerCase().includes(q) ||
+          (identity.email?.toLowerCase().includes(q) ?? false) ||
+          (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
+          (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
+          g.principal_id.toLowerCase().includes(q) ||
+          g.principal_type.toLowerCase().includes(q) ||
+          g.scopes.some((s) => s.toLowerCase().includes(q))
+        );
+      }}
       defaultSortId="principal"
       defaultSortDir="asc"
       emptyMessage="No grants yet."
@@ -562,6 +762,83 @@ function DeleteGrantModal({
   );
 }
 
+// ── User picker ───────────────────────────────────────────────────────────────
+
+function UserPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [users, setUsers] = useState<PATAttributionEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const delay = search ? 300 : 0;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      setLoading(true);
+      const result = await searchUsersAction(search);
+      if (cancelled) return;
+      setLoading(false);
+      if (result.ok) setUsers(result.data);
+    }, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search]);
+
+  return (
+    <section>
+      <span className="relative mb-1.5 block">
+        <input
+          type="text"
+          placeholder="Search users…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        />
+      </span>
+      <section className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+        {loading || users.length === 0 ? (
+          <section className="px-3 py-1.5">
+            <Text size="caption" color="muted">
+              {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
+            </Text>
+          </section>
+        ) : (
+          <ul className="list-none m-0 p-0">
+            {users.map((u) => {
+              const isSelected = value === u.id;
+              return (
+                <li key={u.id} className="border-b border-border-subtle last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => onChange(u.id)}
+                    className={[
+                      'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors cursor-pointer select-none',
+                      isSelected ? 'bg-accent/10' : 'hover:bg-surface-overlay',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={`flex-1 min-w-0 truncate text-xs leading-none ${isSelected ? 'font-medium text-accent' : 'text-foreground'}`}
+                    >
+                      {u.display_name || u.email}
+                    </span>
+                    {u.display_name && u.display_name !== u.email && (
+                      <span className="shrink-0 text-[11px] leading-none text-muted">
+                        {u.email}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </section>
+  );
+}
+
 // ── Create modal ─────────────────────────────────────────────────────────────
 
 function CreateGrantModal({
@@ -647,7 +924,10 @@ function CreateGrantModal({
                   key={t}
                   variant={principalType === t ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setPrincipalType(t)}
+                  onClick={() => {
+                    setPrincipalType(t);
+                    setPrincipalId('');
+                  }}
                 >
                   {t}
                 </Button>
@@ -655,18 +935,22 @@ function CreateGrantModal({
             </Stack>
           </Stack>
 
-          {/* Principal ID */}
+          {/* Principal — user picker for HUMAN, freeform for others */}
           <Stack gap="tight">
             <Text size="caption" weight="emphasis">
-              Principal ID
+              {principalType === 'HUMAN' ? 'User' : 'Principal ID'}
             </Text>
-            <input
-              type="text"
-              placeholder="e.g. agent-uuid or user@example.com"
-              value={principalId}
-              onChange={(e) => setPrincipalId(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            />
+            {principalType === 'HUMAN' ? (
+              <UserPicker value={principalId} onChange={setPrincipalId} />
+            ) : (
+              <input
+                type="text"
+                placeholder={principalType === 'AGENT' ? 'Agent UUID' : 'Service identifier'}
+                value={principalId}
+                onChange={(e) => setPrincipalId(e.target.value)}
+                className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              />
+            )}
           </Stack>
 
           {/* Scopes */}

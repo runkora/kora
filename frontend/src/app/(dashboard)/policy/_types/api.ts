@@ -6,7 +6,7 @@
 
 // ── Grants ───────────────────────────────────────────────────────────────────
 
-export type PrincipalType = 'AGENT' | 'HUMAN' | 'SERVICE';
+export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
 
 export interface Grant {
   id: string;
@@ -19,6 +19,9 @@ export interface Grant {
 
 export interface GrantsListResponse {
   grants: Grant[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface CreateGrantRequest {

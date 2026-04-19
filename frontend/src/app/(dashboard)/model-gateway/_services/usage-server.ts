@@ -3,6 +3,49 @@ import 'server-only';
 import { config } from '@orbit/server/config';
 import type { InferenceUsageRecord, ListUsageResponse } from '../_types';
 
+// ── Usage stats ───────────────────────────────────────────────────────────────
+
+export interface TokenUsageStat {
+  token_id: string;
+  request_count: number;
+  last_used: string; // RFC3339
+}
+
+export type UsageStatsResult =
+  | { ok: true; stats: TokenUsageStat[] }
+  | { ok: false; status: number; message: string };
+
+export async function fetchUsageStats(accessToken: string): Promise<UsageStatsResult> {
+  const url = `${config.inferenceGatewayUrl}/usage/stats`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Inference gateway timed out' : 'Failed to reach inference gateway',
+    };
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    return { ok: false, status: res.status, message: body || res.statusText };
+  }
+
+  try {
+    const body = (await res.json()) as { data: TokenUsageStat[] };
+    return { ok: true, stats: body.data ?? [] };
+  } catch {
+    return { ok: false, status: 502, message: 'Invalid response from inference gateway' };
+  }
+}
+
 // ── ListUsageParams ───────────────────────────────────────────────────────────
 
 export interface ListUsageParams {

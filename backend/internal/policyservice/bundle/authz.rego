@@ -64,7 +64,20 @@ _principal_type := input.principal.type if not _is_envoy
 _principal_type := _layer1_claims.orbit.principal_type if _is_envoy
 
 _principal_id := input.principal.id if not _is_envoy
-_principal_id := _layer1_claims.sub if _is_envoy
+
+# For PAT principals in Layer 1, use the pat_id claim as the grant lookup key.
+# sub holds the issuing user's OIDC subject for attribution; pat_id holds the
+# PAT UUID that identifies the grant row.
+_principal_id := _layer1_claims.orbit.pat_id if {
+	_is_envoy
+	_layer1_claims.orbit.principal_type == "PAT"
+	_layer1_claims.orbit.pat_id != ""
+}
+
+_principal_id := _layer1_claims.sub if {
+	_is_envoy
+	_layer1_claims.orbit.principal_type != "PAT"
+}
 
 # Roles: Layer 2 receives a pre-split []string; Layer 1 splits the
 # comma-separated roles string from the orbit.claims.roles JWT field.

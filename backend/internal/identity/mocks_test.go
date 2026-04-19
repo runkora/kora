@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // Compile-time interface satisfaction checks.
@@ -24,6 +26,7 @@ var _ SessionRepository = (*mockSessionRepository)(nil)
 var _ RefreshTokenRepository = (*mockRefreshTokenRepository)(nil)
 var _ JTIBlocklistRepository = (*mockJTIBlocklistRepository)(nil)
 var _ PATRepository = (*mockPATRepository)(nil)
+var _ UserProfileRepository = (*mockUserProfileRepository)(nil)
 
 // ── mockSessionRepository ─────────────────────────────────────────────────────
 
@@ -257,6 +260,18 @@ func (m *mockPATRepository) GetByID(_ context.Context, tenantID, userID, id stri
 	return &cp, nil
 }
 
+func (m *mockPATRepository) UpdateScopes(_ context.Context, tenantID, userID, id string, scopes []string, grantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.pats[id]
+	if !ok || p.TenantID != tenantID || p.UserID != userID {
+		return ErrPATNotFound
+	}
+	p.Scopes = scopes
+	p.GrantID = &grantID
+	return nil
+}
+
 func (m *mockPATRepository) Revoke(_ context.Context, tenantID, userID, id string, revokedAt time.Time) error {
 	if m.revokeErr != nil {
 		return m.revokeErr
@@ -270,6 +285,67 @@ func (m *mockPATRepository) Revoke(_ context.Context, tenantID, userID, id strin
 	p.RevokedAt = &revokedAt
 	return nil
 }
+
+func (m *mockPATRepository) GetOwnersByIDs(_ context.Context, tenantID string, ids []string) (map[string]PATOwnerInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make(map[string]PATOwnerInfo, len(ids))
+	for _, id := range ids {
+		if p, ok := m.pats[id]; ok && p.TenantID == tenantID {
+			result[id] = PATOwnerInfo{UserID: p.UserID, PATName: p.Name}
+		}
+	}
+	return result, nil
+}
+
+// ── mockPolicyClient ──────────────────────────────────────────────────────────
+
+type mockPolicyClient struct {
+	createGrantErr error
+	deleteGrantErr error
+}
+
+func (m *mockPolicyClient) CreateGrant(_ context.Context, _, _, _ string, _ []string) (string, error) {
+	if m.createGrantErr != nil {
+		return "", m.createGrantErr
+	}
+	return "mock-grant-id", nil
+}
+
+func (m *mockPolicyClient) DeleteGrant(_ context.Context, _ string) error {
+	return m.deleteGrantErr
+}
+
+// ── mockPolicyEvaluator ───────────────────────────────────────────────────────
+
+type mockPolicyEvaluator struct {
+	scopes []string
+}
+
+func (m *mockPolicyEvaluator) Check(_ context.Context, _ policy.CheckInput) (policy.Result, error) {
+	return policy.Result{Allow: true}, nil
+}
+
+func (m *mockPolicyEvaluator) Query(_ context.Context, input policy.QueryInput) ([]string, error) {
+	ids := make([]string, len(input.Candidates))
+	for i, c := range input.Candidates {
+		ids[i] = c.ID
+	}
+	return ids, nil
+}
+
+func (m *mockPolicyEvaluator) Scopes(_ context.Context, _ policy.ScopesInput) ([]string, error) {
+	if m.scopes != nil {
+		return m.scopes, nil
+	}
+	return []string{"inference:invoke", "inference:list"}, nil
+}
+
+func (m *mockPolicyEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (*policy.ScopesExplainResult, error) {
+	return &policy.ScopesExplainResult{}, nil
+}
+
+func (m *mockPolicyEvaluator) Start(_ context.Context) {}
 
 // ── OIDC test server ──────────────────────────────────────────────────────────
 
@@ -368,6 +444,9 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		refreshTokens,
 		blocklist,
 		pats,
+		nil,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
@@ -440,6 +519,9 @@ tenants:
 		refreshTokens,
 		blocklist,
 		newMockPATRepo(),
+		nil,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
@@ -464,6 +546,55 @@ func newFullTestService(t *testing.T) (
 	blocklist = newMockBlocklistRepo()
 	pats = newMockPATRepo()
 	svc = newTestService(t, sessions, refreshTokens, blocklist, pats)
+	return
+}
+
+// newFullTestServiceWithPolicy is like newFullTestService but also returns the
+// mock policy client so tests can inject errors into CreateGrant / DeleteGrant.
+func newFullTestServiceWithPolicy(t *testing.T) (
+	svc *Service,
+	sessions *mockSessionRepository,
+	refreshTokens *mockRefreshTokenRepository,
+	blocklist *mockJTIBlocklistRepository,
+	pats *mockPATRepository,
+	policy *mockPolicyClient,
+) {
+	t.Helper()
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("ORBIT_TENANTS_CONFIG", "")
+	sessions = newMockSessionRepo()
+	refreshTokens = newMockRefreshTokenRepo()
+	blocklist = newMockBlocklistRepo()
+	pats = newMockPATRepo()
+	policy = &mockPolicyClient{}
+	cfg := &Config{
+		Token: TokenConfig{
+			AccessTokenTTLMinutes: 60,
+			RefreshTokenTTLDays:   30,
+			PATDefaultTTLDays:     90,
+			PATMaxTTLDays:         365,
+			Audience:              "orbit-platform",
+		},
+	}
+	var err error
+	svc, err = NewService(
+		context.Background(),
+		cfg,
+		sessions,
+		refreshTokens,
+		blocklist,
+		pats,
+		nil,
+		policy,
+		&mockPolicyEvaluator{},
+		&XFCCPrincipalExtractor{},
+		logging.NewLoggerWithOutput(io.Discard),
+	)
+	if err != nil {
+		t.Fatalf("newFullTestServiceWithPolicy: %v", err)
+	}
 	return
 }
 
@@ -698,6 +829,138 @@ func newSigningOIDCTestServerWithKey(t *testing.T) (
 	return base, issueIDToken, key
 }
 
+// ── mockUserProfileRepository ─────────────────────────────────────────────────
+
+type mockUserProfileRepository struct {
+	mu       sync.Mutex
+	profiles map[string]*UserProfile // keyed by id+":"+tenantID
+
+	upsertErr error
+	getErr    error
+	listErr   error
+}
+
+func newMockProfileRepo() *mockUserProfileRepository {
+	return &mockUserProfileRepository{profiles: make(map[string]*UserProfile)}
+}
+
+func (m *mockUserProfileRepository) key(id, tenantID string) string { return id + ":" + tenantID }
+
+func (m *mockUserProfileRepository) Upsert(_ context.Context, p UserProfile) error {
+	if m.upsertErr != nil {
+		return m.upsertErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := p
+	m.profiles[m.key(p.ID, p.TenantID)] = &cp
+	return nil
+}
+
+func (m *mockUserProfileRepository) GetByID(_ context.Context, tenantID, id string) (UserProfile, error) {
+	if m.getErr != nil {
+		return UserProfile{}, m.getErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.profiles[m.key(id, tenantID)]
+	if !ok {
+		return UserProfile{}, ErrUserProfileNotFound
+	}
+	return *p, nil
+}
+
+func (m *mockUserProfileRepository) List(_ context.Context, tenantID string, filter UserProfileFilter) ([]UserProfile, int, error) {
+	if m.listErr != nil {
+		return nil, 0, m.listErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	idSet := make(map[string]struct{}, len(filter.IDs))
+	for _, id := range filter.IDs {
+		idSet[id] = struct{}{}
+	}
+
+	var out []UserProfile
+	for _, p := range m.profiles {
+		if p.TenantID != tenantID {
+			continue
+		}
+		if len(idSet) > 0 {
+			if _, ok := idSet[p.ID]; !ok {
+				continue
+			}
+		}
+		if filter.Search != "" {
+			q := strings.ToLower(filter.Search)
+			if !strings.Contains(strings.ToLower(p.Email), q) && !strings.Contains(strings.ToLower(p.DisplayName), q) {
+				continue
+			}
+		}
+		out = append(out, *p)
+	}
+
+	total := len(out)
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	if offset >= len(out) {
+		return []UserProfile{}, total, nil
+	}
+	end := min(offset+limit, len(out))
+	return out[offset:end], total, nil
+}
+
+// newTestControllerWithProfiles wires up a Controller with a seeded profile repo.
+// Use for handler tests that exercise /users and /tokens/attribution.
+func newTestControllerWithProfiles(t *testing.T) (
+	c *Controller,
+	pats *mockPATRepository,
+	profiles *mockUserProfileRepository,
+) {
+	t.Helper()
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("ORBIT_TENANTS_CONFIG", "")
+	pats = newMockPATRepo()
+	profiles = newMockProfileRepo()
+	cfg := &Config{
+		Token: TokenConfig{
+			AccessTokenTTLMinutes: 60,
+			RefreshTokenTTLDays:   30,
+			PATDefaultTTLDays:     90,
+			PATMaxTTLDays:         365,
+			Audience:              "orbit-platform",
+		},
+	}
+	svc, err := NewService(
+		context.Background(),
+		cfg,
+		newMockSessionRepo(),
+		newMockRefreshTokenRepo(),
+		newMockBlocklistRepo(),
+		pats,
+		profiles,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
+		&XFCCPrincipalExtractor{},
+		logging.NewLoggerWithOutput(io.Discard),
+	)
+	if err != nil {
+		t.Fatalf("newTestControllerWithProfiles: %v", err)
+	}
+	c = NewController(svc, logging.NewLoggerWithOutput(io.Discard))
+	return
+}
+
 // newTestServiceWithDomains builds a *Service with a single active tenant
 // configured with the given issuerURL and emailDomains. Use for
 // DiscoverTenantByEmail tests that need email routing to be populated.
@@ -744,6 +1007,9 @@ tenants:
 		newMockRefreshTokenRepo(),
 		newMockBlocklistRepo(),
 		newMockPATRepo(),
+		nil,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
 	)

@@ -66,7 +66,7 @@ func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {
 // Called after any grant, role, or route change. vocabEntries may be nil to
 // trigger a fresh vocabulary load.
 func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []*vocabulary.ScopeEntry) error {
-	tenantGrants, err := s.grantRepo.ListByTenant(ctx, tenantID, 0, 0)
+	tenantGrants, _, err := s.grantRepo.ListByTenant(ctx, tenantID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list grants for tenant %s: %w", tenantID, err)
 	}

@@ -205,6 +205,24 @@ func parsePosIntParam(raw, paramLabel string, defaultVal int) (int, *api.APIErro
 	return v, nil, nil
 }
 
+// handleUsageStats handles GET /v1/usage/stats.
+// Returns per-PAT aggregates (request_count, last_used) for the authenticated principal.
+func (c *Controller) handleUsageStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	stats, err := c.svc.UsageStats(ctx)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
+
+	if stats == nil {
+		stats = []TokenUsageStat{}
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": stats})
+}
+
 // handleListUsage handles GET /v1/usage.
 //
 // TenantID and PrincipalID are always sourced from the verified JWT claims;

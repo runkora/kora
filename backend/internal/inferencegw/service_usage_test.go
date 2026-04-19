@@ -17,7 +17,7 @@ import (
 // makeClaims builds a minimal *token.PlatformClaims for injection via
 // token.WithClaims. Only the fields consumed by principalFromClaims are set.
 func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID string) *token.PlatformClaims {
-	return &token.PlatformClaims{
+	c := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: principalID,
 		},
@@ -27,6 +27,10 @@ func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID 
 			SessionID:     sessionID,
 		},
 	}
+	if pt == token.PrincipalTypePAT {
+		c.Orbit.PatID = sessionID
+	}
+	return c
 }
 
 // ctxFromClaims returns a context carrying the given platform claims.
@@ -67,14 +71,13 @@ func TestPrincipalFromClaims_HumanPrincipal_TokenIDEmpty(t *testing.T) {
 	if p.PrincipalID != "user-1" {
 		t.Errorf("PrincipalID: got %q, want %q", p.PrincipalID, "user-1")
 	}
-	// SessionID must NOT be extracted as TokenID for non-PAT principals —
-	// OIDC sessions also populate OrbitClaims.SessionID with a session UUID.
+	// PatID must NOT be extracted as TokenID for non-PAT principals.
 	if p.TokenID != "" {
 		t.Errorf("TokenID: got %q, want empty string for HUMAN principal", p.TokenID)
 	}
 }
 
-func TestPrincipalFromClaims_PATPrincipal_TokenIDIsSessionID(t *testing.T) {
+func TestPrincipalFromClaims_PATPrincipal_TokenIDIsPatID(t *testing.T) {
 	t.Parallel()
 	const patUUID = "pat-record-uuid-abc123"
 	ctx := ctxFromClaims(makeClaims("tenant-1", "user-1", token.PrincipalTypePAT, patUUID))
@@ -168,6 +171,74 @@ func TestListUsage_RepoError_IsWrapped(t *testing.T) {
 	_, _, err := svc.ListUsage(ctx, InferenceUsageFilter{})
 	if err == nil {
 		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+// ── UsageStats ────────────────────────────────────────────────────────────────
+
+func TestUsageStats_NoClaims_ReturnsErrTokenParseFailed(t *testing.T) {
+	t.Parallel()
+	svc := newTestUsageService(t, newMockUsageRepo())
+	_, err := svc.UsageStats(context.Background())
+	if !errors.Is(err, ErrTokenParseFailed) {
+		t.Errorf("error: got %v, want wrapping ErrTokenParseFailed", err)
+	}
+}
+
+func TestUsageStats_EnforcesTenantAndPrincipalScoping(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.statsResult = []TokenUsageStat{
+		{TokenID: "pat-1", RequestCount: 5, LastUsed: "2026-04-18T10:00:00Z"},
+	}
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("tenant-X", "user-Y", token.PrincipalTypeHuman, ""))
+	stats, err := svc.UsageStats(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("stats: got %d entries, want 1", len(stats))
+	}
+	if stats[0].TokenID != "pat-1" {
+		t.Errorf("TokenID: got %q, want %q", stats[0].TokenID, "pat-1")
+	}
+	// Verify scoping — repo captures tenantID and principalID.
+	f := repo.LastFilter()
+	if f.TenantID != "tenant-X" {
+		t.Errorf("TenantID passed to repo: got %q, want %q", f.TenantID, "tenant-X")
+	}
+	if f.PrincipalID == nil || *f.PrincipalID != "user-Y" {
+		t.Errorf("PrincipalID passed to repo: got %v, want pointer to %q", f.PrincipalID, "user-Y")
+	}
+}
+
+func TestUsageStats_RepoError_IsWrapped(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo()
+	repo.statsErr = errors.New("db connection lost")
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	_, err := svc.UsageStats(ctx)
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+func TestUsageStats_EmptyResult_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	repo := newMockUsageRepo() // statsResult is nil by default
+	svc := newTestUsageService(t, repo)
+
+	ctx := ctxFromClaims(makeClaims("t1", "u1", token.PrincipalTypeHuman, ""))
+	stats, err := svc.UsageStats(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stats) != 0 {
+		t.Errorf("expected empty stats, got %d entries", len(stats))
 	}
 }
 

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -162,6 +163,10 @@ func (e *OAuthError) Error() string {
 	return "oauth2 error: " + e.Code
 }
 
+// PatTokenPrefix is prepended to every issued PAT JWT for visual identification.
+// Security-significant: auth middleware strips this prefix before JWT validation.
+const PatTokenPrefix = "orb_"
+
 // ─── PAT types ───────────────────────────────────────────────────────────────
 
 // PAT is a Personal Access Token record stored in user_pat_tokens.
@@ -172,6 +177,8 @@ type PAT struct {
 	UserID    string     `db:"user_id"`
 	Name      string     `db:"name"`
 	JTI       string     `db:"jti"`
+	Scopes    []string   `db:"scopes"`
+	GrantID   *string    `db:"grant_id"`
 	ExpiresAt time.Time  `db:"expires_at"`
 	CreatedAt time.Time  `db:"created_at"`
 	RevokedAt *time.Time `db:"revoked_at"`
@@ -179,31 +186,97 @@ type PAT struct {
 
 // CreatePATRequest is the HTTP request body for POST /identity/tokens.
 type CreatePATRequest struct {
-	Name          string `json:"name"`
-	ExpiresInDays int    `json:"expires_in_days,omitempty"`
+	Name          string   `json:"name"`
+	ExpiresInDays int      `json:"expires_in_days,omitempty"`
+	Scopes        []string `json:"scopes"`
 }
 
 // CreatePATResponse is returned on successful PAT creation.
 // Token is the raw JWT prefixed with "orb_" — shown exactly once.
 type CreatePATResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Token     string   `json:"token"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt string   `json:"expires_at"`
+	CreatedAt string   `json:"created_at"`
+}
+
+// UpdatePATScopesRequest is the HTTP request body for PATCH /identity/tokens/{id}/scopes.
+type UpdatePATScopesRequest struct {
+	Scopes []string `json:"scopes"`
 }
 
 // PATSummary is a single entry in the list response — raw token is omitted.
 type PATSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ExpiresAt string `json:"expires_at"`
-	CreatedAt string `json:"created_at"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	ExpiresAt string   `json:"expires_at"`
+	CreatedAt string   `json:"created_at"`
 }
 
 // ListPATsResponse is returned by GET /identity/tokens.
 type ListPATsResponse struct {
 	Tokens []PATSummary `json:"tokens"`
+}
+
+// ─── PAT attribution types ────────────────────────────────────────────────────
+
+// PATOwnerInfo carries the user_id and token name for a single PAT, used
+// internally when resolving attribution without a round-trip through profiles.
+type PATOwnerInfo struct {
+	UserID  string
+	PATName string
+}
+
+// PATGrantAttribution is a single entry in PATAttributionResponse, bundling
+// the token's human-readable name with its owning user's profile.
+type PATGrantAttribution struct {
+	PATName string               `json:"pat_name"`
+	Owner   *UserProfileResponse `json:"owner,omitempty"`
+}
+
+// PATAttributionResponse is returned by GET /identity/tokens/attribution.
+// The Attribution map key is the PAT UUID.
+type PATAttributionResponse struct {
+	Attribution map[string]PATGrantAttribution `json:"attribution"`
+}
+
+// ─── User profile types ───────────────────────────────────────────────────────
+
+// UserProfile is a persistent, upserted record of a human principal's identity
+// attributes. Populated from verified OIDC claims on every successful login.
+type UserProfile struct {
+	ID          string    `db:"id"`
+	TenantID    string    `db:"tenant_id"`
+	Email       string    `db:"email"`
+	DisplayName string    `db:"display_name"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+}
+
+// UserProfileResponse is a single user entry in list and detail responses.
+type UserProfileResponse struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+}
+
+// UserProfilesResponse is returned by GET /identity/users.
+type UserProfilesResponse struct {
+	Users []UserProfileResponse `json:"users"`
+	Total int                   `json:"total"`
+	Page  int                   `json:"page"`
+	Limit int                   `json:"limit"`
+}
+
+// UserProfileFilter is the query model for listing user profiles.
+type UserProfileFilter struct {
+	IDs    []string // optional; when non-empty, only these IDs are returned
+	Search string   // optional; when non-empty, filters by email/display_name ILIKE
+	Page   int      // 1-based; defaults to 1
+	Limit  int      // defaults to 20, max 100
 }
 
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
@@ -230,4 +303,17 @@ var (
 	ErrPATPersistFailed       = errors.New("PAT persistence failed")
 	ErrPATListFailed          = errors.New("PAT list failed")
 	ErrPATRevokeFailed        = errors.New("PAT revocation failed")
+	ErrPATScopesRequired      = errors.New("at least one scope is required")
+	ErrPATUpdateFailed        = errors.New("PAT scope update failed")
+	ErrUserProfileNotFound    = errors.New("user profile not found")
 )
+
+// ErrPATScopesForbiddenError is returned when the requested scopes exceed the
+// issuing user's current effective scopes.
+type ErrPATScopesForbiddenError struct {
+	Scopes []string
+}
+
+func (e *ErrPATScopesForbiddenError) Error() string {
+	return fmt.Sprintf("scopes exceed your current access: %v", e.Scopes)
+}

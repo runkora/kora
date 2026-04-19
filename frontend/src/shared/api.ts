@@ -75,6 +75,7 @@ export interface ModelsListResponse {
 export interface PAT {
   id: string;
   name: string;
+  scopes: string[];
   expires_at: string;
   created_at: string;
 }
@@ -84,6 +85,7 @@ export interface CreatePATRequest {
   name: string;
   /** Optional. Defaults to 90 days on the backend. Max 365. */
   expires_in_days?: number;
+  scopes: string[];
 }
 
 /**
@@ -96,8 +98,14 @@ export interface CreatePATResponse {
   name: string;
   /** Raw PAT string (`orb_<jwt>`). Store it securely — shown once only. */
   token: string;
+  scopes: string[];
   expires_at: string;
   created_at: string;
+}
+
+/** Request body for PATCH /tokens/{id}/scopes. Mirrors Go: identity.UpdatePATScopesRequest */
+export interface UpdatePATScopesRequest {
+  scopes: string[];
 }
 
 /** Top-level response from GET /tokens. Mirrors Go: identity.ListPATsResponse */

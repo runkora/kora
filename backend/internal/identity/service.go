@@ -34,6 +34,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -57,6 +58,13 @@ type tenantOIDCState struct {
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
+// PolicyClient abstracts grant management calls to the policy service.
+// Implemented by platform/clients/policy.Client in production.
+type PolicyClient interface {
+	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string) (string, error)
+	DeleteGrant(ctx context.Context, grantID string) error
+}
+
 // Service implements the identity business logic: federated OIDC authentication
 // via the Device Authorization Grant and oidc_id_token browser flow,
 // SPIFFE SVID exchange, JWT issuance, session management, and token revocation.
@@ -66,6 +74,9 @@ type Service struct {
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
 	pats          PATRepository
+	profiles      UserProfileRepository
+	policyClient  PolicyClient
+	policyEval    policy.Evaluator
 	logger        logging.Logger
 	tracer        trace.Tracer
 
@@ -120,15 +131,24 @@ func NewService(
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
 	pats PATRepository,
+	profiles UserProfileRepository,
+	policyClient PolicyClient,
+	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
 ) (*Service, error) {
+	if profiles == nil {
+		profiles = noopUserProfileRepository{}
+	}
 	svc := &Service{
 		cfg:           cfg,
 		sessions:      sessions,
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
 		pats:          pats,
+		profiles:      profiles,
+		policyClient:  policyClient,
+		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
 		tracer:        otel.Tracer("orbit.identity"),
@@ -793,7 +813,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	)
 
 	// Sign before persisting — if signing fails nothing is written to the DB.
-	accessToken, err = s.signToken(principal, jti, sessionID, now, ttl)
+	accessToken, err = s.signToken(principal, jti, sessionID, "", now, ttl)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "token signing failed")
@@ -825,7 +845,8 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 }
 
 // createSession creates a full human session: PostgreSQL session + refresh
-// token + signed JWT.
+// token + signed JWT. For HUMAN/FEDERATED principals it also upserts a
+// user_profiles row — failures are non-fatal and logged.
 func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createSession",
 		trace.WithAttributes(
@@ -839,6 +860,19 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "session creation failed")
 		return nil, err
+	}
+
+	// Upsert user profile for federated human principals so that downstream
+	// systems (policy dashboard, audit logs) can resolve user_id → display name.
+	if principal.IdentitySource == IdentitySourceFederated {
+		profile := userProfileFromPrincipal(principal)
+		if upsertErr := s.profiles.Upsert(ctx, profile); upsertErr != nil {
+			s.logger.Error(ctx, "failed to upsert user profile",
+				logging.Field{Key: "user_id", Value: principal.ID},
+				logging.Field{Key: "tenant_id", Value: principal.TenantID},
+				logging.Field{Key: "error", Value: upsertErr.Error()},
+			)
+		}
 	}
 
 	// Issue refresh token (opaque random bytes; only the hash is stored).
@@ -907,7 +941,8 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 }
 
 // signToken constructs and signs an RS256 platform JWT.
-func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, ttl time.Duration) (string, error) {
+// Exactly one of sessionID or patID should be non-empty depending on principal type.
+func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time.Time, ttl time.Duration) (string, error) {
 	claims := PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        jti,
@@ -924,11 +959,95 @@ func (s *Service) signToken(p *Principal, jti, sessionID string, now time.Time, 
 			IdentitySource: p.IdentitySource,
 			DisplayName:    p.DisplayName,
 			Claims:         p.Claims,
+			PatID:          patID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = keyID(&s.signingKey.PublicKey)
 	return token.SignedString(s.signingKey)
+}
+
+// SystemToken mints a short-lived RS256 JWT for identity-service internal calls
+// to other platform services (e.g. policy service grant management).
+// The SYSTEM principal type allows cross-tenant operations in the policy service.
+func (s *Service) SystemToken(ctx context.Context) (string, error) {
+	principal := &Principal{
+		ID:             "orbit-identity-service",
+		Type:           token.PrincipalTypeSystem,
+		TenantID:       "",
+		IdentitySource: IdentitySourcePlatform,
+	}
+	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), 5*time.Minute)
+}
+
+// GetUserProfile returns the profile for a single user, scoped to the caller's tenant.
+func (s *Service) GetUserProfile(ctx context.Context, tenantID, userID string) (UserProfile, error) {
+	profile, err := s.profiles.GetByID(ctx, tenantID, userID)
+	if err != nil {
+		return UserProfile{}, err
+	}
+	return profile, nil
+}
+
+// ListUserProfiles returns a paginated list of profiles for a tenant.
+// When filter.IDs is non-empty, only those IDs are returned.
+// Also returns the total count of matching records.
+func (s *Service) ListUserProfiles(ctx context.Context, tenantID string, filter UserProfileFilter) ([]UserProfile, int, error) {
+	profiles, total, err := s.profiles.List(ctx, tenantID, filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list user profiles: %w", err)
+	}
+	return profiles, total, nil
+}
+
+// GetPATAttribution resolves a set of PAT UUIDs to their token names and owning user profiles.
+// PAT IDs not found in the token table are omitted; owner profile is omitted if not yet recorded.
+func (s *Service) GetPATAttribution(ctx context.Context, tenantID string, patIDs []string) (map[string]PATGrantAttribution, error) {
+	if len(patIDs) == 0 {
+		return map[string]PATGrantAttribution{}, nil
+	}
+
+	owners, err := s.pats.GetOwnersByIDs(ctx, tenantID, patIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get PAT owners: %w", err)
+	}
+	if len(owners) == 0 {
+		return map[string]PATGrantAttribution{}, nil
+	}
+
+	// Deduplicate user IDs before querying profiles.
+	seen := make(map[string]struct{}, len(owners))
+	var userIDs []string
+	for _, info := range owners {
+		if _, ok := seen[info.UserID]; !ok {
+			seen[info.UserID] = struct{}{}
+			userIDs = append(userIDs, info.UserID)
+		}
+	}
+
+	profiles, _, err := s.profiles.List(ctx, tenantID, UserProfileFilter{IDs: userIDs, Page: 1, Limit: len(userIDs)})
+	if err != nil {
+		return nil, fmt.Errorf("get user profiles for attribution: %w", err)
+	}
+
+	byUserID := make(map[string]UserProfile, len(profiles))
+	for _, p := range profiles {
+		byUserID[p.ID] = p
+	}
+
+	result := make(map[string]PATGrantAttribution, len(owners))
+	for patID, info := range owners {
+		entry := PATGrantAttribution{PATName: info.PATName}
+		if p, ok := byUserID[info.UserID]; ok {
+			entry.Owner = &UserProfileResponse{
+				ID:          p.ID,
+				Email:       p.Email,
+				DisplayName: p.DisplayName,
+			}
+		}
+		result[patID] = entry
+	}
+	return result, nil
 }
 
 // AuthMiddleware returns a Middleware that verifies a platform JWT on the
@@ -1446,7 +1565,6 @@ func intToBytes(i int) []byte {
 	return b
 }
 
-// hashToken returns the hex-encoded SHA-256 hash of a token string.
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return fmt.Sprintf("%x", h)

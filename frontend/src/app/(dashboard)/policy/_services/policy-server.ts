@@ -115,6 +115,12 @@ async function policyGatewayFetch<T>(
 
 // ── Policy Service (PAP) endpoints ───────────────────────────────────────────
 
+export async function fetchEffectiveScopes(
+  accessToken: string,
+): Promise<Result<{ scopes: string[] }>> {
+  return policyServiceFetch('/effective-scopes', accessToken);
+}
+
 export async function fetchStats(
   accessToken: string,
   tenantId: string,
@@ -125,9 +131,12 @@ export async function fetchStats(
 export async function fetchGrants(
   accessToken: string,
   tenantId: string,
+  page = 1,
+  limit = 50,
 ): Promise<Result<GrantsListResponse>> {
+  const offset = (page - 1) * limit;
   return policyServiceFetch(
-    `/grants?tenant_id=${encodeURIComponent(tenantId)}&limit=500`,
+    `/grants?tenant_id=${encodeURIComponent(tenantId)}&limit=${limit}&offset=${offset}`,
     accessToken,
   );
 }

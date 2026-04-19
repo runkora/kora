@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -15,22 +15,20 @@ import {
   Text,
 } from '@orbit/terra';
 import Link from 'next/link';
-import { KeyRound, ScrollText, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, ScrollText, Trash2 } from 'lucide-react';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
 import { RevokeTokenModal } from './revoke-token-modal';
+import { EditScopesModal } from './edit-scopes-modal';
+import { ScopeChip } from '../../policy/_components/scope-chip';
 import type { CreatePATResponse, PAT } from '@orbit/shared/api';
-import { fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
+import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
+import type { TokenUsageStat } from '../_services/usage-server';
 
 // ── View model ────────────────────────────────────────────────────────────────
-//
-// Extends the backend PAT shape with analytics fields that will be populated
-// once the backend supports per-key spend attribution. Until then they are
-// undefined and the UI renders sensible fallbacks.
 
 interface PATViewModel extends PAT {
-  // TODO: replace with real usage data once backend supports PAT spend attribution
   spend?: number;
   spendLimit?: number;
   requests?: number;
@@ -52,10 +50,11 @@ function getSpendVariant(spend: number, limit: number): 'healthy' | 'degraded' |
 interface KeyCardProps {
   pat: PATViewModel;
   onRevoke: () => void;
+  onEditScopes: () => void;
   revoking: boolean;
 }
 
-function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
+function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
   const expired = isExpired(pat.expires_at);
   const statusBadgeVariant = expired ? 'error' : 'healthy';
 
@@ -83,6 +82,14 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                 >
                   <ScrollText className="h-3.5 w-3.5" />
                 </Link>
+                <button
+                  type="button"
+                  aria-label={`Edit permissions for ${pat.name}`}
+                  onClick={onEditScopes}
+                  className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
                 <button
                   type="button"
                   aria-label={`Revoke key ${pat.name}`}
@@ -122,7 +129,6 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                     Last used
                   </Text>
                   <Text size="supporting" color="foreground" mono>
-                    {/* TODO: replace with real data once backend supports last-used tracking */}
                     {pat.lastUsed ?? '—'}
                   </Text>
                 </Stack>
@@ -132,11 +138,26 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
                     Requests
                   </Text>
                   <Text size="supporting" color="foreground" mono tabular>
-                    {/* TODO: replace with real data once backend supports PAT spend attribution */}
                     {pat.requests !== undefined ? fmtNumCompact(pat.requests) : '—'}
                   </Text>
                 </Stack>
               </Grid>
+
+              {/* Scopes */}
+              {pat.scopes && pat.scopes.length > 0 && (
+                <Stack gap="tight">
+                  <Text size="caption" color="subtle" weight="emphasis">
+                    Permissions
+                  </Text>
+                  <Stack asChild direction="horizontal" gap="tight">
+                    <section className="flex-wrap">
+                      {pat.scopes.map((scope) => (
+                        <ScopeChip key={scope} scope={scope} />
+                      ))}
+                    </section>
+                  </Stack>
+                </Stack>
+              )}
 
               {hasSpend && (
                 <Stack gap="snug">
@@ -170,9 +191,20 @@ function KeyCard({ pat, onRevoke, revoking }: KeyCardProps) {
 interface KeysTabProps {
   initialTokens: PAT[];
   initialError: string | null;
+  effectiveScopes: string[];
+  usageStats: TokenUsageStat[];
 }
 
-export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
+export function KeysTab({
+  initialTokens,
+  initialError,
+  effectiveScopes,
+  usageStats,
+}: KeysTabProps) {
+  const statsById = useMemo(
+    () => Object.fromEntries(usageStats.map((s) => [s.token_id, s])),
+    [usageStats],
+  );
   const router = useRouter();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -180,6 +212,7 @@ export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
   const [revokeCandidate, setRevokeCandidate] = useState<PATViewModel | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [editScopesCandidate, setEditScopesCandidate] = useState<PATViewModel | null>(null);
 
   const handleCreated = useCallback(
     (pat: CreatePATResponse) => {
@@ -205,6 +238,10 @@ export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
     },
     [router],
   );
+
+  const handleScopesUpdated = useCallback(() => {
+    router.refresh();
+  }, [router]);
 
   return (
     <>
@@ -249,14 +286,23 @@ export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
           </Card>
         ) : (
           <Stack gap="comfortable">
-            {initialTokens.map((pat) => (
-              <KeyCard
-                key={pat.id}
-                pat={pat}
-                onRevoke={() => setRevokeCandidate(pat)}
-                revoking={revokingId === pat.id}
-              />
-            ))}
+            {initialTokens.map((pat) => {
+              const stat = statsById[pat.id];
+              const viewModel = {
+                ...pat,
+                requests: stat?.request_count,
+                lastUsed: stat ? fmtDate(stat.last_used) : undefined,
+              };
+              return (
+                <KeyCard
+                  key={pat.id}
+                  pat={viewModel}
+                  onRevoke={() => setRevokeCandidate(pat)}
+                  onEditScopes={() => setEditScopesCandidate(pat)}
+                  revoking={revokingId === pat.id}
+                />
+              );
+            })}
           </Stack>
         )}
       </Stack>
@@ -264,6 +310,7 @@ export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
       {/* Modals */}
       <CreateTokenModal
         open={createOpen}
+        availableScopes={effectiveScopes}
         onClose={() => setCreateOpen(false)}
         onCreated={handleCreated}
       />
@@ -277,6 +324,12 @@ export function KeysTab({ initialTokens, initialError }: KeysTabProps) {
           setRevokeCandidate(null);
           setRevokeError(null);
         }}
+      />
+      <EditScopesModal
+        pat={editScopesCandidate}
+        availableScopes={effectiveScopes}
+        onClose={() => setEditScopesCandidate(null)}
+        onUpdated={handleScopesUpdated}
       />
     </>
   );

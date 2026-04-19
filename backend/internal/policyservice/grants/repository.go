@@ -22,6 +22,7 @@ const (
 	PrincipalTypeAgent   PrincipalType = "AGENT"
 	PrincipalTypeHuman   PrincipalType = "HUMAN"
 	PrincipalTypeService PrincipalType = "SERVICE"
+	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
 // Grant asserts that a named principal within a tenant holds a set of
@@ -48,11 +49,13 @@ type Repository interface {
 
 	// ListByPrincipal returns grants for a given principal within a tenant,
 	// paginated by limit and offset. Use limit=0 for unbounded.
-	ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, error)
+	// The second return value is the total count of matching rows before paging.
+	ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error)
 
 	// ListByTenant returns grants for a tenant, paginated by limit and offset.
 	// Use limit=0 for unbounded (e.g. bundle compilation).
-	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error)
+	// The second return value is the total count of matching rows before paging.
+	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error)
 
 	// Delete removes a grant by ID within a tenant. Returns ErrGrantNotFound if it does not exist.
 	Delete(ctx context.Context, id, tenantID string) error
@@ -107,9 +110,10 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, er
 	return r.scanGrant(row)
 }
 
-func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, error) {
+func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at
+		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at,
+		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1 AND principal_type = $2 AND principal_id = $3
 		ORDER BY created_at`
@@ -119,15 +123,16 @@ func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID strin
 	}
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list grants by principal: %w", err)
+		return nil, 0, fmt.Errorf("list grants by principal: %w", err)
 	}
 	defer rows.Close()
-	return r.collectGrants(rows)
+	return r.collectGrantsWithTotal(rows)
 }
 
-func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, error) {
+func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at
+		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at,
+		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1
 		ORDER BY principal_type, principal_id, created_at`
@@ -137,10 +142,10 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 	}
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list grants by tenant: %w", err)
+		return nil, 0, fmt.Errorf("list grants by tenant: %w", err)
 	}
 	defer rows.Close()
-	return r.collectGrants(rows)
+	return r.collectGrantsWithTotal(rows)
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {
@@ -232,20 +237,21 @@ func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {
 	return &g, nil
 }
 
-func (r *postgresRepository) collectGrants(rows pgx.Rows) ([]*Grant, error) {
-	var grants []*Grant
+func (r *postgresRepository) collectGrantsWithTotal(rows pgx.Rows) ([]*Grant, int, error) {
+	var gs []*Grant
+	var total int
 	for rows.Next() {
 		var g Grant
 		var principalType string
 		var scopesJSON []byte
-		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &g.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan grant row: %w", err)
+		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &g.CreatedAt, &total); err != nil {
+			return nil, 0, fmt.Errorf("scan grant row: %w", err)
 		}
 		g.PrincipalType = PrincipalType(principalType)
 		if err := json.Unmarshal(scopesJSON, &g.Scopes); err != nil {
-			return nil, fmt.Errorf("unmarshal scopes: %w", err)
+			return nil, 0, fmt.Errorf("unmarshal scopes: %w", err)
 		}
-		grants = append(grants, &g)
+		gs = append(gs, &g)
 	}
-	return grants, rows.Err()
+	return gs, total, rows.Err()
 }

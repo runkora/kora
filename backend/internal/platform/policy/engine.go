@@ -272,7 +272,7 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	opaInput := principalInput{
 		Type:     string(input.Claims.Orbit.PrincipalType),
 		TenantID: input.Claims.Orbit.TenantID,
-		ID:       input.Claims.Subject,
+		ID:       principalID(input.Claims),
 		Roles:    extractRoles(input.Claims),
 	}
 
@@ -305,7 +305,7 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 		"principal": principalInput{
 			Type:     string(input.Claims.Orbit.PrincipalType),
 			TenantID: input.Claims.Orbit.TenantID,
-			ID:       input.Claims.Subject,
+			ID:       principalID(input.Claims),
 			Roles:    extractRoles(input.Claims),
 		},
 	}
@@ -496,7 +496,7 @@ func buildOPAInput(
 		Principal: principalInput{
 			Type:     string(claims.Orbit.PrincipalType),
 			TenantID: claims.Orbit.TenantID,
-			ID:       claims.Subject,
+			ID:       principalID(claims),
 			Roles:    extractRoles(claims),
 		},
 		RequiredScope: requiredScope,
@@ -511,6 +511,16 @@ func buildOPAInput(
 	}
 
 	return input
+}
+
+// principalID returns the correct principal identifier for OPA grant lookups.
+// For PAT principals, sub holds the issuing user's OIDC subject for attribution;
+// the grant is keyed on the PAT UUID stored in PatID instead.
+func principalID(claims *token.PlatformClaims) string {
+	if claims.Orbit.PrincipalType == token.PrincipalTypePAT && claims.Orbit.PatID != "" {
+		return claims.Orbit.PatID
+	}
+	return claims.Subject
 }
 
 func extractRoles(claims *token.PlatformClaims) []string {

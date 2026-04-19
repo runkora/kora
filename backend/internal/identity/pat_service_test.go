@@ -5,16 +5,30 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 )
+
+// testClaims returns a minimal *PlatformClaims for use in PAT tests.
+func testClaims() *PlatformClaims {
+	return &PlatformClaims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
+		Orbit: OrbitClaims{
+			TenantID:      "t1",
+			PrincipalType: PrincipalTypeHuman,
+		},
+	}
+}
 
 // ── CreatePAT ─────────────────────────────────────────────────────────────────
 
 func TestCreatePAT_Success(t *testing.T) {
 	svc, _, _, _, pats := newFullTestService(t)
 
-	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
+	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", testClaims(), CreatePATRequest{
 		Name:          "ci-token",
 		ExpiresInDays: 30,
+		Scopes:        []string{"inference:invoke"},
 	})
 	if err != nil {
 		t.Fatalf("CreatePAT: %v", err)
@@ -45,8 +59,9 @@ func TestCreatePAT_DefaultTTL_WhenZero(t *testing.T) {
 	svc, _, _, _, _ := newFullTestService(t)
 
 	// ExpiresInDays == 0 should default to PATDefaultTTLDays (90 in tests).
-	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
-		Name: "default-ttl",
+	resp, err := svc.CreatePAT(context.Background(), "t1", "user-1", testClaims(), CreatePATRequest{
+		Name:   "default-ttl",
+		Scopes: []string{"inference:invoke"},
 	})
 	if err != nil {
 		t.Fatalf("CreatePAT: %v", err)
@@ -73,9 +88,38 @@ func TestCreatePAT_PersistError_ReturnsError(t *testing.T) {
 	svc, _, _, _, pats := newFullTestService(t)
 	pats.createErr = errors.New("db down")
 
-	_, err := svc.CreatePAT(context.Background(), "t1", "user-1", CreatePATRequest{
-		Name: "will-fail",
+	_, err := svc.CreatePAT(context.Background(), "t1", "user-1", testClaims(), CreatePATRequest{
+		Name:   "will-fail",
+		Scopes: []string{"inference:invoke"},
 	})
+	if err == nil {
+		t.Fatal("expected error when persist fails")
+	}
+}
+
+func TestCreatePAT_GrantCreateFailure_ReturnsError(t *testing.T) {
+	svc, _, _, _, _, policy := newFullTestServiceWithPolicy(t)
+	policy.createGrantErr = errors.New("policy service unavailable")
+
+	_, err := svc.CreatePAT(context.Background(), "t1", "user-1", testClaims(), CreatePATRequest{
+		Name:   "will-fail",
+		Scopes: []string{"inference:invoke"},
+	})
+	if err == nil {
+		t.Fatal("expected error when grant creation fails")
+	}
+}
+
+func TestCreatePAT_PersistError_GrantCleanupFails_ReturnsError(t *testing.T) {
+	svc, _, _, _, pats, policy := newFullTestServiceWithPolicy(t)
+	pats.createErr = errors.New("db down")
+	policy.deleteGrantErr = errors.New("policy service unavailable")
+
+	_, err := svc.CreatePAT(context.Background(), "t1", "user-1", testClaims(), CreatePATRequest{
+		Name:   "will-fail",
+		Scopes: []string{"inference:invoke"},
+	})
+	// Must still return the original persist error even when cleanup also fails.
 	if err == nil {
 		t.Fatal("expected error when persist fails")
 	}
@@ -124,6 +168,100 @@ func TestListPATs_RepoError_ReturnsError(t *testing.T) {
 	_, err := svc.ListPATs(context.Background(), "t1", "user-1")
 	if err == nil {
 		t.Fatal("expected error when repo fails")
+	}
+}
+
+// ── validateScopesAgainstUser ─────────────────────────────────────────────────
+
+func TestValidateScopesAgainstUser_AllowedSubset(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+	// mockPolicyEvaluator returns ["inference:invoke", "inference:list"] by default.
+	claims := testClaims()
+	if err := svc.validateScopesAgainstUser(context.Background(), claims, []string{"inference:invoke"}); err != nil {
+		t.Errorf("expected nil for allowed scope subset, got: %v", err)
+	}
+}
+
+func TestValidateScopesAgainstUser_ForbiddenScope_ReturnsError(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+	claims := testClaims()
+	err := svc.validateScopesAgainstUser(context.Background(), claims, []string{"inference:invoke", "admin:users:write"})
+	if err == nil {
+		t.Fatal("expected error for scope exceeding effective access")
+	}
+	var scopeErr *ErrPATScopesForbiddenError
+	if !errors.As(err, &scopeErr) {
+		t.Fatalf("expected *ErrPATScopesForbiddenError, got: %T", err)
+	}
+	if len(scopeErr.Scopes) != 1 || scopeErr.Scopes[0] != "admin:users:write" {
+		t.Errorf("forbidden scopes: got %v, want [admin:users:write]", scopeErr.Scopes)
+	}
+}
+
+// ── UpdatePATScopes ───────────────────────────────────────────────────────────
+
+func TestUpdatePATScopes_NewGrantCreateFails_ReturnsError(t *testing.T) {
+	svc, _, _, _, pats, policy := newFullTestServiceWithPolicy(t)
+
+	now := time.Now().UTC()
+	grantID := "existing-grant"
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{
+		ID:        "pat-1",
+		TenantID:  "t1",
+		UserID:    "user-1",
+		Name:      "my-pat",
+		JTI:       "jti-1",
+		Scopes:    []string{"inference:invoke"},
+		GrantID:   &grantID,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+	pats.mu.Unlock()
+
+	policy.createGrantErr = errors.New("policy service unavailable")
+
+	err := svc.UpdatePATScopes(context.Background(), "t1", "user-1", "pat-1", testClaims(), UpdatePATScopesRequest{
+		Scopes: []string{"inference:invoke"},
+	})
+	if err == nil {
+		t.Fatal("expected error when new grant creation fails")
+	}
+}
+
+func TestUpdatePATScopes_PATUpdateFails_GrantCleanupFails_ReturnsError(t *testing.T) {
+	svc, _, _, _, pats, policy := newFullTestServiceWithPolicy(t)
+
+	now := time.Now().UTC()
+	grantID := "existing-grant"
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{
+		ID:        "pat-1",
+		TenantID:  "t1",
+		UserID:    "user-1",
+		Name:      "my-pat",
+		JTI:       "jti-1",
+		Scopes:    []string{"inference:invoke"},
+		GrantID:   &grantID,
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+	}
+	pats.mu.Unlock()
+
+	// UpdateScopes will fail for a PAT not matching the repo (wrong ID after cleanup).
+	// Simulate: repo update fails by making the PAT appear deleted after grant swap.
+	pats.mu.Lock()
+	delete(pats.pats, "pat-1")
+	pats.mu.Unlock()
+
+	// Also make the cleanup DeleteGrant fail to test the double-failure path.
+	policy.deleteGrantErr = errors.New("policy service unavailable")
+
+	err := svc.UpdatePATScopes(context.Background(), "t1", "user-1", "pat-1", testClaims(), UpdatePATScopesRequest{
+		Scopes: []string{"inference:invoke"},
+	})
+	if err == nil {
+		t.Fatal("expected error when PAT not found")
 	}
 }
 

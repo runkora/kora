@@ -18,15 +18,15 @@ import {
 
 function ToolbarSkeleton() {
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle">
+    <span className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle">
       {/* Search input */}
       <Skeleton shape="block" width="half" size="md" />
-      {/* ml-auto right side: count + columns toggle */}
-      <div className="ml-auto flex items-center gap-3">
+      {/* Right side: count + columns toggle */}
+      <span className="ml-auto flex items-center gap-3">
         <Skeleton shape="line" width="quarter" size="xs" />
         <Skeleton shape="block" width="quarter" size="md" />
-      </div>
-    </div>
+      </span>
+    </span>
   );
 }
 

@@ -486,7 +486,7 @@ func TestHandleRevoke_AccessToken_Success(t *testing.T) {
 	}
 	jti := "revoke-jti-1"
 	sessionID := "revoke-sess-1"
-	token, err := svc.signToken(principal, jti, sessionID, time.Now(), time.Hour)
+	token, err := svc.signToken(principal, jti, sessionID, "", time.Now(), time.Hour)
 	if err != nil {
 		t.Fatalf("signToken: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestHandleRevoke_AlreadyBlockedAccessToken_IsIdempotent(t *testing.T) {
 		IdentitySource: IdentitySourceFederated,
 	}
 	jti := "already-blocked-jti"
-	token, err := svc.signToken(principal, jti, "sess-1", time.Now(), time.Hour)
+	token, err := svc.signToken(principal, jti, "sess-1", "", time.Now(), time.Hour)
 	if err != nil {
 		t.Fatalf("signToken: %v", err)
 	}
