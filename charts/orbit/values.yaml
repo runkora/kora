@@ -11,7 +11,7 @@
 #
 #   global.trustDomain
 #   identity.existingSecret              (from spec.secrets.platformSecretRef)
-#   identity.existingConfigMap           (always "orbit-config")
+#   identity.existingConfigMap           (from spec.config.configMapName, default "orbit-config")
 #   identity.existingTenantsConfigMap    (always "orbit-tenants")
 #   identity.existingClientSecretsSecret (always "orbit-tenant-oidc-secrets")
 #   platform.namespaces.tenants          (derived from active OrbitTenant CRs)
@@ -91,7 +91,8 @@ identity:
 
   # Name of the existing ConfigMap containing non-secret environment variables
   # (DB_HOST, DB_NAME, DB_PORT, DB_USER, REDIS_HOST, REDIS_PORT, ORBIT_OIDC_CLIENT_ID,
-  # ORBIT_OIDC_ISSUER_URL). Operator default: "orbit-config" (managed by operator).
+  # ORBIT_OIDC_ISSUER_URL). Operator default: spec.config.configMapName
+  # (defaults to "orbit-config").
   existingConfigMap: "orbit-config"
 
   # Name of the existing ConfigMap containing the tenant registry YAML.
@@ -146,7 +147,7 @@ inferenceGateway:
   existingSecret: "orbit-secrets"
 
   # Name of the existing ConfigMap containing DB_HOST, DB_NAME, DB_PORT, DB_USER.
-  # Operator default: "orbit-config" (managed by operator, same as identity service).
+  # Operator default: spec.config.configMapName (defaults to "orbit-config").
   existingConfigMap: "orbit-config"
 
 # -- Frontend service configuration.
@@ -239,6 +240,7 @@ policyService:
     logFormat: "json"
 
   existingSecret: "orbit-secrets"
+  # Operator default: spec.config.configMapName (defaults to "orbit-config").
   existingConfigMap: "orbit-config"
 
 # -- Policy Gateway configuration (PEP — Policy Enforcement Point).

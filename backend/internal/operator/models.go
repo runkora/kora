@@ -7,6 +7,7 @@ package operator
 
 import (
 	"reflect"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,6 +16,12 @@ import (
 
 // GroupVersion is the API group and version for Orbit CRDs.
 var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+
+const (
+	defaultOrbitConfigMapName = "orbit-config"
+	defaultDBPort             = 5432
+	defaultRedisPort          = 6379
+)
 
 // -----------------------------------------------------------------------------
 // OrbitPlatform — cluster-scoped, one per cluster
@@ -58,6 +65,12 @@ type OrbitPlatformSpec struct {
 	// Set enabled:false if Istio is already installed in the cluster.
 	Istio IstioSpec `json:"istio,omitempty"`
 
+	// Istiod controls raw Helm values for the istiod chart.
+	Istiod IstiodSpec `json:"istiod,omitempty"`
+
+	// IstioGateway controls raw Helm values for the Istio gateway chart.
+	IstioGateway IstioGatewaySpec `json:"istioGateway,omitempty"`
+
 	// Secrets references the pre-existing Secret containing platform credentials.
 	// The Secret must contain: DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY.
 	// The operator reads this Secret but never creates or rotates it.
@@ -70,21 +83,21 @@ type OrbitPlatformSpec struct {
 	UpgradeStrategy UpgradeStrategySpec `json:"upgradeStrategy,omitempty"`
 
 	// ClusterName is the SPIRE cluster identifier.
-
-	// Deprecated: configure the SPIRE chart directly via spec.spireValues.
+	//
+	// Deprecated: configure the SPIRE chart directly via spec.spire.helmValues.
 	// +kubebuilder:default=orbit
 	// +optional
 	ClusterName string `json:"clusterName,omitempty"`
 
 	// Gateway configures the Istio ingress gateway.
-
-	// Deprecated: configure the gateway chart directly via spec.gatewayValues.
+	//
+	// Deprecated: configure the gateway chart directly via spec.istioGateway.helmValues.
 	Gateway GatewaySpec `json:"gateway,omitempty"`
 
 	// ImageRegistry is an optional registry prefix applied to all Orbit platform
 	// service images.
-
-	// Deprecated: configure explicit image references directly in spec.istiodValues
+	//
+	// Deprecated: configure explicit image references directly in spec.istiod.helmValues
 	// and spec.orbitValues.
 	// +optional
 	ImageRegistry string `json:"imageRegistry,omitempty"`
@@ -93,26 +106,6 @@ type OrbitPlatformSpec struct {
 	// Use sparingly — prefer structured spec fields.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	SPIRECRDsValues map[string]any `json:"spireCRDsValues,omitempty"`
-
-	// SpireValues are raw Helm values merged into the spire chart.
-	// Use sparingly — prefer structured spec fields.
-	// +kubebuilder:pruning:PreserveUnknownFields
-	SpireValues map[string]any `json:"spireValues,omitempty"`
-
-	// IstioBaseValues are raw Helm values merged into the istio base chart.
-	// Use sparingly — prefer structured spec fields.
-	// +kubebuilder:pruning:PreserveUnknownFields
-	IstioBaseValues map[string]any `json:"istioBaseValues,omitempty"`
-
-	// IstiodValues are raw Helm values merged into the istiod chart.
-	// Use sparingly — prefer structured spec fields.
-	// +kubebuilder:pruning:PreserveUnknownFields
-	IstiodValues map[string]any `json:"istiodValues,omitempty"`
-
-	// GatewayValues are raw Helm values merged into the Istio gateway chart.
-	// Use sparingly — prefer structured spec fields.
-	// +kubebuilder:pruning:PreserveUnknownFields
-	GatewayValues map[string]any `json:"gatewayValues,omitempty"`
 
 	// PlatformValues are raw Helm values merged into the orbit-platform chart.
 	// Use sparingly — prefer structured spec fields.
@@ -130,6 +123,11 @@ type SPIRESpec struct {
 	// Enabled controls whether the operator installs SPIRE. Default: true.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+
+	// HelmValues are raw Helm values merged into the spire chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmValues map[string]any `json:"helmValues,omitempty"`
 }
 
 // IstioSpec controls Istio installation.
@@ -137,15 +135,36 @@ type IstioSpec struct {
 	// Enabled controls whether the operator installs Istio. Default: true.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+
+	// HelmValues are raw Helm values merged into the istio base chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmValues map[string]any `json:"helmValues,omitempty"`
+}
+
+// IstiodSpec controls raw Helm values for the istiod chart.
+type IstiodSpec struct {
+	// HelmValues are raw Helm values merged into the istiod chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmValues map[string]any `json:"helmValues,omitempty"`
+}
+
+// IstioGatewaySpec controls raw Helm values for the Istio gateway chart.
+type IstioGatewaySpec struct {
+	// HelmValues are raw Helm values merged into the Istio gateway chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	HelmValues map[string]any `json:"helmValues,omitempty"`
 }
 
 // GatewaySpec configures the Istio ingress gateway.
 
-// Deprecated: use spec.gatewayValues instead.
+// Deprecated: use spec.istioGateway.helmValues instead.
 type GatewaySpec struct {
 	// ServiceType is the Kubernetes service type for the gateway.
-
-	// Deprecated: use spec.gatewayValues.service.type.
+	//
+	// Deprecated: use spec.istioGateway.helmValues.service.type.
 	// +kubebuilder:default=LoadBalancer
 	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
 	ServiceType string `json:"serviceType,omitempty"`
@@ -170,6 +189,18 @@ type SecretRef struct {
 
 // PlatformConfigSpec holds non-secret infrastructure configuration.
 type PlatformConfigSpec struct {
+	// Enabled controls whether the operator creates or updates the shared
+	// non-secret config ConfigMap consumed by Orbit services. Default: true.
+	// When false, the operator assumes the ConfigMap already exists.
+	// +kubebuilder:default=true
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ConfigMapName is the name of the shared non-secret ConfigMap mounted by
+	// Orbit services. The operator reconciles this name when enabled=true and
+	// expects it to already exist when enabled=false.
+	// +kubebuilder:default=orbit-config
+	ConfigMapName string `json:"configMapName,omitempty"`
+
 	// DB holds PostgreSQL connection parameters (no credentials).
 	DB DBConfig `json:"db,omitempty"`
 	// Redis holds Redis connection parameters (no credentials).
@@ -178,6 +209,11 @@ type PlatformConfigSpec struct {
 
 // DBConfig holds non-secret PostgreSQL connection parameters.
 type DBConfig struct {
+	// Enabled controls whether the operator manages DB_* keys in the shared
+	// config ConfigMap. Default: true.
+	// +kubebuilder:default=true
+	Enabled *bool `json:"enabled,omitempty"`
+
 	Host string `json:"host,omitempty"`
 	Name string `json:"name,omitempty"`
 	Port int    `json:"port,omitempty"`
@@ -186,8 +222,72 @@ type DBConfig struct {
 
 // RedisConfig holds non-secret Redis connection parameters.
 type RedisConfig struct {
+	// Enabled controls whether the operator manages REDIS_* keys in the shared
+	// config ConfigMap. Default: true.
+	// +kubebuilder:default=true
+	Enabled *bool `json:"enabled,omitempty"`
+
 	Host string `json:"host,omitempty"`
 	Port int    `json:"port,omitempty"`
+}
+
+func (s OrbitPlatformSpec) platformConfigMapName() string {
+	if s.Config.ConfigMapName != "" {
+		return s.Config.ConfigMapName
+	}
+	return defaultOrbitConfigMapName
+}
+
+func (c PlatformConfigSpec) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+func (c PlatformConfigSpec) ManagedData() map[string]string {
+	managed := make(map[string]string)
+
+	if c.DB.IsEnabled() && c.DB.HasValues() {
+		managed["DB_HOST"] = c.DB.Host
+		managed["DB_NAME"] = c.DB.Name
+		managed["DB_PORT"] = strconv.Itoa(c.DB.PortOrDefault())
+		managed["DB_USER"] = c.DB.User
+	}
+
+	if c.Redis.IsEnabled() && c.Redis.HasValues() {
+		managed["REDIS_HOST"] = c.Redis.Host
+		managed["REDIS_PORT"] = strconv.Itoa(c.Redis.PortOrDefault())
+	}
+
+	return managed
+}
+
+func (c DBConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+func (c DBConfig) HasValues() bool {
+	return c.Host != "" || c.Name != "" || c.Port != 0 || c.User != ""
+}
+
+func (c DBConfig) PortOrDefault() int {
+	if c.Port != 0 {
+		return c.Port
+	}
+	return defaultDBPort
+}
+
+func (c RedisConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+func (c RedisConfig) HasValues() bool {
+	return c.Host != "" || c.Port != 0
+}
+
+func (c RedisConfig) PortOrDefault() int {
+	if c.Port != 0 {
+		return c.Port
+	}
+	return defaultRedisPort
 }
 
 // UpgradeStrategySpec controls how chart version upgrades are performed.
@@ -302,31 +402,82 @@ func (l *OrbitPlatformList) DeepCopyInto(out *OrbitPlatformList) {
 // DeepCopyInto for OrbitPlatformSpec.
 func (s *OrbitPlatformSpec) DeepCopyInto(out *OrbitPlatformSpec) {
 	*out = *s
-	out.SPIRE = s.SPIRE
-	out.Istio = s.Istio
+	s.SPIRE.DeepCopyInto(&out.SPIRE)
+	s.Istio.DeepCopyInto(&out.Istio)
+	s.Istiod.DeepCopyInto(&out.Istiod)
+	s.IstioGateway.DeepCopyInto(&out.IstioGateway)
 	out.Secrets = s.Secrets
-	out.Config = s.Config
+	s.Config.DeepCopyInto(&out.Config)
 	out.UpgradeStrategy = s.UpgradeStrategy
 	if s.SPIRECRDsValues != nil {
 		out.SPIRECRDsValues = deepCopyAnyMap(s.SPIRECRDsValues)
-	}
-	if s.SpireValues != nil {
-		out.SpireValues = deepCopyAnyMap(s.SpireValues)
-	}
-	if s.IstioBaseValues != nil {
-		out.IstioBaseValues = deepCopyAnyMap(s.IstioBaseValues)
-	}
-	if s.IstiodValues != nil {
-		out.IstiodValues = deepCopyAnyMap(s.IstiodValues)
-	}
-	if s.GatewayValues != nil {
-		out.GatewayValues = deepCopyAnyMap(s.GatewayValues)
 	}
 	if s.PlatformValues != nil {
 		out.PlatformValues = deepCopyAnyMap(s.PlatformValues)
 	}
 	if s.OrbitValues != nil {
 		out.OrbitValues = deepCopyAnyMap(s.OrbitValues)
+	}
+}
+
+// DeepCopyInto for PlatformConfigSpec.
+func (s *PlatformConfigSpec) DeepCopyInto(out *PlatformConfigSpec) {
+	*out = *s
+	if s.Enabled != nil {
+		out.Enabled = new(bool)
+		*out.Enabled = *s.Enabled
+	}
+	s.DB.DeepCopyInto(&out.DB)
+	s.Redis.DeepCopyInto(&out.Redis)
+}
+
+// DeepCopyInto for DBConfig.
+func (s *DBConfig) DeepCopyInto(out *DBConfig) {
+	*out = *s
+	if s.Enabled != nil {
+		out.Enabled = new(bool)
+		*out.Enabled = *s.Enabled
+	}
+}
+
+// DeepCopyInto for RedisConfig.
+func (s *RedisConfig) DeepCopyInto(out *RedisConfig) {
+	*out = *s
+	if s.Enabled != nil {
+		out.Enabled = new(bool)
+		*out.Enabled = *s.Enabled
+	}
+}
+
+// DeepCopyInto for SPIRESpec.
+func (s *SPIRESpec) DeepCopyInto(out *SPIRESpec) {
+	*out = *s
+	if s.HelmValues != nil {
+		out.HelmValues = deepCopyAnyMap(s.HelmValues)
+	}
+}
+
+// DeepCopyInto for IstioSpec.
+func (s *IstioSpec) DeepCopyInto(out *IstioSpec) {
+	*out = *s
+	if s.HelmValues != nil {
+		out.HelmValues = deepCopyAnyMap(s.HelmValues)
+	}
+}
+
+// DeepCopyInto for IstiodSpec.
+func (s *IstiodSpec) DeepCopyInto(out *IstiodSpec) {
+	*out = *s
+	if s.HelmValues != nil {
+		out.HelmValues = deepCopyAnyMap(s.HelmValues)
+	}
+}
+
+// DeepCopyInto for IstioGatewaySpec.
+func (s *IstioGatewaySpec) DeepCopyInto(out *IstioGatewaySpec) {
+	*out = *s
+	if s.HelmValues != nil {
+		out.HelmValues = deepCopyAnyMap(s.HelmValues)
 	}
 }
 

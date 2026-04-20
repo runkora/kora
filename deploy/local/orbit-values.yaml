@@ -13,7 +13,7 @@
 # any values set here would be overwritten:
 #
 #   identity.existingSecret              → from spec.secrets.platformSecretRef
-#   identity.existingConfigMap           → orbit-config (operator-managed)
+#   identity.existingConfigMap           → from spec.config.configMapName
 #   identity.existingTenantsConfigMap    → orbit-tenants (operator-managed)
 #   identity.existingClientSecretsSecret → orbit-tenant-oidc-secrets (operator-managed)
 #   platform.namespaces.tenants          → derived from active OrbitTenant CRs

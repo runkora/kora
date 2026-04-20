@@ -15,205 +15,206 @@ spec:
 
   spire:
     enabled: true
+    # Local Helm values for the SPIRE dependency chart.
+    helmValues:
+      global:
+        spire:
+          trustDomain: orbit.test
+          clusterName: orbit-local
+      spire-server:
+        controllerManager:
+          identities:
+            clusterSPIFFEIDs:
+              default:
+                enabled: false
+        nodeAttestor:
+          k8sPSAT:
+            enabled: true
+            clusters:
+              orbit-local:
+                service_account_allow_list:
+                  - spire-system:spire-agent
+      spire-agent:
+        sds:
+          enabled: true
+          defaultSVIDName: default
+          defaultBundleName: ROOTCA
+          defaultAllBundlesName: ALL
+        nodeAttestor:
+          k8sPSAT:
+            enabled: true
+        workloadAttestors:
+          k8s:
+            enabled: true
+            skipKubeletVerification: true
+            disableContainerSelectors: true
+            useNewContainerLocator: false
+      spiffe-csi-driver:
+        enabled: true
+      spire-controller-manager:
+        enabled: true
 
   istio:
     enabled: true
+    # Local Helm values for the Istio base chart.
+    helmValues: {}
 
-  # Local Helm values for the SPIRE dependency chart. The operator now passes
-  # these through from the CR instead of synthesizing them in code.
-  spireValues:
-    global:
-      spire:
+  istiod:
+    # Local Helm values for the Istio control-plane chart.
+    helmValues:
+      meshConfig:
         trustDomain: orbit.test
-        clusterName: orbit-local
-    spire-server:
-      controllerManager:
-        identities:
-          clusterSPIFFEIDs:
-            default:
-              enabled: false
-      nodeAttestor:
-        k8sPSAT:
-          enabled: true
-          clusters:
-            orbit-local:
-              service_account_allow_list:
-                - spire-system:spire-agent
-    spire-agent:
-      sds:
-        enabled: true
-        defaultSVIDName: default
-        defaultBundleName: ROOTCA
-        defaultAllBundlesName: ALL
-      nodeAttestor:
-        k8sPSAT:
-          enabled: true
-      workloadAttestors:
-        k8s:
-          enabled: true
-          skipKubeletVerification: true
-          disableContainerSelectors: true
-          useNewContainerLocator: false
-    spiffe-csi-driver:
-      enabled: true
-    spire-controller-manager:
-      enabled: true
-
-  # Local Helm values for the Istio control-plane chart.
-  istiodValues:
-    meshConfig:
-      trustDomain: orbit.test
-      defaultConfig:
-        discoveryAddress: istiod.istio-system.svc:15012
-    sidecarInjectorWebhook:
-      templates:
-        spire: |
-          spec:
-            containers:
-              - name: istio-proxy
-                env:
-                  - name: PILOT_CERT_PROVIDER
-                    value: "spire"
-                  - name: SPIFFE_ENDPOINT_SOCKET
-                    value: "unix:///run/secrets/workload-spiffe-uds/socket"
-                volumeMounts:
-                  - name: workload-socket
-                    mountPath: /run/secrets/workload-spiffe-uds
+        defaultConfig:
+          discoveryAddress: istiod.istio-system.svc:15012
+      sidecarInjectorWebhook:
+        templates:
+          spire: |
+            spec:
+              containers:
+                - name: istio-proxy
+                  env:
+                    - name: PILOT_CERT_PROVIDER
+                      value: "spire"
+                    - name: SPIFFE_ENDPOINT_SOCKET
+                      value: "unix:///run/secrets/workload-spiffe-uds/socket"
+                  volumeMounts:
+                    - name: workload-socket
+                      mountPath: /run/secrets/workload-spiffe-uds
+                      readOnly: true
+              volumes:
+                - name: workload-socket
+                  csi:
+                    driver: "csi.spiffe.io"
                     readOnly: true
-            volumes:
-              - name: workload-socket
-                csi:
-                  driver: "csi.spiffe.io"
-                  readOnly: true
-        identity-proxy: |
-          spec:
-            containers:
-              - name: istio-proxy
-                env:
-                  - name: SPIFFE_ENDPOINT_SOCKET
-                    value: "unix:///run/secrets/workload-spiffe-uds/socket"
-                volumeMounts:
-                  - name: id-proxy-sock
-                    mountPath: /run/orbit
-                  - name: workload-socket
-                    mountPath: /run/secrets/workload-spiffe-uds
+          identity-proxy: |
+            spec:
+              containers:
+                - name: istio-proxy
+                  env:
+                    - name: SPIFFE_ENDPOINT_SOCKET
+                      value: "unix:///run/secrets/workload-spiffe-uds/socket"
+                  volumeMounts:
+                    - name: id-proxy-sock
+                      mountPath: /run/orbit
+                    - name: workload-socket
+                      mountPath: /run/secrets/workload-spiffe-uds
+                      readOnly: true
+                - name: identity-proxy
+                  image: orbit-registry:5001/orbit-identity-proxy:latest
+                  imagePullPolicy: Always
+                  env:
+                    - name: APP_ENV
+                      value: development
+                    - name: ORBIT_IDENTITY_SERVICE_URL
+                      value: "http://orbit-identity.orbit-system.svc.cluster.local"
+                    - name: SPIFFE_ENDPOINT_SOCKET
+                      value: "unix:///run/secrets/workload-spiffe-uds/socket"
+                  ports:
+                    - name: health
+                      containerPort: 9090
+                      protocol: TCP
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 1000
+                    readOnlyRootFilesystem: true
+                    allowPrivilegeEscalation: false
+                    capabilities:
+                      drop: [ALL]
+                  readinessProbe:
+                    httpGet:
+                      path: /healthz
+                      port: 9090
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+                    timeoutSeconds: 3
+                    failureThreshold: 10
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 32Mi
+                    limits:
+                      cpu: 200m
+                      memory: 64Mi
+                  volumeMounts:
+                    - name: id-proxy-sock
+                      mountPath: /run/orbit
+                    - name: workload-socket
+                      mountPath: /run/secrets/workload-spiffe-uds
+                      readOnly: true
+              volumes:
+                - name: id-proxy-sock
+                  emptyDir: {}
+                - name: workload-socket
+                  csi:
+                    driver: "csi.spiffe.io"
                     readOnly: true
-              - name: identity-proxy
-                image: orbit-registry:5001/orbit-identity-proxy:latest
-                imagePullPolicy: Always
+          opa-policy: |
+            spec:
+              containers:
+              - name: opa
+                image: openpolicyagent/opa:1.15.2-envoy-static
+                args:
+                  - "run"
+                  - "--server"
+                  - "--config-file=/config/config.yaml"
+                  - "--addr=0.0.0.0:8181"
+                  - "--diagnostic-addr=0.0.0.0:8282"
+                  - "--log-level=info"
                 env:
-                  - name: APP_ENV
-                    value: development
-                  - name: ORBIT_IDENTITY_SERVICE_URL
-                    value: "http://orbit-identity.orbit-system.svc.cluster.local"
-                  - name: SPIFFE_ENDPOINT_SOCKET
-                    value: "unix:///run/secrets/workload-spiffe-uds/socket"
+                  - name: ORBIT_TENANT_ID
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: "metadata.annotations['orbit.io/tenant-id']"
                 ports:
-                  - name: health
-                    containerPort: 9090
+                  - name: opa-grpc
+                    containerPort: 9191
+                    protocol: TCP
+                  - name: opa-http
+                    containerPort: 8181
+                    protocol: TCP
+                  - name: opa-diag
+                    containerPort: 8282
                     protocol: TCP
                 securityContext:
-                  runAsNonRoot: true
-                  runAsUser: 1000
-                  readOnlyRootFilesystem: true
-                  allowPrivilegeEscalation: false
-                  capabilities:
-                    drop: [ALL]
+                  runAsUser: 1337
                 readinessProbe:
                   httpGet:
-                    path: /healthz
-                    port: 9090
-                  initialDelaySeconds: 5
+                    path: /health?bundles=true
+                    port: 8282
+                  initialDelaySeconds: 3
                   periodSeconds: 5
-                  timeoutSeconds: 3
-                  failureThreshold: 10
-                resources:
-                  requests:
-                    cpu: 50m
-                    memory: 32Mi
-                  limits:
-                    cpu: 200m
-                    memory: 64Mi
+                  failureThreshold: 12
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: 8282
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
                 volumeMounts:
-                  - name: id-proxy-sock
-                    mountPath: /run/orbit
-                  - name: workload-socket
-                    mountPath: /run/secrets/workload-spiffe-uds
+                  - name: orbit-opa-config
+                    mountPath: /config
                     readOnly: true
-            volumes:
-              - name: id-proxy-sock
-                emptyDir: {}
-              - name: workload-socket
-                csi:
-                  driver: "csi.spiffe.io"
-                  readOnly: true
-        opa-policy: |
-          spec:
-            containers:
-            - name: opa
-              image: openpolicyagent/opa:1.15.2-envoy-static
-              args:
-                - "run"
-                - "--server"
-                - "--config-file=/config/config.yaml"
-                - "--addr=0.0.0.0:8181"
-                - "--diagnostic-addr=0.0.0.0:8282"
-                - "--log-level=info"
-              env:
-                - name: ORBIT_TENANT_ID
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: "metadata.annotations['orbit.io/tenant-id']"
-              ports:
-                - name: opa-grpc
-                  containerPort: 9191
-                  protocol: TCP
-                - name: opa-http
-                  containerPort: 8181
-                  protocol: TCP
-                - name: opa-diag
-                  containerPort: 8282
-                  protocol: TCP
-              securityContext:
-                runAsUser: 1337
-              readinessProbe:
-                httpGet:
-                  path: /health?bundles=true
-                  port: 8282
-                initialDelaySeconds: 3
-                periodSeconds: 5
-                failureThreshold: 12
-              livenessProbe:
-                httpGet:
-                  path: /health
-                  port: 8282
-                initialDelaySeconds: 10
-                periodSeconds: 10
-              volumeMounts:
-                - name: orbit-opa-config
-                  mountPath: /config
-                  readOnly: true
-            volumes:
-            - name: orbit-opa-config
-              configMap:
-                name: orbit-opa-config
-
-  # Local Helm values for the Istio ingress gateway chart.
-  gatewayValues:
-    service:
-      type: LoadBalancer
-    env:
-      PILOT_CERT_PROVIDER: spire
-      SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
-    volumes:
-      - name: workload-socket
-        csi:
-          driver: csi.spiffe.io
+              volumes:
+              - name: orbit-opa-config
+                configMap:
+                  name: orbit-opa-config
+  istioGateway:
+    # Local Helm values for the Istio ingress gateway chart.
+    helmValues:
+      service:
+        type: LoadBalancer
+      env:
+        PILOT_CERT_PROVIDER: spire
+        SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+      volumes:
+        - name: workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      volumeMounts:
+        - name: workload-socket
+          mountPath: /run/secrets/workload-spiffe-uds
           readOnly: true
-    volumeMounts:
-      - name: workload-socket
-        mountPath: /run/secrets/workload-spiffe-uds
-        readOnly: true
 
   secrets:
     platformSecretRef:
@@ -221,12 +222,18 @@ spec:
       namespace: orbit-system
 
   config:
+    # Leave enabled: true to let the operator reconcile the shared non-secret
+    # ConfigMap consumed by identity, inference-gateway, and policy-service.
+    enabled: true
+    configMapName: orbit-config
     db:
+      enabled: true
       host: orbit-postgres
       name: orbit
       port: 5432
       user: orbit
     redis:
+      enabled: true
       host: orbit-redis
       port: 6379
 

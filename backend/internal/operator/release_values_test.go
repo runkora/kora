@@ -26,16 +26,18 @@ func TestBuildSPIREValuesUsesCRValuesOnly(t *testing.T) {
 
 	p := &OrbitPlatform{
 		Spec: OrbitPlatformSpec{
-			SpireValues: map[string]any{
-				"global": map[string]any{
-					"spire": map[string]any{
-						"clusterName": "orbit-local",
-						"trustDomain": "orbit.test",
+			SPIRE: SPIRESpec{
+				HelmValues: map[string]any{
+					"global": map[string]any{
+						"spire": map[string]any{
+							"clusterName": "orbit-local",
+							"trustDomain": "orbit.test",
+						},
 					},
-				},
-				"spire-agent": map[string]any{
-					"sds": map[string]any{
-						"defaultSVIDName": "default",
+					"spire-agent": map[string]any{
+						"sds": map[string]any{
+							"defaultSVIDName": "default",
+						},
 					},
 				},
 			},
@@ -52,9 +54,17 @@ func TestBuildSPIREValuesUsesCRValuesOnly(t *testing.T) {
 func TestBuildIstioBaseValuesMergesOverrides(t *testing.T) {
 	t.Parallel()
 
-	got := buildIstioBaseValues(map[string]any{
-		"defaultRevision": "stable",
-	})
+	p := &OrbitPlatform{
+		Spec: OrbitPlatformSpec{
+			Istio: IstioSpec{
+				HelmValues: map[string]any{
+					"defaultRevision": "stable",
+				},
+			},
+		},
+	}
+
+	got := buildIstioBaseValues(p)
 
 	assertDeepEqual(t, "stable", nestedValue(t, got, "defaultRevision"))
 }
@@ -64,16 +74,18 @@ func TestBuildIstiodValuesUsesCRValuesOnly(t *testing.T) {
 
 	p := &OrbitPlatform{
 		Spec: OrbitPlatformSpec{
-			IstiodValues: map[string]any{
-				"meshConfig": map[string]any{
-					"trustDomain": "orbit.test",
-					"defaultConfig": map[string]any{
-						"discoveryAddress": "istiod.istio-system.svc:15012",
+			Istiod: IstiodSpec{
+				HelmValues: map[string]any{
+					"meshConfig": map[string]any{
+						"trustDomain": "orbit.test",
+						"defaultConfig": map[string]any{
+							"discoveryAddress": "istiod.istio-system.svc:15012",
+						},
 					},
-				},
-				"sidecarInjectorWebhook": map[string]any{
-					"templates": map[string]any{
-						"spire": "spire-template",
+					"sidecarInjectorWebhook": map[string]any{
+						"templates": map[string]any{
+							"spire": "spire-template",
+						},
 					},
 				},
 			},
@@ -92,13 +104,15 @@ func TestBuildGatewayValuesUsesCRValuesOnly(t *testing.T) {
 
 	p := &OrbitPlatform{
 		Spec: OrbitPlatformSpec{
-			GatewayValues: map[string]any{
-				"service": map[string]any{
-					"type": "NodePort",
-				},
-				"env": map[string]any{
-					"PILOT_CERT_PROVIDER":    "spire",
-					"SPIFFE_ENDPOINT_SOCKET": "unix:///run/secrets/workload-spiffe-uds/socket",
+			IstioGateway: IstioGatewaySpec{
+				HelmValues: map[string]any{
+					"service": map[string]any{
+						"type": "NodePort",
+					},
+					"env": map[string]any{
+						"PILOT_CERT_PROVIDER":    "spire",
+						"SPIFFE_ENDPOINT_SOCKET": "unix:///run/secrets/workload-spiffe-uds/socket",
+					},
 				},
 			},
 		},
@@ -150,6 +164,7 @@ func TestBuildOrbitValuesPrecedenceAndExistingBehavior(t *testing.T) {
 			TrustDomain: "orbit.test",
 			SPIRE:       SPIRESpec{Enabled: true},
 			Config: PlatformConfigSpec{
+				ConfigMapName: "shared-orbit-config",
 				DB: DBConfig{
 					Host: "db.orbit.local",
 					Name: "orbit",
@@ -187,42 +202,120 @@ func TestBuildOrbitValuesPrecedenceAndExistingBehavior(t *testing.T) {
 
 	assertDeepEqual(t, "orbit.test", nestedValue(t, got, "global", "trustDomain"))
 	assertDeepEqual(t, "override-secret", nestedValue(t, got, "identity", "existingSecret"))
-	assertDeepEqual(t, "orbit-config", nestedValue(t, got, "identity", "existingConfigMap"))
+	assertDeepEqual(t, "shared-orbit-config", nestedValue(t, got, "identity", "existingConfigMap"))
+	assertDeepEqual(t, "shared-orbit-config", nestedValue(t, got, "inferenceGateway", "existingConfigMap"))
+	assertDeepEqual(t, "shared-orbit-config", nestedValue(t, got, "policyService", "existingConfigMap"))
 	assertDeepEqual(t, "override-db", nestedValue(t, got, "config", "db", "host"))
 	assertDeepEqual(t, 6379, nestedValue(t, got, "config", "redis", "port"))
 	assertDeepEqual(t, true, nestedValue(t, got, "platform", "spiffe", "enabled"))
 	assertDeepEqual(t, true, nestedValue(t, got, "extra", "preserved"))
 }
 
+func TestPlatformConfigManagedDataHonorsEnabledSections(t *testing.T) {
+	t.Parallel()
+
+	config := PlatformConfigSpec{
+		DB: DBConfig{
+			Enabled: boolPtr(true),
+			Host:    "db.orbit.local",
+			Name:    "orbit",
+			User:    "orbit",
+		},
+		Redis: RedisConfig{
+			Enabled: boolPtr(false),
+			Host:    "redis.orbit.local",
+			Port:    6379,
+		},
+	}
+
+	got := config.ManagedData()
+
+	assertDeepEqual(t, map[string]string{
+		"DB_HOST": "db.orbit.local",
+		"DB_NAME": "orbit",
+		"DB_PORT": "5432",
+		"DB_USER": "orbit",
+	}, got)
+}
+
+func TestBuildOrbitValuesSkipsManagedConfigPayloadWhenPlatformConfigDisabled(t *testing.T) {
+	t.Parallel()
+
+	p := &OrbitPlatform{
+		Spec: OrbitPlatformSpec{
+			TrustDomain: "orbit.test",
+			Config: PlatformConfigSpec{
+				Enabled:       boolPtr(false),
+				ConfigMapName: "precreated-config",
+				DB: DBConfig{
+					Host: "db.orbit.local",
+					Name: "orbit",
+					Port: 5432,
+					User: "orbit",
+				},
+				Redis: RedisConfig{
+					Host: "redis.orbit.local",
+					Port: 6379,
+				},
+			},
+		},
+	}
+
+	got := buildOrbitValues(map[string]any{}, p, "computed-secret")
+
+	assertDeepEqual(t, "precreated-config", nestedValue(t, got, "identity", "existingConfigMap"))
+	if _, ok := got["config"]; ok {
+		t.Fatalf("expected managed config payload to be omitted when spec.config.enabled=false")
+	}
+}
+
 func TestOrbitPlatformSpecDeepCopyIntoCopiesRawValueMaps(t *testing.T) {
 	t.Parallel()
 
 	original := OrbitPlatformSpec{
+		Config: PlatformConfigSpec{
+			Enabled:       boolPtr(true),
+			ConfigMapName: "shared-orbit-config",
+			DB: DBConfig{
+				Enabled: boolPtr(true),
+			},
+			Redis: RedisConfig{
+				Enabled: boolPtr(false),
+			},
+		},
 		SPIRECRDsValues: map[string]any{
 			"labels": []string{"a", "b"},
 		},
-		SpireValues: map[string]any{
-			"spire-agent": map[string]any{
-				"sds": map[string]any{
-					"defaultBundleName": "ROOTCA",
-				},
-			},
-		},
-		IstioBaseValues: map[string]any{
-			"revisions": []any{"default"},
-		},
-		IstiodValues: map[string]any{
-			"meshConfig": map[string]any{
-				"defaultConfig": map[string]any{
-					"proxyMetadata": map[string]any{
-						"key": "value",
+		SPIRE: SPIRESpec{
+			HelmValues: map[string]any{
+				"spire-agent": map[string]any{
+					"sds": map[string]any{
+						"defaultBundleName": "ROOTCA",
 					},
 				},
 			},
 		},
-		GatewayValues: map[string]any{
-			"service": map[string]any{
-				"ports": []any{80, 443},
+		Istio: IstioSpec{
+			HelmValues: map[string]any{
+				"revisions": []any{"default"},
+			},
+		},
+		Istiod: IstiodSpec{
+			HelmValues: map[string]any{
+				"meshConfig": map[string]any{
+					"defaultConfig": map[string]any{
+						"proxyMetadata": map[string]any{
+							"key": "value",
+						},
+					},
+				},
+			},
+		},
+		IstioGateway: IstioGatewaySpec{
+			HelmValues: map[string]any{
+				"service": map[string]any{
+					"ports": []any{80, 443},
+				},
 			},
 		},
 		PlatformValues: map[string]any{
@@ -243,18 +336,25 @@ func TestOrbitPlatformSpecDeepCopyIntoCopiesRawValueMaps(t *testing.T) {
 	original.DeepCopyInto(&copied)
 
 	original.SPIRECRDsValues["labels"].([]string)[0] = "changed"
-	original.SpireValues["spire-agent"].(map[string]any)["sds"].(map[string]any)["defaultBundleName"] = "changed"
-	original.IstioBaseValues["revisions"].([]any)[0] = "changed"
-	original.IstiodValues["meshConfig"].(map[string]any)["defaultConfig"].(map[string]any)["proxyMetadata"].(map[string]any)["key"] = "changed"
-	original.GatewayValues["service"].(map[string]any)["ports"].([]any)[0] = 8080
+	original.SPIRE.HelmValues["spire-agent"].(map[string]any)["sds"].(map[string]any)["defaultBundleName"] = "changed"
+	original.Istio.HelmValues["revisions"].([]any)[0] = "changed"
+	original.Istiod.HelmValues["meshConfig"].(map[string]any)["defaultConfig"].(map[string]any)["proxyMetadata"].(map[string]any)["key"] = "changed"
+	original.IstioGateway.HelmValues["service"].(map[string]any)["ports"].([]any)[0] = 8080
 	original.PlatformValues["networkPolicy"].(map[string]any)["cidrs"].([]string)[0] = "changed"
 	original.OrbitValues["identity"].(map[string]any)["hostAliases"].([]map[string]any)[0]["ip"] = "9.9.9.9"
+	*original.Config.Enabled = false
+	*original.Config.DB.Enabled = false
+	*original.Config.Redis.Enabled = true
 
+	assertDeepEqual(t, true, *copied.Config.Enabled)
+	assertDeepEqual(t, "shared-orbit-config", copied.Config.ConfigMapName)
+	assertDeepEqual(t, true, *copied.Config.DB.Enabled)
+	assertDeepEqual(t, false, *copied.Config.Redis.Enabled)
 	assertDeepEqual(t, []string{"a", "b"}, copied.SPIRECRDsValues["labels"])
-	assertDeepEqual(t, "ROOTCA", nestedValue(t, copied.SpireValues, "spire-agent", "sds", "defaultBundleName"))
-	assertDeepEqual(t, []any{"default"}, copied.IstioBaseValues["revisions"])
-	assertDeepEqual(t, "value", nestedValue(t, copied.IstiodValues, "meshConfig", "defaultConfig", "proxyMetadata", "key"))
-	assertDeepEqual(t, []any{80, 443}, nestedValue(t, copied.GatewayValues, "service", "ports"))
+	assertDeepEqual(t, "ROOTCA", nestedValue(t, copied.SPIRE.HelmValues, "spire-agent", "sds", "defaultBundleName"))
+	assertDeepEqual(t, []any{"default"}, copied.Istio.HelmValues["revisions"])
+	assertDeepEqual(t, "value", nestedValue(t, copied.Istiod.HelmValues, "meshConfig", "defaultConfig", "proxyMetadata", "key"))
+	assertDeepEqual(t, []any{80, 443}, nestedValue(t, copied.IstioGateway.HelmValues, "service", "ports"))
 	assertDeepEqual(t, []string{"10.0.0.0/24"}, nestedValue(t, copied.PlatformValues, "networkPolicy", "cidrs"))
 	assertDeepEqual(t, "1.2.3.4", nestedValue(t, copied.OrbitValues, "identity", "hostAliases", 0, "ip"))
 }
@@ -276,10 +376,6 @@ func TestOrbitPlatformCRDTemplateIncludesReleaseValueOverrideFields(t *testing.T
 	content := string(data)
 	fields := []string{
 		"spireCRDsValues",
-		"spireValues",
-		"istioBaseValues",
-		"istiodValues",
-		"gatewayValues",
 		"platformValues",
 		"orbitValues",
 	}
@@ -288,6 +384,34 @@ func TestOrbitPlatformCRDTemplateIncludesReleaseValueOverrideFields(t *testing.T
 		pattern := regexp.MustCompile(`(?s)` + field + `:\n.*?x-kubernetes-preserve-unknown-fields: true`)
 		if !pattern.MatchString(content) {
 			t.Fatalf("expected preserve-unknown-fields block for %q", field)
+		}
+	}
+
+	nestedFields := []string{
+		"spire:[\\s\\S]*?helmValues",
+		"istio:[\\s\\S]*?helmValues",
+		"istiod:[\\s\\S]*?helmValues",
+		"istioGateway:[\\s\\S]*?helmValues",
+	}
+
+	for _, field := range nestedFields {
+		pattern := regexp.MustCompile(`(?s)` + field + `:\n.*?x-kubernetes-preserve-unknown-fields: true`)
+		if !pattern.MatchString(content) {
+			t.Fatalf("expected preserve-unknown-fields block for nested field pattern %q", field)
+		}
+	}
+
+	configFields := []string{
+		"config:[\\s\\S]*?enabled:",
+		"config:[\\s\\S]*?configMapName:",
+		"db:[\\s\\S]*?enabled:",
+		"redis:[\\s\\S]*?enabled:",
+	}
+
+	for _, field := range configFields {
+		pattern := regexp.MustCompile(`(?s)` + field)
+		if !pattern.MatchString(content) {
+			t.Fatalf("expected config management field pattern %q in CRD", field)
 		}
 	}
 }
@@ -330,4 +454,8 @@ func nestedValue(t *testing.T, value any, path ...any) any {
 	}
 
 	return current
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

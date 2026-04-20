@@ -76,10 +76,10 @@ SPIRE, Istio, and gateway are configured directly from raw per-release values
 on the `OrbitPlatform` CR:
 
 - `spec.spireCRDsValues`
-- `spec.spireValues`
-- `spec.istioBaseValues`
-- `spec.istiodValues`
-- `spec.gatewayValues`
+- `spec.spire.helmValues`
+- `spec.istio.helmValues`
+- `spec.istiod.helmValues`
+- `spec.istioGateway.helmValues`
 
 ---
 
@@ -90,6 +90,17 @@ from `OrbitTenant` CRs — it does **not** read `config/tenants.yaml`. The
 ConfigMap is created eagerly during `OrbitPlatform` reconciliation (so
 `orbit-identity` can start before any tenants exist) and is updated whenever
 an `OrbitTenant` CR is created, modified, or deleted.
+
+The shared non-secret service ConfigMap defaults to `orbit-config` and is
+controlled from `spec.config` on the `OrbitPlatform` CR:
+
+- `spec.config.enabled: true` makes the operator create or patch the ConfigMap.
+- `spec.config.enabled: false` tells the operator to leave the ConfigMap alone
+  and assume it already exists.
+- `spec.config.configMapName` lets you point Orbit services at a different
+  ConfigMap name.
+- `spec.config.db.enabled` and `spec.config.redis.enabled` let the operator
+  manage only the DB or Redis keys while leaving the other section external.
 
 To change tenant configuration in the cluster, edit
 `deploy/local/tenants/example.yaml` and re-apply it:
@@ -119,7 +130,7 @@ Or set `ORBIT_TENANTS_CONFIG=./config/tenants.yaml` in your `.env` file.
 
 `spec.trustDomain` still drives the local `orbit-platform` and `orbit` charts.
 For SPIRE and Istio, the local manifest now carries trust-domain settings
-directly inside `spec.spireValues` and `spec.istiodValues`.
+directly inside `spec.spire.helmValues` and `spec.istiod.helmValues`.
 
 Keep those values consistent. A mismatch will cause SPIFFE SAN validation
 failures and mTLS peer authentication will break.
@@ -130,10 +141,10 @@ The operator supports raw Helm value overrides on the `OrbitPlatform` CR as
 configuration inputs for managed releases:
 
 - `spec.spireCRDsValues`
-- `spec.spireValues`
-- `spec.istioBaseValues`
-- `spec.istiodValues`
-- `spec.gatewayValues`
+- `spec.spire.helmValues`
+- `spec.istio.helmValues`
+- `spec.istiod.helmValues`
+- `spec.istioGateway.helmValues`
 - `spec.platformValues`
 - `spec.orbitValues`
 

@@ -5,19 +5,19 @@ func buildSPIRECRDsValues(overrides map[string]any) map[string]any {
 }
 
 func buildSPIREValues(p *OrbitPlatform) map[string]any {
-	return mergeMaps(map[string]any{}, p.Spec.SpireValues)
+	return mergeMaps(map[string]any{}, p.Spec.SPIRE.HelmValues)
 }
 
-func buildIstioBaseValues(overrides map[string]any) map[string]any {
-	return mergeMaps(map[string]any{}, overrides)
+func buildIstioBaseValues(p *OrbitPlatform) map[string]any {
+	return mergeMaps(map[string]any{}, p.Spec.Istio.HelmValues)
 }
 
 func buildIstiodValues(p *OrbitPlatform) map[string]any {
-	return mergeMaps(map[string]any{}, p.Spec.IstiodValues)
+	return mergeMaps(map[string]any{}, p.Spec.Istiod.HelmValues)
 }
 
 func buildGatewayValues(p *OrbitPlatform) map[string]any {
-	return mergeMaps(map[string]any{}, p.Spec.GatewayValues)
+	return mergeMaps(map[string]any{}, p.Spec.IstioGateway.HelmValues)
 }
 
 func buildOrbitPlatformValues(defaults map[string]any, trustDomain string, tenantNamespaces []string, overrides map[string]any) map[string]any {
@@ -35,15 +35,20 @@ func buildOrbitPlatformValues(defaults map[string]any, trustDomain string, tenan
 }
 
 func buildOrbitValues(defaults map[string]any, p *OrbitPlatform, secretName string) map[string]any {
+	configMapName := p.Spec.platformConfigMapName()
+
 	values := mergeMaps(defaults, map[string]any{
 		"global": map[string]any{
 			"trustDomain": p.Spec.TrustDomain,
 		},
 		"identity": map[string]any{
 			"existingSecret":              secretName,
-			"existingConfigMap":           "orbit-config",
+			"existingConfigMap":           configMapName,
 			"existingTenantsConfigMap":    "orbit-tenants",
 			"existingClientSecretsSecret": "orbit-tenant-oidc-secrets",
+		},
+		"inferenceGateway": map[string]any{
+			"existingConfigMap": configMapName,
 		},
 		"platform": map[string]any{
 			"namespaces": map[string]any{
@@ -53,26 +58,29 @@ func buildOrbitValues(defaults map[string]any, p *OrbitPlatform, secretName stri
 				"enabled": p.Spec.SPIRE.Enabled,
 			},
 		},
+		"policyService": map[string]any{
+			"existingConfigMap": configMapName,
+		},
 	})
 
-	if p.Spec.Config.DB.Host != "" {
+	if p.Spec.Config.IsEnabled() && p.Spec.Config.DB.IsEnabled() && p.Spec.Config.DB.HasValues() {
 		values = mergeMaps(values, map[string]any{
 			"config": map[string]any{
 				"db": map[string]any{
 					"host": p.Spec.Config.DB.Host,
 					"name": p.Spec.Config.DB.Name,
-					"port": p.Spec.Config.DB.Port,
+					"port": p.Spec.Config.DB.PortOrDefault(),
 					"user": p.Spec.Config.DB.User,
 				},
 			},
 		})
 	}
-	if p.Spec.Config.Redis.Host != "" {
+	if p.Spec.Config.IsEnabled() && p.Spec.Config.Redis.IsEnabled() && p.Spec.Config.Redis.HasValues() {
 		values = mergeMaps(values, map[string]any{
 			"config": map[string]any{
 				"redis": map[string]any{
 					"host": p.Spec.Config.Redis.Host,
-					"port": p.Spec.Config.Redis.Port,
+					"port": p.Spec.Config.Redis.PortOrDefault(),
 				},
 			},
 		})

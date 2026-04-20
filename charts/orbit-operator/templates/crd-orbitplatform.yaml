@@ -72,6 +72,11 @@ spec:
                       description: Whether the operator installs and manages SPIRE.
                       type: boolean
                       default: true
+                    helmValues:
+                      description: Raw Helm values merged into the spire chart.
+                        Use sparingly.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                 istio:
                   description: Istio installation control.
                   type: object
@@ -80,6 +85,29 @@ spec:
                       description: Whether the operator installs and manages Istio.
                       type: boolean
                       default: true
+                    helmValues:
+                      description: Raw Helm values merged into the istio base chart.
+                        Use sparingly.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                istiod:
+                  description: Istio control-plane Helm values.
+                  type: object
+                  properties:
+                    helmValues:
+                      description: Raw Helm values merged into the istiod chart.
+                        Use sparingly.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                istioGateway:
+                  description: Istio ingress gateway Helm values.
+                  type: object
+                  properties:
+                    helmValues:
+                      description: Raw Helm values merged into the Istio gateway chart.
+                        Use sparingly.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                 secrets:
                   description: References the pre-existing Secret with platform credentials.
                   type: object
@@ -97,9 +125,25 @@ spec:
                   description: Non-secret platform infrastructure configuration.
                   type: object
                   properties:
+                    enabled:
+                      description: Whether the operator creates or updates the shared
+                        non-secret config ConfigMap. When false, the operator assumes
+                        the ConfigMap already exists.
+                      type: boolean
+                      default: true
+                    configMapName:
+                      description: Name of the shared non-secret ConfigMap mounted by
+                        Orbit services.
+                      type: string
+                      default: orbit-config
                     db:
                       type: object
                       properties:
+                        enabled:
+                          description: Whether the operator manages DB_* keys in the
+                            shared config ConfigMap.
+                          type: boolean
+                          default: true
                         host:
                           type: string
                         name:
@@ -112,20 +156,25 @@ spec:
                     redis:
                       type: object
                       properties:
+                        enabled:
+                          description: Whether the operator manages REDIS_* keys in
+                            the shared config ConfigMap.
+                          type: boolean
+                          default: true
                         host:
                           type: string
                         port:
                           type: integer
                           default: 6379
                 clusterName:
-                  description: Deprecated. Configure the SPIRE chart directly via spec.spireValues.
+                  description: Deprecated. Configure the SPIRE chart directly via spec.spire.helmValues.
                   type: string
                 gateway:
-                  description: Deprecated. Configure the gateway chart directly via spec.gatewayValues.
+                  description: Deprecated. Configure the gateway chart directly via spec.istioGateway.helmValues.
                   type: object
                   properties:
                     serviceType:
-                      description: Deprecated. Use spec.gatewayValues.service.type.
+                      description: Deprecated. Use spec.istioGateway.helmValues.service.type.
                       type: string
                       enum:
                         - ClusterIP
@@ -135,7 +184,7 @@ spec:
                 imageRegistry:
                   description: >
                     Deprecated. Configure explicit image references directly in
-                    spec.istiodValues and spec.orbitValues.
+                    spec.istiod.helmValues and spec.orbitValues.
                   type: string
                 upgradeStrategy:
                   description: Controls how the operator handles chart version upgrades.
@@ -152,26 +201,6 @@ spec:
                       default: Explicit
                 spireCRDsValues:
                   description: Raw Helm values merged into the spire-crds chart.
-                    Use sparingly.
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                spireValues:
-                  description: Raw Helm values merged into the spire chart.
-                    Use sparingly.
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                istioBaseValues:
-                  description: Raw Helm values merged into the istio base chart.
-                    Use sparingly.
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                istiodValues:
-                  description: Raw Helm values merged into the istiod chart.
-                    Use sparingly.
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                gatewayValues:
-                  description: Raw Helm values merged into the Istio gateway chart.
                     Use sparingly.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

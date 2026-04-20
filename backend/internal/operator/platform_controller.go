@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -165,25 +164,19 @@ func (r *PlatformReconciler) ensureSystemNamespace(ctx context.Context) error {
 	return nil
 }
 
-// ensureOrbitConfig creates or updates the orbit-config ConfigMap in orbit-system.
-// This ConfigMap holds non-secret infrastructure configuration (DB host/name/port/user,
-// Redis host/port) derived from the OrbitPlatform CR spec. Keeping it operator-managed
-// means the platform team only needs to fill in the OrbitPlatform CR — no separate
-// kubectl commands are required during cluster setup.
+// ensureOrbitConfig creates or updates the shared non-secret Orbit ConfigMap in
+// orbit-system when spec.config.enabled is true. The ConfigMap holds DB_* and
+// REDIS_* keys derived from the enabled sections of spec.config.
 func (r *PlatformReconciler) ensureOrbitConfig(ctx context.Context, p *OrbitPlatform) error {
-	const name = "orbit-config"
-
-	db := p.Spec.Config.DB
-	redis := p.Spec.Config.Redis
-
-	desired := map[string]string{
-		"DB_HOST":    db.Host,
-		"DB_NAME":    db.Name,
-		"DB_PORT":    strconv.Itoa(db.Port),
-		"DB_USER":    db.User,
-		"REDIS_HOST": redis.Host,
-		"REDIS_PORT": strconv.Itoa(redis.Port),
+	if !p.Spec.Config.IsEnabled() {
+		r.Logger.Info(ctx, "skipping shared config ConfigMap reconciliation",
+			logging.Field{Key: "configmap", Value: p.Spec.platformConfigMapName()},
+		)
+		return nil
 	}
+
+	name := p.Spec.platformConfigMapName()
+	desired := p.Spec.Config.ManagedData()
 
 	existing := &corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: systemNamespace}, existing)
@@ -202,7 +195,9 @@ func (r *PlatformReconciler) ensureOrbitConfig(ctx context.Context, p *OrbitPlat
 		if createErr := r.Create(ctx, cm); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
 			return fmt.Errorf("create %s ConfigMap: %w", name, createErr)
 		}
-		r.Logger.Info(ctx, "created orbit-config ConfigMap")
+		r.Logger.Info(ctx, "created shared Orbit config ConfigMap",
+			logging.Field{Key: "configmap", Value: name},
+		)
 		return nil
 	}
 	if err != nil {
@@ -228,7 +223,9 @@ func (r *PlatformReconciler) ensureOrbitConfig(ctx context.Context, p *OrbitPlat
 	if patchErr := r.Patch(ctx, existing, patch); patchErr != nil {
 		return fmt.Errorf("patch %s ConfigMap: %w", name, patchErr)
 	}
-	r.Logger.Info(ctx, "updated orbit-config ConfigMap")
+	r.Logger.Info(ctx, "updated shared Orbit config ConfigMap",
+		logging.Field{Key: "configmap", Value: name},
+	)
 	return nil
 }
 
@@ -275,12 +272,12 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 		}
 	}
 
-	// Ensure the non-secret platform config ConfigMap exists before deploying
-	// orbit services. This derives DB_HOST, DB_NAME, DB_PORT, DB_USER,
-	// REDIS_HOST, REDIS_PORT from the OrbitPlatform CR spec so users do not
-	// need to create it manually.
+	// Ensure the shared non-secret platform config ConfigMap exists before
+	// deploying orbit services when operator management is enabled. When
+	// disabled, services still point at spec.config.configMapName and the
+	// operator assumes that ConfigMap already exists.
 	if err := r.ensureOrbitConfig(ctx, p); err != nil {
-		return fmt.Errorf("orbit-config: %w", err)
+		return fmt.Errorf("%s: %w", p.Spec.platformConfigMapName(), err)
 	}
 
 	// Ensure orbit-tenants ConfigMap exists (may be empty if no OrbitTenant CRs
@@ -338,7 +335,7 @@ func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatfor
 }
 
 func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	values := buildIstioBaseValues(p.Spec.IstioBaseValues)
+	values := buildIstioBaseValues(p)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,

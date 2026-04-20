@@ -20,7 +20,7 @@ RUN go mod download && go mod verify
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}/main.go
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-${SERVICE} ./cmd/${SERVICE}/main.go
 
 # Collect every */config/*.yaml file into /configs/ maintaining the same relative
 # path structure. This means the runtime stage can do a single COPY regardless of
@@ -35,7 +35,12 @@ RUN find /app -path "*/config/*.yaml" | while read f; do \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.23
 
+ARG SERVICE
+RUN test -n "$SERVICE" || (echo "ERROR: --build-arg SERVICE=<service> is required" && exit 1)
+
 WORKDIR /app
+
+ENV SERVICE=${SERVICE}
 
 RUN apk add --no-cache ca-certificates
 
@@ -44,7 +49,7 @@ RUN apk add --no-cache ca-certificates
 # stage contains all */config/*.yaml files collected above.
 COPY --from=builder /configs/ ./
 
-COPY --from=builder /orbit ./orbit
+COPY --from=builder /orbit-${SERVICE} ./orbit-${SERVICE}
 
 EXPOSE 8080
-CMD ["./orbit"]
+ENTRYPOINT ["sh", "-c", "exec ./orbit-${SERVICE}"]
