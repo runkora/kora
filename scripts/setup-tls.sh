@@ -15,7 +15,7 @@
 #
 # Output:
 #   secrets/tls.crt       — certificate
-#   secrets/tls.key       — private key (mode 600)
+#   secrets/tls.key       — private key (mode 644 for local Dex bind-mount)
 #   secrets/mkcert-ca.pem — root CA (macOS + mkcert only)
 #
 # Idempotent — safe to run multiple times.
@@ -80,7 +80,7 @@ if [[ "${OS}" == "Darwin" ]]; then
 
   info "Generating TLS certificate for orbit.local.clearroute.io + *.orbit.local.clearroute.io..."
   mkcert -cert-file "${CERT_FILE}" -key-file "${KEY_FILE}" "orbit.local.clearroute.io" "*.orbit.local.clearroute.io"
-  chmod 600 "${KEY_FILE}"
+  chmod 644 "${KEY_FILE}"
   ok "Certificate written:"
   echo "    cert: ${CERT_FILE}"
   echo "    key:  ${KEY_FILE}"
@@ -122,7 +122,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj "/CN=orbit.local.clearroute.io" \
   -addext "subjectAltName=DNS:orbit.local.clearroute.io,DNS:*.orbit.local.clearroute.io" \
   2>/dev/null
-chmod 600 "${KEY_FILE}"
+chmod 644 "${KEY_FILE}"
 ok "Self-signed certificate written:"
 echo "    cert: ${CERT_FILE}"
 echo "    key:  ${KEY_FILE}"

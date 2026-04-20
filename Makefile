@@ -336,6 +336,7 @@ dev-up: ## Start Postgres + Redis + glauth + Dex (local OIDC provider) for daily
 		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory setup-tls; \
 	fi
+	@chmod 644 secrets/tls.key
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + glauth + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis glauth dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + glauth + Dex + port proxy ready$(COLOR_RESET)"

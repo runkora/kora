@@ -63,7 +63,13 @@ services:
       - ./config/glauth/config.cfg:/etc/glauth/config.cfg.in:ro
       - ./config/glauth/entrypoint.sh:/etc/glauth/entrypoint.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "grep -q ':0F35' /proc/net/tcp || exit 1"]
+      # The glauth image is extremely minimal and does not ship grep/cat.
+      # Use shell builtins only to confirm LDAP is listening on 3893 (0F35 hex).
+      test:
+        [
+          "CMD-SHELL",
+          "while IFS= read -r line; do case \"$$line\" in *:0F35*) exit 0;; esac; done < /proc/net/tcp; while IFS= read -r line; do case \"$$line\" in *:0F35*) exit 0;; esac; done < /proc/net/tcp6; exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
