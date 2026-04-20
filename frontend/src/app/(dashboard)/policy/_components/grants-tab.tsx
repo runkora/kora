@@ -836,9 +836,7 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
                     </div>
                     {u.display_name && u.display_name !== u.email && (
                       // eslint-disable-next-line local/no-raw-div
-                      <div className="shrink-0 text-[11px] leading-none text-muted">
-                        {u.email}
-                      </div>
+                      <div className="shrink-0 text-[11px] leading-none text-muted">{u.email}</div>
                     )}
                   </button>
                 </li>

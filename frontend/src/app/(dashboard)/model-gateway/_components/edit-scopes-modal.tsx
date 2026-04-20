@@ -134,43 +134,43 @@ export function EditScopesModal({
         </Stack>
 
         <Stack asChild gap="comfortable">
-        <section className="p-5">
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" justify="between">
-              <label className="text-sm font-medium text-foreground">
-                Permissions <output aria-hidden="true">*</output>
-              </label>
-              {selectedScopes.length > 0 && (
-                <Text size="caption" color="muted">
-                  {selectedScopes.length} selected
+          <section className="p-5">
+            <Stack gap="tight">
+              <Stack direction="horizontal" align="center" justify="between">
+                <label className="text-sm font-medium text-foreground">
+                  Permissions <output aria-hidden="true">*</output>
+                </label>
+                {selectedScopes.length > 0 && (
+                  <Text size="caption" color="muted">
+                    {selectedScopes.length} selected
+                  </Text>
+                )}
+              </Stack>
+              {availableScopes.length === 0 ? (
+                <Text size="supporting" color="muted">
+                  No scopes available — your account has no granted permissions.
                 </Text>
+              ) : (
+                <ScopePicker
+                  availableScopes={availableScopes}
+                  selectedScopes={selectedScopes}
+                  onToggle={handleToggleScope}
+                  onToggleGroup={handleToggleScopeGroup}
+                  search={scopeSearch}
+                  onSearchChange={setScopeSearch}
+                />
               )}
-            </Stack>
-            {availableScopes.length === 0 ? (
-              <Text size="supporting" color="muted">
-                No scopes available — your account has no granted permissions.
+              <Text size="caption" color="subtle">
+                Keys cannot carry more permissions than your current access.
               </Text>
-            ) : (
-              <ScopePicker
-                availableScopes={availableScopes}
-                selectedScopes={selectedScopes}
-                onToggle={handleToggleScope}
-                onToggleGroup={handleToggleScopeGroup}
-                search={scopeSearch}
-                onSearchChange={setScopeSearch}
-              />
-            )}
-            <Text size="caption" color="subtle">
-              Keys cannot carry more permissions than your current access.
-            </Text>
-          </Stack>
+            </Stack>
 
-          {error && (
-            <Text size="supporting" color="status-error">
-              {error}
-            </Text>
-          )}
-        </section>
+            {error && (
+              <Text size="supporting" color="status-error">
+                {error}
+              </Text>
+            )}
+          </section>
         </Stack>
 
         <Stack asChild direction="horizontal" justify="end" gap="snug">
