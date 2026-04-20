@@ -453,33 +453,33 @@ export default function DashboardPage() {
                     {/* eslint-disable-next-line local/no-raw-div */}
                     <div className="flex flex-col flex-1 min-w-0">
                       <Stack direction="horizontal" align="center" gap="snug">
-                          {/*
-                           * mono: event type strings (e.g. "policy.allow") are
-                           * structured identifiers — monospace aids scanability.
-                           * weight="emphasis" and default color="foreground" give
-                           * it the prominence of a row label.
-                           */}
-                          <Text size="caption" weight="emphasis" mono>
-                            {evt.type}
-                          </Text>
-                          <Text size="caption" color="subtle">
-                            ·
-                          </Text>
-                          <Text size="caption" color="subtle">
-                            {evt.agent}
-                          </Text>
-                        </Stack>
                         {/*
-                         * mt-0.5 wrapper: tight gap between the type/agent row
-                         * and the message below it. truncate: messages can be
-                         * long — clip at one line in the dense event list.
+                         * mono: event type strings (e.g. "policy.allow") are
+                         * structured identifiers — monospace aids scanability.
+                         * weight="emphasis" and default color="foreground" give
+                         * it the prominence of a row label.
                          */}
-                        {/* eslint-disable-next-line local/no-raw-div */}
-                        <div className="mt-0.5">
-                          <Text size="caption" color="muted" truncate>
-                            {evt.message}
-                          </Text>
-                        </div>
+                        <Text size="caption" weight="emphasis" mono>
+                          {evt.type}
+                        </Text>
+                        <Text size="caption" color="subtle">
+                          ·
+                        </Text>
+                        <Text size="caption" color="subtle">
+                          {evt.agent}
+                        </Text>
+                      </Stack>
+                      {/*
+                       * mt-0.5 wrapper: tight gap between the type/agent row
+                       * and the message below it. truncate: messages can be
+                       * long — clip at one line in the dense event list.
+                       */}
+                      {/* eslint-disable-next-line local/no-raw-div */}
+                      <div className="mt-0.5">
+                        <Text size="caption" color="muted" truncate>
+                          {evt.message}
+                        </Text>
+                      </div>
                     </div>
                     {/*
                      * shrink-0 wrapper: prevents the timestamp from compressing

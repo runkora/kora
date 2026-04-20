@@ -37,11 +37,17 @@ export const Horizontal: Story = {
 export const Vertical: Story = {
   render: () => (
     <div className="flex items-center h-8 gap-4">
-      <Text size="supporting" color="muted">Agents</Text>
+      <Text size="supporting" color="muted">
+        Agents
+      </Text>
       <Separator orientation="vertical" />
-      <Text size="supporting" color="muted">Policies</Text>
+      <Text size="supporting" color="muted">
+        Policies
+      </Text>
       <Separator orientation="vertical" />
-      <Text size="supporting" color="muted">Events</Text>
+      <Text size="supporting" color="muted">
+        Events
+      </Text>
     </div>
   ),
 };

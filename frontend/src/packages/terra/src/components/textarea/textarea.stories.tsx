@@ -97,7 +97,9 @@ export const ChatInput: Story = {
         <Textarea variant="bare" placeholder="Ask the agent anything…" autoResize maxRows={6} />
       </div>
       <div className="flex items-center justify-between px-3 py-2 border-t border-border-subtle">
-        <Text size="micro" color="subtle">Shift+Enter for new line</Text>
+        <Text size="micro" color="subtle">
+          Shift+Enter for new line
+        </Text>
         <button className="text-xs bg-accent text-white rounded-md px-3 py-1 font-medium">
           Send
         </button>

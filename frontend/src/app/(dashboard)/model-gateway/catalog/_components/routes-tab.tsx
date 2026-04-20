@@ -178,7 +178,9 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
             <AlertCircle className="size-3.5 shrink-0 text-[#a855f7]" />
             <Text size="caption" color="muted">
               Weights must sum to 100%. Current total:{' '}
-              <Text asChild size="caption" weight="emphasis" color="foreground"><output>{model.routes.reduce((s, r) => s + r.weight, 0)}%</output></Text>
+              <Text asChild size="caption" weight="emphasis" color="foreground">
+                <output>{model.routes.reduce((s, r) => s + r.weight, 0)}%</output>
+              </Text>
             </Text>
           </div>
         )}

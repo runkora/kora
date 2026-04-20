@@ -109,22 +109,32 @@ export const AllVariants: Story = {
 export const ResourcePanel: Story = {
   render: () => (
     <div className="w-72 rounded-lg bg-surface p-4 flex flex-col gap-4">
-      <Text size="micro" color="muted" weight="emphasis" transform="uppercase">Resource usage</Text>
+      <Text size="micro" color="muted" weight="emphasis" transform="uppercase">
+        Resource usage
+      </Text>
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">CPU</Text>
+          <Text size="micro" color="foreground">
+            CPU
+          </Text>
           <Progress label="CPU" value={42} variant="healthy" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">Memory</Text>
+          <Text size="micro" color="foreground">
+            Memory
+          </Text>
           <Progress label="Memory" value={71} variant="degraded" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">Disk</Text>
+          <Text size="micro" color="foreground">
+            Disk
+          </Text>
           <Progress label="Disk" value={94} variant="error" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">Network</Text>
+          <Text size="micro" color="foreground">
+            Network
+          </Text>
           <Progress label="Network" value={28} variant="healthy" size="md" showValue />
         </div>
       </div>

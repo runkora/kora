@@ -12,13 +12,13 @@
 
 Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. Five local ESLint rules enforce this — there are no exceptions in product code:
 
-| Rule | What it bans | Escape hatch |
-| ---- | ------------ | ------------ |
-| `local/no-raw-div` | Every `<div>` | `eslint-disable-next-line` with a one-line reason |
-| `local/no-raw-layout-elements` | Semantic containers (`section`, `header`, `footer`, `nav`, `aside`, `article`, `main`) with layout classes | None — use `<Stack asChild>` or `<Grid asChild>` |
-| `local/no-raw-inline-elements` | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`) | **None** — add a Terra component instead |
-| `local/no-raw-html-text-tags` | `<p>` and `<h1>`–`<h6>` | None — use `<Text>` and `<Heading>` |
-| `local/no-terra-classname` | `className` on any Terra component | None — use the component's design-token props |
+| Rule                           | What it bans                                                                                               | Escape hatch                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `local/no-raw-div`             | Every `<div>`                                                                                              | `eslint-disable-next-line` with a one-line reason |
+| `local/no-raw-layout-elements` | Semantic containers (`section`, `header`, `footer`, `nav`, `aside`, `article`, `main`) with layout classes | None — use `<Stack asChild>` or `<Grid asChild>`  |
+| `local/no-raw-inline-elements` | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`)        | **None** — add a Terra component instead          |
+| `local/no-raw-html-text-tags`  | `<p>` and `<h1>`–`<h6>`                                                                                    | None — use `<Text>` and `<Heading>`               |
+| `local/no-terra-classname`     | `className` on any Terra component                                                                         | None — use the component's design-token props     |
 
 All five rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
 
@@ -30,24 +30,24 @@ All five rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/
 
 The most common migrations at a glance.
 
-| Raw HTML | Terra replacement |
-| -------- | ----------------- |
-| `<div className="flex flex-col gap-4">` | `<Stack gap="comfortable">` |
-| `<div className="flex flex-row gap-2">` | `<Stack direction="horizontal" gap="snug">` |
-| `<div className="grid grid-cols-3 gap-4">` | `<Grid cols={3} gap="comfortable">` |
-| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">` |
-| `<section className="flex flex-col gap-8">` | `<Stack asChild gap="relaxed"><section>…</section></Stack>` |
-| `<aside className="grid grid-cols-2">` | `<Grid asChild cols={2}><aside>…</aside></Grid>` |
-| `<h1>Page title</h1>` | `<Heading variant="title">Page title</Heading>` |
-| `<h2>Section heading</h2>` | `<Heading variant="section">Section heading</Heading>` |
-| `<p>Body copy</p>` | `<Text>Body copy</Text>` |
-| `<p className="text-sm text-muted">Helper</p>` | `<Text size="supporting" color="muted">Helper</Text>` |
-| `<span>Inline label</span>` | `<Text asChild size="supporting"><span>Inline label</span></Text>` or `<Text size="supporting">Inline label</Text>` |
-| `<strong>Important</strong>` | `<Text weight="heavy">Important</Text>` |
-| `<b>Bold text</b>` | `<Text weight="heavy">Bold text</Text>` |
-| `<em>Emphasised</em>` | No Terra equivalent yet — add a Terra atom first |
-| `<i>Italic</i>` | No Terra equivalent yet — add a Terra atom first |
-| `<code>agent-id</code>` | `<Code>agent-id</Code>` |
+| Raw HTML                                              | Terra replacement                                                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `<div className="flex flex-col gap-4">`               | `<Stack gap="comfortable">`                                                                                         |
+| `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                                                         |
+| `<div className="grid grid-cols-3 gap-4">`            | `<Grid cols={3} gap="comfortable">`                                                                                 |
+| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">`                                                   |
+| `<section className="flex flex-col gap-8">`           | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                         |
+| `<aside className="grid grid-cols-2">`                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                    |
+| `<h1>Page title</h1>`                                 | `<Heading variant="title">Page title</Heading>`                                                                     |
+| `<h2>Section heading</h2>`                            | `<Heading variant="section">Section heading</Heading>`                                                              |
+| `<p>Body copy</p>`                                    | `<Text>Body copy</Text>`                                                                                            |
+| `<p className="text-sm text-muted">Helper</p>`        | `<Text size="supporting" color="muted">Helper</Text>`                                                               |
+| `<span>Inline label</span>`                           | `<Text asChild size="supporting"><span>Inline label</span></Text>` or `<Text size="supporting">Inline label</Text>` |
+| `<strong>Important</strong>`                          | `<Text weight="heavy">Important</Text>`                                                                             |
+| `<b>Bold text</b>`                                    | `<Text weight="heavy">Bold text</Text>`                                                                             |
+| `<em>Emphasised</em>`                                 | No Terra equivalent yet — add a Terra atom first                                                                    |
+| `<i>Italic</i>`                                       | No Terra equivalent yet — add a Terra atom first                                                                    |
+| `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                             |
 
 ---
 
@@ -71,17 +71,17 @@ import { Stack } from '@orbit/terra';
 
 **Common Stack props:**
 
-| Prop | Type | Default | Purpose |
-| ---- | ---- | ------- | ------- |
-| `direction` | `'vertical' \| 'horizontal' \| Responsive<…>` | `'vertical'` | Flex direction |
-| `gap` | `SpacingSize \| Responsive<SpacingSize>` | `'snug'` | Gap between children |
-| `align` | `'start' \| 'center' \| 'end' \| 'stretch' \| 'baseline'` | — | Cross-axis (`items-*`) |
-| `justify` | `'start' \| 'center' \| 'end' \| 'between' \| 'around' \| 'evenly'` | — | Main-axis (`justify-*`) |
-| `wrap` | `boolean` | `false` | `flex-wrap` |
-| `maxWidth` | `ContainerWidth \| Responsive<…>` | — | Max width constraint |
-| `minHeight` | `ContainerHeight \| Responsive<…>` | — | Min height constraint |
-| `textAlign` | `'start' \| 'center' \| 'end'` | — | Text alignment for all descendants |
-| `asChild` | `boolean` | `false` | Merge classes onto child element |
+| Prop        | Type                                                                | Default      | Purpose                            |
+| ----------- | ------------------------------------------------------------------- | ------------ | ---------------------------------- |
+| `direction` | `'vertical' \| 'horizontal' \| Responsive<…>`                       | `'vertical'` | Flex direction                     |
+| `gap`       | `SpacingSize \| Responsive<SpacingSize>`                            | `'snug'`     | Gap between children               |
+| `align`     | `'start' \| 'center' \| 'end' \| 'stretch' \| 'baseline'`           | —            | Cross-axis (`items-*`)             |
+| `justify`   | `'start' \| 'center' \| 'end' \| 'between' \| 'around' \| 'evenly'` | —            | Main-axis (`justify-*`)            |
+| `wrap`      | `boolean`                                                           | `false`      | `flex-wrap`                        |
+| `maxWidth`  | `ContainerWidth \| Responsive<…>`                                   | —            | Max width constraint               |
+| `minHeight` | `ContainerHeight \| Responsive<…>`                                  | —            | Min height constraint              |
+| `textAlign` | `'start' \| 'center' \| 'end'`                                      | —            | Text alignment for all descendants |
+| `asChild`   | `boolean`                                                           | `false`      | Merge classes onto child element   |
 
 **Spacing size tokens** (smallest → largest): `none`, `tight`, `snug`, `comfortable`, `relaxed`, `spacious`.
 
@@ -125,19 +125,21 @@ import { Grid } from '@orbit/terra';
 
 **Grid props:**
 
-| Prop | Type | Default |
-| ---- | ---- | ------- |
-| `cols` | `ColCount \| Responsive<ColCount>` | `1` |
-| `gap` | `SpacingSize \| Responsive<SpacingSize>` | `'snug'` |
-| `gapX` / `gapY` | `SpacingSize \| Responsive<SpacingSize>` | — |
-| `asChild` | `boolean` | `false` |
+| Prop            | Type                                     | Default  |
+| --------------- | ---------------------------------------- | -------- |
+| `cols`          | `ColCount \| Responsive<ColCount>`       | `1`      |
+| `gap`           | `SpacingSize \| Responsive<SpacingSize>` | `'snug'` |
+| `gapX` / `gapY` | `SpacingSize \| Responsive<SpacingSize>` | —        |
+| `asChild`       | `boolean`                                | `false`  |
 
 `ColCount` values: `1 | 2 | 3 | 4 | 5 | 6 | 12`.
 
 ```tsx
 // 1 column on mobile, 2 on small, 3 on large screens
 <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
-  {cards.map((c) => <Card key={c.id}>…</Card>)}
+  {cards.map((c) => (
+    <Card key={c.id}>…</Card>
+  ))}
 </Grid>
 ```
 
@@ -184,14 +186,14 @@ import { Heading } from '@orbit/terra';
 
 **Heading variants:**
 
-| Variant | Default element | Use for |
-| ------- | --------------- | ------- |
-| `display` | `h1` | Hero text on splash/landing screens |
-| `title` | `h1` | The single page-level title per view |
-| `section` | `h2` | Major section headings (most common) |
-| `subsection` | `h3` | Secondary groupings within a section |
-| `label` | `h4` | Card titles, sidebar headers, group labels |
-| `metric` | `div` | Large KPI/stat numbers (not a structural heading) |
+| Variant      | Default element | Use for                                           |
+| ------------ | --------------- | ------------------------------------------------- |
+| `display`    | `h1`            | Hero text on splash/landing screens               |
+| `title`      | `h1`            | The single page-level title per view              |
+| `section`    | `h2`            | Major section headings (most common)              |
+| `subsection` | `h3`            | Secondary groupings within a section              |
+| `label`      | `h4`            | Card titles, sidebar headers, group labels        |
+| `metric`     | `div`           | Large KPI/stat numbers (not a structural heading) |
 
 **Heading colors:** `foreground` (default), `muted`, `accent`.
 
@@ -227,13 +229,13 @@ import { Text } from '@orbit/terra';
 
 **Text size variants (semantic names):**
 
-| Size | px | Use for |
-| ---- | -- | ------- |
-| `micro` | 11px | Chat timestamps, keyboard hints, disclaimers |
-| `caption` | 12px | Timestamps, status labels, auxiliary metadata |
-| `supporting` | 14px | Secondary body, descriptions, table metadata |
-| `body` | 16px | Default prose — the majority of UI text |
-| `lead` | 18px | Introductory paragraphs, feature descriptions |
+| Size         | px   | Use for                                       |
+| ------------ | ---- | --------------------------------------------- |
+| `micro`      | 11px | Chat timestamps, keyboard hints, disclaimers  |
+| `caption`    | 12px | Timestamps, status labels, auxiliary metadata |
+| `supporting` | 14px | Secondary body, descriptions, table metadata  |
+| `body`       | 16px | Default prose — the majority of UI text       |
+| `lead`       | 18px | Introductory paragraphs, feature descriptions |
 
 **Text color:** `foreground`, `muted`, `subtle`, `accent`, `status-healthy`, `status-degraded`, `status-error`.
 
@@ -321,7 +323,8 @@ These elements have **no current Terra equivalent**. `local/no-raw-inline-elemen
 2. Add a Terra component for the use case first — see [Adding a Missing Terra Component](#adding-a-missing-terra-component).
 3. Use the new Terra component from product code.
 
-The lint error message will read:  
+The lint error message will read:
+
 > _Raw `<em>` has no Terra equivalent yet. Add a Terra atom in `src/packages/terra/src/components/` first, then use it here._
 
 This is intentional: the rule prevents the codebase from accumulating ad-hoc HTML while the design system grows to cover new needs ONLY IF NECESSARY.
@@ -389,6 +392,7 @@ Both layout and typography components support `asChild`. When `true`, the compon
 ```
 
 **Rules for `asChild`:**
+
 - The child must be a single element — no fragments, no arrays.
 - The child must accept a `className` prop (all HTML elements and most components do).
 - Do not nest `asChild` components: `<Stack asChild><Grid asChild>…</Grid></Stack>` is incorrect.
@@ -406,11 +410,9 @@ import { PageLayout, Section } from '@orbit/terra';
 <PageLayout>
   <Section>
     <Heading variant="title">Agents</Heading>
-    <Stack gap="comfortable">
-      {/* feature content */}
-    </Stack>
+    <Stack gap="comfortable">{/* feature content */}</Stack>
   </Section>
-</PageLayout>
+</PageLayout>;
 ```
 
 ---

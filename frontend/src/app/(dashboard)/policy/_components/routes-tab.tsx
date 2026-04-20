@@ -103,7 +103,11 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         header: 'Path Prefix',
         sortable: true,
         sortAccessor: (r) => r.pathPrefix,
-        cell: (r) => <Text size="micro" mono color="subtle">{r.pathPrefix}</Text>,
+        cell: (r) => (
+          <Text size="micro" mono color="subtle">
+            {r.pathPrefix}
+          </Text>
+        ),
       },
       {
         id: 'requiredScope',

@@ -31,8 +31,12 @@ export const Default: Story = {
       </PopoverTrigger>
       <PopoverContent className="p-3">
         <Stack gap="tight">
-          <Text size="supporting" color="foreground">Popover content goes here.</Text>
-          <Text size="micro" color="muted">Any React node is valid content.</Text>
+          <Text size="supporting" color="foreground">
+            Popover content goes here.
+          </Text>
+          <Text size="micro" color="muted">
+            Any React node is valid content.
+          </Text>
         </Stack>
       </PopoverContent>
     </Popover>
@@ -68,7 +72,9 @@ function PolicyFilterDemo() {
       </PopoverTrigger>
       <PopoverContent className="w-44 p-1.5">
         <div className="px-2 pb-1.5 pt-0.5">
-          <Text size="micro" color="muted" weight="emphasis" transform="uppercase">Decision type</Text>
+          <Text size="micro" color="muted" weight="emphasis" transform="uppercase">
+            Decision type
+          </Text>
         </div>
         {options.map(({ value, label }) => (
           <button
@@ -156,7 +162,9 @@ export const CredentialInfo: Story = {
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3">
         <div className="mb-2">
-          <Text size="micro" color="foreground" weight="emphasis">prod-s3-read</Text>
+          <Text size="micro" color="foreground" weight="emphasis">
+            prod-s3-read
+          </Text>
         </div>
         <dl className="space-y-1.5">
           {[
@@ -188,8 +196,12 @@ export const Positions: Story = {
           </PopoverTrigger>
           <PopoverContent side={side} className="px-3 py-2">
             <Stack direction="horizontal" gap="tight" align="center">
-              <Text size="micro" color="muted">Opens on</Text>
-              <Text size="micro" color="foreground">{side}</Text>
+              <Text size="micro" color="muted">
+                Opens on
+              </Text>
+              <Text size="micro" color="foreground">
+                {side}
+              </Text>
             </Stack>
           </PopoverContent>
         </Popover>
@@ -202,7 +214,9 @@ export const WithAnchor: Story = {
   name: 'Custom anchor',
   render: () => (
     <div className="flex items-center gap-2">
-      <Text size="supporting" color="muted">Model:</Text>
+      <Text size="supporting" color="muted">
+        Model:
+      </Text>
       <Popover>
         <PopoverAnchor asChild>
           <code className="text-sm font-mono text-foreground">claude-sonnet-4</code>
@@ -217,9 +231,13 @@ export const WithAnchor: Story = {
         </PopoverTrigger>
         <PopoverContent className="w-56 p-3">
           <div className="mb-1">
-            <Text size="micro" color="foreground" weight="emphasis">claude-sonnet-4</Text>
+            <Text size="micro" color="foreground" weight="emphasis">
+              claude-sonnet-4
+            </Text>
           </div>
-          <Text size="micro" color="muted">200k context · $3 / 1M input tokens</Text>
+          <Text size="micro" color="muted">
+            200k context · $3 / 1M input tokens
+          </Text>
         </PopoverContent>
       </Popover>
     </div>

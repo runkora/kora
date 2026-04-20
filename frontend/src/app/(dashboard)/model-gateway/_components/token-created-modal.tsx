@@ -74,7 +74,9 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
             <aside className="border-b border-border bg-status-degraded/10 px-5 py-3">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-status-degraded" aria-hidden />
               <Stack gap="tight">
-                <Text size="supporting" color="foreground" weight="heavy">Copy this key now.</Text>
+                <Text size="supporting" color="foreground" weight="heavy">
+                  Copy this key now.
+                </Text>
                 <Text size="supporting" color="foreground">
                   It will not be shown again. If you lose it, you will need to revoke it and create
                   a new one.

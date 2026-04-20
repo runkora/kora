@@ -166,12 +166,16 @@ export function EvaluateTab({
             Uses the same OPA evaluation path as live enforcement.
           </Text>
           <Text size="caption" color="muted">
-            <Text asChild size="caption" color="foreground" weight="emphasis"><output>Scope lookup</output></Text>
-            {' '}shows the full permission set for a principal (your own session is pre-loaded).
+            <Text asChild size="caption" color="foreground" weight="emphasis">
+              <output>Scope lookup</output>
+            </Text>{' '}
+            shows the full permission set for a principal (your own session is pre-loaded).
           </Text>
           <Text size="caption" color="muted">
-            <Text asChild size="caption" color="foreground" weight="emphasis"><output>Policy check</output></Text>
-            {' '}dry-runs a specific operation against a principal with a chosen role.
+            <Text asChild size="caption" color="foreground" weight="emphasis">
+              <output>Policy check</output>
+            </Text>{' '}
+            dry-runs a specific operation against a principal with a chosen role.
           </Text>
         </Stack>
       </section>
@@ -378,8 +382,12 @@ export function EvaluateTab({
               <div className="flex-1 min-w-[160px]">
                 <Stack gap="tight">
                   <Stack direction="horizontal" align="center" gap="tight">
-                    <Text size="caption" weight="emphasis">Role</Text>
-                    <Text size="caption" color="subtle">(optional)</Text>
+                    <Text size="caption" weight="emphasis">
+                      Role
+                    </Text>
+                    <Text size="caption" color="subtle">
+                      (optional)
+                    </Text>
                   </Stack>
                   <select
                     value={simRole}

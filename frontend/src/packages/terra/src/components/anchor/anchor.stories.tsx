@@ -43,7 +43,9 @@ function Row({
 function SectionLabel({ title }: { title: string }) {
   return (
     <div className="mt-8 mb-3">
-      <Text size="caption" color="subtle" mono transform="uppercase">{title}</Text>
+      <Text size="caption" color="subtle" mono transform="uppercase">
+        {title}
+      </Text>
     </div>
   );
 }

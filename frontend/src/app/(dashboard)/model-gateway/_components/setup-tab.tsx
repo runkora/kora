@@ -113,9 +113,8 @@ export function SetupTab() {
                 <Text asChild size="supporting" color="foreground" weight="emphasis">
                   <output>API Keys</output>
                 </Text>{' '}
-                tab to
-                create a key, then store it in your environment — never hard-code it in source
-                files.
+                tab to create a key, then store it in your environment — never hard-code it in
+                source files.
               </Text>
               <CodeBlock
                 code={`# ~/.zshrc or ~/.bashrc

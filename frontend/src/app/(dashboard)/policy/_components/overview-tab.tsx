@@ -358,7 +358,9 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                         }`}
                       >
                         {role.role}
-                        <Text size="micro" color="subtle" mono={false}>{(role.scopes ?? []).length}</Text>
+                        <Text size="micro" color="subtle" mono={false}>
+                          {(role.scopes ?? []).length}
+                        </Text>
                       </div>
                     );
                   })}

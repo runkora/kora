@@ -48,19 +48,31 @@ function Swatch({ cssVar, label, detail, utility }: SwatchProps) {
           {label}
         </Text>
         <div className="flex min-w-0 font-mono">
-          <Text size="caption" color="subtle" className="shrink-0">CSS:&nbsp;</Text>
-          <Text size="caption" color="muted" className="truncate">{cssVar}</Text>
+          <Text size="caption" color="subtle" className="shrink-0">
+            CSS:&nbsp;
+          </Text>
+          <Text size="caption" color="muted" className="truncate">
+            {cssVar}
+          </Text>
         </div>
         {utility && (
           <div className="flex min-w-0 font-mono">
-            <Text size="caption" color="subtle" className="shrink-0">Tailwind:&nbsp;</Text>
-            <Text size="caption" color="muted" className="truncate">{utility}</Text>
+            <Text size="caption" color="subtle" className="shrink-0">
+              Tailwind:&nbsp;
+            </Text>
+            <Text size="caption" color="muted" className="truncate">
+              {utility}
+            </Text>
           </div>
         )}
         {detail && (
           <div className="flex min-w-0">
-            <Text size="caption" color="subtle" className="shrink-0">Context:&nbsp;</Text>
-            <Text size="caption" color="muted" className="truncate">{detail}</Text>
+            <Text size="caption" color="subtle" className="shrink-0">
+              Context:&nbsp;
+            </Text>
+            <Text size="caption" color="muted" className="truncate">
+              {detail}
+            </Text>
           </div>
         )}
       </div>

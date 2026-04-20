@@ -339,7 +339,9 @@ function MessageContent({ content }: { content: string }) {
                 <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
                   <Stack direction="horizontal" align="center" justify="between" asChild>
                     <figcaption className="px-4 py-2 bg-surface border-b border-border-subtle">
-                      <Text size="micro" color="subtle" mono>{lang}</Text>
+                      <Text size="micro" color="subtle" mono>
+                        {lang}
+                      </Text>
                       {/* eslint-disable-next-line local/no-raw-div */}
                       <div className="-mr-1">
                         <Button variant="ghost" size="icon-sm" aria-label="Copy code">
@@ -547,8 +549,12 @@ export default function ChatPage() {
                           )}
                         >
                           <Icon className="h-4 w-4 text-accent mb-0.5" />
-                          <Text size="supporting" weight="emphasis">{s.title}</Text>
-                          <Text size="caption" color="subtle">{s.desc}</Text>
+                          <Text size="supporting" weight="emphasis">
+                            {s.title}
+                          </Text>
+                          <Text size="caption" color="subtle">
+                            {s.desc}
+                          </Text>
                         </button>
                       );
                     })}
@@ -726,7 +732,9 @@ export default function ChatPage() {
                          */}
                         {/* eslint-disable-next-line local/no-raw-div */}
                         <div className="hidden sm:block">
-                          <Text size="micro" color="subtle">Shift + Enter for new line</Text>
+                          <Text size="micro" color="subtle">
+                            Shift + Enter for new line
+                          </Text>
                         </div>
                         {/*
                          * size="xs" shape="pill": compact pill send button.

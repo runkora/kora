@@ -398,11 +398,22 @@ const localPlugin = {
       },
       create(context) {
         const LAYOUT_CLASSES = new Set([
-          'flex', 'inline-flex', 'grid', 'inline-grid', 'block', 'inline-block',
+          'flex',
+          'inline-flex',
+          'grid',
+          'inline-grid',
+          'block',
+          'inline-block',
         ]);
         // <span> is intentionally omitted — no-raw-inline-elements owns it unconditionally.
         const CHECKED_ELEMENTS = new Set([
-          'section', 'aside', 'nav', 'header', 'footer', 'article', 'main',
+          'section',
+          'aside',
+          'nav',
+          'header',
+          'footer',
+          'article',
+          'main',
         ]);
         return {
           JSXOpeningElement(node) {

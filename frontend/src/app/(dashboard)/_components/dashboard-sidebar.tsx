@@ -32,7 +32,9 @@ export function DashboardSidebar() {
               <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-accent">
                 <Zap className="size-4" aria-hidden />
               </div>
-              <Text size="supporting" weight="strong">Orbit</Text>
+              <Text size="supporting" weight="strong">
+                Orbit
+              </Text>
             </Stack>
             <Badge variant="outline" size="sm">
               v0.4.0

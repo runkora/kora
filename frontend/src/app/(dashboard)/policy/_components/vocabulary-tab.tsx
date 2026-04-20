@@ -281,8 +281,16 @@ function FilterChip({
           : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
       ].join(' ')}
     >
-      {mono ? <Text asChild size="micro" mono><output>{label}</output></Text> : label}
-      <Text asChild size="micro" color="muted"><output>{count}</output></Text>
+      {mono ? (
+        <Text asChild size="micro" mono>
+          <output>{label}</output>
+        </Text>
+      ) : (
+        label
+      )}
+      <Text asChild size="micro" color="muted">
+        <output>{count}</output>
+      </Text>
     </button>
   );
 }

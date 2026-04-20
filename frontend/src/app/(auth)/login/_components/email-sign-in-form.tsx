@@ -126,7 +126,11 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-4">
-      {bannerError && <Alert variant="error"><Text size="caption">{bannerError}</Text></Alert>}
+      {bannerError && (
+        <Alert variant="error">
+          <Text size="caption">{bannerError}</Text>
+        </Alert>
+      )}
 
       <Field>
         <Label htmlFor="email">Work email</Label>

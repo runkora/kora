@@ -19,9 +19,13 @@ export function DashboardHeader() {
         {/* Breadcrumb — raw spans: breadcrumb is a navigation pattern, not body prose */}
         <Stack direction="horizontal" align="center" asChild>
           <nav className="gap-1.5">
-            <Text size="supporting" color="muted">Orbit</Text>
+            <Text size="supporting" color="muted">
+              Orbit
+            </Text>
             <ChevronRight className="size-3.5" aria-hidden />
-            <Text size="supporting" weight="emphasis">Dashboard</Text>
+            <Text size="supporting" weight="emphasis">
+              Dashboard
+            </Text>
           </nav>
         </Stack>
 
