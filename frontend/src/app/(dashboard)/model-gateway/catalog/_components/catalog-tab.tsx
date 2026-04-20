@@ -112,15 +112,15 @@ export function CatalogTab({
         <TabsList>
           <TabsTrigger value="virtual">
             Virtual Models
-            <span className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
+            <output className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
               {virtualModels.length}
-            </span>
+            </output>
           </TabsTrigger>
           <TabsTrigger value="provider">
             Provider Catalog
-            <span className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
+            <output className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
               {providerModels.length}
-            </span>
+            </output>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="virtual">

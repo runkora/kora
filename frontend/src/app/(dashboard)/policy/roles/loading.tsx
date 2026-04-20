@@ -35,7 +35,8 @@ export default function RolesLoading() {
                     <Skeleton shape="line" width="half" size="xs" />
                   </TableHead>
                   <TableHead>
-                    <span className="w-10 block" />
+                    {/* eslint-disable-next-line local/no-raw-div */}
+                    <div className="w-10" />
                   </TableHead>
                 </TableRow>
               </TableHeader>

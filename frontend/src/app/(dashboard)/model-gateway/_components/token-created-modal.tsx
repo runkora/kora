@@ -73,15 +73,19 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
           <Stack asChild direction="horizontal" align="start" gap="snug">
             <aside className="border-b border-border bg-status-degraded/10 px-5 py-3">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-status-degraded" aria-hidden />
-              <Text size="supporting" color="foreground">
-                <strong>Copy this key now.</strong> It will not be shown again. If you lose it, you
-                will need to revoke it and create a new one.
-              </Text>
+              <Stack gap="tight">
+                <Text size="supporting" color="foreground" weight="heavy">Copy this key now.</Text>
+                <Text size="supporting" color="foreground">
+                  It will not be shown again. If you lose it, you will need to revoke it and create
+                  a new one.
+                </Text>
+              </Stack>
             </aside>
           </Stack>
 
           {/* Token */}
-          <section className="flex flex-col gap-2 p-5">
+          {/* eslint-disable-next-line local/no-raw-div */}
+          <div className="flex flex-col gap-2 p-5">
             <Text size="caption" color="subtle" weight="emphasis">
               Your API key
             </Text>
@@ -91,11 +95,12 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
               className="group flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-elevated px-4 py-3 text-left transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent"
               aria-label="Copy API key to clipboard"
             >
-              <span className="flex-1 min-w-0">
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div className="flex-1 min-w-0">
                 <Text size="supporting" mono truncate>
                   {pat.token}
                 </Text>
-              </span>
+              </div>
               {copied ? (
                 <Check className="size-4 shrink-0 text-status-healthy" aria-hidden />
               ) : (
@@ -107,7 +112,7 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
                 ? `Expires ${new Date(pat.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`
                 : 'Never expires'}
             </Text>
-          </section>
+          </div>
 
           {/* Footer */}
           <Stack asChild direction="horizontal" justify="end">

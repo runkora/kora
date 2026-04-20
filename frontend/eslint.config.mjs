@@ -23,21 +23,41 @@ import prettier from 'eslint-config-prettier';
 //   3. no-terra-classname — blocks `className` props on components imported
 //      from @orbit/terra outside the Terra package. Terra components are
 //      pre-styled through the token system; ad-hoc Tailwind classes on top
-//      break the design-system contract. Use a wrapper element for layout
-//      needs, or add a documented variant inside Terra.
+//      break the design-system contract. Use <Stack asChild> or <Grid asChild>
+//      for layout needs, or add a documented variant inside Terra.
 //
 //   4. no-raw-html-text-tags — blocks raw <p> and <h1>–<h6> in JSX outside
 //      the Terra package. All text must go through Terra typography
 //      primitives (Heading, Text, Code) so colour and scale stay in the
 //      token system.
 //
-//   5. no-raw-div — warns on raw <div> elements in JSX outside the Terra
-//      package. Prefer Terra layout components (<Stack> for flex layouts,
-//      <Grid> for grid layouts). Suppress with eslint-disable-next-line when
-//      a plain div is genuinely the right tool (e.g. a single-child sizing
-//      wrapper).
+//   5. no-raw-div — errors on raw <div> elements in JSX outside the Terra
+//      package. Every layout need is met by Terra primitives. Suppress with
+//      an inline disable comment only when a plain <div> is genuinely the
+//      only option (extremely rare), and include a comment explaining why.
 //
-//   6. require-kebab-filename — all JS and TS source files under src/ must use
+//   6. no-raw-layout-elements — errors when any of the following raw HTML
+//      semantic elements carry a display-mode layout class (flex, inline-flex,
+//      grid, inline-grid, block, inline-block), which promotes them into layout
+//      containers that Terra's Stack and Grid components are designed to replace:
+//
+//        Checked: <section> <aside> <nav> <header> <footer> <article> <main>
+//
+//        <section className="flex …">   →  <Stack asChild><section>…</section></Stack>
+//        <aside className="grid …">     →  <Grid asChild><aside>…</aside></Grid>
+//
+//   7. no-raw-inline-elements — errors on raw inline HTML elements in product
+//      JSX. Terra source is exempt: it is the implementation layer and must
+//      be able to render these elements to expose them as components. There
+//      are no legitimate uses of raw inline elements in product code:
+//
+//        <span>          →  <Text asChild> from @orbit/terra (inline text wrapping)
+//        <strong>, <b>   →  <Text weight="strong"> or weight="heavy" from @orbit/terra
+//        <em>, <i>       →  add an italic variant to Terra Text first
+//        <mark>, <abbr>, <s>, <u>, <sub>, <sup>
+//                        →  no Terra equivalent yet — add one to src/packages/terra/src/components/
+//
+//   8. require-kebab-filename — all JS and TS source files under src/ must use
 //      kebab-case filenames (including the Terra package and any future
 //      packages). PascalCase filenames (e.g. HealthStatus.tsx) cause
 //      case-sensitivity mismatches between macOS (case-insensitive) and Linux
@@ -172,9 +192,14 @@ const localPlugin = {
     // If a layout or style need cannot be met by the existing component API,
     // the correct path is:
     //
-    //   1. Use a wrapper element (div, section, etc.) with the layout classes.
-    //   2. If a genuine variant gap exists, propose it to the Terra team and
-    //      add a documented variant to the component inside the Terra package.
+    //   1. Use <Stack asChild> or <Grid asChild> — layout classes go on the
+    //      child element (e.g. <section>, <aside>), not on the Terra component.
+    //   2. If a genuine variant gap exists, add a documented variant inside
+    //      the Terra package.
+    //
+    // Never route around this with raw HTML wrappers — <div>, <span>,
+    // <section> etc. used as layout containers are caught by no-raw-div and
+    // no-raw-layout-elements.
     //
     // The rule is import-aware: it tracks which local names in each file come
     // from @orbit/terra, so it never fires on similarly-named non-Terra
@@ -191,7 +216,9 @@ const localPlugin = {
         messages: {
           noClassName:
             '`className` is not allowed on Terra component <{{component}}>. ' +
-            'Wrap it in a layout element instead, or (with approval) add a variant to the Terra component.',
+            'For layout: use `<Stack asChild>` or `<Grid asChild>` and put layout classes on the child element, not on the Terra component. ' +
+            'For a style variant: add a documented variant inside the Terra package. ' +
+            'Never route around this with raw HTML wrappers.',
         },
       },
       create(context) {
@@ -243,10 +270,12 @@ const localPlugin = {
     //   <h3>  →  <Heading variant="subsection">  (@orbit/terra)
     //   <h4>–<h6>  →  <Heading variant="label">  (@orbit/terra)
     //
-    // The rule is intentionally narrow — it targets typographic tags only.
-    // Structural/layout elements (<span>, <section>, <article>, <header>,
-    // <footer>) are unrestricted. <div> is handled separately by the
-    // `no-raw-div` rule which steers callers toward Terra layout components.
+    // The rule targets typographic tags only. All structural and layout work
+    // must go through Terra layout primitives (Stack, Grid, Section, PageLayout).
+    // Raw <div> is caught by `no-raw-div`. Raw <span> with display-mode layout
+    // classes is caught by `no-raw-layout-elements`. Semantic elements (<section>,
+    // <aside>, <nav>, etc.) are composed via the `asChild` pattern on Stack or
+    // Grid — never by applying flex/grid Tailwind classes directly to them.
     // -------------------------------------------------------------------------
     'no-raw-html-text-tags': {
       meta: {
@@ -258,9 +287,9 @@ const localPlugin = {
         },
         messages: {
           noRawTag:
-            'Raw <{{tag}}> is not allowed outside the Terra package. ' +
-            'Replace with a Terra typography component: ' +
-            'Heading (for h1–h6) or Text (for p) from @orbit/terra.',
+            'Raw <{{tag}}> is not allowed. ' +
+            'Use <Text> (for p) or <Heading variant="…"> (for h1–h6) from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
         },
       },
       create(context) {
@@ -279,35 +308,39 @@ const localPlugin = {
     // -------------------------------------------------------------------------
     // no-raw-div
     //
-    // Warns when a raw <div> element is used in JSX outside the Terra package.
-    // Terra provides first-class layout primitives that should be preferred:
+    // Errors when a raw <div> element is used in JSX outside the Terra package.
+    // Terra provides first-class layout primitives that must be used instead:
     //
-    //   <div className="flex …">   →  <Stack>  (direction, gap, align, justify, wrap)
-    //   <div className="grid …">   →  <Grid>   (cols, gap, gapX, gapY)
+    //   <div className="flex …">  →  <Stack>  (direction, gap, align, justify, wrap)
+    //   <div className="grid …">  →  <Grid>   (cols, gap, gapX, gapY)
     //
-    // This is a *warning* rather than an error because there are legitimate
-    // cases where a plain <div> is the right tool — e.g. a single-child
-    // sizing wrapper that provides zero layout value, or a semantic landmark
-    // element. In those cases, suppress with an eslint-disable-next-line
-    // comment and a short explanation so the intent is clear.
+    // For semantic HTML elements, compose via asChild — layout classes land on
+    // the element itself, not on a wrapping div:
+    //
+    //   <Stack asChild gap="snug"><section>…</section></Stack>
+    //   <Stack asChild direction="horizontal"><nav>…</nav></Stack>
+    //
+    // In the rare case a plain <div> is genuinely unavoidable (e.g. a
+    // third-party component that requires a div as its direct child), suppress
+    // with eslint-disable-next-line and a one-line explanation of why.
     //
     // Terra's own source is excluded: it uses raw elements intentionally as
     // the canonical layout implementation.
     // -------------------------------------------------------------------------
     'no-raw-div': {
       meta: {
-        type: 'suggestion',
+        type: 'problem',
         docs: {
           description:
-            'Warn on raw <div> elements in JSX outside the Terra package. ' +
-            'Prefer Terra layout components: <Stack> for flex layouts or <Grid> for grid layouts.',
+            'Disallow raw <div> elements in JSX outside the Terra package. ' +
+            'Use Terra layout components: <Stack> for flex layouts, <Grid> for grid layouts.',
         },
         messages: {
           noRawDiv:
-            'Avoid raw <div> elements. Prefer Terra layout components: ' +
-            '<Stack> (flex) or <Grid> (grid) from @orbit/terra. ' +
-            'If a <div> is genuinely necessary (e.g. a single-child sizing wrapper), ' +
-            'suppress this warning with an eslint-disable-next-line comment.',
+            'Raw <div> is not allowed. Use <Stack> (flex), <Grid> (grid), or <Section> from @orbit/terra. ' +
+            'For semantic HTML, use <Stack asChild><section>…</section></Stack>. ' +
+            'If a <div> is genuinely unavoidable, suppress with eslint-disable-next-line and a comment explaining why. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
         },
         schema: [],
       },
@@ -316,6 +349,144 @@ const localPlugin = {
           JSXOpeningElement(node) {
             if (node.name.type === 'JSXIdentifier' && node.name.name === 'div') {
               context.report({ node, messageId: 'noRawDiv' });
+            }
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // no-raw-layout-elements
+    //
+    // Errors when a raw semantic HTML element is given a display-mode Tailwind
+    // class (flex, inline-flex, grid, inline-grid, block, inline-block) that
+    // promotes it into a layout container — the role Terra's Stack and Grid fill.
+    //
+    // Checked elements: <section>, <aside>, <nav>, <header>, <footer>,
+    //                   <article>, <main>
+    //
+    // <span> is intentionally NOT in this list. It is caught unconditionally
+    // and more specifically by no-raw-inline-elements. This rule owns only
+    // semantic container elements being misused as layout wrappers.
+    //
+    // Allowed alternatives:
+    //
+    //   <section className="flex …">  →  <Stack asChild><section>…</section></Stack>
+    //   <aside className="grid …">    →  <Grid asChild><aside>…</aside></Grid>
+    //
+    // See frontend/docs/golden-paths/terra-design-system.md
+    // Terra's own source is excluded as a canonical implementation site.
+    // -------------------------------------------------------------------------
+    'no-raw-layout-elements': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Disallow raw semantic HTML elements (section, aside, nav, header, footer, article, main) ' +
+            'used as layout containers via display-mode Tailwind classes. ' +
+            'Use <Stack asChild> or <Grid asChild> from @orbit/terra wrapping the semantic element instead. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        messages: {
+          noRawLayoutElement:
+            'Raw <{{tag}} className="{{cls}} …"> uses <{{tag}}> as a layout container. ' +
+            'Use <Stack asChild><{{tag}}>…</{{tag}}></Stack> (flex) or ' +
+            '<Grid asChild><{{tag}}>…</{{tag}}></Grid> (grid) from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        const LAYOUT_CLASSES = new Set([
+          'flex', 'inline-flex', 'grid', 'inline-grid', 'block', 'inline-block',
+        ]);
+        // <span> is intentionally omitted — no-raw-inline-elements owns it unconditionally.
+        const CHECKED_ELEMENTS = new Set([
+          'section', 'aside', 'nav', 'header', 'footer', 'article', 'main',
+        ]);
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type !== 'JSXIdentifier') return;
+            const tag = node.name.name;
+            if (!CHECKED_ELEMENTS.has(tag)) return;
+            const classNameAttr = node.attributes.find(
+              (attr) =>
+                attr.type === 'JSXAttribute' &&
+                attr.name.type === 'JSXIdentifier' &&
+                attr.name.name === 'className',
+            );
+            if (!classNameAttr) return;
+            const value = classNameAttr.value;
+            // Only inspect static string literals — template literals and
+            // expressions are too dynamic to evaluate reliably at lint time.
+            if (!value || value.type !== 'Literal' || typeof value.value !== 'string') return;
+            const classes = value.value.split(/\s+/);
+            const hit = classes.find((cls) => LAYOUT_CLASSES.has(cls));
+            if (hit) {
+              context.report({ node, messageId: 'noRawLayoutElement', data: { cls: hit, tag } });
+            }
+          },
+        };
+      },
+    },
+    // -------------------------------------------------------------------------
+    // no-raw-inline-elements
+    //
+    // Errors on raw inline HTML elements in product JSX. Terra source is
+    // exempt — it is the implementation layer and must be able to render
+    // these elements to expose them as components to product code. Every
+    // use in product code either has a Terra
+    // equivalent already, or signals that a Terra component is missing and
+    // should be added rather than routing around the design system.
+    //
+    //   <span>              →  <Text asChild> for inline text wrapping
+    //   <strong> / <b>      →  <Text weight="heavy">
+    //   <em> / <i>          →  Terra component missing — add one
+    //   <mark> / <abbr>     →  Terra component missing — add one
+    //   <s> / <u>           →  Terra component missing — add one
+    //   <sub> / <sup>       →  Terra component missing — add one
+    //
+    // The rule fires unconditionally in product code — className presence is
+    // irrelevant. There is no escape hatch in product code; if an inline
+    // element seems necessary, restructure the layout or add a Terra component.
+    // Terra source is exempt (see the config block below for rationale).
+    // -------------------------------------------------------------------------
+    'no-raw-inline-elements': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Disallow raw inline HTML elements in JSX outside the Terra package. ' +
+            'Use Terra typography components or add a new Terra component if one is missing.',
+        },
+        messages: {
+          span:
+            'Raw <span> is not allowed. Use <Text> or <Text asChild> from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          formatting:
+            'Raw <{{tag}}> is not allowed. ' +
+            'Use <Text weight="heavy"> from @orbit/terra for <strong> and <b>. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          missing:
+            'Raw <{{tag}}> has no Terra equivalent yet. ' +
+            'Add a Terra atom in src/packages/terra/src/components/ first, then use it here. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        const FORMATTING = new Set(['strong', 'b']);
+        const MISSING = new Set(['em', 'i', 'mark', 'abbr', 's', 'u', 'sub', 'sup']);
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type !== 'JSXIdentifier') return;
+            const tag = node.name.name;
+            if (tag === 'span') {
+              context.report({ node, messageId: 'span' });
+            } else if (FORMATTING.has(tag)) {
+              context.report({ node, messageId: 'formatting', data: { tag } });
+            } else if (MISSING.has(tag)) {
+              context.report({ node, messageId: 'missing', data: { tag } });
             }
           },
         };
@@ -420,8 +591,9 @@ const eslintConfig = defineConfig([
   // Tailwind classes via `className` on top of them breaks the design-system
   // contract and creates invisible coupling to internal implementation details.
   //
-  // If a layout need can't be met by the component API, use a wrapper element.
-  // If a genuine variant gap exists, add a documented variant inside Terra.
+  // If a layout need can't be met by the component API, use <Stack asChild> or
+  // <Grid asChild> and put layout classes on the child element — not on the
+  // Terra component. If a genuine variant gap exists, add a variant inside Terra.
   //
   // The rule tracks imports per-file so it only fires on actual Terra
   // components — never on similarly-named locals or third-party components.
@@ -454,21 +626,58 @@ const eslintConfig = defineConfig([
     },
   },
 
-  // ---- Raw <div> usage warning ---------------------------------------------
-  // Outside the Terra package, raw <div> elements should be replaced with
-  // Terra layout primitives (<Stack> for flex, <Grid> for grid). This is a
-  // *warning* rather than an error because there are valid edge-cases (e.g.
-  // a single-child sizing wrapper with no layout value). Suppress the warning
-  // with eslint-disable-next-line and a brief comment when needed.
+  // ---- Raw <div> and layout-span enforcement (Terra source exempted) ---------
+  // Outside the Terra package, raw div and semantic layout elements must be
+  // replaced with Terra layout primitives:
   //
-  // Terra's own source is excluded: it uses raw elements as the canonical
-  // layout implementation and intentionally does not go through itself.
+  //   no-raw-div: all <div> elements
+  //     <div className="flex …">        →  <Stack>
+  //     <div className="grid …">        →  <Grid>
+  //     <Stack asChild><section>…       →  semantic element composed via asChild
+  //
+  //   no-raw-layout-elements: semantic elements used as layout containers
+  //     <section className="flex …">    →  <Stack asChild><section>…</section></Stack>
+  //     <aside className="grid …">      →  <Grid asChild><aside>…</aside></Grid>
+  //
+  // Terra's own source is excluded: it implements the canonical primitives
+  // and uses raw elements at the foundation level.
+  //
+  // Suppression with eslint-disable-next-line is allowed for no-raw-div only
+  // when a raw element is genuinely unavoidable (e.g. a third-party component
+  // constraint); the disable comment must include a one-line explanation.
   {
     plugins: { local: localPlugin },
     files: ['src/**/*.tsx'],
     ignores: ['src/packages/terra/**'],
     rules: {
-      'local/no-raw-div': 'warn',
+      'local/no-raw-div': 'error',
+      'local/no-raw-layout-elements': 'error',
+    },
+  },
+
+  // ---- Raw inline element enforcement (Terra source exempted) ----------------
+  // Raw inline HTML elements are banned in product code. Terra is exempt:
+  // it is the implementation layer and must be able to render raw elements
+  // in order to expose them as components to the rest of the app. Banning
+  // them inside Terra would make it impossible to ever add <mark>, <abbr>,
+  // <em>, etc. as Terra components — defeating the whole purpose of the rule.
+  //
+  //   <span>              →  <Text> or <Text asChild>
+  //   <strong> / <b>      →  <Text weight="heavy">
+  //   <em> / <i>          →  no Terra equivalent yet — add one
+  //   <mark> / <abbr>     →  no Terra equivalent yet — add one
+  //   <s> / <u>           →  no Terra equivalent yet — add one
+  //   <sub> / <sup>       →  no Terra equivalent yet — add one
+  //
+  // There is no escape hatch in product code. If an inline element seems
+  // necessary, either restructure the layout or add a new Terra component.
+  // Do not add eslint-disable comments for this rule in product code.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-raw-inline-elements': 'error',
     },
   },
 

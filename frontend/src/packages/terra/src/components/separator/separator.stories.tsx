@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Separator } from './separator';
+import { Text } from '../typography/typography';
 
 const meta: Meta<typeof Separator> = {
   title: 'Terra/Atoms/Separator',
@@ -36,11 +37,11 @@ export const Horizontal: Story = {
 export const Vertical: Story = {
   render: () => (
     <div className="flex items-center h-8 gap-4">
-      <span className="text-sm text-muted">Agents</span>
+      <Text size="supporting" color="muted">Agents</Text>
       <Separator orientation="vertical" />
-      <span className="text-sm text-muted">Policies</span>
+      <Text size="supporting" color="muted">Policies</Text>
       <Separator orientation="vertical" />
-      <span className="text-sm text-muted">Events</span>
+      <Text size="supporting" color="muted">Events</Text>
     </div>
   ),
 };

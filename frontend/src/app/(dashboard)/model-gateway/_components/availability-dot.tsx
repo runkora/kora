@@ -8,7 +8,8 @@ interface AvailabilityDotProps {
 
 export function AvailabilityDot({ status, className }: AvailabilityDotProps) {
   return (
-    <span
+    // eslint-disable-next-line local/no-raw-div
+    <div
       role="img"
       aria-label={status === 'available' ? 'Available' : 'Unavailable'}
       className={cn(

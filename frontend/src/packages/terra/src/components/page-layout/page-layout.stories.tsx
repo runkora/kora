@@ -34,8 +34,8 @@ const SidebarContent = () => (
 
 const HeaderContent = () => (
   <div className="flex items-center justify-between w-full">
-    <span className="text-sm font-semibold text-foreground tracking-tight">Orbit</span>
-    <span className="text-xs text-muted">v0.1.0</span>
+    <Text size="supporting" weight="strong" color="foreground">Orbit</Text>
+    <Text size="micro" color="muted">v0.1.0</Text>
   </div>
 );
 
@@ -49,12 +49,12 @@ export const FullShell: Story = {
           description="Agents currently running in your control plane."
         >
           <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
-            <span className="text-sm text-muted">Agent table placeholder</span>
+            <Text size="supporting" color="muted">Agent table placeholder</Text>
           </div>
         </Section>
         <Section heading="Recent events" description="Last 50 events from the event spine.">
           <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
-            <span className="text-sm text-muted">Event log placeholder</span>
+            <Text size="supporting" color="muted">Event log placeholder</Text>
           </div>
         </Section>
       </PageLayout>
@@ -69,7 +69,7 @@ export const NoSidebar: Story = {
       <PageLayout header={<HeaderContent />}>
         <Section heading="Settings" description="Manage your Orbit control plane configuration.">
           <div className="rounded-lg border border-border-subtle bg-surface h-48 flex items-center justify-center">
-            <span className="text-sm text-muted">Settings panel placeholder</span>
+            <Text size="supporting" color="muted">Settings panel placeholder</Text>
           </div>
         </Section>
       </PageLayout>

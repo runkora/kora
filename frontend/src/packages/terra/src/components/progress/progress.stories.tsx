@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Progress } from './progress';
+import { Text } from '../typography/typography';
 
 const meta: Meta<typeof Progress> = {
   title: 'Terra/Molecules/Progress',
@@ -108,22 +109,22 @@ export const AllVariants: Story = {
 export const ResourcePanel: Story = {
   render: () => (
     <div className="w-72 rounded-lg bg-surface p-4 flex flex-col gap-4">
-      <p className="text-xs font-medium text-muted uppercase tracking-wider">Resource usage</p>
+      <Text size="micro" color="muted" weight="emphasis" transform="uppercase">Resource usage</Text>
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-foreground">CPU</span>
+          <Text size="micro" color="foreground">CPU</Text>
           <Progress label="CPU" value={42} variant="healthy" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-foreground">Memory</span>
+          <Text size="micro" color="foreground">Memory</Text>
           <Progress label="Memory" value={71} variant="degraded" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-foreground">Disk</span>
+          <Text size="micro" color="foreground">Disk</Text>
           <Progress label="Disk" value={94} variant="error" size="md" showValue />
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-foreground">Network</span>
+          <Text size="micro" color="foreground">Network</Text>
           <Progress label="Network" value={28} variant="healthy" size="md" showValue />
         </div>
       </div>

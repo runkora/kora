@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { DataTable, Heading, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import type { DataTableColumn, TextProps } from '@orbit/terra';
 import { Route } from 'lucide-react';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
@@ -22,12 +22,12 @@ interface FlatRoute {
   requiredScope: string;
 }
 
-const METHOD_COLORS: Record<string, string> = {
-  GET: 'text-status-healthy',
-  POST: 'text-accent',
-  PUT: 'text-status-degraded',
-  PATCH: 'text-status-degraded',
-  DELETE: 'text-status-error',
+const METHOD_COLORS: Record<string, TextProps['color']> = {
+  GET: 'status-healthy',
+  POST: 'accent',
+  PUT: 'status-degraded',
+  PATCH: 'status-degraded',
+  DELETE: 'status-error',
 };
 
 export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps) {
@@ -76,9 +76,10 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           filterFn: (r, selected) => selected.has(r.service),
         },
         cell: (r) => (
-          <span className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
+          // eslint-disable-next-line local/no-raw-div
+          <div className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
             {r.service}
-          </span>
+          </div>
         ),
       },
       {
@@ -92,9 +93,9 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           filterFn: (r, selected) => selected.has(r.method),
         },
         cell: (r) => (
-          <span className={`font-mono text-xs ${METHOD_COLORS[r.method] ?? 'text-muted'}`}>
+          <Text size="micro" mono color={METHOD_COLORS[r.method] ?? 'muted'}>
             {r.method}
-          </span>
+          </Text>
         ),
       },
       {
@@ -102,7 +103,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         header: 'Path Prefix',
         sortable: true,
         sortAccessor: (r) => r.pathPrefix,
-        cell: (r) => <span className="font-mono text-xs text-subtle">{r.pathPrefix}</span>,
+        cell: (r) => <Text size="micro" mono color="subtle">{r.pathPrefix}</Text>,
       },
       {
         id: 'requiredScope',

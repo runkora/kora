@@ -174,7 +174,8 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                 </Text>
               </Stack>
               {/* Health bar */}
-              <span
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div
                 style={{
                   display: 'block',
                   height: 4,
@@ -183,7 +184,8 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                   overflow: 'hidden',
                 }}
               >
-                <span
+                {/* eslint-disable-next-line local/no-raw-div */}
+                <div
                   style={{
                     display: 'block',
                     height: '100%',
@@ -193,7 +195,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                     transition: 'width 0.3s',
                   }}
                 />
-              </span>
+              </div>
               {unavailable > 0 && (
                 <Text size="caption" color="muted">
                   {unavailable} unavailable
@@ -344,7 +346,8 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
         </ResponsiveContainer>
         <Stack direction="horizontal" gap="comfortable" justify="center">
           <Stack direction="horizontal" align="center" gap="tight">
-            <span
+            {/* eslint-disable-next-line local/no-raw-div */}
+            <div
               style={{
                 width: 8,
                 height: 8,
@@ -358,7 +361,8 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
             </Text>
           </Stack>
           <Stack direction="horizontal" align="center" gap="tight">
-            <span
+            {/* eslint-disable-next-line local/no-raw-div */}
+            <div
               style={{
                 width: 8,
                 height: 8,
@@ -422,7 +426,8 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
                     overflow: 'hidden',
                   }}
                 >
-                  <span
+                  {/* eslint-disable-next-line local/no-raw-div */}
+                  <div
                     style={{
                       display: 'block',
                       height: '100%',

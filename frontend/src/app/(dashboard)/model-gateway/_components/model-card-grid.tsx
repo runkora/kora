@@ -90,29 +90,27 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
               {/* Modalities */}
               <Stack gap="none">
                 {model.input_modalities.length > 0 && (
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <span className="block py-1">
-                      <Text size="caption" color="muted">
-                        Input
-                      </Text>
-                      <Text size="caption" mono>
-                        {model.input_modalities.join(', ')}
-                      </Text>
-                    </span>
-                  </Stack>
+                  // eslint-disable-next-line local/no-raw-div
+                  <div className="flex items-center justify-between py-1">
+                    <Text size="caption" color="muted">
+                      Input
+                    </Text>
+                    <Text size="caption" mono>
+                      {model.input_modalities.join(', ')}
+                    </Text>
+                  </div>
                 )}
 
                 {model.output_modalities.length > 0 && (
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <span className="block py-1">
-                      <Text size="caption" color="muted">
-                        Output
-                      </Text>
-                      <Text size="caption" mono>
-                        {model.output_modalities.join(', ')}
-                      </Text>
-                    </span>
-                  </Stack>
+                  // eslint-disable-next-line local/no-raw-div
+                  <div className="flex items-center justify-between py-1">
+                    <Text size="caption" color="muted">
+                      Output
+                    </Text>
+                    <Text size="caption" mono>
+                      {model.output_modalities.join(', ')}
+                    </Text>
+                  </div>
                 )}
               </Stack>
             </Stack>

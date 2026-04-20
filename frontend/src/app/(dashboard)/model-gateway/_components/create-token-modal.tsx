@@ -153,11 +153,13 @@ export function CreateTokenModal({
           </header>
         </Stack>
 
-        <section className="flex flex-col gap-5 p-5">
+        {/* Body */}
+        {/* eslint-disable-next-line local/no-raw-div */}
+        <div className="flex flex-col gap-5 p-5">
           {/* Name */}
           <Stack gap="tight">
             <label htmlFor="pat-name" className="text-sm font-medium text-foreground">
-              Name <span aria-hidden>*</span>
+              Name <output aria-hidden="true">*</output>
             </label>
             <input
               ref={nameInputRef}
@@ -199,7 +201,7 @@ export function CreateTokenModal({
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <label className="text-sm font-medium text-foreground">
-                Permissions <span aria-hidden>*</span>
+                Permissions <output aria-hidden="true">*</output>
               </label>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">
@@ -232,7 +234,7 @@ export function CreateTokenModal({
               {error}
             </Text>
           )}
-        </section>
+        </div>
 
         {/* Footer */}
         <Stack asChild direction="horizontal" justify="end" gap="snug">

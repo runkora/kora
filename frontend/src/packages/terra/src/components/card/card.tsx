@@ -125,9 +125,9 @@ const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
           <div className="flex flex-col gap-1.5" style={{ marginTop: '-6px' }}>
             {children}
           </div>
-          <span className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
+          <div className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
             {icon}
-          </span>
+          </div>
         </div>
       ) : (
         children

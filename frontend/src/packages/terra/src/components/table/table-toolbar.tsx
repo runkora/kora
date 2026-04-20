@@ -123,9 +123,9 @@ function ToolbarCount({
   label: string;
 }) {
   return (
-    <span className="text-sm text-subtle whitespace-nowrap">
+    <div className="text-sm text-subtle whitespace-nowrap">
       Showing {showing.toLocaleString()} of {total.toLocaleString()} {label}
-    </span>
+    </div>
   );
 }
 

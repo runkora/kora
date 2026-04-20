@@ -37,7 +37,8 @@ export default function ModelsLoading() {
           <TableHeader>
             <TableRow>
               <TableHead>
-                <span className="w-10 block" />
+                {/* eslint-disable-next-line local/no-raw-div */}
+                <div className="w-10" />
               </TableHead>
               <TableHead>
                 <Skeleton shape="line" width="half" size="xs" />
@@ -55,7 +56,8 @@ export default function ModelsLoading() {
                 <Skeleton shape="line" width="full" size="xs" />
               </TableHead>
               <TableHead>
-                <span className="w-10 block" />
+                {/* eslint-disable-next-line local/no-raw-div */}
+                <div className="w-10" />
               </TableHead>
             </TableRow>
           </TableHeader>

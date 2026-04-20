@@ -121,7 +121,8 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Search + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
         <Stack direction="horizontal" align="center" justify="between">
-          <span className="relative max-w-xs flex-1">
+          {/* eslint-disable-next-line local/no-raw-div */}
+          <div className="relative max-w-xs flex-1">
             <input
               type="text"
               placeholder="Search roles..."
@@ -129,7 +130,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
-          </span>
+          </div>
           <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
         </Stack>
       )}
@@ -302,7 +303,8 @@ function ViewToggle({
 }) {
   return (
     <Stack direction="horizontal" gap="none">
-      <span className="[&>button]:rounded-r-none">
+      {/* eslint-disable-next-line local/no-raw-div */}
+      <div className="[&>button]:rounded-r-none">
         <Button
           variant={viewMode === 'cards' ? 'default' : 'outline'}
           size="icon-sm"
@@ -311,8 +313,9 @@ function ViewToggle({
         >
           <LayoutGrid className="size-3.5" />
         </Button>
-      </span>
-      <span className="[&>button]:rounded-l-none -ml-px">
+      </div>
+      {/* eslint-disable-next-line local/no-raw-div */}
+      <div className="[&>button]:rounded-l-none -ml-px">
         <Button
           variant={viewMode === 'list' ? 'default' : 'outline'}
           size="icon-sm"
@@ -321,7 +324,7 @@ function ViewToggle({
         >
           <List className="size-3.5" />
         </Button>
-      </span>
+      </div>
     </Stack>
   );
 }
@@ -502,7 +505,7 @@ function DeleteRoleModal({
           </Stack>
           {role && (
             <Text size="caption" color="muted">
-              Remove the role <strong>{role.role}</strong> and all its scope mappings? This action
+              Remove the role &ldquo;{role.role}&rdquo; and all its scope mappings? This action
               cannot be undone.
             </Text>
           )}

@@ -82,7 +82,8 @@ export function RevokeTokenModal({
           </Stack>
 
           {/* Body */}
-          <section className="flex flex-col gap-3 p-5">
+          {/* eslint-disable-next-line local/no-raw-div */}
+          <div className="flex flex-col gap-3 p-5">
             <Text size="supporting" color="foreground">
               This key will be permanently revoked and any applications using it will lose access
               immediately. This cannot be undone.
@@ -92,7 +93,7 @@ export function RevokeTokenModal({
                 {error}
               </Text>
             )}
-          </section>
+          </div>
 
           {/* Footer */}
           <Stack asChild direction="horizontal" justify="end" gap="snug">

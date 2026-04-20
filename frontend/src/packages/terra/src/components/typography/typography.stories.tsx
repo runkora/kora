@@ -30,8 +30,8 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline gap-6 py-2 border-b border-border-subtle last:border-0">
-      <span className="w-36 shrink-0 font-mono text-xs text-subtle">{label}</span>
-      {hint && <span className="w-64 shrink-0 text-xs text-subtle italic">{hint}</span>}
+      <div className="w-36 shrink-0 font-mono text-xs text-subtle">{label}</div>
+      {hint && <div className="w-64 shrink-0 text-xs text-subtle italic">{hint}</div>}
       <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
@@ -40,9 +40,9 @@ function Row({
 /** Section divider used within stories to group related rows. */
 function Section({ title }: { title: string }) {
   return (
-    <Text size="caption" color="subtle" className="mt-8 mb-3 font-mono uppercase tracking-widest">
-      {title}
-    </Text>
+    <div className="mt-8 mb-3">
+      <Text size="caption" color="subtle" mono transform="uppercase">{title}</Text>
+    </div>
   );
 }
 

@@ -194,7 +194,8 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
               </Stack>
             </CardContent>
             <CardFooter compact justify="between">
-              <span />
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div aria-hidden="true" />
               <Link
                 href={APP_ROUTES.policy.vocabulary}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -318,7 +319,8 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
               </TableRoot>
             </CardContent>
             <CardFooter compact justify="between">
-              <span />
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div aria-hidden="true" />
               <Link
                 href={APP_ROUTES.policy.grants}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -346,7 +348,8 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                     const isReserved =
                       role.role === 'tenant-admin' || role.role === 'platform-admin';
                     return (
-                      <span
+                      // eslint-disable-next-line local/no-raw-div
+                      <div
                         key={role.id}
                         className={`inline-flex items-center gap-1.5 font-mono text-xs px-2.5 py-1 rounded-full border ${
                           isReserved
@@ -355,15 +358,16 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                         }`}
                       >
                         {role.role}
-                        <span className="text-subtle font-sans">{(role.scopes ?? []).length}</span>
-                      </span>
+                        <Text size="micro" color="subtle" mono={false}>{(role.scopes ?? []).length}</Text>
+                      </div>
                     );
                   })}
                 </Stack>
               </Stack>
             </CardContent>
             <CardFooter compact justify="between">
-              <span />
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div aria-hidden="true" />
               <Link
                 href={APP_ROUTES.policy.roles}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -445,7 +449,8 @@ function KPICard({ icon, label, value, href, breakdown }: KPICardProps) {
         </Stack>
       </CardContent>
       <CardFooter compact justify="between">
-        <span />
+        {/* eslint-disable-next-line local/no-raw-div */}
+        <div aria-hidden="true" />
         <Link href={href} className="text-xs text-subtle hover:text-foreground transition-colors">
           View all →
         </Link>

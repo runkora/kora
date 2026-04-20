@@ -120,11 +120,12 @@ export function ModelsTab() {
         sortAccessor: (row) => row.name,
         cell: (row) => (
           <Stack gap="none">
-            <span className="mb-0.5 block text-[10px] uppercase tracking-wider">
+            {/* eslint-disable-next-line local/no-raw-div */}
+            <div className="mb-0.5 text-[10px] uppercase tracking-wider">
               <Text size="caption" color="subtle">
                 {row.family}
               </Text>
-            </span>
+            </div>
             <Text size="supporting" weight="emphasis" mono>
               {row.id}
             </Text>

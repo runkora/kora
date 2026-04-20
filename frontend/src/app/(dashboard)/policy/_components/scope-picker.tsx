@@ -64,7 +64,8 @@ export function ScopePicker({
   return (
     <section>
       {/* Search */}
-      <span className="relative mb-1.5 block">
+      {/* eslint-disable-next-line local/no-raw-div */}
+      <div className="relative mb-1.5">
         <input
           type="text"
           placeholder="Filter scopes..."
@@ -72,7 +73,7 @@ export function ScopePicker({
           onChange={(e) => onSearchChange(e.target.value)}
           className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
-      </span>
+      </div>
 
       {/* Accordion */}
       <section className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
@@ -103,17 +104,20 @@ export function ScopePicker({
                   <ChevronRight
                     className={`size-3.5 text-subtle shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
                   />
-                  <span className="font-mono text-xs text-accent flex-1 text-left">
-                    {group.resourceType}
-                  </span>
+                  {/* eslint-disable-next-line local/no-raw-div */}
+                  <div className="flex-1 text-left">
+                    <Text size="micro" color="accent" mono weight="emphasis">
+                      {group.resourceType}
+                    </Text>
+                  </div>
                   {selectedInGroup.length > 0 && (
-                    <span className="text-[0.6875rem] text-accent font-medium">
+                    <Text size="micro" color="accent" weight="emphasis">
                       {selectedInGroup.length} selected
-                    </span>
+                    </Text>
                   )}
-                  <span className="text-[0.6875rem] text-subtle">
+                  <Text size="micro" color="subtle">
                     {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
-                  </span>
+                  </Text>
                 </button>
 
                 {/* Group body */}
@@ -131,9 +135,9 @@ export function ScopePicker({
                           onChange={(e) => onToggleGroup(group.scopes, e.target.checked)}
                           className="accent-accent size-3.5 cursor-pointer rounded shrink-0"
                         />
-                        <span className="text-xs text-subtle">
+                        <Text size="caption" color="subtle">
                           Select all {group.resourceType} scopes
-                        </span>
+                        </Text>
                       </label>
                     )}
 

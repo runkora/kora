@@ -118,7 +118,8 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       {initialError && <ErrorBanner message={initialError} />}
 
       {/* Search */}
-      <span className="relative max-w-xs">
+      {/* eslint-disable-next-line local/no-raw-div */}
+      <div className="relative max-w-xs">
         <input
           type="text"
           placeholder="Filter scopes..."
@@ -126,7 +127,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
           onChange={(e) => setSearch(e.target.value)}
           className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
-      </span>
+      </div>
 
       {/* Filter chips */}
       <Stack direction="horizontal" align="center" gap="snug" wrap>
@@ -146,11 +147,12 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
             onClick={() => setActiveFilter(type)}
           />
         ))}
-        <span className="ml-auto">
+        {/* eslint-disable-next-line local/no-raw-div */}
+        <div className="ml-auto">
           <Text size="caption" color="subtle">
             {filtered.length} of {initialScopes.length} scopes
           </Text>
-        </span>
+        </div>
       </Stack>
 
       {/* Grouped tables */}
@@ -174,9 +176,9 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
             {/* Group header */}
             <Stack direction="horizontal" align="center" gap="snug" asChild>
               <header className="mb-3">
-                <span className="font-mono font-semibold text-sm text-accent">
+                <Text size="supporting" color="accent" mono weight="strong">
                   {group.resourceType}
-                </span>
+                </Text>
                 <Text size="caption" color="subtle">
                   {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
                 </Text>
@@ -193,10 +195,12 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                         <TableHead>Scope</TableHead>
                         <TableHead>Description</TableHead>
                         <TableHead>
-                          <span className="flex justify-end">Used in</span>
+                          {/* eslint-disable-next-line local/no-raw-div */}
+                          <div className="flex justify-end">Used in</div>
                         </TableHead>
                         <TableHead>
-                          <span className="sr-only">Copy</span>
+                          {/* eslint-disable-next-line local/no-raw-div */}
+                          <div className="sr-only">Copy</div>
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -277,8 +281,8 @@ function FilterChip({
           : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
       ].join(' ')}
     >
-      <span className={mono ? 'font-mono' : ''}>{label}</span>
-      <span className="text-[0.6875rem] opacity-70">{count}</span>
+      {mono ? <Text asChild size="micro" mono><output>{label}</output></Text> : label}
+      <Text asChild size="micro" color="muted"><output>{count}</output></Text>
     </button>
   );
 }
@@ -287,13 +291,14 @@ function FilterChip({
 
 function UsagePill({ count, label }: { count: number; label: string }) {
   return (
-    <span
+    // eslint-disable-next-line local/no-raw-div
+    <div
       className={[
         'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.6875rem] font-medium',
         count > 0 ? 'bg-surface-elevated text-foreground' : 'bg-transparent text-subtle',
       ].join(' ')}
     >
       {count} {label}
-    </span>
+    </div>
   );
 }

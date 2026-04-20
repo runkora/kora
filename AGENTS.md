@@ -288,6 +288,13 @@ When implementing Orbit components:
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
 
 See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
+
+## Frontend Development
+
+When creating any page or visual component under `frontend/src/app/`, you **MUST** follow the Terra golden path before writing any JSX — raw HTML elements are banned by ESLint and violations fail `pnpm lint`.
+
+Golden paths: [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md)
+
 ## Getting Help
 
 - **Architecture questions**: Open a discussion or issue referencing the relevant ADR

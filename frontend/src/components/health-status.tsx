@@ -58,9 +58,7 @@ export function HealthStatus() {
                 <Badge variant="healthy" dot>
                   {state.data.status}
                 </Badge>
-                <Text asChild size="supporting" color="muted">
-                  <span>{state.data.service}</span>
-                </Text>
+                <Text size="supporting" color="muted">{state.data.service}</Text>
               </Stack>
             )}
 

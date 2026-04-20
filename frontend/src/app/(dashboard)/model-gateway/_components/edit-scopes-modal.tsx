@@ -117,7 +117,7 @@ export function EditScopesModal({
               <Heading variant="section">Edit permissions</Heading>
               {pat && (
                 <Text size="supporting" color="muted">
-                  Update scopes for <span className="font-medium text-foreground">{pat.name}</span>
+                  Update scopes for {pat.name}
                 </Text>
               )}
             </Stack>
@@ -133,11 +133,12 @@ export function EditScopesModal({
           </header>
         </Stack>
 
-        <section className="flex flex-col gap-5 p-5">
+        <Stack asChild gap="comfortable">
+        <section className="p-5">
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <label className="text-sm font-medium text-foreground">
-                Permissions <span aria-hidden>*</span>
+                Permissions <output aria-hidden="true">*</output>
               </label>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">
@@ -170,6 +171,7 @@ export function EditScopesModal({
             </Text>
           )}
         </section>
+        </Stack>
 
         <Stack asChild direction="horizontal" justify="end" gap="snug">
           <footer className="border-t border-border px-5 py-3">

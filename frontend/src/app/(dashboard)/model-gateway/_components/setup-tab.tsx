@@ -73,10 +73,12 @@ function Step({
   return (
     <Stack direction="horizontal" gap="comfortable">
       <Stack align="center" gap="none">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
+        {/* eslint-disable-next-line local/no-raw-div */}
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
           {number}
-        </span>
-        <span className="mt-2 w-px flex-1 bg-border block" />
+        </div>
+        {/* eslint-disable-next-line local/no-raw-div */}
+        <div className="mt-2 w-px flex-1 bg-border" />
       </Stack>
       <section className="flex-1 pb-8">
         <header className="mb-2">
@@ -107,7 +109,11 @@ export function SetupTab() {
           <Stack>
             <Step number={1} title="Create an API key">
               <Text size="supporting" color="muted">
-                Head to the <strong className="text-foreground font-medium">API Keys</strong> tab to
+                Head to the{' '}
+                <Text asChild size="supporting" color="foreground" weight="emphasis">
+                  <output>API Keys</output>
+                </Text>{' '}
+                tab to
                 create a key, then store it in your environment — never hard-code it in source
                 files.
               </Text>

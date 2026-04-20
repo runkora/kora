@@ -19,6 +19,7 @@
 import { redirect } from 'next/navigation';
 
 import {
+  Alert,
   Card,
   CardContent,
   CardDescription,
@@ -85,13 +86,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           {/* Error banner — shown only after a failed OIDC round-trip */}
           {message && (
             // eslint-disable-next-line local/no-raw-div
-            <div
-              role="alert"
-              className="mb-4 rounded-md border border-red-500/40 bg-red-950/40 px-3 py-2"
-            >
-              <Text size="caption" color="status-error">
-                {message}
-              </Text>
+            <div className="mb-4">
+              <Alert variant="error">
+                <Text size="caption">{message}</Text>
+              </Alert>
             </div>
           )}
 

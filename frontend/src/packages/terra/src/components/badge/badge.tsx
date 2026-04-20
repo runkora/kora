@@ -101,7 +101,7 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {
   /**
    * When true, renders a small filled circle before the label to indicate
    * live / pulsing status. Pairs best with the status variants.
@@ -126,18 +126,18 @@ export interface BadgeProps
  * <Badge variant="dim" size="sm">orbit-3-turbo</Badge>
  * ```
  */
-const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
+const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
   ({ className, variant, size, dot = false, children, ...props }, ref) => {
     return (
-      <span ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
+      <div ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
         {dot && (
-          <span
+          <div
             aria-hidden="true"
             className="size-1.5 rounded-full bg-current opacity-80 shrink-0"
           />
         )}
         {children}
-      </span>
+      </div>
     );
   },
 );

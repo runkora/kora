@@ -161,13 +161,19 @@ export function EvaluateTab({
 
       {/* Info box */}
       <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
-        <Text size="caption" color="muted">
-          Uses the same OPA evaluation path as live enforcement.{' '}
-          <strong className="text-foreground">Scope lookup</strong> shows the full permission set
-          for a principal (your own session is pre-loaded).{' '}
-          <strong className="text-foreground">Policy check</strong> dry-runs a specific operation
-          against a principal with a chosen role.
-        </Text>
+        <Stack gap="tight">
+          <Text size="caption" color="muted">
+            Uses the same OPA evaluation path as live enforcement.
+          </Text>
+          <Text size="caption" color="muted">
+            <Text asChild size="caption" color="foreground" weight="emphasis"><output>Scope lookup</output></Text>
+            {' '}shows the full permission set for a principal (your own session is pre-loaded).
+          </Text>
+          <Text size="caption" color="muted">
+            <Text asChild size="caption" color="foreground" weight="emphasis"><output>Policy check</output></Text>
+            {' '}dry-runs a specific operation against a principal with a chosen role.
+          </Text>
+        </Stack>
       </section>
 
       {/* ── Scope Lookup ───────────────────────────────────────────────────────── */}
@@ -198,7 +204,8 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <span className="flex-1 min-w-[200px]">
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div className="flex-1 min-w-[200px]">
                 <Stack gap="tight">
                   <Text size="caption" weight="emphasis">
                     Principal ID
@@ -211,7 +218,7 @@ export function EvaluateTab({
                     className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 </Stack>
-              </span>
+              </div>
               <Button size="sm" onClick={handleLookup} disabled={lookupLoading || !lookupId}>
                 {lookupLoading ? 'Looking up...' : 'Look up'}
               </Button>
@@ -226,11 +233,12 @@ export function EvaluateTab({
                   <Text size="caption" mono color="muted">
                     {explain.principal_id}
                   </Text>
-                  <span className="ml-auto">
+                  {/* eslint-disable-next-line local/no-raw-div */}
+                  <div className="ml-auto">
                     <Badge variant="secondary" size="sm">
                       {explain.tenant_id}
                     </Badge>
-                  </span>
+                  </div>
                 </Stack>
 
                 {explain.from_roles.length > 0 && (
@@ -347,7 +355,8 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <span className="flex-1 min-w-[160px]">
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div className="flex-1 min-w-[160px]">
                 <Stack gap="tight">
                   <Text size="caption" weight="emphasis">
                     Principal ID
@@ -360,16 +369,18 @@ export function EvaluateTab({
                     className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
                 </Stack>
-              </span>
+              </div>
             </Stack>
 
             {/* Role + scope row */}
             <Stack direction="horizontal" align="end" gap="snug" wrap>
-              <span className="flex-1 min-w-[160px]">
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div className="flex-1 min-w-[160px]">
                 <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Role <span className="font-normal text-subtle">(optional)</span>
-                  </Text>
+                  <Stack direction="horizontal" align="center" gap="tight">
+                    <Text size="caption" weight="emphasis">Role</Text>
+                    <Text size="caption" color="subtle">(optional)</Text>
+                  </Stack>
                   <select
                     value={simRole}
                     onChange={(e) => setSimRole(e.target.value)}
@@ -384,8 +395,9 @@ export function EvaluateTab({
                     ))}
                   </select>
                 </Stack>
-              </span>
-              <span className="flex-1 min-w-[200px]">
+              </div>
+              {/* eslint-disable-next-line local/no-raw-div */}
+              <div className="flex-1 min-w-[200px]">
                 <Stack gap="tight">
                   <Text size="caption" weight="emphasis">
                     Scope to check
@@ -408,7 +420,7 @@ export function EvaluateTab({
                     ))}
                   </select>
                 </Stack>
-              </span>
+              </div>
               <Button
                 size="sm"
                 onClick={handleSimulate}

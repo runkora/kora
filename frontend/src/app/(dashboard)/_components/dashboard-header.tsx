@@ -1,6 +1,6 @@
 import { Bell, Bot, ChevronRight, RefreshCw } from 'lucide-react';
 
-import { Button, Separator, Stack } from '@orbit/terra';
+import { Button, Separator, Stack, Text } from '@orbit/terra';
 
 /**
  * Top header bar for the dashboard shell.
@@ -18,10 +18,10 @@ export function DashboardHeader() {
         {/* TODO: Replace with a Terra native Breadcrumbs component */}
         {/* Breadcrumb — raw spans: breadcrumb is a navigation pattern, not body prose */}
         <Stack direction="horizontal" align="center" asChild>
-          <nav className="gap-1.5 text-sm text-muted">
-            <span>Orbit</span>
+          <nav className="gap-1.5">
+            <Text size="supporting" color="muted">Orbit</Text>
             <ChevronRight className="size-3.5" aria-hidden />
-            <span className="text-foreground font-medium">Dashboard</span>
+            <Text size="supporting" weight="emphasis">Dashboard</Text>
           </nav>
         </Stack>
 
@@ -30,16 +30,18 @@ export function DashboardHeader() {
           <Button variant="ghost" size="icon" aria-label="Refresh">
             <RefreshCw className="size-4" />
           </Button>
-          <span className="relative">
+          {/* eslint-disable-next-line local/no-raw-div */}
+          <div className="relative">
             <Button variant="ghost" size="icon" aria-label="Notifications">
               <Bell className="size-4" />
             </Button>
             {/* Notification dot — decorative, aria-hidden */}
-            <span
+            {/* eslint-disable-next-line local/no-raw-div */}
+            <div
               aria-hidden
               className="pointer-events-none absolute top-1.5 right-1.5 size-1.5 rounded-full bg-status-error"
             />
-          </span>
+          </div>
           <Separator orientation="vertical" span="narrow" />
           <Button variant="default" size="sm">
             <Bot className="size-4" />

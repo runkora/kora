@@ -306,7 +306,6 @@ export interface TextProps
  * <Text size="supporting" mono>apollo-retriever</Text>
  * <Text size="supporting" mono tabular>{runs.toLocaleString()}</Text>
  * <Text size="caption" color="status-healthy">+2 this hour</Text>
- * <Text asChild><span>Inline text</span></Text>
  * ```
  */
 const Text = React.forwardRef<HTMLParagraphElement, TextProps>(
