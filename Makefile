@@ -44,6 +44,16 @@ K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 # Override for non-local environments (e.g. CI): make docker-build-frontend NEXT_PUBLIC_APP_URL=https://my.host
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
+# Docker image publishing (generic backend/Dockerfile via docker buildx bake)
+DOCKER_BAKE_FILE ?= docker-bake.hcl
+IMAGE_REGISTRY ?= ghcr.io
+IMAGE_NAMESPACE ?= orbit-sh
+IMAGE_TAG ?= latest
+IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/orbit-
+BACKEND_IMAGE_GROUP ?= backend-images
+DOCKER_BUILD_PLATFORMS ?= linux/amd64
+DOCKER_PUSH_PLATFORMS ?= linux/amd64,linux/arm64
+
 # Colors for output
 COLOR_RESET=\033[0m
 COLOR_BOLD=\033[1m
@@ -377,6 +387,24 @@ TENANT_SERVICES := example
 
 .PHONY: docker-build
 docker-build: docker-build-platform docker-build-tenant ## Build all service Docker images
+
+.PHONY: docker-bake-build
+docker-bake-build: ## Build images via docker buildx bake and load them into the local Docker daemon
+	@echo "$(COLOR_YELLOW)Building $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_BUILD_PLATFORMS)]...$(COLOR_RESET)"
+	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+			--set '*.platform=$(DOCKER_BUILD_PLATFORMS)' \
+			--load $(BACKEND_IMAGE_GROUP)
+	@echo "$(COLOR_GREEN)✓ Built images with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
+
+.PHONY: docker-bake-push
+docker-bake-push: ## Build and push images via docker buildx bake (defaults to GHCR)
+	@echo "$(COLOR_YELLOW)Publishing $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_PUSH_PLATFORMS)]...$(COLOR_RESET)"
+	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+			--set '*.platform=$(DOCKER_PUSH_PLATFORMS)' \
+			--push $(BACKEND_IMAGE_GROUP)
+	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
 
 .PHONY: docker-build-platform
 docker-build-platform: ## Build platform service images (identity, identity-proxy)
@@ -922,5 +950,3 @@ all: tidy check build-backend ## Run all quality checks and build
 bootstrap: env setup dev-up migrate-up ## Bootstrap project (scaffold .env, setup tools, start services, run migrations)
 	@echo "$(COLOR_GREEN)✓ Project bootstrapped and ready$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Run 'make dev' to start Orbit in development mode$(COLOR_RESET)"
-
-
