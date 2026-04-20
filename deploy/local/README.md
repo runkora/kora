@@ -72,8 +72,14 @@ deploy/local/
     └── example.yaml           # OrbitTenant CR for the example tenant (namespace: orbit-tenant-example)
 ```
 
-SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields —
-no separate values files for those components are needed.
+SPIRE, Istio, and gateway are configured directly from raw per-release values
+on the `OrbitPlatform` CR:
+
+- `spec.spireCRDsValues`
+- `spec.spireValues`
+- `spec.istioBaseValues`
+- `spec.istiodValues`
+- `spec.gatewayValues`
 
 ---
 
@@ -111,18 +117,30 @@ Or set `ORBIT_TENANTS_CONFIG=./config/tenants.yaml` in your `.env` file.
 
 ## Trust Domain Consistency
 
-The `global.trustDomain` value **must be identical** across all values files
-that reference it:
+`spec.trustDomain` still drives the local `orbit-platform` and `orbit` charts.
+For SPIRE and Istio, the local manifest now carries trust-domain settings
+directly inside `spec.spireValues` and `spec.istiodValues`.
 
-| File | Field |
-|------|-------|
-| `deploy/local/orbit-platform.yaml` | `spec.trustDomain` — primary source; operator derives SPIRE and Istio trust domain from this |
-| `deploy/local/platform-values.yaml` | `global.trustDomain` — used by the orbit-platform Helm chart |
-| `deploy/local/orbit-values.yaml` | `global.trustDomain` — used by the orbit Helm chart |
+Keep those values consistent. A mismatch will cause SPIFFE SAN validation
+failures and mTLS peer authentication will break.
 
-All are currently set to `orbit.local.clearroute.io`. If you change `spec.trustDomain` in
-`orbit-platform.yaml`, update the two chart values files to match. A mismatch
-will cause SPIFFE SAN validation failures and mTLS peer authentication will break.
+## Raw Helm Overrides
+
+The operator supports raw Helm value overrides on the `OrbitPlatform` CR as
+configuration inputs for managed releases:
+
+- `spec.spireCRDsValues`
+- `spec.spireValues`
+- `spec.istioBaseValues`
+- `spec.istiodValues`
+- `spec.gatewayValues`
+- `spec.platformValues`
+- `spec.orbitValues`
+
+Merge precedence is:
+
+1. `orbit-platform` / `orbit`: file-backed defaults, then operator-computed values, then raw values from the CR
+2. SPIRE / Istio / gateway: raw values from the CR
 
 ---
 
@@ -143,5 +161,3 @@ make dev-cluster-down   # tears down the k3d cluster only
                         # Docker Compose services (Postgres, Redis, Dex) keep running
 make dev-down           # stop Docker Compose services
 ```
-
-

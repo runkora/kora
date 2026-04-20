@@ -252,7 +252,7 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 	}
 
 	if p.Spec.Istio.Enabled {
-		if err := r.reconcileIstioBase(ctx, versions); err != nil {
+		if err := r.reconcileIstioBase(ctx, p, versions); err != nil {
 			return fmt.Errorf("istio-base: %w", err)
 		}
 		if err := r.reconcileIstiod(ctx, p, versions); err != nil {
@@ -300,13 +300,15 @@ func (r *PlatformReconciler) reconcileReleases(ctx context.Context, p *OrbitPlat
 }
 
 func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
+	values := buildSPIRECRDsValues(p.Spec.SPIRECRDsValues)
+
 	helm := NewHelmClient("spire-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"spire-crds",
 		"spire-crds",
 		"https://spiffe.github.io/helm-charts-hardened",
 		versions.SPIRECRDs,
-		map[string]any{},
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade spire-crds: %w", err)
@@ -317,63 +319,7 @@ func (r *PlatformReconciler) reconcileSPIRECRDs(ctx context.Context, p *OrbitPla
 }
 
 func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	clusterName := p.Spec.ClusterName
-	if clusterName == "" {
-		clusterName = "orbit"
-	}
-
-	// All SPIRE values are derived from the OrbitPlatform CR or are Orbit
-	// opinionated defaults. No external values file is required.
-	spireValues := map[string]any{
-		"global": map[string]any{
-			"spire": map[string]any{
-				"trustDomain": p.Spec.TrustDomain,
-				"clusterName": clusterName,
-			},
-		},
-		"spire-server": map[string]any{
-			"controllerManager": map[string]any{
-				"identities": map[string]any{
-					"clusterSPIFFEIDs": map[string]any{
-						// Disable the default ClusterSPIFFEID — Orbit manages
-						// its own via the orbit-platform chart.
-						"default": map[string]any{"enabled": false},
-					},
-				},
-			},
-			"nodeAttestor": map[string]any{
-				"k8sPSAT": map[string]any{
-					"enabled": true,
-					"clusters": map[string]any{
-						clusterName: map[string]any{
-							"service_account_allow_list": []string{"spire-system:spire-agent"},
-						},
-					},
-				},
-			},
-		},
-		"spire-agent": map[string]any{
-			"sds": map[string]any{
-				"enabled":               true,
-				"defaultSVIDName":       "default",
-				"defaultBundleName":     "ROOTCA",
-				"defaultAllBundlesName": "ALL",
-			},
-			"nodeAttestor": map[string]any{
-				"k8sPSAT": map[string]any{"enabled": true},
-			},
-			"workloadAttestors": map[string]any{
-				"k8s": map[string]any{
-					"enabled":                   true,
-					"skipKubeletVerification":   true,
-					"disableContainerSelectors": true,
-					"useNewContainerLocator":    false,
-				},
-			},
-		},
-		"spiffe-csi-driver":        map[string]any{"enabled": true},
-		"spire-controller-manager": map[string]any{"enabled": true},
-	}
+	values := buildSPIREValues(p)
 
 	helm := NewHelmClient("spire-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -381,7 +327,7 @@ func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatfor
 		"spire",
 		"https://spiffe.github.io/helm-charts-hardened",
 		versions.SPIRE,
-		spireValues,
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade spire: %w", err)
@@ -391,14 +337,16 @@ func (r *PlatformReconciler) reconcileSPIRE(ctx context.Context, p *OrbitPlatfor
 	return nil
 }
 
-func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, versions *chartVersions) error {
+func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
+	values := buildIstioBaseValues(p.Spec.IstioBaseValues)
+
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
 		"istio-base",
 		"base",
 		"https://istio-release.storage.googleapis.com/charts",
 		versions.Istio,
-		map[string]any{},
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade istio-base: %w", err)
@@ -407,26 +355,7 @@ func (r *PlatformReconciler) reconcileIstioBase(ctx context.Context, versions *c
 }
 
 func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	// The SPIRE and identity-proxy sidecar injection templates are Orbit's
-	// internal wiring between its components. They are generated from the
-	// OrbitPlatform CR — the user should never need to write or maintain them.
-	istioValues := map[string]any{
-		"meshConfig": map[string]any{
-			"trustDomain": p.Spec.TrustDomain,
-			"defaultConfig": map[string]any{
-				"discoveryAddress": "istiod.istio-system.svc:15012",
-			},
-		},
-		"sidecarInjectorWebhook": map[string]any{
-			"templates": map[string]any{
-				"spire": buildSpireInjectionTemplate(),
-				"identity-proxy": buildIdentityProxyInjectionTemplate(
-					orbitImageRef(defaultIdentityProxyImage, "identity-proxy", p.Spec.ImageRegistry),
-				),
-				"opa-policy": buildOPAPolicyInjectionTemplate(r.OPAImage, r.OPALogLevel),
-			},
-		},
-	}
+	values := buildIstiodValues(p)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -434,7 +363,7 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 		"istiod",
 		"https://istio-release.storage.googleapis.com/charts",
 		versions.Istio,
-		istioValues,
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade istiod: %w", err)
@@ -445,43 +374,7 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 }
 
 func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatform, versions *chartVersions) error {
-	serviceType := p.Spec.Gateway.ServiceType
-	if serviceType == "" {
-		serviceType = "LoadBalancer"
-	}
-
-	// Wire the Istio ingress gateway to SPIRE so it shares the same CA root as
-	// all orbit-system sidecar proxies. Without this the gateway uses istiod's
-	// self-signed CA while sidecars use SPIRE's CA, causing TLS verify failures
-	// on every inbound route (CERTIFICATE_VERIFY_FAILED / SAN mismatch).
-	//
-	// The SPIFFE CSI volume is already present in the cluster (installed by the
-	// spire chart); we just need to mount it and tell pilot-agent to use it.
-	gatewayValues := map[string]any{
-		"service": map[string]any{
-			"type": serviceType,
-		},
-		"env": map[string]any{
-			"PILOT_CERT_PROVIDER":    "spire",
-			"SPIFFE_ENDPOINT_SOCKET": "unix:///run/secrets/workload-spiffe-uds/socket",
-		},
-		"volumes": []map[string]any{
-			{
-				"name": "workload-socket",
-				"csi": map[string]any{
-					"driver":   "csi.spiffe.io",
-					"readOnly": true,
-				},
-			},
-		},
-		"volumeMounts": []map[string]any{
-			{
-				"name":      "workload-socket",
-				"mountPath": "/run/secrets/workload-spiffe-uds",
-				"readOnly":  true,
-			},
-		},
-	}
+	values := buildGatewayValues(p)
 
 	helm := NewHelmClient("istio-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -489,7 +382,7 @@ func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatf
 		"gateway",
 		"https://istio-release.storage.googleapis.com/charts",
 		versions.Istio,
-		gatewayValues,
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade gateway: %w", err)
@@ -498,22 +391,12 @@ func (r *PlatformReconciler) reconcileGateway(ctx context.Context, p *OrbitPlatf
 }
 
 func (r *PlatformReconciler) reconcileOrbitPlatform(ctx context.Context, p *OrbitPlatform) error {
-	// Start with values from the local values file (e.g. deploy/local/platform-values.yaml
-	// in dev, /etc/orbit/values/platform-values.yaml in-cluster).
-	platformValues := r.loadValuesFile("platform-values.yaml")
-
-	// Overlay computed values — these always win over file-based values.
-	platformValues = mergeMaps(platformValues, map[string]any{
-		"global": map[string]any{
-			"trustDomain": p.Spec.TrustDomain,
-		},
-		"namespaces": map[string]any{
-			"system":  "orbit-system",
-			"tenants": r.tenantNamespaces(ctx),
-		},
-	})
-	// Merge any raw values from the CR spec (highest priority).
-	platformValues = mergeMaps(platformValues, p.Spec.PlatformValues)
+	values := buildOrbitPlatformValues(
+		r.loadValuesFile("platform-values.yaml"),
+		p.Spec.TrustDomain,
+		r.tenantNamespaces(ctx),
+		p.Spec.PlatformValues,
+	)
 
 	helm := NewHelmClient("orbit-system", r.RestConfig, r.Logger)
 	_, err := helm.InstallOrUpgrade(ctx,
@@ -521,7 +404,7 @@ func (r *PlatformReconciler) reconcileOrbitPlatform(ctx context.Context, p *Orbi
 		r.chartPath("orbit-platform"),
 		"", // local chart path — no repoURL
 		"",
-		platformValues,
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade orbit-platform: %w", err)
@@ -535,61 +418,7 @@ func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatfor
 		return err
 	}
 
-	// Start with values from the local values file (e.g. deploy/local/orbit-values.yaml
-	// in dev, /etc/orbit/values/orbit-values.yaml in-cluster). This carries image
-	// repository/tag, appEnv, imagePullPolicy, and other deployment-specific settings.
-	orbitValues := r.loadValuesFile("orbit-values.yaml")
-
-	// Overlay computed values — these always win over file-based values.
-	// Resource names (orbit-config, orbit-tenants, orbit-tenant-oidc-secrets,
-	// orbit-secrets) are operator-managed conventions. Users should never need
-	// to set these in a values file.
-	orbitValues = mergeMaps(orbitValues, map[string]any{
-		"global": map[string]any{
-			"trustDomain": p.Spec.TrustDomain,
-		},
-		"identity": map[string]any{
-			"existingSecret":              secretName,
-			"existingConfigMap":           "orbit-config",
-			"existingTenantsConfigMap":    "orbit-tenants",
-			"existingClientSecretsSecret": "orbit-tenant-oidc-secrets",
-		},
-		"platform": map[string]any{
-			"namespaces": map[string]any{
-				"system": "orbit-system",
-			},
-			"spiffe": map[string]any{
-				"enabled": p.Spec.SPIRE.Enabled,
-			},
-		},
-	})
-
-	// Apply db/redis config if set.
-	if p.Spec.Config.DB.Host != "" {
-		orbitValues = mergeMaps(orbitValues, map[string]any{
-			"config": map[string]any{
-				"db": map[string]any{
-					"host": p.Spec.Config.DB.Host,
-					"name": p.Spec.Config.DB.Name,
-					"port": p.Spec.Config.DB.Port,
-					"user": p.Spec.Config.DB.User,
-				},
-			},
-		})
-	}
-	if p.Spec.Config.Redis.Host != "" {
-		orbitValues = mergeMaps(orbitValues, map[string]any{
-			"config": map[string]any{
-				"redis": map[string]any{
-					"host": p.Spec.Config.Redis.Host,
-					"port": p.Spec.Config.Redis.Port,
-				},
-			},
-		})
-	}
-
-	// Merge any raw values from the CR spec.
-	orbitValues = mergeMaps(orbitValues, p.Spec.OrbitValues)
+	values := buildOrbitValues(r.loadValuesFile("orbit-values.yaml"), p, secretName)
 
 	helm := NewHelmClient("orbit-system", r.RestConfig, r.Logger)
 	_, err = helm.InstallOrUpgrade(ctx,
@@ -597,7 +426,7 @@ func (r *PlatformReconciler) reconcileOrbit(ctx context.Context, p *OrbitPlatfor
 		r.chartPath("orbit"),
 		"", // local chart path — no repoURL
 		"",
-		orbitValues,
+		values,
 	)
 	if err != nil {
 		return fmt.Errorf("install/upgrade orbit: %w", err)

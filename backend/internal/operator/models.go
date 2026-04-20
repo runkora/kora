@@ -6,7 +6,7 @@
 package operator
 
 import (
-	"maps"
+	"reflect"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -69,23 +69,50 @@ type OrbitPlatformSpec struct {
 	// UpgradeStrategy controls how the operator handles chart version upgrades.
 	UpgradeStrategy UpgradeStrategySpec `json:"upgradeStrategy,omitempty"`
 
-	// ClusterName is the SPIRE cluster identifier. Defaults to "orbit".
-	// Must be consistent across SPIRE server and agent configuration.
+	// ClusterName is the SPIRE cluster identifier.
+
+	// Deprecated: configure the SPIRE chart directly via spec.spireValues.
 	// +kubebuilder:default=orbit
 	// +optional
 	ClusterName string `json:"clusterName,omitempty"`
 
 	// Gateway configures the Istio ingress gateway.
+
+	// Deprecated: configure the gateway chart directly via spec.gatewayValues.
 	Gateway GatewaySpec `json:"gateway,omitempty"`
 
 	// ImageRegistry is an optional registry prefix applied to all Orbit platform
-	// service images (orbit-identity, orbit-identity-proxy, etc.).
-	// Use this for local development or air-gapped environments where images are
-	// mirrored to a private registry.
-	// Example: "orbit-registry:5001" -> orbit-registry:5001/orbit-identity:latest
-	// Leave blank in production — the operator uses the built-in image references.
+	// service images.
+
+	// Deprecated: configure explicit image references directly in spec.istiodValues
+	// and spec.orbitValues.
 	// +optional
 	ImageRegistry string `json:"imageRegistry,omitempty"`
+
+	// SPIRECRDsValues are raw Helm values merged into the spire-crds chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	SPIRECRDsValues map[string]any `json:"spireCRDsValues,omitempty"`
+
+	// SpireValues are raw Helm values merged into the spire chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	SpireValues map[string]any `json:"spireValues,omitempty"`
+
+	// IstioBaseValues are raw Helm values merged into the istio base chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	IstioBaseValues map[string]any `json:"istioBaseValues,omitempty"`
+
+	// IstiodValues are raw Helm values merged into the istiod chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	IstiodValues map[string]any `json:"istiodValues,omitempty"`
+
+	// GatewayValues are raw Helm values merged into the Istio gateway chart.
+	// Use sparingly — prefer structured spec fields.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	GatewayValues map[string]any `json:"gatewayValues,omitempty"`
 
 	// PlatformValues are raw Helm values merged into the orbit-platform chart.
 	// Use sparingly — prefer structured spec fields.
@@ -113,10 +140,12 @@ type IstioSpec struct {
 }
 
 // GatewaySpec configures the Istio ingress gateway.
+
+// Deprecated: use spec.gatewayValues instead.
 type GatewaySpec struct {
 	// ServiceType is the Kubernetes service type for the gateway.
-	// Use "NodePort" on local clusters without a cloud LoadBalancer controller (e.g. k3d).
-	// Defaults to "LoadBalancer".
+
+	// Deprecated: use spec.gatewayValues.service.type.
 	// +kubebuilder:default=LoadBalancer
 	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
 	ServiceType string `json:"serviceType,omitempty"`
@@ -278,13 +307,78 @@ func (s *OrbitPlatformSpec) DeepCopyInto(out *OrbitPlatformSpec) {
 	out.Secrets = s.Secrets
 	out.Config = s.Config
 	out.UpgradeStrategy = s.UpgradeStrategy
+	if s.SPIRECRDsValues != nil {
+		out.SPIRECRDsValues = deepCopyAnyMap(s.SPIRECRDsValues)
+	}
+	if s.SpireValues != nil {
+		out.SpireValues = deepCopyAnyMap(s.SpireValues)
+	}
+	if s.IstioBaseValues != nil {
+		out.IstioBaseValues = deepCopyAnyMap(s.IstioBaseValues)
+	}
+	if s.IstiodValues != nil {
+		out.IstiodValues = deepCopyAnyMap(s.IstiodValues)
+	}
+	if s.GatewayValues != nil {
+		out.GatewayValues = deepCopyAnyMap(s.GatewayValues)
+	}
 	if s.PlatformValues != nil {
-		out.PlatformValues = make(map[string]any, len(s.PlatformValues))
-		maps.Copy(out.PlatformValues, s.PlatformValues)
+		out.PlatformValues = deepCopyAnyMap(s.PlatformValues)
 	}
 	if s.OrbitValues != nil {
-		out.OrbitValues = make(map[string]any, len(s.OrbitValues))
-		maps.Copy(out.OrbitValues, s.OrbitValues)
+		out.OrbitValues = deepCopyAnyMap(s.OrbitValues)
+	}
+}
+
+func deepCopyAnyMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = deepCopyValue(v)
+	}
+	return out
+}
+
+func deepCopyValue(in any) any {
+	if in == nil {
+		return nil
+	}
+
+	value := reflect.ValueOf(in)
+	switch value.Kind() {
+	case reflect.Map:
+		if value.IsNil() || value.Type().Key().Kind() != reflect.String {
+			return in
+		}
+		out := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			copied := deepCopyValue(iter.Value().Interface())
+			if copied == nil {
+				out.SetMapIndex(iter.Key(), reflect.Zero(value.Type().Elem()))
+				continue
+			}
+			out.SetMapIndex(iter.Key(), reflect.ValueOf(copied))
+		}
+		return out.Interface()
+	case reflect.Slice:
+		if value.IsNil() {
+			return in
+		}
+		out := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for i := 0; i < value.Len(); i++ {
+			copied := deepCopyValue(value.Index(i).Interface())
+			if copied == nil {
+				out.Index(i).Set(reflect.Zero(value.Type().Elem()))
+				continue
+			}
+			out.Index(i).Set(reflect.ValueOf(copied))
+		}
+		return out.Interface()
+	default:
+		return in
 	}
 }
 

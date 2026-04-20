@@ -118,14 +118,14 @@ spec:
                           type: integer
                           default: 6379
                 clusterName:
-                  description: Kubernetes cluster name, used to derive SPIRE cluster name and other cluster-scoped identifiers.
+                  description: Deprecated. Configure the SPIRE chart directly via spec.spireValues.
                   type: string
                 gateway:
-                  description: Istio gateway configuration.
+                  description: Deprecated. Configure the gateway chart directly via spec.gatewayValues.
                   type: object
                   properties:
                     serviceType:
-                      description: "Kubernetes Service type for the gateway. Use NodePort for local/k3d, LoadBalancer for cloud."
+                      description: Deprecated. Use spec.gatewayValues.service.type.
                       type: string
                       enum:
                         - ClusterIP
@@ -134,10 +134,8 @@ spec:
                       default: LoadBalancer
                 imageRegistry:
                   description: >
-                    Optional registry prefix applied to all Orbit platform service images.
-                    Use for local dev or air-gapped environments where images are mirrored.
-                    Example: "orbit-registry:5001" produces orbit-registry:5001/orbit-identity:latest.
-                    Leave blank in production — the operator uses built-in versioned image references.
+                    Deprecated. Configure explicit image references directly in
+                    spec.istiodValues and spec.orbitValues.
                   type: string
                 upgradeStrategy:
                   description: Controls how the operator handles chart version upgrades.
@@ -152,6 +150,31 @@ spec:
                         - Explicit
                         - Automatic
                       default: Explicit
+                spireCRDsValues:
+                  description: Raw Helm values merged into the spire-crds chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                spireValues:
+                  description: Raw Helm values merged into the spire chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                istioBaseValues:
+                  description: Raw Helm values merged into the istio base chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                istiodValues:
+                  description: Raw Helm values merged into the istiod chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                gatewayValues:
+                  description: Raw Helm values merged into the Istio gateway chart.
+                    Use sparingly.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 platformValues:
                   description: Raw Helm values merged into the orbit-platform chart.
                     Use sparingly.
