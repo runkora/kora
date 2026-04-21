@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -42,15 +43,21 @@ func (e *chatCompletionEnvelope) UnmarshalJSON(b []byte) error {
 func (c *Controller) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Cap body size to prevent arbitrarily large payloads from exhausting memory
-	// (the SigV4 transport buffers the full body for signing).
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
+	// 100 MB: accommodates large conversation histories with extended thinking
+	// blocks. Each thinking block can be 10s of KB; long sessions can easily
+	// exceed the previous 10 MB limit.
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 
 	// Decode directly into the openai-go SDK wire type — zero translation loss.
 	// Tool definitions, response_format, logprobs, seed, and all other fields
 	// pass through to the provider unchanged.
 	var env chatCompletionEnvelope
-	if !api.DecodeJSON(ctx, r, w, c.logger, &env) {
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), err)
+		} else {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
+		}
 		return
 	}
 	params := env.Params

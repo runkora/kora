@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -268,11 +269,20 @@ func anthropicErrorType(code string) string {
 func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Cap body size to prevent arbitrarily large payloads from exhausting memory.
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
+	// 100 MB: accommodates large conversation histories with extended thinking
+	// blocks. Each thinking block can be 10s of KB; long sessions with many
+	// turns can easily exceed the previous 10 MB limit.
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 
 	var env messagesEnvelope
-	if !api.DecodeJSON(ctx, r, w, c.logger, &env) {
+	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			c.writeAnthropicError(ctx, w,
+				api.BadRequestError("invalid_request", "request body too large", nil), err)
+		} else {
+			c.writeAnthropicError(ctx, w,
+				api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
+		}
 		return
 	}
 
@@ -351,22 +361,18 @@ func (c *Controller) handleMessagesStream(
 				return
 			}
 
-			data, marshalErr := json.Marshal(ev.Event)
-			if marshalErr != nil {
-				c.logger.Error(ctx, "anthropic sse: marshal error",
-					logging.Field{Key: "error", Value: marshalErr.Error()},
+			// RawJSON() returns the exact bytes received from the provider —
+			// the correct Anthropic wire format. json.Marshal(ev.Event) would
+			// serialize the union struct with all possible fields populated,
+			// producing malformed events that the client SDK cannot parse.
+			raw := ev.Event.RawJSON()
+			if raw == "" {
+				c.logger.Error(ctx, "anthropic sse: event has empty raw JSON, skipping",
+					logging.Field{Key: "event_type", Value: ev.Event.Type},
 				)
-				errData, _ := json.Marshal(map[string]any{
-					"type": "error",
-					"error": map[string]string{
-						"type":    "internal_error",
-						"message": "failed to serialize stream event",
-					},
-				})
-				_ = writeSSE("error", errData)
-				return
+				continue
 			}
-			if writeErr := writeSSE(ev.Event.Type, data); writeErr != nil {
+			if writeErr := writeSSE(ev.Event.Type, []byte(raw)); writeErr != nil {
 				c.logger.Error(ctx, "anthropic sse: write error",
 					logging.Field{Key: "error", Value: writeErr.Error()},
 				)
