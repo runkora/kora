@@ -232,9 +232,23 @@ const textVariants = cva('font-sans', {
 });
 
 export interface TextProps
-  extends
-    Omit<React.HTMLAttributes<HTMLParagraphElement>, 'color'>,
-    VariantProps<typeof textVariants> {
+  extends Omit<React.HTMLAttributes<HTMLElement>, 'color'>, VariantProps<typeof textVariants> {
+  /**
+   * Override the rendered HTML element. Restricted to phrasing-content tags
+   * where a block `<p>` would produce invalid HTML — for example inside a
+   * `<button>`, `<a>`, `<li>`, or form label.
+   *
+   * ```tsx
+   * {/* inside a <button> — renders a <span>, not a <p> *\/}
+   * <Text as="span" size="supporting" weight="emphasis">{title}</Text>
+   * ```
+   *
+   * Deliberately NOT `React.ElementType` — layout wrappers belong to Stack
+   * and Grid, not Text. Use `asChild` if you need to merge styles onto a
+   * child element you already control.
+   */
+  as?: 'span' | 'li' | 'dt' | 'dd' | 'label' | 'legend';
+
   /**
    * When true, merges Text styles into the immediate child element instead of
    * rendering a p tag.
@@ -293,8 +307,9 @@ export interface TextProps
  * align, truncate, mono, and tabular props to cover every prose context
  * without writing custom Tailwind classes.
  *
- * Renders a p by default; use asChild to target a span, li, or any other
- * inline/block element.
+ * Renders a `p` by default. Use `as="span"` to render as an inline element
+ * (e.g. inside a `<button>` or `<a>` where a block `<p>` is invalid HTML).
+ * Use `asChild` to merge styles onto an existing child element.
  *
  * ```tsx
  * <Text>Agent is running.</Text>
@@ -308,7 +323,7 @@ export interface TextProps
  * <Text size="caption" color="status-healthy">+2 this hour</Text>
  * ```
  */
-const Text = React.forwardRef<HTMLParagraphElement, TextProps>(
+const Text = React.forwardRef<HTMLElement, TextProps>(
   (
     {
       className,
@@ -321,11 +336,14 @@ const Text = React.forwardRef<HTMLParagraphElement, TextProps>(
       mono = false,
       tabular = false,
       asChild = false,
+      as,
       ...props
     },
     ref,
   ) => {
-    const Comp = asChild ? Slot : 'p';
+    // Cast to React.ElementType so TypeScript doesn't try to intersect the ref
+    // types for every element in the `as` string-literal union.
+    const Comp = (asChild ? Slot : (as ?? 'p')) as React.ElementType;
     return (
       <Comp
         ref={ref}

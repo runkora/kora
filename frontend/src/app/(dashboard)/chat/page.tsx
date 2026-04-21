@@ -549,10 +549,10 @@ export default function ChatPage() {
                           )}
                         >
                           <Icon className="h-4 w-4 text-accent mb-0.5" />
-                          <Text size="supporting" weight="emphasis">
+                          <Text as="span" size="supporting" weight="emphasis">
                             {s.title}
                           </Text>
-                          <Text size="caption" color="subtle">
+                          <Text as="span" size="caption" color="subtle">
                             {s.desc}
                           </Text>
                         </button>
