@@ -50,13 +50,17 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		INSERT INTO inference_usage (
 			id, tenant_id, principal_id, principal_type, token_id, api_dialect,
 			provider, model_id, model_family, routing_strategy,
-			prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
+			prompt_tokens, completion_tokens, total_tokens,
+			cache_read_input_tokens, cache_creation_input_tokens,
+			estimated_cost_usd,
 			status, retry_count, error_code, latency_ms, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
-			$11, $12, $13, $14,
-			$15, $16, $17, $18, $19
+			$11, $12, $13,
+			$14, $15,
+			$16,
+			$17, $18, $19, $20, $21
 		)`
 
 	var provider *string
@@ -74,7 +78,9 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 	_, err := r.pool.Exec(ctx, q,
 		rec.ID, rec.TenantID, rec.PrincipalID, rec.PrincipalType, rec.TokenID, string(rec.APIDialect),
 		provider, rec.ModelID, rec.ModelFamily, strategy,
-		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens, rec.EstimatedCostUSD,
+		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens,
+		rec.CacheReadInputTokens, rec.CacheCreationInputTokens,
+		rec.EstimatedCostUSD,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, rec.LatencyMS, rec.CreatedAt,
 	)
 	if err != nil {
@@ -88,7 +94,9 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id
 	const q = `
 		SELECT id, tenant_id, principal_id, principal_type, token_id, api_dialect,
 		       provider, model_id, model_family, routing_strategy,
-		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
+		       prompt_tokens, completion_tokens, total_tokens,
+		       cache_read_input_tokens, cache_creation_input_tokens,
+		       estimated_cost_usd,
 		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
 		WHERE id = $1 AND tenant_id = $2`
@@ -132,7 +140,9 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 	q := fmt.Sprintf(`
 		SELECT id, tenant_id, principal_id, principal_type, token_id, api_dialect,
 		       provider, model_id, model_family, routing_strategy,
-		       prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd,
+		       prompt_tokens, completion_tokens, total_tokens,
+		       cache_read_input_tokens, cache_creation_input_tokens,
+		       estimated_cost_usd,
 		       status, retry_count, error_code, latency_ms, created_at
 		FROM inference_usage
 		%s
@@ -212,7 +222,9 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	err := row.Scan(
 		&rec.ID, &rec.TenantID, &rec.PrincipalID, &rec.PrincipalType, &rec.TokenID, &dialect,
 		&provider, &rec.ModelID, &rec.ModelFamily, &strategy,
-		&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens, &rec.EstimatedCostUSD,
+		&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens,
+		&rec.CacheReadInputTokens, &rec.CacheCreationInputTokens,
+		&rec.EstimatedCostUSD,
 		&status, &rec.RetryCount, &rec.ErrorCode, &rec.LatencyMS, &rec.CreatedAt,
 	)
 	if err != nil {

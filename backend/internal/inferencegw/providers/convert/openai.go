@@ -487,10 +487,11 @@ func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
 	if errors.As(err, &apiErr) {
 		code, retryable := classifyOpenAIStatus(apiErr.StatusCode)
 		return &inferencegw.ConnectorError{
-			Provider:   provider,
-			Code:       code,
-			Retryable:  retryable,
-			Underlying: fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
+			Provider:        provider,
+			Code:            code,
+			Retryable:       retryable,
+			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
+			ProviderMessage: apiErr.Message,
 		}
 	}
 	return &inferencegw.ConnectorError{
@@ -526,10 +527,11 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 	if errors.As(err, &apiErr) {
 		code, retryable := classifyAnthropicStatus(apiErr.StatusCode)
 		return &inferencegw.ConnectorError{
-			Provider:   provider,
-			Code:       code,
-			Retryable:  retryable,
-			Underlying: fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
+			Provider:        provider,
+			Code:            code,
+			Retryable:       retryable,
+			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
+			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
 		}
 	}
 	return &inferencegw.ConnectorError{
@@ -538,6 +540,23 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 		Retryable:  true,
 		Underlying: err,
 	}
+}
+
+// extractAnthropicMessage parses the raw Anthropic API error body and returns
+// the inner error message. Returns "" if the body is not parseable or empty.
+func extractAnthropicMessage(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(raw), &body); err == nil {
+		return body.Error.Message
+	}
+	return ""
 }
 
 func classifyAnthropicStatus(status int) (code string, retryable bool) {

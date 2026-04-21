@@ -81,29 +81,32 @@ const (
 	UsageStatusAuthError     UsageStatus = "auth_error"
 	UsageStatusTimeout       UsageStatus = "timeout"
 	UsageStatusRoutingFailed UsageStatus = "routing_failed"
+	UsageStatusCanceled      UsageStatus = "canceled"
 )
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID               string           `json:"id"`
-	TenantID         string           `json:"tenant_id"`
-	PrincipalID      string           `json:"principal_id"`
-	PrincipalType    string           `json:"principal_type"`
-	TokenID          *string          `json:"token_id"`
-	APIDialect       APIDialect       `json:"api_dialect"`
-	Provider         *ProviderName    `json:"provider"`
-	ModelID          string           `json:"model_id"`
-	ModelFamily      *string          `json:"model_family"`
-	RoutingStrategy  *RoutingStrategy `json:"routing_strategy"`
-	PromptTokens     int              `json:"prompt_tokens"`
-	CompletionTokens int              `json:"completion_tokens"`
-	TotalTokens      int              `json:"total_tokens"`
-	EstimatedCostUSD float64          `json:"estimated_cost_usd"`
-	Status           UsageStatus      `json:"status"`
-	RetryCount       int              `json:"retry_count"`
-	ErrorCode        *string          `json:"error_code"`
-	LatencyMS        int              `json:"latency_ms"`
-	CreatedAt        time.Time        `json:"created_at"`
+	ID                       string           `json:"id"`
+	TenantID                 string           `json:"tenant_id"`
+	PrincipalID              string           `json:"principal_id"`
+	PrincipalType            string           `json:"principal_type"`
+	TokenID                  *string          `json:"token_id"`
+	APIDialect               APIDialect       `json:"api_dialect"`
+	Provider                 *ProviderName    `json:"provider"`
+	ModelID                  string           `json:"model_id"`
+	ModelFamily              *string          `json:"model_family"`
+	RoutingStrategy          *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens             int              `json:"prompt_tokens"`
+	CompletionTokens         int              `json:"completion_tokens"`
+	TotalTokens              int              `json:"total_tokens"`
+	CacheReadInputTokens     int              `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int              `json:"cache_creation_input_tokens"`
+	EstimatedCostUSD         float64          `json:"estimated_cost_usd"`
+	Status                   UsageStatus      `json:"status"`
+	RetryCount               int              `json:"retry_count"`
+	ErrorCode                *string          `json:"error_code"`
+	LatencyMS                int              `json:"latency_ms"`
+	CreatedAt                time.Time        `json:"created_at"`
 }
 
 // InferenceUsageFilter is used to query usage records.

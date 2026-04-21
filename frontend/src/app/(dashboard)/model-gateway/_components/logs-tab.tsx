@@ -18,6 +18,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'auth_error', label: 'Auth error' },
   { value: 'timeout', label: 'Timeout' },
   { value: 'routing_failed', label: 'Routing failed' },
+  { value: 'canceled', label: 'Canceled' },
 ];
 
 // ── LogsTab ───────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ export interface LogsTabProps {
 }
 
 export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
-  const { records, hasNextPage, hasPrevPage, pats, error, refresh, goNext, goPrev } =
+  const { records, hasNextPage, hasPrevPage, pats, error, status, refresh, goNext, goPrev } =
     useLogsContext();
 
   const searchParams = useSearchParams();
@@ -106,9 +107,16 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       sortable: true,
       sortAccessor: (row) => row.model_id,
       cell: (row) => (
-        <Text size="supporting" color="foreground" mono>
-          {row.model_id}
-        </Text>
+        <Stack gap="none">
+          <Text size="supporting" color="foreground" mono>
+            {row.model_id}
+          </Text>
+          {row.provider && (
+            <Text size="caption" color="subtle" mono>
+              {row.provider}
+            </Text>
+          )}
+        </Stack>
       ),
     },
 
@@ -213,17 +221,28 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       ),
     },
 
-    // Tokens — right-aligned, sortable by total.
+    // Tokens — right-aligned, sortable by effective total (including cache).
     {
       id: 'tokens',
-      header: 'Tokens in / out',
+      header: 'Tokens',
       align: 'right',
       sortable: true,
-      sortAccessor: (row) => row.total_tokens,
+      sortAccessor: (row) =>
+        row.prompt_tokens + row.cache_read_input_tokens + row.completion_tokens,
       cell: (row) => (
-        <Text size="supporting" color="muted" mono align="end">
-          {fmtNum(row.prompt_tokens)} / {fmtNum(row.completion_tokens)}
-        </Text>
+        <Stack gap="none" align="end">
+          <Text size="supporting" color="muted" mono align="end">
+            {fmtNum(row.prompt_tokens)} in
+          </Text>
+          <Text size="supporting" color="muted" mono align="end">
+            {fmtNum(row.completion_tokens)} out
+          </Text>
+          {row.cache_read_input_tokens > 0 && (
+            <Text size="caption" color="subtle" mono align="end">
+              +{fmtNum(row.cache_read_input_tokens)} cached
+            </Text>
+          )}
+        </Stack>
       ),
     },
 
@@ -263,6 +282,16 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         defaultSortDir="desc"
         emptyMessage="No inference requests yet."
         filteredEmptyMessage="No logs match your filters."
+        toolbarActions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refresh(activeKeyId || undefined)}
+            disabled={status === 'loading'}
+          >
+            {status === 'loading' ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        }
       />
 
       {(hasPrevPage || hasNextPage) && (

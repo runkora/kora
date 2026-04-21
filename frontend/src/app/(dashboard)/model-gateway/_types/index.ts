@@ -23,7 +23,8 @@ export type InferenceUsageStatus =
   | 'policy_denied'
   | 'auth_error'
   | 'timeout'
-  | 'routing_failed';
+  | 'routing_failed'
+  | 'canceled';
 
 // Mirrors InferenceUsageRecord in backend/internal/inferencegw/models.go.
 // Field names are snake_case matching the Go json tags.
@@ -41,6 +42,8 @@ export interface InferenceUsageRecord {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
   estimated_cost_usd: number;
   status: InferenceUsageStatus;
   retry_count: number;

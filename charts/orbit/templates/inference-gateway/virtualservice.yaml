@@ -21,7 +21,8 @@ spec:
   gateways:
     - {{ include "orbit.systemNamespace" . }}/orbit-gateway
   http:
-    - route:
+    - timeout: 3600s  # Long timeout; inference streams can run for many minutes.
+      route:
         - destination:
             host: orbit-inference-gateway.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
