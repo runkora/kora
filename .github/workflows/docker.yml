@@ -50,7 +50,10 @@ jobs:
           files: |
             docker-bake.hcl
             docker-bake.ci.hcl
-          targets: backend-images
+          targets: |
+            backend-images
+            orbit-frontend
+            orbit-operator
           load: true
           set: |
             *.platform=linux/amd64
@@ -110,7 +113,10 @@ jobs:
           files: |
             docker-bake.hcl
             docker-bake.ci.hcl
-          targets: backend-images
+          targets: |
+            backend-images
+            orbit-frontend
+            orbit-operator
           push: true
           set: |
             *.platform=linux/amd64
