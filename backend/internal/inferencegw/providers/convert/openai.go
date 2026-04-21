@@ -9,6 +9,7 @@
 package convert
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -483,8 +484,7 @@ func mapAnthropicStopReason[T ~string](reason T) string {
 
 // MapOpenAIError converts an openai-go error to a ConnectorError.
 func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
-	var apiErr *openai.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*openai.Error](err); ok {
 		code, retryable := classifyOpenAIStatus(apiErr.StatusCode)
 		return &inferencegw.ConnectorError{
 			Provider:        provider,
@@ -492,6 +492,16 @@ func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
 			Retryable:       retryable,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
 			ProviderMessage: apiErr.Message,
+		}
+	}
+	// Context cancellation means the caller gave up (client disconnect, upstream
+	// timeout). Retrying is pointless — the context is already done.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &inferencegw.ConnectorError{
+			Provider:   provider,
+			Code:       "CANCELED",
+			Retryable:  false,
+			Underlying: err,
 		}
 	}
 	return &inferencegw.ConnectorError{
@@ -523,8 +533,7 @@ func classifyOpenAIStatus(status int) (code string, retryable bool) {
 
 // MapAnthropicError converts an anthropic-sdk-go error to a ConnectorError.
 func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
-	var apiErr *anthropic.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*anthropic.Error](err); ok {
 		code, retryable := classifyAnthropicStatus(apiErr.StatusCode)
 		return &inferencegw.ConnectorError{
 			Provider:        provider,
@@ -532,6 +541,16 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 			Retryable:       retryable,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
 			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
+		}
+	}
+	// Context cancellation means the caller gave up (client disconnect, upstream
+	// timeout). Retrying is pointless — the context is already done.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &inferencegw.ConnectorError{
+			Provider:   provider,
+			Code:       "CANCELED",
+			Retryable:  false,
+			Underlying: err,
 		}
 	}
 	return &inferencegw.ConnectorError{

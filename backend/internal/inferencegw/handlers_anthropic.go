@@ -266,6 +266,13 @@ func anthropicErrorType(code string) string {
 // Auth: Envoy at the edge promotes x-api-key → Authorization: Bearer on this
 // path before the request reaches the service. In local tier-1 development
 // (no Envoy) callers may send either header; AuthMiddleware handles both.
+//
+// Non-streaming path: large generations can take minutes. To prevent NAT
+// gateways, HTTP proxies, and SDK clients from timing out the connection
+// while waiting for the first response byte, we start the generation with a
+// context detached from the HTTP request and write periodic newline keepalives
+// to the response body. JSON.parse ignores leading whitespace, so the client
+// SDK receives a valid response even after several newlines are prepended.
 func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -291,13 +298,110 @@ func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := c.svc.AnthropicMessages(ctx, env.Params)
-	if err != nil {
-		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+	c.handleMessagesNonStreaming(w, r, env.Params)
+}
+
+// handleMessagesNonStreaming handles the non-streaming POST /v1/messages path.
+// It uses a context detached from the HTTP request so that client-side and
+// proxy timeouts (typically 30 s) do not cancel an in-progress generation.
+// Periodic newline keepalives keep the TCP connection alive through NAT
+// gateways and HTTP proxies that close idle connections after ~30 s.
+func (c *Controller) handleMessagesNonStreaming(
+	w http.ResponseWriter,
+	r *http.Request,
+	params anthropic.MessageNewParams,
+) {
+	ctx := r.Context()
+
+	// Detach from the HTTP request context so the Bedrock call is not
+	// canceled when the client's HTTP timeout fires. Values (trace span,
+	// JWT claims, etc.) are preserved; cancellation is not.
+	// A 10-minute hard cap prevents runaway goroutines.
+	genCtx, cancelGen := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+	defer cancelGen()
+
+	type genResult struct {
+		msg *anthropic.Message
+		err error
+	}
+	ch := make(chan genResult, 1)
+	go func() {
+		msg, err := c.svc.AnthropicMessages(genCtx, params)
+		ch <- genResult{msg, err}
+	}()
+
+	// Fast path: give short-lived errors (policy denied, model not found,
+	// auth failures) 5 s to surface with the correct HTTP status code before
+	// we commit to 200 OK.
+	select {
+	case res := <-ch:
+		cancelGen()
+		if res.err != nil {
+			c.writeAnthropicError(ctx, w, inferenceErrorResponse(res.err), res.err)
+			return
+		}
+		api.JSON(ctx, w, c.logger, http.StatusOK, res.msg)
 		return
+	case <-time.After(5 * time.Second):
+		// Generation is still running. Commit to 200 OK and use keepalives.
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, msg)
+	// Slow path: write 200 OK + Content-Type now. We cannot change the status
+	// code later, so provider errors after this point are written as
+	// Anthropic-format error bodies with a 200 status (better than a timeout).
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	flusher, canFlush := w.(http.Flusher)
+	if canFlush {
+		flusher.Flush()
+	}
+
+	// Write a newline every 15 s to prevent NAT/proxy idle timeouts and to
+	// reset the client SDK's time-to-first-byte counter. JSON.parse ignores
+	// leading whitespace, so the final body remains parseable.
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case res := <-ch:
+			cancelGen()
+			if res.err != nil {
+				apiErr := inferenceErrorResponse(res.err)
+				body, _ := json.Marshal(map[string]any{
+					"type": "error",
+					"error": map[string]string{
+						"type":    anthropicErrorType(apiErr.Code),
+						"message": apiErr.Message,
+					},
+				})
+				_, _ = w.Write(body)
+			} else {
+				body, _ := json.Marshal(res.msg)
+				_, _ = w.Write(body)
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+			return
+
+		case <-keepalive.C:
+			if _, err := w.Write([]byte("\n")); err != nil {
+				// Client disconnected — cancel the generation.
+				cancelGen()
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+
+		case <-ctx.Done():
+			// HTTP request context canceled (genuine client disconnect or server
+			// shutdown). Cancel the generation and exit without writing.
+			cancelGen()
+			return
+		}
+	}
 }
 
 // handleMessagesStream writes a streaming Anthropic Messages API SSE response.
