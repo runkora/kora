@@ -94,3 +94,17 @@ target "orbit-frontend" {
   }
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-frontend:${IMAGE_TAG}"]
 }
+
+target "orbit-operator" {
+  context    = "."
+  dockerfile = "Dockerfile.operator"
+  pull       = true
+  labels = {
+    "org.opencontainers.image.title" = "orbit-operator"
+    "org.opencontainers.image.description" = "Orbit operator image"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-operator:${IMAGE_TAG}"]
+}

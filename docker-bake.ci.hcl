@@ -24,3 +24,8 @@ target "orbit-frontend" {
   cache-from = ["type=gha,scope=orbit-frontend"]
   cache-to = ["type=gha,scope=orbit-frontend,mode=max"]
 }
+
+target "orbit-operator" {
+  cache-from = ["type=gha,scope=orbit-operator"]
+  cache-to = ["type=gha,scope=orbit-operator,mode=max"]
+}
