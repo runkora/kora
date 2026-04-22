@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   Heading,
+  Input,
   Stack,
   Text,
   TableRoot,
@@ -118,16 +119,13 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       {initialError && <ErrorBanner message={initialError} />}
 
       {/* Search */}
-      {/* eslint-disable-next-line local/no-raw-div */}
-      <div className="relative max-w-xs">
-        <input
-          type="text"
-          placeholder="Filter scopes..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        />
-      </div>
+      <Input
+        type="text"
+        placeholder="Filter scopes..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="max-w-xs"
+      />
 
       {/* Filter chips */}
       <Stack direction="horizontal" align="center" justify="between">

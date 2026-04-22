@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Icon, Text } from '@orbit/terra';
+import { Icon, Input, Stack, Text } from '@orbit/terra';
 import { ScopeChip } from './scope-chip';
 
 interface ScopePickerProps {
@@ -61,18 +61,14 @@ export function ScopePicker({
   };
 
   return (
-    <section>
+    <Stack gap="tight">
       {/* Search */}
-      {/* eslint-disable-next-line local/no-raw-div */}
-      <div className="relative mb-1.5">
-        <input
-          type="text"
-          placeholder="Filter scopes..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        />
-      </div>
+      <Input
+        type="text"
+        placeholder="Filter scopes..."
+        value={search}
+        onChange={(e) => onSearchChange(e.target.value)}
+      />
 
       {/* Accordion */}
       <section className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
@@ -106,12 +102,9 @@ export function ScopePicker({
                   >
                     <Icon name="chevron-right" size="2xs" color="subtle" />
                   </span>
-                  {/* eslint-disable-next-line local/no-raw-div */}
-                  <div className="flex-1 text-left">
-                    <Text size="micro" color="accent" mono weight="emphasis">
-                      {group.resourceType}
-                    </Text>
-                  </div>
+                  <Text as="span" size="micro" color="accent" mono weight="emphasis">
+                    {group.resourceType}
+                  </Text>
                   {selectedInGroup.length > 0 && (
                     <Text size="micro" color="accent" weight="emphasis">
                       {selectedInGroup.length} selected
@@ -165,6 +158,6 @@ export function ScopePicker({
           })
         )}
       </section>
-    </section>
+    </Stack>
   );
 }

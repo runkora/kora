@@ -268,10 +268,7 @@ export function KeysTab({
           <Card>
             <CardContent padded>
               <Stack align="center" justify="center" gap="comfortable">
-                {/* eslint-disable-next-line local/no-raw-div -- fixed-size icon circle */}
-                <div className="flex size-12 items-center justify-center rounded-full bg-surface-elevated">
-                  <Icon name="key" size="md" color="subtle" />
-                </div>
+                <Icon name="key" size="lg" container containerVariant="surface-subtle" circle />
                 <Stack align="center" gap="tight">
                   <Heading variant="label">No API keys yet</Heading>
                   <Text size="supporting" color="muted" align="center">

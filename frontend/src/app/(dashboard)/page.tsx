@@ -226,7 +226,7 @@ function StatCard({ label, value, delta, deltaPositive, icon }: (typeof STATS)[n
           <Text size="supporting" color="muted">
             {label}
           </Text>
-          {/* eslint-disable-next-line local/no-raw-div */}
+          {/* eslint-disable-next-line local/no-raw-layout-elements -- size-8 (32px) sits between Terra container sm (28px) and md (36px); text-muted has no matching containerVariant; needs a new variant or size token */}
           <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
             <Icon name={icon} aria-hidden />
           </div>
