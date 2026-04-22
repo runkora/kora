@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { DataTable, Heading, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
