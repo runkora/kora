@@ -175,7 +175,6 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                 </Text>
               </Stack>
               {/* Health bar */}
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div
                 style={{
                   display: 'block',
@@ -185,7 +184,6 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                   overflow: 'hidden',
                 }}
               >
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div
                   style={{
                     display: 'block',
@@ -347,7 +345,6 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
         </ResponsiveContainer>
         <Stack direction="horizontal" gap="comfortable" justify="center">
           <Stack direction="horizontal" align="center" gap="tight">
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div
               style={{
                 width: 8,
@@ -362,7 +359,6 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
             </Text>
           </Stack>
           <Stack direction="horizontal" align="center" gap="tight">
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div
               style={{
                 width: 8,
@@ -427,7 +423,6 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
                     overflow: 'hidden',
                   }}
                 >
-                  {/* eslint-disable-next-line local/no-raw-div */}
                   <div
                     style={{
                       display: 'block',

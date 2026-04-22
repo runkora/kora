@@ -71,7 +71,6 @@ interface ChipRowProps {
 
 function ChipRow({ label, values }: ChipRowProps) {
   return (
-    // eslint-disable-next-line local/no-raw-div
     <div className="flex flex-wrap items-center gap-2 px-2 py-1">
       <Text size="caption" color="muted">
         {label}
@@ -123,9 +122,7 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
               padding; constrained caps height and overflow-y-auto enables scrolling. */}
           <ModalBody flush gapless constrained>
             {/* Identity */}
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div className="px-2 py-2">
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Identity
@@ -140,9 +137,7 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Capabilities */}
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div className="px-2 py-2">
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Capabilities
@@ -155,9 +150,7 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Modalities */}
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div className="px-2 py-2">
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div className="px-2 pb-1">
                 <Text size="caption" color="muted">
                   Modalities

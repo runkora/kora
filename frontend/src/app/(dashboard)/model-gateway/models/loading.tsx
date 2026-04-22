@@ -22,10 +22,8 @@ export default function ModelsLoading() {
   return (
     <TableContainer>
       {/* Toolbar skeleton: search left, count + toggle right */}
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
         <Skeleton shape="block" width="quarter" size="sm" />
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="ml-auto flex items-center gap-4">
           <Skeleton shape="line" width="quarter" size="xs" />
           <Skeleton shape="block" width="quarter" size="sm" />
@@ -37,7 +35,6 @@ export default function ModelsLoading() {
           <TableHeader>
             <TableRow>
               <TableHead>
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="w-10" />
               </TableHead>
               <TableHead>
@@ -56,7 +53,6 @@ export default function ModelsLoading() {
                 <Skeleton shape="line" width="full" size="xs" />
               </TableHead>
               <TableHead>
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="w-10" />
               </TableHead>
             </TableRow>

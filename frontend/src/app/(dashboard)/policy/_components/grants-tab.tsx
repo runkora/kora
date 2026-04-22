@@ -293,7 +293,6 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
         >
           Previous
         </Button>
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="flex items-center px-2">
           <Text size="caption" color="muted">
             Page {page} of {totalPages}
@@ -494,7 +493,6 @@ function GrantViewToggle({
 }) {
   return (
     <Stack direction="horizontal" gap="none">
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="[&>button]:rounded-r-none">
         <Button
           variant={viewMode === 'cards' ? 'default' : 'outline'}
@@ -505,7 +503,6 @@ function GrantViewToggle({
           <Icon name="layout-grid" size="2xs" />
         </Button>
       </div>
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="[&>button]:rounded-l-none -ml-px">
         <Button
           variant={viewMode === 'list' ? 'default' : 'outline'}
@@ -580,7 +577,6 @@ function GrantTable({
           const { rawId, primary } = resolveGrantIdentity(g, patAttribution, userAttribution);
           const id = rawId ?? primary;
           return (
-            // eslint-disable-next-line local/no-raw-div
             <div className="whitespace-nowrap">
               <Text size="caption" color="subtle" mono>
                 {id}
@@ -618,7 +614,6 @@ function GrantTable({
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
-          // eslint-disable-next-line local/no-raw-div
           <div className="whitespace-nowrap">
             <Text size="caption" color="subtle">
               {formatDate(g.created_at)}
@@ -770,7 +765,6 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
 
   return (
     <section>
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="relative mb-1.5 block">
         <input
           type="text"
@@ -801,14 +795,12 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
                       isSelected ? 'bg-accent/10' : 'hover:bg-surface-overlay',
                     ].join(' ')}
                   >
-                    {/* eslint-disable-next-line local/no-raw-div */}
                     <div
                       className={`flex-1 min-w-0 truncate text-xs leading-none ${isSelected ? 'font-medium text-accent' : 'text-foreground'}`}
                     >
                       {u.display_name || u.email}
                     </div>
                     {u.display_name && u.display_name !== u.email && (
-                      // eslint-disable-next-line local/no-raw-div
                       <div className="shrink-0 text-[11px] leading-none text-muted">{u.email}</div>
                     )}
                   </button>

@@ -7,7 +7,6 @@ import { Fragment } from 'react';
 export function ScopeChip({ scope }: { scope: string }) {
   const parts = scope.split(':');
   return (
-    // eslint-disable-next-line local/no-raw-div
     <div className="inline-flex items-center font-mono text-[0.6875rem] bg-surface-elevated border border-border-subtle rounded px-1.5 py-0.5 whitespace-nowrap">
       {parts.map((part, i) => {
         const isFirst = i === 0;

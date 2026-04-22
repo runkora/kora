@@ -85,7 +85,6 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <CardContent>
           {/* Error banner — shown only after a failed OIDC round-trip */}
           {message && (
-            // eslint-disable-next-line local/no-raw-div
             <div className="mb-4">
               <Alert variant="error">
                 <Text size="caption">{message}</Text>

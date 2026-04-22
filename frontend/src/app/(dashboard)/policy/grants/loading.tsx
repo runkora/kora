@@ -38,7 +38,6 @@ export default function GrantsLoading() {
                     <Skeleton shape="line" width="half" size="xs" />
                   </TableHead>
                   <TableHead>
-                    {/* eslint-disable-next-line local/no-raw-div */}
                     <div className="w-10" />
                   </TableHead>
                 </TableRow>

@@ -290,7 +290,6 @@ function FilterChip({
 
 function UsagePill({ count, label }: { count: number; label: string }) {
   return (
-    // eslint-disable-next-line local/no-raw-div
     <div
       className={[
         'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.6875rem] font-medium',

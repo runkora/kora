@@ -30,13 +30,11 @@ export function DashboardHeader() {
           <Button variant="ghost" size="icon" aria-label="Refresh">
             <Icon name="refresh-cw" />
           </Button>
-          {/* eslint-disable-next-line local/no-raw-div */}
           <div className="relative">
             <Button variant="ghost" size="icon" aria-label="Notifications">
               <Icon name="bell" />
             </Button>
             {/* Notification dot — decorative, aria-hidden */}
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div
               aria-hidden
               className="pointer-events-none absolute top-1.5 right-1.5 size-1.5 rounded-full bg-status-error"

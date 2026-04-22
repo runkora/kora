@@ -73,11 +73,9 @@ function Step({
   return (
     <Stack direction="horizontal" gap="comfortable">
       <Stack align="center" gap="none">
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
           {number}
         </div>
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="mt-2 w-px flex-1 bg-border" />
       </Stack>
       <section className="flex-1 pb-8">

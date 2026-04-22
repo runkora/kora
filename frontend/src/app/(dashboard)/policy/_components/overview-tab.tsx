@@ -344,7 +344,6 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                     const isReserved =
                       role.role === 'tenant-admin' || role.role === 'platform-admin';
                     return (
-                      // eslint-disable-next-line local/no-raw-div
                       <div
                         key={role.id}
                         className={`inline-flex items-center gap-1.5 font-mono text-xs px-2.5 py-1 rounded-full border ${

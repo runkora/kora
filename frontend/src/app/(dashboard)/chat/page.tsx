@@ -293,7 +293,6 @@ function TypingIndicator() {
     <Stack direction="horizontal" align="center" gap="tight">
       {[0, 1, 2].map((i) => (
         // TODO: replace with Terra animation primitive once implemented
-        // eslint-disable-next-line local/no-raw-div
         <div
           key={i}
           className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
@@ -497,17 +496,14 @@ export default function ChatPage() {
             <Stack direction="vertical" align="center" justify="center" asChild>
               <section className="h-full px-6 py-12 text-center">
                 {/* Icon avatar: custom 64px size + rounded-2xl shape — no Terra icon-container primitive */}
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
                   <Icon name="sparkles" size="lg" color="accent" />
                 </div>
                 {/* mb-2 spacing: className is banned on Terra <Heading> */}
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-2">
                   <Heading variant="section">How can Orbit help?</Heading>
                 </div>
                 {/* mb-10 + max-w-sm: className is banned on Terra <Text> */}
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-10 max-w-sm">
                   <Text size="supporting" color="muted">
                     The AI-powered control plane assistant. Ask about agent architecture, generate
@@ -554,7 +550,6 @@ export default function ChatPage() {
                       {/* Bubble */}
                       <Stack direction="vertical" gap="snug" asChild>
                         {/* Bubble wrapper: group + relative + role-conditional alignment — no Terra equivalent */}
-                        {/* eslint-disable-next-line local/no-raw-div */}
                         <div
                           className={cn(
                             'group relative max-w-[78%]',
@@ -562,7 +557,6 @@ export default function ChatPage() {
                           )}
                         >
                           {/* Bubble card: per-role rounding + bg — no Terra card this configurable */}
-                          {/* eslint-disable-next-line local/no-raw-div */}
                           <div
                             className={cn(
                               'rounded-2xl px-4 py-3',
@@ -580,7 +574,6 @@ export default function ChatPage() {
                             {msg.isStreaming && msg.content && (
                               /* Blinking cursor during streaming */
                               // TODO: replace with Terra animation primitive once implemented
-                              // eslint-disable-next-line local/no-raw-div
                               <div className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
                             )}
                           </div>
@@ -588,7 +581,6 @@ export default function ChatPage() {
                           {/* Timestamp + actions */}
                           <Stack direction="horizontal" align="center" gap="snug" asChild>
                             {/* Hover overlay: group-hover + opacity transition — no Terra interactive overlay */}
-                            {/* eslint-disable-next-line local/no-raw-div */}
                             <div
                               className={cn(
                                 'px-1',
@@ -638,7 +630,6 @@ export default function ChatPage() {
                   <Stack direction="horizontal" gap="snug" asChild>
                     <li className="list-none">
                       {/* Thinking bubble: mirrors message bubble rounding — no Terra card this configurable */}
-                      {/* eslint-disable-next-line local/no-raw-div */}
                       <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
                         <TypingIndicator />
                       </div>
@@ -656,7 +647,6 @@ export default function ChatPage() {
             <Stack asChild gap="snug">
               <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
                 {/* Input card: compound rounding + dynamic focus border — no Terra card this flexible */}
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div
                   className={cn(
                     'rounded-2xl border bg-surface transition-colors duration-150',
@@ -719,7 +709,6 @@ export default function ChatPage() {
                          * (hidden sm:block) alongside text styling.
                          */}
                         {/* Responsive: hidden sm:block — no Terra responsive-visibility primitive */}
-                        {/* eslint-disable-next-line local/no-raw-div */}
                         <div className="hidden sm:block">
                           <Text size="micro" color="subtle">
                             Shift + Enter for new line

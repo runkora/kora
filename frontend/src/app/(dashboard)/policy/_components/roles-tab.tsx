@@ -305,7 +305,6 @@ function ViewToggle({
 }) {
   return (
     <Stack direction="horizontal" gap="none">
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="[&>button]:rounded-r-none">
         <Button
           variant={viewMode === 'cards' ? 'default' : 'outline'}
@@ -316,7 +315,6 @@ function ViewToggle({
           <Icon name="layout-grid" size="2xs" />
         </Button>
       </div>
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="[&>button]:rounded-l-none -ml-px">
         <Button
           variant={viewMode === 'list' ? 'default' : 'outline'}

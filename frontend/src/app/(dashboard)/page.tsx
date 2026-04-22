@@ -398,7 +398,6 @@ export default function DashboardPage() {
               <Stack direction="horizontal" align="center" justify="between">
                 <Stack gap="none">
                   <CardTitle>Recent Events</CardTitle>
-                  {/* eslint-disable-next-line local/no-raw-div */}
                   <div className="mt-0.5">
                     <Text size="supporting" color="muted">
                       Live feed from the event spine.
@@ -422,7 +421,6 @@ export default function DashboardPage() {
                     className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
                   >
                     <EventIcon severity={evt.severity} />
-                    {/* eslint-disable-next-line local/no-raw-div */}
                     <div className="flex flex-col flex-1 min-w-0">
                       <Stack direction="horizontal" align="center" gap="snug">
                         {/*
@@ -446,7 +444,6 @@ export default function DashboardPage() {
                        * and the message below it. truncate: messages can be
                        * long — clip at one line in the dense event list.
                        */}
-                      {/* eslint-disable-next-line local/no-raw-div */}
                       <div className="mt-0.5">
                         <Text size="caption" color="muted" truncate>
                           {evt.message}
@@ -458,7 +455,6 @@ export default function DashboardPage() {
                      * in the flex row when long messages are present.
                      * mono: timestamps benefit from fixed-width digit rendering.
                      */}
-                    {/* eslint-disable-next-line local/no-raw-div */}
                     <div className="shrink-0">
                       <Text size="caption" color="subtle" mono>
                         {evt.ts}
@@ -482,7 +478,6 @@ export default function DashboardPage() {
               <Stack direction="horizontal" align="center" justify="between">
                 <Stack gap="none">
                   <CardTitle>System Health</CardTitle>
-                  {/* eslint-disable-next-line local/no-raw-div */}
                   <div className="mt-0.5">
                     <Text size="supporting" color="muted">
                       Control plane resource utilisation.

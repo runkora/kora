@@ -75,7 +75,6 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           filterFn: (r, selected) => selected.has(r.service),
         },
         cell: (r) => (
-          // eslint-disable-next-line local/no-raw-div
           <div className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
             {r.service}
           </div>

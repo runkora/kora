@@ -80,18 +80,14 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
   return (
     <>
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden />
-      {/* eslint-disable-next-line local/no-raw-div */}
       <div className="fixed inset-y-0 right-0 z-50 flex w-[580px] flex-col bg-surface shadow-2xl">
         {/* Header */}
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" gap="snug">
               <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
               {!isNew && (
-                // eslint-disable-next-line local/no-raw-div
                 <div
                   className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                     draft.enabled
@@ -119,7 +115,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
         </div>
 
         {/* Identity fields */}
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="border-b border-border px-5 py-4">
           <Grid cols={2} gap="snug">
             <Field>
@@ -138,7 +133,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
                   ))}
                 </NativeSelect>
               ) : (
-                // eslint-disable-next-line local/no-raw-div
                 <div className="font-mono">
                   <Input
                     value={draft.family}
@@ -151,7 +145,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
             <Field>
               <Label>Model name</Label>
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div className="font-mono">
                 <Input
                   value={draft.name}
@@ -172,9 +165,7 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
             <Field>
               <Label>Scope (derived)</Label>
-              {/* eslint-disable-next-line local/no-raw-div */}
               <div className="flex h-9 items-center rounded-md border border-border bg-surface px-3">
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="truncate">
                   <Text size="caption" color="muted" mono>
                     {fullId ? vmPolicyScope(draft) : '—'}
@@ -183,7 +174,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
               </div>
             </Field>
 
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div className="col-span-2">
               <Field>
                 <Label>Description</Label>
@@ -198,13 +188,11 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
         </div>
 
         {/* Routes content */}
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
         </div>
 
         {error && (
-          // eslint-disable-next-line local/no-raw-div
           <div className="mx-5 mb-3">
             <Alert variant="error">
               <Icon name="alert-circle" size="2xs" color="status-error" />
@@ -216,7 +204,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
         )}
 
         {/* Footer */}
-        {/* eslint-disable-next-line local/no-raw-div */}
         <div className="flex items-center justify-between border-t border-border px-5 py-4">
           <Stack direction="horizontal" align="center" gap="snug">
             <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />

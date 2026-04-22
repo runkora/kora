@@ -53,7 +53,6 @@ export function DashboardSidebar() {
                  * px-3 pb-1.5 wrapper: structural spacing for the nav group label
                  * row. Layout concerns belong on the wrapper, not on Text itself.
                  */}
-                {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="px-3 pb-1.5">
                   <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
                     {label}
@@ -97,7 +96,6 @@ export function DashboardSidebar() {
              * content width so the Text truncate prop can clip long email addresses.
              * No Terra Stack equivalent exists for grow + min-width suppression.
              */}
-            {/* eslint-disable-next-line local/no-raw-div */}
             <div className="flex flex-col flex-1 min-w-0">
               <Text size="caption" weight="emphasis" truncate>
                 {user?.email || 'Loading…'}
