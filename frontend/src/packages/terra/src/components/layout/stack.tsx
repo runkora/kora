@@ -175,6 +175,28 @@ export interface StackProps extends React.HTMLAttributes<HTMLDivElement> {
   textAlign?: TextAlign;
 
   /**
+   * When `true`, adds `flex-1` so this Stack grows to fill available space
+   * in the parent flex/grid container.
+   *
+   * Typical use: one Stack field in a horizontal form row that should consume
+   * the remaining width after fixed-size siblings have been laid out.
+   *
+   * ```tsx
+   * <Stack direction="horizontal" gap="snug" wrap>
+   *   <Stack gap="tight">                          // fixed — shrinks to content
+   *     <Text size="caption">Type</Text>
+   *     <select >…</select>
+   *   </Stack>
+   *   <Stack gap="tight" grow minWidth="form-field"> // grows to fill
+   *     <Text size="caption">Principal ID</Text>
+   *     <input />
+   *   </Stack>
+   * </Stack>
+   * ```
+   */
+  grow?: boolean;
+
+  /**
    * When `true`, merges Stack's layout classes directly onto the immediate child
    * element via Radix Slot instead of rendering a wrapper `<div>`. Use this to
    * apply flex layout to semantic HTML elements without adding an extra DOM node.
@@ -263,6 +285,7 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
       minHeight,
       maxHeight,
       textAlign,
+      grow = false,
       asChild = false,
       ...props
     },
@@ -284,6 +307,7 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
           minHeight && resolveResponsive(minHeight, MIN_H, 'full'),
           maxHeight && resolveResponsive(maxHeight, MAX_H, 'full'),
           textAlign && TEXT_ALIGN[textAlign],
+          grow && 'flex-1',
           className,
         )}
         {...props}

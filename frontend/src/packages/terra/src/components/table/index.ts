@@ -12,7 +12,7 @@ export {
   TableEmpty,
   nextSortDir,
 } from './table';
-export type { SortDir, TableColumnVisibility } from './table';
+export type { SortDir, TableColumnVisibility, TableHeadProps } from './table';
 
 // ─── Table container ─────────────────────────────────────────────────────────
 export { TableContainer } from './table-extras';

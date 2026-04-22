@@ -176,28 +176,27 @@ export function GrantsTab({
             <GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />
           </Stack>
 
-          <Stack direction="horizontal" align="center" gap="snug" wrap>
-            <FilterChip
-              label="All"
-              count={grants.length}
-              active={typeFilter === 'all'}
-              onClick={() => setTypeFilter('all')}
-            />
-            {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+          <Stack direction="horizontal" align="center" justify="between">
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
               <FilterChip
-                key={type}
-                label={type}
-                count={typeCounts[type] ?? 0}
-                active={typeFilter === type}
-                onClick={() => setTypeFilter(type)}
+                label="All"
+                count={grants.length}
+                active={typeFilter === 'all'}
+                onClick={() => setTypeFilter('all')}
               />
-            ))}
-            {/* eslint-disable-next-line local/no-raw-div */}
-            <div className="ml-auto">
-              <Text size="caption" color="subtle">
-                {filtered.length} shown · {total} total
-              </Text>
-            </div>
+              {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+                <FilterChip
+                  key={type}
+                  label={type}
+                  count={typeCounts[type] ?? 0}
+                  active={typeFilter === type}
+                  onClick={() => setTypeFilter(type)}
+                />
+              ))}
+            </Stack>
+            <Text size="caption" color="subtle">
+              {filtered.length} shown · {total} total
+            </Text>
           </Stack>
         </>
       )}
@@ -207,13 +206,13 @@ export function GrantsTab({
         filtered.length === 0 ? (
           search || typeFilter !== 'all' ? (
             <EmptyState
-              icon={<Icon name="search" size="md" />}
+              icon="search"
               title="No matches"
               description="No grants match your current filters. Try adjusting your search or clearing the filter."
             />
           ) : (
             <EmptyState
-              icon={<Icon name="shield-check" size="md" />}
+              icon="shield-check"
               title="No grants yet"
               description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
               action={

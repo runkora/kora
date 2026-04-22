@@ -297,6 +297,7 @@ interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
    *   start   — left-aligned (default)
    *   center  — centred, e.g. for a single "Load more" action
    *   between — space-between, e.g. for a count label + action button pair
+   *   end     — right-aligned, e.g. for a single confirm/submit action
    *
    * ```tsx
    * <CardFooter justify="between">
@@ -310,8 +311,14 @@ interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
    *   <Button variant="ghost" size="sm">Open event log</Button>
    * </CardFooter>
    * ```
+   *
+   * ```tsx
+   * <CardFooter justify="end">
+   *   <Button variant="default" size="sm">Save changes</Button>
+   * </CardFooter>
+   * ```
    */
-  justify?: 'start' | 'center' | 'between';
+  justify?: 'start' | 'center' | 'between' | 'end';
 
   /**
    * When `true`, reduces vertical padding from `pb-6 pt-0` to `py-3`.
@@ -332,6 +339,7 @@ const FOOTER_JUSTIFY: Record<NonNullable<CardFooterProps['justify']>, string> = 
   start: 'justify-start',
   center: 'justify-center',
   between: 'justify-between',
+  end: 'justify-end',
 };
 
 /**

@@ -208,21 +208,18 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div className="flex-1 min-w-[200px]">
-                <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Principal ID
-                  </Text>
-                  <input
-                    type="text"
-                    placeholder="e.g. agent-uuid or user@example.com"
-                    value={lookupId}
-                    onChange={(e) => setLookupId(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  />
-                </Stack>
-              </div>
+              <Stack gap="tight" grow minWidth="form-field">
+                <Text size="caption" weight="emphasis">
+                  Principal ID
+                </Text>
+                <input
+                  type="text"
+                  placeholder="e.g. agent-uuid or user@example.com"
+                  value={lookupId}
+                  onChange={(e) => setLookupId(e.target.value)}
+                  className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                />
+              </Stack>
               <Button size="sm" onClick={handleLookup} disabled={lookupLoading || !lookupId}>
                 {lookupLoading ? 'Looking up...' : 'Look up'}
               </Button>
@@ -232,17 +229,16 @@ export function EvaluateTab({
 
             {explain && (
               <Stack gap="comfortable">
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <PrincipalBadge type={explain.principal_type as PrincipalType} />
-                  <Text size="caption" mono color="muted">
-                    {explain.principal_id}
-                  </Text>
-                  {/* eslint-disable-next-line local/no-raw-div */}
-                  <div className="ml-auto">
-                    <Badge variant="secondary" size="sm">
-                      {explain.tenant_id}
-                    </Badge>
-                  </div>
+                <Stack direction="horizontal" align="center" justify="between" gap="snug">
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <PrincipalBadge type={explain.principal_type as PrincipalType} />
+                    <Text size="caption" mono color="muted">
+                      {explain.principal_id}
+                    </Text>
+                  </Stack>
+                  <Badge variant="secondary" size="sm">
+                    {explain.tenant_id}
+                  </Badge>
                 </Stack>
 
                 {explain.from_roles.length > 0 && (
@@ -359,76 +355,67 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div className="flex-1 min-w-[160px]">
-                <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Principal ID
-                  </Text>
-                  <input
-                    type="text"
-                    placeholder="e.g. agent-uuid or user@example.com"
-                    value={simPrincipalId}
-                    onChange={(e) => setSimPrincipalId(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  />
-                </Stack>
-              </div>
+              <Stack gap="tight" grow minWidth="form-field-sm">
+                <Text size="caption" weight="emphasis">
+                  Principal ID
+                </Text>
+                <input
+                  type="text"
+                  placeholder="e.g. agent-uuid or user@example.com"
+                  value={simPrincipalId}
+                  onChange={(e) => setSimPrincipalId(e.target.value)}
+                  className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                />
+              </Stack>
             </Stack>
 
             {/* Role + scope row */}
             <Stack direction="horizontal" align="end" gap="snug" wrap>
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div className="flex-1 min-w-[160px]">
-                <Stack gap="tight">
-                  <Stack direction="horizontal" align="center" gap="tight">
-                    <Text size="caption" weight="emphasis">
-                      Role
-                    </Text>
-                    <Text size="caption" color="subtle">
-                      (optional)
-                    </Text>
-                  </Stack>
-                  <select
-                    value={simRole}
-                    onChange={(e) => setSimRole(e.target.value)}
-                    aria-label="Role"
-                    className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
-                  >
-                    <option value="">No role (grants only)</option>
-                    {availableRoles.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </Stack>
-              </div>
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div className="flex-1 min-w-[200px]">
-                <Stack gap="tight">
+              <Stack gap="tight" grow minWidth="form-field-sm">
+                <Stack direction="horizontal" align="center" gap="tight">
                   <Text size="caption" weight="emphasis">
-                    Scope to check
+                    Role
                   </Text>
-                  <select
-                    value={simScope}
-                    onChange={(e) => setSimScope(e.target.value)}
-                    aria-label="Scope to check"
-                    className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
-                  >
-                    <option value="">Select a scope...</option>
-                    {scopeGroups.map(([group, scopes]) => (
-                      <optgroup key={group} label={group}>
-                        {scopes.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <Text size="caption" color="subtle">
+                    (optional)
+                  </Text>
                 </Stack>
-              </div>
+                <select
+                  value={simRole}
+                  onChange={(e) => setSimRole(e.target.value)}
+                  aria-label="Role"
+                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+                >
+                  <option value="">No role (grants only)</option>
+                  {availableRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </Stack>
+              <Stack gap="tight" grow minWidth="form-field">
+                <Text size="caption" weight="emphasis">
+                  Scope to check
+                </Text>
+                <select
+                  value={simScope}
+                  onChange={(e) => setSimScope(e.target.value)}
+                  aria-label="Scope to check"
+                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
+                >
+                  <option value="">Select a scope...</option>
+                  {scopeGroups.map(([group, scopes]) => (
+                    <optgroup key={group} label={group}>
+                      {scopes.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </Stack>
               <Button
                 size="sm"
                 onClick={handleSimulate}

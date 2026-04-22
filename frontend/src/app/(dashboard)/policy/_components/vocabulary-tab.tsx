@@ -130,42 +130,41 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       </div>
 
       {/* Filter chips */}
-      <Stack direction="horizontal" align="center" gap="snug" wrap>
-        <FilterChip
-          label="All"
-          count={initialScopes.length}
-          active={activeFilter === 'all'}
-          onClick={() => setActiveFilter('all')}
-        />
-        {resourceTypes.map(([type, count]) => (
+      <Stack direction="horizontal" align="center" justify="between">
+        <Stack direction="horizontal" align="center" gap="snug" wrap>
           <FilterChip
-            key={type}
-            label={type}
-            count={count}
-            mono
-            active={activeFilter === type}
-            onClick={() => setActiveFilter(type)}
+            label="All"
+            count={initialScopes.length}
+            active={activeFilter === 'all'}
+            onClick={() => setActiveFilter('all')}
           />
-        ))}
-        {/* eslint-disable-next-line local/no-raw-div */}
-        <div className="ml-auto">
-          <Text size="caption" color="subtle">
-            {filtered.length} of {initialScopes.length} scopes
-          </Text>
-        </div>
+          {resourceTypes.map(([type, count]) => (
+            <FilterChip
+              key={type}
+              label={type}
+              count={count}
+              mono
+              active={activeFilter === type}
+              onClick={() => setActiveFilter(type)}
+            />
+          ))}
+        </Stack>
+        <Text size="caption" color="subtle">
+          {filtered.length} of {initialScopes.length} scopes
+        </Text>
       </Stack>
 
       {/* Grouped tables */}
       {groups.length === 0 ? (
         search || activeFilter !== 'all' ? (
           <EmptyState
-            icon={<Icon name="search" size="md" />}
+            icon="search"
             title="No matches"
             description="No scopes match your current filters. Try adjusting your search or selecting a different resource type."
           />
         ) : (
           <EmptyState
-            icon={<Icon name="library" size="md" />}
+            icon="library"
             title="No scopes registered"
             description="Scopes are declared by services when they register their routes. Once a service registers its route→scope mappings, they will appear here."
           />
@@ -194,14 +193,8 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                       <TableRow>
                         <TableHead>Scope</TableHead>
                         <TableHead>Description</TableHead>
-                        <TableHead>
-                          {/* eslint-disable-next-line local/no-raw-div */}
-                          <div className="flex justify-end">Used in</div>
-                        </TableHead>
-                        <TableHead>
-                          {/* eslint-disable-next-line local/no-raw-div */}
-                          <div className="sr-only">Copy</div>
-                        </TableHead>
+                        <TableHead align="right">Used in</TableHead>
+                        <TableHead srOnly>Copy</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

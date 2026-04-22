@@ -84,19 +84,19 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               value: 'priority' as const,
               label: 'Priority / Failover',
               desc: 'Try routes in order. Move to next on failure.',
-              icon: <Icon name="arrow-up-down" />,
+              iconName: 'arrow-up-down' as const,
             },
             {
               value: 'weighted' as const,
               label: 'Weighted Split',
               desc: 'Distribute traffic by percentage across routes.',
-              icon: <Icon name="network" />,
+              iconName: 'network' as const,
             },
             {
               value: 'lowest_cost' as const,
               label: 'Lowest Cost',
               desc: 'Always route to the cheapest available provider.',
-              icon: <Icon name="dollar-sign" />,
+              iconName: 'dollar-sign' as const,
             },
           ].map((s) => (
             <button
@@ -111,10 +111,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               ].join(' ')}
             >
               <Stack gap="tight">
-                {/* eslint-disable-next-line local/no-raw-div */}
-                <div className={model.strategy === s.value ? 'text-accent' : 'text-muted'}>
-                  {s.icon}
-                </div>
+                <Icon name={s.iconName} color={model.strategy === s.value ? 'accent' : 'muted'} />
                 <Text size="caption" weight="emphasis">
                   {s.label}
                 </Text>
@@ -130,13 +127,10 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
       <Separator />
 
       <Stack gap="snug">
-        <Stack direction="horizontal" align="center" gap="snug">
-          {/* eslint-disable-next-line local/no-raw-div */}
-          <div className="flex-1">
-            <Text size="supporting" weight="emphasis">
-              Routes
-            </Text>
-          </div>
+        <Stack direction="horizontal" align="center" justify="between" gap="snug">
+          <Text size="supporting" weight="emphasis">
+            Routes
+          </Text>
           <Button
             variant="ghost"
             size="sm"
@@ -276,56 +270,48 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                   </div>
                 )}
 
-                <Stack direction="horizontal" gap="snug">
-                  {/* eslint-disable-next-line local/no-raw-div */}
-                  <div className="flex-1">
-                    <Field>
-                      <Label>
-                        <Text size="caption" color="muted">
-                          Input /1M
-                        </Text>
-                      </Label>
-                      <Input
-                        type="number"
-                        value={route.inputCostPer1M}
-                        step="0.01"
-                        min="0"
-                        onChange={(e) => {
-                          const updated = model.routes.map((r, i) =>
-                            i === idx
-                              ? { ...r, inputCostPer1M: parseFloat(e.target.value) || 0 }
-                              : r,
-                          );
-                          onChange({ ...model, routes: updated });
-                        }}
-                      />
-                    </Field>
-                  </div>
-                  {/* eslint-disable-next-line local/no-raw-div */}
-                  <div className="flex-1">
-                    <Field>
-                      <Label>
-                        <Text size="caption" color="muted">
-                          Output /1M
-                        </Text>
-                      </Label>
-                      <Input
-                        type="number"
-                        value={route.outputCostPer1M}
-                        step="0.01"
-                        min="0"
-                        onChange={(e) => {
-                          const updated = model.routes.map((r, i) =>
-                            i === idx
-                              ? { ...r, outputCostPer1M: parseFloat(e.target.value) || 0 }
-                              : r,
-                          );
-                          onChange({ ...model, routes: updated });
-                        }}
-                      />
-                    </Field>
-                  </div>
-                </Stack>
+                <Grid cols={2} gap="snug">
+                  <Field>
+                    <Label>
+                      <Text size="caption" color="muted">
+                        Input /1M
+                      </Text>
+                    </Label>
+                    <Input
+                      type="number"
+                      value={route.inputCostPer1M}
+                      step="0.01"
+                      min="0"
+                      onChange={(e) => {
+                        const updated = model.routes.map((r, i) =>
+                          i === idx ? { ...r, inputCostPer1M: parseFloat(e.target.value) || 0 } : r,
+                        );
+                        onChange({ ...model, routes: updated });
+                      }}
+                    />
+                  </Field>
+                  <Field>
+                    <Label>
+                      <Text size="caption" color="muted">
+                        Output /1M
+                      </Text>
+                    </Label>
+                    <Input
+                      type="number"
+                      value={route.outputCostPer1M}
+                      step="0.01"
+                      min="0"
+                      onChange={(e) => {
+                        const updated = model.routes.map((r, i) =>
+                          i === idx
+                            ? { ...r, outputCostPer1M: parseFloat(e.target.value) || 0 }
+                            : r,
+                        );
+                        onChange({ ...model, routes: updated });
+                      }}
+                    />
+                  </Field>
+                </Grid>
               </div>
 
               {/* Right column: weight (weighted only) + toggle + delete */}

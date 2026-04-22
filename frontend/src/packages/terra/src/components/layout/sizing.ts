@@ -7,12 +7,14 @@
  *
  * ## ContainerWidth
  *
- *   compact   →  max-w-xs     (320px  — status widgets, tight callouts)
- *   card      →  max-w-sm     (384px  — standard card column)
- *   prose     →  max-w-prose  (65ch   — subtitle, article, readable text)
- *   document  →  max-w-2xl    (672px  — AI chat canvas, doc editor)
- *   wide      →  max-w-4xl    (896px  — dashboard panels, data tables)
- *   full      →  max-w-full   (100%   — fills the nearest container)
+ *   compact      →  max-w-xs      (320px  — status widgets, tight callouts)
+ *   card         →  max-w-sm      (384px  — standard card column)
+ *   prose        →  max-w-prose   (65ch   — subtitle, article, readable text)
+ *   document     →  max-w-2xl     (672px  — AI chat canvas, doc editor)
+ *   wide         →  max-w-4xl     (896px  — dashboard panels, data tables)
+ *   full         →  max-w-full    (100%   — fills the nearest container)
+ *   form-field   →  min/max-w-[12.5rem]  (200px — standard form field)
+ *   form-field-sm → min/max-w-40  (160px — compact form field / type selector)
  *
  * ## ContainerHeight
  *
@@ -29,7 +31,17 @@ import type { Breakpoint } from './spacing';
  *
  * Values describe purpose, not pixel size.
  */
-export type ContainerWidth = 'compact' | 'card' | 'prose' | 'document' | 'wide' | 'full';
+export type ContainerWidth =
+  | 'compact'
+  | 'card'
+  | 'prose'
+  | 'document'
+  | 'wide'
+  | 'full'
+  /** 200px — standard form field minimum; use with `minWidth` on a `Stack` inside a horizontal form row */
+  | 'form-field'
+  /** 160px — compact form field; use with `minWidth` on a short selector or label column */
+  | 'form-field-sm';
 
 /**
  * Semantic height scale for `maxHeight` and `minHeight` props on `Stack` and `Grid`.
@@ -60,6 +72,8 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'max-w-2xl',
     wide: 'max-w-4xl',
     full: 'max-w-full',
+    'form-field': 'max-w-[12.5rem]',
+    'form-field-sm': 'max-w-40',
   },
   sm: {
     compact: 'sm:max-w-xs',
@@ -68,6 +82,8 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'sm:max-w-2xl',
     wide: 'sm:max-w-4xl',
     full: 'sm:max-w-full',
+    'form-field': 'sm:max-w-[12.5rem]',
+    'form-field-sm': 'sm:max-w-40',
   },
   md: {
     compact: 'md:max-w-xs',
@@ -76,6 +92,8 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'md:max-w-2xl',
     wide: 'md:max-w-4xl',
     full: 'md:max-w-full',
+    'form-field': 'md:max-w-[12.5rem]',
+    'form-field-sm': 'md:max-w-40',
   },
   lg: {
     compact: 'lg:max-w-xs',
@@ -84,6 +102,8 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'lg:max-w-2xl',
     wide: 'lg:max-w-4xl',
     full: 'lg:max-w-full',
+    'form-field': 'lg:max-w-[12.5rem]',
+    'form-field-sm': 'lg:max-w-40',
   },
   xl: {
     compact: 'xl:max-w-xs',
@@ -92,6 +112,8 @@ export const MAX_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'xl:max-w-2xl',
     wide: 'xl:max-w-4xl',
     full: 'xl:max-w-full',
+    'form-field': 'xl:max-w-[12.5rem]',
+    'form-field-sm': 'xl:max-w-40',
   },
 };
 
@@ -104,6 +126,8 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'min-w-2xl',
     wide: 'min-w-4xl',
     full: 'min-w-full',
+    'form-field': 'min-w-[12.5rem]',
+    'form-field-sm': 'min-w-40',
   },
   sm: {
     compact: 'sm:min-w-xs',
@@ -112,6 +136,8 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'sm:min-w-2xl',
     wide: 'sm:min-w-4xl',
     full: 'sm:min-w-full',
+    'form-field': 'sm:min-w-[12.5rem]',
+    'form-field-sm': 'sm:min-w-40',
   },
   md: {
     compact: 'md:min-w-xs',
@@ -120,6 +146,8 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'md:min-w-2xl',
     wide: 'md:min-w-4xl',
     full: 'md:min-w-full',
+    'form-field': 'md:min-w-[12.5rem]',
+    'form-field-sm': 'md:min-w-40',
   },
   lg: {
     compact: 'lg:min-w-xs',
@@ -128,6 +156,8 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'lg:min-w-2xl',
     wide: 'lg:min-w-4xl',
     full: 'lg:min-w-full',
+    'form-field': 'lg:min-w-[12.5rem]',
+    'form-field-sm': 'lg:min-w-40',
   },
   xl: {
     compact: 'xl:min-w-xs',
@@ -136,6 +166,8 @@ export const MIN_W: Record<Breakpoint, Record<ContainerWidth, string>> = {
     document: 'xl:min-w-2xl',
     wide: 'xl:min-w-4xl',
     full: 'xl:min-w-full',
+    'form-field': 'xl:min-w-[12.5rem]',
+    'form-field-sm': 'xl:min-w-40',
   },
 };
 

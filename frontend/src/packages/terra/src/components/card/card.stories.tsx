@@ -151,8 +151,8 @@ export const Interactive: Story = {
 };
 
 /**
- * The three `CardFooter` justify modes — `start` (default), `center`, and
- * `between` — control the horizontal distribution of footer content.
+ * The four `CardFooter` justify modes — `start` (default), `center`, `between`,
+ * and `end` — control the horizontal distribution of footer content.
  * The `compact` flag reduces vertical padding for dense card layouts.
  */
 export const CardFooterVariants: Story = {
@@ -194,6 +194,17 @@ export const CardFooterVariants: Story = {
           </Button>
           <Button size="sm" variant="default">
             Renew
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify end
+      </Text>
+      <Card>
+        <CardFooter justify="end">
+          <Button size="sm" variant="default">
+            Save changes
           </Button>
         </CardFooter>
       </Card>

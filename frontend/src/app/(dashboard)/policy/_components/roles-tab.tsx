@@ -144,13 +144,13 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         filtered.length === 0 ? (
           search ? (
             <EmptyState
-              icon={<Icon name="search" size="md" />}
+              icon="search"
               title="No matches"
               description="No roles match your search. Try a different query."
             />
           ) : (
             <EmptyState
-              icon={<Icon name="user-check" size="md" />}
+              icon="user-check"
               title="No roles yet"
               description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
               action={

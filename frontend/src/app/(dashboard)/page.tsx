@@ -237,23 +237,20 @@ function StatCard({ label, value, delta, deltaPositive, icon }: (typeof STATS)[n
        * because CardHeader already supplies the leading rhythm.
        */}
       <CardContent>
-        {/*
-         * variant="metric": text-3xl font-bold tabular-nums — the dedicated
-         * Terra variant for KPI display numbers. No className override needed.
-         */}
-        <Heading variant="metric">{value}</Heading>
-        {/*
-         * mt-1 wrapper: spacing between the metric number and the delta string.
-         * Layout spacing belongs on a wrapper element, not on Text itself.
-         * color="status-*": uses the Terra status colour tokens directly on
-         * Text so the delta matches badge/progress colours without className.
-         */}
-        {/* eslint-disable-next-line local/no-raw-div */}
-        <div className="mt-1">
+        <Stack gap="tight">
+          {/*
+           * variant="metric": text-3xl font-bold tabular-nums — the dedicated
+           * Terra variant for KPI display numbers. No className override needed.
+           */}
+          <Heading variant="metric">{value}</Heading>
+          {/*
+           * color="status-*": uses the Terra status colour tokens directly on
+           * Text so the delta matches badge/progress colours without className.
+           */}
           <Text size="caption" color={deltaPositive ? 'status-healthy' : 'status-error'}>
             {delta}
           </Text>
-        </div>
+        </Stack>
       </CardContent>
     </Card>
   );
@@ -266,16 +263,9 @@ export default function DashboardPage() {
     <Stack gap="spacious" asChild>
       <main className="px-6 py-8 max-w-screen-xl mx-auto">
         {/* Page title */}
-        <Stack gap="none">
+        <Stack gap="tight">
           <Heading variant="title">Dashboard</Heading>
-          {/*
-           * mt-1 wrapper: spacing between the page title and the subtitle.
-           * Layout spacing belongs on the wrapper, not on Text itself.
-           */}
-          {/* eslint-disable-next-line local/no-raw-div */}
-          <div className="mt-1">
-            <Text color="muted">Real-time overview of the Orbit control plane.</Text>
-          </div>
+          <Text color="muted">Real-time overview of the Orbit control plane.</Text>
         </Stack>
 
         <HealthStatus />
@@ -291,18 +281,11 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <Stack direction="horizontal" align="center" justify="between">
-              <Stack gap="none">
+              <Stack gap="tight">
                 <CardTitle>Active Agents</CardTitle>
-                {/*
-                 * mt-0.5 wrapper: tightens the gap between the card title and
-                 * its supporting description. Layout concern → wrapper div.
-                 */}
-                {/* eslint-disable-next-line local/no-raw-div */}
-                <div className="mt-0.5">
-                  <Text size="supporting" color="muted">
-                    All agents currently registered with the control plane.
-                  </Text>
-                </div>
+                <Text size="supporting" color="muted">
+                  All agents currently registered with the control plane.
+                </Text>
               </Stack>
               <Button variant="outline" size="sm">
                 View all

@@ -23,6 +23,7 @@ import { ICON_REGISTRY, type IconName } from './registry';
  * ```tsx
  * <Icon name="bot" size="md" container />
  * <Icon name="bot" size="md" container containerVariant="accent" />
+ * <Icon name="bot" size="md" container containerVariant="surface-subtle" circle />
  * ```
  *
  * ## Accessible icons
@@ -77,6 +78,7 @@ const CONTAINER_RADIUS: Record<IconSize, string> = {
 const CONTAINER_VARIANT: Record<IconContainerVariant, string> = {
   accent: 'bg-accent/15 text-accent',
   surface: 'bg-surface-elevated text-foreground border border-border-subtle',
+  'surface-subtle': 'bg-surface-elevated text-subtle border border-border-subtle',
   muted: 'bg-surface-overlay text-muted-foreground',
 };
 
@@ -108,7 +110,7 @@ const ICON_COLOR: Record<IconColor, string> = {
 };
 
 export type IconSize = '2xs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-export type IconContainerVariant = 'accent' | 'surface' | 'muted';
+export type IconContainerVariant = 'accent' | 'surface' | 'surface-subtle' | 'muted';
 
 export interface IconProps {
   /** Icon to render — must exist in the Terra registry. */
@@ -132,6 +134,17 @@ export interface IconProps {
    * @default 'accent'
    */
   containerVariant?: IconContainerVariant;
+
+  /**
+   * When `true`, renders the container as a circle (`rounded-full`) instead
+   * of the default size-proportionate corner radius. Use for empty-state icons
+   * and avatar-style feature icons.
+   *
+   * ```tsx
+   * <Icon name="bot" size="md" container containerVariant="surface-subtle" circle />
+   * ```
+   */
+  circle?: boolean;
 
   /**
    * Accessible label for standalone icons that convey meaning.
@@ -173,6 +186,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       size = 'sm',
       container = false,
       containerVariant = 'accent',
+      circle = false,
       color,
       filled = false,
       label,
@@ -222,7 +236,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
         className={cn(
           'inline-flex shrink-0 items-center justify-center',
           CONTAINER_SIZE[size],
-          CONTAINER_RADIUS[size],
+          circle ? 'rounded-full' : CONTAINER_RADIUS[size],
           CONTAINER_VARIANT[containerVariant],
         )}
       >

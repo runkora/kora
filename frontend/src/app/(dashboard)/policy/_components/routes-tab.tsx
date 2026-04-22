@@ -136,7 +136,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           </Text>
         </section>
         <EmptyState
-          icon={<Icon name="route" size="md" />}
+          icon="route"
           title="No routes registered"
           description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
         />

@@ -112,6 +112,7 @@ export {
 export type {
   SortDir,
   TableColumnVisibility,
+  TableHeadProps,
   TableToolbarProps,
   TableColumnHeaderProps,
   TableColumnFilter,

@@ -88,29 +88,27 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
               )}
 
               {/* Modalities */}
-              <Stack gap="none">
+              <Stack gap="snug">
                 {model.input_modalities.length > 0 && (
-                  // eslint-disable-next-line local/no-raw-div
-                  <div className="flex items-center justify-between py-1">
+                  <Stack direction="horizontal" align="center" justify="between">
                     <Text size="caption" color="muted">
                       Input
                     </Text>
                     <Text size="caption" mono>
                       {model.input_modalities.join(', ')}
                     </Text>
-                  </div>
+                  </Stack>
                 )}
 
                 {model.output_modalities.length > 0 && (
-                  // eslint-disable-next-line local/no-raw-div
-                  <div className="flex items-center justify-between py-1">
+                  <Stack direction="horizontal" align="center" justify="between">
                     <Text size="caption" color="muted">
                       Output
                     </Text>
                     <Text size="caption" mono>
                       {model.output_modalities.join(', ')}
                     </Text>
-                  </div>
+                  </Stack>
                 )}
               </Stack>
             </Stack>

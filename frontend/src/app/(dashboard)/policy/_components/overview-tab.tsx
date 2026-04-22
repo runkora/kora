@@ -193,9 +193,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                 </Stack>
               </Stack>
             </CardContent>
-            <CardFooter compact justify="between">
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div aria-hidden="true" />
+            <CardFooter compact justify="end">
               <Link
                 href={APP_ROUTES.policy.vocabulary}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -318,9 +316,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                 </Table>
               </TableRoot>
             </CardContent>
-            <CardFooter compact justify="between">
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div aria-hidden="true" />
+            <CardFooter compact justify="end">
               <Link
                 href={APP_ROUTES.policy.grants}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -367,9 +363,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                 </Stack>
               </Stack>
             </CardContent>
-            <CardFooter compact justify="between">
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div aria-hidden="true" />
+            <CardFooter compact justify="end">
               <Link
                 href={APP_ROUTES.policy.roles}
                 className="text-xs text-subtle hover:text-foreground transition-colors"
@@ -450,9 +444,7 @@ function KPICard({ icon, label, value, href, breakdown }: KPICardProps) {
           )}
         </Stack>
       </CardContent>
-      <CardFooter compact justify="between">
-        {/* eslint-disable-next-line local/no-raw-div */}
-        <div aria-hidden="true" />
+      <CardFooter compact justify="end">
         <Link href={href} className="text-xs text-subtle hover:text-foreground transition-colors">
           View all →
         </Link>
