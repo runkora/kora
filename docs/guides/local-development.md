@@ -261,6 +261,7 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 |---|---|---|
 | `REDIS_HOST` | Yes | Redis host. Default: `localhost` |
 | `REDIS_PORT` | Yes | Redis port. Default: `6379` |
+| `REDIS_USERNAME` | Yes | Redis ACL username. Required in all environments. Default: `orbit` |
 | `REDIS_PASSWORD` | Yes | Redis password. Required in all environments. Default: `orbit` |
 | `REDIS_DB` | No | Redis database index. Default: `0` |
 

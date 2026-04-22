@@ -8,7 +8,7 @@ import (
 
 // RedisConfig holds Redis connection and pool configuration.
 // Non-secret tunables (port, pool sizes, timeouts) are loaded from YAML under the "redis" key.
-// Host and Password are always loaded from environment variables.
+// Host, Username, and Password are always loaded from environment variables.
 type RedisConfig struct {
 	Port                   int  `yaml:"port"`
 	DB                     int  `yaml:"db"`
@@ -23,6 +23,7 @@ type RedisConfig struct {
 
 	// Loaded from environment variables — never from YAML.
 	Host     string `yaml:"-"`
+	Username string `yaml:"-"`
 	Password string `yaml:"-"`
 }
 
@@ -36,6 +37,11 @@ func loadRedisConfig(cfg *RedisConfig) error {
 	cfg.Host = os.Getenv("REDIS_HOST")
 	if cfg.Host == "" {
 		return fmt.Errorf("REDIS_HOST environment variable is required")
+	}
+
+	cfg.Username = os.Getenv("REDIS_USERNAME")
+	if cfg.Username == "" {
+		return fmt.Errorf("REDIS_USERNAME environment variable is required")
 	}
 
 	cfg.Password = os.Getenv("REDIS_PASSWORD")

@@ -25,6 +25,7 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 
 	opts := &redis.Options{
 		Addr:            fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Username:        cfg.Username,
 		Password:        cfg.Password,
 		DB:              cfg.DB,
 		MaxRetries:      cfg.MaxRetries,

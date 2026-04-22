@@ -85,8 +85,8 @@ spec:
                   type: object
                   properties:
                     platformSecretRef:
-                      description: Secret containing DB_PASSWORD, REDIS_PASSWORD,
-                        ORBIT_TOKEN_SIGNING_KEY.
+                      description: Secret containing DB_PASSWORD, REDIS_USERNAME,
+                        REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY.
                       type: object
                       properties:
                         name:

@@ -16,6 +16,7 @@
 #
 # Required environment variables (loaded from .env by the Makefile):
 #   DB_PASSWORD              Postgres password
+#   REDIS_USERNAME           Redis username           (orbit-system only)
 #   REDIS_PASSWORD           Redis password           (orbit-system only)
 #   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
 #   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
@@ -75,6 +76,8 @@ step "Checking prerequisites"
 if should_run "orbit-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
+  [[ -n "${REDIS_USERNAME:-}" ]] \
+    || fail "REDIS_USERNAME is not set (required for orbit-system)"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for orbit-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
@@ -94,6 +97,7 @@ if should_run "orbit-system"; then
 
   IDENTITY_SECRET_ARGS=(
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
+    --from-literal=REDIS_USERNAME="${REDIS_USERNAME}"
     --from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}"
     --from-file=ORBIT_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
   )

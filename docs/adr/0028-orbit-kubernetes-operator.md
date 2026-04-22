@@ -206,7 +206,7 @@ spec:
   # and projects them into orbit-system. The Secrets must exist before the
   # operator reconciles — they are not created by the operator.
   secrets:
-    # Secret containing: DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY
+    # Secret containing: DB_PASSWORD, REDIS_USERNAME, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY
     platformSecretRef:
       name: orbit-platform-secrets
       namespace: orbit-system       # defaults to orbit-system if omitted

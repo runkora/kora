@@ -85,7 +85,8 @@ identity:
     logFormat: "json"
 
   # Name of the existing Secret containing environment variables for the
-  # identity service (DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY, etc.).
+  # identity service (DB_PASSWORD, REDIS_USERNAME, REDIS_PASSWORD,
+  # ORBIT_TOKEN_SIGNING_KEY, etc.).
   # Operator default: "orbit-secrets" (created by scripts/cluster/create-secrets.sh).
   existingSecret: "orbit-secrets"
 

@@ -59,7 +59,8 @@ type OrbitPlatformSpec struct {
 	Istio IstioSpec `json:"istio,omitempty"`
 
 	// Secrets references the pre-existing Secret containing platform credentials.
-	// The Secret must contain: DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY.
+	// The Secret must contain: DB_PASSWORD, REDIS_USERNAME, REDIS_PASSWORD,
+	// ORBIT_TOKEN_SIGNING_KEY.
 	// The operator reads this Secret but never creates or rotates it.
 	Secrets PlatformSecretsSpec `json:"secrets,omitempty"`
 
@@ -124,8 +125,8 @@ type GatewaySpec struct {
 
 // PlatformSecretsSpec references the Secret containing platform credentials.
 type PlatformSecretsSpec struct {
-	// PlatformSecretRef references the Secret with DB_PASSWORD, REDIS_PASSWORD,
-	// and ORBIT_TOKEN_SIGNING_KEY. Defaults to namespace orbit-system.
+	// PlatformSecretRef references the Secret with DB_PASSWORD, REDIS_USERNAME,
+	// REDIS_PASSWORD, and ORBIT_TOKEN_SIGNING_KEY. Defaults to namespace orbit-system.
 	PlatformSecretRef SecretRef `json:"platformSecretRef"`
 }
 

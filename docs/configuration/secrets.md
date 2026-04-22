@@ -96,6 +96,7 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 | Variable | Where Set | Description |
 |---|---|---|
+| `REDIS_USERNAME` | `.env` / secret manager | Redis ACL username. Required in all environments. Defaults to `orbit` in `.env.example`. |
 | `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Defaults to `orbit` in `.env.example`. |
 
 ### Token Signing
