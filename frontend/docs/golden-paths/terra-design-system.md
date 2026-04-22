@@ -31,24 +31,24 @@ All five rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/
 
 The most common migrations at a glance.
 
-| Raw HTML                                              | Terra replacement                                                                                                   |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `<div className="flex flex-col gap-4">`               | `<Stack gap="comfortable">`                                                                                         |
-| `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                                                         |
-| `<div className="grid grid-cols-3 gap-4">`            | `<Grid cols={3} gap="comfortable">`                                                                                 |
-| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">`                                                   |
-| `<section className="flex flex-col gap-8">`           | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                         |
-| `<aside className="grid grid-cols-2">`                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                    |
-| `<h1>Page title</h1>`                                 | `<Heading variant="title">Page title</Heading>`                                                                     |
-| `<h2>Section heading</h2>`                            | `<Heading variant="section">Section heading</Heading>`                                                              |
-| `<p>Body copy</p>`                                    | `<Text>Body copy</Text>`                                                                                            |
-| `<p className="text-sm text-muted">Helper</p>`        | `<Text size="supporting" color="muted">Helper</Text>`                                                               |
-| `<span>Inline label</span>`                           | `<Text asChild size="supporting"><span>Inline label</span></Text>` or `<Text size="supporting">Inline label</Text>` |
-| `<strong>Important</strong>`                          | `<Text weight="heavy">Important</Text>`                                                                             |
-| `<b>Bold text</b>`                                    | `<Text weight="heavy">Bold text</Text>`                                                                             |
-| `<em>Emphasised</em>`                                 | No Terra equivalent yet — add a Terra atom first                                                                    |
-| `<i>Italic</i>`                                       | No Terra equivalent yet — add a Terra atom first                                                                    |
-| `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                             |
+| Raw HTML                                              | Terra replacement                                                                                                                         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `<div className="flex flex-col gap-4">`               | `<Stack gap="comfortable">`                                                                                                               |
+| `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                                                                               |
+| `<div className="grid grid-cols-3 gap-4">`            | `<Grid cols={3} gap="comfortable">`                                                                                                       |
+| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">`                                                                         |
+| `<section className="flex flex-col gap-8">`           | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
+| `<aside className="grid grid-cols-2">`                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                                          |
+| `<h1>Page title</h1>`                                 | `<Heading variant="title">Page title</Heading>`                                                                                           |
+| `<h2>Section heading</h2>`                            | `<Heading variant="section">Section heading</Heading>`                                                                                    |
+| `<p>Body copy</p>`                                    | `<Text>Body copy</Text>`                                                                                                                  |
+| `<p className="text-sm text-muted">Helper</p>`        | `<Text size="supporting" color="muted">Helper</Text>`                                                                                     |
+| `<span>Inline label</span>`                           | `<Text as="span" size="supporting">Inline label</Text>` (inline context) or `<Text size="supporting">Inline label</Text>` (block context) |
+| `<strong>Important</strong>`                          | `<Text weight="heavy">Important</Text>`                                                                                                   |
+| `<b>Bold text</b>`                                    | `<Text weight="heavy">Bold text</Text>`                                                                                                   |
+| `<em>Emphasised</em>`                                 | No Terra equivalent yet — add a Terra atom first                                                                                          |
+| `<i>Italic</i>`                                       | No Terra equivalent yet — add a Terra atom first                                                                                          |
+| `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                                                   |
 
 ---
 
@@ -225,7 +225,7 @@ import { Text } from '@orbit/terra';
 
 // ✅ Correct
 <Text size="supporting" color="muted">Last seen 2 minutes ago</Text>
-<Text asChild size="supporting"><span>Inline label</span></Text>
+<Text as="span" size="supporting">Inline label</Text>
 ```
 
 **Text size variants (semantic names):**
@@ -274,7 +274,7 @@ import { Text } from '@orbit/terra';
 
 The `no-raw-inline-elements` rule fires unconditionally on all raw inline HTML. There is no `eslint-disable` escape hatch.
 
-### `<span>` → `Text` or `Text asChild`
+### `<span>` → `Text` or `Text as="span"`
 
 ```tsx
 // ❌ Banned
@@ -284,13 +284,15 @@ The `no-raw-inline-elements` rule fires unconditionally on all raw inline HTML. 
 // ✅ Correct — render a p with Text's styles
 <Text size="supporting" color="muted">helper text</Text>
 
-// ✅ Correct — when the element must semantically be a span (inside a p, li, etc.)
-<Text asChild size="supporting" color="muted">
-  <span>helper text</span>
-</Text>
+// ✅ Correct — when the element must be inline (inside a <button>, <a>, <p>, etc.)
+<Text as="span" size="supporting" color="muted">helper text</Text>
 ```
 
-> **When to use `asChild` with Text:** Use it when you need the rendered element to be a `span` for semantic reasons — for example, inside a `<p>` or `<li>` where a nested `<p>` would be invalid HTML. In all other cases, use `<Text>` directly (it renders `<p>`).
+> **`as="span"` vs `asChild` on Text:**
+>
+> - Use `as="span"` when the rendered element must be inline — for example inside a `<button>`, `<a>`, `<p>`, or `<li>` where a nested `<p>` would be invalid HTML. This is the correct way to express inline text without writing a raw `<span>`.
+> - Use `asChild` when you need to merge Text styles onto a child element you already control (e.g. a router `<Link>`). The child must not be a raw `<span>` — that is still caught by `no-raw-inline-elements`.
+> - In all other cases, use `<Text>` directly (it renders `<p>`).
 
 ### `<strong>` / `<b>` → `Text weight="heavy"`
 
@@ -379,11 +381,9 @@ Both layout and typography components support `asChild`. When `true`, the compon
   <nav>…</nav>
 </Stack>
 
-// Text asChild — typography classes land on <span> for inline use
+// Text as="span" — renders a <span> instead of the default <p> for inline contexts
 // DOM: <span class="font-sans text-sm text-muted">…</span>
-<Text asChild size="supporting" color="muted">
-  <span>Inline metadata</span>
-</Text>
+<Text as="span" size="supporting" color="muted">Inline metadata</Text>
 
 // Heading asChild — heading styles on a router Link
 // DOM: <a class="font-sans tracking-tight text-3xl font-bold …" href="…">…</a>
@@ -451,12 +451,12 @@ Use this checklist before opening a PR. Every item must be true.
 
 - [ ] No `<h1>`–`<h6>` elements — all replaced with `Heading` using the correct variant.
 - [ ] No `<p>` elements — all replaced with `Text`.
-- [ ] No `<span>` elements — replaced with `Text` or `Text asChild`.
+- [ ] No `<span>` elements — replaced with `Text` (block context) or `Text as="span"` (inline context, e.g. inside a `<button>` or `<a>`).
 - [ ] No `<strong>` or `<b>` elements — replaced with `Text weight="heavy"` or `weight="strong"`.
 - [ ] No `<em>` or `<i>` elements — no Terra equivalent yet; a Terra component must be added first (see [Adding a Missing Terra Component](#adding-a-missing-terra-component)).
 - [ ] No `<code>` elements — replaced with `Code` (in prose) or `Text mono` (standalone technical values).
 - [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements — a Terra component has been added for the use case.
-- [ ] `Text asChild` is used only when the rendered element must be a `span` for semantic correctness (e.g. inside a `<p>` or `<li>`).
+- [ ] `Text as="span"` is used when the rendered element must be inline (e.g. inside a `<button>`, `<a>`, `<p>`, or `<li>`); `asChild` is used only to merge Text styles onto a non-span child element you already control.
 
 ### ESLint
 
