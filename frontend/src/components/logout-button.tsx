@@ -9,8 +9,7 @@
  * is never left in an ambiguous auth state.
  */
 import { useState } from 'react';
-import { Button } from '@orbit/terra';
-import { LoaderCircle, LogOut } from 'lucide-react';
+import { Button, Icon } from '@orbit/terra';
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -34,7 +33,7 @@ export function LogoutButton() {
       onClick={() => void handleLogout()}
       disabled={pending}
     >
-      {pending ? <LoaderCircle /> : <LogOut />}
+      {pending ? <Icon name="loader" /> : <Icon name="log-out" />}
     </Button>
   );
 }

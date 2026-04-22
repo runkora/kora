@@ -1,21 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Bot,
-  Code2,
-  Copy,
-  RotateCcw,
-  Send,
-  Shield,
-  Sparkles,
-  Terminal,
-  ThumbsDown,
-  ThumbsUp,
-  Zap,
-} from 'lucide-react';
-
-import { Badge, Button, Grid, Stack, Text, Heading, Textarea, cn } from '@orbit/terra';
+import { Badge, Button, Grid, Icon, Stack, Text, Heading, Textarea, cn } from '@orbit/terra';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,28 +21,28 @@ const MODELS = ['Orbit-3 Opus', 'Orbit-3 Sonnet', 'Orbit-3 Haiku'] as const;
 
 const SUGGESTIONS = [
   {
-    icon: Shield,
+    icon: 'shield' as const,
     title: 'Policy engine deep dive',
     desc: 'How does OPA integration work in Orbit?',
     prompt:
       'Explain how the Orbit policy engine works with OPA integration, including how policies are evaluated before agent actions execute.',
   },
   {
-    icon: Bot,
+    icon: 'bot' as const,
     title: 'Agent authentication flow',
     desc: 'Walk me through identity verification',
     prompt:
       'Walk me through how agent authentication and identity verification works in Orbit, from SPIFFE SVID to session JWT.',
   },
   {
-    icon: Terminal,
+    icon: 'square-terminal' as const,
     title: 'Generate a Go service template',
     desc: 'Bootstrap a new feature package',
     prompt:
       'Generate a Go service template for a new Orbit feature package following the DDD-lite repository pattern.',
   },
   {
-    icon: Code2,
+    icon: 'code-2' as const,
     title: 'Credential broker pattern',
     desc: 'How are credentials scoped and issued?',
     prompt:
@@ -304,18 +290,16 @@ function getAIResponse(userInput: string): string {
 
 function TypingIndicator() {
   return (
-    <Stack direction="horizontal" align="center" gap="tight" asChild>
-      {/* eslint-disable-next-line local/no-raw-div */}
-      <div className="px-1 py-0.5">
-        {[0, 1, 2].map((i) => (
-          // eslint-disable-next-line local/no-raw-div
-          <div
-            key={i}
-            className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
-            style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
-          />
-        ))}
-      </div>
+    <Stack direction="horizontal" align="center" gap="tight">
+      {[0, 1, 2].map((i) => (
+        // TODO: replace with Terra animation primitive once implemented
+        // eslint-disable-next-line local/no-raw-div
+        <div
+          key={i}
+          className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
+          style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
+        />
+      ))}
     </Stack>
   );
 }
@@ -342,12 +326,9 @@ function MessageContent({ content }: { content: string }) {
                       <Text size="micro" color="subtle" mono>
                         {lang}
                       </Text>
-                      {/* eslint-disable-next-line local/no-raw-div */}
-                      <div className="-mr-1">
-                        <Button variant="ghost" size="icon-sm" aria-label="Copy code">
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      <Button variant="ghost" size="icon-sm" aria-label="Copy code">
+                        <Icon name="copy" size="xs" />
+                      </Button>
                     </figcaption>
                   </Stack>
                   <pre className="bg-background px-4 py-3 overflow-x-auto">
@@ -361,10 +342,9 @@ function MessageContent({ content }: { content: string }) {
           }
           // Plain text segment — preserve newlines.
           return seg ? (
-            // eslint-disable-next-line local/no-raw-div
-            <div key={i} className="whitespace-pre-wrap">
+            <Text key={i} as="span" preserveWhitespace>
               {seg}
-            </div>
+            </Text>
           ) : null;
         })}
       </article>
@@ -516,14 +496,17 @@ export default function ChatPage() {
             /* Welcome screen */
             <Stack direction="vertical" align="center" justify="center" asChild>
               <section className="h-full px-6 py-12 text-center">
+                {/* Icon avatar: custom 64px size + rounded-2xl shape — no Terra icon-container primitive */}
                 {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
-                  <Sparkles className="h-8 w-8 text-accent" />
+                  <Icon name="sparkles" size="lg" color="accent" />
                 </div>
+                {/* mb-2 spacing: className is banned on Terra <Heading> */}
                 {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-2">
                   <Heading variant="section">How can Orbit help?</Heading>
                 </div>
+                {/* mb-10 + max-w-sm: className is banned on Terra <Text> */}
                 {/* eslint-disable-next-line local/no-raw-div */}
                 <div className="mb-10 max-w-sm">
                   <Text size="supporting" color="muted">
@@ -536,7 +519,6 @@ export default function ChatPage() {
                 <Grid cols={{ base: 1, sm: 2 }} gap="snug" asChild>
                   <nav className="w-full max-w-xl">
                     {SUGGESTIONS.map((s) => {
-                      const Icon = s.icon;
                       return (
                         <button
                           key={s.title}
@@ -548,7 +530,7 @@ export default function ChatPage() {
                             'transition-colors duration-150',
                           )}
                         >
-                          <Icon className="h-4 w-4 text-accent mb-0.5" />
+                          <Icon name={s.icon} color="accent" />
                           <Text as="span" size="supporting" weight="emphasis">
                             {s.title}
                           </Text>
@@ -571,6 +553,7 @@ export default function ChatPage() {
                     <li className={cn(msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
                       {/* Bubble */}
                       <Stack direction="vertical" gap="snug" asChild>
+                        {/* Bubble wrapper: group + relative + role-conditional alignment — no Terra equivalent */}
                         {/* eslint-disable-next-line local/no-raw-div */}
                         <div
                           className={cn(
@@ -578,6 +561,7 @@ export default function ChatPage() {
                             msg.role === 'user' ? 'items-end' : 'items-start',
                           )}
                         >
+                          {/* Bubble card: per-role rounding + bg — no Terra card this configurable */}
                           {/* eslint-disable-next-line local/no-raw-div */}
                           <div
                             className={cn(
@@ -595,6 +579,7 @@ export default function ChatPage() {
                             )}
                             {msg.isStreaming && msg.content && (
                               /* Blinking cursor during streaming */
+                              // TODO: replace with Terra animation primitive once implemented
                               // eslint-disable-next-line local/no-raw-div
                               <div className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
                             )}
@@ -602,6 +587,7 @@ export default function ChatPage() {
 
                           {/* Timestamp + actions */}
                           <Stack direction="horizontal" align="center" gap="snug" asChild>
+                            {/* Hover overlay: group-hover + opacity transition — no Terra interactive overlay */}
                             {/* eslint-disable-next-line local/no-raw-div */}
                             <div
                               className={cn(
@@ -623,19 +609,19 @@ export default function ChatPage() {
                                     className="text-subtle hover:text-foreground transition-colors"
                                     aria-label="Copy message"
                                   >
-                                    <Copy className="h-3 w-3" />
+                                    <Icon name="copy" size="xs" />
                                   </button>
                                   <button
                                     className="text-subtle hover:text-status-healthy transition-colors"
                                     aria-label="Good response"
                                   >
-                                    <ThumbsUp className="h-3 w-3" />
+                                    <Icon name="thumbs-up" size="xs" />
                                   </button>
                                   <button
                                     className="text-subtle hover:text-status-error transition-colors"
                                     aria-label="Bad response"
                                   >
-                                    <ThumbsDown className="h-3 w-3" />
+                                    <Icon name="thumbs-down" size="xs" />
                                   </button>
                                 </>
                               )}
@@ -651,6 +637,7 @@ export default function ChatPage() {
                 {isThinking && (
                   <Stack direction="horizontal" gap="snug" asChild>
                     <li className="list-none">
+                      {/* Thinking bubble: mirrors message bubble rounding — no Terra card this configurable */}
                       {/* eslint-disable-next-line local/no-raw-div */}
                       <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
                         <TypingIndicator />
@@ -666,8 +653,9 @@ export default function ChatPage() {
         {/* ── Input bar ────────────────────────────────────────────────────────── */}
         <Stack asChild>
           <footer className="shrink-0 bg-background px-4 pt-3 pb-4">
-            <Stack asChild>
+            <Stack asChild gap="snug">
               <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
+                {/* Input card: compound rounding + dynamic focus border — no Terra card this flexible */}
                 {/* eslint-disable-next-line local/no-raw-div */}
                 <div
                   className={cn(
@@ -708,7 +696,7 @@ export default function ChatPage() {
                           title="Click to change model"
                         >
                           <Badge variant="dim" size="sm">
-                            <Zap className="h-2.5 w-2.5 mr-1" />
+                            <Icon name="zap" size="xs" />
                             {currentModel}
                           </Badge>
                         </button>
@@ -721,7 +709,7 @@ export default function ChatPage() {
                             onClick={handleClear}
                             aria-label="Clear conversation"
                           >
-                            <RotateCcw className="h-3 w-3" />
+                            <Icon name="refresh" size="xs" />
                           </Button>
                         )}
                       </Stack>
@@ -730,6 +718,7 @@ export default function ChatPage() {
                          * Keyboard hint — raw span: carries responsive utility
                          * (hidden sm:block) alongside text styling.
                          */}
+                        {/* Responsive: hidden sm:block — no Terra responsive-visibility primitive */}
                         {/* eslint-disable-next-line local/no-raw-div */}
                         <div className="hidden sm:block">
                           <Text size="micro" color="subtle">
@@ -740,7 +729,7 @@ export default function ChatPage() {
                          * size="xs" shape="pill": compact pill send button.
                          */}
                         <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
-                          <Send className="h-3 w-3" />
+                          <Icon name="send" size="xs" />
                           Send
                         </Button>
                       </Stack>
@@ -751,12 +740,9 @@ export default function ChatPage() {
                 {/*
                  * mt-2 wrapper: spacing between the input card and the disclaimer.
                  */}
-                {/* eslint-disable-next-line local/no-raw-div */}
-                <div className="mt-2">
-                  <Text size="micro" color="subtle" align="center">
-                    Orbit AI can make mistakes. Verify important information before acting.
-                  </Text>
-                </div>
+                <Text size="micro" color="subtle" align="center">
+                  Orbit AI can make mistakes. Verify important information before acting.
+                </Text>
               </form>
             </Stack>
           </footer>

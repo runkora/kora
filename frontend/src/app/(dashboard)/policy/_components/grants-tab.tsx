@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, Search, ShieldCheck, Trash2, Plus, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -13,6 +12,11 @@ import {
   DataTable,
   Grid,
   Heading,
+  Icon,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -138,7 +142,7 @@ export function GrantsTab({
         </Stack>
         {canWrite && (
           <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4 mr-1" />
+            <Icon name="plus" />
             Create Grant
           </Button>
         )}
@@ -203,19 +207,19 @@ export function GrantsTab({
         filtered.length === 0 ? (
           search || typeFilter !== 'all' ? (
             <EmptyState
-              icon={<Search className="size-5" />}
+              icon={<Icon name="search" size="md" />}
               title="No matches"
               description="No grants match your current filters. Try adjusting your search or clearing the filter."
             />
           ) : (
             <EmptyState
-              icon={<ShieldCheck className="size-5" />}
+              icon={<Icon name="shield-check" size="md" />}
               title="No grants yet"
               description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
               action={
                 canWrite ? (
                   <Button size="sm" onClick={() => setCreating(true)}>
-                    <Plus className="size-4 mr-1" />
+                    <Icon name="plus" />
                     Create Grant
                   </Button>
                 ) : undefined
@@ -470,7 +474,7 @@ function GrantCardGrid({
                     onClick={() => onDelete(grant)}
                     aria-label="Delete grant"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Icon name="trash" size="2xs" />
                   </Button>
                 )}
               </Stack>
@@ -501,7 +505,7 @@ function GrantViewToggle({
           onClick={() => onToggle('cards')}
           aria-label="Card view"
         >
-          <LayoutGrid className="size-3.5" />
+          <Icon name="layout-grid" size="2xs" />
         </Button>
       </div>
       {/* eslint-disable-next-line local/no-raw-div */}
@@ -512,7 +516,7 @@ function GrantViewToggle({
           onClick={() => onToggle('list')}
           aria-label="List view"
         >
-          <List className="size-3.5" />
+          <Icon name="list" size="2xs" />
         </Button>
       </div>
     </Stack>
@@ -641,7 +645,7 @@ function GrantTable({
               }}
               aria-label="Delete grant"
             >
-              <Trash2 className="size-3.5" />
+              <Icon name="trash" size="2xs" />
             </Button>
           ) : null,
       },
@@ -692,39 +696,11 @@ function DeleteGrantModal({
   onConfirm: (id: string) => void;
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (grant) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [grant]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
   return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-md rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
+    <Modal open={!!grant} onClose={onClose} size="sm">
+      <ModalHeader title="Delete Grant" />
+      <ModalBody>
         <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">Delete Grant</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
           {grant && (
             <Stack gap="snug">
               <Text size="caption" color="muted">
@@ -752,22 +728,22 @@ function DeleteGrantModal({
               {error}
             </Text>
           )}
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => grant && onConfirm(grant.id)}
-              disabled={deleting}
-            >
-              {deleting ? 'Deleting...' : 'Delete'}
-            </Button>
-          </Stack>
         </Stack>
-      </section>
-    </dialog>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
+          Cancel
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => grant && onConfirm(grant.id)}
+          disabled={deleting}
+        >
+          {deleting ? 'Deleting...' : 'Delete'}
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
 }
 
@@ -862,31 +838,12 @@ function CreateGrantModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [principalType, setPrincipalType] = useState<PrincipalType>('AGENT');
   const [principalId, setPrincipalId] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     const trimmedId = principalId.trim();
@@ -910,19 +867,10 @@ function CreateGrantModal({
   }, [principalType, principalId, selectedScopes, onCreated]);
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader title="Create Grant" />
+      <ModalBody>
         <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">Create Grant</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
-
           {/* Principal type */}
           <Stack gap="tight">
             <Text size="caption" weight="emphasis">
@@ -996,22 +944,21 @@ function CreateGrantModal({
               {submitError}
             </Text>
           )}
-
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={submitting || !principalId || selectedScopes.length === 0}
-            >
-              {submitting ? 'Creating...' : 'Create Grant'}
-            </Button>
-          </Stack>
         </Stack>
-      </section>
-    </dialog>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void handleSubmit()}
+          disabled={submitting || !principalId || selectedScopes.length === 0}
+        >
+          {submitting ? 'Creating...' : 'Create Grant'}
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
 }
 

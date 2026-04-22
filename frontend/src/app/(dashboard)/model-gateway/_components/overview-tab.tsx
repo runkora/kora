@@ -19,6 +19,7 @@ import {
   CardFooter,
   Grid,
   Heading,
+  Icon,
   Separator,
   Stack,
   Text,
@@ -155,7 +156,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
 
   return (
     <Card column>
-      <CardHeader compact icon={<Server className="size-4" />}>
+      <CardHeader compact icon={<Icon name="server" />}>
         <CardTitle>Models</CardTitle>
       </CardHeader>
       <CardContent>
@@ -391,7 +392,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
 
   return (
     <Card column>
-      <CardHeader compact icon={<TrendingUp className="size-4" />}>
+      <CardHeader compact icon={<Icon name="trending-up" />}>
         <CardTitle>Top Models</CardTitle>
       </CardHeader>
       <CardContent>
@@ -462,7 +463,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
 function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<ScrollText className="size-4" />}>
+      <CardHeader compact icon={<Icon name="scroll-text" />}>
         <CardTitle>Recent Requests</CardTitle>
       </CardHeader>
       <CardContent>
@@ -606,21 +607,21 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
         {/* KPI Cards */}
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
           <KPICard
-            icon={<Activity className="size-4" />}
+            icon={<Icon name="activity" />}
             label="Total Requests"
             value={data ? fmtNumCompact(currRequests) : '—'}
             deltaPercent={data ? pctDelta(currRequests, prevRequests) : undefined}
             deltaText="vs prior 7 days"
           />
           <KPICard
-            icon={<Zap className="size-4" />}
+            icon={<Icon name="zap" />}
             label="Total Tokens"
             value={data ? fmtNumCompact(currTokens) : '—'}
             deltaPercent={data ? pctDelta(currTokens, prevTokens) : undefined}
             deltaText="vs prior 7 days"
           />
           <KPICard
-            icon={<DollarSign className="size-4" />}
+            icon={<Icon name="dollar-sign" />}
             label="Total Spend"
             value={data ? fmtCost(currCost) : '—'}
             deltaPercent={data ? pctDelta(currCost, prevCost) : undefined}
@@ -628,12 +629,12 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
             positiveIsBad
           />
           <KPICard
-            icon={<Clock className="size-4" />}
+            icon={<Icon name="clock" />}
             label="Avg Latency"
             value={data ? `${Math.round(data.kpis.avg_latency_ms)}ms` : '—'}
           />
           <KPICard
-            icon={<AlertCircle className="size-4" />}
+            icon={<Icon name="alert-circle" />}
             label="Error Rate"
             value={errorRateBadge}
             deltaPercent={data ? pctDelta(currErrorRate, prevErrorRate) : undefined}
@@ -641,7 +642,7 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
             positiveIsBad
           />
           <KPICard
-            icon={<HardDrive className="size-4" />}
+            icon={<Icon name="hard-drive" />}
             label="Cache Hit Rate"
             value={cacheHitRateBadge}
           />

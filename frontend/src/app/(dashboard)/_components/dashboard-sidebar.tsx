@@ -1,9 +1,8 @@
 'use client';
 
-import { User, Zap } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
-import { Badge, NavItem, Separator, Stack, Text } from '@orbit/terra';
+import { Badge, Icon, NavItem, Separator, Stack, Text } from '@orbit/terra';
 import { LogoutButton } from '@orbit/components/logout-button';
 import { hasScope } from '@orbit/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
@@ -28,10 +27,7 @@ export function DashboardSidebar() {
         <Stack direction="horizontal" align="center" justify="between" asChild>
           <header className="h-14 shrink-0 px-4 border-b border-border-subtle">
             <Stack direction="horizontal" align="center" gap="snug">
-              {/* eslint-disable-next-line local/no-raw-div */}
-              <div className="flex size-7 items-center justify-center rounded-md bg-accent/15 text-accent">
-                <Zap className="size-4" aria-hidden />
-              </div>
+              <Icon name="zap" size="sm" container containerVariant="accent" />
               <Text size="supporting" weight="strong">
                 Orbit
               </Text>
@@ -63,16 +59,21 @@ export function DashboardSidebar() {
                     {label}
                   </Text>
                 </div>
-                {visibleItems.map(({ label: itemLabel, href, icon: Icon, badge, wip }) =>
+                {visibleItems.map(({ label: itemLabel, href, icon, badge, wip }) =>
                   wip ? (
-                    <NavItem key={itemLabel} state="disabled" icon={<Icon />} badge={badge}>
+                    <NavItem
+                      key={itemLabel}
+                      state="disabled"
+                      icon={<Icon name={icon} />}
+                      badge={badge}
+                    >
                       {itemLabel}
                     </NavItem>
                   ) : (
                     <NavItem
                       key={itemLabel}
                       state={pathname === href ? 'active' : 'default'}
-                      icon={<Icon />}
+                      icon={<Icon name={icon} />}
                       badge={badge}
                       asChild
                     >
@@ -89,10 +90,7 @@ export function DashboardSidebar() {
         <Separator />
         <Stack direction="horizontal" align="center" gap="snug" asChild>
           <footer className="px-4 py-3">
-            {/* eslint-disable-next-line local/no-raw-div */}
-            <div className="flex size-7 items-center justify-center rounded-full bg-surface-elevated text-muted">
-              <User className="size-3.5" aria-hidden />
-            </div>
+            <Icon name="user" size="xs" container containerVariant="surface" />
             {/*
              * flex-1 min-w-0: standard flex truncation pattern — flex-1 makes the
              * column fill remaining width; min-w-0 allows it to shrink below its
@@ -101,10 +99,6 @@ export function DashboardSidebar() {
              */}
             {/* eslint-disable-next-line local/no-raw-div */}
             <div className="flex flex-col flex-1 min-w-0">
-              {/*
-               * truncate: intrinsic to this content — email addresses can be
-               * arbitrarily long and must not overflow the sidebar column.
-               */}
               <Text size="caption" weight="emphasis" truncate>
                 {user?.email || 'Loading…'}
               </Text>

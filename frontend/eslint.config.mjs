@@ -57,7 +57,15 @@ import prettier from 'eslint-config-prettier';
 //        <mark>, <abbr>, <s>, <u>, <sub>, <sup>
 //                        →  no Terra equivalent yet — add one to src/packages/terra/src/components/
 //
-//   8. require-kebab-filename — all JS and TS source files under src/ must use
+//   8. no-direct-lucide-import — bans direct 'lucide-react' imports in product
+//      code. All icon usage must go through Terra's <Icon> component, which
+//      wraps Lucide internally and provides a strongly-typed curated registry.
+//      Terra source is exempt — registry.ts must import from lucide-react.
+//
+//        import { X } from 'lucide-react'  →  <Icon name="close" />
+//        import { Plus } from 'lucide-react'  →  <Icon name="plus" />
+//
+//   9. require-kebab-filename — all JS and TS source files under src/ must use
 //      kebab-case filenames (including the Terra package and any future
 //      packages). PascalCase filenames (e.g. HealthStatus.tsx) cause
 //      case-sensitivity mismatches between macOS (case-insensitive) and Linux
@@ -555,6 +563,50 @@ const localPlugin = {
         };
       },
     },
+
+    // -------------------------------------------------------------------------
+    // no-direct-lucide-import
+    //
+    // Lucide React ships ~1,600 icons. Allowing direct imports would make it
+    // impossible to maintain a curated, strongly-typed icon vocabulary, enforce
+    // consistent sizing tokens, or provide a container inbuilt. All icons must
+    // go through the Terra Icon component, which wraps Lucide internally.
+    //
+    // To add a new icon:
+    //   1. Verify it exists in lucide-react (check node_modules/lucide-react).
+    //   2. Add a kebab-case entry to ICON_REGISTRY in
+    //      src/packages/terra/src/components/icon/registry.ts.
+    //   3. Add the name to the IconName union type in the same file.
+    //   4. Use <Icon name="your-icon" /> in product code.
+    //
+    // Terra source (src/packages/terra/**) is exempt — the registry itself
+    // must import from lucide-react.
+    // -------------------------------------------------------------------------
+    'no-direct-lucide-import': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            "Ban direct lucide-react imports in product code — use Terra's Icon component instead.",
+        },
+        messages: {
+          noDirectLucide:
+            "Import Lucide icons via Terra's Icon component (<Icon name=\"...\" />) — not directly from 'lucide-react'. " +
+            'Add new icons to the Terra registry in src/packages/terra/src/components/icon/registry.ts. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          ImportDeclaration(node) {
+            if (node.source.value === 'lucide-react') {
+              context.report({ node, messageId: 'noDirectLucide' });
+            }
+          },
+        };
+      },
+    },
   },
 };
 
@@ -689,6 +741,22 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-raw-inline-elements': 'error',
+    },
+  },
+
+  // ---- Direct Lucide import ban (Terra source exempted) ---------------------
+  // All icon usage must go through Terra's <Icon> component. Direct imports
+  // from 'lucide-react' are banned in product code to ensure the curated
+  // IconName registry is the single source of truth for available icons.
+  // To add a new icon, extend the registry in
+  // src/packages/terra/src/components/icon/registry.ts.
+  // Terra source is exempt — registry.ts must import from lucide-react.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-direct-lucide-import': 'error',
     },
   },
 

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertCircle, X } from 'lucide-react';
 import {
   Alert,
   Button,
@@ -14,6 +13,7 @@ import {
   Stack,
   Text,
   Toggle,
+  Icon,
 } from '@orbit/terra';
 import type { VirtualModel, ProviderModel } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
@@ -114,7 +114,7 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
             onClick={onClose}
             className="rounded p-1.5 text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
           >
-            <X className="size-4" />
+            <Icon name="close" />
           </button>
         </div>
 
@@ -207,7 +207,7 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
           // eslint-disable-next-line local/no-raw-div
           <div className="mx-5 mb-3">
             <Alert variant="error">
-              <AlertCircle className="size-3.5 shrink-0 text-status-error" />
+              <Icon name="alert-circle" size="2xs" color="status-error" />
               <Text size="caption" color="muted">
                 {error}
               </Text>

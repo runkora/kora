@@ -2,7 +2,8 @@
 
 **Audience:** Frontend engineers writing any JSX in the Orbit frontend.  
 **Pattern version:** 1.0  
-**Reference implementation:** `src/packages/terra/src/` — the Terra source is the canonical example of every component used correctly.
+**Reference implementation:** `src/packages/terra/src/` — the Terra source is the canonical example of every component used correctly.  
+**Related:** `frontend/docs/golden-paths/ui-components.md` — where to put components (tier placement model, decision tree, full Terra inventory, `@tier` annotations).
 
 ---
 
@@ -452,7 +453,7 @@ Use this checklist before opening a PR. Every item must be true.
 - [ ] No `<p>` elements — all replaced with `Text`.
 - [ ] No `<span>` elements — replaced with `Text` or `Text asChild`.
 - [ ] No `<strong>` or `<b>` elements — replaced with `Text weight="heavy"` or `weight="strong"`.
-- [ ] No `<em>` or `<i>` elements — replaced with `Text className="italic"`.
+- [ ] No `<em>` or `<i>` elements — no Terra equivalent yet; a Terra component must be added first (see [Adding a Missing Terra Component](#adding-a-missing-terra-component)).
 - [ ] No `<code>` elements — replaced with `Code` (in prose) or `Text mono` (standalone technical values).
 - [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements — a Terra component has been added for the use case.
 - [ ] `Text asChild` is used only when the rendered element must be a `span` for semantic correctness (e.g. inside a `<p>` or `<li>`).

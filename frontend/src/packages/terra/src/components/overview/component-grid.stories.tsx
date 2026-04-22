@@ -12,7 +12,6 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { Activity, Info, Rocket, Settings, Shield, Trash2, Zap } from 'lucide-react';
 import {
   Anchor,
   Badge,
@@ -26,6 +25,7 @@ import {
   Code,
   Grid,
   Heading,
+  Icon,
   PageLayout,
   Section,
   Stack,
@@ -332,7 +332,7 @@ export const ComponentGrid: Story = {
                   <Button variant="ghost">Dismiss</Button>
                   <Button variant="muted">Archive</Button>
                   <Button variant="destructive">
-                    <Trash2 />
+                    <Icon name="trash" size="sm" />
                     Revoke access
                   </Button>
                 </Stack>
@@ -354,19 +354,19 @@ export const ComponentGrid: Story = {
               <Group label="With icon">
                 <Stack direction="horizontal" gap="snug" wrap>
                   <Button variant="default">
-                    <Rocket />
+                    <Icon name="rocket" size="sm" />
                     Launch
                   </Button>
                   <Button variant="secondary">
-                    <Shield />
+                    <Icon name="shield" size="sm" />
                     Policies
                   </Button>
                   <Button variant="outline">
-                    <Activity />
+                    <Icon name="activity" size="sm" />
                     Monitor
                   </Button>
                   <Button variant="destructive">
-                    <Trash2 />
+                    <Icon name="trash" size="sm" />
                     Delete
                   </Button>
                 </Stack>
@@ -377,16 +377,16 @@ export const ComponentGrid: Story = {
               <Group label="Icon-only">
                 <Stack direction="horizontal" gap="snug">
                   <Button variant="ghost" size="icon" aria-label="Settings">
-                    <Settings />
+                    <Icon name="settings" size="sm" />
                   </Button>
                   <Button variant="ghost" size="icon-sm" aria-label="Info">
-                    <Info />
+                    <Icon name="info" size="sm" />
                   </Button>
                   <Button variant="outline" size="icon" aria-label="Activity">
-                    <Activity />
+                    <Icon name="activity" size="sm" />
                   </Button>
                   <Button variant="default" size="icon" aria-label="Launch">
-                    <Rocket />
+                    <Icon name="rocket" size="sm" />
                   </Button>
                 </Stack>
               </Group>
@@ -573,7 +573,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Settings">
-                        <Settings />
+                        <Icon name="settings" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Agent settings</TooltipContent>
@@ -581,7 +581,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Deploy">
-                        <Rocket />
+                        <Icon name="rocket" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Deploy to production</TooltipContent>
@@ -589,7 +589,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Trigger">
-                        <Zap />
+                        <Icon name="zap" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Trigger manual run</TooltipContent>
@@ -597,7 +597,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Delete">
-                        <Trash2 />
+                        <Icon name="trash" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Delete agent</TooltipContent>
@@ -787,7 +787,7 @@ export const ComponentGrid: Story = {
                   </Stack>
                   <Stack direction="horizontal" gap="snug">
                     <Button variant="ghost" size="icon-sm" aria-label="Settings">
-                      <Settings />
+                      <Icon name="settings" size="sm" />
                     </Button>
                     <Button variant="outline" size="sm">
                       View logs
@@ -937,7 +937,7 @@ export const ComponentGrid: Story = {
                             Healthy
                           </Badge>
                           <Button variant="ghost" size="icon-sm" aria-label="Settings">
-                            <Settings />
+                            <Icon name="settings" size="sm" />
                           </Button>
                         </Stack>
                       </Stack>
@@ -994,7 +994,7 @@ export const ComponentGrid: Story = {
                             Configure
                           </Button>
                           <Button variant="default" size="sm">
-                            <Rocket />
+                            <Icon name="rocket" size="sm" />
                             Deploy
                           </Button>
                         </Stack>

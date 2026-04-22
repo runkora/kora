@@ -1,4 +1,3 @@
-import { DollarSign, Zap, Activity } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -6,6 +5,7 @@ import {
   CardContent,
   Grid,
   Heading,
+  Icon,
   Separator,
   Stack,
   Text,
@@ -78,7 +78,7 @@ function CardDivider() {
 function CostCard({ spend }: { spend: StatsShape['spend'] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<DollarSign className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="dollar-sign" />}>
         <CardTitle>Costs</CardTitle>
       </CardHeader>
       <CardContent>
@@ -105,7 +105,7 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
 
   return (
     <Card column>
-      <CardHeader compact icon={<Activity className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="activity" />}>
         <CardTitle>Requests</CardTitle>
       </CardHeader>
       <CardContent>
@@ -127,7 +127,7 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
 function TokensCard({ tokens }: { tokens: StatsShape['tokens'] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<Zap className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="zap" />}>
         <CardTitle>Tokens</CardTitle>
       </CardHeader>
       <CardContent>

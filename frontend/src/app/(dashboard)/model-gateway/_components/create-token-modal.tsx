@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
-import { Button, Heading, Stack, Text } from '@orbit/terra';
+import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
 import { createToken } from '../_actions/tokens';
 import { ScopePicker } from '../../policy/_components/scope-picker';
 import type { CreatePATResponse } from '@orbit/shared/api';
@@ -24,7 +23,6 @@ export function CreateTokenModal({
   onClose,
   onCreated,
 }: CreateTokenModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState('');
@@ -34,38 +32,18 @@ export function CreateTokenModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Focus name input when modal opens; reset on close.
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
     if (open) {
-      if (!dialog.open) dialog.showModal();
       setTimeout(() => nameInputRef.current?.focus(), 0);
     } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => {
       setName('');
       setExpiresInDays('90');
       setSelectedScopes([]);
       setScopeSearch('');
       setError(null);
-      onClose();
-    };
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDialogElement>) => {
-      if (e.target === dialogRef.current) onClose();
-    },
-    [onClose],
-  );
+    }
+  }, [open]);
 
   const handleToggleScope = useCallback((scope: string, checked: boolean) => {
     setSelectedScopes((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)));
@@ -126,36 +104,13 @@ export function CreateTokenModal({
   );
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader
+        title="Create API key"
+        description="Keys are scoped to your account and usable at inference endpoints."
+      />
       <form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        {/* Header */}
-        <Stack asChild direction="horizontal" align="start" justify="between" gap="comfortable">
-          <header className="border-b border-border p-5">
-            <Stack gap="none">
-              <Heading variant="section">Create API key</Heading>
-              <Text size="supporting" color="muted">
-                Keys are scoped to your account and usable at inference endpoints.
-              </Text>
-            </Stack>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X className="size-4" />
-            </Button>
-          </header>
-        </Stack>
-
-        {/* Body */}
-        {/* eslint-disable-next-line local/no-raw-div */}
-        <div className="flex flex-col gap-5 p-5">
+        <ModalBody>
           {/* Name */}
           <Stack gap="tight">
             <label htmlFor="pat-name" className="text-sm font-medium text-foreground">
@@ -228,26 +183,22 @@ export function CreateTokenModal({
             </Text>
           </Stack>
 
-          {/* Error */}
           {error && (
             <Text size="supporting" color="status-error">
               {error}
             </Text>
           )}
-        </div>
+        </ModalBody>
 
-        {/* Footer */}
-        <Stack asChild direction="horizontal" justify="end" gap="snug">
-          <footer className="border-t border-border px-5 py-3">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="default" size="sm" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create key'}
-            </Button>
-          </footer>
-        </Stack>
+        <ModalFooter>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="default" size="sm" disabled={submitting}>
+            {submitting ? 'Creating…' : 'Create key'}
+          </Button>
+        </ModalFooter>
       </form>
-    </dialog>
+    </Modal>
   );
 }

@@ -20,10 +20,10 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  Icon,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
-import { FileCheck2, FlaskConical, Library, Route, ShieldCheck, UserCheck } from 'lucide-react';
 import type {
   Grant,
   RoleEntry,
@@ -107,7 +107,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         {/* KPI Cards */}
         <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
           <KPICard
-            icon={<ShieldCheck className="size-4" />}
+            icon={<Icon name="shield-check" />}
             label="Grants"
             value={stats.grants.total}
             href={APP_ROUTES.policy.grants}
@@ -117,7 +117,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             }))}
           />
           <KPICard
-            icon={<UserCheck className="size-4" />}
+            icon={<Icon name="user-check" />}
             label="Roles"
             value={stats.roles.total}
             href={APP_ROUTES.policy.roles}
@@ -127,7 +127,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             ]}
           />
           <KPICard
-            icon={<Library className="size-4" />}
+            icon={<Icon name="library" />}
             label="Vocabulary"
             value={stats.vocabulary.total}
             href={APP_ROUTES.policy.vocabulary}
@@ -137,7 +137,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             }))}
           />
           <KPICard
-            icon={<Route className="size-4" />}
+            icon={<Icon name="route" />}
             label="Routes"
             value={totalRouteCount}
             href={APP_ROUTES.policy.routes}
@@ -152,7 +152,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
           {/* Scope coverage */}
           <Card column>
-            <CardHeader compact icon={<Library className="size-4" />}>
+            <CardHeader compact icon={<Icon name="library" />}>
               <CardTitle>Scope Coverage</CardTitle>
             </CardHeader>
             <CardContent>
@@ -207,7 +207,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
 
           {/* Bundle Status */}
           <Card column>
-            <CardHeader compact icon={<FileCheck2 className="size-4" />}>
+            <CardHeader compact icon={<Icon name="file-check" />}>
               <CardTitle>Bundle Status</CardTitle>
             </CardHeader>
             <CardContent>
@@ -259,7 +259,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         {/* Recent Grants */}
         {recentGrants.length > 0 && (
           <Card column>
-            <CardHeader compact icon={<ShieldCheck className="size-4" />}>
+            <CardHeader compact icon={<Icon name="shield-check" />}>
               <CardTitle>Recent Grants</CardTitle>
             </CardHeader>
             <CardContent flush>
@@ -334,7 +334,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         {/* Role summary */}
         {roles.length > 0 && (
           <Card column>
-            <CardHeader compact icon={<UserCheck className="size-4" />}>
+            <CardHeader compact icon={<Icon name="user-check" />}>
               <CardTitle>Roles</CardTitle>
             </CardHeader>
             <CardContent>
@@ -383,25 +383,25 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         {/* Quick Links */}
         <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
           <QuickLinkCard
-            icon={<ShieldCheck className="size-4" />}
+            icon={<Icon name="shield-check" />}
             title="Manage Grants"
             description="Create and revoke permission grants for agents, humans, and services."
             href={APP_ROUTES.policy.grants}
           />
           <QuickLinkCard
-            icon={<UserCheck className="size-4" />}
+            icon={<Icon name="user-check" />}
             title="Manage Roles"
             description="Map OIDC roles to platform scopes for role-based access control."
             href={APP_ROUTES.policy.roles}
           />
           <QuickLinkCard
-            icon={<Route className="size-4" />}
+            icon={<Icon name="route" />}
             title="View Routes"
             description="See registered route→scope mappings across all services."
             href={APP_ROUTES.policy.routes}
           />
           <QuickLinkCard
-            icon={<FlaskConical className="size-4" />}
+            icon={<Icon name="flask" />}
             title="Evaluate"
             description="Look up effective scopes and dry-run policy decisions."
             href={APP_ROUTES.policy.evaluate}

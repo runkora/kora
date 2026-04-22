@@ -53,15 +53,40 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * ```
    */
   column?: boolean;
+
+  /**
+   * When true, the card tracks focus events from any descendant input or
+   * interactive element and applies a visible accent border ring when any
+   * child has focus.
+   *
+   * Use for composite input areas where you want the entire card to
+   * "light up" when the user tabs into a contained input — for example,
+   * a chat input card that wraps a `<textarea>` and action buttons:
+   *
+   * ```tsx
+   * <Card interactive>
+   *   <textarea … />
+   *   <Button>Send</Button>
+   * </Card>
+   * ```
+   *
+   * Implemented via `focus-within:border-accent` + a subtle ring. The
+   * `data-interactive` attribute is set so tests and E2E selectors can
+   * target interactive cards explicitly.
+   */
+  interactive?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, column = false, ...props }, ref) => (
+  ({ className, column = false, interactive = false, ...props }, ref) => (
     <div
       ref={ref}
+      data-interactive={interactive ? 'true' : undefined}
       className={cn(
         'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
         column && 'flex flex-col',
+        interactive &&
+          'transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
         className,
       )}
       {...props}

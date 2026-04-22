@@ -12,8 +12,8 @@ import {
   Separator,
   Stack,
   Text,
+  Icon,
 } from '@orbit/terra';
-import { CheckCircle2, Search, ShieldOff, XCircle } from 'lucide-react';
 import type {
   CheckResponse,
   CheckSimulateRequest,
@@ -182,7 +182,7 @@ export function EvaluateTab({
 
       {/* ── Scope Lookup ───────────────────────────────────────────────────────── */}
       <Card column>
-        <CardHeader compact icon={<Search className="size-4" />}>
+        <CardHeader compact icon={<Icon name="search" />}>
           <CardTitle>Scope lookup</CardTitle>
         </CardHeader>
         <CardContent>
@@ -309,7 +309,7 @@ export function EvaluateTab({
                   {explain.effective_scopes.length === 0 ? (
                     <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
                       <Stack gap="snug" align="center">
-                        <ShieldOff className="size-5 text-subtle" />
+                        <Icon name="shield-off" size="md" color="subtle" />
                         <Text size="caption" color="muted">
                           No effective scopes — this principal has no permissions.
                         </Text>
@@ -451,9 +451,9 @@ export function EvaluateTab({
                 <Stack gap="snug">
                   <Stack direction="horizontal" align="center" gap="snug">
                     {simResult.allow ? (
-                      <CheckCircle2 className="size-5 text-status-healthy shrink-0" />
+                      <Icon name="check-circle" size="md" color="status-healthy" />
                     ) : (
-                      <XCircle className="size-5 text-status-error shrink-0" />
+                      <Icon name="x-circle" size="md" color="status-error" />
                     )}
                     <Text size="caption" weight="emphasis">
                       {simResult.allow ? 'ALLOW' : 'DENY'}

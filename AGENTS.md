@@ -291,9 +291,17 @@ See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for de
 
 ## Frontend Development
 
-When creating any page or visual component under `frontend/src/app/`, you **MUST** follow the Terra golden path before writing any JSX — raw HTML elements are banned by ESLint and violations fail `pnpm lint`.
+Before writing any frontend code, read **[`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md)**. It defines which tier a component belongs to, what already exists, and what you must deliver in the same PR as any new component.
 
-Golden paths: [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md)
+Two rules are absolute and enforced by ESLint — violations fail `pnpm lint`:
+
+- **No raw HTML layout elements** (`div`, `h1`–`h6`, `p`, `span`, `a`, `dialog`) in `src/app/` or `src/components/` — use Terra primitives (`Stack`, `Grid`, `Heading`, `Text`, `Anchor`, `Modal`).
+- **No `lucide-react` imports** outside `src/packages/terra/` — use `<Icon name="..." />` with no escape hatch.
+
+Golden paths:
+- [`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md) — tier model, Terra inventory, placement decision tree, post-task checklist
+- [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) — Terra component props and usage guide
+- [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) — state management patterns
 
 ## Getting Help
 

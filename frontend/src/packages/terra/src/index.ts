@@ -16,6 +16,15 @@ export { cn } from './utils';
 export { Alert } from './components/alert';
 export type { AlertProps } from './components/alert';
 
+export { Icon } from './components/icon';
+export type {
+  IconProps,
+  IconName,
+  IconSize,
+  IconContainerVariant,
+  IconColor,
+} from './components/icon';
+
 export { Button, buttonVariants } from './components/button';
 export type { ButtonProps } from './components/button';
 
@@ -30,6 +39,7 @@ export {
   CardContent,
   CardFooter,
 } from './components/card';
+export type { CardProps } from './components/card';
 
 export { Input } from './components/input';
 export type { InputProps } from './components/input';
@@ -133,6 +143,10 @@ export type {
 export { Section } from './components/section';
 export type { SectionProps } from './components/section';
 
+// ─── Layout: Responsive visibility ───────────────────────────────────────────
+export { Show } from './components/show';
+export type { ShowProps, Breakpoint } from './components/show';
+
 // ─── Molecules ───────────────────────────────────────────────────────────────
 
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
@@ -146,6 +160,37 @@ export type {
   ChartTooltipContentProps,
   ChartLegendContentProps,
 } from './components/chart';
+
+// ─── Chat primitives ─────────────────────────────────────────────────────────
+export { ChatBubble, ChatBubbleActions } from './components/chat';
+export type {
+  ChatBubbleProps,
+  ChatBubbleActionsProps,
+  ChatBubbleDirection,
+  ChatBubbleVariant,
+} from './components/chat';
+
+// ─── Molecules: Modal ────────────────────────────────────────────────────────
+export {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalAccessibleTitle,
+} from './components/modal';
+export type {
+  ModalProps,
+  ModalHeaderProps,
+  ModalBodyProps,
+  ModalFooterProps,
+} from './components/modal';
+
+// ─── Molecules: FormField ─────────────────────────────────────────────────────
+export { FormField, useFormField } from './components/form-field';
+export type { FormFieldProps, FormFieldContextValue } from './components/form-field';
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+export { useDialog } from './hooks/use-dialog';
 
 // ─── Organisms ────────────────────────────────────────────────────────────────
 export { PageLayout } from './components/page-layout';

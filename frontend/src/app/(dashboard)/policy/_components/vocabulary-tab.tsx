@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Check, Library, Search } from 'lucide-react';
 import {
   Button,
+  Icon,
   Card,
   CardContent,
   Heading,
@@ -159,13 +159,13 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       {groups.length === 0 ? (
         search || activeFilter !== 'all' ? (
           <EmptyState
-            icon={<Search className="size-5" />}
+            icon={<Icon name="search" size="md" />}
             title="No matches"
             description="No scopes match your current filters. Try adjusting your search or selecting a different resource type."
           />
         ) : (
           <EmptyState
-            icon={<Library className="size-5" />}
+            icon={<Icon name="library" size="md" />}
             title="No scopes registered"
             description="Scopes are declared by services when they register their routes. Once a service registers its route→scope mappings, they will appear here."
           />
@@ -235,9 +235,9 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                               aria-label={`Copy ${scope.scope}`}
                             >
                               {copiedScope === scope.scope ? (
-                                <Check className="size-3.5 text-status-healthy" />
+                                <Icon name="check" size="2xs" color="status-healthy" />
                               ) : (
-                                <Copy className="size-3.5 text-subtle" />
+                                <Icon name="copy" size="2xs" color="subtle" />
                               )}
                             </Button>
                           </TableCell>

@@ -13,7 +13,7 @@
  *   comfortable →  16px  (gap-4)
  *   relaxed     →  24px  (gap-6)
  *   loose       →  32px  (gap-8)
- *   spacious    →  48px  (gap-12)
+ *   spacious    →  40px  (gap-10)
  */
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-4',
     relaxed: 'gap-6',
     loose: 'gap-8',
-    spacious: 'gap-12',
+    spacious: 'gap-10',
   },
   sm: {
     none: 'sm:gap-0',
@@ -79,7 +79,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-4',
     relaxed: 'sm:gap-6',
     loose: 'sm:gap-8',
-    spacious: 'sm:gap-12',
+    spacious: 'sm:gap-10',
   },
   md: {
     none: 'md:gap-0',
@@ -88,7 +88,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-4',
     relaxed: 'md:gap-6',
     loose: 'md:gap-8',
-    spacious: 'md:gap-12',
+    spacious: 'md:gap-10',
   },
   lg: {
     none: 'lg:gap-0',
@@ -97,7 +97,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-4',
     relaxed: 'lg:gap-6',
     loose: 'lg:gap-8',
-    spacious: 'lg:gap-12',
+    spacious: 'lg:gap-10',
   },
   xl: {
     none: 'xl:gap-0',
@@ -106,7 +106,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-4',
     relaxed: 'xl:gap-6',
     loose: 'xl:gap-8',
-    spacious: 'xl:gap-12',
+    spacious: 'xl:gap-10',
   },
 };
 
@@ -119,7 +119,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-x-4',
     relaxed: 'gap-x-6',
     loose: 'gap-x-8',
-    spacious: 'gap-x-12',
+    spacious: 'gap-x-10',
   },
   sm: {
     none: 'sm:gap-x-0',
@@ -128,7 +128,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-x-4',
     relaxed: 'sm:gap-x-6',
     loose: 'sm:gap-x-8',
-    spacious: 'sm:gap-x-12',
+    spacious: 'sm:gap-x-10',
   },
   md: {
     none: 'md:gap-x-0',
@@ -137,7 +137,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-x-4',
     relaxed: 'md:gap-x-6',
     loose: 'md:gap-x-8',
-    spacious: 'md:gap-x-12',
+    spacious: 'md:gap-x-10',
   },
   lg: {
     none: 'lg:gap-x-0',
@@ -146,7 +146,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-x-4',
     relaxed: 'lg:gap-x-6',
     loose: 'lg:gap-x-8',
-    spacious: 'lg:gap-x-12',
+    spacious: 'lg:gap-x-10',
   },
   xl: {
     none: 'xl:gap-x-0',
@@ -155,7 +155,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-x-4',
     relaxed: 'xl:gap-x-6',
     loose: 'xl:gap-x-8',
-    spacious: 'xl:gap-x-12',
+    spacious: 'xl:gap-x-10',
   },
 };
 
@@ -168,7 +168,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-y-4',
     relaxed: 'gap-y-6',
     loose: 'gap-y-8',
-    spacious: 'gap-y-12',
+    spacious: 'gap-y-10',
   },
   sm: {
     none: 'sm:gap-y-0',
@@ -177,7 +177,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-y-4',
     relaxed: 'sm:gap-y-6',
     loose: 'sm:gap-y-8',
-    spacious: 'sm:gap-y-12',
+    spacious: 'sm:gap-y-10',
   },
   md: {
     none: 'md:gap-y-0',
@@ -186,7 +186,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-y-4',
     relaxed: 'md:gap-y-6',
     loose: 'md:gap-y-8',
-    spacious: 'md:gap-y-12',
+    spacious: 'md:gap-y-10',
   },
   lg: {
     none: 'lg:gap-y-0',
@@ -195,7 +195,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-y-4',
     relaxed: 'lg:gap-y-6',
     loose: 'lg:gap-y-8',
-    spacious: 'lg:gap-y-12',
+    spacious: 'lg:gap-y-10',
   },
   xl: {
     none: 'xl:gap-y-0',
@@ -204,7 +204,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-y-4',
     relaxed: 'xl:gap-y-6',
     loose: 'xl:gap-y-8',
-    spacious: 'xl:gap-y-12',
+    spacious: 'xl:gap-y-10',
   },
 };
 

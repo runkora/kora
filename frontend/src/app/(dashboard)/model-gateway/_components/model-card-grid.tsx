@@ -1,6 +1,5 @@
 'use client';
 
-import { Heart } from 'lucide-react';
 import {
   Badge,
   Card,
@@ -8,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   Grid,
+  Icon,
   Stack,
   Text,
   Heading,
@@ -48,9 +48,9 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
                 e.stopPropagation();
                 onRemove(model.id);
               }}
-              className="absolute right-3 top-3 z-10 rounded p-1 text-rose-400 transition-colors hover:bg-surface-elevated hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-accent"
+              className="absolute right-3 top-3 z-10 rounded p-1 transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
             >
-              <Heart className="size-3.5 fill-current" />
+              <Icon name="heart" size="2xs" color="rose" filled />
             </button>
           )}
           <CardHeader compact>

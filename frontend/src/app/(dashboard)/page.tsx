@@ -1,20 +1,8 @@
 import {
-  Activity,
-  Bot,
-  ChevronRight,
-  CircleCheck,
-  CircleDot,
-  Cpu,
-  KeyRound,
-  RefreshCw,
-  ShieldCheck,
-  TriangleAlert,
-} from 'lucide-react';
-
-import {
   Badge,
   Button,
   Card,
+  Icon,
   CardContent,
   CardFooter,
   CardHeader,
@@ -31,6 +19,7 @@ import {
   TableRoot,
   TableRow,
   Text,
+  type IconColor,
 } from '@orbit/terra';
 import { HealthStatus } from '@orbit/components/health-status';
 
@@ -43,7 +32,7 @@ const STATS = [
     value: '12',
     delta: '+2 this hour',
     deltaPositive: true,
-    icon: Bot,
+    icon: 'bot',
   },
   {
     id: 'policies',
@@ -51,7 +40,7 @@ const STATS = [
     value: '4,821',
     delta: '↑ 18% vs yesterday',
     deltaPositive: true,
-    icon: ShieldCheck,
+    icon: 'shield-check',
   },
   {
     id: 'credentials',
@@ -59,7 +48,7 @@ const STATS = [
     value: '203',
     delta: '↓ 4% vs yesterday',
     deltaPositive: false,
-    icon: KeyRound,
+    icon: 'key',
   },
   {
     id: 'events',
@@ -67,7 +56,7 @@ const STATS = [
     value: '91.4k',
     delta: 'across 6 pipelines',
     deltaPositive: true,
-    icon: Activity,
+    icon: 'activity',
   },
 ] as const;
 
@@ -206,26 +195,26 @@ function StatusBadge({ status }: { status: (typeof AGENTS)[number]['status'] }) 
 
 type EventSeverity = (typeof EVENTS)[number]['severity'];
 
+const SEVERITY_COLOR: Record<EventSeverity, IconColor> = {
+  healthy: 'status-healthy',
+  degraded: 'status-degraded',
+  error: 'status-error',
+  idle: 'muted',
+  pending: 'status-pending',
+};
+
 function EventIcon({ severity }: { severity: EventSeverity }) {
-  const cls: Record<EventSeverity, string> = {
-    healthy: 'text-status-healthy',
-    degraded: 'text-status-degraded',
-    error: 'text-status-error',
-    idle: 'text-muted',
-    pending: 'text-status-pending',
-  };
-
-  const Icon =
+  const name =
     severity === 'healthy'
-      ? CircleCheck
+      ? 'circle-check'
       : severity === 'error' || severity === 'degraded'
-        ? TriangleAlert
-        : CircleDot;
+        ? 'triangle-alert'
+        : 'circle-dot';
 
-  return <Icon aria-hidden className={`size-3.5 shrink-0 mt-0.5 ${cls[severity]}`} />;
+  return <Icon name={name} color={SEVERITY_COLOR[severity]} aria-hidden size="2xs" />;
 }
 
-function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof STATS)[number]) {
+function StatCard({ label, value, delta, deltaPositive, icon }: (typeof STATS)[number]) {
   return (
     <Card>
       {/*
@@ -239,7 +228,7 @@ function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof ST
           </Text>
           {/* eslint-disable-next-line local/no-raw-div */}
           <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
-            <Icon className="size-4" aria-hidden />
+            <Icon name={icon} aria-hidden />
           </div>
         </Stack>
       </CardHeader>
@@ -317,7 +306,7 @@ export default function DashboardPage() {
               </Stack>
               <Button variant="outline" size="sm">
                 View all
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </Stack>
           </CardHeader>
@@ -409,7 +398,7 @@ export default function DashboardPage() {
             </Text>
             <Button variant="ghost" size="sm">
               Load more
-              <ChevronRight className="size-3.5" />
+              <Icon name="chevron-right" size="2xs" />
             </Button>
           </CardFooter>
         </Card>
@@ -499,7 +488,7 @@ export default function DashboardPage() {
             <CardFooter justify="center" compact>
               <Button variant="ghost" size="sm">
                 Open event log
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </CardFooter>
           </Card>
@@ -518,7 +507,7 @@ export default function DashboardPage() {
                   </div>
                 </Stack>
                 <Button variant="ghost" size="icon" aria-label="Refresh health">
-                  <RefreshCw className="size-4" />
+                  <Icon name="refresh-cw" />
                 </Button>
               </Stack>
             </CardHeader>
@@ -563,14 +552,14 @@ export default function DashboardPage() {
             </CardContent>
             <CardFooter justify="between" compact>
               <Stack direction="horizontal" align="center" gap="snug">
-                <Cpu className="size-3.5 text-subtle" aria-hidden />
+                <Icon name="cpu" size="2xs" color="subtle" aria-hidden />
                 <Text size="caption" color="subtle">
                   Updated 30 s ago
                 </Text>
               </Stack>
               <Button variant="ghost" size="sm">
                 Infrastructure
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </CardFooter>
           </Card>

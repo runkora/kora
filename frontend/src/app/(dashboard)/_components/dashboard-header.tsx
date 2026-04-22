@@ -1,6 +1,4 @@
-import { Bell, Bot, ChevronRight, RefreshCw } from 'lucide-react';
-
-import { Button, Separator, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Separator, Stack, Text } from '@orbit/terra';
 
 /**
  * Top header bar for the dashboard shell.
@@ -9,20 +7,18 @@ import { Button, Separator, Stack, Text } from '@orbit/terra';
  * and the primary "Deploy Agent" CTA.
  *
  * Rendered as a server component — no client-side state required.
- * The `PageLayout` header slot constrains this to h-14 and handles overflow.
  */
 export function DashboardHeader() {
   return (
     <Stack direction="horizontal" align="center" justify="between" asChild>
       <header className="h-full px-6">
-        {/* TODO: Replace with a Terra native Breadcrumbs component */}
-        {/* Breadcrumb — raw spans: breadcrumb is a navigation pattern, not body prose */}
+        {/* TODO: Replace with Terra Breadcrumbs component when available */}
         <Stack direction="horizontal" align="center" asChild>
           <nav className="gap-1.5">
             <Text size="supporting" color="muted">
               Orbit
             </Text>
-            <ChevronRight className="size-3.5" aria-hidden />
+            <Icon name="chevron-right" size="2xs" label="" />
             <Text size="supporting" weight="emphasis">
               Dashboard
             </Text>
@@ -32,12 +28,12 @@ export function DashboardHeader() {
         {/* Actions */}
         <Stack direction="horizontal" align="center" gap="snug">
           <Button variant="ghost" size="icon" aria-label="Refresh">
-            <RefreshCw className="size-4" />
+            <Icon name="refresh-cw" />
           </Button>
           {/* eslint-disable-next-line local/no-raw-div */}
           <div className="relative">
             <Button variant="ghost" size="icon" aria-label="Notifications">
-              <Bell className="size-4" />
+              <Icon name="bell" />
             </Button>
             {/* Notification dot — decorative, aria-hidden */}
             {/* eslint-disable-next-line local/no-raw-div */}
@@ -48,7 +44,7 @@ export function DashboardHeader() {
           </div>
           <Separator orientation="vertical" span="narrow" />
           <Button variant="default" size="sm">
-            <Bot className="size-4" />
+            <Icon name="bot" />
             Deploy Agent
           </Button>
         </Stack>

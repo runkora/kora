@@ -1,49 +1,15 @@
-import {
-  Activity,
-  BarChart3,
-  Bot,
-  Database,
-  FlaskConical,
-  Key,
-  KeyRound,
-  LayoutDashboard,
-  Library,
-  LineChart,
-  Route,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  User,
-  UserCheck,
-  Wrench,
-  Layers,
-} from 'lucide-react';
+import type { IconName } from '@orbit/terra';
 
 import { APP_ROUTES, AppRoute } from '@orbit/lib/routing';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type NavEntry = {
-  /**
-   * Display text and designated React list key.
-   *
-   * Labels are stable slugs in practice (copy changes go through a deliberate
-   * PR), so coupling the key to `label` is acceptable. If labels ever need to
-   * change independently of identity — e.g. for i18n, A/B copy tests, or
-   * programmatically-generated nav — introduce a separate opaque `id: string`
-   * field and switch the map key over to that.
-   */
   label: string;
   href: AppRoute;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconName;
   badge?: number;
-  /** True when no page exists yet — renders as disabled (non-navigable). */
   wip?: boolean;
-  /**
-   * When set, the entry is hidden from the sidebar unless the principal's
-   * scope set includes this scope. Entries without this field are always visible.
-   * See ADR-0037 for the permission projection model.
-   */
   requiredScope?: string;
 };
 
@@ -52,58 +18,58 @@ export type NavGroup = { label: string; items: NavEntry[] };
 // ─── Nav arrays ───────────────────────────────────────────────────────────────
 
 const MAIN_NAV: NavEntry[] = [
-  { label: 'Dashboard', href: APP_ROUTES.home, icon: LayoutDashboard },
-  { label: 'Agents', href: APP_ROUTES.agents, icon: Bot, badge: 12, wip: true },
-  { label: 'Event Spine', href: APP_ROUTES.events, icon: Activity, wip: true },
-  { label: 'Credentials', href: APP_ROUTES.credentials, icon: KeyRound, wip: true },
+  { label: 'Dashboard', href: APP_ROUTES.home, icon: 'layout-dashboard' },
+  { label: 'Agents', href: APP_ROUTES.agents, icon: 'bot', badge: 12, wip: true },
+  { label: 'Event Spine', href: APP_ROUTES.events, icon: 'activity', wip: true },
+  { label: 'Credentials', href: APP_ROUTES.credentials, icon: 'key', wip: true },
 ];
 
 const SECURITY_NAV: NavEntry[] = [
-  { label: 'Identity', href: APP_ROUTES.identity, icon: User, wip: true },
+  { label: 'Identity', href: APP_ROUTES.identity, icon: 'user', wip: true },
 ];
 
 const POLICY_NAV: NavEntry[] = [
   {
     label: 'Overview',
     href: APP_ROUTES.policy.overview,
-    icon: BarChart3,
+    icon: 'bar-chart',
     requiredScope: 'platform:grants:read',
   },
   {
     label: 'Grants',
     href: APP_ROUTES.policy.grants,
-    icon: ShieldCheck,
+    icon: 'shield-check',
     requiredScope: 'platform:grants:read',
   },
   {
     label: 'Roles',
     href: APP_ROUTES.policy.roles,
-    icon: UserCheck,
+    icon: 'user-check',
     requiredScope: 'platform:roles:read',
   },
   {
     label: 'Vocabulary',
     href: APP_ROUTES.policy.vocabulary,
-    icon: Library,
+    icon: 'library',
     requiredScope: 'platform:grants:read',
   },
   {
     label: 'Routes',
     href: APP_ROUTES.policy.routes,
-    icon: Route,
+    icon: 'route',
     requiredScope: 'platform:grants:read',
   },
   {
     label: 'Evaluate',
     href: APP_ROUTES.policy.evaluate,
-    icon: FlaskConical,
+    icon: 'flask',
     requiredScope: 'platform:grants:read',
   },
 ];
 
 const SYSTEM_NAV: NavEntry[] = [
-  { label: 'Storage', href: APP_ROUTES.storage, icon: Database, wip: true },
-  { label: 'Settings', href: APP_ROUTES.settings, icon: Settings, wip: true },
+  { label: 'Storage', href: APP_ROUTES.storage, icon: 'database', wip: true },
+  { label: 'Settings', href: APP_ROUTES.settings, icon: 'settings', wip: true },
 ];
 
 const MODEL_GATEWAY_NAV: NavEntry[] = [
@@ -117,7 +83,7 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
   {
     label: 'Catalog',
     href: APP_ROUTES.modelGateway.catalog,
-    icon: Layers,
+    icon: 'layers',
     requiredScope: 'platform:catalog:write',
   },
   { label: 'My Usage', href: APP_ROUTES.modelGateway.myUsage, icon: LineChart },
@@ -135,9 +101,9 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'Control Plane', items: MAIN_NAV },
-  { label: 'Policy Engine', items: POLICY_NAV },
+  { label: 'Main', items: MAIN_NAV },
   { label: 'Security', items: SECURITY_NAV },
+  { label: 'Policy', items: POLICY_NAV },
   { label: 'Model Gateway', items: MODEL_GATEWAY_NAV },
   { label: 'System', items: SYSTEM_NAV },
 ];

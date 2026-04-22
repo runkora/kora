@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Heart, MoreVertical } from 'lucide-react';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
@@ -99,15 +98,10 @@ export function ModelsTab() {
                 e.stopPropagation();
                 toggleFavourite(row.id);
               }}
+              // eslint-disable-next-line local/no-terra-classname -- conditional opacity; no Terra variant covers this pattern
+              className={!isFav ? 'opacity-30 transition-opacity hover:opacity-100' : undefined}
             >
-              <Heart
-                className={[
-                  'size-3.5 transition-colors',
-                  isFav
-                    ? 'fill-rose-500 text-rose-500'
-                    : 'text-muted-foreground opacity-30 hover:opacity-100',
-                ].join(' ')}
-              />
+              <Icon name="heart" size="2xs" color={isFav ? 'rose' : 'muted'} filled={isFav} />
             </Button>
           );
         },
@@ -198,7 +192,7 @@ export function ModelsTab() {
               setSelectedModel(row);
             }}
           >
-            <MoreVertical className="size-3.5" />
+            <Icon name="more-vertical" size="2xs" />
           </Button>
         ),
       },

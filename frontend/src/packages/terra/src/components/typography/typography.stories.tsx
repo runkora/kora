@@ -200,6 +200,141 @@ export const InlineCode: Story = {
 };
 
 /**
+ * New text props added in ADR-0043: `micro` size, `mono`, `tabular`,
+ * `truncate`, `preserveWhitespace`, and `as` element override.
+ * These are additive — all existing Text props continue to work unchanged.
+ */
+export const TextEnhancements: Story = {
+  name: 'Text — enhancements (ADR-0043)',
+  render: () => (
+    <div>
+      <Section title="Text — micro size" />
+      <Row
+        label="micro"
+        hint="11 px — finest detail: chat timestamps, keyboard hints, disclaimer text"
+      >
+        <Text size="micro" color="subtle">
+          Shift + Enter for new line · ⌘K to open command palette
+        </Text>
+      </Row>
+
+      <Section title="Text — status colors" />
+      <Row label="status-healthy" hint="Metric deltas, inline health indicators">
+        <Text size="supporting" color="status-healthy">
+          +18 agents this week
+        </Text>
+      </Row>
+      <Row label="status-degraded" hint="Warnings, degraded-state inline strings">
+        <Text size="supporting" color="status-degraded">
+          3 agents degraded
+        </Text>
+      </Row>
+      <Row label="status-error" hint="Error states, failed operations">
+        <Text size="supporting" color="status-error">
+          Credential renewal failed
+        </Text>
+      </Row>
+
+      <Section title="Text — mono" />
+      <Row label="mono" hint="Technical identifiers: agent IDs, version strings, provider names">
+        <Text size="supporting" mono>
+          apollo-retriever
+        </Text>
+      </Row>
+      <Row label="mono + caption" hint="Fine-print identifiers, run IDs">
+        <Text size="caption" color="subtle" mono>
+          agt_01HZ9K3V · run_00481
+        </Text>
+      </Row>
+
+      <Section title="Text — tabular" />
+      <Row label="tabular" hint="Prevents layout jitter in counters, totals, and timestamps">
+        <div className="flex gap-8">
+          <div>
+            <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+              Without tabular
+            </Text>
+            <Text size="supporting">1,111</Text>
+            <Text size="supporting">88,888</Text>
+            <Text size="supporting">4,321</Text>
+          </div>
+          <div>
+            <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+              With tabular
+            </Text>
+            <Text size="supporting" tabular>
+              1,111
+            </Text>
+            <Text size="supporting" tabular>
+              88,888
+            </Text>
+            <Text size="supporting" tabular>
+              4,321
+            </Text>
+          </div>
+          <div>
+            <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+              mono + tabular
+            </Text>
+            <Text size="supporting" mono tabular>
+              1,111
+            </Text>
+            <Text size="supporting" mono tabular>
+              88,888
+            </Text>
+            <Text size="supporting" mono tabular>
+              4,321
+            </Text>
+          </div>
+        </div>
+      </Row>
+
+      <Section title="Text — truncate" />
+      <Row label="truncate" hint="Single-line overflow with ellipsis — container must have a width">
+        <div className="w-48">
+          <Text size="supporting" truncate>
+            A very long conversation title that will be clipped with an ellipsis
+          </Text>
+        </div>
+      </Row>
+
+      <Section title="Text — preserveWhitespace" />
+      <Row
+        label="preserveWhitespace"
+        hint="Applies whitespace-pre-wrap — for chat messages and AI responses"
+      >
+        <Text size="supporting" preserveWhitespace>
+          {`Line one of a chat message.\nLine two with a forced newline.\n  And some leading spaces preserved.`}
+        </Text>
+      </Row>
+
+      <Section title="Text — as prop" />
+      <Row
+        label={'as="span"'}
+        hint="Renders inline — required inside <button>, <a>, <li> where a block <p> is invalid HTML"
+      >
+        <button
+          type="button"
+          className="rounded border border-border-subtle bg-surface-elevated px-3 py-1.5"
+        >
+          <Text as="span" size="supporting" weight="emphasis">
+            Button using as=&quot;span&quot;
+          </Text>
+        </button>
+      </Row>
+      <Row
+        label={'as="label"'}
+        hint="Renders a <label> — for form fields that need the Text style scale"
+      >
+        <Text as="label" size="supporting" weight="emphasis" color="muted">
+          API key
+        </Text>
+      </Row>
+    </div>
+  ),
+};
+
+/**
  * All three components composed together in a realistic page fragment —
  * a single agent detail panel header.
  */

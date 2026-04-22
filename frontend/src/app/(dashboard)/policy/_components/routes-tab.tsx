@@ -1,9 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { DataTable, Heading, Stack, Text } from '@orbit/terra';
+import { DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
-import { Route } from 'lucide-react';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
 import { EmptyState } from './empty-state';
@@ -137,7 +136,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           </Text>
         </section>
         <EmptyState
-          icon={<Route className="size-5" />}
+          icon={<Icon name="route" size="md" />}
           title="No routes registered"
           description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
         />

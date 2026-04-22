@@ -1,8 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ChevronRight, Plus } from 'lucide-react';
-import { Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { VirtualModel } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
@@ -118,7 +117,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         header: '',
         locked: true,
         width: '2.5rem',
-        cell: () => <ChevronRight className="size-4 text-muted" />,
+        cell: () => <Icon name="chevron-right" color="muted" />,
       },
     ],
     [],
@@ -139,7 +138,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       onRowClick={onSelect}
       toolbarActions={
         <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
-          <Plus className="mr-1.5 size-3.5" />
+          <Icon name="plus" size="2xs" />
           New Virtual Model
         </Button>
       }

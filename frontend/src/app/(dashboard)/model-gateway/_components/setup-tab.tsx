@@ -11,7 +11,6 @@
 // getting-started workflow.
 
 import { useState, useCallback } from 'react';
-import { Copy, Check } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -20,6 +19,7 @@ import {
   CardDescription,
   Heading,
   Separator,
+  Icon,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -49,9 +49,9 @@ function CodeBlock({ code }: { code: string }) {
           className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
         >
           {copied ? (
-            <Check className="size-3.5 text-status-healthy" />
+            <Icon name="check" size="2xs" color="status-healthy" />
           ) : (
-            <Copy className="size-3.5" />
+            <Icon name="copy" size="2xs" />
           )}
         </button>
       </figure>

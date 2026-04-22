@@ -297,6 +297,17 @@ export interface TextProps
    * ```
    */
   tabular?: boolean;
+
+  /**
+   * When true, applies `whitespace-pre-wrap` so newlines and sequences of
+   * spaces in the content are preserved. Use for chat messages, AI responses,
+   * or any string where the author controls line breaks.
+   *
+   * ```tsx
+   * <Text as="span" preserveWhitespace>{chatMessage}</Text>
+   * ```
+   */
+  preserveWhitespace?: boolean;
 }
 
 /**
@@ -335,6 +346,7 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
       truncate = false,
       mono = false,
       tabular = false,
+      preserveWhitespace = false,
       asChild = false,
       as,
       ...props
@@ -352,6 +364,7 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
           truncate && 'truncate',
           mono && 'font-mono',
           tabular && 'tabular-nums',
+          preserveWhitespace && 'whitespace-pre-wrap',
           className,
         )}
         {...props}

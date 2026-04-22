@@ -2,16 +2,8 @@
 
 import { useState, useRef } from 'react';
 import {
-  AlertCircle,
-  ArrowUpDown,
-  DollarSign,
-  GripVertical,
-  Network,
-  Plus,
-  Trash2,
-} from 'lucide-react';
-import {
   Button,
+  Icon,
   Field,
   Grid,
   Input,
@@ -92,19 +84,19 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               value: 'priority' as const,
               label: 'Priority / Failover',
               desc: 'Try routes in order. Move to next on failure.',
-              icon: <ArrowUpDown className="size-4" />,
+              icon: <Icon name="arrow-up-down" />,
             },
             {
               value: 'weighted' as const,
               label: 'Weighted Split',
               desc: 'Distribute traffic by percentage across routes.',
-              icon: <Network className="size-4" />,
+              icon: <Icon name="network" />,
             },
             {
               value: 'lowest_cost' as const,
               label: 'Lowest Cost',
               desc: 'Always route to the cheapest available provider.',
-              icon: <DollarSign className="size-4" />,
+              icon: <Icon name="dollar-sign" />,
             },
           ].map((s) => (
             <button
@@ -167,7 +159,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               });
             }}
           >
-            <Plus className="mr-1.5 size-3.5" />
+            <Icon name="plus" size="2xs" />
             Add Route
           </Button>
         </Stack>
@@ -175,7 +167,10 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
         {model.strategy === 'weighted' && (
           // eslint-disable-next-line local/no-raw-div
           <div className="flex items-center gap-2 rounded-md border border-[#a855f7]/30 bg-[#a855f7]/10 px-3 py-2">
-            <AlertCircle className="size-3.5 shrink-0 text-[#a855f7]" />
+            {/* eslint-disable-next-line local/no-raw-inline-elements -- arbitrary design-token colour cannot be expressed as IconColor */}
+            <span className="shrink-0 text-[#a855f7]">
+              <Icon name="alert-circle" size="2xs" />
+            </span>
             <Text size="caption" color="muted">
               Weights must sum to 100%. Current total:{' '}
               <Text asChild size="caption" weight="emphasis" color="foreground">
@@ -208,7 +203,10 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               {/* Left column: drag handle + priority number */}
               {/* eslint-disable-next-line local/no-raw-div */}
               <div className="flex shrink-0 flex-col items-center gap-1 pt-2">
-                <GripVertical className="size-4 cursor-grab text-muted active:cursor-grabbing" />
+                {/* eslint-disable-next-line local/no-raw-inline-elements -- cursor-grab/active styles cannot go on Icon */}
+                <span className="cursor-grab active:cursor-grabbing">
+                  <Icon name="grip-vertical" color="muted" />
+                </span>
                 {model.strategy === 'priority' && (
                   // eslint-disable-next-line local/no-raw-div
                   <div className="flex size-4 items-center justify-center rounded-full bg-surface text-[10px] font-bold text-muted">
@@ -372,7 +370,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     }
                     className="rounded p-1.5 text-muted transition-colors hover:bg-surface hover:text-status-error"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Icon name="trash" size="2xs" />
                   </button>
                 </Stack>
               </div>

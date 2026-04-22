@@ -1,8 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
-import { Text } from '@orbit/terra';
+import { Icon, Text } from '@orbit/terra';
 import { ScopeChip } from './scope-chip';
 
 interface ScopePickerProps {
@@ -101,9 +100,12 @@ export function ScopePicker({
                   onClick={() => toggleGroupOpen(group.resourceType)}
                   className="flex w-full items-center gap-2.5 px-3 py-2 bg-surface-overlay hover:bg-surface-elevated cursor-pointer select-none transition-colors"
                 >
-                  <ChevronRight
-                    className={`size-3.5 text-subtle shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-                  />
+                  {/* eslint-disable-next-line local/no-raw-inline-elements -- layout-only: rotate-90 transform cannot go on Icon */}
+                  <span
+                    className={`shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+                  >
+                    <Icon name="chevron-right" size="2xs" color="subtle" />
+                  </span>
                   {/* eslint-disable-next-line local/no-raw-div */}
                   <div className="flex-1 text-left">
                     <Text size="micro" color="accent" mono weight="emphasis">
