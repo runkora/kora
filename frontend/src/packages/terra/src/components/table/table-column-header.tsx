@@ -103,10 +103,10 @@ function FilterMenu({ filter }: { filter: TableColumnFilter }) {
             onClick={() => onToggle(opt.value)}
             className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated"
           >
-            <div className="flex size-3.5 shrink-0 items-center justify-center rounded border border-border">
-              {selected.has(opt.value) && <div className="size-2 rounded-sm bg-accent" />}
-            </div>
-            {opt.dot && <div className={cn('size-1.5 shrink-0 rounded-full', opt.dot)} />}
+            <span className="flex size-3.5 shrink-0 items-center justify-center rounded border border-border">
+              {selected.has(opt.value) && <span className="size-2 rounded-sm bg-accent" />}
+            </span>
+            {opt.dot && <span className={cn('size-1.5 shrink-0 rounded-full', opt.dot)} />}
             {opt.label}
           </button>
         </li>
