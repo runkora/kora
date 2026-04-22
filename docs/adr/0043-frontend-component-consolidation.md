@@ -61,7 +61,7 @@ We need a set of architectural decisions that establish:
 * **Developer ergonomics**: A developer building a new feature tab should be able to assemble it from named, importable building blocks rather than copying inline patterns from an adjacent file.
 * **AI-assisted development**: Forge and v0.dev generate better output when there is a documented vocabulary of intermediate-level components. Without `<MetricCard>`, `<Modal>`, and `<EmptyState>` in scope, AI tools invent new inline implementations.
 * **Terra boundary preservation**: Terra is a domain-free, portable design system. Components with Orbit domain knowledge (status tokens, principal types, destructive-action semantics) must not live in Terra — they belong one tier up.
-* **ESLint compliance**: The custom rules `no-raw-div`, `no-layout-span`, and `no-raw-inline-elements` constrain how components can be written. Extracted components must be authored within these constraints from the start, not patched afterwards.
+* **ESLint compliance**: The custom rules `no-raw-layout-elements` and `no-raw-inline-elements` constrain how components can be written. Extracted components must be authored within these constraints from the start, not patched afterwards.
 * **ShadCN convention for Terra additions**: Per ADR-0021, new Terra components must be created from a ShadCN/Radix UI base component, not from scratch. This constrains the implementation path for `Modal` and `FormField`.
 * **Lint rule purity**: Every suppressed raw HTML block is a potential vector for inconsistency and drift. Terra must supply a compliant replacement for every common pattern — including icon containers, chat bubbles, and responsive visibility wrappers.
 * **Icon governance**: Freeform `lucide-react` imports give no compile-time guard against icon sprawl or library migrations. A curated `IconName` registry with a companion ESLint rule closes this gap.
@@ -757,6 +757,6 @@ The three-tier model described in this ADR is an extension of the implicit struc
 
 Phase 0 was executed as a standalone workstream (see superseded ADR) before this consolidation ADR was finalised. Merging it here ensures a single authoritative source of truth for all component placement decisions.
 
-Two `eslint-disable-next-line local/no-raw-div` suppressions in `frontend/src/app/(dashboard)/chat/page.tsx` are **explicitly out of scope** for Phase 0 and remain in place: the `animationDelay` inline style on the typing indicator bounce dots, and the `animate-pulse` class on the streaming cursor. Neither has a Terra equivalent. Both carry `// TODO: replace with Terra animation primitive once implemented` comments and will be addressed in a future ADR covering Terra animation primitives.
+Two `eslint-disable-next-line local/no-raw-layout-elements` suppressions in `frontend/src/app/(dashboard)/chat/page.tsx` are **explicitly out of scope** for Phase 0 and remain in place: the `animationDelay` inline style on the typing indicator bounce dots, and the `animate-pulse` class on the streaming cursor. Neither has a Terra equivalent. Both carry `// TODO: replace with Terra animation primitive once implemented` comments and will be addressed in a future ADR covering Terra animation primitives.
 
 **Last Updated:** 2026-04-21

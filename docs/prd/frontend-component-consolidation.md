@@ -54,7 +54,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 - Zero inline reimplementations of the 22 extracted patterns remain in product pages after migration.
 - The `formatDate`, `formatTimestamp`, and `fmtCost` helper functions exist once, in `@orbit/utils`, and all call sites import from there.
 - New features that need a metric card, modal dialog, empty state, or status badge reach for the shared component rather than building inline.
-- `pnpm lint` passes with zero errors after migration — no `no-raw-div`, `no-raw-inline-elements`, or similar violations introduced by the refactor.
+- `pnpm lint` passes with zero errors after migration — no `no-raw-layout-elements`, `no-raw-inline-elements`, or similar violations introduced by the refactor.
 - Every new Terra component (Tier 1) has a Storybook story under `Terra/<Category>/<Name>`. Every Tier 2 shared component has a Storybook story whose `title` is `App/Shared/<ComponentName>` — this is the Storybook sidebar path, not a filesystem directory.
 
 ### Non-Goals
@@ -434,7 +434,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 **Compliance:**
 - All new and migrated files must pass `pnpm lint` with zero violations.
 - Terra additions must comply with Terra conventions: `data-slot`, `React.forwardRef`, `cva`/`cn`, `React.ComponentPropsWithoutRef`, ShadCN sub-component composition.
-- No raw `<div>`, `<span>`, `<strong>`, or other restricted elements in product JSX (enforced by `local/no-raw-div`, `local/no-layout-span`, `local/no-raw-inline-elements`).
+- No raw `<div>`, `<span>`, `<strong>`, or other restricted elements in product JSX (enforced by `local/no-raw-layout-elements`, `local/no-raw-inline-elements`).
 
 **Compatibility:**
 - No visual regressions — extracted components must produce identical DOM output to the patterns they replace.
@@ -448,7 +448,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 - **Terra design system** (`@orbit/terra`): `Modal` and `FormField` additions depend on the existing Terra package structure and conventions (ADR-0021).
 - **`@orbit/utils`**: utility extractions require this package to accept new exports. Verify the barrel export pattern before adding helpers.
-- **ESLint custom rules**: `no-raw-div`, `no-layout-span`, `no-raw-inline-elements`, and `no-direct-lucide-import` constrain how extracted components are authored. All new components must be written within these constraints from the start.
+- **ESLint custom rules**: `no-raw-layout-elements`, `no-raw-inline-elements`, and `no-direct-lucide-import` constrain how extracted components are authored. All new components must be written within these constraints from the start.
 
 ### External Dependencies
 

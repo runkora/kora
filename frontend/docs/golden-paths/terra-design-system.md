@@ -13,17 +13,18 @@
 
 Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. Five local ESLint rules enforce this — there are no exceptions in product code:
 
-| Rule                           | What it bans                                                                                               | Escape hatch                                      |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `local/no-raw-div`             | Every `<div>`                                                                                              | `eslint-disable-next-line` with a one-line reason |
-| `local/no-raw-layout-elements` | Semantic containers (`section`, `header`, `footer`, `nav`, `aside`, `article`, `main`) with layout classes | None — use `<Stack asChild>` or `<Grid asChild>`  |
-| `local/no-raw-inline-elements` | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`)        | **None** — add a Terra component instead          |
-| `local/no-raw-html-text-tags`  | `<p>` and `<h1>`–`<h6>`                                                                                    | None — use `<Text>` and `<Heading>`               |
-| `local/no-terra-classname`     | `className` on any Terra component                                                                         | None — use the component's design-token props     |
+| Rule                           | What it bans                                                                                               | Escape hatch                                     |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `local/no-raw-layout-elements` | Every `<div>` (unconditional) + semantic containers (`section`, `header`, `footer`, `nav`, `aside`, `article`, `main`) with layout classes | **None** — use `<Stack>` / `<Grid>`; for semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Terra component (see below) |
+| `local/no-raw-inline-elements` | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`)        | **None** — use a Terra equivalent; if missing, propose a new Terra component (see below) |
+| `local/no-raw-html-text-tags`  | `<p>` and `<h1>`–`<h6>`                                                                                    | **None** — use `<Text>` and `<Heading>`          |
+| `local/no-terra-classname`     | `className` on any Terra component                                                                         | **None** — use the component's design-token props |
+
+> 🚫 **`eslint-disable` comments targeting any of these rules are themselves a lint error** (`local/no-terra-disable-comment`). There are no escape hatches — fix violations by using the correct Terra component. If no Terra component exists for your use case, write a proposal and wait for human engineer approval before making any changes to Terra (see [Proposing a Missing Terra Component](#proposing-a-missing-terra-component)).
 
 All five rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
 
-**If a Terra component is missing for your use case, add one — do not use raw HTML.** See [Adding a Missing Terra Component](#adding-a-missing-terra-component) at the bottom of this guide.
+**If a Terra component is missing for your use case, do not use raw HTML and do not modify Terra unilaterally.** Write a short proposal and wait for approval from a human engineer before making any changes to the Terra package. See [Proposing a Missing Terra Component](#proposing-a-missing-terra-component) at the bottom of this guide.
 
 ---
 
@@ -46,8 +47,8 @@ The most common migrations at a glance.
 | `<span>Inline label</span>`                           | `<Text as="span" size="supporting">Inline label</Text>` (inline context) or `<Text size="supporting">Inline label</Text>` (block context) |
 | `<strong>Important</strong>`                          | `<Text weight="heavy">Important</Text>`                                                                                                   |
 | `<b>Bold text</b>`                                    | `<Text weight="heavy">Bold text</Text>`                                                                                                   |
-| `<em>Emphasised</em>`                                 | No Terra equivalent yet — add a Terra atom first                                                                                          |
-| `<i>Italic</i>`                                       | No Terra equivalent yet — add a Terra atom first                                                                                          |
+| `<em>Emphasised</em>`                                 | No Terra equivalent yet — propose one for human approval before proceeding                                                                |
+| `<i>Italic</i>`                                       | No Terra equivalent yet — propose one for human approval before proceeding                                                                |
 | `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                                                   |
 
 ---
@@ -272,7 +273,7 @@ import { Text } from '@orbit/terra';
 
 ## Typography: Replacing Inline Elements
 
-The `no-raw-inline-elements` rule fires unconditionally on all raw inline HTML. There is no `eslint-disable` escape hatch.
+The `no-raw-inline-elements` rule fires unconditionally on all raw inline HTML. There is no escape hatch — `eslint-disable` comments targeting this rule are themselves a lint error via `local/no-terra-disable-comment`.
 
 ### `<span>` → `Text` or `Text as="span"`
 
@@ -304,10 +305,10 @@ The `no-raw-inline-elements` rule fires unconditionally on all raw inline HTML. 
 // ✅ Correct
 <Text weight="heavy">Critical alert</Text>
 
-// Inside a sentence — must remain inline, so use asChild
-<Text asChild size="body" weight="heavy">
-  <span>Critical alert</span>
-</Text>
+// Inside a sentence — must remain inline; Text renders as a <p> by default,
+// so wrap the bold run with asChild pointing at a non-raw child element
+// (the child element itself must also be a Terra component or a valid element
+// that is not caught by the inline-element rule, e.g. a router Link)
 ```
 
 Use `weight="strong"` (semibold) for column headers and key values; use `weight="heavy"` (bold) for maximum emphasis.
@@ -316,15 +317,15 @@ Use `weight="strong"` (semibold) for column headers and key values; use `weight=
 
 Terra has no italic primitive. `no-raw-inline-elements` bans `<em>` and `<i>` unconditionally, and `no-terra-classname` bans `className` on `<Text>`, so `<Text className="italic">` is also invalid.
 
-If italics are genuinely needed, add a Terra component first — see [Adding a Missing Terra Component](#adding-a-missing-terra-component). Until then, the use case is not supported in product code.
+If italics are genuinely needed, write a short proposal and wait for approval from a human engineer before making any changes to Terra. Until a Terra component is approved and added, the use case is not supported in product code.
 
 ### `<em>`, `<i>`, `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>`
 
 These elements have **no current Terra equivalent**. `local/no-raw-inline-elements` bans them unconditionally. If your use case genuinely requires one of these:
 
 1. Do not use the raw element — `pnpm lint` will fail.
-2. Add a Terra component for the use case first — see [Adding a Missing Terra Component](#adding-a-missing-terra-component).
-3. Use the new Terra component from product code.
+2. Write a short proposal describing the element, its intended use, and a suggested component API. Post it for review and **wait for approval from a human engineer** before touching the Terra package.
+3. Once approved, implement the Terra component and use it from product code.
 
 The lint error message will read:
 
@@ -418,18 +419,25 @@ import { PageLayout, Section } from '@orbit/terra';
 
 ---
 
-## Adding a Missing Terra Component
+## Proposing a Missing Terra Component
 
-If none of the existing Terra components cover your use case and you need a raw HTML element:
+> ⚠️ **Agents must not add or modify Terra components without explicit human approval.** Terra is a stable design API; unilateral changes break the contract between the design system and all product code. If you identify a gap, write a proposal and stop — do not implement until a human engineer approves.
 
-1. **Do not use the raw element.** The lint rules have no escape hatch for `no-raw-inline-elements`.
-2. **Create a new Terra component** following the ShadCN convention:
+If none of the existing Terra components cover your use case:
+
+1. **Do not use the raw HTML element.** The lint rules have no escape hatch.
+2. **Write a short proposal** (inline in your PR description or as a comment) covering:
+   - Which raw element is needed and why
+   - A suggested component name and minimal API (props)
+   - Whether a ShadCN/Radix primitive exists as a base
+3. **Wait for approval from a human engineer** before writing any code in `src/packages/terra/`.
+4. **Once approved**, implement the Terra component following the ShadCN convention:
    - Base it on a ShadCN/Radix UI component where one exists.
-   - When no Radix primitive exists (as with `Alert`), follow ShadCN's styled-div convention.
+   - When no Radix primitive exists, follow ShadCN's styled-div convention.
    - Use `cva` + `cn`, `React.forwardRef`, `.displayName`, and `data-slot` attributes.
    - Use `React.ComponentPropsWithoutRef<'div'>` (not `React.HTMLAttributes<HTMLDivElement>`).
    - Add the component to `src/packages/terra/src/index.ts`.
-3. **Replace the raw element** with the new component across the codebase.
+5. **Replace the raw element** with the new component across the codebase.
 
 See `src/packages/terra/src/components/alert/alert.tsx` as a reference for a styled-div component with no Radix primitive.
 
@@ -453,16 +461,15 @@ Use this checklist before opening a PR. Every item must be true.
 - [ ] No `<p>` elements — all replaced with `Text`.
 - [ ] No `<span>` elements — replaced with `Text` (block context) or `Text as="span"` (inline context, e.g. inside a `<button>` or `<a>`).
 - [ ] No `<strong>` or `<b>` elements — replaced with `Text weight="heavy"` or `weight="strong"`.
-- [ ] No `<em>` or `<i>` elements — no Terra equivalent yet; a Terra component must be added first (see [Adding a Missing Terra Component](#adding-a-missing-terra-component)).
+- [ ] No `<em>` or `<i>` elements — no Terra equivalent yet; (see [Adding a Missing Terra Component](#adding-a-missing-terra-component)).
 - [ ] No `<code>` elements — replaced with `Code` (in prose) or `Text mono` (standalone technical values).
-- [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements — a Terra component has been added for the use case.
+- [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements
 - [ ] `Text as="span"` is used when the rendered element must be inline (e.g. inside a `<button>`, `<a>`, `<p>`, or `<li>`); `asChild` is used only to merge Text styles onto a non-span child element you already control.
 
 ### ESLint
 
 - [ ] `pnpm lint` passes with zero errors.
-- [ ] No `eslint-disable-next-line local/no-raw-inline-elements` comments — this rule has no escape hatch.
-- [ ] Any `eslint-disable-next-line local/no-raw-div` comments include a one-line explanation.
+- [ ] No `eslint-disable` comments targeting any Terra rule (`local/no-raw-layout-elements`, `local/no-raw-inline-elements`, `local/no-raw-html-text-tags`, `local/no-terra-classname`, `local/no-direct-lucide-import`) — these are themselves a lint error.
 
 ### New Terra components (if applicable)
 
@@ -474,4 +481,4 @@ Use this checklist before opening a PR. Every item must be true.
 ---
 
 _Guide owned by: Frontend Engineering_  
-_Last updated: 2026-04-17_
+_Last updated: 2026-04-22_

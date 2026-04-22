@@ -291,17 +291,14 @@ See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for de
 
 ## Frontend Development
 
-Before writing any frontend code, read **[`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md)**. It defines which tier a component belongs to, what already exists, and what you must deliver in the same PR as any new component.
+> ⚠️ **MUST read before writing any frontend UI code:**
+> - **[`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md)** — tier model, Terra inventory, placement decision tree, post-task checklist
+> - **[`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md)** — Terra component usage, ESLint enforcement rules, and why `eslint-disable` is forbidden
+>
+> **MUST read when working with backend data (fetching, caching, reactive state):**
+> - **[`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md)** — state management patterns
 
-Two rules are absolute and enforced by ESLint — violations fail `pnpm lint`:
-
-- **No raw HTML layout elements** (`div`, `h1`–`h6`, `p`, `span`, `a`, `dialog`) in `src/app/` or `src/components/` — use Terra primitives (`Stack`, `Grid`, `Heading`, `Text`, `Anchor`, `Modal`).
-- **No `lucide-react` imports** outside `src/packages/terra/` — use `<Icon name="..." />` with no escape hatch.
-
-Golden paths:
-- [`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md) — tier model, Terra inventory, placement decision tree, post-task checklist
-- [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) — Terra component props and usage guide
-- [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) — state management patterns
+The Terra design system is enforced by five ESLint rules with **zero escape hatches**. Violations fail `pnpm lint`. `eslint-disable` comments targeting any Terra rule are themselves a lint error. Full details are in the golden paths above.
 
 ## Getting Help
 
