@@ -11,15 +11,18 @@ var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
 // ── mockInferenceUsageRepository ──────────────────────────────────────────────
 
 type mockInferenceUsageRepository struct {
-	mu          sync.Mutex
-	records     []InferenceUsageRecord
-	hasNextPage bool
-	createErr   error
-	listErr     error
-	getErr      error
-	statsResult []TokenUsageStat
-	statsErr    error
-	lastFilter  InferenceUsageFilter // captured on each List call
+	mu            sync.Mutex
+	records       []InferenceUsageRecord
+	hasNextPage   bool
+	createErr     error
+	listErr       error
+	getErr        error
+	statsResult   []TokenUsageStat
+	statsErr      error
+	analyticsResp AnalyticsResponse
+	analyticsErr  error
+	lastFilter    InferenceUsageFilter // captured on each List call
+	lastAnalytics AnalyticsFilter      // captured on each GetAnalytics call
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {
@@ -76,6 +79,16 @@ func (m *mockInferenceUsageRepository) Get(_ context.Context, tenantID, id strin
 		}
 	}
 	return InferenceUsageRecord{}, ErrUsageRecordNotFound
+}
+
+func (m *mockInferenceUsageRepository) GetAnalytics(_ context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastAnalytics = filter
+	if m.analyticsErr != nil {
+		return AnalyticsResponse{}, m.analyticsErr
+	}
+	return m.analyticsResp, nil
 }
 
 // ── shared test helpers ────────────────────────────────────────────────────────

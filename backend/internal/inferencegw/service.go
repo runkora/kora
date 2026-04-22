@@ -1091,3 +1091,40 @@ func (s *Service) UsageStats(ctx context.Context) ([]TokenUsageStat, error) {
 	}
 	return stats, nil
 }
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+// AnalyticsMe returns aggregated analytics for the authenticated principal only.
+// TenantID and PrincipalID are always sourced from the verified JWT — callers
+// cannot widen or redirect the scope via query parameters.
+func (s *Service) AnalyticsMe(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = &p.PrincipalID
+	resp, err := s.usage.GetAnalytics(ctx, filter)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics me: %w", err)
+	}
+	return resp, nil
+}
+
+// Analytics returns tenant-wide aggregated analytics. TenantID is always
+// sourced from the verified JWT; PrincipalID is never applied. The caller
+// is responsible for ensuring the request carries the platform:analytics:read
+// scope — enforcement happens at the route registration layer.
+func (s *Service) Analytics(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = nil // always tenant-wide; must not be set by the caller
+	resp, err := s.usage.GetAnalytics(ctx, filter)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics: %w", err)
+	}
+	return resp, nil
+}

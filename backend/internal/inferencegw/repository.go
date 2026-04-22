@@ -30,6 +30,11 @@ type InferenceUsageRepository interface {
 	// UsageStats returns per-token aggregates (request count and last-used timestamp)
 	// for all PATs belonging to the given principal within the given tenant.
 	UsageStats(ctx context.Context, tenantID, principalID string) ([]TokenUsageStat, error)
+
+	// GetAnalytics runs the bucketed aggregation query for the analytics endpoints.
+	// When filter.PrincipalID is set the query is scoped to that principal (personal
+	// path); otherwise it returns tenant-wide data. filter.TenantID must be non-empty.
+	GetAnalytics(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -202,6 +207,238 @@ func (r *PostgresInferenceUsageRepository) UsageStats(ctx context.Context, tenan
 		return nil, fmt.Errorf("usage stats rows: %w", err)
 	}
 	return stats, nil
+}
+
+// GetAnalytics runs the three aggregation queries needed by the analytics endpoints:
+// a bucketed time-series query, a global KPI query, and a cost-by-model query.
+// The granularity is validated by the caller; this method trusts the value directly.
+func (r *PostgresInferenceUsageRepository) GetAnalytics(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	if filter.TenantID == "" {
+		return AnalyticsResponse{}, fmt.Errorf("%w: tenant_id is required for analytics", ErrInvalidRequest)
+	}
+
+	days := filter.Days
+	if days <= 0 {
+		days = 30
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+
+	truncUnit := granularityToTrunc(filter.Granularity)
+
+	scope := "personal"
+	if filter.PrincipalID == nil {
+		scope = "tenant"
+	}
+
+	buckets, err := r.getAnalyticsBuckets(ctx, filter, cutoff, truncUnit)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics buckets: %w", err)
+	}
+	kpis, err := r.getAnalyticsKPIs(ctx, filter, cutoff)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics kpis: %w", err)
+	}
+	costByModel, err := r.getAnalyticsCostByModel(ctx, filter, cutoff)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics cost_by_model: %w", err)
+	}
+
+	return AnalyticsResponse{
+		Scope:       scope,
+		PeriodDays:  days,
+		Granularity: filter.Granularity,
+		KPIs:        kpis,
+		Buckets:     buckets,
+		CostByModel: costByModel,
+	}, nil
+}
+
+func (r *PostgresInferenceUsageRepository) getAnalyticsBuckets(ctx context.Context, filter AnalyticsFilter, cutoff time.Time, truncUnit string) ([]AnalyticsBucket, error) {
+	args := []any{filter.TenantID, cutoff}
+	n := 3
+
+	extraWhere := ""
+	if filter.PrincipalID != nil {
+		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		args = append(args, *filter.PrincipalID)
+		n++
+	}
+	if filter.TokenID != nil {
+		extraWhere += fmt.Sprintf(" AND token_id = $%d", n)
+		args = append(args, *filter.TokenID)
+		n++
+	}
+	if filter.ModelID != nil {
+		extraWhere += fmt.Sprintf(" AND model_id = $%d", n)
+		args = append(args, *filter.ModelID)
+		n++
+	}
+	_ = n
+
+	q := fmt.Sprintf(`
+		SELECT
+		    TO_CHAR(date_trunc('%s', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS date,
+		    COUNT(*)                                                                AS requests,
+		    COUNT(*) FILTER (WHERE status = 'success')                             AS successful_requests,
+		    COUNT(*) FILTER (WHERE status != 'success')                            AS failed_requests,
+		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
+		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
+		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,
+		    COALESCE(SUM(estimated_cost_usd), 0)                                   AS estimated_cost_usd,
+		    COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p50_latency_ms,
+		    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p95_latency_ms,
+		    COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p99_latency_ms
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2%s
+		GROUP BY 1
+		ORDER BY 1 ASC`, truncUnit, extraWhere)
+
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("analytics buckets query: %w", err)
+	}
+	defer rows.Close()
+
+	var buckets []AnalyticsBucket
+	for rows.Next() {
+		var b AnalyticsBucket
+		if err := rows.Scan(
+			&b.Date,
+			&b.Requests, &b.SuccessfulRequests, &b.FailedRequests,
+			&b.PromptTokens, &b.CompletionTokens, &b.CacheReadTokens,
+			&b.EstimatedCostUSD,
+			&b.P50LatencyMS, &b.P95LatencyMS, &b.P99LatencyMS,
+		); err != nil {
+			return nil, fmt.Errorf("analytics buckets scan: %w", err)
+		}
+		buckets = append(buckets, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("analytics buckets rows: %w", err)
+	}
+	if buckets == nil {
+		buckets = []AnalyticsBucket{}
+	}
+	return buckets, nil
+}
+
+func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context, filter AnalyticsFilter, cutoff time.Time) (AnalyticsKPIs, error) {
+	args := []any{filter.TenantID, cutoff}
+	n := 3
+
+	extraWhere := ""
+	if filter.PrincipalID != nil {
+		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		args = append(args, *filter.PrincipalID)
+		n++
+	}
+	if filter.TokenID != nil {
+		extraWhere += fmt.Sprintf(" AND token_id = $%d", n)
+		args = append(args, *filter.TokenID)
+		n++
+	}
+	if filter.ModelID != nil {
+		extraWhere += fmt.Sprintf(" AND model_id = $%d", n)
+		args = append(args, *filter.ModelID)
+		n++
+	}
+	_ = n
+
+	q := fmt.Sprintf(`
+		SELECT
+		    COUNT(*)                                                               AS total_requests,
+		    COALESCE(SUM(prompt_tokens + completion_tokens + cache_read_input_tokens), 0) AS total_tokens,
+		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
+		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
+		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,
+		    COALESCE(SUM(estimated_cost_usd), 0)                                   AS estimated_cost_usd,
+		    COALESCE(AVG(latency_ms), 0)                                           AS avg_latency_ms,
+		    CASE WHEN COUNT(*) > 0
+		         THEN COUNT(*) FILTER (WHERE status != 'success')::float / COUNT(*)
+		         ELSE 0 END                                                         AS error_rate,
+		    CASE WHEN COALESCE(SUM(prompt_tokens + cache_read_input_tokens), 0) > 0
+		         THEN SUM(cache_read_input_tokens)::float / SUM(prompt_tokens + cache_read_input_tokens)
+		         ELSE 0 END                                                         AS cache_hit_rate
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2%s`, extraWhere)
+
+	row := r.pool.QueryRow(ctx, q, args...)
+	var k AnalyticsKPIs
+	if err := row.Scan(
+		&k.TotalRequests, &k.TotalTokens, &k.PromptTokens, &k.CompletionTokens, &k.CacheReadTokens,
+		&k.EstimatedCostUSD, &k.AvgLatencyMS, &k.ErrorRate, &k.CacheHitRate,
+	); err != nil {
+		return AnalyticsKPIs{}, fmt.Errorf("analytics kpis scan: %w", err)
+	}
+	return k, nil
+}
+
+func (r *PostgresInferenceUsageRepository) getAnalyticsCostByModel(ctx context.Context, filter AnalyticsFilter, cutoff time.Time) ([]AnalyticsCostByModel, error) {
+	args := []any{filter.TenantID, cutoff}
+	n := 3
+
+	extraWhere := ""
+	if filter.PrincipalID != nil {
+		extraWhere += fmt.Sprintf(" AND principal_id = $%d", n)
+		args = append(args, *filter.PrincipalID)
+		n++
+	}
+	if filter.TokenID != nil {
+		extraWhere += fmt.Sprintf(" AND token_id = $%d", n)
+		args = append(args, *filter.TokenID)
+		n++
+	}
+	if filter.ModelID != nil {
+		extraWhere += fmt.Sprintf(" AND model_id = $%d", n)
+		args = append(args, *filter.ModelID)
+		n++
+	}
+	_ = n
+
+	q := fmt.Sprintf(`
+		SELECT model_id, COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2%s
+		GROUP BY model_id
+		ORDER BY estimated_cost_usd DESC`, extraWhere)
+
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("analytics cost_by_model query: %w", err)
+	}
+	defer rows.Close()
+
+	var result []AnalyticsCostByModel
+	for rows.Next() {
+		var c AnalyticsCostByModel
+		if err := rows.Scan(&c.ModelID, &c.EstimatedCostUSD); err != nil {
+			return nil, fmt.Errorf("analytics cost_by_model scan: %w", err)
+		}
+		result = append(result, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("analytics cost_by_model rows: %w", err)
+	}
+	if result == nil {
+		result = []AnalyticsCostByModel{}
+	}
+	return result, nil
+}
+
+// granularityToTrunc maps the analytics granularity parameter to the
+// PostgreSQL date_trunc unit string. Defaults to 'day' for unrecognized values.
+func granularityToTrunc(g string) string {
+	switch g {
+	case "weekly":
+		return "week"
+	case "monthly":
+		return "month"
+	default:
+		return "day"
+	}
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

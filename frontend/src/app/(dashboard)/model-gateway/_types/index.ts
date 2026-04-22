@@ -52,13 +52,61 @@ export interface InferenceUsageRecord {
   created_at: string; // RFC3339
 }
 
-// Mirrors listUsageResponse in backend/internal/inferencegw/handlers_usage.go.
+// Mirrors ListUsageResponse in backend/internal/inferencegw/handlers_usage.go.
 export interface ListUsageResponse {
   data: InferenceUsageRecord[];
   has_next_page: boolean;
   next_cursor: string | null;
   limit: number;
 }
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+//
+// Mirrors AnalyticsFilter, AnalyticsKPIs, AnalyticsBucket, AnalyticsCostByModel,
+// and AnalyticsResponse in backend/internal/inferencegw/models.go.
+
+export interface AnalyticsKPIs {
+  total_requests: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  cache_hit_rate: number;
+}
+
+export interface AnalyticsBucket {
+  date: string; // "YYYY-MM-DD"
+  requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+}
+
+export interface AnalyticsCostByModel {
+  model_id: string;
+  estimated_cost_usd: number;
+}
+
+export interface AnalyticsResponse {
+  scope: 'personal' | 'tenant';
+  period_days: number;
+  granularity: 'daily' | 'weekly' | 'monthly';
+  kpis: AnalyticsKPIs;
+  buckets: AnalyticsBucket[];
+  cost_by_model: AnalyticsCostByModel[];
+}
+
+export type AnalyticsDays = 7 | 30 | 90;
+export type AnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
 
 // ── Value-type unions ─────────────────────────────────────────────────────────
 

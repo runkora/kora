@@ -439,7 +439,7 @@ function TopModelsCard() {
           By spend, last 30 days
         </Text>
         <Link
-          href={APP_ROUTES.modelGateway.usage}
+          href={APP_ROUTES.modelGateway.myUsage}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           View usage →

@@ -141,6 +141,64 @@ type TokenUsageStat struct {
 	LastUsed     string `json:"last_used"` // RFC3339
 }
 
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+// AnalyticsFilter controls what the aggregation query returns.
+// PrincipalID is set for the personal path (GET /v1/analytics/me) and nil
+// for the tenant-wide path (GET /v1/analytics).
+type AnalyticsFilter struct {
+	TenantID    string
+	PrincipalID *string // nil → tenant-wide
+	TokenID     *string // optional PAT filter (personal path only)
+	ModelID     *string // optional model filter (tenant-wide path only)
+	Days        int     // lookback window: 7, 30, or 90
+	Granularity string  // "daily", "weekly", or "monthly"
+}
+
+// AnalyticsKPIs holds the aggregated KPI values for the full query window.
+type AnalyticsKPIs struct {
+	TotalRequests    int64   `json:"total_requests"`
+	TotalTokens      int64   `json:"total_tokens"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms"`
+	ErrorRate        float64 `json:"error_rate"`
+	CacheHitRate     float64 `json:"cache_hit_rate"`
+}
+
+// AnalyticsBucket is a single time-series data point for the chosen granularity.
+type AnalyticsBucket struct {
+	Date               string  `json:"date"`
+	Requests           int64   `json:"requests"`
+	SuccessfulRequests int64   `json:"successful_requests"`
+	FailedRequests     int64   `json:"failed_requests"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`
+	EstimatedCostUSD   float64 `json:"estimated_cost_usd"`
+	P50LatencyMS       float64 `json:"p50_latency_ms"`
+	P95LatencyMS       float64 `json:"p95_latency_ms"`
+	P99LatencyMS       float64 `json:"p99_latency_ms"`
+}
+
+// AnalyticsCostByModel is one row of the cost-by-model breakdown.
+type AnalyticsCostByModel struct {
+	ModelID          string  `json:"model_id"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+}
+
+// AnalyticsResponse is the payload returned by GET /v1/analytics and GET /v1/analytics/me.
+type AnalyticsResponse struct {
+	Scope       string                 `json:"scope"`
+	PeriodDays  int                    `json:"period_days"`
+	Granularity string                 `json:"granularity"`
+	KPIs        AnalyticsKPIs          `json:"kpis"`
+	Buckets     []AnalyticsBucket      `json:"buckets"`
+	CostByModel []AnalyticsCostByModel `json:"cost_by_model"`
+}
+
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
