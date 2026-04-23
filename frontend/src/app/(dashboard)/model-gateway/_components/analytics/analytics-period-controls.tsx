@@ -1,6 +1,6 @@
 'use client';
 
-import { Stack } from '@orbit/terra';
+import { Button, Stack, Text } from '@orbit/terra';
 import type { AnalyticsDays, AnalyticsGranularity } from '../../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -27,6 +27,32 @@ const GRANULARITY_OPTIONS: { value: AnalyticsGranularity; label: string }[] = [
   { value: 'monthly', label: 'Monthly' },
 ];
 
+const MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function formatDate(d: Date): string {
+  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
+}
+
+function computeDateRange(days: number): string {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - days);
+  return `${formatDate(from)} – ${formatDate(now)}`;
+}
+
 function ControlButton({
   active,
   disabled,
@@ -39,24 +65,9 @@ function ControlButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        padding: '3px 10px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        border: active ? '1px solid #e8a07a' : '1px solid #44444d',
-        background: active ? 'rgba(232,160,122,0.15)' : 'transparent',
-        color: active ? '#e8a07a' : disabled ? '#55555f' : '#8a8a94',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.6 : 1,
-        transition: 'border-color 0.15s, color 0.15s',
-      }}
-    >
+    <Button variant={active ? 'default' : 'ghost'} size="xs" onClick={onClick} disabled={disabled}>
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -71,6 +82,9 @@ export function AnalyticsPeriodControls({
 }: AnalyticsPeriodControlsProps) {
   return (
     <Stack direction="horizontal" align="center" gap="comfortable">
+      <Text size="caption" color="subtle">
+        {computeDateRange(days)}
+      </Text>
       <Stack direction="horizontal" gap="tight">
         {DAYS_OPTIONS.map(({ value, label }) => (
           <ControlButton

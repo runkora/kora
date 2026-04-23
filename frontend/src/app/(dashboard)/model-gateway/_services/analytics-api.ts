@@ -40,18 +40,35 @@ async function fetchFromBFF(url: string): Promise<FetchAnalyticsResult> {
   }
 }
 
-export async function fetchAnalyticsMe(params?: {
+// Both functions accept the full param superset so they are assignable to the
+// shared FetchFn type in use-analytics.ts. Each passes only its relevant fields.
+
+export async function fetchAnalyticsMe(params: {
   days?: number;
   granularity?: string;
-  tokenId?: string;
+  tokenId?: string | null;
+  modelId?: string | null;
 }): Promise<FetchAnalyticsResult> {
-  return fetchFromBFF(ApiRoute.analyticsMe.GET(params));
+  return fetchFromBFF(
+    ApiRoute.analyticsMe.GET({
+      days: params.days,
+      granularity: params.granularity,
+      tokenId: params.tokenId ?? undefined,
+    }),
+  );
 }
 
-export async function fetchAnalytics(params?: {
+export async function fetchAnalytics(params: {
   days?: number;
   granularity?: string;
-  modelId?: string;
+  tokenId?: string | null;
+  modelId?: string | null;
 }): Promise<FetchAnalyticsResult> {
-  return fetchFromBFF(ApiRoute.analytics.GET(params));
+  return fetchFromBFF(
+    ApiRoute.analytics.GET({
+      days: params.days,
+      granularity: params.granularity,
+      modelId: params.modelId ?? undefined,
+    }),
+  );
 }

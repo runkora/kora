@@ -90,8 +90,8 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
   }
 
   // Default to 30 days — matches the Go backend's default RefreshTokenTTLDays.
-  // The caller should always pass the backend-supplied value when available.
-  const maxAge = refreshTokenExpiresIn ?? 60 * 60 * 24 * 30;
+  // Use || not ?? so that 0 (misconfigured backend) also falls back to the default.
+  const maxAge = refreshTokenExpiresIn || 60 * 60 * 24 * 30;
 
   return {
     cookieName: SESSION_COOKIE_NAME,

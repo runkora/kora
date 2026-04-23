@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { config } from '@orbit/server/config';
-import type { AnalyticsResponse } from '../_types';
+import type { AnalyticsResponse, PrincipalUsageSummary } from '../_types';
 
 // ── Shared params ─────────────────────────────────────────────────────────────
 
@@ -14,10 +14,22 @@ export interface AnalyticsParams {
   modelId?: string;
 }
 
-// ── Result type ───────────────────────────────────────────────────────────────
+// ── Result types ──────────────────────────────────────────────────────────────
 
 export type AnalyticsResult =
   | { ok: true; data: AnalyticsResponse }
+  | { ok: false; status: number; message: string };
+
+// Raw (pre-enrichment) response from the inference gateway principals endpoint.
+export interface RawPrincipalsResponse {
+  data: PrincipalUsageSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type AnalyticsPrincipalsRawResult =
+  | { ok: true; data: RawPrincipalsResponse }
   | { ok: false; status: number; message: string };
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -81,4 +93,49 @@ export async function fetchAnalyticsFromGateway(
   params: AnalyticsParams = {},
 ): Promise<AnalyticsResult> {
   return fetchAnalytics(accessToken, '/analytics', params);
+}
+
+// ── Principals ────────────────────────────────────────────────────────────────
+
+export async function fetchAnalyticsPrincipalsFromGateway(
+  accessToken: string,
+  params: { days?: number; page?: number; limit?: number } = {},
+): Promise<AnalyticsPrincipalsRawResult> {
+  const qs = new URLSearchParams();
+  if (params.days !== undefined) qs.set('days', String(params.days));
+  if (params.page !== undefined) qs.set('page', String(params.page));
+  if (params.limit !== undefined) qs.set('limit', String(params.limit));
+
+  const path = '/analytics/principals';
+  const url = `${config.inferenceGatewayUrl}${path}${qs.size > 0 ? `?${qs.toString()}` : ''}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
+    console.error(`[fetchAnalyticsPrincipals] ${isTimeout ? 'timeout' : 'network error'}:`, err);
+    return {
+      ok: false,
+      status: isTimeout ? 504 : 502,
+      message: isTimeout ? 'Inference gateway timed out' : 'Failed to reach inference gateway',
+    };
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error(`[fetchAnalyticsPrincipals] responded ${res.status} ${res.statusText}`);
+    return { ok: false, status: res.status, message: body || res.statusText };
+  }
+
+  try {
+    const data = (await res.json()) as RawPrincipalsResponse;
+    return { ok: true, data };
+  } catch {
+    return { ok: false, status: 502, message: 'Invalid response from inference gateway' };
+  }
 }

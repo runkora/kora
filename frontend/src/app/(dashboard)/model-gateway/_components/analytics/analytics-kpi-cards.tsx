@@ -88,9 +88,9 @@ function CostCard({ kpis }: { kpis: AnalyticsKPIs }) {
         </Text>
         <CardDivider />
         <Stack gap="none">
-          <StatRow label="Error rate" value={fmtPct(kpis.error_rate)} />
-          <Separator />
           <StatRow label="Cache hit rate" value={fmtPct(kpis.cache_hit_rate)} />
+          <Separator />
+          <StatRow label="Error rate" value={fmtPct(kpis.error_rate)} />
         </Stack>
       </CardContent>
     </Card>
@@ -160,7 +160,9 @@ function LatencyCard({ kpis }: { kpis: AnalyticsKPIs }) {
         </Text>
         <CardDivider />
         <Stack gap="none">
-          <StatRow label="Error rate" value={fmtPct(kpis.error_rate)} />
+          <StatRow label="p95" value={fmtMs(kpis.p95_latency_ms)} />
+          <Separator />
+          <StatRow label="p99" value={fmtMs(kpis.p99_latency_ms)} />
         </Stack>
       </CardContent>
     </Card>

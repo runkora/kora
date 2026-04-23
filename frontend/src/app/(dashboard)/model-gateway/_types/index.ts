@@ -36,6 +36,7 @@ export interface InferenceUsageRecord {
   token_id: string | null;
   api_dialect: string;
   provider: string | null;
+  virtual_model_id: string | null; // consumer-facing "{family}/{name}"; null for pre-migration rows
   model_id: string;
   model_family: string | null;
   routing_strategy: string | null;
@@ -73,6 +74,8 @@ export interface AnalyticsKPIs {
   cache_read_tokens: number;
   estimated_cost_usd: number;
   avg_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
   error_rate: number;
   cache_hit_rate: number;
 }
@@ -96,6 +99,12 @@ export interface AnalyticsCostByModel {
   estimated_cost_usd: number;
 }
 
+export interface AnalyticsModelTokenBucket {
+  date: string; // "YYYY-MM-DD"
+  model_id: string;
+  total_tokens: number;
+}
+
 export interface AnalyticsResponse {
   scope: 'personal' | 'tenant';
   period_days: number;
@@ -103,10 +112,40 @@ export interface AnalyticsResponse {
   kpis: AnalyticsKPIs;
   buckets: AnalyticsBucket[];
   cost_by_model: AnalyticsCostByModel[];
+  tokens_by_model: AnalyticsModelTokenBucket[];
 }
 
 export type AnalyticsDays = 7 | 30 | 90;
 export type AnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
+
+// ── Principal analytics ───────────────────────────────────────────────────────
+
+// Mirrors PrincipalUsageSummary in backend/internal/inferencegw/models.go.
+export interface PrincipalUsageSummary {
+  principal_id: string;
+  request_count: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  error_rate: number;
+  avg_latency_ms: number;
+  last_active_at: string; // RFC3339
+}
+
+// Enriched by the BFF with identity service data.
+export interface PrincipalUsageRow extends PrincipalUsageSummary {
+  email: string | null;
+  display_name: string | null;
+}
+
+export interface AnalyticsPrincipalsPageResponse {
+  data: PrincipalUsageRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
 
 // ── Value-type unions ─────────────────────────────────────────────────────────
 

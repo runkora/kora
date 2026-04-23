@@ -64,7 +64,7 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	// model_id filter is only supported on the tenant-wide path.
 	if raw := r.URL.Query().Get("model_id"); raw != "" {
-		filter.ModelID = &raw
+		filter.VirtualModelID = &raw
 	}
 
 	span.SetAttributes(
@@ -74,6 +74,63 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 	)
 
 	resp, err := c.svc.Analytics(ctx, filter)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+// ─── GET /v1/analytics/principals ────────────────────────────────────────────
+
+// handleAnalyticsPrincipals handles GET /v1/analytics/principals.
+//
+// Returns per-principal usage aggregates (cost, tokens, requests, error rate,
+// latency) for the tenant, sorted by cost descending. Paginated via page/limit.
+// Requires the platform:analytics:read scope.
+func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipals")
+	defer span.End()
+
+	q := r.URL.Query()
+	filter := AnalyticsPrincipalsFilter{Days: 30, Page: 1, Limit: 20}
+
+	if raw := q.Get("days"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || !slices.Contains(validDays, v) {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'days' must be one of: 7, 30, 90", nil), err)
+			return
+		}
+		filter.Days = v
+	}
+
+	if raw := q.Get("page"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 1 {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'page' must be a positive integer", nil), err)
+			return
+		}
+		filter.Page = v
+	}
+
+	if raw := q.Get("limit"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 1 {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err)
+			return
+		}
+		filter.Limit = v
+	}
+
+	span.SetAttributes(
+		attribute.Int("app.analytics.principals.days", filter.Days),
+		attribute.Int("app.analytics.principals.page", filter.Page),
+	)
+
+	resp, err := c.svc.AnalyticsPrincipals(ctx, filter)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
 		return

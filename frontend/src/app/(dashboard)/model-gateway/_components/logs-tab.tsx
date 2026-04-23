@@ -100,16 +100,17 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       ),
     },
 
-    // Model — sortable alphabetically.
+    // Model — shows the virtual model ID (consumer-facing) with provider as subtitle.
+    // Sortable alphabetically by virtual model ID.
     {
       id: 'model',
       header: 'Model',
       sortable: true,
-      sortAccessor: (row) => row.model_id,
+      sortAccessor: (row) => row.virtual_model_id ?? row.model_id,
       cell: (row) => (
         <Stack gap="none">
           <Text size="supporting" color="foreground" mono>
-            {row.model_id}
+            {row.virtual_model_id ?? row.model_id}
           </Text>
           {row.provider && (
             <Text size="caption" color="subtle" mono>
@@ -117,6 +118,20 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
             </Text>
           )}
         </Stack>
+      ),
+    },
+
+    // Provider model — raw provider-side model ID; hidden by default.
+    {
+      id: 'providerModel',
+      header: 'Provider model',
+      defaultVisible: false,
+      sortable: true,
+      sortAccessor: (row) => row.model_id,
+      cell: (row) => (
+        <Text size="supporting" color="muted" mono>
+          {row.model_id}
+        </Text>
       ),
     },
 
@@ -276,7 +291,9 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         noun="requests"
         searchPlaceholder="Search request ID or model…"
         searchFn={(row, q) =>
-          row.id.toLowerCase().includes(q) || row.model_id.toLowerCase().includes(q)
+          row.id.toLowerCase().includes(q) ||
+          row.model_id.toLowerCase().includes(q) ||
+          (row.virtual_model_id?.toLowerCase().includes(q) ?? false)
         }
         defaultSortId="date"
         defaultSortDir="desc"

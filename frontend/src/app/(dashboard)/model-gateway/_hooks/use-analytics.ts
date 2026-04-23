@@ -18,10 +18,14 @@ export interface AnalyticsStateShape {
   // ── filter state ──────────────────────────────────────────────────────────
   days: AnalyticsDays;
   granularity: AnalyticsGranularity;
+  tokenId: string | null;
+  modelId: string | null;
 
   // ── actions ───────────────────────────────────────────────────────────────
   setDays: (days: AnalyticsDays) => void;
   setGranularity: (granularity: AnalyticsGranularity) => void;
+  setTokenId: (tokenId: string | null) => void;
+  setModelId: (modelId: string | null) => void;
   refresh: () => Promise<void>;
 }
 
@@ -30,6 +34,8 @@ export interface AnalyticsStateShape {
 type FetchFn = (params: {
   days: number;
   granularity: string;
+  tokenId?: string | null;
+  modelId?: string | null;
 }) => Promise<{ data: AnalyticsResponse | null; error: string | null }>;
 
 function makeUseAnalytics(fetchFn: FetchFn) {
@@ -48,39 +54,76 @@ function makeUseAnalytics(fetchFn: FetchFn) {
     const [granularity, setGranularityState] = useState<AnalyticsGranularity>(
       (initialData?.granularity as AnalyticsGranularity) ?? 'daily',
     );
+    const [tokenId, setTokenIdState] = useState<string | null>(null);
+    const [modelId, setModelIdState] = useState<string | null>(null);
 
-    const load = useCallback(async (d: AnalyticsDays, g: AnalyticsGranularity) => {
-      setStatus('loading');
-      setError(null);
-      const result = await fetchFn({ days: d, granularity: g });
-      if (result.error) {
-        setError(result.error);
-        setStatus('error');
-      } else {
-        setData(result.data);
-        setStatus('success');
-      }
-    }, []);
+    const load = useCallback(
+      async (d: AnalyticsDays, g: AnalyticsGranularity, tid: string | null, mid: string | null) => {
+        setStatus('loading');
+        setError(null);
+        const result = await fetchFn({ days: d, granularity: g, tokenId: tid, modelId: mid });
+        if (result.error) {
+          setError(result.error);
+          setStatus('error');
+        } else {
+          setData(result.data);
+          setStatus('success');
+        }
+      },
+      [],
+    );
 
     const setDays = useCallback(
       (d: AnalyticsDays) => {
         setDaysState(d);
-        void load(d, granularity);
+        void load(d, granularity, tokenId, modelId);
       },
-      [granularity, load],
+      [granularity, tokenId, modelId, load],
     );
 
     const setGranularity = useCallback(
       (g: AnalyticsGranularity) => {
         setGranularityState(g);
-        void load(days, g);
+        void load(days, g, tokenId, modelId);
       },
-      [days, load],
+      [days, tokenId, modelId, load],
     );
 
-    const refresh = useCallback(() => load(days, granularity), [days, granularity, load]);
+    const setTokenId = useCallback(
+      (tid: string | null) => {
+        setTokenIdState(tid);
+        void load(days, granularity, tid, modelId);
+      },
+      [days, granularity, modelId, load],
+    );
 
-    return { data, status, error, days, granularity, setDays, setGranularity, refresh };
+    const setModelId = useCallback(
+      (mid: string | null) => {
+        setModelIdState(mid);
+        void load(days, granularity, tokenId, mid);
+      },
+      [days, granularity, tokenId, load],
+    );
+
+    const refresh = useCallback(
+      () => load(days, granularity, tokenId, modelId),
+      [days, granularity, tokenId, modelId, load],
+    );
+
+    return {
+      data,
+      status,
+      error,
+      days,
+      granularity,
+      tokenId,
+      modelId,
+      setDays,
+      setGranularity,
+      setTokenId,
+      setModelId,
+      refresh,
+    };
   };
 }
 

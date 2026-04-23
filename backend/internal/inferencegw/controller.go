@@ -57,13 +57,14 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 // Route map:
 //
-//	POST   /chat/completions  OpenAI-dialect completions (streaming and non-streaming)
-//	POST   /messages          Anthropic Messages API dialect
-//	GET    /models            List available models
-//	GET    /usage/stats       Per-PAT usage aggregates (request count, last used)
-//	GET    /usage             Inference usage log (authenticated principal, paginated)
-//	GET    /analytics/me      Personal aggregated analytics (any authenticated caller)
-//	GET    /analytics         Tenant-wide aggregated analytics (requires platform:analytics:read)
+//	POST   /chat/completions      OpenAI-dialect completions (streaming and non-streaming)
+//	POST   /messages              Anthropic Messages API dialect
+//	GET    /models                List available models
+//	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
+//	GET    /usage                 Inference usage log (authenticated principal, paginated)
+//	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
+//	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
+//	GET    /analytics/principals  Per-principal usage summary (requires platform:analytics:read)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
@@ -72,6 +73,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)
+	mux.Handle("GET /analytics/principals", c.handleAnalyticsPrincipals)
 }
 
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.

@@ -305,6 +305,8 @@ matched_roles contains role_match if {
 }
 
 reason := concat("", ["role:", min(matched_roles)]) if {
+	not _is_delegated
+	not principal_has_required_scope
 	count(matched_roles) > 0
 }
 

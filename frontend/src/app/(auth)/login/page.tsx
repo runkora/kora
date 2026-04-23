@@ -16,6 +16,8 @@
  * server error codes returned after a failed OIDC round-trip.
  * Supports an optional `?next` query parameter forwarded to the OIDC state.
  */
+import { redirect } from 'next/navigation';
+
 import {
   Card,
   CardContent,
@@ -28,8 +30,8 @@ import {
 } from '@orbit/terra';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
+import { isSafeRedirectPath } from '@orbit/lib/routing';
 
-import { AlreadySignedIn } from './_components/already-signed-in';
 import { EmailSignInForm } from './_components/email-sign-in-form';
 
 interface LoginPageProps {
@@ -56,11 +58,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const session = await getSession();
   if (isSessionValid(session)) {
-    return (
-      <Stack maxWidth="card">
-        <AlreadySignedIn />
-      </Stack>
-    );
+    redirect(isSafeRedirectPath(next) ? next : '/');
   }
 
   const message = errorMessage(errorCode);

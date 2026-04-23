@@ -1,8 +1,9 @@
-// RSC — fetches initial tenant-wide analytics data server-side.
+// RSC — fetches initial tenant-wide analytics data and model list server-side.
 // Requires platform:analytics:read scope; the policy enforces this at the API layer.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAnalyticsFromGateway } from '../_services/analytics-server';
+import { fetchModelsFromGateway } from '../_services/models-server';
 import { AnalyticsShell } from './_components/analytics-shell';
 
 export default async function AnalyticsPage() {
@@ -10,19 +11,27 @@ export default async function AnalyticsPage() {
 
   if (!isSessionValid(session)) {
     return (
-      <AnalyticsShell initialData={null} initialError="Session expired — please sign in again." />
+      <AnalyticsShell
+        initialData={null}
+        initialError="Session expired — please sign in again."
+        models={[]}
+      />
     );
   }
 
-  const result = await fetchAnalyticsFromGateway(session.accessToken, {
-    days: 30,
-    granularity: 'daily',
-  });
+  const [analyticsResult, modelsResult] = await Promise.all([
+    fetchAnalyticsFromGateway(session.accessToken, {
+      days: 30,
+      granularity: 'daily',
+    }),
+    fetchModelsFromGateway(session.accessToken),
+  ]);
 
   return (
     <AnalyticsShell
-      initialData={result.ok ? result.data : null}
-      initialError={result.ok ? null : result.message}
+      initialData={analyticsResult.ok ? analyticsResult.data : null}
+      initialError={analyticsResult.ok ? null : analyticsResult.message}
+      models={modelsResult.ok ? modelsResult.models : []}
     />
   );
 }

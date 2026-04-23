@@ -10,6 +10,7 @@ import { AnalyticsRequestsChart } from './analytics-requests-chart';
 import { AnalyticsCostByModelChart } from './analytics-cost-by-model-chart';
 import { AnalyticsLatencyChart } from './analytics-latency-chart';
 import { AnalyticsPeriodControls } from './analytics-period-controls';
+import { AnalyticsTokensByModelChart } from './analytics-tokens-by-model-chart';
 
 // ── Empty / loading states ────────────────────────────────────────────────────
 
@@ -46,6 +47,8 @@ export interface AnalyticsDashboardProps {
   granularity: AnalyticsGranularity;
   onSetDays: (d: AnalyticsDays) => void;
   onSetGranularity: (g: AnalyticsGranularity) => void;
+  /** Optional filter controls rendered between the description and the period controls. */
+  filterSlot?: React.ReactNode;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -60,55 +63,72 @@ export function AnalyticsDashboard({
   granularity,
   onSetDays,
   onSetGranularity,
+  filterSlot,
 }: AnalyticsDashboardProps) {
   const buckets = data?.buckets ?? [];
   const costByModel = data?.cost_by_model ?? [];
+  const tokensByModel = data?.tokens_by_model ?? [];
+  const loading = status === 'loading';
 
   return (
     <Stack direction="vertical" gap="comfortable" asChild>
       <section>
-        {/* Header + period controls */}
-        <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
-          <Stack gap="snug">
-            <Heading variant="title">{title}</Heading>
-            <Text size="supporting" color="muted">
-              {description}
-            </Text>
-          </Stack>
+        {/* Title row */}
+        <Stack gap="snug">
+          <Heading variant="title">{title}</Heading>
+          <Text size="supporting" color="muted">
+            {description}
+          </Text>
+        </Stack>
+
+        {/* Controls row — filter slot left, period controls right */}
+        <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
+          <span>{filterSlot}</span>
           <AnalyticsPeriodControls
             days={days}
             granularity={granularity}
             onSetDays={onSetDays}
             onSetGranularity={onSetGranularity}
-            loading={status === 'loading'}
+            loading={loading}
           />
         </Stack>
 
         {/* Error banner */}
         {error && <ErrorState message={error} />}
 
-        {/* KPI stat cards */}
-        {data ? <AnalyticsKPICards kpis={data.kpis} /> : <div className="h-[120px]" />}
+        {/* Data area — dims while reloading */}
+        <section
+          className={loading ? 'pointer-events-none opacity-50 transition-opacity' : undefined}
+        >
+          <Stack direction="vertical" gap="comfortable">
+            {/* KPI stat cards */}
+            {data ? <AnalyticsKPICards kpis={data.kpis} /> : <div className="h-[120px]" />}
 
-        {/* Empty state when no bucket data */}
-        {!error && data && buckets.length === 0 && <EmptyState />}
+            {/* Empty state when no bucket data */}
+            {!error && data && buckets.length === 0 && <EmptyState />}
 
-        {/* Charts — only render when data is available */}
-        {buckets.length > 0 && (
-          <>
-            <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-              <AnalyticsSpendChart buckets={buckets} />
-              <AnalyticsTokensChart buckets={buckets} />
-            </Grid>
+            {/* Charts — only render when data is available */}
+            {buckets.length > 0 && (
+              <>
+                <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+                  <AnalyticsSpendChart buckets={buckets} />
+                  <AnalyticsTokensChart buckets={buckets} />
+                </Grid>
 
-            <AnalyticsRequestsChart buckets={buckets} />
+                <AnalyticsRequestsChart buckets={buckets} />
 
-            <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-              <AnalyticsCostByModelChart costByModel={costByModel} />
-              <AnalyticsLatencyChart buckets={buckets} />
-            </Grid>
-          </>
-        )}
+                {tokensByModel.length > 0 && (
+                  <AnalyticsTokensByModelChart tokensByModel={tokensByModel} />
+                )}
+
+                <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+                  <AnalyticsCostByModelChart costByModel={costByModel} />
+                  <AnalyticsLatencyChart buckets={buckets} />
+                </Grid>
+              </>
+            )}
+          </Stack>
+        </section>
       </section>
     </Stack>
   );

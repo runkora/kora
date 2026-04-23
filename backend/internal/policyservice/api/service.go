@@ -241,6 +241,33 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID string, principalRoles []string) ([]string, error) {
 	scopeSet := make(map[string]struct{})
 
+	if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+		return nil, err
+	}
+	if err := s.addGrantScopes(ctx, tenantID, principalID, scopeSet); err != nil {
+		return nil, err
+	}
+
+	// Expand family-level scopes (e.g. "inference:anthropic:use") to also include
+	// any more-specific vocabulary entries they cover (e.g. "inference:anthropic:claude-sonnet-4-6:use").
+	// This lets users create PATs with finer-grained scopes when they hold a
+	// parent scope that implies access to all children.
+	allVocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
+	}
+	expandScopeFamily(allVocab, scopeSet)
+
+	result := make([]string, 0, len(scopeSet))
+	for sc := range scopeSet {
+		result = append(result, sc)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+// addRoleScopes populates scopeSet with scopes derived from the principal's OIDC roles.
+func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalRoles []string, scopeSet map[string]struct{}) error {
 	for _, role := range principalRoles {
 		role = strings.TrimSpace(role)
 		if role == "" {
@@ -255,7 +282,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID str
 		entry, err := s.roleRepo.GetByRole(ctx, tenantID, role)
 		if err != nil {
 			if !errors.Is(err, roles.ErrRoleNotFound) {
-				return nil, fmt.Errorf("get role scopes: %w", err)
+				return fmt.Errorf("get role scopes: %w", err)
 			}
 			continue
 		}
@@ -263,23 +290,66 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID str
 			scopeSet[sc] = struct{}{}
 		}
 	}
+	return nil
+}
 
+// addGrantScopes populates scopeSet with scopes from explicit grants for the principal.
+func (s *Service) addGrantScopes(ctx context.Context, tenantID, principalID string, scopeSet map[string]struct{}) error {
 	grantList, _, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("list grants: %w", err)
+		return fmt.Errorf("list grants: %w", err)
 	}
 	for _, g := range grantList {
 		for _, sc := range g.Scopes {
 			scopeSet[sc] = struct{}{}
 		}
 	}
+	return nil
+}
 
-	result := make([]string, 0, len(scopeSet))
+// expandScopeFamily expands each scope in scopeSet to also include any
+// vocabulary entries covered by that scope (parent implies children).
+func expandScopeFamily(allVocab []*vocabulary.ScopeEntry, scopeSet map[string]struct{}) {
+	initial := make([]string, 0, len(scopeSet))
 	for sc := range scopeSet {
-		result = append(result, sc)
+		initial = append(initial, sc)
 	}
-	sort.Strings(result)
-	return result, nil
+	for _, entry := range allVocab {
+		for _, granted := range initial {
+			if scopeCovers(granted, entry.Scope) {
+				scopeSet[entry.Scope] = struct{}{}
+				break
+			}
+		}
+	}
+}
+
+// scopeCovers mirrors the Rego scope_covers rule: a covers b when they share
+// the same resource type (first segment) and action (last segment), and a's
+// path segments (middle) are a prefix of b's path segments.
+func scopeCovers(a, b string) bool {
+	if a == b {
+		return true
+	}
+	partsA := strings.Split(a, ":")
+	partsB := strings.Split(b, ":")
+	if len(partsA) < 2 || len(partsB) < 2 {
+		return false
+	}
+	if partsA[0] != partsB[0] || partsA[len(partsA)-1] != partsB[len(partsB)-1] {
+		return false
+	}
+	pathA := partsA[1 : len(partsA)-1]
+	pathB := partsB[1 : len(partsB)-1]
+	if len(pathA) > len(pathB) {
+		return false
+	}
+	for i, seg := range pathA {
+		if pathB[i] != seg {
+			return false
+		}
+	}
+	return true
 }
 
 // reservedRoles are the hardcoded platform admin roles that cannot be managed

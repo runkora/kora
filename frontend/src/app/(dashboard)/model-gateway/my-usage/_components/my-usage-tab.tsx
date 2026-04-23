@@ -1,11 +1,35 @@
 'use client';
 
+import { NativeSelect } from '@orbit/terra';
+import type { PAT } from '@orbit/shared/api';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
 
-export function MyUsageTab() {
-  const { data, status, error, days, granularity, setDays, setGranularity } =
+interface MyUsageTabProps {
+  pats: PAT[];
+}
+
+export function MyUsageTab({ pats }: MyUsageTabProps) {
+  const { data, status, error, days, granularity, tokenId, setDays, setGranularity, setTokenId } =
     useAnalyticsMeContext();
+
+  const filterSlot =
+    pats.length > 0 ? (
+      <section style={{ width: '160px' }}>
+        <NativeSelect
+          value={tokenId ?? ''}
+          onChange={(e) => setTokenId(e.target.value || null)}
+          aria-label="Filter by API key"
+        >
+          <option value="">All API keys</option>
+          {pats.map((pat) => (
+            <option key={pat.id} value={pat.id}>
+              {pat.name}
+            </option>
+          ))}
+        </NativeSelect>
+      </section>
+    ) : undefined;
 
   return (
     <AnalyticsDashboard
@@ -18,6 +42,7 @@ export function MyUsageTab() {
       granularity={granularity}
       onSetDays={setDays}
       onSetGranularity={setGranularity}
+      filterSlot={filterSlot}
     />
   );
 }

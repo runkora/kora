@@ -36,14 +36,15 @@ const (
 
 // RouteTarget describes a single provider + model pair resolved by the routing
 // engine. Pricing is attached so the service layer can compute cost attribution
-// without a second cache lookup. ModelFamily carries the virtual model family
-// (e.g. "anthropic") so the service layer can persist it in inference_usage
+// without a second cache lookup. ModelFamily and VirtualModelID carry the
+// virtual model identity so the service layer can persist them in inference_usage
 // without a second catalog lookup.
 type RouteTarget struct {
-	Provider    ProviderName
-	ModelID     string
-	ModelFamily string
-	Pricing     ModelPricing
+	Provider       ProviderName
+	ModelID        string // canonical provider model ID (e.g. "anthropic.claude-3-5-sonnet-20241022-v2:0")
+	ModelFamily    string // virtual model family (e.g. "anthropic")
+	VirtualModelID string // consumer-facing full ID: "{family}/{name}" (e.g. "anthropic/claude-sonnet-4-6")
+	Pricing        ModelPricing
 }
 
 // RoutingEngine resolves an inference request to an ordered list of provider
@@ -180,7 +181,7 @@ func (r *RoutingEngine) targetsForVirtualModel(
 		return nil, "", fmt.Errorf("unknown virtual model strategy %q", vm.Strategy)
 	}
 
-	return routesToTargets(ordered, vm.Family), strategy, nil
+	return routesToTargets(ordered, vm.Family, vm.FullID()), strategy, nil
 }
 
 // enabledRoutes returns the routes for vm that are individually enabled and
@@ -244,16 +245,18 @@ func weightedOrder(routes []VirtualModelRoute) []VirtualModelRoute {
 }
 
 // routesToTargets converts VirtualModelRoutes to RouteTargets, attaching the
-// model family for usage attribution. family comes from the parent VirtualModel
-// and is passed explicitly — it is not stored on the route row.
-func routesToTargets(routes []VirtualModelRoute, family string) []RouteTarget {
+// model family and virtual model full ID for usage attribution. Both come from
+// the parent VirtualModel and are passed explicitly — they are not stored on
+// the route row.
+func routesToTargets(routes []VirtualModelRoute, family, virtualModelID string) []RouteTarget {
 	targets := make([]RouteTarget, len(routes))
 	for i, r := range routes {
 		targets[i] = RouteTarget{
-			Provider:    r.Provider,
-			ModelID:     r.ModelID,
-			ModelFamily: family,
-			Pricing:     r.pricing(),
+			Provider:       r.Provider,
+			ModelID:        r.ModelID,
+			ModelFamily:    family,
+			VirtualModelID: virtualModelID,
+			Pricing:        r.pricing(),
 		}
 	}
 	return targets

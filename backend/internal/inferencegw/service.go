@@ -229,6 +229,7 @@ func (s *Service) ChatCompletion(
 		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectOpenAI,
 		Provider:         &usedTarget.Provider,
+		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
 		ModelID:          usedTarget.ModelID,
 		ModelFamily:      nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:  &strategy,
@@ -391,6 +392,7 @@ func (s *Service) ChatCompletionStream(
 			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectOpenAI,
 			Provider:         &capturedTarget.Provider,
+			VirtualModelID:   nullableText(capturedTarget.VirtualModelID),
 			ModelID:          capturedTarget.ModelID,
 			ModelFamily:      nullableText(capturedTarget.ModelFamily),
 			RoutingStrategy:  &capturedStrategy,
@@ -686,6 +688,7 @@ func (s *Service) writeFailedUsage(
 		TokenID:         nullableText(p.TokenID),
 		APIDialect:      dialect,
 		Provider:        provider,
+		VirtualModelID:  nullableText(req.Model),
 		ModelID:         req.Model,
 		ModelFamily:     modelFamily,
 		RoutingStrategy: strategy,
@@ -1027,6 +1030,7 @@ func (s *Service) AnthropicMessagesStream(
 			TokenID:                  nullableText(p.TokenID),
 			APIDialect:               DialectAnthropic,
 			Provider:                 &capturedTarget.Provider,
+			VirtualModelID:           nullableText(capturedTarget.VirtualModelID),
 			ModelID:                  capturedTarget.ModelID,
 			ModelFamily:              nullableText(capturedTarget.ModelFamily),
 			RoutingStrategy:          &capturedStrategy,
@@ -1125,6 +1129,22 @@ func (s *Service) Analytics(ctx context.Context, filter AnalyticsFilter) (Analyt
 	resp, err := s.usage.GetAnalytics(ctx, filter)
 	if err != nil {
 		return AnalyticsResponse{}, fmt.Errorf("analytics: %w", err)
+	}
+	return resp, nil
+}
+
+// AnalyticsPrincipals returns per-principal usage aggregates for the tenant.
+// TenantID is sourced from the verified JWT; callers cannot override it.
+// Requires the platform:analytics:read scope.
+func (s *Service) AnalyticsPrincipals(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsPrincipalsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	resp, err := s.usage.ListPrincipalUsage(ctx, filter)
+	if err != nil {
+		return AnalyticsPrincipalsResponse{}, fmt.Errorf("analytics principals: %w", err)
 	}
 	return resp, nil
 }

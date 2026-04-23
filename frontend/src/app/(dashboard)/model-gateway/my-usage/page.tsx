@@ -1,7 +1,8 @@
-// RSC — fetches initial analytics data for the authenticated principal server-side.
+// RSC — fetches initial analytics data and PATs for the authenticated principal server-side.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAnalyticsMeFromGateway } from '../_services/analytics-server';
+import { listPATsFromIdentity } from '../_services/tokens-server';
 import { MyUsageShell } from './_components/my-usage-shell';
 
 export default async function MyUsagePage() {
@@ -9,19 +10,27 @@ export default async function MyUsagePage() {
 
   if (!isSessionValid(session)) {
     return (
-      <MyUsageShell initialData={null} initialError="Session expired — please sign in again." />
+      <MyUsageShell
+        initialData={null}
+        initialError="Session expired — please sign in again."
+        pats={[]}
+      />
     );
   }
 
-  const result = await fetchAnalyticsMeFromGateway(session.accessToken, {
-    days: 30,
-    granularity: 'daily',
-  });
+  const [analyticsResult, patsResult] = await Promise.all([
+    fetchAnalyticsMeFromGateway(session.accessToken, {
+      days: 30,
+      granularity: 'daily',
+    }),
+    listPATsFromIdentity(session.accessToken),
+  ]);
 
   return (
     <MyUsageShell
-      initialData={result.ok ? result.data : null}
-      initialError={result.ok ? null : result.message}
+      initialData={analyticsResult.ok ? analyticsResult.data : null}
+      initialError={analyticsResult.ok ? null : analyticsResult.message}
+      pats={patsResult.ok ? patsResult.tokens : []}
     />
   );
 }
