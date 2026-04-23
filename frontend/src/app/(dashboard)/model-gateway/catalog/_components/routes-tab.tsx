@@ -252,19 +252,17 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                       ))}
                   </NativeSelect>
                 ) : (
-                  // eslint-disable-next-line local/no-raw-layout-elements -- font-mono wrapper; Terra Input has no mono prop (blocked on Cat 12 Terra gap)
-                  <div className="font-mono">
-                    <Input
-                      value={route.modelId}
-                      onChange={(e) => {
-                        const updated = model.routes.map((r, i) =>
-                          i === idx ? { ...r, modelId: e.target.value } : r,
-                        );
-                        onChange({ ...model, routes: updated });
-                      }}
-                      placeholder="Provider model ID"
-                    />
-                  </div>
+                  <Input
+                    mono
+                    value={route.modelId}
+                    onChange={(e) => {
+                      const updated = model.routes.map((r, i) =>
+                        i === idx ? { ...r, modelId: e.target.value } : r,
+                      );
+                      onChange({ ...model, routes: updated });
+                    }}
+                    placeholder="Provider model ID"
+                  />
                 )}
 
                 <Grid cols={2} gap="snug">

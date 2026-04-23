@@ -83,23 +83,23 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </CardHeader>
 
         <CardContent>
-          {/* Error banner — shown only after a failed OIDC round-trip */}
-          {message && (
-            <div className="mb-4">
+          <Stack gap="comfortable">
+            {/* Error banner — shown only after a failed OIDC round-trip */}
+            {message && (
               <Alert variant="error">
                 <Text size="caption">{message}</Text>
               </Alert>
-            </div>
-          )}
+            )}
 
-          {/*
-           * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
-           * enters their work email, the BFF resolves the tenant's OIDC
-           * configuration, and the browser is redirected to the correct IdP.
-           * The `next` destination is encoded in the PKCE state so the
-           * callback page can restore it after the provider round-trip.
-           */}
-          <EmailSignInForm next={next} />
+            {/*
+             * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
+             * enters their work email, the BFF resolves the tenant's OIDC
+             * configuration, and the browser is redirected to the correct IdP.
+             * The `next` destination is encoded in the PKCE state so the
+             * callback page can restore it after the provider round-trip.
+             */}
+            <EmailSignInForm next={next} />
+          </Stack>
         </CardContent>
 
         {/* CardFooter already applies border-t border-border-subtle */}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Icon, Stack, StatusDot, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { VirtualModel } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
@@ -46,12 +46,10 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         sortable: true,
         sortAccessor: (m) => m.name,
         cell: (m) => (
-          <Stack gap="none">
-            <div className="mb-0.5 text-[10px] uppercase tracking-wider">
-              <Text size="caption" color="subtle">
-                {m.family}
-              </Text>
-            </div>
+          <Stack gap="tight">
+            <Text size="caption" color="subtle">
+              {m.family}
+            </Text>
             <Text size="supporting" weight="emphasis" mono>
               {m.name}
             </Text>
@@ -74,15 +72,16 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         cell: (m) => (
           <Stack direction="horizontal" align="center" gap="tight">
             <Text size="supporting">{m.routes.length}</Text>
-            <div className="flex gap-0.5">
+            <Stack direction="horizontal" gap="tight">
               {m.routes.map((r, ri) => (
-                <div
+                <StatusDot
                   key={r.id || ri}
-                  className={`h-1.5 w-1.5 rounded-full ${r.enabled ? 'bg-status-healthy' : 'bg-muted/40'}`}
+                  status={r.enabled ? 'healthy' : 'muted'}
+                  size="sm"
                   title={`${PROVIDER_LABELS[r.provider] ?? r.provider} — ${r.enabled ? 'active' : 'disabled'}`}
                 />
               ))}
-            </div>
+            </Stack>
           </Stack>
         ),
       },
@@ -95,16 +94,14 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
           filterFn: (m, selected) => selected.has(m.enabled ? 'enabled' : 'disabled'),
         },
         cell: (m) => (
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              m.enabled ? 'bg-status-healthy/15 text-status-healthy' : 'bg-muted/20 text-muted'
-            }`}
+          <Badge
+            variant={m.enabled ? 'healthy' : 'muted'}
+            shape="pill"
+            size="sm"
+            dot
           >
-            <div
-              className={`h-1.5 w-1.5 rounded-full ${m.enabled ? 'bg-status-healthy' : 'bg-muted/40'}`}
-            />
             {m.enabled ? 'Enabled' : 'Disabled'}
-          </div>
+          </Badge>
         ),
       },
       {

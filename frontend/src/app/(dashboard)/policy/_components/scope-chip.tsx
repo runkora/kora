@@ -3,11 +3,12 @@
  * type in accent, separators in border color, and action in foreground.
  */
 import { Fragment } from 'react';
+import { Badge } from '@orbit/terra';
 
 export function ScopeChip({ scope }: { scope: string }) {
   const parts = scope.split(':');
   return (
-    <div className="inline-flex items-center font-mono text-[0.6875rem] bg-surface-elevated border border-border-subtle rounded px-1.5 py-0.5 whitespace-nowrap">
+    <Badge variant="elevated" size="sm" mono>
       {parts.map((part, i) => {
         const isFirst = i === 0;
         const isLast = i === parts.length - 1;
@@ -20,6 +21,6 @@ export function ScopeChip({ scope }: { scope: string }) {
           </Fragment>
         );
       })}
-    </div>
+    </Badge>
   );
 }

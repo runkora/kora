@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
@@ -126,13 +127,13 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Search + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
         <Stack direction="horizontal" align="center" justify="between">
-          <Input
-            type="text"
-            placeholder="Search roles..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-xs flex-1"
-          />
+          <Stack asChild grow maxWidth="compact">
+            <Input
+              placeholder="Search roles..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </Stack>
           <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
         </Stack>
       )}
@@ -304,28 +305,24 @@ function ViewToggle({
   onToggle: (mode: 'cards' | 'list') => void;
 }) {
   return (
-    <Stack direction="horizontal" gap="none">
-      <div className="[&>button]:rounded-r-none">
-        <Button
-          variant={viewMode === 'cards' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('cards')}
-          aria-label="Card view"
-        >
-          <Icon name="layout-grid" size="2xs" />
-        </Button>
-      </div>
-      <div className="[&>button]:rounded-l-none -ml-px">
-        <Button
-          variant={viewMode === 'list' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('list')}
-          aria-label="List view"
-        >
-          <Icon name="list" size="2xs" />
-        </Button>
-      </div>
-    </Stack>
+    <ButtonGroup>
+      <Button
+        variant={viewMode === 'cards' ? 'default' : 'outline'}
+        size="icon-sm"
+        onClick={() => onToggle('cards')}
+        aria-label="Card view"
+      >
+        <Icon name="layout-grid" size="2xs" />
+      </Button>
+      <Button
+        variant={viewMode === 'list' ? 'default' : 'outline'}
+        size="icon-sm"
+        onClick={() => onToggle('list')}
+        aria-label="List view"
+      >
+        <Icon name="list" size="2xs" />
+      </Button>
+    </ButtonGroup>
   );
 }
 

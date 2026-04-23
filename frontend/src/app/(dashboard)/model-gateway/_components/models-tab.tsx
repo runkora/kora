@@ -93,13 +93,12 @@ export function ModelsTab() {
             <Button
               variant="ghost"
               size="icon-sm"
+              dim={!isFav}
               aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleFavourite(row.id);
               }}
-              // eslint-disable-next-line local/no-terra-classname -- conditional opacity; no Terra variant covers this pattern
-              className={!isFav ? 'opacity-30 transition-opacity hover:opacity-100' : undefined}
             >
               <Icon name="heart" size="2xs" color={isFav ? 'rose' : 'muted'} filled={isFav} />
             </Button>
@@ -114,11 +113,9 @@ export function ModelsTab() {
         sortAccessor: (row) => row.name,
         cell: (row) => (
           <Stack gap="none">
-            <div className="mb-0.5 text-[10px] uppercase tracking-wider">
-              <Text size="caption" color="subtle">
-                {row.family}
-              </Text>
-            </div>
+            <Text size="caption" color="subtle" transform="uppercase" style={{ marginBottom: '0.125rem' }}>
+              {row.family}
+            </Text>
             <Text size="supporting" weight="emphasis" mono>
               {row.id}
             </Text>

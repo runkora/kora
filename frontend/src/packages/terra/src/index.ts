@@ -28,8 +28,14 @@ export type {
 export { Button, buttonVariants } from './components/button';
 export type { ButtonProps } from './components/button';
 
+export { ButtonGroup } from './components/button-group';
+export type { ButtonGroupProps } from './components/button-group';
+
 export { Badge, badgeVariants } from './components/badge';
 export type { BadgeProps } from './components/badge';
+
+export { StatusDot, statusDotVariants } from './components/status-dot';
+export type { StatusDotProps } from './components/status-dot';
 
 export {
   Card,

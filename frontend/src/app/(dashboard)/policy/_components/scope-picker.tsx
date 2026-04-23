@@ -96,12 +96,7 @@ export function ScopePicker({
                   onClick={() => toggleGroupOpen(group.resourceType)}
                   className="flex w-full items-center gap-2.5 px-3 py-2 bg-surface-overlay hover:bg-surface-elevated cursor-pointer select-none transition-colors"
                 >
-                  {/* eslint-disable-next-line local/no-raw-inline-elements -- layout-only: rotate-90 transform cannot go on Icon */}
-                  <span
-                    className={`shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-                  >
-                    <Icon name="chevron-right" size="2xs" color="subtle" />
-                  </span>
+                  <Icon name="chevron-right" size="2xs" color="subtle" rotate={open ? 90 : 0} />
                   <Text as="span" size="micro" color="accent" mono weight="emphasis">
                     {group.resourceType}
                   </Text>

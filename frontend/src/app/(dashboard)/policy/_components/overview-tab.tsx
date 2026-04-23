@@ -344,19 +344,18 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                     const isReserved =
                       role.role === 'tenant-admin' || role.role === 'platform-admin';
                     return (
-                      <div
+                      <Badge
                         key={role.id}
-                        className={`inline-flex items-center gap-1.5 font-mono text-xs px-2.5 py-1 rounded-full border ${
-                          isReserved
-                            ? 'border-accent/30 bg-accent/5 text-accent'
-                            : 'border-border-subtle bg-surface-elevated text-foreground'
-                        }`}
+                        shape="pill"
+                        size="lg"
+                        variant={isReserved ? 'reserved' : 'elevated'}
+                        mono
                       >
                         {role.role}
                         <Text size="micro" color="subtle" mono={false}>
                           {(role.scopes ?? []).length}
                         </Text>
-                      </div>
+                      </Badge>
                     );
                   })}
                 </Stack>

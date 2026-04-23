@@ -291,14 +291,26 @@ See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for de
 
 ## Frontend Development
 
-> ⚠️ **MUST read before writing any frontend UI code:**
-> - **[`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md)** — tier model, Terra inventory, placement decision tree, post-task checklist
-> - **[`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md)** — Terra component usage, ESLint enforcement rules, and why `eslint-disable` is forbidden
->
-> **MUST read when working with backend data (fetching, caching, reactive state):**
-> - **[`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md)** — state management patterns
+All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`. The rules in plain terms:
 
-The Terra design system is enforced by five ESLint rules with **zero escape hatches**. Violations fail `pnpm lint`. `eslint-disable` comments targeting any Terra rule are themselves a lint error. Full details are in the golden paths above.
+- **Layout**: `<div>` → `<Stack>` (flex) or `<Grid>` (grid). Semantic elements (`section`, `aside`, `nav`, `header`, `footer`, `article`, `main`) with display-mode Tailwind classes → `<Stack asChild>` or `<Grid asChild>`.
+- **Typography**: `<h1>`–`<h6>` → `<Heading variant="…">`. `<p>` → `<Text>`. `<span>` → `<Text as="span">` (inline) or `<Text>` (block). `<strong>` / `<b>` → `<Text weight="heavy">`.
+- **Icons**: Never `import { … } from 'lucide-react'` — always `<Icon name="…" />`. Adding a new icon requires a registry entry in `src/packages/terra/src/components/icon/registry.ts`; propose the name to a human engineer first.
+- **No `className` on Terra components** — use the component's own props. For layout use `<Stack asChild>` / `<Grid asChild>` and put Tailwind classes on the child element.
+- **Missing Terra component**: Do **not** use raw HTML and do **not** modify Terra unilaterally. Write a short proposal (element needed, suggested API, Radix/ShadCN base if one exists) and wait for human engineer approval before touching `src/packages/terra/`.
+
+**Component placement — three-tier model.** Apply this decision tree in order, stop at the first match, and never pre-generalise:
+
+1. Used by exactly one file → keep inline. Extract only if the host file exceeds ~300 lines of JSX.
+2. All consumers are within the same feature area → **Tier 3**: place in `src/app/(dashboard)/[feature]/_components/`, use a relative import.
+3. Consumers span two or more feature areas **and** the component contains no Orbit domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**: place in `src/packages/terra/src/components/`, export from `src/packages/terra/src/index.ts`, import as `import { X } from '@orbit/terra'`. Requires human approval before any Terra modification.
+4. Consumers span two or more feature areas **and** the component is Orbit-domain-aware → **Tier 2**: place in `src/components/`, export from `src/components/index.ts`, import as `import { X } from '@/components'`.
+
+Every extracted component file must open with a `@tier` JSDoc comment (e.g. `/** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */`). Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is hard — always start at the most specific tier.
+
+All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit` — both must pass with zero errors.
+
+**Reference docs:** [`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) (full component usage, props, examples) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state)
 
 ## Getting Help
 

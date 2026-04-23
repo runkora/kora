@@ -169,6 +169,41 @@ export interface IconProps {
   filled?: boolean;
 
   /**
+   * Rotation angle applied to the icon wrapper span.
+   * Use for animated chevrons (accordion toggles, collapsible rows) where
+   * the icon must rotate to indicate open/closed state without a separate
+   * layout wrapper.
+   *
+   * ```tsx
+   * <Icon name="chevron-right" size="2xs" rotate={open ? 90 : 0} />
+   * ```
+   */
+  rotate?: 0 | 45 | 90 | 135 | 180 | 270;
+
+  /**
+   * Inline styles applied to the icon wrapper span.
+   * Intended **only** for layout positioning — `margin`, `flexShrink`,
+   * `alignSelf`, `position` etc. — where a typed prop would be too
+   * narrow to be reusable across call sites.
+   *
+   * Do **not** use this for colour or typography overrides; those belong
+   * in typed props (`color`, `size`) or a new Terra prop.
+   */
+  style?: React.CSSProperties;
+
+  /**
+   * When true, the icon wrapper is initially invisible and fades in when
+   * an ancestor element with the Tailwind `group` class is hovered.
+   * Use this for "copy" / "action" icons inside hover-reveal rows.
+   *
+   * ```tsx
+   * // parent must have className="group" (or similar)
+   * <Icon name="copy" size="2xs" color="muted" groupReveal />
+   * ```
+   */
+  groupReveal?: boolean;
+
+  /**
    * className is intentionally not exposed. Size and colour are controlled
    * via typed props to keep icons consistent across the product.
    *
@@ -190,6 +225,9 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       color,
       filled = false,
       label,
+      rotate,
+      style,
+      groupReveal = false,
     },
     ref,
   ) => {
@@ -214,13 +252,35 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
     if (!container) {
       // Bare icon — render as a semantically neutral inline span so it can
       // sit inside flex rows, buttons, and list items without adding a block.
+      //
+      // When `rotate`, `style`, or `groupReveal` are supplied we switch from
+      // `display:contents` (which collapses the span) to `display:inline-flex`
+      // so that transforms, margins, and opacity transitions take effect.
+      const needsBox = rotate !== undefined || style !== undefined || groupReveal;
+      const wrapperStyle: React.CSSProperties = needsBox
+        ? {
+            display: 'inline-flex',
+            alignItems: 'center',
+            ...(rotate !== undefined && {
+              transform: `rotate(${rotate}deg)`,
+              transition: 'transform 150ms',
+            }),
+            ...style,
+          }
+        : { display: 'contents' };
+
       return (
         <span
           ref={ref}
           data-slot="icon-wrapper"
           aria-hidden={label ? undefined : true}
           aria-label={label}
-          style={{ display: 'contents' }}
+          className={
+            groupReveal
+              ? 'shrink-0 opacity-0 transition-opacity group-hover:opacity-100'
+              : undefined
+          }
+          style={wrapperStyle}
         >
           {svgEl}
         </span>

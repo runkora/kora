@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { DataTable, Heading, Stack, Text } from '@orbit/terra';
+import { Badge, DataTable, Heading, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
@@ -75,9 +75,9 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           filterFn: (r, selected) => selected.has(r.service),
         },
         cell: (r) => (
-          <div className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
+          <Badge variant="elevated">
             {r.service}
-          </div>
+          </Badge>
         ),
       },
       {

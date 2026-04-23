@@ -1,14 +1,15 @@
-'use client';
-
+import { Badge } from '@orbit/terra';
 import type { Provider } from '../_types/catalog';
-import { PROVIDER_LABELS, PROVIDER_COLORS } from '../_utils/catalog-constants';
+import { PROVIDER_LABELS, PROVIDER_VARIANTS } from '../_utils/catalog-constants';
 
-export function ProviderBadge({ provider }: { provider: Provider }) {
+interface ProviderBadgeProps {
+  provider: Provider;
+}
+
+export function ProviderBadge({ provider }: ProviderBadgeProps) {
   return (
-    <div
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${PROVIDER_COLORS[provider]}`}
-    >
+    <Badge variant={PROVIDER_VARIANTS[provider]} size="sm">
       {PROVIDER_LABELS[provider]}
-    </div>
+    </Badge>
   );
 }

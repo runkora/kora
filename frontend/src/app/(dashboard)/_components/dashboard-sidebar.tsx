@@ -49,15 +49,11 @@ export function DashboardSidebar() {
 
             return (
               <section key={label} className="space-y-0.5">
-                {/*
-                 * px-3 pb-1.5 wrapper: structural spacing for the nav group label
-                 * row. Layout concerns belong on the wrapper, not on Text itself.
-                 */}
-                <div className="px-3 pb-1.5">
+                <Stack style={{ padding: '0 0.75rem 0.375rem' }}>
                   <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
                     {label}
                   </Text>
-                </div>
+                </Stack>
                 {visibleItems.map(({ label: itemLabel, href, icon, badge, wip }) =>
                   wip ? (
                     <NavItem
@@ -91,12 +87,12 @@ export function DashboardSidebar() {
           <footer className="px-4 py-3">
             <Icon name="user" size="xs" container containerVariant="surface" />
             {/*
-             * flex-1 min-w-0: standard flex truncation pattern — flex-1 makes the
-             * column fill remaining width; min-w-0 allows it to shrink below its
-             * content width so the Text truncate prop can clip long email addresses.
-             * No Terra Stack equivalent exists for grow + min-width suppression.
+             * grow + minWidth:0 — the standard flex truncation pattern:
+             * grow makes the column fill remaining width; minWidth:0 allows it
+             * to shrink below its content width so Text truncate can clip long
+             * email addresses.
              */}
-            <div className="flex flex-col flex-1 min-w-0">
+            <Stack direction="vertical" grow style={{ minWidth: 0 }}>
               <Text size="caption" weight="emphasis" truncate>
                 {user?.email || 'Loading…'}
               </Text>
@@ -105,7 +101,7 @@ export function DashboardSidebar() {
                   {user.name}
                 </Text>
               )}
-            </div>
+            </Stack>
             <LogoutButton />
           </footer>
         </Stack>

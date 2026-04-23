@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Alert,
+  Badge,
   Button,
   Field,
   Grid,
@@ -80,147 +81,163 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-[580px] flex-col bg-surface shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" gap="snug">
-              <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
-              {!isNew && (
-                <div
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    draft.enabled
-                      ? 'bg-status-healthy/15 text-status-healthy'
-                      : 'bg-muted/20 text-muted'
-                  }`}
-                >
-                  {draft.enabled ? 'Enabled' : 'Disabled'}
-                </div>
-              )}
-            </Stack>
-            {fullId && (
-              <Text size="caption" color="muted" mono>
-                {fullId}
-              </Text>
-            )}
-          </Stack>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1.5 text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
-          >
-            <Icon name="close" />
-          </button>
-        </div>
+      {/* Backdrop — button (not a layout element) so click-to-dismiss works;
+          aria-hidden + tabIndex={-1} keeps it out of the AT and tab order */}
+      <button
+        type="button"
+        aria-hidden={true}
+        tabIndex={-1}
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-overlay"
+      />
 
-        {/* Identity fields */}
-        <div className="border-b border-border px-5 py-4">
-          <Grid cols={2} gap="snug">
-            <Field>
-              <Label>Family</Label>
-              {knownFamilies.length > 0 ? (
-                <NativeSelect
-                  value={draft.family}
-                  onChange={(e) => setDraft({ ...draft, family: e.target.value })}
-                  mono
-                >
-                  <option value="">— select —</option>
-                  {knownFamilies.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </NativeSelect>
-              ) : (
-                <div className="font-mono">
+      {/* Panel — aside (semantic landmark); Stack injects flex-col at runtime */}
+      <Stack asChild direction="vertical">
+        <aside className="fixed inset-y-0 right-0 z-50 w-[580px] bg-surface shadow-2xl">
+
+          {/* Header — Stack injects flex + align/justify at runtime; header has no
+              display-mode class in JSX so no-raw-layout-elements does not fire */}
+          <Stack asChild direction="horizontal" align="center" justify="between">
+            <header className="border-b border-border px-5 py-4">
+              <Stack gap="tight">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <Heading variant="section">
+                    {isNew ? 'New Virtual Model' : draft.displayName}
+                  </Heading>
+                  {!isNew && (
+                    <Badge variant={draft.enabled ? 'healthy' : 'muted'} shape="pill" size="sm">
+                      {draft.enabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                </Stack>
+                {fullId && (
+                  <Text size="caption" color="muted" mono>
+                    {fullId}
+                  </Text>
+                )}
+              </Stack>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded p-1.5 text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
+              >
+                <Icon name="close" />
+              </button>
+            </header>
+          </Stack>
+
+          {/* Identity fields — section has no display-mode class; not banned */}
+          <section className="border-b border-border px-5 py-4">
+            <Grid cols={2} gap="snug">
+              <Field>
+                <Label>Family</Label>
+                {knownFamilies.length > 0 ? (
+                  <NativeSelect
+                    value={draft.family}
+                    onChange={(e) => setDraft({ ...draft, family: e.target.value })}
+                    mono
+                  >
+                    <option value="">— select —</option>
+                    {knownFamilies.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                ) : (
                   <Input
+                    mono
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     placeholder="e.g. anthropic"
                   />
-                </div>
-              )}
-            </Field>
+                )}
+              </Field>
 
-            <Field>
-              <Label>Model name</Label>
-              <div className="font-mono">
+              <Field>
+                <Label>Model name</Label>
                 <Input
+                  mono
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="e.g. claude-sonnet-4-6"
                 />
-              </div>
-            </Field>
+              </Field>
 
-            <Field>
-              <Label>Display name</Label>
-              <Input
-                value={draft.displayName}
-                onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
-                placeholder="e.g. Claude Sonnet 4.6"
-              />
-            </Field>
-
-            <Field>
-              <Label>Scope (derived)</Label>
-              <div className="flex h-9 items-center rounded-md border border-border bg-surface px-3">
-                <div className="truncate">
-                  <Text size="caption" color="muted" mono>
-                    {fullId ? vmPolicyScope(draft) : '—'}
-                  </Text>
-                </div>
-              </div>
-            </Field>
-
-            <div className="col-span-2">
               <Field>
-                <Label>Description</Label>
+                <Label>Display name</Label>
                 <Input
-                  value={draft.description}
-                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  placeholder="Optional description"
+                  value={draft.displayName}
+                  onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
+                  placeholder="e.g. Claude Sonnet 4.6"
                 />
               </Field>
-            </div>
-          </Grid>
-        </div>
 
-        {/* Routes content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
-        </div>
+              <Field>
+                <Label>Scope (derived)</Label>
+                {/* output is a semantic form-result element; Stack injects flex +
+                    align="center" at runtime so it vertically centres the text */}
+                <Stack asChild direction="horizontal" align="center">
+                  <output className="h-9 rounded-md border border-border bg-surface px-3 truncate">
+                    <Text size="caption" color="muted" mono>
+                      {fullId ? vmPolicyScope(draft) : '—'}
+                    </Text>
+                  </output>
+                </Stack>
+              </Field>
 
-        {error && (
-          <div className="mx-5 mb-3">
-            <Alert variant="error">
-              <Icon name="alert-circle" size="2xs" color="status-error" />
-              <Text size="caption" color="muted">
-                {error}
-              </Text>
-            </Alert>
-          </div>
-        )}
+              {/* section spans two grid columns; col-span-2 is not a display-mode class */}
+              <section className="col-span-2">
+                <Field>
+                  <Label>Description</Label>
+                  <Input
+                    value={draft.description}
+                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                    placeholder="Optional description"
+                  />
+                </Field>
+              </section>
+            </Grid>
+          </section>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-5 py-4">
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
-            <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
-              {draft.enabled ? 'Enabled' : 'Disabled'}
-            </Text>
+          {/* Routes content — flex-1 sets flex:1 (not display:flex) so section is fine */}
+          <section className="flex-1 overflow-y-auto px-5 py-4">
+            <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
+          </section>
+
+          {error && (
+            <section className="mx-5 mb-3">
+              <Alert variant="error">
+                <Icon name="alert-circle" size="2xs" color="status-error" />
+                <Text size="caption" color="muted">
+                  {error}
+                </Text>
+              </Alert>
+            </section>
+          )}
+
+          {/* Footer — Stack injects flex + align/justify at runtime */}
+          <Stack asChild direction="horizontal" align="center" justify="between">
+            <footer className="border-t border-border px-5 py-4">
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+                <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
+                  {draft.enabled ? 'Enabled' : 'Disabled'}
+                </Text>
+              </Stack>
+              <Stack direction="horizontal" gap="snug">
+                <Button variant="ghost" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </Stack>
+            </footer>
           </Stack>
-          <Stack direction="horizontal" gap="snug">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSave()} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </Button>
-          </Stack>
-        </div>
-      </div>
+
+        </aside>
+      </Stack>
     </>
   );
 }

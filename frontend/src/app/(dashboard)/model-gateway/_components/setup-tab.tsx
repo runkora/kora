@@ -73,10 +73,23 @@ function Step({
   return (
     <Stack direction="horizontal" gap="comfortable">
       <Stack align="center" gap="none">
-        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white">
+        <Stack
+          align="center"
+          justify="center"
+          style={{
+            width: '1.5rem',
+            height: '1.5rem',
+            flexShrink: 0,
+            borderRadius: '9999px',
+            backgroundColor: 'var(--color-accent)',
+            color: 'var(--color-accent-foreground)',
+            fontSize: '11px',
+            fontWeight: 'bold',
+          }}
+        >
           {number}
-        </div>
-        <div className="mt-2 w-px flex-1 bg-border" />
+        </Stack>
+        <Stack grow style={{ marginTop: '0.5rem', width: '1px', backgroundColor: 'var(--color-border)' }} />
       </Stack>
       <section className="flex-1 pb-8">
         <header className="mb-2">

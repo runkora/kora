@@ -4,13 +4,25 @@ import { cn } from '../../utils';
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /** Renders the input in an error state with a coloured border. */
   hasError?: boolean;
+  /**
+   * When true, renders the input text in a monospace font.
+   * Use for fields whose value is a technical string: API keys, resource paths,
+   * URL patterns, regex expressions, and similar machine-readable content.
+   *
+   * ```tsx
+   * <Input mono placeholder="/api/v1/agents/:id" />
+   * <Input mono value={apiKey} readOnly />
+   * ```
+   */
+  mono?: boolean;
 }
 
 /**
  * Input
  *
  * A single-line text input styled to the Terra token system. Supports all
- * native `<input>` attributes plus an `hasError` flag for validation states.
+ * native `<input>` attributes plus `hasError` for validation states and `mono`
+ * for monospace rendering of technical values.
  *
  * Pair with `Label` and wrap both in a `<div className="flex flex-col gap-1.5">`
  * to build a complete form field.
@@ -18,10 +30,13 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
  * ```tsx
  * <Label htmlFor="agent-name">Agent name</Label>
  * <Input id="agent-name" placeholder="e.g. apollo-3" />
+ *
+ * // Monospace — for API keys, paths, URL patterns:
+ * <Input mono placeholder="/api/v1/agents/:id" />
  * ```
  */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, hasError = false, type = 'text', ...props }, ref) => {
+  ({ className, hasError = false, mono = false, type = 'text', ...props }, ref) => {
     return (
       <input
         type={type}
@@ -29,7 +44,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         className={cn(
           // Layout & typography
           'flex h-9 w-full rounded-md px-3 py-1',
-          'text-sm text-foreground font-normal',
+          mono ? 'text-sm text-foreground font-mono' : 'text-sm text-foreground font-normal',
           'bg-surface-elevated border',
           'placeholder:text-subtle',
           // Border colour — normal vs error

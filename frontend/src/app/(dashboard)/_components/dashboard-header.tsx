@@ -1,4 +1,4 @@
-import { Button, Icon, Separator, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
 
 /**
  * Top header bar for the dashboard shell.
@@ -30,16 +30,19 @@ export function DashboardHeader() {
           <Button variant="ghost" size="icon" aria-label="Refresh">
             <Icon name="refresh-cw" />
           </Button>
-          <div className="relative">
+          {/* Positioning context for the notification dot */}
+          <Stack style={{ position: 'relative' }}>
             <Button variant="ghost" size="icon" aria-label="Notifications">
               <Icon name="bell" />
             </Button>
             {/* Notification dot — decorative, aria-hidden */}
-            <div
+            <StatusDot
               aria-hidden
-              className="pointer-events-none absolute top-1.5 right-1.5 size-1.5 rounded-full bg-status-error"
+              status="error"
+              size="sm"
+              style={{ position: 'absolute', top: '0.375rem', right: '0.375rem', pointerEvents: 'none' }}
             />
-          </div>
+          </Stack>
           <Separator orientation="vertical" span="narrow" />
           <Button variant="default" size="sm">
             <Icon name="bot" />

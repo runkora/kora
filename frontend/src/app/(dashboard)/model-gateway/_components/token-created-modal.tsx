@@ -87,11 +87,9 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
                 className="group flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-elevated px-4 py-3 text-left transition-colors hover:bg-surface-overlay focus-visible:outline-2 focus-visible:outline-accent"
                 aria-label="Copy API key to clipboard"
               >
-                <div className="flex-1 min-w-0">
-                  <Text size="supporting" mono truncate>
-                    {pat.token}
-                  </Text>
-                </div>
+                <Text size="supporting" mono truncate style={{ flex: 1, minWidth: 0 }}>
+                  {pat.token}
+                </Text>
                 {copied ? (
                   <Icon name="check" color="status-healthy" />
                 ) : (

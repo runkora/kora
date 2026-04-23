@@ -48,15 +48,20 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
         </Text>
       </Stack>
       {copied ? (
-        // eslint-disable-next-line local/no-raw-inline-elements -- layout-only wrapper: ml-3 cannot go on Icon
-        <span className="ml-3 shrink-0">
-          <Icon name="check" size="2xs" color="status-healthy" />
-        </span>
+        <Icon
+          name="check"
+          size="2xs"
+          color="status-healthy"
+          style={{ marginLeft: '0.75rem', flexShrink: 0 }}
+        />
       ) : (
-        // eslint-disable-next-line local/no-raw-inline-elements -- layout-only wrapper: opacity + ml-3 cannot go on Icon
-        <span className="ml-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-          <Icon name="copy" size="2xs" color="muted" />
-        </span>
+        <Icon
+          name="copy"
+          size="2xs"
+          color="muted"
+          style={{ marginLeft: '0.75rem' }}
+          groupReveal
+        />
       )}
     </button>
   );
@@ -71,7 +76,7 @@ interface ChipRowProps {
 
 function ChipRow({ label, values }: ChipRowProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 px-2 py-1">
+    <Stack direction="horizontal" wrap align="center" gap="snug" style={{ padding: '0.25rem 0.5rem' }}>
       <Text size="caption" color="muted">
         {label}
       </Text>
@@ -88,7 +93,7 @@ function ChipRow({ label, values }: ChipRowProps) {
           —
         </Text>
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -122,43 +127,43 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
               padding; constrained caps height and overflow-y-auto enables scrolling. */}
           <ModalBody flush gapless constrained>
             {/* Identity */}
-            <div className="px-2 py-2">
-              <div className="px-2 pb-1">
+            <Stack style={{ padding: '0.5rem' }}>
+              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
                 <Text size="caption" color="muted">
                   Identity
                 </Text>
-              </div>
+              </Stack>
               <CopyRow label="Model ID" value={model.id} mono />
               <CopyRow label="Provider" value={model.owned_by} />
               <CopyRow label="Display Name" value={model.name} />
               {model.aliases.length > 0 && <ChipRow label="Aliases" values={model.aliases} />}
-            </div>
+            </Stack>
 
             <Separator />
 
             {/* Capabilities */}
-            <div className="px-2 py-2">
-              <div className="px-2 pb-1">
+            <Stack style={{ padding: '0.5rem' }}>
+              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
                 <Text size="caption" color="muted">
                   Capabilities
                 </Text>
-              </div>
+              </Stack>
               <ChipRow label="Capabilities" values={model.capabilities} />
               <ChipRow label="API Dialects" values={model.dialects} />
-            </div>
+            </Stack>
 
             <Separator />
 
             {/* Modalities */}
-            <div className="px-2 py-2">
-              <div className="px-2 pb-1">
+            <Stack style={{ padding: '0.5rem' }}>
+              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
                 <Text size="caption" color="muted">
                   Modalities
                 </Text>
-              </div>
+              </Stack>
               <ChipRow label="Input" values={model.input_modalities} />
               <ChipRow label="Output" values={model.output_modalities} />
-            </div>
+            </Stack>
           </ModalBody>
 
           <ModalFooter justify="start">
