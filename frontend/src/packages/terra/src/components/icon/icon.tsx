@@ -181,15 +181,16 @@ export interface IconProps {
   rotate?: 0 | 45 | 90 | 135 | 180 | 270;
 
   /**
-   * Inline styles applied to the icon wrapper span.
-   * Intended **only** for layout positioning — `margin`, `flexShrink`,
-   * `alignSelf`, `position` etc. — where a typed prop would be too
-   * narrow to be reusable across call sites.
-   *
-   * Do **not** use this for colour or typography overrides; those belong
-   * in typed props (`color`, `size`) or a new Terra prop.
+   * When true, adds `shrink-0` to the wrapper span so this icon does not
+   * compress inside a flex row when sibling elements compete for space.
    */
-  style?: React.CSSProperties;
+  shrink?: boolean;
+
+  /**
+   * When true, applies `cursor-grab` (and `active:cursor-grabbing`) to the
+   * wrapper span. Use on grip/drag-handle icons to signal draggability.
+   */
+  cursorGrab?: boolean;
 
   /**
    * When true, the icon wrapper is initially invisible and fades in when
@@ -226,7 +227,8 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       filled = false,
       label,
       rotate,
-      style,
+      shrink = false,
+      cursorGrab = false,
       groupReveal = false,
     },
     ref,
@@ -239,24 +241,10 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       filled && 'fill-current',
     );
 
-    const svgEl = (
-      <LucideIcon
-        className={svgClasses}
-        aria-hidden={label ? undefined : true}
-        aria-label={label}
-        role={label ? 'img' : undefined}
-        data-slot="icon"
-      />
-    );
+    const svgEl = <LucideIcon className={svgClasses} aria-hidden={true} data-slot="icon" />;
 
     if (!container) {
-      // Bare icon — render as a semantically neutral inline span so it can
-      // sit inside flex rows, buttons, and list items without adding a block.
-      //
-      // When `rotate`, `style`, or `groupReveal` are supplied we switch from
-      // `display:contents` (which collapses the span) to `display:inline-flex`
-      // so that transforms, margins, and opacity transitions take effect.
-      const needsBox = rotate !== undefined || style !== undefined || groupReveal;
+      const needsBox = rotate !== undefined || groupReveal || shrink || cursorGrab;
       const wrapperStyle: React.CSSProperties = needsBox
         ? {
             display: 'inline-flex',
@@ -265,7 +253,6 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
               transform: `rotate(${rotate}deg)`,
               transition: 'transform 150ms',
             }),
-            ...style,
           }
         : { display: 'contents' };
 
@@ -275,10 +262,13 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
           data-slot="icon-wrapper"
           aria-hidden={label ? undefined : true}
           aria-label={label}
+          role={label ? 'img' : undefined}
           className={
-            groupReveal
-              ? 'shrink-0 opacity-0 transition-opacity group-hover:opacity-100'
-              : undefined
+            cn(
+              groupReveal && 'opacity-0 transition-opacity group-hover:opacity-100',
+              shrink && 'shrink-0',
+              cursorGrab && 'cursor-grab active:cursor-grabbing',
+            ) || undefined
           }
           style={wrapperStyle}
         >
@@ -293,6 +283,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
         data-slot="icon-container"
         aria-hidden={label ? undefined : true}
         aria-label={label}
+        role={label ? 'img' : undefined}
         className={cn(
           'inline-flex shrink-0 items-center justify-center',
           CONTAINER_SIZE[size],

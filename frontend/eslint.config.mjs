@@ -579,9 +579,7 @@ const localPlugin = {
             for (const comment of sourceCode.getAllComments()) {
               const raw = comment.value.trim();
               // Match any of the three eslint-disable directive forms.
-              const match = raw.match(
-                /^eslint-disable(?:-next-line|-line)?(?:\s+([\s\S]*))?$/,
-              );
+              const match = raw.match(/^eslint-disable(?:-next-line|-line)?(?:\s+([\s\S]*))?$/);
               if (!match) continue;
               const rulesPart = match[1] ?? '';
               // Strip a trailing inline reason (-- reason text) then split on commas.

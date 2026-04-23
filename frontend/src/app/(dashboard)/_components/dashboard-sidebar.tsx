@@ -49,7 +49,7 @@ export function DashboardSidebar() {
 
             return (
               <section key={label} className="space-y-0.5">
-                <Stack style={{ padding: '0 0.75rem 0.375rem' }}>
+                <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                   <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
                     {label}
                   </Text>
@@ -92,7 +92,7 @@ export function DashboardSidebar() {
              * to shrink below its content width so Text truncate can clip long
              * email addresses.
              */}
-            <Stack direction="vertical" grow style={{ minWidth: 0 }}>
+            <Stack direction="vertical" grow minWidth="none">
               <Text size="caption" weight="emphasis" truncate>
                 {user?.email || 'Loading…'}
               </Text>

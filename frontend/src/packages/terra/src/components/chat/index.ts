@@ -5,3 +5,4 @@ export type {
   ChatBubbleDirection,
   ChatBubbleVariant,
 } from './chat-bubble';
+export { InputSurface, TypingIndicator, StreamingCursor } from './chat';

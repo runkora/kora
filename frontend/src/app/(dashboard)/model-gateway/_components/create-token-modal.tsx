@@ -114,7 +114,10 @@ export function CreateTokenModal({
           {/* Name */}
           <Stack gap="tight">
             <label htmlFor="pat-name" className="text-sm font-medium text-foreground">
-              Name <output aria-hidden="true">*</output>
+              Name{' '}
+              <Text as="span" aria-hidden={true}>
+                *
+              </Text>
             </label>
             <input
               ref={nameInputRef}
@@ -156,7 +159,10 @@ export function CreateTokenModal({
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <label className="text-sm font-medium text-foreground">
-                Permissions <output aria-hidden="true">*</output>
+                Permissions{' '}
+                <Text as="span" aria-hidden={true}>
+                  *
+                </Text>
               </label>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">

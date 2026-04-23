@@ -226,10 +226,7 @@ function StatCard({ label, value, delta, deltaPositive, icon }: (typeof STATS)[n
           <Text size="supporting" color="muted">
             {label}
           </Text>
-          {/* eslint-disable-next-line local/no-raw-layout-elements -- size-8 (32px) sits between Terra container sm (28px) and md (36px); text-muted has no matching containerVariant; needs a new variant or size token */}
-          <div className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
-            <Icon name={icon} aria-hidden />
-          </div>
+          <Icon name={icon} size="sm" container containerVariant="surface-subtle" aria-hidden />
         </Stack>
       </CardHeader>
       {/*
@@ -396,13 +393,11 @@ export default function DashboardPage() {
           <Card column>
             <CardHeader>
               <Stack direction="horizontal" align="center" justify="between">
-                <Stack gap="none">
+                <Stack gap="tight">
                   <CardTitle>Recent Events</CardTitle>
-                  <div className="mt-0.5">
-                    <Text size="supporting" color="muted">
-                      Live feed from the event spine.
-                    </Text>
-                  </div>
+                  <Text size="supporting" color="muted">
+                    Live feed from the event spine.
+                  </Text>
                 </Stack>
                 <Badge variant="pending" dot>
                   Live
@@ -421,7 +416,7 @@ export default function DashboardPage() {
                     className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
                   >
                     <EventIcon severity={evt.severity} />
-                    <div className="flex flex-col flex-1 min-w-0">
+                    <Stack direction="vertical" gap="tight" grow minWidth="none">
                       <Stack direction="horizontal" align="center" gap="snug">
                         {/*
                          * mono: event type strings (e.g. "policy.allow") are
@@ -439,27 +434,15 @@ export default function DashboardPage() {
                           {evt.agent}
                         </Text>
                       </Stack>
-                      {/*
-                       * mt-0.5 wrapper: tight gap between the type/agent row
-                       * and the message below it. truncate: messages can be
-                       * long — clip at one line in the dense event list.
-                       */}
-                      <div className="mt-0.5">
-                        <Text size="caption" color="muted" truncate>
-                          {evt.message}
-                        </Text>
-                      </div>
-                    </div>
-                    {/*
-                     * shrink-0 wrapper: prevents the timestamp from compressing
-                     * in the flex row when long messages are present.
-                     * mono: timestamps benefit from fixed-width digit rendering.
-                     */}
-                    <div className="shrink-0">
+                      <Text size="caption" color="muted" truncate>
+                        {evt.message}
+                      </Text>
+                    </Stack>
+                    <Stack shrink gap="none">
                       <Text size="caption" color="subtle" mono>
                         {evt.ts}
                       </Text>
-                    </div>
+                    </Stack>
                   </li>
                 ))}
               </ul>
@@ -476,13 +459,11 @@ export default function DashboardPage() {
           <Card column>
             <CardHeader>
               <Stack direction="horizontal" align="center" justify="between">
-                <Stack gap="none">
+                <Stack gap="tight">
                   <CardTitle>System Health</CardTitle>
-                  <div className="mt-0.5">
-                    <Text size="supporting" color="muted">
-                      Control plane resource utilisation.
-                    </Text>
-                  </div>
+                  <Text size="supporting" color="muted">
+                    Control plane resource utilisation.
+                  </Text>
                 </Stack>
                 <Button variant="ghost" size="icon" aria-label="Refresh health">
                   <Icon name="refresh-cw" />

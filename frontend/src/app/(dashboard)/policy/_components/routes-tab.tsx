@@ -74,11 +74,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           options: serviceOptions,
           filterFn: (r, selected) => selected.has(r.service),
         },
-        cell: (r) => (
-          <Badge variant="elevated">
-            {r.service}
-          </Badge>
-        ),
+        cell: (r) => <Badge variant="elevated">{r.service}</Badge>,
       },
       {
         id: 'method',

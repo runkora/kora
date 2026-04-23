@@ -155,13 +155,13 @@ function NavItem({
   const composeContent = (label: React.ReactNode) => (
     <>
       {icon && (
-        <div aria-hidden="true" className="shrink-0">
+        <span aria-hidden="true" className="shrink-0">
           {icon}
-        </div>
+        </span>
       )}
-      <div className="flex-1 truncate">{label}</div>
+      <span className="flex-1 truncate">{label}</span>
       {badge !== undefined && badge !== null && (
-        <div
+        <span
           aria-label={`${badge} items`}
           className={cn(
             'ml-auto shrink-0 rounded-full px-1.5 py-0.5',
@@ -170,7 +170,7 @@ function NavItem({
           )}
         >
           {badge}
-        </div>
+        </span>
       )}
     </>
   );

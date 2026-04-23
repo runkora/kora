@@ -1,7 +1,18 @@
 import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import { cn } from '../../utils';
-import { GAP, resolveResponsive } from './spacing';
+import {
+  GAP,
+  PADDING,
+  PADDING_BLOCK,
+  PADDING_INLINE,
+  PADDING_TOP,
+  PADDING_BOTTOM,
+  MARGIN_TOP,
+  MARGIN_BOTTOM,
+  MARGIN_INLINE,
+  resolveResponsive,
+} from './spacing';
 import { MAX_W, MIN_W, MAX_H, MIN_H, TEXT_ALIGN } from './sizing';
 import type { Responsive, SpacingSize } from './spacing';
 import type { ContainerWidth, ContainerHeight, TextAlign } from './sizing';
@@ -11,6 +22,7 @@ import type { ContainerWidth, ContainerHeight, TextAlign } from './sizing';
 export type StackDirection = 'vertical' | 'horizontal';
 export type StackAlign = 'start' | 'center' | 'end' | 'stretch' | 'baseline';
 export type StackJustify = 'start' | 'center' | 'end' | 'between' | 'around' | 'evenly';
+export type StackPosition = 'relative' | 'absolute';
 
 // ── Lookup tables ─────────────────────────────────────────────────────────────
 // Full string literals required — Tailwind v4's static scanner cannot handle
@@ -43,7 +55,7 @@ const JUSTIFY_CLASSES: Record<StackJustify, string> = {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-export interface StackProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface StackProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'style'> {
   /**
    * Flex direction — `vertical` (column) or `horizontal` (row).
    * Accepts a `Responsive` value so direction can flip at breakpoints.
@@ -223,6 +235,49 @@ export interface StackProps extends React.HTMLAttributes<HTMLDivElement> {
    * The child must accept a `className` prop (all HTML elements and most components do).
    */
   asChild?: boolean;
+
+  /**
+   * When `true`, adds `shrink-0` to prevent this flex item from shrinking below
+   * its content size inside a parent flex container.
+   */
+  shrink?: boolean;
+
+  /**
+   * When `true`, adds `whitespace-nowrap` so inline text inside this Stack
+   * cannot wrap to a second line.
+   */
+  noWrap?: boolean;
+
+  /**
+   * CSS position class — `'relative'` or `'absolute'`. Use `'relative'` to
+   * establish a new positioning context; `'absolute'` when this Stack is itself
+   * positioned inside a `position: relative` parent.
+   */
+  position?: StackPosition;
+
+  /** All-sides padding using the Terra spacing scale. */
+  padding?: SpacingSize;
+
+  /** Vertical (block) padding — equivalent to `py-*`. */
+  paddingBlock?: SpacingSize;
+
+  /** Horizontal (inline) padding — equivalent to `px-*`. */
+  paddingInline?: SpacingSize;
+
+  /** Top padding — equivalent to `pt-*`. */
+  paddingTop?: SpacingSize;
+
+  /** Bottom padding — equivalent to `pb-*`. */
+  paddingBottom?: SpacingSize;
+
+  /** Top margin — equivalent to `mt-*`. */
+  marginTop?: SpacingSize;
+
+  /** Bottom margin — equivalent to `mb-*`. */
+  marginBottom?: SpacingSize;
+
+  /** Horizontal (inline) margin — equivalent to `mx-*`. Auto-centering: `marginInline="auto"` is not supported; use a wrapper. */
+  marginInline?: SpacingSize;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -287,6 +342,17 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
       textAlign,
       grow = false,
       asChild = false,
+      shrink = false,
+      noWrap = false,
+      position,
+      padding,
+      paddingBlock,
+      paddingInline,
+      paddingTop,
+      paddingBottom,
+      marginTop,
+      marginBottom,
+      marginInline,
       ...props
     },
     ref,
@@ -308,6 +374,17 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
           maxHeight && resolveResponsive(maxHeight, MAX_H, 'full'),
           textAlign && TEXT_ALIGN[textAlign],
           grow && 'flex-1',
+          shrink && 'shrink-0',
+          noWrap && 'whitespace-nowrap',
+          position,
+          padding && PADDING[padding],
+          paddingBlock && PADDING_BLOCK[paddingBlock],
+          paddingInline && PADDING_INLINE[paddingInline],
+          paddingTop && PADDING_TOP[paddingTop],
+          paddingBottom && PADDING_BOTTOM[paddingBottom],
+          marginTop && MARGIN_TOP[marginTop],
+          marginBottom && MARGIN_BOTTOM[marginBottom],
+          marginInline && MARGIN_INLINE[marginInline],
           className,
         )}
         {...props}

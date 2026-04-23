@@ -37,6 +37,16 @@ export type { BadgeProps } from './components/badge';
 export { StatusDot, statusDotVariants } from './components/status-dot';
 export type { StatusDotProps } from './components/status-dot';
 
+export { StepDot, StepConnector } from './components/step-dot';
+
+export { Indicator } from './components/indicator';
+export type { IndicatorProps } from './components/indicator';
+
+export { InputSurface, TypingIndicator, StreamingCursor } from './components/chat';
+
+export { DragCard } from './components/drag-card';
+export type { DragCardProps } from './components/drag-card';
+
 export {
   Card,
   CardHeader,

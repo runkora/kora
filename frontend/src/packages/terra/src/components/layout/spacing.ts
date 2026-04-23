@@ -208,6 +208,98 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
   },
 };
 
+// ── Padding / margin class maps (non-responsive) ──────────────────────────────
+// These are scalar lookups used by Stack's padding/margin props.
+// Full string literals required for Tailwind v4's static scanner.
+
+/** All-sides padding: p-* */
+export const PADDING: Record<SpacingSize, string> = {
+  none: 'p-0',
+  tight: 'p-1',
+  snug: 'p-2',
+  comfortable: 'p-4',
+  relaxed: 'p-6',
+  loose: 'p-8',
+  spacious: 'p-10',
+};
+
+/** Block (vertical) padding: py-* */
+export const PADDING_BLOCK: Record<SpacingSize, string> = {
+  none: 'py-0',
+  tight: 'py-1',
+  snug: 'py-2',
+  comfortable: 'py-4',
+  relaxed: 'py-6',
+  loose: 'py-8',
+  spacious: 'py-10',
+};
+
+/** Inline (horizontal) padding: px-* */
+export const PADDING_INLINE: Record<SpacingSize, string> = {
+  none: 'px-0',
+  tight: 'px-1',
+  snug: 'px-2',
+  comfortable: 'px-4',
+  relaxed: 'px-6',
+  loose: 'px-8',
+  spacious: 'px-10',
+};
+
+/** Top padding: pt-* */
+export const PADDING_TOP: Record<SpacingSize, string> = {
+  none: 'pt-0',
+  tight: 'pt-1',
+  snug: 'pt-2',
+  comfortable: 'pt-4',
+  relaxed: 'pt-6',
+  loose: 'pt-8',
+  spacious: 'pt-10',
+};
+
+/** Bottom padding: pb-* */
+export const PADDING_BOTTOM: Record<SpacingSize, string> = {
+  none: 'pb-0',
+  tight: 'pb-1',
+  snug: 'pb-2',
+  comfortable: 'pb-4',
+  relaxed: 'pb-6',
+  loose: 'pb-8',
+  spacious: 'pb-10',
+};
+
+/** Top margin: mt-* */
+export const MARGIN_TOP: Record<SpacingSize, string> = {
+  none: 'mt-0',
+  tight: 'mt-1',
+  snug: 'mt-2',
+  comfortable: 'mt-4',
+  relaxed: 'mt-6',
+  loose: 'mt-8',
+  spacious: 'mt-10',
+};
+
+/** Bottom margin: mb-* */
+export const MARGIN_BOTTOM: Record<SpacingSize, string> = {
+  none: 'mb-0',
+  tight: 'mb-1',
+  snug: 'mb-2',
+  comfortable: 'mb-4',
+  relaxed: 'mb-6',
+  loose: 'mb-8',
+  spacious: 'mb-10',
+};
+
+/** Inline (horizontal) margin: mx-* */
+export const MARGIN_INLINE: Record<SpacingSize, string> = {
+  none: 'mx-0',
+  tight: 'mx-1',
+  snug: 'mx-2',
+  comfortable: 'mx-4',
+  relaxed: 'mx-6',
+  loose: 'mx-8',
+  spacious: 'mx-10',
+};
+
 // ── Internal helper ───────────────────────────────────────────────────────────
 
 /**

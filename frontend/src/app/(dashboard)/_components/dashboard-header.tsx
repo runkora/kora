@@ -1,4 +1,4 @@
-import { Button, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
+import { Button, Icon, Indicator, Separator, Stack, Text } from '@orbit/terra';
 
 /**
  * Top header bar for the dashboard shell.
@@ -13,8 +13,8 @@ export function DashboardHeader() {
     <Stack direction="horizontal" align="center" justify="between" asChild>
       <header className="h-full px-6">
         {/* TODO: Replace with Terra Breadcrumbs component when available */}
-        <Stack direction="horizontal" align="center" asChild>
-          <nav className="gap-1.5">
+        <Stack direction="horizontal" align="center" gap="tight" asChild>
+          <nav>
             <Text size="supporting" color="muted">
               Orbit
             </Text>
@@ -31,18 +31,11 @@ export function DashboardHeader() {
             <Icon name="refresh-cw" />
           </Button>
           {/* Positioning context for the notification dot */}
-          <Stack style={{ position: 'relative' }}>
+          <Indicator status="error">
             <Button variant="ghost" size="icon" aria-label="Notifications">
               <Icon name="bell" />
             </Button>
-            {/* Notification dot — decorative, aria-hidden */}
-            <StatusDot
-              aria-hidden
-              status="error"
-              size="sm"
-              style={{ position: 'absolute', top: '0.375rem', right: '0.375rem', pointerEvents: 'none' }}
-            />
-          </Stack>
+          </Indicator>
           <Separator orientation="vertical" span="narrow" />
           <Button variant="default" size="sm">
             <Icon name="bot" />

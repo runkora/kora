@@ -11,51 +11,51 @@ import { cn } from '../../utils';
  * An optional `glow` prop renders a soft halo using `color-mix` to reinforce
  * "live / active" versus "inactive / error" at a glance.
  */
-const statusDotVariants = cva(
-  ['inline-block', 'rounded-full', 'shrink-0'],
-  {
-    variants: {
-      /**
-       * Visual state — maps to the `--color-status-*` token family.
-       *
-       * - `healthy`  — green; agent operating normally
-       * - `degraded` — amber; agent running with warnings
-       * - `error`    — red; agent has encountered an error
-       * - `idle`     — grey-blue; agent is inactive / not scheduled
-       * - `pending`  — blue; agent is starting up or awaiting a decision
-       * - `muted`    — grey; generic inactive / disabled (no status semantics)
-       */
-      status: {
-        healthy: 'bg-status-healthy',
-        degraded: 'bg-status-degraded',
-        error: 'bg-status-error',
-        idle: 'bg-status-idle',
-        pending: 'bg-status-pending',
-        muted: 'bg-muted/40',
-      },
-
-      /**
-       * Size — diameter of the dot.
-       *
-       * - `sm` (`size-1.5` / 6 px): micro-indicator inside badges and table cells
-       * - `md` (`size-2.5` / 10 px): standard standalone availability indicator (default)
-       * - `lg` (`size-3`   / 12 px): prominent use in headers and hero cards
-       */
-      size: {
-        sm: 'size-1.5',
-        md: 'size-2.5',
-        lg: 'size-3',
-      },
+const statusDotVariants = cva(['inline-block', 'rounded-full', 'shrink-0'], {
+  variants: {
+    /**
+     * Visual state — maps to the `--color-status-*` token family.
+     *
+     * - `healthy`  — green; agent operating normally
+     * - `degraded` — amber; agent running with warnings
+     * - `error`    — red; agent has encountered an error
+     * - `idle`     — grey-blue; agent is inactive / not scheduled
+     * - `pending`  — blue; agent is starting up or awaiting a decision
+     * - `muted`    — grey; generic inactive / disabled (no status semantics)
+     * - `accent`   — brand accent; use for primary-colour indicators (e.g. chart legends)
+     */
+    status: {
+      healthy: 'bg-status-healthy',
+      degraded: 'bg-status-degraded',
+      error: 'bg-status-error',
+      idle: 'bg-status-idle',
+      pending: 'bg-status-pending',
+      muted: 'bg-muted/40',
+      accent: 'bg-accent',
     },
-    defaultVariants: {
-      status: 'healthy',
-      size: 'md',
+
+    /**
+     * Size — diameter of the dot.
+     *
+     * - `sm` (`size-1.5` / 6 px): micro-indicator inside badges and table cells
+     * - `md` (`size-2.5` / 10 px): standard standalone availability indicator (default)
+     * - `lg` (`size-3`   / 12 px): prominent use in headers and hero cards
+     */
+    size: {
+      sm: 'size-1.5',
+      md: 'size-2.5',
+      lg: 'size-3',
     },
   },
-);
+  defaultVariants: {
+    status: 'healthy',
+    size: 'md',
+  },
+});
 
 export interface StatusDotProps
-  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
+  extends
+    Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
     VariantProps<typeof statusDotVariants> {
   /**
    * When true, renders a soft halo ring around the dot using `color-mix` on

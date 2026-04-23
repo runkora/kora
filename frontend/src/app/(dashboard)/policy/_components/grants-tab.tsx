@@ -294,11 +294,11 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
         >
           Previous
         </Button>
-        <div className="flex items-center px-2">
+        <Stack align="center" paddingInline="snug">
           <Text size="caption" color="muted">
             Page {page} of {totalPages}
           </Text>
-        </div>
+        </Stack>
         <Button
           variant="outline"
           size="sm"
@@ -337,8 +337,8 @@ function FilterChip({
       ].join(' ')}
     >
       {label}
-      <Text asChild size="micro" color="muted">
-        <output>{count}</output>
+      <Text as="span" size="micro" color="muted">
+        {count}
       </Text>
     </button>
   );
@@ -574,11 +574,11 @@ function GrantTable({
           const { rawId, primary } = resolveGrantIdentity(g, patAttribution, userAttribution);
           const id = rawId ?? primary;
           return (
-            <div className="whitespace-nowrap">
+            <Stack noWrap>
               <Text size="caption" color="subtle" mono>
                 {id}
               </Text>
-            </div>
+            </Stack>
           );
         },
       },
@@ -611,11 +611,11 @@ function GrantTable({
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
-          <div className="whitespace-nowrap">
+          <Stack noWrap>
             <Text size="caption" color="subtle">
               {formatDate(g.created_at)}
             </Text>
-          </div>
+          </Stack>
         ),
       },
       {
@@ -762,15 +762,14 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
 
   return (
     <section>
-      <div className="relative mb-1.5 block">
-        <input
+      <Stack marginBottom="tight">
+        <Input
           type="text"
           placeholder="Search users…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
-      </div>
+      </Stack>
       <section className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
         {loading || users.length === 0 ? (
           <section className="px-3 py-1.5">
@@ -792,13 +791,22 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
                       isSelected ? 'bg-accent/10' : 'hover:bg-surface-overlay',
                     ].join(' ')}
                   >
-                    <div
-                      className={`flex-1 min-w-0 truncate text-xs leading-none ${isSelected ? 'font-medium text-accent' : 'text-foreground'}`}
-                    >
-                      {u.display_name || u.email}
-                    </div>
+                    <Stack grow minWidth="none" gap="none">
+                      <Text
+                        size="caption"
+                        truncate
+                        color={isSelected ? 'accent' : 'foreground'}
+                        weight={isSelected ? 'emphasis' : undefined}
+                      >
+                        {u.display_name || u.email}
+                      </Text>
+                    </Stack>
                     {u.display_name && u.display_name !== u.email && (
-                      <div className="shrink-0 text-[11px] leading-none text-muted">{u.email}</div>
+                      <Stack shrink gap="none">
+                        <Text size="caption" color="muted">
+                          {u.email}
+                        </Text>
+                      </Stack>
                     )}
                   </button>
                 </li>

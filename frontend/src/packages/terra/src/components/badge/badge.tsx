@@ -202,7 +202,8 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
+  extends
+    Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
     VariantProps<typeof badgeVariants> {
   /**
    * When true, renders a small filled circle before the label to indicate

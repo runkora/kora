@@ -21,6 +21,8 @@ import {
   Separator,
   Icon,
   Stack,
+  StepDot,
+  StepConnector,
   Text,
 } from '@orbit/terra';
 
@@ -73,23 +75,8 @@ function Step({
   return (
     <Stack direction="horizontal" gap="comfortable">
       <Stack align="center" gap="none">
-        <Stack
-          align="center"
-          justify="center"
-          style={{
-            width: '1.5rem',
-            height: '1.5rem',
-            flexShrink: 0,
-            borderRadius: '9999px',
-            backgroundColor: 'var(--color-accent)',
-            color: 'var(--color-accent-foreground)',
-            fontSize: '11px',
-            fontWeight: 'bold',
-          }}
-        >
-          {number}
-        </Stack>
-        <Stack grow style={{ marginTop: '0.5rem', width: '1px', backgroundColor: 'var(--color-border)' }} />
+        <StepDot>{number}</StepDot>
+        <StepConnector />
       </Stack>
       <section className="flex-1 pb-8">
         <header className="mb-2">
@@ -121,8 +108,8 @@ export function SetupTab() {
             <Step number={1} title="Create an API key">
               <Text size="supporting" color="muted">
                 Head to the{' '}
-                <Text asChild size="supporting" color="foreground" weight="emphasis">
-                  <output>API Keys</output>
+                <Text as="span" size="supporting" color="foreground" weight="emphasis">
+                  API Keys
                 </Text>{' '}
                 tab to create a key, then store it in your environment — never hard-code it in
                 source files.

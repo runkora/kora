@@ -20,8 +20,10 @@ import {
   Grid,
   Heading,
   Icon,
+  Progress,
   Separator,
   Stack,
+  StatusDot,
   Text,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -175,26 +177,12 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                 </Text>
               </Stack>
               {/* Health bar */}
-              <div
-                style={{
-                  display: 'block',
-                  height: 4,
-                  borderRadius: 2,
-                  background: COLORS.borderSubtle,
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'block',
-                    height: '100%',
-                    width: `${pct}%`,
-                    background: unavailable > 0 ? COLORS.degraded : COLORS.healthy,
-                    borderRadius: 2,
-                    transition: 'width 0.3s',
-                  }}
-                />
-              </div>
+              <Progress
+                label="Model health"
+                value={pct}
+                variant={unavailable > 0 ? 'degraded' : 'healthy'}
+                size="sm"
+              />
               {unavailable > 0 && (
                 <Text size="caption" color="muted">
                   {unavailable} unavailable
@@ -230,7 +218,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                   <Text size="caption" color="subtle" weight="emphasis">
                     By modality
                   </Text>
-                  <Stack direction="horizontal" gap="snug" style={{ flexWrap: 'wrap' }}>
+                  <Stack direction="horizontal" gap="snug" wrap>
                     {Object.entries(modalityCounts).map(([mod, count]) => (
                       <Stack key={mod} direction="horizontal" align="center" gap="tight">
                         <Text size="caption" weight="emphasis">
@@ -345,29 +333,13 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
         </ResponsiveContainer>
         <Stack direction="horizontal" gap="comfortable" justify="center">
           <Stack direction="horizontal" align="center" gap="tight">
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: COLORS.accent,
-                display: 'inline-block',
-              }}
-            />
+            <StatusDot status="accent" size="sm" aria-hidden />
             <Text size="caption" color="subtle">
               Total requests
             </Text>
           </Stack>
           <Stack direction="horizontal" align="center" gap="tight">
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: COLORS.error,
-                display: 'inline-block',
-              }}
-            />
+            <StatusDot status="error" size="sm" aria-hidden />
             <Text size="caption" color="subtle">
               Errors
             </Text>

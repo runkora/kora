@@ -94,12 +94,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
           filterFn: (m, selected) => selected.has(m.enabled ? 'enabled' : 'disabled'),
         },
         cell: (m) => (
-          <Badge
-            variant={m.enabled ? 'healthy' : 'muted'}
-            shape="pill"
-            size="sm"
-            dot
-          >
+          <Badge variant={m.enabled ? 'healthy' : 'muted'} shape="pill" size="sm" dot>
             {m.enabled ? 'Enabled' : 'Disabled'}
           </Badge>
         ),

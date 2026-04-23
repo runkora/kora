@@ -13,7 +13,9 @@ export interface ButtonGroupProps extends React.HTMLAttributes<HTMLDivElement> {
  * button are squared off so only the outermost buttons retain their rounded
  * corners.
  *
- * Works with any Terra `<Button>` variant without extra prop wiring.
+ * Works with any Terra `<Button>` variant — including `asChild` buttons that
+ * render as `<a>` or custom elements — because the selector targets all direct
+ * children (`[&>*]`), not just `<button>` elements.
  *
  * ```tsx
  * <ButtonGroup>
@@ -34,11 +36,11 @@ const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
         className={cn(
           'inline-flex',
           // Collapse adjacent borders into a single hairline.
-          '[&>button:not(:first-child)]:-ml-px',
+          '[&>*:not(:first-child)]:-ml-px',
           // Square off right corners of every button except the last.
-          '[&>button:not(:last-child)]:rounded-r-none',
+          '[&>*:not(:last-child)]:rounded-r-none',
           // Square off left corners of every button except the first.
-          '[&>button:not(:first-child)]:rounded-l-none',
+          '[&>*:not(:first-child)]:rounded-l-none',
           className,
         )}
         {...props}

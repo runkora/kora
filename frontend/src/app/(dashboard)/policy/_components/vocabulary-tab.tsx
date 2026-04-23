@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Badge,
   Button,
   Icon,
   Card,
@@ -119,13 +120,14 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       {initialError && <ErrorBanner message={initialError} />}
 
       {/* Search */}
-      <Input
-        type="text"
-        placeholder="Filter scopes..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-xs"
-      />
+      <Stack asChild maxWidth="compact">
+        <Input
+          type="text"
+          placeholder="Filter scopes..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </Stack>
 
       {/* Filter chips */}
       <Stack direction="horizontal" align="center" justify="between">
@@ -273,14 +275,14 @@ function FilterChip({
       ].join(' ')}
     >
       {mono ? (
-        <Text asChild size="micro" mono>
-          <output>{label}</output>
+        <Text as="span" size="micro" mono>
+          {label}
         </Text>
       ) : (
         label
       )}
-      <Text asChild size="micro" color="muted">
-        <output>{count}</output>
+      <Text as="span" size="micro" color="muted">
+        {count}
       </Text>
     </button>
   );
@@ -290,13 +292,8 @@ function FilterChip({
 
 function UsagePill({ count, label }: { count: number; label: string }) {
   return (
-    <div
-      className={[
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.6875rem] font-medium',
-        count > 0 ? 'bg-surface-elevated text-foreground' : 'bg-transparent text-subtle',
-      ].join(' ')}
-    >
+    <Badge variant={count > 0 ? 'elevated' : 'muted'} size="sm">
       {count} {label}
-    </div>
+    </Badge>
   );
 }

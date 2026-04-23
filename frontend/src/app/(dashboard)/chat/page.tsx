@@ -1,7 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Badge, Button, Grid, Icon, Stack, Text, Heading, Textarea, cn } from '@orbit/terra';
+import {
+  Badge,
+  Button,
+  ChatBubble,
+  ChatBubbleActions,
+  Grid,
+  Icon,
+  InputSurface,
+  Stack,
+  StreamingCursor,
+  Text,
+  Heading,
+  Textarea,
+  TypingIndicator,
+  cn,
+} from '@orbit/terra';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,21 +302,7 @@ function getAIResponse(userInput: string): string {
 }
 
 // ─── TypingIndicator ──────────────────────────────────────────────────────────
-
-function TypingIndicator() {
-  return (
-    <Stack direction="horizontal" align="center" gap="tight">
-      {[0, 1, 2].map((i) => (
-        // TODO: replace with Terra animation primitive once implemented
-        <div
-          key={i}
-          className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
-          style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
-        />
-      ))}
-    </Stack>
-  );
-}
+// Delegate to the Terra primitive — TypingIndicator imported from @orbit/terra.
 
 // ─── MessageContent ───────────────────────────────────────────────────────────
 
@@ -493,23 +494,21 @@ export default function ChatPage() {
         <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             /* Welcome screen */
-            <Stack direction="vertical" align="center" justify="center" asChild>
+            <Stack direction="vertical" align="center" justify="center" gap="none" asChild>
               <section className="h-full px-6 py-12 text-center">
-                {/* Icon avatar: custom 64px size + rounded-2xl shape — no Terra icon-container primitive */}
-                <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
-                  <Icon name="sparkles" size="lg" color="accent" />
-                </div>
-                {/* mb-2 spacing: className is banned on Terra <Heading> */}
-                <div className="mb-2">
+                {/* Icon avatar — xl container (64px) with accent/15 bg */}
+                <Stack marginBottom="relaxed" gap="none">
+                  <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
+                </Stack>
+                <Stack marginBottom="snug" gap="none">
                   <Heading variant="section">How can Orbit help?</Heading>
-                </div>
-                {/* mb-10 + max-w-sm: className is banned on Terra <Text> */}
-                <div className="mb-10 max-w-sm">
+                </Stack>
+                <Stack marginBottom="spacious" maxWidth="card" gap="none">
                   <Text size="supporting" color="muted">
                     The AI-powered control plane assistant. Ask about agent architecture, generate
                     code, or explore Orbit&apos;s design.
                   </Text>
-                </div>
+                </Stack>
 
                 {/* Suggestion chips */}
                 <Grid cols={{ base: 1, sm: 2 }} gap="snug" asChild>
@@ -546,81 +545,45 @@ export default function ChatPage() {
               <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
                 {messages.map((msg) => (
                   <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
-                    <li className={cn(msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                      {/* Bubble */}
-                      <Stack direction="vertical" gap="snug" asChild>
-                        {/* Bubble wrapper: group + relative + role-conditional alignment — no Terra equivalent */}
-                        <div
-                          className={cn(
-                            'group relative max-w-[78%]',
-                            msg.role === 'user' ? 'items-end' : 'items-start',
+                    <li>
+                      <ChatBubble
+                        direction={msg.role === 'user' ? 'end' : 'start'}
+                        variant={msg.role === 'user' ? 'accent' : 'surface'}
+                      >
+                        {msg.content ? (
+                          <MessageContent content={msg.content} />
+                        ) : (
+                          <TypingIndicator />
+                        )}
+                        {msg.isStreaming && msg.content && <StreamingCursor />}
+                        <ChatBubbleActions>
+                          <Text size="micro" color="subtle">
+                            {formatTime(msg.timestamp)}
+                          </Text>
+                          {msg.role === 'assistant' && !msg.isStreaming && (
+                            <>
+                              <button
+                                className="text-subtle hover:text-foreground transition-colors"
+                                aria-label="Copy message"
+                              >
+                                <Icon name="copy" size="xs" />
+                              </button>
+                              <button
+                                className="text-subtle hover:text-status-healthy transition-colors"
+                                aria-label="Good response"
+                              >
+                                <Icon name="thumbs-up" size="xs" />
+                              </button>
+                              <button
+                                className="text-subtle hover:text-status-error transition-colors"
+                                aria-label="Bad response"
+                              >
+                                <Icon name="thumbs-down" size="xs" />
+                              </button>
+                            </>
                           )}
-                        >
-                          {/* Bubble card: per-role rounding + bg — no Terra card this configurable */}
-                          <div
-                            className={cn(
-                              'rounded-2xl px-4 py-3',
-                              msg.role === 'assistant'
-                                ? 'bg-surface border border-border-subtle rounded-tl-sm'
-                                : 'bg-accent/10 border border-accent/20 rounded-tr-sm',
-                            )}
-                          >
-                            {msg.content ? (
-                              <MessageContent content={msg.content} />
-                            ) : (
-                              /* Streaming start — show dots before first words arrive */
-                              <TypingIndicator />
-                            )}
-                            {msg.isStreaming && msg.content && (
-                              /* Blinking cursor during streaming */
-                              // TODO: replace with Terra animation primitive once implemented
-                              <div className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
-                            )}
-                          </div>
-
-                          {/* Timestamp + actions */}
-                          <Stack direction="horizontal" align="center" gap="snug" asChild>
-                            {/* Hover overlay: group-hover + opacity transition — no Terra interactive overlay */}
-                            <div
-                              className={cn(
-                                'px-1',
-                                'opacity-0 group-hover:opacity-100 transition-opacity',
-                                msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
-                              )}
-                            >
-                              <Text size="micro" color="subtle">
-                                {formatTime(msg.timestamp)}
-                              </Text>
-                              {msg.role === 'assistant' && !msg.isStreaming && (
-                                <>
-                                  {/*
-                                   * Message action buttons — raw <button>: icon-only
-                                   * micro-actions in the hover overlay.
-                                   */}
-                                  <button
-                                    className="text-subtle hover:text-foreground transition-colors"
-                                    aria-label="Copy message"
-                                  >
-                                    <Icon name="copy" size="xs" />
-                                  </button>
-                                  <button
-                                    className="text-subtle hover:text-status-healthy transition-colors"
-                                    aria-label="Good response"
-                                  >
-                                    <Icon name="thumbs-up" size="xs" />
-                                  </button>
-                                  <button
-                                    className="text-subtle hover:text-status-error transition-colors"
-                                    aria-label="Bad response"
-                                  >
-                                    <Icon name="thumbs-down" size="xs" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </Stack>
-                        </div>
-                      </Stack>
+                        </ChatBubbleActions>
+                      </ChatBubble>
                     </li>
                   </Stack>
                 ))}
@@ -628,11 +591,10 @@ export default function ChatPage() {
                 {/* Thinking indicator (between user message and streaming start) */}
                 {isThinking && (
                   <Stack direction="horizontal" gap="snug" asChild>
-                    <li className="list-none">
-                      {/* Thinking bubble: mirrors message bubble rounding — no Terra card this configurable */}
-                      <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
+                    <li>
+                      <ChatBubble direction="start">
                         <TypingIndicator />
-                      </div>
+                      </ChatBubble>
                     </li>
                   </Stack>
                 )}
@@ -646,13 +608,8 @@ export default function ChatPage() {
           <footer className="shrink-0 bg-background px-4 pt-3 pb-4">
             <Stack asChild gap="snug">
               <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
-                {/* Input card: compound rounding + dynamic focus border — no Terra card this flexible */}
-                <div
-                  className={cn(
-                    'rounded-2xl border bg-surface transition-colors duration-150',
-                    'focus-within:border-accent border-border',
-                  )}
-                >
+                {/* Input card: compound rounding + dynamic focus border */}
+                <InputSurface>
                   {/*
                    * variant="bare": the outer span above owns the border, background,
                    * focus ring, and border-radius. The Textarea provides only the
@@ -704,16 +661,10 @@ export default function ChatPage() {
                         )}
                       </Stack>
                       <Stack direction="horizontal" align="center" gap="snug">
-                        {/*
-                         * Keyboard hint — raw span: carries responsive utility
-                         * (hidden sm:block) alongside text styling.
-                         */}
-                        {/* Responsive: hidden sm:block — no Terra responsive-visibility primitive */}
-                        <div className="hidden sm:block">
-                          <Text size="micro" color="subtle">
-                            Shift + Enter for new line
-                          </Text>
-                        </div>
+                        {/* Responsive: keyboard hint — always visible */}
+                        <Text size="micro" color="subtle">
+                          Shift + Enter for new line
+                        </Text>
                         {/*
                          * size="xs" shape="pill": compact pill send button.
                          */}
@@ -724,7 +675,7 @@ export default function ChatPage() {
                       </Stack>
                     </footer>
                   </Stack>
-                </div>
+                </InputSurface>
 
                 {/*
                  * mt-2 wrapper: spacing between the input card and the disclaimer.

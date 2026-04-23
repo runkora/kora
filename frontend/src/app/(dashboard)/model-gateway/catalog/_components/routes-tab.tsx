@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import {
   Alert,
   Button,
+  DragCard,
   Icon,
   Field,
   Grid,
@@ -12,6 +13,7 @@ import {
   NativeSelect,
   Separator,
   Stack,
+  StepDot,
   Text,
   Toggle,
 } from '@orbit/terra';
@@ -173,42 +175,29 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
 
         <Stack gap="snug">
           {model.routes.map((route, idx) => (
-            // eslint-disable-next-line local/no-raw-layout-elements -- draggable card root; Stack does not accept drag event handlers (draggable, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd) or dynamic className
-            <div
+            <DragCard
               key={route.id || idx}
               draggable
+              dragging={draggingIdx === idx}
+              dropTarget={overIdx === idx && draggingIdx !== null}
               onDragStart={() => handleDragStart(idx)}
               onDragOver={(e) => handleDragOver(e, idx)}
               onDragLeave={handleDragLeave}
               onDrop={() => handleDrop(idx)}
               onDragEnd={handleDragEnd}
-              className={[
-                'flex gap-3 rounded-md border p-3 transition-all duration-150',
-                draggingIdx === idx
-                  ? 'opacity-40 scale-[0.98] border-border bg-surface-elevated'
-                  : overIdx === idx && draggingIdx !== null
-                    ? 'border-accent bg-accent/5 shadow-sm'
-                    : 'border-border bg-surface-elevated',
-              ].join(' ')}
             >
               {/* Left column: drag handle + priority number */}
-              {/* eslint-disable-next-line local/no-raw-layout-elements -- shrink-0 and pt-2 are not Stack props */}
-              <div className="flex shrink-0 flex-col items-center gap-1 pt-2">
-                {/* eslint-disable-next-line local/no-raw-inline-elements -- cursor-grab/active styles cannot go on Icon */}
-                <span className="cursor-grab active:cursor-grabbing">
-                  <Icon name="grip-vertical" color="muted" />
-                </span>
+              <Stack direction="vertical" align="center" gap="tight" shrink paddingTop="snug">
+                <Icon name="grip-vertical" color="muted" cursorGrab />
                 {model.strategy === 'priority' && (
-                  // eslint-disable-next-line local/no-raw-layout-elements -- priority badge: size-4 (16px) + text-[10px]; no Terra Icon container at this size (smallest is size-7/28px)
-                  <div className="flex size-4 items-center justify-center rounded-full bg-surface text-[10px] font-bold text-muted">
+                  <StepDot variant="surface" size="sm">
                     {idx + 1}
-                  </div>
+                  </StepDot>
                 )}
-              </div>
+              </Stack>
 
               {/* Center column: all fields stacked */}
-              {/* eslint-disable-next-line local/no-raw-layout-elements -- min-w-0 + flex-1 (grow) together; Stack.grow exists but min-w-0 is not a Stack prop */}
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Stack direction="vertical" grow gap="snug" minWidth="none">
                 <NativeSelect
                   value={route.provider}
                   onChange={(e) => {
@@ -307,15 +296,13 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     />
                   </Field>
                 </Grid>
-              </div>
+              </Stack>
 
               {/* Right column: weight (weighted only) + toggle + delete */}
-              {/* eslint-disable-next-line local/no-raw-layout-elements -- shrink-0 and items-end together; Stack has align but not shrink-0 */}
-              <div className="flex shrink-0 flex-col items-end gap-2">
+              <Stack direction="vertical" align="end" gap="snug" shrink>
                 {model.strategy === 'weighted' && (
                   <Stack direction="horizontal" align="center" gap="tight">
-                    {/* eslint-disable-next-line local/no-raw-layout-elements -- fixed w-16 width constraint on numeric input wrapper; Stack has no fixed-width prop */}
-                    <div className="w-16 text-center">
+                    <Stack asChild maxWidth="form-field-sm">
                       <Input
                         type="number"
                         value={route.weight}
@@ -328,7 +315,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                           onChange({ ...model, routes: updated });
                         }}
                       />
-                    </div>
+                    </Stack>
                     <Text size="caption" color="muted">
                       %
                     </Text>
@@ -354,8 +341,8 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     <Icon name="trash" size="2xs" />
                   </button>
                 </Stack>
-              </div>
-            </div>
+              </Stack>
+            </DragCard>
           ))}
         </Stack>
 

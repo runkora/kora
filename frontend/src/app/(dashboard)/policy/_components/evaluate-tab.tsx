@@ -166,14 +166,14 @@ export function EvaluateTab({
             Uses the same OPA evaluation path as live enforcement.
           </Text>
           <Text size="caption" color="muted">
-            <Text asChild size="caption" color="foreground" weight="emphasis">
-              <output>Scope lookup</output>
+            <Text as="span" size="caption" color="foreground" weight="emphasis">
+              Scope lookup
             </Text>{' '}
             shows the full permission set for a principal (your own session is pre-loaded).
           </Text>
           <Text size="caption" color="muted">
-            <Text asChild size="caption" color="foreground" weight="emphasis">
-              <output>Policy check</output>
+            <Text as="span" size="caption" color="foreground" weight="emphasis">
+              Policy check
             </Text>{' '}
             dry-runs a specific operation against a principal with a chosen role.
           </Text>

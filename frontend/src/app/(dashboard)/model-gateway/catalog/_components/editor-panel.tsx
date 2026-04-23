@@ -94,7 +94,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
       {/* Panel — aside (semantic landmark); Stack injects flex-col at runtime */}
       <Stack asChild direction="vertical">
         <aside className="fixed inset-y-0 right-0 z-50 w-[580px] bg-surface shadow-2xl">
-
           {/* Header — Stack injects flex + align/justify at runtime; header has no
               display-mode class in JSX so no-raw-layout-elements does not fire */}
           <Stack asChild direction="horizontal" align="center" justify="between">
@@ -220,7 +219,10 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
           <Stack asChild direction="horizontal" align="center" justify="between">
             <footer className="border-t border-border px-5 py-4">
               <Stack direction="horizontal" align="center" gap="snug">
-                <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+                <Toggle
+                  checked={draft.enabled}
+                  onChange={(v) => setDraft({ ...draft, enabled: v })}
+                />
                 <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
                   {draft.enabled ? 'Enabled' : 'Disabled'}
                 </Text>
@@ -235,7 +237,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
               </Stack>
             </footer>
           </Stack>
-
         </aside>
       </Stack>
     </>

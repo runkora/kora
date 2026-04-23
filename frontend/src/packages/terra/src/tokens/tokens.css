@@ -101,9 +101,9 @@
   /* Provider brand colours — used only for provider identity badges.           */
   /* Raw hex values kept as-is; cloud providers own these brand colours and they */
   /* do not derive from the Terra seed system.                                   */
-  --terra-raw-provider-bedrock: #ff9900;  /* AWS Orange   */
+  --terra-raw-provider-bedrock: #ff9900; /* AWS Orange   */
   --terra-raw-provider-vertexai: #4285f4; /* Google Blue  */
-  --terra-raw-provider-azure: #0078d4;   /* Azure Blue   */
+  --terra-raw-provider-azure: #0078d4; /* Azure Blue   */
 
   /* Strategy colours — routing-strategy identity badges.                        */
   --terra-raw-strategy-weighted: #a855f7; /* Purple — weighted split             */

@@ -121,7 +121,7 @@ export const AgentDetail: Story = {
                 variant={
                   decision === 'allow' ? 'healthy' : decision === 'deny' ? 'error' : 'degraded'
                 }
-                className="text-[10px]"
+                size="sm"
               >
                 {decision}
               </Badge>
@@ -161,14 +161,14 @@ export const WithBadgeCounts: Story = {
     <Tabs defaultValue="alerts" className="w-[440px]">
       <TabsList>
         <TabsTrigger value="alerts">
-          Alerts
-          <Badge variant="error" className="ml-1.5 text-[10px] px-1.5 py-0">
+          Alerts{' '}
+          <Badge variant="error" size="sm">
             3
           </Badge>
         </TabsTrigger>
         <TabsTrigger value="warnings">
-          Warnings
-          <Badge variant="degraded" className="ml-1.5 text-[10px] px-1.5 py-0">
+          Warnings{' '}
+          <Badge variant="degraded" size="sm">
             7
           </Badge>
         </TabsTrigger>

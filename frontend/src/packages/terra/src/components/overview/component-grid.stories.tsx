@@ -22,18 +22,28 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  ChatBubble,
+  ChatBubbleActions,
   Code,
+  DragCard,
   Grid,
   Heading,
   Icon,
+  Indicator,
+  InputSurface,
   PageLayout,
   Section,
   Stack,
+  StatusDot,
+  StepConnector,
+  StepDot,
+  StreamingCursor,
   Text,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  TypingIndicator,
 } from '../../index';
 
 // ─── Story meta ───────────────────────────────────────────────────────────────
@@ -1014,6 +1024,251 @@ export const ComponentGrid: Story = {
                     <></>
                   </PageLayout>
                 </div>
+              </Group>
+            </Stack>
+          </Section>
+          {/* ── Button — dim prop ──────────────────────────────────────── */}
+          <Section heading="Button · dim">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="dim — off state recedes, hover reveals">
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <Button variant="ghost" size="icon-sm" dim aria-label="Not favourite">
+                    <Icon name="heart" size="2xs" color="muted" />
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" aria-label="Favourite">
+                    <Icon name="heart" size="2xs" color="rose" filled />
+                  </Button>
+                  <Text size="caption" color="muted">
+                    dim=true (left) recedes until hover; dim=false (right) stays opaque
+                  </Text>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── StatusDot ──────────────────────────────────────────────── */}
+          <Section heading="StatusDot">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Status variants — all seven">
+                <Stack direction="horizontal" gap="comfortable" align="center" wrap>
+                  {(
+                    ['healthy', 'degraded', 'error', 'idle', 'pending', 'muted', 'accent'] as const
+                  ).map((status) => (
+                    <Stack key={status} gap="tight" align="center">
+                      <StatusDot status={status} />
+                      <Text size="micro" color="muted">
+                        {status}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Sizes — sm / md / lg">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  {(['sm', 'md', 'lg'] as const).map((size) => (
+                    <Stack key={size} gap="tight" align="center">
+                      <StatusDot status="healthy" size={size} />
+                      <Text size="micro" color="muted">
+                        {size}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="With glow">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StatusDot status="healthy" glow />
+                  <StatusDot status="degraded" glow />
+                  <StatusDot status="error" glow />
+                  <StatusDot status="pending" glow />
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── StepDot + StepConnector ────────────────────────────────── */}
+          <Section heading="StepDot + StepConnector">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Variants — accent (active) / surface (upcoming)">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StepDot variant="accent">1</StepDot>
+                  <StepDot variant="surface">2</StepDot>
+                  <StepDot variant="surface">3</StepDot>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Sizes — md (24 px) / sm (16 px)">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StepDot size="md">1</StepDot>
+                  <StepDot size="sm">1</StepDot>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Step flow — with StepConnector">
+                <Stack direction="horizontal" gap="comfortable">
+                  <Stack align="center" gap="none">
+                    <StepDot>1</StepDot>
+                    <StepConnector />
+                    <StepDot>2</StepDot>
+                    <StepConnector />
+                    <StepDot variant="surface">3</StepDot>
+                  </Stack>
+                  <Stack gap="relaxed">
+                    <Text size="supporting" weight="emphasis">
+                      Create an API key
+                    </Text>
+                    <Text size="supporting" weight="emphasis">
+                      Configure the gateway
+                    </Text>
+                    <Text size="supporting" weight="emphasis" color="muted">
+                      Verify the connection
+                    </Text>
+                  </Stack>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Indicator ──────────────────────────────────────────────── */}
+          <Section heading="Indicator">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Status variants on icon buttons">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  {(
+                    [
+                      { status: 'error', icon: 'bell' },
+                      { status: 'pending', icon: 'clock' },
+                      { status: 'degraded', icon: 'alert-circle' },
+                      { status: 'healthy', icon: 'activity' },
+                    ] as const
+                  ).map(({ status, icon }) => (
+                    <Stack key={status} gap="tight" align="center">
+                      <Indicator status={status}>
+                        <Button variant="ghost" size="icon" aria-label={`${icon} (${status})`}>
+                          <Icon name={icon} />
+                        </Button>
+                      </Indicator>
+                      <Text size="micro" color="muted">
+                        {status}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── DragCard ───────────────────────────────────────────────── */}
+          <Section heading="DragCard">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Visual states — default / dragging / drop-target">
+                <Stack gap="snug" className="max-w-xs">
+                  <DragCard>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Default
+                    </Text>
+                  </DragCard>
+                  <DragCard dragging>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Dragging
+                    </Text>
+                  </DragCard>
+                  <DragCard dropTarget>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Drop target
+                    </Text>
+                  </DragCard>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Chat Primitives ────────────────────────────────────────── */}
+          <Section heading="Chat Primitives">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="TypingIndicator — AI thinking state">
+                <ChatBubble direction="start">
+                  <TypingIndicator />
+                </ChatBubble>
+              </Group>
+
+              <Rule />
+
+              <Group label="StreamingCursor — inline pulse during streaming">
+                <ChatBubble direction="start">
+                  <Text as="span" size="supporting">
+                    Evaluating the credential request against the active policy
+                  </Text>
+                  <StreamingCursor />
+                </ChatBubble>
+              </Group>
+
+              <Rule />
+
+              <Group label="InputSurface — focus-within border container">
+                <InputSurface className="max-w-sm">
+                  <div className="px-4 py-3 text-sm text-muted-foreground">Message Orbit…</div>
+                  <Stack
+                    direction="horizontal"
+                    align="center"
+                    justify="end"
+                    paddingInline="snug"
+                    paddingBottom="snug"
+                  >
+                    <Button size="xs" shape="pill" disabled>
+                      <Icon name="send" size="xs" />
+                      Send
+                    </Button>
+                  </Stack>
+                </InputSurface>
+              </Group>
+
+              <Rule />
+
+              <Group label="ChatBubble + ChatBubbleActions (hover to reveal)">
+                <Stack gap="snug" className="max-w-sm">
+                  <ChatBubble direction="start">
+                    <Text as="span" size="supporting" preserveWhitespace>
+                      Zero policy violations in the last 24 h across all agents.
+                    </Text>
+                    <ChatBubbleActions>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-overlay hover:text-foreground"
+                        aria-label="Copy"
+                      >
+                        <Icon name="copy" size="xs" />
+                      </button>
+                    </ChatBubbleActions>
+                  </ChatBubble>
+                  <ChatBubble direction="end" variant="accent">
+                    <Text as="span" size="supporting">
+                      Which agents were active?
+                    </Text>
+                    <ChatBubbleActions>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-overlay hover:text-foreground"
+                        aria-label="Copy"
+                      >
+                        <Icon name="copy" size="xs" />
+                      </button>
+                    </ChatBubbleActions>
+                  </ChatBubble>
+                </Stack>
               </Group>
             </Stack>
           </Section>

@@ -48,20 +48,9 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
         </Text>
       </Stack>
       {copied ? (
-        <Icon
-          name="check"
-          size="2xs"
-          color="status-healthy"
-          style={{ marginLeft: '0.75rem', flexShrink: 0 }}
-        />
+        <Icon name="check" size="2xs" color="status-healthy" shrink />
       ) : (
-        <Icon
-          name="copy"
-          size="2xs"
-          color="muted"
-          style={{ marginLeft: '0.75rem' }}
-          groupReveal
-        />
+        <Icon name="copy" size="2xs" color="muted" groupReveal />
       )}
     </button>
   );
@@ -76,7 +65,14 @@ interface ChipRowProps {
 
 function ChipRow({ label, values }: ChipRowProps) {
   return (
-    <Stack direction="horizontal" wrap align="center" gap="snug" style={{ padding: '0.25rem 0.5rem' }}>
+    <Stack
+      direction="horizontal"
+      wrap
+      align="center"
+      gap="snug"
+      paddingBlock="tight"
+      paddingInline="snug"
+    >
       <Text size="caption" color="muted">
         {label}
       </Text>
@@ -127,8 +123,8 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
               padding; constrained caps height and overflow-y-auto enables scrolling. */}
           <ModalBody flush gapless constrained>
             {/* Identity */}
-            <Stack style={{ padding: '0.5rem' }}>
-              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
+            <Stack padding="snug">
+              <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                 <Text size="caption" color="muted">
                   Identity
                 </Text>
@@ -142,8 +138,8 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Capabilities */}
-            <Stack style={{ padding: '0.5rem' }}>
-              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
+            <Stack padding="snug">
+              <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                 <Text size="caption" color="muted">
                   Capabilities
                 </Text>
@@ -155,8 +151,8 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Modalities */}
-            <Stack style={{ padding: '0.5rem' }}>
-              <Stack style={{ padding: '0 0.5rem 0.25rem' }}>
+            <Stack padding="snug">
+              <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                 <Text size="caption" color="muted">
                   Modalities
                 </Text>
