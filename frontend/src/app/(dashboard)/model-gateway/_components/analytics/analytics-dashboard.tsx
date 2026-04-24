@@ -16,22 +16,26 @@ import { AnalyticsTokensByModelChart } from './analytics-tokens-by-model-chart';
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-20 text-center">
-      <Text color="muted">No inference activity yet for this period.</Text>
-      <Text size="caption" color="subtle">
-        Data will appear here once requests are made through the gateway.
-      </Text>
-    </div>
+    <Stack align="center" justify="center" gap="snug" asChild>
+      <section className="rounded-lg border border-dashed py-20 text-center">
+        <Text color="muted">No inference activity yet for this period.</Text>
+        <Text size="caption" color="subtle">
+          Data will appear here once requests are made through the gateway.
+        </Text>
+      </section>
+    </Stack>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-status-error/20 bg-status-error/5 px-4 py-3">
-      <Text size="supporting" color="muted">
-        {message}
-      </Text>
-    </div>
+    <Stack asChild>
+      <section className="rounded-lg border border-status-error/20 bg-status-error/5 px-4 py-3">
+        <Text size="supporting" color="muted">
+          {message}
+        </Text>
+      </section>
+    </Stack>
   );
 }
 
@@ -102,6 +106,7 @@ export function AnalyticsDashboard({
         >
           <Stack direction="vertical" gap="comfortable">
             {/* KPI stat cards */}
+            {/* eslint-disable-next-line local/no-raw-div */}
             {data ? <AnalyticsKPICards kpis={data.kpis} /> : <div className="h-[120px]" />}
 
             {/* Empty state when no bucket data */}

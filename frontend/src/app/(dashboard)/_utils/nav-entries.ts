@@ -107,7 +107,12 @@ const SYSTEM_NAV: NavEntry[] = [
 ];
 
 const MODEL_GATEWAY_NAV: NavEntry[] = [
-  { label: 'Overview', href: APP_ROUTES.modelGateway.overview, icon: BarChart3 },
+  {
+    label: 'Overview',
+    href: APP_ROUTES.modelGateway.overview,
+    icon: BarChart3,
+    requiredScope: 'platform:analytics:read',
+  },
   { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
   {
     label: 'Catalog',

@@ -10,7 +10,15 @@ import {
   Cell,
   ResponsiveContainer,
 } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@orbit/terra';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import type { AnalyticsCostByModel } from '../../_types';
 
 const COLORS = {
@@ -60,9 +68,13 @@ export function AnalyticsCostByModelChart({
           <CardDescription>Spend distribution across models</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-            No data for this period
-          </div>
+          <Stack align="center" justify="center" asChild>
+            <section className="h-[240px]">
+              <Text size="supporting" color="subtle">
+                No data for this period
+              </Text>
+            </section>
+          </Stack>
         </CardContent>
       </Card>
     );
