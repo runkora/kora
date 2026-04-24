@@ -570,6 +570,11 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
             control plane.
           </Text>
         </Stack>
+        <Text size="supporting" color="muted">
+          Unified inference proxy — route, observe, and govern all LLM traffic from a single control
+          plane.
+        </Text>
+      </Stack>
 
         {/* KPI Cards */}
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">

@@ -12,15 +12,13 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
   return (
     <Card column>
       <CardContent>
-        <Stack gap="snug" align="center" asChild>
-          <section className="py-8">
-            <Icon name={icon} size="md" container containerVariant="surface-subtle" circle />
-            <Heading variant="section">{title}</Heading>
-            <Text size="caption" color="muted" align="center">
-              {description}
-            </Text>
-            {action && action}
-          </section>
+        <Stack gap="snug" align="center" paddingBlock="comfortable">
+          <Icon name={icon} size="md" container containerVariant="surface-subtle" circle />
+          <Heading variant="section">{title}</Heading>
+          <Text size="caption" color="muted" align="center">
+            {description}
+          </Text>
+          {action && action}
         </Stack>
       </CardContent>
     </Card>

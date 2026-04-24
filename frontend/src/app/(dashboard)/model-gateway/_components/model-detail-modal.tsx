@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import {
   Badge,
+  Button,
   Icon,
   Modal,
   ModalBody,
@@ -34,25 +35,23 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
   }, [value]);
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-    >
-      <Stack gap="none">
-        <Text size="caption" color="muted">
-          {label}
-        </Text>
-        <Text size="supporting" weight="emphasis" mono={mono}>
-          {value}
-        </Text>
+    <Button variant="ghost" size="sm" fullWidth onClick={handleCopy} aria-label={`Copy ${label}`}>
+      <Stack direction="horizontal" align="center" justify="between" grow>
+        <Stack gap="none">
+          <Text size="caption" color="muted">
+            {label}
+          </Text>
+          <Text size="supporting" weight="emphasis" mono={mono}>
+            {value}
+          </Text>
+        </Stack>
+        {copied ? (
+          <Icon name="check" size="2xs" color="status-healthy" shrink />
+        ) : (
+          <Icon name="copy" size="2xs" color="muted" />
+        )}
       </Stack>
-      {copied ? (
-        <Icon name="check" size="2xs" color="status-healthy" shrink />
-      ) : (
-        <Icon name="copy" size="2xs" color="muted" groupReveal />
-      )}
-    </button>
+    </Button>
   );
 }
 

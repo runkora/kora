@@ -12,11 +12,13 @@
 
 import { useState, useCallback } from 'react';
 import {
+  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
+  Code,
   Heading,
   Separator,
   Icon,
@@ -41,21 +43,16 @@ function CodeBlock({ code }: { code: string }) {
   return (
     <Stack asChild>
       <figure className="group relative m-0">
-        <pre className="overflow-x-auto rounded-lg bg-surface-elevated border border-border px-4 py-3 text-xs leading-relaxed">
-          <code className="font-mono text-foreground">{code}</code>
+        <pre className="overflow-x-auto rounded-lg bg-surface-elevated border border-border px-4 py-3 leading-relaxed">
+          <Code variant="bare">{code}</Code>
         </pre>
-        <button
-          type="button"
-          onClick={handleCopy}
-          aria-label="Copy code"
-          className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-surface hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
-        >
+        <Button variant="ghost" size="icon-sm" onClick={handleCopy} aria-label="Copy code">
           {copied ? (
             <Icon name="check" size="2xs" color="status-healthy" />
           ) : (
             <Icon name="copy" size="2xs" />
           )}
-        </button>
+        </Button>
       </figure>
     </Stack>
   );
@@ -78,14 +75,16 @@ function Step({
         <StepDot>{number}</StepDot>
         <StepConnector />
       </Stack>
-      <section className="flex-1 pb-8">
-        <header className="mb-2">
-          <Text size="supporting" weight="emphasis">
-            {title}
-          </Text>
-        </header>
-        <Stack gap="snug">{children}</Stack>
-      </section>
+      <Stack grow asChild>
+        <article className="pb-8">
+          <header className="mb-2">
+            <Text size="supporting" weight="emphasis">
+              {title}
+            </Text>
+          </header>
+          <Stack gap="snug">{children}</Stack>
+        </article>
+      </Stack>
     </Stack>
   );
 }
@@ -119,20 +118,14 @@ export function SetupTab() {
 export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
               />
               <Text size="caption" color="subtle">
-                Then reload your shell: <code className="font-mono text-xs">source ~/.zshrc</code>
+                Then reload your shell: <Code>source ~/.zshrc</Code>
               </Text>
             </Step>
 
             <Step number={2} title="Point your agent at the gateway">
               <Text size="supporting" color="muted">
                 Set the base URL to the Orbit Model Gateway endpoint. Most OpenAI-compatible clients
-                accept a{' '}
-                <code className="rounded bg-surface-elevated px-1 font-mono text-xs">base_url</code>{' '}
-                or{' '}
-                <code className="rounded bg-surface-elevated px-1 font-mono text-xs">
-                  OPENAI_BASE_URL
-                </code>{' '}
-                environment variable.
+                accept a <Code>base_url</Code> or <Code>OPENAI_BASE_URL</Code> environment variable.
               </Text>
               <CodeBlock
                 code={`export OPENAI_BASE_URL="https://gateway.orbit.dev/v1"

@@ -48,14 +48,14 @@ interface StatRowProps {
 function StatRow({ label, value }: StatRowProps) {
   return (
     <Stack asChild direction="horizontal" align="center" justify="between">
-      <section className="py-1.5">
+      <article className="py-1.5">
         <Text size="supporting" color="muted">
           {label}
         </Text>
         <Text size="supporting" weight="emphasis" mono tabular>
           {value}
         </Text>
-      </section>
+      </article>
     </Stack>
   );
 }

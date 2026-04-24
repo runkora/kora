@@ -151,13 +151,13 @@ export function GrantsTab({
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Text size="caption" color="muted">
           Grants assign specific scopes directly to a principal. Unlike roles (which map OIDC claims
           to scopes), grants are explicit — they apply regardless of how the principal
           authenticates.
         </Text>
-      </section>
+      </aside>
 
       {error && <ErrorBanner message={error} />}
 
@@ -326,21 +326,12 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors select-none cursor-pointer',
-        active
-          ? 'bg-accent/10 text-accent border-accent/30'
-          : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
-      ].join(' ')}
-    >
+    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
       {label}
       <Text as="span" size="micro" color="muted">
         {count}
       </Text>
-    </button>
+    </Button>
   );
 }
 
@@ -695,7 +686,7 @@ function DeleteGrantModal({
               <Text size="caption" color="muted">
                 Remove this grant? This action cannot be undone.
               </Text>
-              <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
+              <aside className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
                 <Stack gap="snug">
                   <Stack direction="horizontal" align="center" gap="snug">
                     <PrincipalBadge type={grant.principal_type} />
@@ -709,7 +700,7 @@ function DeleteGrantModal({
                     ))}
                   </Stack>
                 </Stack>
-              </section>
+              </aside>
             </Stack>
           )}
           {error && (
@@ -761,7 +752,7 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
   }, [search]);
 
   return (
-    <section>
+    <Stack gap="none">
       <Stack marginBottom="tight">
         <Input
           type="text"
@@ -770,26 +761,23 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
           onChange={(e) => setSearch(e.target.value)}
         />
       </Stack>
-      <section className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+      <aside className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
         {loading || users.length === 0 ? (
-          <section className="px-3 py-1.5">
+          <aside className="px-3 py-1.5">
             <Text size="caption" color="muted">
               {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
             </Text>
-          </section>
+          </aside>
         ) : (
           <ul className="list-none m-0 p-0">
             {users.map((u) => {
               const isSelected = value === u.id;
               return (
                 <li key={u.id} className="border-b border-border-subtle last:border-b-0">
-                  <button
-                    type="button"
+                  <Button
+                    variant={isSelected ? 'secondary' : 'ghost'}
+                    fullWidth
                     onClick={() => onChange(u.id)}
-                    className={[
-                      'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors cursor-pointer select-none',
-                      isSelected ? 'bg-accent/10' : 'hover:bg-surface-overlay',
-                    ].join(' ')}
                   >
                     <Stack grow minWidth="none" gap="none">
                       <Text
@@ -808,14 +796,14 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
                         </Text>
                       </Stack>
                     )}
-                  </button>
+                  </Button>
                 </li>
               );
             })}
           </ul>
         )}
-      </section>
-    </section>
+      </aside>
+    </Stack>
   );
 }
 

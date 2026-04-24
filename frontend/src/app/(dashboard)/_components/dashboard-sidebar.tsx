@@ -48,7 +48,7 @@ export function DashboardSidebar() {
             if (visibleItems.length === 0) return null;
 
             return (
-              <section key={label} className="space-y-0.5">
+              <Stack key={label} gap="none">
                 <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                   <Text size="caption" color="subtle" weight="emphasis" transform="uppercase">
                     {label}
@@ -76,7 +76,7 @@ export function DashboardSidebar() {
                     </NavItem>
                   ),
                 )}
-              </section>
+              </Stack>
             );
           })}
         </nav>

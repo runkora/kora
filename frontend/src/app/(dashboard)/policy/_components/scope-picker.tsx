@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Icon, Input, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Input, Stack, Text } from '@orbit/terra';
 import { ScopeChip } from './scope-chip';
 
 interface ScopePickerProps {
@@ -71,13 +71,13 @@ export function ScopePicker({
       />
 
       {/* Accordion */}
-      <section className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+      <aside className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
         {groups.length === 0 ? (
-          <section className="px-3 py-4 text-center">
+          <aside className="px-3 py-4 text-center">
             <Text size="caption" color="muted">
               No scopes match your filter
             </Text>
-          </section>
+          </aside>
         ) : (
           groups.map((group) => {
             const open = isGroupOpen(group.resourceType, group);
@@ -86,33 +86,35 @@ export function ScopePicker({
             const someSelected = selectedInGroup.length > 0 && !allSelected;
 
             return (
-              <section
+              <article
                 key={group.resourceType}
                 className="border-b border-border-subtle last:border-b-0"
               >
                 {/* Group header */}
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  fullWidth
                   onClick={() => toggleGroupOpen(group.resourceType)}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 bg-surface-overlay hover:bg-surface-elevated cursor-pointer select-none transition-colors"
                 >
-                  <Icon name="chevron-right" size="2xs" color="subtle" rotate={open ? 90 : 0} />
-                  <Text as="span" size="micro" color="accent" mono weight="emphasis">
-                    {group.resourceType}
-                  </Text>
-                  {selectedInGroup.length > 0 && (
-                    <Text size="micro" color="accent" weight="emphasis">
-                      {selectedInGroup.length} selected
+                  <Stack direction="horizontal" align="center" gap="snug" grow>
+                    <Icon name="chevron-right" size="2xs" color="subtle" rotate={open ? 90 : 0} />
+                    <Text as="span" size="micro" color="accent" mono weight="emphasis">
+                      {group.resourceType}
                     </Text>
-                  )}
-                  <Text size="micro" color="subtle">
-                    {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
-                  </Text>
-                </button>
+                    {selectedInGroup.length > 0 && (
+                      <Text size="micro" color="accent" weight="emphasis">
+                        {selectedInGroup.length} selected
+                      </Text>
+                    )}
+                    <Text size="micro" color="subtle">
+                      {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
+                    </Text>
+                  </Stack>
+                </Button>
 
                 {/* Group body */}
                 {open && (
-                  <section className="bg-surface-elevated">
+                  <aside className="bg-surface-elevated">
                     {/* Select all */}
                     {group.scopes.length > 1 && (
                       <label className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border-subtle cursor-pointer select-none hover:bg-surface-overlay transition-colors">
@@ -146,13 +148,13 @@ export function ScopePicker({
                         <ScopeChip scope={scope} />
                       </label>
                     ))}
-                  </section>
+                  </aside>
                 )}
-              </section>
+              </article>
             );
           })
         )}
-      </section>
+      </aside>
     </Stack>
   );
 }

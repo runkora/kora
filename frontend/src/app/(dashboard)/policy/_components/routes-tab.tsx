@@ -123,13 +123,13 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
             Registered route→scope mappings across all services.
           </Text>
         </Stack>
-        <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+        <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
           <Text size="caption" color="muted">
             Services register their route→scope mappings at startup. This is the source of truth for
             what scope is required to call each endpoint — compiled into OPA bundles and enforced by
             Envoy sidecars.
           </Text>
-        </section>
+        </aside>
         <EmptyState
           icon="route"
           title="No routes registered"
@@ -148,13 +148,13 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </Stack>
 
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Text size="caption" color="muted">
           Services register their route→scope mappings at startup. This is the source of truth for
           what scope is required to call each endpoint — compiled into OPA bundles and enforced by
           Envoy sidecars.
         </Text>
-      </section>
+      </aside>
 
       {initialError && <ErrorBanner message={initialError} />}
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Badge,
   Button,
+  Code,
   Icon,
   Card,
   CardContent,
@@ -100,22 +101,12 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Text size="caption" color="muted">
-          Scopes use the format{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            resource:path:action
-          </code>
-          . Sibling scopes are independent —{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            mcp:github:read
-          </code>{' '}
-          does not grant{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            mcp:github:write
-          </code>
+          Scopes use the format <Code>resource:path:action</Code>. Sibling scopes are independent —{' '}
+          <Code>mcp:github:read</Code> does not grant <Code>mcp:github:write</Code>
         </Text>
-      </section>
+      </aside>
 
       {initialError && <ErrorBanner message={initialError} />}
 
@@ -171,7 +162,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
         )
       ) : (
         groups.map((group) => (
-          <section key={group.resourceType}>
+          <article key={group.resourceType}>
             {/* Group header */}
             <Stack direction="horizontal" align="center" gap="snug" asChild>
               <header className="mb-3">
@@ -241,7 +232,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                 </TableRoot>
               </CardContent>
             </Card>
-          </section>
+          </article>
         ))
       )}
     </Stack>
@@ -264,16 +255,7 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors select-none cursor-pointer',
-        active
-          ? 'bg-accent/10 text-accent border-accent/30'
-          : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
-      ].join(' ')}
-    >
+    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
       {mono ? (
         <Text as="span" size="micro" mono>
           {label}
@@ -284,7 +266,7 @@ function FilterChip({
       <Text as="span" size="micro" color="muted">
         {count}
       </Text>
-    </button>
+    </Button>
   );
 }
 

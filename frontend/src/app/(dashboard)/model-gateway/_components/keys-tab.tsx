@@ -82,23 +82,23 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 >
                   <Icon name="scroll-text" size="2xs" />
                 </Link>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={`Edit permissions for ${pat.name}`}
                   onClick={onEditScopes}
-                  className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   <Icon name="edit" size="2xs" />
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={`Revoke key ${pat.name}`}
                   disabled={revoking}
                   onClick={onRevoke}
-                  className="inline-flex items-center justify-center rounded p-1 text-muted transition-colors hover:bg-surface-overlay hover:text-status-error focus-visible:outline-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-40"
                 >
                   <Icon name="trash" size="2xs" />
-                </button>
+                </Button>
               </Stack>
             </Stack>
           </CardHeader>
@@ -149,12 +149,10 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                   <Text size="caption" color="subtle" weight="emphasis">
                     Permissions
                   </Text>
-                  <Stack asChild direction="horizontal" gap="tight">
-                    <section className="flex-wrap">
-                      {pat.scopes.map((scope) => (
-                        <ScopeChip key={scope} scope={scope} />
-                      ))}
-                    </section>
+                  <Stack direction="horizontal" gap="tight" wrap>
+                    {pat.scopes.map((scope) => (
+                      <ScopeChip key={scope} scope={scope} />
+                    ))}
                   </Stack>
                 </Stack>
               )}

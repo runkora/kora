@@ -81,15 +81,11 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
   return (
     <>
-      {/* Backdrop — button (not a layout element) so click-to-dismiss works;
+      {/* Backdrop — Button asChild (not a layout element) so click-to-dismiss works;
           aria-hidden + tabIndex={-1} keeps it out of the AT and tab order */}
-      <button
-        type="button"
-        aria-hidden={true}
-        tabIndex={-1}
-        onClick={onClose}
-        className="fixed inset-0 z-40 bg-overlay"
-      />
+      <Button asChild variant="ghost" aria-hidden={true} tabIndex={-1} onClick={onClose}>
+        <aside className="fixed inset-0 z-40 bg-overlay" />
+      </Button>
 
       {/* Panel — aside (semantic landmark); Stack injects flex-col at runtime */}
       <Stack asChild direction="vertical">
@@ -115,18 +111,14 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
                   </Text>
                 )}
               </Stack>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded p-1.5 text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
-              >
+              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel">
                 <Icon name="close" />
-              </button>
+              </Button>
             </header>
           </Stack>
 
-          {/* Identity fields — section has no display-mode class; not banned */}
-          <section className="border-b border-border px-5 py-4">
+          {/* Identity fields */}
+          <aside className="border-b border-border px-5 py-4">
             <Grid cols={2} gap="snug">
               <Field>
                 <Label>Family</Label>
@@ -185,8 +177,8 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
                 </Stack>
               </Field>
 
-              {/* section spans two grid columns; col-span-2 is not a display-mode class */}
-              <section className="col-span-2">
+              {/* Description field spans two grid columns */}
+              <aside className="col-span-2">
                 <Field>
                   <Label>Description</Label>
                   <Input
@@ -195,24 +187,24 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
                     placeholder="Optional description"
                   />
                 </Field>
-              </section>
+              </aside>
             </Grid>
-          </section>
+          </aside>
 
-          {/* Routes content — flex-1 sets flex:1 (not display:flex) so section is fine */}
-          <section className="flex-1 overflow-y-auto px-5 py-4">
+          {/* Routes content */}
+          <article className="flex-1 overflow-y-auto px-5 py-4">
             <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
-          </section>
+          </article>
 
           {error && (
-            <section className="mx-5 mb-3">
+            <aside className="mx-5 mb-3">
               <Alert variant="error">
                 <Icon name="alert-circle" size="2xs" color="status-error" />
                 <Text size="caption" color="muted">
                   {error}
                 </Text>
               </Alert>
-            </section>
+            </aside>
           )}
 
           {/* Footer — Stack injects flex + align/justify at runtime */}

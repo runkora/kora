@@ -115,12 +115,12 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Text size="caption" color="muted">
           Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
           the union of scopes from all matching roles.
         </Text>
-      </section>
+      </aside>
 
       {error && <ErrorBanner message={error} />}
 

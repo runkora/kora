@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Badge,
   Button,
   ChatBubble,
   ChatBubbleActions,
+  Code,
   Grid,
   Icon,
   InputSurface,
@@ -15,7 +15,6 @@ import {
   Heading,
   Textarea,
   TypingIndicator,
-  cn,
 } from '@orbit/terra';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -332,9 +331,7 @@ function MessageContent({ content }: { content: string }) {
                     </figcaption>
                   </Stack>
                   <pre className="bg-background px-4 py-3 overflow-x-auto">
-                    <code className="font-mono text-xs text-foreground leading-relaxed">
-                      {code}
-                    </code>
+                    <Code variant="bare">{code}</Code>
                   </pre>
                 </figure>
               </Stack>
@@ -489,13 +486,13 @@ export default function ChatPage() {
    */
   return (
     <Stack direction="vertical" asChild>
-      <section className="h-full overflow-hidden">
+      <article className="h-full overflow-hidden">
         {/* ── Message area ─────────────────────────────────────────────────────── */}
         <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             /* Welcome screen */
             <Stack direction="vertical" align="center" justify="center" gap="none" asChild>
-              <section className="h-full px-6 py-12 text-center">
+              <aside className="h-full px-6 py-12 text-center">
                 {/* Icon avatar — xl container (64px) with accent/15 bg */}
                 <Stack marginBottom="relaxed" gap="none">
                   <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
@@ -515,29 +512,31 @@ export default function ChatPage() {
                   <nav className="w-full max-w-xl">
                     {SUGGESTIONS.map((s) => {
                       return (
-                        <button
+                        <Button
                           key={s.title}
+                          variant="secondary"
                           onClick={() => handleSuggestion(s.prompt)}
-                          className={cn(
-                            'group flex flex-col items-start gap-1.5 rounded-xl p-4 text-left',
-                            'border border-border bg-surface',
-                            'hover:border-accent/50 hover:bg-accent/5',
-                            'transition-colors duration-150',
-                          )}
                         >
-                          <Icon name={s.icon} color="accent" />
-                          <Text as="span" size="supporting" weight="emphasis">
-                            {s.title}
-                          </Text>
-                          <Text as="span" size="caption" color="subtle">
-                            {s.desc}
-                          </Text>
-                        </button>
+                          <Stack
+                            gap="snug"
+                            align="start"
+                            paddingBlock="relaxed"
+                            paddingInline="relaxed"
+                          >
+                            <Icon name={s.icon} color="accent" />
+                            <Text as="span" size="supporting" weight="emphasis">
+                              {s.title}
+                            </Text>
+                            <Text as="span" size="caption" color="subtle">
+                              {s.desc}
+                            </Text>
+                          </Stack>
+                        </Button>
                       );
                     })}
                   </nav>
                 </Grid>
-              </section>
+              </aside>
             </Stack>
           ) : (
             /* Message thread */
@@ -562,24 +561,15 @@ export default function ChatPage() {
                           </Text>
                           {msg.role === 'assistant' && !msg.isStreaming && (
                             <>
-                              <button
-                                className="text-subtle hover:text-foreground transition-colors"
-                                aria-label="Copy message"
-                              >
+                              <Button variant="ghost" size="icon-sm" aria-label="Copy message">
                                 <Icon name="copy" size="xs" />
-                              </button>
-                              <button
-                                className="text-subtle hover:text-status-healthy transition-colors"
-                                aria-label="Good response"
-                              >
+                              </Button>
+                              <Button variant="ghost" size="icon-sm" aria-label="Good response">
                                 <Icon name="thumbs-up" size="xs" />
-                              </button>
-                              <button
-                                className="text-subtle hover:text-status-error transition-colors"
-                                aria-label="Bad response"
-                              >
+                              </Button>
+                              <Button variant="ghost" size="icon-sm" aria-label="Bad response">
                                 <Icon name="thumbs-down" size="xs" />
-                              </button>
+                              </Button>
                             </>
                           )}
                         </ChatBubbleActions>
@@ -634,19 +624,18 @@ export default function ChatPage() {
                       <Stack direction="horizontal" align="center" gap="snug">
                         {/*
                          * Model selector: clicking the badge cycles through MODELS.
-                         * Raw <button> wrapper: we need onClick + hover on the badge
-                         * without adding a Terra Button's fixed size around it.
+                         * Button muted keeps the badge visible without imposing a fixed size.
                          */}
-                        <button
+                        <Button
+                          variant="muted"
+                          size="xs"
+                          shape="pill"
                           onClick={cycleModel}
-                          className="flex items-center gap-1 rounded-md hover:opacity-75 transition-opacity"
                           title="Click to change model"
                         >
-                          <Badge variant="dim" size="sm">
-                            <Icon name="zap" size="xs" />
-                            {currentModel}
-                          </Badge>
-                        </button>
+                          <Icon name="zap" size="xs" />
+                          {currentModel}
+                        </Button>
 
                         {/* Clear button — only visible when there is a conversation */}
                         {messages.length > 0 && (
@@ -687,7 +676,7 @@ export default function ChatPage() {
             </Stack>
           </footer>
         </Stack>
-      </section>
+      </article>
     </Stack>
   );
 }

@@ -2,6 +2,7 @@
 
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -40,25 +41,27 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
         }}
       >
         <Card column>
-          {onRemove && (
-            <button
-              type="button"
-              aria-label="Remove from favourites"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove(model.id);
-              }}
-              className="absolute right-3 top-3 z-10 rounded p-1 transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              <Icon name="heart" size="2xs" color="rose" filled />
-            </button>
-          )}
           <CardHeader compact>
-            <Stack gap="none" maxWidth="full">
-              <CardTitle>{model.name}</CardTitle>
-              <Text size="caption" color="muted" mono truncate>
-                {model.id}
-              </Text>
+            <Stack direction="horizontal" align="start" justify="between" grow>
+              <Stack gap="none" minWidth="none" grow>
+                <CardTitle>{model.name}</CardTitle>
+                <Text size="caption" color="muted" mono truncate>
+                  {model.id}
+                </Text>
+              </Stack>
+              {onRemove && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Remove from favourites"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(model.id);
+                  }}
+                >
+                  <Icon name="heart" size="2xs" color="rose" filled />
+                </Button>
+              )}
             </Stack>
           </CardHeader>
           <CardContent>

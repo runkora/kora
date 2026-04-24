@@ -113,12 +113,7 @@ export function ModelsTab() {
         sortAccessor: (row) => row.name,
         cell: (row) => (
           <Stack gap="none">
-            <Text
-              size="caption"
-              color="subtle"
-              transform="uppercase"
-              style={{ marginBottom: '0.125rem' }}
-            >
+            <Text size="caption" color="subtle" transform="uppercase">
               {row.family}
             </Text>
             <Text size="supporting" weight="emphasis" mono>

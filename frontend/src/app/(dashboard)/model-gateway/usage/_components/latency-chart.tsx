@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import {
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -68,21 +69,9 @@ interface PeriodButtonProps {
 
 function PeriodButton({ active, onClick, children }: PeriodButtonProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '2px 8px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        border: active ? '1px solid #e8a07a' : '1px solid #44444d',
-        background: active ? 'rgba(232,160,122,0.15)' : 'transparent',
-        color: active ? '#e8a07a' : '#8a8a94',
-        cursor: 'pointer',
-      }}
-    >
+    <Button variant={active ? 'secondary' : 'ghost'} size="xs" onClick={onClick}>
       {children}
-    </button>
+    </Button>
   );
 }
 

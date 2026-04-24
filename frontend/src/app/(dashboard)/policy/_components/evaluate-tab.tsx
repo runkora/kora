@@ -8,7 +8,9 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  FormField,
   Heading,
+  Input,
   Separator,
   Stack,
   Text,
@@ -160,7 +162,7 @@ export function EvaluateTab({
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
         <Stack gap="tight">
           <Text size="caption" color="muted">
             Uses the same OPA evaluation path as live enforcement.
@@ -178,7 +180,7 @@ export function EvaluateTab({
             dry-runs a specific operation against a principal with a chosen role.
           </Text>
         </Stack>
-      </section>
+      </aside>
 
       {/* ── Scope Lookup ───────────────────────────────────────────────────────── */}
       <Card column>
@@ -208,17 +210,15 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <Stack gap="tight" grow minWidth="form-field">
-                <Text size="caption" weight="emphasis">
-                  Principal ID
-                </Text>
-                <input
-                  type="text"
-                  placeholder="e.g. agent-uuid or user@example.com"
-                  value={lookupId}
-                  onChange={(e) => setLookupId(e.target.value)}
-                  className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                />
+              <Stack grow minWidth="form-field">
+                <FormField id="scope-lookup-id" label="Principal ID">
+                  <Input
+                    type="text"
+                    placeholder="e.g. agent-uuid or user@example.com"
+                    value={lookupId}
+                    onChange={(e) => setLookupId(e.target.value)}
+                  />
+                </FormField>
               </Stack>
               <Button size="sm" onClick={handleLookup} disabled={lookupLoading || !lookupId}>
                 {lookupLoading ? 'Looking up...' : 'Look up'}
@@ -247,7 +247,7 @@ export function EvaluateTab({
                       From roles
                     </Text>
                     {explain.from_roles.map((r) => (
-                      <section
+                      <article
                         key={r.role}
                         className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
                       >
@@ -266,7 +266,7 @@ export function EvaluateTab({
                             ))}
                           </Stack>
                         </Stack>
-                      </section>
+                      </article>
                     ))}
                   </Stack>
                 )}
@@ -277,7 +277,7 @@ export function EvaluateTab({
                       From grants
                     </Text>
                     {explain.from_grants.map((g) => (
-                      <section
+                      <article
                         key={g.grant_id}
                         className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
                       >
@@ -291,7 +291,7 @@ export function EvaluateTab({
                             ))}
                           </Stack>
                         </Stack>
-                      </section>
+                      </article>
                     ))}
                   </Stack>
                 )}
@@ -303,14 +303,14 @@ export function EvaluateTab({
                     Effective scope set ({explain.effective_scopes.length})
                   </Text>
                   {explain.effective_scopes.length === 0 ? (
-                    <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
+                    <article className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
                       <Stack gap="snug" align="center">
                         <Icon name="shield-off" size="md" color="subtle" />
                         <Text size="caption" color="muted">
                           No effective scopes — this principal has no permissions.
                         </Text>
                       </Stack>
-                    </section>
+                    </article>
                   ) : (
                     <Stack direction="horizontal" gap="tight" wrap>
                       {explain.effective_scopes.map((s) => (
@@ -355,17 +355,15 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <Stack gap="tight" grow minWidth="form-field-sm">
-                <Text size="caption" weight="emphasis">
-                  Principal ID
-                </Text>
-                <input
-                  type="text"
-                  placeholder="e.g. agent-uuid or user@example.com"
-                  value={simPrincipalId}
-                  onChange={(e) => setSimPrincipalId(e.target.value)}
-                  className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                />
+              <Stack grow minWidth="form-field-sm">
+                <FormField id="sim-principal-id" label="Principal ID">
+                  <Input
+                    type="text"
+                    placeholder="e.g. agent-uuid or user@example.com"
+                    value={simPrincipalId}
+                    onChange={(e) => setSimPrincipalId(e.target.value)}
+                  />
+                </FormField>
               </Stack>
             </Stack>
 
@@ -428,7 +426,7 @@ export function EvaluateTab({
             {simError && <ErrorBanner message={simError} />}
 
             {simResult && (
-              <section
+              <article
                 className={`rounded-md border p-4 ${
                   simResult.allow
                     ? 'border-status-healthy/30 bg-status-healthy/5'
@@ -458,7 +456,7 @@ export function EvaluateTab({
                     {simResult.reason}
                   </Text>
                 </Stack>
-              </section>
+              </article>
             )}
           </Stack>
         </CardContent>

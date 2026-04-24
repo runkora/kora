@@ -1,7 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  FormField,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { createToken } from '../_actions/tokens';
 import { ScopePicker } from '../../policy/_components/scope-picker';
 import type { CreatePATResponse } from '@orbit/shared/api';
@@ -112,58 +122,47 @@ export function CreateTokenModal({
       <form onSubmit={(e) => void handleSubmit(e)} noValidate>
         <ModalBody>
           {/* Name */}
-          <Stack gap="tight">
-            <label htmlFor="pat-name" className="text-sm font-medium text-foreground">
-              Name{' '}
-              <Text as="span" aria-hidden={true}>
-                *
-              </Text>
-            </label>
-            <input
+          <FormField
+            id="pat-name"
+            label="Name"
+            required
+            hint="A short label to identify this key. Max 128 characters."
+          >
+            <Input
               ref={nameInputRef}
-              id="pat-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Production Agent Fleet"
               maxLength={128}
-              required
-              className="w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
-            <Text size="caption" color="subtle">
-              A short label to identify this key. Max 128 characters.
-            </Text>
-          </Stack>
+          </FormField>
 
           {/* Expiry */}
-          <Stack gap="tight">
-            <label htmlFor="pat-expiry" className="text-sm font-medium text-foreground">
-              Expires in (days)
-            </label>
-            <input
-              id="pat-expiry"
+          <FormField
+            id="pat-expiry"
+            label="Expires in (days)"
+            hint="Defaults to 90 days. Maximum 365 days."
+          >
+            <Input
               type="number"
               value={expiresInDays}
               onChange={(e) => setExpiresInDays(e.target.value)}
               min={1}
               max={365}
               placeholder="90"
-              className="w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
-            <Text size="caption" color="subtle">
-              Defaults to 90 days. Maximum 365 days.
-            </Text>
-          </Stack>
+          </FormField>
 
           {/* Scopes */}
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
-              <label className="text-sm font-medium text-foreground">
+              <Text size="supporting" weight="emphasis">
                 Permissions{' '}
                 <Text as="span" aria-hidden={true}>
                   *
                 </Text>
-              </label>
+              </Text>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">
                   {selectedScopes.length} selected

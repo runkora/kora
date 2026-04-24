@@ -102,27 +102,22 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               iconName: 'dollar-sign' as const,
             },
           ].map((s) => (
-            <button
+            <Button
               key={s.value}
-              type="button"
+              asChild
+              variant={model.strategy === s.value ? 'secondary' : 'outline'}
               onClick={() => onChange({ ...model, strategy: s.value })}
-              className={[
-                'rounded-md border p-3 text-left transition-colors',
-                model.strategy === s.value
-                  ? 'border-accent bg-accent/10'
-                  : 'border-border bg-surface-elevated hover:border-border/80',
-              ].join(' ')}
             >
-              <Stack gap="tight">
+              <Stack gap="tight" align="start" paddingBlock="snug" paddingInline="snug">
                 <Icon name={s.iconName} color={model.strategy === s.value ? 'accent' : 'muted'} />
-                <Text size="caption" weight="emphasis">
+                <Text as="span" size="caption" weight="emphasis">
                   {s.label}
                 </Text>
-                <Text size="caption" color="muted">
+                <Text as="span" size="caption" color="muted">
                   {s.desc}
                 </Text>
               </Stack>
-            </button>
+            </Button>
           ))}
         </Grid>
       </Stack>
@@ -331,15 +326,16 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                       onChange({ ...model, routes: updated });
                     }}
                   />
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() =>
                       onChange({ ...model, routes: model.routes.filter((_, i) => i !== idx) })
                     }
-                    className="rounded p-1.5 text-muted transition-colors hover:bg-surface hover:text-status-error"
+                    aria-label="Remove route"
                   >
                     <Icon name="trash" size="2xs" />
-                  </button>
+                  </Button>
                 </Stack>
               </Stack>
             </DragCard>
