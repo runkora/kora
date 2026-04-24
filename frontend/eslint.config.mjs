@@ -31,19 +31,20 @@ import prettier from 'eslint-config-prettier';
 //      primitives (Heading, Text, Code) so colour and scale stay in the
 //      token system.
 //
-//   5. no-raw-layout-elements — errors on raw <div> elements (unconditionally)
+//   5. no-raw-layout-elements — errors on raw <div> elements (unconditionally),
+//      <section> elements (unconditionally — use <Section> from @orbit/terra),
 //      and on semantic HTML elements given a display-mode Tailwind class
 //      (flex, inline-flex, grid, inline-grid, block, inline-block) that
 //      promotes them into layout containers that Stack and Grid are designed
-//      to replace. Both checks live in the single rule.
+//      to replace. All checks live in the single rule.
 //
-//        Checked (unconditional): <div>
-//        Checked (layout-class):  <section> <aside> <nav> <header> <footer> <article> <main>
+//        Checked (unconditional): <div>, <section>
+//        Checked (layout-class):  <aside> <nav> <header> <footer> <article> <main>
 //
 //        <div className="flex …">        →  <Stack>
 //        <div className="grid …">        →  <Grid>
-//        <section className="flex …">   →  <Stack asChild><section>…</section></Stack>
-//        <aside className="grid …">     →  <Grid asChild><aside>…</aside></Grid>
+//        <section>                       →  <Section> from @orbit/terra
+//        <aside className="grid …">      →  <Grid asChild><aside>…</aside></Grid>
 //
 //   6. no-raw-inline-elements — errors on raw inline HTML elements in product
 //      JSX. Terra source is exempt: it is the implementation layer and must
@@ -52,6 +53,8 @@ import prettier from 'eslint-config-prettier';
 //
 //        <span>          →  <Text asChild> from @orbit/terra (inline text wrapping)
 //        <strong>, <b>   →  <Text weight="strong"> or weight="heavy" from @orbit/terra
+//        <code>          →  <Code> from @orbit/terra
+//        <kbd>, <samp>, <var>  →  <Code> from @orbit/terra
 //        <em>, <i>       →  no Terra equivalent yet — propose one to a human engineer for approval
 //        <mark>, <abbr>, <s>, <u>, <sub>, <sup>
 //                        →  no Terra equivalent yet — propose one to a human engineer for approval
@@ -321,12 +324,17 @@ const localPlugin = {
     //   1. <div> — fires unconditionally. Raw <div> is always a layout primitive
     //      that must be replaced by Stack or Grid.
     //
-    //   2. Semantic container elements — fire only when a display-mode Tailwind
-    //      class (flex, inline-flex, grid, inline-grid, block, inline-block)
-    //      promotes them into layout containers that Terra's Stack/Grid fill.
+    //   2. <section> — fires unconditionally. Terra provides a Section component
+    //      that renders a semantic <section> with proper heading/description
+    //      wiring. All raw <section> elements must use the Terra wrapper.
     //
-    // Checked unconditionally: <div>
-    // Checked with layout class: <section>, <aside>, <nav>, <header>, <footer>,
+    //   3. Semantic container elements (nav, aside, header, footer, article,
+    //      main) — fire only when a display-mode Tailwind class (flex,
+    //      inline-flex, grid, inline-grid, block, inline-block) promotes them
+    //      into layout containers that Terra's Stack/Grid fill.
+    //
+    // Checked unconditionally: <div>, <section>
+    // Checked with layout class: <aside>, <nav>, <header>, <footer>,
     //                            <article>, <main>
     //
     // <span> is intentionally NOT in this list. It is caught unconditionally
@@ -337,8 +345,8 @@ const localPlugin = {
     //
     //   <div className="flex …">      →  <Stack>
     //   <div className="grid …">      →  <Grid>
-    //   <section className="flex …">  →  <Stack asChild><section>…</section></Stack>
-    //   <aside className="grid …">    →  <Grid asChild><aside>…</aside></Grid>
+    //   <section>                     →  <Section> from @orbit/terra
+    //   <aside className="flex …">    →  <Stack asChild><aside>…</aside></Stack>
     //
     // See frontend/docs/golden-paths/terra-design-system.md
     // Terra's own source is excluded as a canonical implementation site.
@@ -348,15 +356,19 @@ const localPlugin = {
         type: 'problem',
         docs: {
           description:
-            'Disallow raw <div> elements and raw semantic HTML elements (section, aside, nav, header, footer, article, main) ' +
-            'used as layout containers. Use <Stack> or <Grid> from @orbit/terra instead. ' +
+            'Disallow raw <div> elements, raw <section> elements, and raw semantic HTML elements (aside, nav, header, footer, article, main) ' +
+            'used as layout containers. Use <Stack>, <Grid>, or <Section> from @orbit/terra instead. ' +
             'See frontend/docs/golden-paths/terra-design-system.md',
         },
         messages: {
           noRawDiv:
             'Raw <div> is not allowed. Use <Stack> (flex), <Grid> (grid), or <Section> from @orbit/terra. ' +
-            'For semantic HTML, use <Stack asChild><section>…</section></Stack>. ' +
+            'For semantic HTML, use <Stack asChild><aside>…</aside></Stack>. ' +
             'Do not suppress this error with a disable comment. If no Terra component covers this need, write a proposal for human engineer approval before modifying Terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawSection:
+            'Raw <section> is not allowed. Use <Section> from @orbit/terra. ' +
+            'For layout-only grouping without the Section heading/padding, use <Stack> or <Stack asChild><article>…</article></Stack>. ' +
             'See frontend/docs/golden-paths/terra-design-system.md',
           noRawLayoutElement:
             'Raw <{{tag}} className="{{cls}} …"> uses <{{tag}}> as a layout container. ' +
@@ -376,16 +388,8 @@ const localPlugin = {
           'inline-block',
         ]);
         // <span> is intentionally omitted — no-raw-inline-elements owns it unconditionally.
-        // <div> is handled separately with its own unconditional check above.
-        const SEMANTIC_ELEMENTS = new Set([
-          'section',
-          'aside',
-          'nav',
-          'header',
-          'footer',
-          'article',
-          'main',
-        ]);
+        // <div> and <section> are handled separately with unconditional checks.
+        const SEMANTIC_ELEMENTS = new Set(['aside', 'nav', 'header', 'footer', 'article', 'main']);
         return {
           JSXOpeningElement(node) {
             if (node.name.type !== 'JSXIdentifier') return;
@@ -393,6 +397,11 @@ const localPlugin = {
             // <div> fires unconditionally — no className check needed.
             if (tag === 'div') {
               context.report({ node, messageId: 'noRawDiv' });
+              return;
+            }
+            // <section> fires unconditionally — Terra provides a Section wrapper.
+            if (tag === 'section') {
+              context.report({ node, messageId: 'noRawSection' });
               return;
             }
             if (!SEMANTIC_ELEMENTS.has(tag)) return;
@@ -417,6 +426,48 @@ const localPlugin = {
       },
     },
     // -------------------------------------------------------------------------
+    // no-raw-interactive-elements
+    //
+    // Blocks raw <button> elements in product JSX. All interactive elements
+    // must use Terra's <Button> component to ensure consistent focus styles,
+    // hover states, and accessibility attributes across the application.
+    //
+    //   <button>  →  <Button> from @orbit/terra
+    //
+    // The rule fires unconditionally. If a specific Button variant does not
+    // cover a layout need, propose a new variant to a human engineer for
+    // approval — do not use raw HTML.
+    // Terra source is exempt (it IS the Button implementation).
+    // -------------------------------------------------------------------------
+    'no-raw-interactive-elements': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Disallow raw <button> elements in JSX outside the Terra package. ' +
+            'Use <Button> from @orbit/terra for consistent focus styles, hover states, and accessibility.',
+        },
+        messages: {
+          noRawButton:
+            'Raw <button> is not allowed. ' +
+            'Use <Button> from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type !== 'JSXIdentifier') return;
+            if (node.name.name === 'button') {
+              context.report({ node, messageId: 'noRawButton' });
+            }
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
     // no-raw-inline-elements
     //
     // Errors on raw inline HTML elements in product JSX. Terra source is
@@ -432,6 +483,8 @@ const localPlugin = {
     //   <mark> / <abbr>     →  Terra component missing — propose to human engineer for approval
     //   <s> / <u>           →  Terra component missing — propose to human engineer for approval
     //   <sub> / <sup>       →  Terra component missing — propose to human engineer for approval
+    //   <code>              →  <Code> from @orbit/terra
+    //   <kbd> / <samp> / <var> → <Code> from @orbit/terra (keyboard input, sample output, variables)
     //
     // The rule fires unconditionally in product code — className presence is
     // irrelevant. There is no escape hatch in product code; if an inline
@@ -455,6 +508,10 @@ const localPlugin = {
             'Raw <{{tag}}> is not allowed. ' +
             'Use <Text weight="heavy"> from @orbit/terra for <strong> and <b>. ' +
             'See frontend/docs/golden-paths/terra-design-system.md',
+          code:
+            'Raw <{{tag}}> is not allowed. ' +
+            'Use <Code> from @orbit/terra for inline code, keyboard input, sample output, and variables. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
           missing:
             'Raw <{{tag}}> has no Terra equivalent yet. ' +
             'Propose a new Terra component to a human engineer for approval — do not modify Terra unilaterally. ' +
@@ -464,6 +521,7 @@ const localPlugin = {
       },
       create(context) {
         const FORMATTING = new Set(['strong', 'b']);
+        const CODE_ELEMENTS = new Set(['code', 'kbd', 'samp', 'var']);
         const MISSING = new Set(['em', 'i', 'mark', 'abbr', 's', 'u', 'sub', 'sup']);
         return {
           JSXOpeningElement(node) {
@@ -473,6 +531,8 @@ const localPlugin = {
               context.report({ node, messageId: 'span' });
             } else if (FORMATTING.has(tag)) {
               context.report({ node, messageId: 'formatting', data: { tag } });
+            } else if (CODE_ELEMENTS.has(tag)) {
+              context.report({ node, messageId: 'code', data: { tag } });
             } else if (MISSING.has(tag)) {
               context.report({ node, messageId: 'missing', data: { tag } });
             }
@@ -571,6 +631,7 @@ const localPlugin = {
           'local/no-raw-html-text-tags',
           'local/no-terra-classname',
           'local/no-direct-lucide-import',
+          'local/no-raw-interactive-elements',
         ]);
 
         return {
@@ -797,6 +858,18 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-direct-lucide-import': 'error',
+    },
+  },
+
+  // ---- Raw interactive element enforcement (Terra source exempted) -----------
+  // Raw <button> elements must use Terra's <Button> component for consistent
+  // focus styles, hover states, and accessibility attributes.
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-raw-interactive-elements': 'error',
     },
   },
 

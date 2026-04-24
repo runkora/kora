@@ -7,22 +7,23 @@
 
 ---
 
-> ⚠️ **The conventions in this document are enforced by five ESLint rules in `frontend/eslint.config.mjs`. Violations will fail `pnpm lint`.**
+> ⚠️ **The conventions in this document are enforced by eight ESLint rules in `frontend/eslint.config.mjs`. Violations will fail `pnpm lint`.**
 
 ## Before You Start
 
-Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. Five local ESLint rules enforce this — there are no exceptions in product code:
+Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. Eight local ESLint rules enforce this — there are no exceptions in product code:
 
-| Rule                           | What it bans                                                                                                                               | Escape hatch                                                                                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local/no-raw-layout-elements` | Every `<div>` (unconditional) + semantic containers (`section`, `header`, `footer`, `nav`, `aside`, `article`, `main`) with layout classes | **None** — use `<Stack>` / `<Grid>`; for semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Terra component (see below) |
-| `local/no-raw-inline-elements` | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`)                                        | **None** — use a Terra equivalent; if missing, propose a new Terra component (see below)                                                                |
-| `local/no-raw-html-text-tags`  | `<p>` and `<h1>`–`<h6>`                                                                                                                    | **None** — use `<Text>` and `<Heading>`                                                                                                                 |
-| `local/no-terra-classname`     | `className` on any Terra component                                                                                                         | **None** — use the component's design-token props                                                                                                       |
+| Rule                                | What it bans                                                                                                                                                  | Escape hatch                                                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local/no-raw-layout-elements`      | Every `<div>` (unconditional) + `<section>` (unconditional) + semantic containers (`aside`, `nav`, `header`, `footer`, `article`, `main`) with layout classes | **None** — use `<Stack>` / `<Grid>` / `<Section>`; for other semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Terra component (see below) |
+| `local/no-raw-inline-elements`      | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`, `code`, `kbd`, `samp`, `var`)                             | **None** — use a Terra equivalent; if missing, propose a new Terra component (see below)                                                                                    |
+| `local/no-raw-html-text-tags`       | `<p>` and `<h1>`–`<h6>`                                                                                                                                       | **None** — use `<Text>` and `<Heading>`                                                                                                                                     |
+| `local/no-raw-interactive-elements` | `<button>`                                                                                                                                                    | **None** — use `<Button>` from `@orbit/terra`                                                                                                                               |
+| `local/no-terra-classname`          | `className` on any Terra component                                                                                                                            | **None** — use the component's design-token props                                                                                                                           |
 
 > 🚫 **`eslint-disable` comments targeting any of these rules are themselves a lint error** (`local/no-terra-disable-comment`). There are no escape hatches — fix violations by using the correct Terra component. If no Terra component exists for your use case, write a proposal and wait for human engineer approval before making any changes to Terra (see [Proposing a Missing Terra Component](#proposing-a-missing-terra-component)).
 
-All five rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
+All eight rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
 
 **If a Terra component is missing for your use case, do not use raw HTML and do not modify Terra unilaterally.** Write a short proposal and wait for approval from a human engineer before making any changes to the Terra package. See [Proposing a Missing Terra Component](#proposing-a-missing-terra-component) at the bottom of this guide.
 
@@ -38,8 +39,11 @@ The most common migrations at a glance.
 | `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                                                                               |
 | `<div className="grid grid-cols-3 gap-4">`            | `<Grid cols={3} gap="comfortable">`                                                                                                       |
 | `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">`                                                                         |
-| `<section className="flex flex-col gap-8">`           | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
+| `<section>`                                           | `<Section>` from `@orbit/terra`                                                                                                           |
+| `<section className="flex flex-col gap-8 p-6">`       | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
 | `<aside className="grid grid-cols-2">`                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                                          |
+| `<button onClick={…}>label</button>`                  | `<Button onClick={…}>label</Button>`                                                                                                      |
+| `<button onClick={…}><Icon /></button>`               | `<Button variant="ghost" size="icon-sm" aria-label="…"><Icon /></Button>`                                                                 |
 | `<h1>Page title</h1>`                                 | `<Heading variant="title">Page title</Heading>`                                                                                           |
 | `<h2>Section heading</h2>`                            | `<Heading variant="section">Section heading</Heading>`                                                                                    |
 | `<p>Body copy</p>`                                    | `<Text>Body copy</Text>`                                                                                                                  |
@@ -50,6 +54,8 @@ The most common migrations at a glance.
 | `<em>Emphasised</em>`                                 | No Terra equivalent yet — propose one for human approval before proceeding                                                                |
 | `<i>Italic</i>`                                       | No Terra equivalent yet — propose one for human approval before proceeding                                                                |
 | `<code>agent-id</code>`                               | `<Code>agent-id</Code>`                                                                                                                   |
+| `<kbd>Ctrl+K</kbd>`                                   | `<Code>Ctrl+K</Code>` (keyboard input)                                                                                                    |
+| `<code className="font-mono text-xs">…</code>`        | `<Code>…</Code>` (inline) or `<Code variant="bare">…</Code>` (inside a container)                                                         |
 
 ---
 
@@ -147,20 +153,39 @@ import { Grid } from '@orbit/terra';
 
 ---
 
-## Layout: Semantic Elements as Layout Containers
+## Layout: Semantic Elements
 
-`<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>`, and `<main>` must not carry display-mode Tailwind classes directly. Use `asChild` to merge layout classes onto the semantic element without an extra DOM node.
+`<section>` is blocked **unconditionally** — use `<Section>` from `@orbit/terra` for content groupings with optional heading and description. For layout-only groupings without those semantics, use `<Stack>` (renders a `<div>`).
+
+```tsx
+// ❌ Banned — raw <section>
+<section>…</section>
+<section className="flex flex-col gap-8">…</section>
+
+// ✅ Correct — Terra Section for content blocks
+<Section heading="Active agents" description="Agents currently running.">
+  <AgentTable />
+</Section>
+
+// ✅ Correct — Stack for layout-only groups
+<Stack gap="comfortable">
+  <Card>…</Card>
+  <Card>…</Card>
+</Stack>
+
+// ✅ Correct — asChild for semantic HTML that also needs layout
+<Stack asChild gap="relaxed">
+  <article>…</article>
+</Stack>
+```
+
+`<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>`, and `<main>` must not carry display-mode Tailwind classes directly. Use `asChild` to merge layout classes onto the semantic element without an extra DOM node.
 
 ```tsx
 // ❌ Banned — semantic element carrying layout classes directly
-<section className="flex flex-col gap-8 p-6">…</section>
 <aside className="grid grid-cols-2 gap-4">…</aside>
 
 // ✅ Correct — layout lives in Stack/Grid; semantic element is the rendered node
-<Stack asChild gap="relaxed">
-  <section>…</section>
-</Stack>
-
 <Grid asChild cols={2} gap="comfortable">
   <aside>…</aside>
 </Grid>
@@ -365,6 +390,42 @@ For a whole cell or label that is a technical value (not inside prose), use `Tex
 
 ---
 
+## Interactive Elements: `Button`
+
+All interactive elements must use `<Button>` from `@orbit/terra`. Raw `<button>` is banned unconditionally by `local/no-raw-interactive-elements`.
+
+```tsx
+import { Button } from '@orbit/terra';
+
+// ❌ Banned
+<button onClick={handleSave}>Save</button>
+<button type="button" aria-label="Delete"><TrashIcon /></button>
+
+// ✅ Correct
+<Button onClick={handleSave}>Save</Button>
+<Button variant="ghost" size="icon-sm" aria-label="Delete">
+  <Icon name="trash" />
+</Button>
+```
+
+**Button variants:** `default` (accent fill), `secondary` (surface + border), `outline` (transparent + border), `ghost` (no fill), `muted` (dimmed ghost), `destructive` (error intent).
+
+**Button sizes:** `xs`, `sm`, `md` (default), `lg`, `icon` (square 36px), `icon-sm` (square 28px).
+
+**Tip:** For icon-only buttons, always use `size="icon"` or `size="icon-sm"` and provide `aria-label`.
+
+```tsx
+// Clickable link — Button styles on a Next.js Link
+<Button asChild variant="outline">
+  <Link href="/agents">View agents</Link>
+</Button>
+
+// Full-width CTA
+<Button fullWidth>Deploy agent</Button>
+```
+
+---
+
 ## The `asChild` Pattern
 
 Both layout and typography components support `asChild`. When `true`, the component merges its classes onto the **immediate child element** via Radix Slot instead of rendering a wrapper element. This is how you apply Terra primitives to semantic HTML without adding extra DOM nodes.
@@ -398,6 +459,18 @@ Both layout and typography components support `asChild`. When `true`, the compon
 - The child must be a single element — no fragments, no arrays.
 - The child must accept a `className` prop (all HTML elements and most components do).
 - Do not nest `asChild` components: `<Stack asChild><Grid asChild>…</Grid></Stack>` is incorrect.
+
+### `as` prop vs `asChild` — Decision Rule
+
+Only `Text` exposes a string `as` prop. All other element-override use cases use `asChild`.
+
+| Use case                                               | Pattern                            | Example                                            |
+| ------------------------------------------------------ | ---------------------------------- | -------------------------------------------------- |
+| Render `Text` as a different inline element            | `as` prop with string union        | `<Text as="span">`                                 |
+| Render any Terra component as a custom React component | `asChild` + single child           | `<Button asChild><Link href="…">…</Link></Button>` |
+| Render a layout element as a semantic HTML element     | `asChild` + semantic element child | `<Stack asChild><nav>…</nav></Stack>`              |
+
+**Rule:** No Terra component other than `Text` should expose a string `as` prop. `Text`'s `as` prop is restricted to phrasing-content tags (`span`, `li`, `dt`, `dd`, `label`, `legend`) where a block `<p>` would be invalid HTML. For all other element-override scenarios — including applying Terra layout to semantic elements or composing components with router links — use `asChild`.
 
 ---
 
@@ -450,26 +523,34 @@ Use this checklist before opening a PR. Every item must be true.
 ### Layout
 
 - [ ] No `<div>` elements in product JSX — all replaced with `Stack` or `Grid`.
-- [ ] No semantic elements (`section`, `aside`, `nav`, etc.) carrying display-mode Tailwind classes directly — use `Stack asChild` or `Grid asChild`.
+- [ ] No `<section>` elements — all replaced with `<Section>` or `<Stack>`.
+- [ ] No semantic elements (`aside`, `nav`, etc.) carrying display-mode Tailwind classes directly — use `Stack asChild` or `Grid asChild`.
 - [ ] `Stack` props use token values (`gap="comfortable"`) — no raw Tailwind gap classes via `className`.
 - [ ] Responsive layout props use the `{ base, sm, md, lg, xl }` object form — no conditional `cn()` for breakpoints.
 - [ ] `asChild` is used when the rendered element must be semantic HTML — not to avoid adding a DOM node for its own sake.
+- [ ] `as` prop is only used on `Text` (for phrasing-content overrides); all other element-override cases use `asChild`.
+
+### Interactive Elements
+
+- [ ] No raw `<button>` elements — all replaced with `<Button>` from `@orbit/terra`.
+- [ ] Icon-only buttons have `size="icon"` or `size="icon-sm"` and an `aria-label`.
 
 ### Typography
 
 - [ ] No `<h1>`–`<h6>` elements — all replaced with `Heading` using the correct variant.
 - [ ] No `<p>` elements — all replaced with `Text`.
-- [ ] No `<span>` elements — replaced with `Text` (block context) or `Text as="span"` (inline context, e.g. inside a `<button>` or `<a>`).
+- [ ] No `<span>` elements — replaced with `Text` (block context) or `Text as="span"` (inline context, e.g. inside a `<Button>` or `<a>`).
 - [ ] No `<strong>` or `<b>` elements — replaced with `Text weight="heavy"` or `weight="strong"`.
 - [ ] No `<em>` or `<i>` elements — no Terra equivalent yet; (see [Adding a Missing Terra Component](#adding-a-missing-terra-component)).
 - [ ] No `<code>` elements — replaced with `Code` (in prose) or `Text mono` (standalone technical values).
+- [ ] No `<code>`, `<kbd>`, `<samp>`, `<var>` elements — replaced with `<Code>` from `@orbit/terra`.
 - [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements
-- [ ] `Text as="span"` is used when the rendered element must be inline (e.g. inside a `<button>`, `<a>`, `<p>`, or `<li>`); `asChild` is used only to merge Text styles onto a non-span child element you already control.
+- [ ] `Text as="span"` is used when the rendered element must be inline (e.g. inside a `<Button>`, `<a>`, `<p>`, or `<li>`); `asChild` is used only to merge Text styles onto a non-span child element you already control.
 
 ### ESLint
 
 - [ ] `pnpm lint` passes with zero errors.
-- [ ] No `eslint-disable` comments targeting any Terra rule (`local/no-raw-layout-elements`, `local/no-raw-inline-elements`, `local/no-raw-html-text-tags`, `local/no-terra-classname`, `local/no-direct-lucide-import`) — these are themselves a lint error.
+- [ ] No `eslint-disable` comments targeting any Terra rule (`local/no-raw-layout-elements`, `local/no-raw-inline-elements`, `local/no-raw-html-text-tags`, `local/no-terra-classname`, `local/no-direct-lucide-import`, `local/no-raw-interactive-elements`) — these are themselves a lint error.
 
 ### New Terra components (if applicable)
 
