@@ -48,7 +48,9 @@ export const Error: Story = {
   render: () => (
     <Alert variant="error" className="w-80">
       <Icon name="alert-circle" size="xs" color="status-error" />
-      <Text size="caption" color="muted">Credential rotation failed — try again.</Text>
+      <Text size="caption" color="muted">
+        Credential rotation failed — try again.
+      </Text>
     </Alert>
   ),
 };
@@ -67,7 +69,9 @@ export const AllVariants: Story = {
       </Alert>
       <Alert variant="error">
         <Icon name="alert-circle" size="xs" color="status-error" />
-        <Text size="caption" color="muted">Credential rotation failed — try again.</Text>
+        <Text size="caption" color="muted">
+          Credential rotation failed — try again.
+        </Text>
       </Alert>
     </Stack>
   ),

@@ -201,10 +201,7 @@ const badgeVariants = cva(
   },
 );
 
-export interface BadgeProps
-  extends
-    Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
-    VariantProps<typeof badgeVariants> {
+export interface BadgeProps extends VariantProps<typeof badgeVariants> {
   /**
    * When true, renders a small filled circle before the label to indicate
    * live / pulsing status. Pairs best with the status variants.
@@ -223,6 +220,13 @@ export interface BadgeProps
 
   /** @internal className is locked — all styling must go through typed props. */
   className?: never;
+  children?: React.ReactNode;
+  id?: string;
+  role?: React.AriaRole;
+  title?: string;
+  'aria-label'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+  'aria-describedby'?: string;
 }
 
 /**

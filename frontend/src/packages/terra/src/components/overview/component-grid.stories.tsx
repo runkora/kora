@@ -1068,9 +1068,15 @@ export const ComponentGrid: Story = {
 
               <Group label="Text buttons — segmented control">
                 <ButtonGroup>
-                  <Button variant="default" size="sm">Overview</Button>
-                  <Button variant="outline" size="sm">Agents</Button>
-                  <Button variant="outline" size="sm">Policies</Button>
+                  <Button variant="default" size="sm">
+                    Overview
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    Agents
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    Policies
+                  </Button>
                 </ButtonGroup>
               </Group>
             </Stack>
@@ -1327,7 +1333,9 @@ export const ComponentGrid: Story = {
               <Group label="Error — validation error or failure">
                 <Alert variant="error">
                   <Icon name="alert-circle" size="xs" color="status-error" />
-                  <Text size="caption" color="muted">Credential rotation failed — try again.</Text>
+                  <Text size="caption" color="muted">
+                    Credential rotation failed — try again.
+                  </Text>
                 </Alert>
               </Group>
             </Stack>
@@ -1364,7 +1372,9 @@ export const ComponentGrid: Story = {
               <Group label="States — error / mono / disabled">
                 <Stack direction="horizontal" gap="snug" align="center" wrap>
                   <NativeSelect hasError defaultValue="" className="w-40">
-                    <option value="" disabled>Select provider</option>
+                    <option value="" disabled>
+                      Select provider
+                    </option>
                     <option value="bedrock">AWS Bedrock</option>
                   </NativeSelect>
                   <NativeSelect mono defaultValue="us-east-1" className="w-40">
@@ -1386,11 +1396,15 @@ export const ComponentGrid: Story = {
                 <Stack direction="horizontal" gap="comfortable" align="center">
                   <Stack gap="tight" align="center">
                     <Toggle checked onChange={() => {}} aria-label="Enabled" />
-                    <Text size="micro" color="muted">on</Text>
+                    <Text size="micro" color="muted">
+                      on
+                    </Text>
                   </Stack>
                   <Stack gap="tight" align="center">
                     <Toggle checked={false} onChange={() => {}} aria-label="Disabled" />
-                    <Text size="micro" color="muted">off</Text>
+                    <Text size="micro" color="muted">
+                      off
+                    </Text>
                   </Stack>
                 </Stack>
               </Group>
@@ -1401,11 +1415,20 @@ export const ComponentGrid: Story = {
                 <Stack direction="horizontal" gap="comfortable" align="center">
                   <Stack gap="tight" align="center">
                     <Toggle checked onChange={() => {}} disabled aria-label="Disabled on" />
-                    <Text size="micro" color="muted">on</Text>
+                    <Text size="micro" color="muted">
+                      on
+                    </Text>
                   </Stack>
                   <Stack gap="tight" align="center">
-                    <Toggle checked={false} onChange={() => {}} disabled aria-label="Disabled off" />
-                    <Text size="micro" color="muted">off</Text>
+                    <Toggle
+                      checked={false}
+                      onChange={() => {}}
+                      disabled
+                      aria-label="Disabled off"
+                    />
+                    <Text size="micro" color="muted">
+                      off
+                    </Text>
                   </Stack>
                 </Stack>
               </Group>

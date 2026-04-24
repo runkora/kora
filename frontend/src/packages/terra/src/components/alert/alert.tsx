@@ -13,7 +13,7 @@ const VARIANT_CLASSES: Record<AlertVariant, string> = {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface AlertProps {
   /**
    * Visual intent of the alert.
    *
@@ -24,6 +24,13 @@ export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
    * Default: `'info'`
    */
   variant?: AlertVariant;
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  role?: React.AriaRole;
+  'aria-label'?: string;
+  'aria-live'?: 'off' | 'assertive' | 'polite';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

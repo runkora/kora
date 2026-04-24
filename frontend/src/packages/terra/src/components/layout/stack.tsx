@@ -55,7 +55,7 @@ const JUSTIFY_CLASSES: Record<StackJustify, string> = {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-export interface StackProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'style'> {
+export interface StackProps {
   /**
    * Flex direction — `vertical` (column) or `horizontal` (row).
    * Accepts a `Responsive` value so direction can flip at breakpoints.
@@ -278,6 +278,31 @@ export interface StackProps extends Omit<React.HTMLAttributes<HTMLDivElement>, '
 
   /** Horizontal (inline) margin — equivalent to `mx-*`. Auto-centering: `marginInline="auto"` is not supported; use a wrapper. */
   marginInline?: SpacingSize;
+  // Forwarded HTML props
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
+  className?: string;
+  id?: string;
+  role?: React.AriaRole;
+  tabIndex?: number;
+  title?: string;
+  onClick?: React.MouseEventHandler<HTMLElement>;
+  onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
+  onKeyUp?: React.KeyboardEventHandler<HTMLElement>;
+  onFocus?: React.FocusEventHandler<HTMLElement>;
+  onBlur?: React.FocusEventHandler<HTMLElement>;
+  onMouseEnter?: React.MouseEventHandler<HTMLElement>;
+  onMouseLeave?: React.MouseEventHandler<HTMLElement>;
+  'aria-label'?: string;
+  'aria-describedby'?: string;
+  'aria-labelledby'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+  'aria-expanded'?: boolean | 'true' | 'false';
+  'aria-controls'?: string;
+  'aria-selected'?: boolean | 'true' | 'false';
+  'aria-live'?: 'off' | 'assertive' | 'polite';
+  'data-slot'?: string;
+  'data-state'?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { useFormField } from '../form-field';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /** Renders the input in an error state with a coloured border. */
@@ -36,11 +37,36 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
  * ```
  */
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, hasError = false, mono = false, type = 'text', ...props }, ref) => {
+  (
+    {
+      className,
+      hasError = false,
+      mono = false,
+      type = 'text',
+      id,
+      'aria-describedby': ariaDescribedby,
+      'aria-invalid': ariaInvalid,
+      'aria-required': ariaRequired,
+      ...props
+    },
+    ref,
+  ) => {
+    const field = useFormField();
     return (
       <input
         type={type}
         ref={ref}
+        id={id ?? field?.id}
+        aria-describedby={
+          ariaDescribedby ??
+          (field
+            ? [field.hasHint ? field.hintId : '', field.hasError ? field.errorId : '']
+                .filter(Boolean)
+                .join(' ') || undefined
+            : undefined)
+        }
+        aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
+        aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
           // Layout & typography
           'flex h-9 w-full rounded-md px-3 py-1',

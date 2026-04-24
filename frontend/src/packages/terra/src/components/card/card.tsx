@@ -164,21 +164,36 @@ CardHeader.displayName = 'CardHeader';
 
 // ─── CardTitle ────────────────────────────────────────────────────────────────
 
+export interface CardTitleProps {
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  'aria-label'?: string;
+}
+
 /**
  * CardTitle
  *
  * Primary heading inside a `CardHeader`. Delegates directly to the Terra
  * `Heading` primitive (variant="label" renders an `<h4>` by default).
  */
-const CardTitle = React.forwardRef<
-  HTMLHeadingElement,
-  Omit<React.HTMLAttributes<HTMLHeadingElement>, 'color'>
->(({ className, ...props }, ref) => (
-  <Heading ref={ref} variant="label" className={cn('leading-tight', className)} {...props} />
-));
+const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ className, ...props }, ref) => (
+    <Heading ref={ref} variant="label" className={cn('leading-tight', className)} {...props} />
+  ),
+);
 CardTitle.displayName = 'CardTitle';
 
 // ─── CardDescription ──────────────────────────────────────────────────────────
+
+export interface CardDescriptionProps {
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  'aria-label'?: string;
+}
 
 /**
  * CardDescription
@@ -186,18 +201,17 @@ CardTitle.displayName = 'CardTitle';
  * Supporting text beneath `CardTitle`. Delegates to the Terra `Text`
  * primitive so colour and size stay in the token system.
  */
-const CardDescription = React.forwardRef<
-  HTMLParagraphElement,
-  Omit<React.HTMLAttributes<HTMLParagraphElement>, 'color'>
->(({ className, ...props }, ref) => (
-  <Text
-    ref={ref}
-    size="supporting"
-    color="muted"
-    className={cn('leading-snug', className)}
-    {...props}
-  />
-));
+const CardDescription = React.forwardRef<HTMLParagraphElement, CardDescriptionProps>(
+  ({ className, ...props }, ref) => (
+    <Text
+      ref={ref}
+      size="supporting"
+      color="muted"
+      className={cn('leading-snug', className)}
+      {...props}
+    />
+  ),
+);
 CardDescription.displayName = 'CardDescription';
 
 // ─── CardContent ──────────────────────────────────────────────────────────────

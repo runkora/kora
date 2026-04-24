@@ -91,13 +91,22 @@ const HEADING_TAG: Record<
   metric: 'div',
 };
 
-export interface HeadingProps
-  extends Omit<React.HTMLAttributes<HTMLElement>, 'color'>, VariantProps<typeof headingVariants> {
+export interface HeadingProps extends VariantProps<typeof headingVariants> {
   /**
    * When true, merges Heading styles into the immediate child element instead
    * of wrapping it. Useful for rendering a heading as a router Link.
    */
   asChild?: boolean;
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
+  className?: string;
+  id?: string;
+  'aria-label'?: string;
+  'aria-describedby'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+  role?: React.AriaRole;
+  title?: string;
+  onClick?: React.MouseEventHandler<HTMLElement>;
 }
 
 /**
@@ -231,8 +240,7 @@ const textVariants = cva('font-sans', {
   },
 });
 
-export interface TextProps
-  extends Omit<React.HTMLAttributes<HTMLElement>, 'color'>, VariantProps<typeof textVariants> {
+export interface TextProps extends VariantProps<typeof textVariants> {
   /**
    * Override the rendered HTML element. Restricted to phrasing-content tags
    * where a block `<p>` would produce invalid HTML — for example inside a
@@ -308,6 +316,24 @@ export interface TextProps
    * ```
    */
   preserveWhitespace?: boolean;
+  // Forwarded HTML props
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
+  className?: string;
+  id?: string;
+  htmlFor?: string;
+  tabIndex?: number;
+  role?: React.AriaRole;
+  title?: string;
+  onClick?: React.MouseEventHandler<HTMLElement>;
+  onFocus?: React.FocusEventHandler<HTMLElement>;
+  onBlur?: React.FocusEventHandler<HTMLElement>;
+  'aria-label'?: string;
+  'aria-describedby'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+  'aria-live'?: 'off' | 'assertive' | 'polite';
+  'aria-atomic'?: boolean | 'true' | 'false';
+  'aria-relevant'?: string;
 }
 
 /**

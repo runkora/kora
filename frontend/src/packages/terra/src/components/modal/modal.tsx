@@ -181,7 +181,7 @@ ModalHeader.displayName = 'ModalHeader';
 
 // ── ModalBody ────────────────────────────────────────────────────────────────
 
-export interface ModalBodyProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ModalBodyProps {
   /**
    * Removes the default `p-5` padding. Use when the body contains flush
    * content such as a list, image, or embedded table that needs edge-to-edge
@@ -202,6 +202,10 @@ export interface ModalBodyProps extends React.HTMLAttributes<HTMLDivElement> {
    * rich editors.
    */
   constrained?: boolean;
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
 }
 
 /**
@@ -246,9 +250,12 @@ ModalBody.displayName = 'ModalBody';
 
 // ── ModalFooter ──────────────────────────────────────────────────────────────
 
-export interface ModalFooterProps extends React.HTMLAttributes<HTMLElement> {
+export interface ModalFooterProps {
   /** Main-axis alignment for footer action buttons. Default: `'end'`. */
   justify?: 'start' | 'center' | 'end' | 'between';
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
 }
 
 const FOOTER_JUSTIFY: Record<Required<ModalFooterProps>['justify'], string> = {

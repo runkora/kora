@@ -53,10 +53,7 @@ const statusDotVariants = cva(['inline-block', 'rounded-full', 'shrink-0'], {
   },
 });
 
-export interface StatusDotProps
-  extends
-    Omit<React.HTMLAttributes<HTMLSpanElement>, 'className'>,
-    VariantProps<typeof statusDotVariants> {
+export interface StatusDotProps extends VariantProps<typeof statusDotVariants> {
   /**
    * When true, renders a soft halo ring around the dot using `color-mix` on
    * the status token. Reinforces "live / active" vs "inactive / error".
@@ -66,6 +63,13 @@ export interface StatusDotProps
 
   /** @internal className is locked — all styling must go through typed props. */
   className?: never;
+  children?: React.ReactNode;
+  id?: string;
+  role?: React.AriaRole;
+  title?: string;
+  'aria-label'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+  'aria-describedby'?: string;
 }
 
 /**
@@ -82,17 +86,13 @@ export interface StatusDotProps
  * ```
  */
 const StatusDot = React.forwardRef<HTMLSpanElement, StatusDotProps>(
-  ({ status, size, glow = false, style, ...props }, ref) => {
-    // Glow is implemented via box-shadow using color-mix on the status token.
-    // We resolve the CSS variable name from the status value at render time so
-    // there is no need for a Tailwind arbitrary-value class per status.
-    const glowStyle: React.CSSProperties =
+  ({ status, size, glow = false, ...props }, ref) => {
+    const glowStyle: React.CSSProperties | undefined =
       glow && status && status !== 'muted'
         ? {
             boxShadow: `0 0 0 3px color-mix(in oklch, var(--color-status-${status}) 15%, transparent)`,
-            ...style,
           }
-        : (style ?? {});
+        : undefined;
 
     return (
       <span

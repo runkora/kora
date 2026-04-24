@@ -13,6 +13,8 @@ export interface FormFieldContextValue {
   errorId: string;
   /** Whether a non-empty `error` prop is present on the parent `FormField`. */
   hasError: boolean;
+  /** Whether a non-empty `hint` prop is present on the parent `FormField` (and no error). */
+  hasHint: boolean;
   /** Whether the field is marked required. */
   required: boolean;
 }
@@ -110,9 +112,9 @@ export interface FormFieldProps {
  * </FormField>
  * ```
  *
- * **Using auto-wiring**: if the inner control calls `useFormField()` it receives
- * `{ id, hintId, errorId, hasError, required }` and can wire `aria-*` without
- * any props. Terra's built-in inputs will adopt this in a future pass.
+ * **Using auto-wiring**: Terra's built-in inputs (`Input`, `Textarea`, `NativeSelect`)
+ * automatically call `useFormField()` and receive `{ id, hintId, errorId, hasError, required }`
+ * to wire `aria-*` without any props. Custom controls can do the same.
  */
 const FormField = ({
   label,
@@ -127,10 +129,11 @@ const FormField = ({
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
   const hasError = Boolean(error);
+  const hasHint = Boolean(hint) && !hasError;
 
   const contextValue: FormFieldContextValue = React.useMemo(
-    () => ({ id, hintId, errorId, hasError, required }),
-    [id, hintId, errorId, hasError, required],
+    () => ({ id, hintId, errorId, hasError, hasHint, required }),
+    [id, hintId, errorId, hasError, hasHint, required],
   );
 
   return (

@@ -51,7 +51,9 @@ export const WithOptgroup: Story = {
 export const ErrorState: Story = {
   render: () => (
     <NativeSelect hasError defaultValue="" className="w-56">
-      <option value="" disabled>Select a provider</option>
+      <option value="" disabled>
+        Select a provider
+      </option>
       <option value="bedrock">AWS Bedrock</option>
       <option value="vertexai">Vertex AI</option>
     </NativeSelect>
