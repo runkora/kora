@@ -199,6 +199,60 @@ export const ApiRoute = {
       return q ? `${API_BASE}/usage?${q}` : `${API_BASE}/usage`;
     },
   },
+
+  /**
+   * `/api/analytics/me`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/analytics/me` and returns
+   *       personal aggregated analytics for the authenticated principal.
+   *       Accepts optional `days` (7 | 30 | 90), `granularity`, and `token_id` params.
+   */
+  analyticsMe: {
+    GET: (params?: { days?: number; granularity?: string; tokenId?: string }): string => {
+      const qs = new URLSearchParams();
+      if (params?.days !== undefined) qs.set('days', String(params.days));
+      if (params?.granularity) qs.set('granularity', params.granularity);
+      if (params?.tokenId) qs.set('token_id', params.tokenId);
+      const q = qs.toString();
+      return q ? `${API_BASE}/analytics/me?${q}` : `${API_BASE}/analytics/me`;
+    },
+  },
+
+  /**
+   * `/api/analytics`
+   *
+   * GET — proxies to the Go inference gateway `GET /v1/analytics` and returns
+   *       tenant-wide aggregated analytics. Requires `platform:analytics:read` scope.
+   *       Accepts optional `days` (7 | 30 | 90), `granularity`, and `model_id` params.
+   */
+  analytics: {
+    GET: (params?: { days?: number; granularity?: string; modelId?: string }): string => {
+      const qs = new URLSearchParams();
+      if (params?.days !== undefined) qs.set('days', String(params.days));
+      if (params?.granularity) qs.set('granularity', params.granularity);
+      if (params?.modelId) qs.set('model_id', params.modelId);
+      const q = qs.toString();
+      return q ? `${API_BASE}/analytics?${q}` : `${API_BASE}/analytics`;
+    },
+  },
+  /**
+   * `/api/analytics/principals`
+   *
+   * GET — returns per-principal usage aggregates enriched with identity data.
+   *       BFF orchestrates inference gateway + identity service.
+   *       Requires `platform:analytics:read` scope.
+   *       Accepts optional `days` (7 | 30 | 90), `page`, and `limit` params.
+   */
+  analyticsPrincipals: {
+    GET: (params?: { days?: number; page?: number; limit?: number }): string => {
+      const qs = new URLSearchParams();
+      if (params?.days !== undefined) qs.set('days', String(params.days));
+      if (params?.page !== undefined) qs.set('page', String(params.page));
+      if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+      const q = qs.toString();
+      return q ? `${API_BASE}/analytics/principals?${q}` : `${API_BASE}/analytics/principals`;
+    },
+  },
 } as const;
 
 /**
@@ -226,4 +280,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyRoutes']['GET']>
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
-  | ReturnType<(typeof ApiRoute)['usage']['GET']>;
+  | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | string; // analyticsMe and analytics routes include dynamic query strings

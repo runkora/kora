@@ -23,7 +23,8 @@ export type InferenceUsageStatus =
   | 'policy_denied'
   | 'auth_error'
   | 'timeout'
-  | 'routing_failed';
+  | 'routing_failed'
+  | 'canceled';
 
 // Mirrors InferenceUsageRecord in backend/internal/inferencegw/models.go.
 // Field names are snake_case matching the Go json tags.
@@ -35,12 +36,15 @@ export interface InferenceUsageRecord {
   token_id: string | null;
   api_dialect: string;
   provider: string | null;
+  virtual_model_id: string | null; // consumer-facing "{family}/{name}"; null for pre-migration rows
   model_id: string;
   model_family: string | null;
   routing_strategy: string | null;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
   estimated_cost_usd: number;
   status: InferenceUsageStatus;
   retry_count: number;
@@ -49,11 +53,97 @@ export interface InferenceUsageRecord {
   created_at: string; // RFC3339
 }
 
-// Mirrors listUsageResponse in backend/internal/inferencegw/handlers_usage.go.
+// Mirrors ListUsageResponse in backend/internal/inferencegw/handlers_usage.go.
 export interface ListUsageResponse {
   data: InferenceUsageRecord[];
   has_next_page: boolean;
   next_cursor: string | null;
+  limit: number;
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+//
+// Mirrors AnalyticsFilter, AnalyticsKPIs, AnalyticsBucket, AnalyticsCostByModel,
+// and AnalyticsResponse in backend/internal/inferencegw/models.go.
+
+export interface AnalyticsKPIs {
+  total_requests: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+  error_rate: number;
+  cache_hit_rate: number;
+}
+
+export interface AnalyticsBucket {
+  date: string; // "YYYY-MM-DD"
+  requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+}
+
+export interface AnalyticsCostByModel {
+  model_id: string;
+  estimated_cost_usd: number;
+}
+
+export interface AnalyticsModelTokenBucket {
+  date: string; // "YYYY-MM-DD"
+  model_id: string;
+  total_tokens: number;
+}
+
+export interface AnalyticsResponse {
+  scope: 'personal' | 'tenant';
+  period_days: number;
+  granularity: 'daily' | 'weekly' | 'monthly';
+  kpis: AnalyticsKPIs;
+  buckets: AnalyticsBucket[];
+  cost_by_model: AnalyticsCostByModel[];
+  tokens_by_model: AnalyticsModelTokenBucket[];
+}
+
+export type AnalyticsDays = 7 | 30 | 90;
+export type AnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
+
+// ── Principal analytics ───────────────────────────────────────────────────────
+
+// Mirrors PrincipalUsageSummary in backend/internal/inferencegw/models.go.
+export interface PrincipalUsageSummary {
+  principal_id: string;
+  request_count: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  estimated_cost_usd: number;
+  error_rate: number;
+  avg_latency_ms: number;
+  last_active_at: string; // RFC3339
+}
+
+// Enriched by the BFF with identity service data.
+export interface PrincipalUsageRow extends PrincipalUsageSummary {
+  email: string | null;
+  display_name: string | null;
+}
+
+export interface AnalyticsPrincipalsPageResponse {
+  data: PrincipalUsageRow[];
+  total: number;
+  page: number;
   limit: number;
 }
 

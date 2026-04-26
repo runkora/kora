@@ -199,6 +199,9 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "PUT", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"},
+		// GET /v1/analytics is tenant-wide and scope-gated.
+		// GET /v1/analytics/me is personal and omitted here — open to any authenticated caller.
+		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
 	}
 }
 
@@ -212,6 +215,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
+		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},
 	}
 	for _, cs := range catalogScopes {
 		decls = append(decls, routescopes.ScopeDeclaration{

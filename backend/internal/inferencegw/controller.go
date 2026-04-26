@@ -57,31 +57,48 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 // Route map:
 //
-//	POST   /chat/completions  OpenAI-dialect completions (streaming and non-streaming)
-//	POST   /messages          Anthropic Messages API dialect
-//	GET    /models            List available models
-//	GET    /usage/stats       Per-PAT usage aggregates (request count, last used)
-//	GET    /usage             Inference usage log (authenticated principal, paginated)
+//	POST   /chat/completions      OpenAI-dialect completions (streaming and non-streaming)
+//	POST   /messages              Anthropic Messages API dialect
+//	GET    /models                List available models
+//	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
+//	GET    /usage                 Inference usage log (authenticated principal, paginated)
+//	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
+//	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
+//	GET    /analytics/principals  Per-principal usage summary (requires platform:analytics:read)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage", c.handleListUsage)
+	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
+	mux.Handle("GET /analytics", c.handleAnalytics)
+	mux.Handle("GET /analytics/principals", c.handleAnalyticsPrincipals)
 }
 
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.
 // Shared by both the OpenAI and Anthropic dialect handlers.
 func inferenceErrorResponse(err error) *api.APIError {
-	// Check for specific ConnectorError codes before generic sentinel matching.
-	// MODEL_NOT_SUPPORTED is a permanent client error (wrong endpoint for this model),
-	// not a transient provider outage — return 400 so clients do not retry.
+	// ConnectorError codes that map to client errors are handled first so they
+	// return the correct 4xx status rather than falling through to the generic
+	// ErrProviderError → 503 case.
 	var connErr *ConnectorError
-	if errors.As(err, &connErr) && connErr.Code == "MODEL_NOT_SUPPORTED" {
-		return api.BadRequestError("model_not_supported",
-			"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",
-			nil,
-		)
+	if errors.As(err, &connErr) {
+		switch connErr.Code {
+		case "MODEL_NOT_SUPPORTED":
+			return api.BadRequestError("model_not_supported",
+				"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",
+				nil,
+			)
+		case "INVALID_REQUEST":
+			// Pass the provider's original message through so clients receive the
+			// same actionable detail they would get from calling the provider directly.
+			msg := connErr.ProviderMessage
+			if msg == "" {
+				msg = "the request was rejected as invalid by the upstream provider"
+			}
+			return api.BadRequestError("invalid_request", msg, nil)
+		}
 	}
 
 	switch {

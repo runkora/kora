@@ -81,29 +81,33 @@ const (
 	UsageStatusAuthError     UsageStatus = "auth_error"
 	UsageStatusTimeout       UsageStatus = "timeout"
 	UsageStatusRoutingFailed UsageStatus = "routing_failed"
+	UsageStatusCanceled      UsageStatus = "canceled"
 )
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID               string           `json:"id"`
-	TenantID         string           `json:"tenant_id"`
-	PrincipalID      string           `json:"principal_id"`
-	PrincipalType    string           `json:"principal_type"`
-	TokenID          *string          `json:"token_id"`
-	APIDialect       APIDialect       `json:"api_dialect"`
-	Provider         *ProviderName    `json:"provider"`
-	ModelID          string           `json:"model_id"`
-	ModelFamily      *string          `json:"model_family"`
-	RoutingStrategy  *RoutingStrategy `json:"routing_strategy"`
-	PromptTokens     int              `json:"prompt_tokens"`
-	CompletionTokens int              `json:"completion_tokens"`
-	TotalTokens      int              `json:"total_tokens"`
-	EstimatedCostUSD float64          `json:"estimated_cost_usd"`
-	Status           UsageStatus      `json:"status"`
-	RetryCount       int              `json:"retry_count"`
-	ErrorCode        *string          `json:"error_code"`
-	LatencyMS        int              `json:"latency_ms"`
-	CreatedAt        time.Time        `json:"created_at"`
+	ID                       string           `json:"id"`
+	TenantID                 string           `json:"tenant_id"`
+	PrincipalID              string           `json:"principal_id"`
+	PrincipalType            string           `json:"principal_type"`
+	TokenID                  *string          `json:"token_id"`
+	APIDialect               APIDialect       `json:"api_dialect"`
+	Provider                 *ProviderName    `json:"provider"`
+	VirtualModelID           *string          `json:"virtual_model_id"` // consumer-facing "{family}/{name}"; NULL for pre-migration rows
+	ModelID                  string           `json:"model_id"`
+	ModelFamily              *string          `json:"model_family"`
+	RoutingStrategy          *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens             int              `json:"prompt_tokens"`
+	CompletionTokens         int              `json:"completion_tokens"`
+	TotalTokens              int              `json:"total_tokens"`
+	CacheReadInputTokens     int              `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int              `json:"cache_creation_input_tokens"`
+	EstimatedCostUSD         float64          `json:"estimated_cost_usd"`
+	Status                   UsageStatus      `json:"status"`
+	RetryCount               int              `json:"retry_count"`
+	ErrorCode                *string          `json:"error_code"`
+	LatencyMS                int              `json:"latency_ms"`
+	CreatedAt                time.Time        `json:"created_at"`
 }
 
 // InferenceUsageFilter is used to query usage records.
@@ -136,6 +140,107 @@ type TokenUsageStat struct {
 	TokenID      string `json:"token_id"`
 	RequestCount int64  `json:"request_count"`
 	LastUsed     string `json:"last_used"` // RFC3339
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+// AnalyticsFilter controls what the aggregation query returns.
+// PrincipalID is set for the personal path (GET /v1/analytics/me) and nil
+// for the tenant-wide path (GET /v1/analytics).
+type AnalyticsFilter struct {
+	TenantID       string
+	PrincipalID    *string // nil → tenant-wide
+	TokenID        *string // optional PAT filter (personal path only)
+	VirtualModelID *string // optional virtual model filter, e.g. "anthropic/claude-sonnet-4-6" (tenant-wide path only)
+	Days           int     // lookback window: 7, 30, or 90
+	Granularity    string  // "daily", "weekly", or "monthly"
+}
+
+// AnalyticsKPIs holds the aggregated KPI values for the full query window.
+type AnalyticsKPIs struct {
+	TotalRequests    int64   `json:"total_requests"`
+	TotalTokens      int64   `json:"total_tokens"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms"`
+	P95LatencyMS     float64 `json:"p95_latency_ms"`
+	P99LatencyMS     float64 `json:"p99_latency_ms"`
+	ErrorRate        float64 `json:"error_rate"`
+	CacheHitRate     float64 `json:"cache_hit_rate"`
+}
+
+// AnalyticsBucket is a single time-series data point for the chosen granularity.
+type AnalyticsBucket struct {
+	Date               string  `json:"date"`
+	Requests           int64   `json:"requests"`
+	SuccessfulRequests int64   `json:"successful_requests"`
+	FailedRequests     int64   `json:"failed_requests"`
+	PromptTokens       int64   `json:"prompt_tokens"`
+	CompletionTokens   int64   `json:"completion_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`
+	EstimatedCostUSD   float64 `json:"estimated_cost_usd"`
+	P50LatencyMS       float64 `json:"p50_latency_ms"`
+	P95LatencyMS       float64 `json:"p95_latency_ms"`
+	P99LatencyMS       float64 `json:"p99_latency_ms"`
+}
+
+// AnalyticsCostByModel is one row of the cost-by-model breakdown.
+type AnalyticsCostByModel struct {
+	ModelID          string  `json:"model_id"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+}
+
+// AnalyticsModelTokenBucket is one data point in the per-model token time-series.
+type AnalyticsModelTokenBucket struct {
+	Date        string `json:"date"`
+	ModelID     string `json:"model_id"`
+	TotalTokens int64  `json:"total_tokens"`
+}
+
+// AnalyticsResponse is the payload returned by GET /v1/analytics and GET /v1/analytics/me.
+type AnalyticsResponse struct {
+	Scope         string                      `json:"scope"`
+	PeriodDays    int                         `json:"period_days"`
+	Granularity   string                      `json:"granularity"`
+	KPIs          AnalyticsKPIs               `json:"kpis"`
+	Buckets       []AnalyticsBucket           `json:"buckets"`
+	CostByModel   []AnalyticsCostByModel      `json:"cost_by_model"`
+	TokensByModel []AnalyticsModelTokenBucket `json:"tokens_by_model"`
+}
+
+// ─── Principal analytics ──────────────────────────────────────────────────────
+
+// PrincipalUsageSummary holds aggregated usage metrics for a single principal
+// over the analytics window. Returned by GET /v1/analytics/principals.
+type PrincipalUsageSummary struct {
+	PrincipalID      string  `json:"principal_id"`
+	RequestCount     int64   `json:"request_count"`
+	TotalTokens      int64   `json:"total_tokens"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	ErrorRate        float64 `json:"error_rate"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms"`
+	LastActiveAt     string  `json:"last_active_at"` // RFC3339
+}
+
+// AnalyticsPrincipalsFilter controls the principal usage aggregation query.
+type AnalyticsPrincipalsFilter struct {
+	TenantID string
+	Days     int // lookback window: 7, 30, or 90
+	Page     int // 1-based page number
+	Limit    int // page size (default 20, max 100)
+}
+
+// AnalyticsPrincipalsResponse is the payload returned by GET /v1/analytics/principals.
+type AnalyticsPrincipalsResponse struct {
+	Data  []PrincipalUsageSummary `json:"data"`
+	Total int64                   `json:"total"`
+	Page  int                     `json:"page"`
+	Limit int                     `json:"limit"`
 }
 
 // ─── Sentinel errors ─────────────────────────────────────────────────────────

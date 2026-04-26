@@ -238,6 +238,12 @@ type ConnectorError struct {
 
 	// Underlying is the raw provider error (never surfaced to callers).
 	Underlying error
+
+	// ProviderMessage is the human-readable error message from the provider's
+	// response body. Populated when the provider returns a structured error (e.g.
+	// Anthropic {"error":{"message":"..."}}). Empty for unstructured errors.
+	// Safe to surface to API callers — contains no internal infrastructure detail.
+	ProviderMessage string
 }
 
 func (e ConnectorError) Error() string {
@@ -255,14 +261,30 @@ func (e ConnectorError) Unwrap() error {
 // ModelPricing holds per-million-token cost data for a specific provider+model.
 // Pricing data flows exclusively from PricingCache -- never from the connector.
 type ModelPricing struct {
-	Provider             ProviderName
-	ModelID              string
-	InputCostPerMillion  float64 // USD per 1,000,000 input tokens
-	OutputCostPerMillion float64 // USD per 1,000,000 output tokens
+	Provider                    ProviderName
+	ModelID                     string
+	InputCostPerMillion         float64 // USD per 1,000,000 input tokens
+	OutputCostPerMillion        float64 // USD per 1,000,000 output tokens
+	CacheReadCostPerMillion     float64 // USD per 1,000,000 cache-read tokens (0 → use 10% of input)
+	CacheCreationCostPerMillion float64 // USD per 1,000,000 cache-write tokens (0 → use 125% of input)
 }
 
-// EstimatedCostUSD returns the estimated total cost for the given token counts.
-func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens int) float64 {
+// EstimatedCostUSD returns the estimated total cost for the given token counts,
+// including Anthropic prompt-cache read and write costs when non-zero.
+// Cache pricing falls back to industry-standard ratios when not explicitly set:
+//   - cache read  = 10% of input price
+//   - cache write = 125% of input price
+func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens int) float64 {
+	cacheReadPrice := p.CacheReadCostPerMillion
+	if cacheReadPrice == 0 {
+		cacheReadPrice = p.InputCostPerMillion * 0.10
+	}
+	cacheCreationPrice := p.CacheCreationCostPerMillion
+	if cacheCreationPrice == 0 {
+		cacheCreationPrice = p.InputCostPerMillion * 1.25
+	}
 	return (float64(promptTokens)/1_000_000)*p.InputCostPerMillion +
-		(float64(completionTokens)/1_000_000)*p.OutputCostPerMillion
+		(float64(completionTokens)/1_000_000)*p.OutputCostPerMillion +
+		(float64(cacheReadTokens)/1_000_000)*cacheReadPrice +
+		(float64(cacheCreationTokens)/1_000_000)*cacheCreationPrice
 }

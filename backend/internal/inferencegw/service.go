@@ -219,7 +219,7 @@ func (s *Service) ChatCompletion(
 	}
 
 	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
 
 	rec := InferenceUsageRecord{
 		ID:               uuid.NewString(),
@@ -229,6 +229,7 @@ func (s *Service) ChatCompletion(
 		TokenID:          nullableText(p.TokenID),
 		APIDialect:       DialectOpenAI,
 		Provider:         &usedTarget.Provider,
+		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
 		ModelID:          usedTarget.ModelID,
 		ModelFamily:      nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:  &strategy,
@@ -367,6 +368,11 @@ func (s *Service) ChatCompletionStream(
 		}
 
 		if streamErr != nil {
+			if errors.Is(streamErr, errClientDisconnected) {
+				span.SetStatus(codes.Ok, "client disconnected")
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				return
+			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
@@ -376,7 +382,7 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
 
 		rec := InferenceUsageRecord{
 			ID:               uuid.NewString(),
@@ -386,6 +392,7 @@ func (s *Service) ChatCompletionStream(
 			TokenID:          nullableText(p.TokenID),
 			APIDialect:       DialectOpenAI,
 			Provider:         &capturedTarget.Provider,
+			VirtualModelID:   nullableText(capturedTarget.VirtualModelID),
 			ModelID:          capturedTarget.ModelID,
 			ModelFamily:      nullableText(capturedTarget.ModelFamily),
 			RoutingStrategy:  &capturedStrategy,
@@ -412,74 +419,105 @@ func (s *Service) ChatCompletionStream(
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// errClientDisconnected is returned by drain functions when the caller's context
+// is canceled before the upstream stream completes. It signals that the client
+// disconnected rather than an upstream provider error, so usage can be recorded
+// as canceled rather than as a provider failure.
+var errClientDisconnected = errors.New("client disconnected")
+
 // drainOpenAIStream forwards chunks from upstream to out, accumulating token
-// usage counts. If ctx is canceled before the stream ends, the remaining
-// upstream items are drained asynchronously so the connector goroutine can exit.
+// usage counts. Both the outer receive and inner forward check ctx so a
+// client disconnect is detected promptly even when upstream is idle.
 func drainOpenAIStream(
 	ctx context.Context,
 	upstream <-chan OpenAIStreamResult,
 	out chan<- OpenAIStreamResult,
 ) (promptTokens, completionTokens, totalTokens int, streamErr error) {
-	for result := range upstream {
-		if result.Err != nil {
-			streamErr = result.Err
+	for {
+		select {
+		case result, ok := <-upstream:
+			if !ok {
+				return
+			}
+			if result.Err != nil {
+				streamErr = result.Err
+				select {
+				case out <- result:
+				case <-ctx.Done():
+				}
+				return
+			}
+			// Accumulate usage — some providers send it only in the final chunk.
+			// Additive accumulation handles providers that split across chunks.
+			if result.Chunk != nil {
+				promptTokens += int(result.Chunk.Usage.PromptTokens)
+				completionTokens += int(result.Chunk.Usage.CompletionTokens)
+				totalTokens += int(result.Chunk.Usage.TotalTokens)
+			}
 			select {
 			case out <- result:
 			case <-ctx.Done():
+				go func() {
+					for range upstream {
+					}
+				}()
+				streamErr = errClientDisconnected
+				return
 			}
-			return
-		}
-		// Accumulate usage — some providers send it only in the final chunk.
-		// Additive accumulation handles providers that split across chunks.
-		if result.Chunk != nil {
-			promptTokens += int(result.Chunk.Usage.PromptTokens)
-			completionTokens += int(result.Chunk.Usage.CompletionTokens)
-			totalTokens += int(result.Chunk.Usage.TotalTokens)
-		}
-		select {
-		case out <- result:
 		case <-ctx.Done():
-			// Client disconnected; drain upstream so the connector goroutine can exit.
 			go func() {
 				for range upstream {
 				}
 			}()
+			streamErr = errClientDisconnected
 			return
 		}
 	}
-	return
 }
 
 // drainAnthropicStream forwards events from upstream to out, accumulating the
-// full message via the SDK Accumulate helper. If ctx is canceled before the
-// stream ends, the remaining upstream items are drained asynchronously.
+// full message via the SDK Accumulate helper. Both the outer receive and inner
+// forward check ctx so a client disconnect is detected promptly even when
+// upstream is idle.
 func drainAnthropicStream(
 	ctx context.Context,
 	upstream <-chan AnthropicStreamEvent,
 	out chan<- AnthropicStreamEvent,
 ) (accumulated anthropic.Message, streamErr error) {
-	for ev := range upstream {
-		if ev.Err != nil {
-			streamErr = ev.Err
+	for {
+		select {
+		case ev, ok := <-upstream:
+			if !ok {
+				return
+			}
+			if ev.Err != nil {
+				streamErr = ev.Err
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+				}
+				return
+			}
+			_ = accumulated.Accumulate(ev.Event)
 			select {
 			case out <- ev:
 			case <-ctx.Done():
+				go func() {
+					for range upstream {
+					}
+				}()
+				streamErr = errClientDisconnected
+				return
 			}
-			return
-		}
-		_ = accumulated.Accumulate(ev.Event)
-		select {
-		case out <- ev:
 		case <-ctx.Done():
-			// Client disconnected; drain upstream so the connector goroutine can exit.
 			go func() {
 				for range upstream {
 				}
 			}()
+			streamErr = errClientDisconnected
 			return
 		}
 	}
-	return
 }
 
 // checkModelPolicy performs the fine-grained Layer 2 policy check for a specific
@@ -650,6 +688,7 @@ func (s *Service) writeFailedUsage(
 		TokenID:         nullableText(p.TokenID),
 		APIDialect:      dialect,
 		Provider:        provider,
+		VirtualModelID:  nullableText(req.Model),
 		ModelID:         req.Model,
 		ModelFamily:     modelFamily,
 		RoutingStrategy: strategy,
@@ -833,28 +872,32 @@ func (s *Service) AnthropicMessages(
 
 	promptTokens := int(msg.Usage.InputTokens)
 	completionTokens := int(msg.Usage.OutputTokens)
+	cacheReadTokens := int(msg.Usage.CacheReadInputTokens)
+	cacheCreationTokens := int(msg.Usage.CacheCreationInputTokens)
 	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
-		ID:               uuid.NewString(),
-		TenantID:         p.TenantID,
-		PrincipalID:      p.PrincipalID,
-		PrincipalType:    p.PrincipalType,
-		TokenID:          nullableText(p.TokenID),
-		APIDialect:       DialectAnthropic,
-		Provider:         &usedTarget.Provider,
-		ModelID:          usedTarget.ModelID,
-		ModelFamily:      nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:  &strategy,
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      promptTokens + completionTokens,
-		EstimatedCostUSD: estimatedCost,
-		Status:           UsageStatusSuccess,
-		RetryCount:       retryCount,
-		LatencyMS:        latencyMS,
-		CreatedAt:        start.UTC(),
+		ID:                       uuid.NewString(),
+		TenantID:                 p.TenantID,
+		PrincipalID:              p.PrincipalID,
+		PrincipalType:            p.PrincipalType,
+		TokenID:                  nullableText(p.TokenID),
+		APIDialect:               DialectAnthropic,
+		Provider:                 &usedTarget.Provider,
+		ModelID:                  usedTarget.ModelID,
+		ModelFamily:              nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:          &strategy,
+		PromptTokens:             promptTokens,
+		CompletionTokens:         completionTokens,
+		TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+		CacheReadInputTokens:     cacheReadTokens,
+		CacheCreationInputTokens: cacheCreationTokens,
+		EstimatedCostUSD:         estimatedCost,
+		Status:                   UsageStatusSuccess,
+		RetryCount:               retryCount,
+		LatencyMS:                latencyMS,
+		CreatedAt:                start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -959,6 +1002,11 @@ func (s *Service) AnthropicMessagesStream(
 		latencyMS := int(time.Since(start).Milliseconds())
 
 		if streamErr != nil {
+			if errors.Is(streamErr, errClientDisconnected) {
+				span.SetStatus(codes.Ok, "client disconnected")
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				return
+			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
 			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
@@ -969,28 +1017,33 @@ func (s *Service) AnthropicMessagesStream(
 
 		promptTokens := int(accumulated.Usage.InputTokens)
 		completionTokens := int(accumulated.Usage.OutputTokens)
+		cacheReadTokens := int(accumulated.Usage.CacheReadInputTokens)
+		cacheCreationTokens := int(accumulated.Usage.CacheCreationInputTokens)
 		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens)
+		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
-			ID:               uuid.NewString(),
-			TenantID:         p.TenantID,
-			PrincipalID:      p.PrincipalID,
-			PrincipalType:    p.PrincipalType,
-			TokenID:          nullableText(p.TokenID),
-			APIDialect:       DialectAnthropic,
-			Provider:         &capturedTarget.Provider,
-			ModelID:          capturedTarget.ModelID,
-			ModelFamily:      nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:  &capturedStrategy,
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      promptTokens + completionTokens,
-			EstimatedCostUSD: estimatedCost,
-			Status:           UsageStatusSuccess,
-			RetryCount:       streamRetryCount,
-			LatencyMS:        latencyMS,
-			CreatedAt:        start.UTC(),
+			ID:                       uuid.NewString(),
+			TenantID:                 p.TenantID,
+			PrincipalID:              p.PrincipalID,
+			PrincipalType:            p.PrincipalType,
+			TokenID:                  nullableText(p.TokenID),
+			APIDialect:               DialectAnthropic,
+			Provider:                 &capturedTarget.Provider,
+			VirtualModelID:           nullableText(capturedTarget.VirtualModelID),
+			ModelID:                  capturedTarget.ModelID,
+			ModelFamily:              nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:          &capturedStrategy,
+			PromptTokens:             promptTokens,
+			CompletionTokens:         completionTokens,
+			TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+			CacheReadInputTokens:     cacheReadTokens,
+			CacheCreationInputTokens: cacheCreationTokens,
+			EstimatedCostUSD:         estimatedCost,
+			Status:                   UsageStatusSuccess,
+			RetryCount:               streamRetryCount,
+			LatencyMS:                latencyMS,
+			CreatedAt:                start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -1041,4 +1094,57 @@ func (s *Service) UsageStats(ctx context.Context) ([]TokenUsageStat, error) {
 		return nil, fmt.Errorf("usage stats: %w", err)
 	}
 	return stats, nil
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+// AnalyticsMe returns aggregated analytics for the authenticated principal only.
+// TenantID and PrincipalID are always sourced from the verified JWT — callers
+// cannot widen or redirect the scope via query parameters.
+func (s *Service) AnalyticsMe(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = &p.PrincipalID
+	resp, err := s.usage.GetAnalytics(ctx, filter)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics me: %w", err)
+	}
+	return resp, nil
+}
+
+// Analytics returns tenant-wide aggregated analytics. TenantID is always
+// sourced from the verified JWT; PrincipalID is never applied. The caller
+// is responsible for ensuring the request carries the platform:analytics:read
+// scope — enforcement happens at the route registration layer.
+func (s *Service) Analytics(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	filter.PrincipalID = nil // always tenant-wide; must not be set by the caller
+	resp, err := s.usage.GetAnalytics(ctx, filter)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("analytics: %w", err)
+	}
+	return resp, nil
+}
+
+// AnalyticsPrincipals returns per-principal usage aggregates for the tenant.
+// TenantID is sourced from the verified JWT; callers cannot override it.
+// Requires the platform:analytics:read scope.
+func (s *Service) AnalyticsPrincipals(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AnalyticsPrincipalsResponse{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	filter.TenantID = p.TenantID
+	resp, err := s.usage.ListPrincipalUsage(ctx, filter)
+	if err != nil {
+		return AnalyticsPrincipalsResponse{}, fmt.Errorf("analytics principals: %w", err)
+	}
+	return resp, nil
 }

@@ -1,12 +1,42 @@
 import { getSession, isSessionValid } from '@orbit/server/session';
+import { fetchAnalyticsFromGateway } from '../_services/analytics-server';
 import { fetchModelsFromGateway } from '../_services/models-server';
+import { fetchUsageFromGateway } from '../_services/usage-server';
 import { OverviewTab } from '../_components/overview-tab';
-import type { ModelRow } from '../_types';
+import { ScopeGuard } from '../../_components';
 
 export default async function OverviewPage() {
   const session = await getSession();
-  const result = isSessionValid(session) ? await fetchModelsFromGateway(session.accessToken) : null;
-  const models: ModelRow[] = result?.ok ? result.models : [];
 
-  return <OverviewTab models={models} />;
+  if (!isSessionValid(session)) {
+    return (
+      <ScopeGuard scope="platform:analytics:read">
+        <OverviewTab models={[]} data={null} recentRecords={[]} />
+      </ScopeGuard>
+    );
+  }
+
+  const [analyticsResult, modelsResult, usageResult] = await Promise.all([
+    fetchAnalyticsFromGateway(session.accessToken, { days: 30, granularity: 'daily' }),
+    fetchModelsFromGateway(session.accessToken),
+    fetchUsageFromGateway(session.accessToken, { limit: 8 }),
+  ]);
+
+  return (
+    <ScopeGuard scope="platform:analytics:read">
+      <OverviewTab
+        models={modelsResult.ok ? modelsResult.models : []}
+        data={
+          analyticsResult.ok
+            ? {
+                kpis: analyticsResult.data.kpis,
+                buckets: analyticsResult.data.buckets,
+                costByModel: analyticsResult.data.cost_by_model,
+              }
+            : null
+        }
+        recentRecords={usageResult.ok ? usageResult.records : []}
+      />
+    </ScopeGuard>
+  );
 }

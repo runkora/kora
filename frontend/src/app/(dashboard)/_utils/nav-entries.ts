@@ -107,7 +107,12 @@ const SYSTEM_NAV: NavEntry[] = [
 ];
 
 const MODEL_GATEWAY_NAV: NavEntry[] = [
-  { label: 'Overview', href: APP_ROUTES.modelGateway.overview, icon: BarChart3 },
+  {
+    label: 'Overview',
+    href: APP_ROUTES.modelGateway.overview,
+    icon: BarChart3,
+    requiredScope: 'platform:analytics:read',
+  },
   { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
   {
     label: 'Catalog',
@@ -115,7 +120,13 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
     icon: Layers,
     requiredScope: 'platform:catalog:write',
   },
-  { label: 'Usage', href: APP_ROUTES.modelGateway.usage, icon: LineChart },
+  { label: 'My Usage', href: APP_ROUTES.modelGateway.myUsage, icon: LineChart },
+  {
+    label: 'Analytics',
+    href: APP_ROUTES.modelGateway.analytics,
+    icon: BarChart3,
+    requiredScope: 'platform:analytics:read',
+  },
   { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: Activity },
   { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: Key },
   { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: Wrench },

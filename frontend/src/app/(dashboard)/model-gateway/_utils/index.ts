@@ -17,6 +17,7 @@ export function getInferenceStatusVariant(
       return 'healthy';
     case 'policy_denied':
     case 'auth_error':
+    case 'canceled':
       return 'degraded';
     default:
       return 'error';
