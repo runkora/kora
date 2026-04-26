@@ -359,7 +359,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 	q := fmt.Sprintf(`
 		SELECT
 		    COUNT(*)                                                               AS total_requests,
-		    COALESCE(SUM(prompt_tokens + completion_tokens + cache_read_input_tokens), 0) AS total_tokens,
+		    COALESCE(SUM(total_tokens), 0)                                            AS total_tokens,
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
 		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
 		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,

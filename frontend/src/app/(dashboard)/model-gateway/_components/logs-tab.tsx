@@ -242,8 +242,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       header: 'Tokens',
       align: 'right',
       sortable: true,
-      sortAccessor: (row) =>
-        row.prompt_tokens + row.cache_read_input_tokens + row.completion_tokens,
+      sortAccessor: (row) => row.total_tokens,
       cell: (row) => (
         <Stack gap="none" align="end">
           <Text size="supporting" color="muted" mono align="end">

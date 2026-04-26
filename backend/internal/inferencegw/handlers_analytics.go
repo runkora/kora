@@ -167,7 +167,7 @@ func parseAnalyticsFilter(q url.Values) (AnalyticsFilter, *api.APIError, error) 
 		f.Granularity = raw
 	}
 
-	// token_id is honored on the personal path; ignored on the tenant-wide path.
+	// token_id narrows results to a specific PAT — valid on both the personal and tenant-wide paths.
 	if raw := q.Get("token_id"); raw != "" {
 		f.TokenID = &raw
 	}

@@ -439,7 +439,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
       </CardContent>
       <CardFooter compact justify="between">
         <Text size="caption" color="subtle">
-          By spend, last 14 days
+          By spend, last 30 days
         </Text>
         <Link
           href={APP_ROUTES.modelGateway.analytics}

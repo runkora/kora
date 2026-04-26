@@ -58,7 +58,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const session = await getSession();
   if (isSessionValid(session)) {
-    redirect(isSafeRedirectPath(next) ? next : '/');
+    redirect(isSafeRedirectPath(next) && next !== '/login' ? next : '/');
   }
 
   const message = errorMessage(errorCode);
