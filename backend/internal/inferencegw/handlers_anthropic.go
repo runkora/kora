@@ -368,6 +368,18 @@ func (c *Controller) handleMessagesNonStreaming(
 			cancelGen()
 			if res.err != nil {
 				apiErr := inferenceErrorResponse(res.err)
+				span := trace.SpanFromContext(ctx)
+				span.RecordError(res.err)
+				span.SetAttributes(
+					attribute.Bool("app.error", true),
+					attribute.String("app.error.code", apiErr.Code),
+					attribute.String("app.error.message", apiErr.Message),
+				)
+				c.logger.Error(ctx, "anthropic non-streaming: provider error after 200 OK committed",
+					logging.Field{Key: "code", Value: apiErr.Code},
+					logging.Field{Key: "message", Value: apiErr.Message},
+					logging.Field{Key: "error", Value: res.err.Error()},
+				)
 				body, _ := json.Marshal(map[string]any{
 					"type": "error",
 					"error": map[string]string{
