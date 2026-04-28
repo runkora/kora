@@ -1,6 +1,6 @@
 'use client';
 
-import { Grid, Heading, Stack, Text } from '@orbit/terra';
+import { Callout, Grid, Heading, Stack, Text } from '@orbit/terra';
 import type { AnalyticsDays, AnalyticsGranularity, AnalyticsResponse } from '../../_types';
 import type { AnalyticsLoadStatus } from '../../_hooks/use-analytics';
 import { AnalyticsKPICards } from './analytics-kpi-cards';
@@ -11,33 +11,6 @@ import { AnalyticsCostByModelChart } from './analytics-cost-by-model-chart';
 import { AnalyticsLatencyChart } from './analytics-latency-chart';
 import { AnalyticsPeriodControls } from './analytics-period-controls';
 import { AnalyticsTokensByModelChart } from './analytics-tokens-by-model-chart';
-
-// ── Empty / loading states ────────────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <Stack align="center" justify="center" gap="snug" asChild>
-      <section className="rounded-lg border border-dashed py-20 text-center">
-        <Text color="muted">No inference activity yet for this period.</Text>
-        <Text size="caption" color="subtle">
-          Data will appear here once requests are made through the gateway.
-        </Text>
-      </section>
-    </Stack>
-  );
-}
-
-function ErrorState({ message }: { message: string }) {
-  return (
-    <Stack asChild>
-      <section className="rounded-lg border border-status-error/20 bg-status-error/5 px-4 py-3">
-        <Text size="supporting" color="muted">
-          {message}
-        </Text>
-      </section>
-    </Stack>
-  );
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,66 +48,78 @@ export function AnalyticsDashboard({
   const loading = status === 'loading';
 
   return (
-    <Stack direction="vertical" gap="comfortable" asChild>
-      <section>
-        {/* Title row */}
-        <Stack gap="snug">
-          <Heading variant="title">{title}</Heading>
+    <Stack direction="vertical" gap="comfortable">
+      {/* Title row */}
+      <Stack gap="snug">
+        <Heading variant="title">{title}</Heading>
+        <Text size="supporting" color="muted">
+          {description}
+        </Text>
+      </Stack>
+
+      {/* Controls row — filter slot left, period controls right */}
+      <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
+        {filterSlot}
+        <AnalyticsPeriodControls
+          days={days}
+          granularity={granularity}
+          onSetDays={onSetDays}
+          onSetGranularity={onSetGranularity}
+          loading={loading}
+        />
+      </Stack>
+
+      {/* Error banner */}
+      {error && (
+        <Callout variant="error">
           <Text size="supporting" color="muted">
-            {description}
+            {error}
           </Text>
-        </Stack>
+        </Callout>
+      )}
 
-        {/* Controls row — filter slot left, period controls right */}
-        <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
-          <span>{filterSlot}</span>
-          <AnalyticsPeriodControls
-            days={days}
-            granularity={granularity}
-            onSetDays={onSetDays}
-            onSetGranularity={onSetGranularity}
-            loading={loading}
-          />
-        </Stack>
-
-        {/* Error banner */}
-        {error && <ErrorState message={error} />}
-
-        {/* Data area — dims while reloading */}
-        <section
+      {/* Data area — dims while reloading */}
+      <Stack direction="vertical" gap="comfortable" asChild>
+        <figure
           className={loading ? 'pointer-events-none opacity-50 transition-opacity' : undefined}
         >
-          <Stack direction="vertical" gap="comfortable">
-            {/* KPI stat cards */}
-            {/* eslint-disable-next-line local/no-raw-div */}
-            {data ? <AnalyticsKPICards kpis={data.kpis} /> : <div className="h-[120px]" />}
+          {/* KPI stat cards */}
+          {data && <AnalyticsKPICards kpis={data.kpis} />}
 
-            {/* Empty state when no bucket data */}
-            {!error && data && buckets.length === 0 && <EmptyState />}
+          {/* Empty state when no bucket data */}
+          {!error && data && buckets.length === 0 && (
+            <Stack align="center" justify="center" gap="snug" asChild>
+              <figure className="rounded-lg border border-dashed py-20 text-center">
+                <Text color="muted">No inference activity yet for this period.</Text>
+                <Text size="caption" color="subtle">
+                  Data will appear here once requests are made through the gateway.
+                </Text>
+              </figure>
+            </Stack>
+          )}
 
-            {/* Charts — only render when data is available */}
-            {buckets.length > 0 && (
-              <>
-                <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-                  <AnalyticsSpendChart buckets={buckets} />
-                  <AnalyticsTokensChart buckets={buckets} />
-                </Grid>
+          {/* Charts — only render when data is available */}
+          {buckets.length > 0 && (
+            <>
+              <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+                <AnalyticsSpendChart buckets={buckets} />
+                <AnalyticsTokensChart buckets={buckets} />
+              </Grid>
 
-                <AnalyticsRequestsChart buckets={buckets} />
+              <AnalyticsRequestsChart buckets={buckets} />
 
-                {tokensByModel.length > 0 && (
-                  <AnalyticsTokensByModelChart tokensByModel={tokensByModel} />
-                )}
+              {tokensByModel.length > 0 && (
+                <AnalyticsTokensByModelChart tokensByModel={tokensByModel} />
+              )}
 
-                <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-                  <AnalyticsCostByModelChart costByModel={costByModel} />
-                  <AnalyticsLatencyChart buckets={buckets} />
-                </Grid>
-              </>
-            )}
-          </Stack>
-        </section>
-      </section>
+              <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+                <AnalyticsCostByModelChart costByModel={costByModel} />
+                <AnalyticsLatencyChart buckets={buckets} />
+              </Grid>
+            </>
+          )}
+        </figure>
+      </Stack>
     </Stack>
   );
 }

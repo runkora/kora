@@ -16,8 +16,8 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
 
   const filterSlot =
     models.length > 0 ? (
-      <section style={{ width: '200px' }}>
-        <NativeSelect
+      <NativeSelect
+          style={{ width: '200px' }}
           value={modelId ?? ''}
           onChange={(e) => setModelId(e.target.value || null)}
           aria-label="Filter by model"
@@ -29,7 +29,6 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
             </option>
           ))}
         </NativeSelect>
-      </section>
     ) : undefined;
 
   return (

@@ -1,6 +1,5 @@
 'use client';
 
-import { DollarSign, Zap, Activity, Timer } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -8,6 +7,7 @@ import {
   CardContent,
   Grid,
   Heading,
+  Icon,
   Separator,
   Stack,
   Text,
@@ -50,15 +50,13 @@ interface StatRowProps {
 
 function StatRow({ label, value }: StatRowProps) {
   return (
-    <Stack asChild direction="horizontal" align="center" justify="between">
-      <section className="py-1.5">
-        <Text size="supporting" color="muted">
-          {label}
-        </Text>
-        <Text size="supporting" weight="emphasis" mono tabular>
-          {value}
-        </Text>
-      </section>
+    <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
+      <Text size="supporting" color="muted">
+        {label}
+      </Text>
+      <Text size="supporting" weight="emphasis" mono tabular>
+        {value}
+      </Text>
     </Stack>
   );
 }
@@ -78,7 +76,7 @@ function CardDivider() {
 function CostCard({ kpis }: { kpis: AnalyticsKPIs }) {
   return (
     <Card column>
-      <CardHeader compact icon={<DollarSign className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="dollar-sign" />}>
         <CardTitle>Cost</CardTitle>
       </CardHeader>
       <CardContent>
@@ -104,7 +102,7 @@ function RequestsCard({ kpis }: { kpis: AnalyticsKPIs }) {
 
   return (
     <Card column>
-      <CardHeader compact icon={<Activity className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="activity" />}>
         <CardTitle>Requests</CardTitle>
       </CardHeader>
       <CardContent>
@@ -126,7 +124,7 @@ function RequestsCard({ kpis }: { kpis: AnalyticsKPIs }) {
 function TokensCard({ kpis }: { kpis: AnalyticsKPIs }) {
   return (
     <Card column>
-      <CardHeader compact icon={<Zap className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="zap" />}>
         <CardTitle>Tokens</CardTitle>
       </CardHeader>
       <CardContent>
@@ -150,7 +148,7 @@ function TokensCard({ kpis }: { kpis: AnalyticsKPIs }) {
 function LatencyCard({ kpis }: { kpis: AnalyticsKPIs }) {
   return (
     <Card column>
-      <CardHeader compact icon={<Timer className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="clock" />}>
         <CardTitle>Latency</CardTitle>
       </CardHeader>
       <CardContent>

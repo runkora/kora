@@ -28,21 +28,8 @@ import {
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
-import { fmtUsd, fmtTokens, fmtNumCompact, fmtDateAxis } from '@orbit/utils';
-import { MetricCard } from '@orbit/components';
+import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';
 import { ChartLegend } from './chart-legend';
-import {
-  Activity,
-  AlertCircle,
-  Clock,
-  DollarSign,
-  HardDrive,
-  ScrollText,
-  Server,
-  TrendingUp,
-  Zap,
-} from 'lucide-react';
-import { fmtCost, fmtNumCompact, fmtTime } from '@orbit/utils';
 import type {
   AnalyticsBucket,
   AnalyticsCostByModel,
@@ -360,38 +347,22 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
             top5.map((entry) => (
               <Stack key={entry.model_id} gap="tight">
                 <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="caption" mono truncate style={{ flex: 1, minWidth: 0 }}>
-                    {entry.model_id}
-                  </Text>
-                  <Text
-                    size="caption"
-                    color="muted"
-                    mono
-                    style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}
-                  >
-                    {fmtCost(entry.estimated_cost_usd)}
-                  </Text>
+                  <Stack grow minWidth="none">
+                    <Text size="caption" mono truncate>
+                      {entry.model_id}
+                    </Text>
+                  </Stack>
+                  <Stack shrink>
+                    <Text size="caption" color="muted" mono tabular>
+                      {fmtCost(entry.estimated_cost_usd)}
+                    </Text>
+                  </Stack>
                 </Stack>
-                <span
-                  style={{
-                    flex: 1,
-                    display: 'block',
-                    height: 3,
-                    borderRadius: 2,
-                    background: COLORS.borderSubtle,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'block',
-                      height: '100%',
-                      width: `${(entry.estimated_cost_usd / maxCost) * 100}%`,
-                      background: COLORS.accent,
-                      borderRadius: 2,
-                    }}
-                  />
-                </span>
+                <Progress
+                  value={(entry.estimated_cost_usd / maxCost) * 100}
+                  label={entry.model_id}
+                  size="sm"
+                />
               </Stack>
             ))
           )}
@@ -436,54 +407,27 @@ function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
                     direction="horizontal"
                     align="center"
                     gap="snug"
-                    style={{
-                      paddingBlock: '7px',
-                      paddingInline: '6px',
-                      marginInline: '-6px',
-                      borderRadius: '4px',
-                      background: isError ? 'rgba(239,68,68,0.06)' : 'transparent',
-                    }}
+                    paddingBlock="snug"
+                    paddingInline="tight"
                   >
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        background: isError ? COLORS.error : COLORS.healthy,
-                        boxShadow: isError ? `0 0 0 2px rgba(239,68,68,0.2)` : undefined,
-                      }}
-                    />
-                    <Text
-                      size="caption"
-                      mono
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {model}
-                    </Text>
-                    <Text
-                      size="caption"
-                      color={isError ? 'muted' : 'subtle'}
-                      mono
-                      style={{ flexShrink: 0 }}
-                    >
-                      {record.latency_ms >= 1000
-                        ? `${(record.latency_ms / 1000).toFixed(1)}s`
-                        : `${record.latency_ms}ms`}
-                    </Text>
-                    <Text
-                      size="caption"
-                      color="subtle"
-                      style={{ flexShrink: 0, minWidth: '44px', textAlign: 'right' }}
-                    >
-                      {fmtTime(record.created_at)}
-                    </Text>
+                    <StatusDot status={isError ? 'error' : 'healthy'} size="sm" />
+                    <Stack grow minWidth="none">
+                      <Text size="caption" mono truncate>
+                        {model}
+                      </Text>
+                    </Stack>
+                    <Stack shrink>
+                      <Text size="caption" color={isError ? 'muted' : 'subtle'} mono>
+                        {record.latency_ms >= 1000
+                          ? `${(record.latency_ms / 1000).toFixed(1)}s`
+                          : `${record.latency_ms}ms`}
+                      </Text>
+                    </Stack>
+                    <Stack shrink>
+                      <Text size="caption" color="subtle" align="end">
+                        {fmtTime(record.created_at)}
+                      </Text>
+                    </Stack>
                   </Stack>
                   {i < records.length - 1 && <Separator />}
                 </Stack>
@@ -542,9 +486,8 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
   const isOperational = data === null || (data.kpis.error_rate ?? 0) < 0.1;
 
   return (
-    <Stack direction="vertical" gap="comfortable" asChild>
-      <section>
-        {/* Page header */}
+    <Stack direction="vertical" gap="comfortable">
+      {/* Page header */}
         <Stack gap="snug">
           <Stack direction="horizontal" align="center" gap="snug">
             <Heading variant="title">Model Gateway</Heading>
@@ -557,11 +500,6 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
             control plane.
           </Text>
         </Stack>
-        <Text size="supporting" color="muted">
-          Unified inference proxy — route, observe, and govern all LLM traffic from a single control
-          plane.
-        </Text>
-      </Stack>
 
         {/* KPI Cards */}
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
@@ -616,7 +554,6 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
           <TopModelsCard costByModel={data?.costByModel ?? []} />
           <RecentLogsCard records={recentRecords} />
         </Grid>
-      </section>
     </Stack>
   );
 }

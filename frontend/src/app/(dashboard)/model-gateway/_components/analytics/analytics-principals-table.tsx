@@ -202,9 +202,10 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         </Text>
       )}
 
-      <section
-        className={loading ? 'pointer-events-none opacity-50 transition-opacity' : undefined}
-      >
+      <Stack asChild>
+        <figure
+          className={loading ? 'pointer-events-none opacity-50 transition-opacity' : undefined}
+        >
         <DataTable
           data={data?.data ?? []}
           columns={COLUMNS}
@@ -221,7 +222,8 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
           emptyMessage="No inference activity in this period."
           filteredEmptyMessage="No users match your search."
         />
-      </section>
+        </figure>
+      </Stack>
 
       {totalPages > 1 && (
         <Stack direction="horizontal" gap="tight" justify="end" align="center">

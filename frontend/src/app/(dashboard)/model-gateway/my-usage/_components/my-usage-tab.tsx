@@ -15,8 +15,8 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
 
   const filterSlot =
     pats.length > 0 ? (
-      <section style={{ width: '160px' }}>
-        <NativeSelect
+      <NativeSelect
+          style={{ width: '160px' }}
           value={tokenId ?? ''}
           onChange={(e) => setTokenId(e.target.value || null)}
           aria-label="Filter by API key"
@@ -28,7 +28,6 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
             </option>
           ))}
         </NativeSelect>
-      </section>
     ) : undefined;
 
   return (

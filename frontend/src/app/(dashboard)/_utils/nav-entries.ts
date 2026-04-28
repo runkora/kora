@@ -76,26 +76,26 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
   {
     label: 'Overview',
     href: APP_ROUTES.modelGateway.overview,
-    icon: BarChart3,
+    icon: 'bar-chart',
     requiredScope: 'platform:analytics:read',
   },
-  { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: Sparkles },
+  { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: 'sparkles' },
   {
     label: 'Catalog',
     href: APP_ROUTES.modelGateway.catalog,
     icon: 'layers',
     requiredScope: 'platform:catalog:write',
   },
-  { label: 'My Usage', href: APP_ROUTES.modelGateway.myUsage, icon: LineChart },
+  { label: 'My Usage', href: APP_ROUTES.modelGateway.myUsage, icon: 'line-chart' },
   {
     label: 'Analytics',
     href: APP_ROUTES.modelGateway.analytics,
-    icon: BarChart3,
+    icon: 'bar-chart',
     requiredScope: 'platform:analytics:read',
   },
-  { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: Activity },
-  { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: Key },
-  { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: Wrench },
+  { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: 'activity' },
+  { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: 'key' },
+  { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: 'wrench' },
 ];
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
