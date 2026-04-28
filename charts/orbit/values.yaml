@@ -261,3 +261,31 @@ policyGateway:
   config:
     otlpInsecure: "false"
     logFormat: "json"
+
+# -- OPA Gateway configuration (ADR-0044: gateway-level enforcement).
+# Standalone OPA pod that enforces authz_gateway.rego on all traffic entering
+# through the Istio IngressGateway via gRPC ext_authz.
+opaGateway:
+  # frontendHost is the hostname (without port) of the frontend service as seen
+  # by the Istio IngressGateway :authority header. When set, an Envoy-level
+  # VirtualHost bypass is added so that browser cookie traffic never reaches OPA.
+  # Matches data.config.frontend_host in the gateway OPA bundle.
+  # Leave empty to rely only on the Rego-level bypass.
+  frontendHost: ""
+
+  image:
+    # openpolicyagent/opa with the Envoy plugin built in.
+    repository: "openpolicyagent/opa"
+    tag: "latest-envoy-static"
+
+  # Two replicas ensures the IngressGateway always has an ext_authz backend
+  # available. The PodDisruptionBudget keeps at least one pod up during drains.
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

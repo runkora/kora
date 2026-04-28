@@ -428,7 +428,7 @@ docker-build-tenant: ## Build tenant workload images (example)
 		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
 
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
+OPA_ENVOY_IMAGE := openpolicyagent/opa:latest-envoy-static
 
 .PHONY: docker-pull-third-party
 docker-pull-third-party: ## Pull third-party sidecar images and push to local registry (OPA envoy)

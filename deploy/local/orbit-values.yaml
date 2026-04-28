@@ -114,3 +114,12 @@ policyGateway:
   config:
     otlpInsecure: "true"
     logFormat: "console"
+
+opaGateway:
+  image:
+    # Pulled by: make docker-pull-third-party
+    repository: orbit-registry:5001/openpolicyagent/opa
+    tag: latest-envoy-static
+  replicas: 1
+  frontendHost: orbit.local.clearroute.io
+

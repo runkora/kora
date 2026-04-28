@@ -35,6 +35,10 @@ func (e *ScopeVocabularyError) Error() string {
 // writes within this window are coalesced into a single recompilation.
 const recompileDebounce = 500 * time.Millisecond
 
+// gatewayRecompileDebounce is slightly longer than per-tenant debounce because
+// the gateway bundle loads all tenant data and is more expensive to compile.
+const gatewayRecompileDebounce = 1 * time.Second
+
 // Service orchestrates grant, role, and vocabulary management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
@@ -49,6 +53,8 @@ type Service struct {
 	recompileMu     sync.Mutex
 	recompileTimers map[string]*time.Timer
 	lastWriteAt     map[string]time.Time
+
+	gatewayRecompileTimer *time.Timer
 }
 
 // NewService creates a Service wired to the provided repositories and bundle server.
@@ -76,6 +82,12 @@ func NewService(
 // enforcement points. Registered by the Controller at GET /bundles/{tenant_id}.
 func (s *Service) BundleHandler() http.Handler {
 	return s.bundleSrv
+}
+
+// GatewayBundleHandler returns the HTTP handler that serves the cross-tenant
+// gateway bundle. Registered by the Controller at GET /bundles/gateway.
+func (s *Service) GatewayBundleHandler() http.HandlerFunc {
+	return s.bundleSrv.ServeGatewayHTTP
 }
 
 func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string) (*grants.Grant, error) {
@@ -107,6 +119,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 
 	s.recordWrite(g.TenantID)
 	s.scheduleRecompile(ctx, g.TenantID)
+	s.scheduleGatewayRecompile(ctx)
 	return g, nil
 }
 
@@ -120,6 +133,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 	}
 	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
 	return nil
 }
 
@@ -359,12 +373,9 @@ var reservedRoles = map[string]bool{
 	"platform-admin": true,
 }
 
-// reservedRoleScopes mirrors bundle.defaultRoleScopes so ListRoles can include
-// them in API responses without importing the bundle package.
-var reservedRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write"},
-}
+// reservedRoleScopes is bundle.DefaultRoleScopes — single source of truth so
+// the API layer returns the same scopes as are compiled into the OPA bundle.
+var reservedRoleScopes = bundle.DefaultRoleScopes
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
 // All scopes must exist in the vocabulary. Reserved platform admin roles cannot
@@ -388,6 +399,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	}
 	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
 	return entry, nil
 }
 
@@ -432,6 +444,7 @@ func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
 	}
 	s.recordWrite(tenantID)
 	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
 	return nil
 }
 
@@ -513,6 +526,7 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 		s.recordWrite(tenantID)
 		s.scheduleRecompile(ctx, tenantID)
 	}
+	s.scheduleGatewayRecompile(ctx)
 
 	return nil
 }
@@ -565,8 +579,31 @@ func (s *Service) scheduleRecompile(ctx context.Context, tenantID string) {
 	})
 }
 
-// scheduleRecompileAll schedules recompilation for all active tenants.
-// Called after a global route registration change.
+// scheduleGatewayRecompile debounces gateway bundle recompilation. Multiple
+// policy changes within the debounce window trigger only one gateway recompile.
+func (s *Service) scheduleGatewayRecompile(ctx context.Context) {
+	detachedCtx := context.WithoutCancel(ctx)
+	s.recompileMu.Lock()
+	defer s.recompileMu.Unlock()
+
+	if s.gatewayRecompileTimer != nil {
+		s.gatewayRecompileTimer.Stop()
+	}
+	s.gatewayRecompileTimer = time.AfterFunc(gatewayRecompileDebounce, func() {
+		s.recompileMu.Lock()
+		s.gatewayRecompileTimer = nil
+		s.recompileMu.Unlock()
+
+		if err := s.bundleSrv.RecompileGateway(detachedCtx); err != nil {
+			s.logger.Error(detachedCtx, "gateway bundle recompile failed",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	})
+}
+
+// scheduleRecompileAll recompiles all tenant bundles after a global route change.
+// Must be called in a goroutine — it blocks until all tenants are recompiled.
 func (s *Service) scheduleRecompileAll(ctx context.Context) {
 	tenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
 	if err != nil {

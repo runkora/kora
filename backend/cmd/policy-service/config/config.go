@@ -35,6 +35,10 @@ type Config struct {
 		Issuer string `yaml:"issuer"`
 		// Audience is the expected JWT audience claim.
 		Audience string `yaml:"audience"`
+		// FrontendHost is the hostname (without port) of the frontend service.
+		// Compiled into the gateway bundle so authz_gateway.rego can bypass
+		// OPA enforcement for browser UI traffic (`:authority` header match).
+		FrontendHost string `yaml:"frontendHost"`
 	} `yaml:"bundle"`
 
 	Observability struct {

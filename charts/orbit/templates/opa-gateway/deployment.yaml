@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-opa-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.opaGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.opaGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.opaGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.opaGateway.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.opaGateway.labels" . | nindent 8 }}
+      annotations:
+        # Inject the Istio sidecar for telemetry and gRPC from Envoy to OPA.
+        # OPA runs as UID 1337 (Envoy proxy UID) to bypass iptables redirect,
+        # preventing a recursive ext_authz loop on bundle fetches. Trade-off:
+        # OPA's own outbound traffic also bypasses the sidecar — bundle fetches
+        # are plain HTTP, not mTLS. Follow-on: switch to NetworkPolicy-based
+        # loop prevention so OPA can use a non-1337 UID and get mTLS bundle fetches.
+        sidecar.istio.io/inject: "true"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+    spec:
+      serviceAccountName: orbit-opa-gateway
+      securityContext:
+        runAsNonRoot: true
+        # UID 1337 prevents recursive ext_authz: same UID as Envoy proxy, so OPA's
+        # outbound traffic skips iptables redirect. Bundle fetches go directly to the
+        # policy-service over plain HTTP — not mTLS via the Envoy sidecar.
+        runAsUser: 1337
+        fsGroup: 1337
+      volumes:
+        - name: opa-config
+          configMap:
+            name: orbit-opa-gateway-config
+      containers:
+        - name: opa
+          image: {{ .Values.opaGateway.image.repository }}:{{ .Values.opaGateway.image.tag }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          args:
+            - "run"
+            - "--server"
+            - "--addr=0.0.0.0:8181"
+            - "--config-file=/config/config.yaml"
+            - "--log-level=info"
+            - "--log-format=json"
+          securityContext:
+            allowPrivilegeEscalation: false
+          ports:
+            - name: grpc
+              containerPort: 9191
+              protocol: TCP
+            - name: http
+              containerPort: 8181
+              protocol: TCP
+          volumeMounts:
+            - name: opa-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            # OPA is ready once it has fetched and activated the bundle.
+            httpGet:
+              path: /health?bundle=true
+              port: 8181
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.opaGateway.resources | nindent 12 }}

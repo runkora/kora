@@ -195,3 +195,18 @@ app: orbit-policy-gateway
 {{- define "orbit.policyGateway.imagePullPolicy" -}}
 {{- .Values.policyGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
 {{- end }}
+
+{{/*
+OPA Gateway labels.
+Standalone OPA pod that enforces authz_gateway.rego on the Istio IngressGateway
+via ext_authz (ADR-0044).
+*/}}
+{{- define "orbit.opaGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-opa-gateway
+app.kubernetes.io/component: opa-gateway
+{{- end }}
+
+{{- define "orbit.opaGateway.selectorLabels" -}}
+app: orbit-opa-gateway
+{{- end }}

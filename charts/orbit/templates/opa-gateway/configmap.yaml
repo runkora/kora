@@ -1,0 +1,41 @@
+# OPA configuration for the gateway enforcement point (ADR-0044).
+#
+# The OPA Envoy plugin listens on :9191 for gRPC ext_authz CheckRequests from
+# the Istio IngressGateway. It fetches the cross-tenant bundle from the policy
+# service at startup and polls for updates every 30–60 seconds.
+#
+# decision_logs.console: true emits per-request log lines that include the
+# allow decision and reason rule — picked up by the cluster's log aggregator.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-opa-gateway-config
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.opaGateway.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    services:
+      policy-service:
+        url: "http://orbit-policy-service.{{ include "orbit.systemNamespace" . }}/api/v1"
+
+    bundles:
+      gateway:
+        service: policy-service
+        resource: "/policy/bundles/gateway"
+        polling:
+          min_delay_seconds: 30
+          max_delay_seconds: 60
+
+    plugins:
+      envoy_ext_authz_grpc:
+        addr: ":9191"
+        path: "orbit/authz_gateway/allow"
+        dry-run: false
+        enable-reflection: false
+
+    decision_logs:
+      console: true
+
+    labels:
+      component: opa-gateway

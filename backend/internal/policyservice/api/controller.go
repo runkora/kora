@@ -46,19 +46,16 @@ func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier
 
 func (c *Controller) GroupedBy() string { return "/policy" }
 
-// Middleware applies JWT auth to all policy routes except GET /bundles/{tenant_id},
-// which is polled by OPA sidecars running inside the cluster with no credentials.
-// The bundle payload is compiled policy logic (not credentials or PII), so
-// unauthenticated cluster-internal access is acceptable.
+// Middleware applies JWT auth to all policy routes except GET /bundles/{tenant_id}
+// and GET /bundles/gateway, which are polled by OPA instances inside the cluster
+// with no credentials. The bundle payload is compiled policy logic (not credentials
+// or PII), so unauthenticated cluster-internal access is acceptable.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	authChain := mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
 	return func(next http.Handler) http.Handler {
 		authed := authChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Only bypass auth for GET requests to the bundle polling endpoint.
-			// The controller group prefix (/policy) is part of the URL path at
-			// this point — the server basePath is stripped, but the group prefix
-			// remains. Match the full mounted path to avoid false positives.
+			// Bypass auth for GET requests to the bundle polling endpoints.
 			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/policy/bundles/") {
 				next.ServeHTTP(w, r)
 				return
@@ -103,6 +100,7 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /routes", c.handleListRoutes)
 	mux.Handle("POST /routes/register", c.handleRegisterRoutes)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)
+	mux.Handle("GET /bundles/gateway", c.svc.GatewayBundleHandler())
 }
 
 // grantErrorResponse maps service-layer grant errors to API error responses.

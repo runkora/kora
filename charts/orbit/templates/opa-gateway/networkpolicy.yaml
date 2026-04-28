@@ -1,0 +1,27 @@
+{{- if .Values.networkPolicy.enabled }}
+# Allows the Istio IngressGateway to reach the OPA gateway pod on port 9191
+# (gRPC ext_authz) and port 8181 (management/health API).
+# Without this, the default-deny-all NetworkPolicy blocks the ext_authz calls
+# and all external traffic is denied (failure_mode_allow: false).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-opa-gateway-ingress
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.opaGateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "orbit.opaGateway.selectorLabels" . | nindent 6 }}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 9191
+          protocol: TCP
+        - port: 8181
+          protocol: TCP
+{{- end }}

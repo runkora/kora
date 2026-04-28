@@ -44,6 +44,90 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 // to read bundle compilation timestamps.
 func (s *Server) Compiler() *Compiler { return s.compiler }
 
+// BootstrapGateway pre-compiles the cross-tenant gateway bundle at startup so
+// the OPA gateway pod does not receive a 404 on its first poll.
+func (s *Server) BootstrapGateway(ctx context.Context) {
+	if err := s.RecompileGateway(ctx); err != nil {
+		s.logger.Error(ctx, "gateway bundle bootstrap failed", logging.Field{Key: "error", Value: err.Error()})
+	}
+}
+
+// RecompileGateway rebuilds the cross-tenant gateway bundle from the current
+// DB state. Called after any grant, role, or route change that affects the
+// gateway enforcement point.
+func (s *Server) RecompileGateway(ctx context.Context) error {
+	grantTenantIDs, err := s.grantRepo.ListDistinctTenants(ctx)
+	if err != nil {
+		return fmt.Errorf("list tenants for gateway bundle: %w", err)
+	}
+
+	// Union grant-tenant IDs with route-tenant IDs so that tenants with
+	// registered routes but no grants are still included in the bundle.
+	// Without this, requests to those routes return deny:no_route_match
+	// instead of the more accurate deny:invalid_token.
+	tenantSet := make(map[string]struct{}, len(grantTenantIDs))
+	for _, tid := range grantTenantIDs {
+		tenantSet[tid] = struct{}{}
+	}
+	for _, tid := range s.compiler.RouteTenantIDs() {
+		tenantSet[tid] = struct{}{}
+	}
+	tenantIDs := make([]string, 0, len(tenantSet))
+	for tid := range tenantSet {
+		tenantIDs = append(tenantIDs, tid)
+	}
+
+	allGrants := make(map[string][]*grants.Grant, len(tenantIDs))
+	allRoles := make(map[string][]*roles.RoleEntry, len(tenantIDs))
+	for _, tid := range tenantIDs {
+		tGrants, _, tErr := s.grantRepo.ListByTenant(ctx, tid, 0, 0)
+		if tErr != nil {
+			return fmt.Errorf("list grants for tenant %s: %w", tid, tErr)
+		}
+		allGrants[tid] = tGrants
+
+		tRoles, tErr := s.roleRepo.ListByTenant(ctx, tid, 0, 0)
+		if tErr != nil {
+			return fmt.Errorf("list roles for tenant %s: %w", tid, tErr)
+		}
+		allRoles[tid] = tRoles
+	}
+
+	_, err = s.compiler.CompileGateway(tenantIDs, allGrants, allRoles)
+	return err
+}
+
+// ServeGatewayHTTP handles GET /v1/policy/bundles/gateway.
+// Returns the compiled cross-tenant gateway bundle as application/gzip.
+// No authentication is required — the OPA gateway polls this endpoint from
+// inside the cluster using plain HTTP, matching the per-tenant bundle pattern.
+func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	cached := s.compiler.GetGateway()
+	if cached == nil {
+		if err := s.RecompileGateway(ctx); err != nil {
+			s.logger.Error(ctx, "gateway bundle: on-demand compile failed",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			http.Error(w, "gateway bundle not available", http.StatusNotFound)
+			return
+		}
+		cached = s.compiler.GetGateway()
+		if cached == nil {
+			http.Error(w, "gateway bundle not available", http.StatusNotFound)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openpolicyagent.bundle")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cached.Data)))
+	w.Header().Set("ETag", fmt.Sprintf("%q", cached.Revision))
+	w.Header().Set("Last-Modified", cached.CompiledAt.Format(time.RFC1123))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(cached.Data)
+}
+
 // Bootstrap pre-compiles bundles for all tenants that have at least one grant.
 // Called once at startup so enforcement points do not receive a 404 on first poll.
 func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {

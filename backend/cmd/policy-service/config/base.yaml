@@ -10,6 +10,9 @@ bundle:
   jwksURL: "http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json"
   issuer: "orbit"
   audience: "orbit-platform"
+  # Hostname of the frontend service as seen in the Istio IngressGateway
+  # :authority header. Port is stripped by authz_gateway.rego before comparison.
+  frontendHost: "orbit.local.clearroute.io"
 
 observability:
   serviceName: "policy-service"
