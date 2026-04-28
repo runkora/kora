@@ -484,17 +484,17 @@ import { Badge } from '@orbit/terra';
 
 ### Variants
 
-| Variant | Visual | When to use |
-|---------|--------|-------------|
-| `healthy` | Green dot/fill | Resource is live, available, or passing |
-| `degraded` | Amber | Partial failure, warning, stale state |
-| `error` | Red | Failed, unavailable, blocked |
-| `idle` | Grey-blue | Inactive, not scheduled |
-| `pending` | Blue | Starting up, awaiting input |
-| `default` | Subtle fill | Neutral label — no status semantics |
-| `secondary` | Muted fill | De-emphasised label (second-tier metadata) |
-| `outline` | Border only | Lowest-emphasis neutral chip |
-| `elevated` | Surface background + border | **Neutral filled chip for technical tokens** (scope strings, service names, provider labels). Stays readable on both light and dark surfaces. |
+| Variant     | Visual                      | When to use                                                                                                                                   |
+| ----------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `healthy`   | Green dot/fill              | Resource is live, available, or passing                                                                                                       |
+| `degraded`  | Amber                       | Partial failure, warning, stale state                                                                                                         |
+| `error`     | Red                         | Failed, unavailable, blocked                                                                                                                  |
+| `idle`      | Grey-blue                   | Inactive, not scheduled                                                                                                                       |
+| `pending`   | Blue                        | Starting up, awaiting input                                                                                                                   |
+| `default`   | Subtle fill                 | Neutral label — no status semantics                                                                                                           |
+| `secondary` | Muted fill                  | De-emphasised label (second-tier metadata)                                                                                                    |
+| `outline`   | Border only                 | Lowest-emphasis neutral chip                                                                                                                  |
+| `elevated`  | Surface background + border | **Neutral filled chip for technical tokens** (scope strings, service names, provider labels). Stays readable on both light and dark surfaces. |
 
 ```tsx
 // Status badge with dot indicator
