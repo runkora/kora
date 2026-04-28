@@ -1,9 +1,8 @@
-# Golden Path: Building UI with the Terra Design System
+# Reference: Terra Design System Usage
 
 **Audience:** Frontend engineers writing any JSX in the Orbit frontend.  
-**Pattern version:** 1.0  
 **Reference implementation:** `src/packages/terra/src/` — the Terra source is the canonical example of every component used correctly.  
-**Related:** `frontend/docs/golden-paths/ui-components.md` — where to put components (tier placement model, decision tree, full Terra inventory, `@tier` annotations).
+**Related:** `frontend/docs/reference/component-placement.md` — where to put components (tier placement model, full Terra inventory, `@tier` annotations); `AGENTS.md` → **Frontend Development** for the placement decision tree.
 
 ---
 

@@ -291,26 +291,77 @@ See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for de
 
 ## Frontend Development
 
-All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`. The rules in plain terms:
+All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`.
 
-- **Layout**: `<div>` → `<Stack>` (flex) or `<Grid>` (grid). Semantic elements (`section`, `aside`, `nav`, `header`, `footer`, `article`, `main`) with display-mode Tailwind classes → `<Stack asChild>` or `<Grid asChild>`.
-- **Typography**: `<h1>`–`<h6>` → `<Heading variant="…">`. `<p>` → `<Text>`. `<span>` → `<Text as="span">` (inline) or `<Text>` (block). `<strong>` / `<b>` → `<Text weight="heavy">`.
-- **Icons**: Never `import { … } from 'lucide-react'` — always `<Icon name="…" />`. Adding a new icon requires a registry entry in `src/packages/terra/src/components/icon/registry.ts`; propose the name to a human engineer first.
-- **No `className` on Terra components** — use the component's own props. For layout use `<Stack asChild>` / `<Grid asChild>` and put Tailwind classes on the child element.
-- **Missing Terra component**: Do **not** use raw HTML and do **not** modify Terra unilaterally. Write a short proposal (element needed, suggested API, Radix/ShadCN base if one exists) and wait for human engineer approval before touching `src/packages/terra/`.
+| Rule | What it bans | Use instead |
+| ---- | ------------ | ----------- |
+| `local/no-raw-layout-elements` | `<div>`, `<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>`, `<main>` | `Stack`, `Grid`, or `Stack asChild`/`Grid asChild` for semantic elements |
+| `local/no-raw-html-text-tags` | `<p>`, `<h1>`–`<h6>` | `Text`, `Heading` |
+| `local/no-raw-inline-elements` | `<span>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<code>`, `<kbd>`, all other phrasing-content HTML | `Text`, `Text weight="heavy"`, `Code` |
+| `local/no-raw-interactive-elements` | `<button>` | `Button` |
+| `local/no-terra-classname` | `className` on any Terra component | Use the component's own props |
+| `local/no-direct-lucide-import` | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**` | `<Icon name="…" />` — **no escape hatch**. Add icons to `src/packages/terra/src/components/icon/registry.ts` only. |
+| `local/no-terra-disable-comment` | Any `eslint-disable` targeting a Terra rule | There is no escape hatch — use the correct Terra component |
 
-**Component placement — three-tier model.** Apply this decision tree in order, stop at the first match, and never pre-generalise:
+**Common HTML → Terra replacements:**
+
+| Raw HTML | Terra replacement |
+| -------- | ----------------- |
+| `<div className="flex flex-col gap-4">` | `<Stack gap="comfortable">` |
+| `<div className="flex flex-row gap-2">` | `<Stack direction="horizontal" gap="snug">` |
+| `<div className="grid grid-cols-3 gap-4">` | `<Grid cols={3} gap="comfortable">` |
+| `<div className="flex items-center justify-between">` | `<Stack direction="horizontal" align="center" justify="between">` |
+| `<section>` | `<Section>` |
+| `<section className="flex flex-col gap-8 p-6">` | `<Stack asChild gap="relaxed"><section>…</section></Stack>` |
+| `<aside className="grid grid-cols-2">` | `<Grid asChild cols={2}><aside>…</aside></Grid>` |
+| `<button onClick={fn}>label</button>` | `<Button onClick={fn}>label</Button>` |
+| `<h1>…</h1>` | `<Heading variant="title">…</Heading>` |
+| `<h2>…</h2>` | `<Heading variant="section">…</Heading>` |
+| `<p>Body copy</p>` | `<Text>Body copy</Text>` |
+| `<p className="text-sm text-muted">…</p>` | `<Text size="supporting" color="muted">…</Text>` |
+| `<span>Label</span>` | `<Text as="span" size="supporting">Label</Text>` (inline) or `<Text>` (block) |
+| `<strong>…</strong>` / `<b>…</b>` | `<Text weight="heavy">…</Text>` |
+| `<code>value</code>` | `<Code>value</Code>` (prose) or `<Text mono>` (standalone technical value) |
+| `import { X } from 'lucide-react'` | `<Icon name="…" />` |
+
+**Missing Terra component:** If no Terra component covers the use case:
+
+1. Do not write the raw element — `pnpm lint` will fail.
+2. Write a short proposal: element needed, suggested name and minimal API, Radix/ShadCN base if one exists.
+3. Wait for approval from a human engineer before writing any code in `src/packages/terra/`.
+4. Once approved: implement with `cva` + `cn`, `React.forwardRef`, `.displayName`, `data-slot`. Base on ShadCN/Radix where available. Export from `src/packages/terra/src/index.ts`.
+5. Replace the raw element across the codebase.
+
+**Component placement — three-tier model:**
+
+| Tier | Name | Filesystem | Import | Storybook prefix |
+| ---- | ---- | ---------- | ------ | ---------------- |
+| **1** | Terra | `src/packages/terra/src/components/` | `import { X } from '@orbit/terra'` | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
+| **2** | App-level shared | `src/components/` | `import { X } from '@orbit/components'` | `App/Shared/` |
+| **3** | Feature-scoped | `src/app/(dashboard)/[feature]/_components/` | relative import | — |
+
+Apply this decision tree in order, stop at the first match, never pre-generalise:
 
 1. Used by exactly one file → keep inline. Extract only if the host file exceeds ~300 lines of JSX.
-2. All consumers are within the same feature area → **Tier 3**: place in `src/app/(dashboard)/[feature]/_components/`, use a relative import.
-3. Consumers span two or more feature areas **and** the component contains no Orbit domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**: place in `src/packages/terra/src/components/`, export from `src/packages/terra/src/index.ts`, import as `import { X } from '@orbit/terra'`. Requires human approval before any Terra modification.
-4. Consumers span two or more feature areas **and** the component is Orbit-domain-aware → **Tier 2**: place in `src/components/`, export from `src/components/index.ts`, import as `import { X } from '@/components'`.
+2. All consumers are within the same feature area → **Tier 3**: `src/app/(dashboard)/[feature]/_components/`, relative import.
+3. Consumers span two or more feature areas **and** no Orbit domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**. Requires human approval before any Terra modification.
+4. Consumers span two or more feature areas **and** Orbit-domain-aware → **Tier 2**: `src/components/`, export from `src/components/index.ts`.
 
-Every extracted component file must open with a `@tier` JSDoc comment (e.g. `/** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */`). Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is hard — always start at the most specific tier.
+Every extracted component file must open with a `@tier` JSDoc comment:
+
+```ts
+/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+
+/** @tier 2 — Orbit-domain-aware: uses Orbit status tokens. Used by: dashboard overview, model-gateway. */
+
+/** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */
+```
+
+Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is hard — always start at the most specific tier.
 
 All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit` — both must pass with zero errors.
 
-**Reference docs:** [`frontend/docs/golden-paths/ui-components.md`](frontend/docs/golden-paths/ui-components.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/golden-paths/terra-design-system.md`](frontend/docs/golden-paths/terra-design-system.md) (full component usage, props, examples) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state)
+**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem) · [`frontend/docs/reference/terra-design-system.md`](frontend/docs/reference/terra-design-system.md) (full Terra usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state)
 
 ## Getting Help
 
