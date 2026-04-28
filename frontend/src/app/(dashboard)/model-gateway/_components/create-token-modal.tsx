@@ -13,7 +13,7 @@ import {
   Text,
 } from '@orbit/terra';
 import { createToken } from '../_actions/tokens';
-import { ScopePicker } from '../../policy/_components/scope-picker';
+import { ScopePicker } from '@orbit/components';
 import type { CreatePATResponse } from '@orbit/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

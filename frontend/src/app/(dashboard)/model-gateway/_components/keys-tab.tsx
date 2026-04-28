@@ -21,7 +21,7 @@ import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
 import { EditScopesModal } from './edit-scopes-modal';
-import { ScopeChip } from '../../policy/_components/scope-chip';
+import { ScopeChip } from '@orbit/components';
 import type { CreatePATResponse, PAT } from '@orbit/shared/api';
 import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
 import type { TokenUsageStat } from '../_services/usage-server';

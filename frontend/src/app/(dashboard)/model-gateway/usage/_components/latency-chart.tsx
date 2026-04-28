@@ -18,6 +18,7 @@ import {
 import { DAILY_LATENCY } from '../../_data/mock';
 import { type Period } from './table-controls';
 import { filterByPeriod } from './utils/table-utils';
+import { fmtDateAxis } from '@orbit/utils';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -39,15 +40,6 @@ const COLORS = {
 
 function fmtLatency(ms: number): string {
   return `${Math.round(ms)}ms`;
-}
-
-function formatDateAxis(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
 }
 
 function filterLatencyByPeriod(period: Period) {
@@ -108,7 +100,7 @@ export function LatencyChart() {
               tick={{ fill: COLORS.subtle, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatDateAxis}
+              tickFormatter={fmtDateAxis}
               minTickGap={40}
             />
             <YAxis
@@ -122,7 +114,7 @@ export function LatencyChart() {
               cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
               content={
                 <ChartTooltipContent
-                  labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+                  labelFormatter={(label: unknown) => fmtDateAxis(String(label))}
                   formatter={(v) => fmtLatency(Number(v))}
                 />
               }

@@ -50,6 +50,23 @@ export function fmtCost(usd: number | null): string {
 // ── Dates & times ─────────────────────────────────────────────────────────────
 
 /**
+ * Formats a date-only string (e.g. "2025-01-15") as a compact "Mon D" label,
+ * e.g. "Jan 15". Intended for Recharts X-axis tick labels where space is limited
+ * and the year is implied by context.
+ *
+ * Appends T00:00:00Z before parsing to force UTC midnight and avoid ±1-day
+ * off-by-one errors from local-timezone interpretation.
+ */
+export function fmtDateAxis(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
  * Formats a non-nullable ISO timestamp as a short date, e.g. "Jan 1, 2025".
  * Intended for table cells where a date is always present (e.g. log rows).
  */

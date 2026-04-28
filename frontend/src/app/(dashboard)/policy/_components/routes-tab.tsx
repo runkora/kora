@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Alert, Badge, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip } from './scope-chip';
+import { ScopeChip } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {

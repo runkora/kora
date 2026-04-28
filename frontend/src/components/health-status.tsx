@@ -1,10 +1,10 @@
 'use client';
 
 /**
- * Displays the Go backend connection status.
- *
- * Fetches from the BFF /api/example/health route — never calls the Go
- * backend directly.
+ * @tier 2 — App-level shared. Fetches and displays the Go backend connection
+ * status via the BFF /api/identity/health route.
+ * @promote-to-tier-1 if: the Orbit-specific health endpoint is removed and a
+ * generic connection status indicator is needed outside the dashboard.
  */
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@orbit/shared/api';

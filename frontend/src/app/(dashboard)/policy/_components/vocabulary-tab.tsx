@@ -22,7 +22,7 @@ import {
   TableCell,
 } from '@orbit/terra';
 import type { ScopeEntryWithUsage } from '../_types';
-import { ScopeChip } from './scope-chip';
+import { ScopeChip } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 
 interface VocabularyTabProps {

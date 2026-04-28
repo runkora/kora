@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 
 import { Badge, Icon, NavItem, Separator, Stack, Text } from '@orbit/terra';
-import { LogoutButton } from '@orbit/components/logout-button';
+import { LogoutButton } from '@orbit/components';
 import { hasScope } from '@orbit/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';

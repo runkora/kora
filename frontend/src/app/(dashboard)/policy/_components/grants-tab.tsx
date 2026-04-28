@@ -31,8 +31,8 @@ import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_act
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate } from '@orbit/utils';
-import { ScopeChip } from './scope-chip';
-import { ScopePicker } from './scope-picker';
+import { ScopeChip } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';

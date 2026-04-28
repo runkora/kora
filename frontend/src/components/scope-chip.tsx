@@ -1,11 +1,18 @@
 /**
- * Syntax-highlighted scope chip — renders `resource:action` with the resource
- * type in accent, separators in border color, and action in foreground.
+ * @tier 2 — App-level shared. Cross-feature; used by policy (all tabs) and
+ * model-gateway (keys tab). Renders an Orbit scope string with syntax
+ * highlighting: resource type in accent, separators in subtle, action in foreground.
+ * @promote-to-tier-1 if: the Orbit scope format (resource:path:action) is
+ * removed and a generic token chip is needed by a second non-dashboard surface.
  */
 import { Fragment } from 'react';
 import { Badge, Text } from '@orbit/terra';
 
-export function ScopeChip({ scope }: { scope: string }) {
+export interface ScopeChipProps {
+  scope: string;
+}
+
+export function ScopeChip({ scope }: ScopeChipProps) {
   const parts = scope.split(':');
   return (
     <Badge variant="elevated" size="sm" mono>

@@ -20,7 +20,7 @@ import {
   TableRow,
   Text,
 } from '@orbit/terra';
-import { HealthStatus } from '@orbit/components/health-status';
+import { HealthStatus } from '@orbit/components';
 import { StatusBadge } from '@orbit/components';
 import { MetricCard } from '@orbit/components';
 import { EventFeedItem } from '@orbit/components';

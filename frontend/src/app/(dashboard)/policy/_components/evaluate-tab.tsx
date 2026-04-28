@@ -24,7 +24,7 @@ import type {
   ScopesExplainResponse,
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
-import { ScopeChip } from './scope-chip';
+import { ScopeChip } from '@orbit/components';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;

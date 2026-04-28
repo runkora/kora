@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
 import { updateTokenScopes } from '../_actions/tokens';
-import { ScopePicker } from '../../policy/_components/scope-picker';
+import { ScopePicker } from '@orbit/components';
 import type { PAT } from '@orbit/shared/api';
 
 interface EditScopesModalProps {

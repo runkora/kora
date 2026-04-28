@@ -1,10 +1,18 @@
+/**
+ * @tier 2 — App-level shared. Cross-feature; used by policy (grants, roles tabs)
+ * and model-gateway (create-token, edit-scopes modals). Renders a searchable
+ * accordion of Orbit scope strings grouped by resource type, with per-group and
+ * per-scope checkbox selection.
+ * @promote-to-tier-1 if: the Orbit scope format and resource-type grouping are
+ * removed and a generic multi-select picker is needed outside the dashboard.
+ */
 'use client';
 
 import { useMemo, useState } from 'react';
 import { Button, Icon, Input, Stack, Text } from '@orbit/terra';
 import { ScopeChip } from './scope-chip';
 
-interface ScopePickerProps {
+export interface ScopePickerProps {
   availableScopes: string[];
   selectedScopes: string[];
   onToggle: (scope: string, checked: boolean) => void;
@@ -46,13 +54,11 @@ export function ScopePicker({
 
   const groups = useMemo(() => groupScopes(filtered), [filtered]);
 
-  // Auto-expand groups that have selected scopes, or all when searching
   const [manualOpen, setManualOpen] = useState<Record<string, boolean>>({});
 
   const isGroupOpen = (rt: string, group: ScopeGroup) => {
-    if (search) return true; // always expand when filtering
+    if (search) return true;
     if (manualOpen[rt] !== undefined) return manualOpen[rt];
-    // Default: expand if any scope in this group is selected
     return group.scopes.some((s) => selectedScopes.includes(s));
   };
 

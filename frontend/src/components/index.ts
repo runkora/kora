@@ -17,3 +17,17 @@ export type { MetricCardProps } from './metric-card';
 /** Single row in a divide-y activity feed: status dot + label + meta + message + timestamp. */
 export { EventFeedItem } from './event-feed-item';
 export type { EventFeedItemProps } from './event-feed-item';
+
+/** Syntax-highlighted Orbit scope chip (resource:path:action). */
+export { ScopeChip } from './scope-chip';
+export type { ScopeChipProps } from './scope-chip';
+
+/** Searchable accordion scope selector grouped by resource type. */
+export { ScopePicker } from './scope-picker';
+export type { ScopePickerProps } from './scope-picker';
+
+/** Backend connection status card, polls BFF /api/identity/health. */
+export { HealthStatus } from './health-status';
+
+/** BFF-backed logout button, revokes tokens then redirects to /login. */
+export { LogoutButton } from './logout-button';

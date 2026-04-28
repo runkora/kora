@@ -34,7 +34,7 @@ import type {
   ScopeEntryWithUsage,
   StatsResponse,
 } from '../_types';
-import { ScopeChip } from './scope-chip';
+import { ScopeChip } from '@orbit/components';
 import { QuickLinkCard } from './quick-link-card';
 
 interface OverviewTabProps {

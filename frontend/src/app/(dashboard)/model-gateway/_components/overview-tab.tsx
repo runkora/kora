@@ -28,7 +28,7 @@ import {
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
-import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
+import { fmtUsd, fmtTokens, fmtNumCompact, fmtDateAxis } from '@orbit/utils';
 import { MetricCard } from '@orbit/components';
 import { ChartLegend } from './chart-legend';
 import {
@@ -63,15 +63,6 @@ export interface OverviewData {
 
 function fmtPercent(n: number): string {
   return `${n.toFixed(1)}%`;
-}
-
-function formatDateAxis(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
 }
 
 function formatRequestsAxis(n: number): string {
@@ -284,7 +275,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
               tick={{ fill: COLORS.subtle, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatDateAxis}
+              tickFormatter={fmtDateAxis}
               minTickGap={40}
             />
             <YAxis
@@ -311,7 +302,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
                 borderRadius: '6px',
                 padding: '8px 12px',
               }}
-              labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+              labelFormatter={(label: unknown) => fmtDateAxis(String(label))}
               formatter={(value: unknown) => [formatRequestsAxis(Number(value)), '']}
               cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
             />
