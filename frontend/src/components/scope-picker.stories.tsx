@@ -25,11 +25,7 @@ const SAMPLE_SCOPES = [
   'mcp:github:write',
 ];
 
-function Controlled({
-  initialSelected = [],
-}: {
-  initialSelected?: string[];
-}) {
+function Controlled({ initialSelected = [] }: { initialSelected?: string[] }) {
   const [selected, setSelected] = useState<string[]>(initialSelected);
   const [search, setSearch] = useState('');
   return (
@@ -40,9 +36,7 @@ function Controlled({
         search={search}
         onSearchChange={setSearch}
         onToggle={(scope, checked) =>
-          setSelected((prev) =>
-            checked ? [...prev, scope] : prev.filter((s) => s !== scope),
-          )
+          setSelected((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)))
         }
         onToggleGroup={(scopes, checked) =>
           setSelected((prev) => {

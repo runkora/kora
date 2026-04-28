@@ -1,7 +1,12 @@
 import 'server-only';
 
 import { PageLayout } from '@orbit/terra';
-import { DashboardHeader, DashboardSidebar, PermissionsProvider, SidebarUserFooter } from './_components';
+import {
+  DashboardHeader,
+  DashboardSidebar,
+  PermissionsProvider,
+  SidebarUserFooter,
+} from './_components';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
@@ -20,7 +25,11 @@ import { DashboardHeader, DashboardSidebar, PermissionsProvider, SidebarUserFoot
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <PermissionsProvider>
-      <PageLayout sidebar={<DashboardSidebar />} sidebarFooter={<SidebarUserFooter />} header={<DashboardHeader />}>
+      <PageLayout
+        sidebar={<DashboardSidebar />}
+        sidebarFooter={<SidebarUserFooter />}
+        header={<DashboardHeader />}
+      >
         {children}
       </PageLayout>
     </PermissionsProvider>

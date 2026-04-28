@@ -14,7 +14,13 @@ export function SidebarUserFooter() {
   return (
     <>
       <Separator />
-      <Stack direction="horizontal" align="center" gap="snug" paddingBlock="snug" paddingInline="comfortable">
+      <Stack
+        direction="horizontal"
+        align="center"
+        gap="snug"
+        paddingBlock="snug"
+        paddingInline="comfortable"
+      >
         <Icon name="user" size="xs" container containerVariant="surface" />
         <Stack direction="vertical" grow minWidth="none">
           <Text size="caption" weight="emphasis" truncate>

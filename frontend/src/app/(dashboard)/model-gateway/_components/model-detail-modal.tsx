@@ -109,11 +109,17 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
           <ModalHeader title={model.name} description={model.id} />
 
           {/* Status strip — lives between header and body intentionally */}
-          <Stack direction="horizontal" align="center" gap="snug" paddingBlock="snug" paddingInline="comfortable">
-              <AvailabilityDot status={model.status} />
-              <Text size="supporting">
-                {model.status === 'available' ? 'Available' : 'Unavailable'}
-              </Text>
+          <Stack
+            direction="horizontal"
+            align="center"
+            gap="snug"
+            paddingBlock="snug"
+            paddingInline="comfortable"
+          >
+            <AvailabilityDot status={model.status} />
+            <Text size="supporting">
+              {model.status === 'available' ? 'Available' : 'Unavailable'}
+            </Text>
           </Stack>
           <Separator />
 

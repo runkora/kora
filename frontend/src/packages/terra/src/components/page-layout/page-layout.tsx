@@ -62,9 +62,7 @@ const PageLayout = ({ sidebar, sidebarFooter, header, children, className }: Pag
     {sidebar && (
       <aside className="h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface">
         <div className="flex-1 overflow-y-auto">{sidebar}</div>
-        {sidebarFooter && (
-          <footer className="shrink-0">{sidebarFooter}</footer>
-        )}
+        {sidebarFooter && <footer className="shrink-0">{sidebarFooter}</footer>}
       </aside>
     )}
     <div className="flex flex-1 flex-col min-w-0 overflow-hidden">

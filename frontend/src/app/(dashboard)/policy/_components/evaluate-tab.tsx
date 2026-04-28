@@ -257,21 +257,21 @@ export function EvaluateTab({
                     {explain.from_roles.map((r) => (
                       <Card key={r.role}>
                         <CardContent padded>
-                        <Stack gap="snug">
-                          <Stack direction="horizontal" align="center" gap="snug">
-                            <Text size="caption" mono color="accent">
-                              {r.role}
-                            </Text>
-                            <Text size="caption" color="subtle">
-                              → {r.scopes.length} {r.scopes.length === 1 ? 'scope' : 'scopes'}
-                            </Text>
+                          <Stack gap="snug">
+                            <Stack direction="horizontal" align="center" gap="snug">
+                              <Text size="caption" mono color="accent">
+                                {r.role}
+                              </Text>
+                              <Text size="caption" color="subtle">
+                                → {r.scopes.length} {r.scopes.length === 1 ? 'scope' : 'scopes'}
+                              </Text>
+                            </Stack>
+                            <Stack direction="horizontal" gap="tight" wrap>
+                              {r.scopes.map((s) => (
+                                <ScopeChip key={s} scope={s} />
+                              ))}
+                            </Stack>
                           </Stack>
-                          <Stack direction="horizontal" gap="tight" wrap>
-                            {r.scopes.map((s) => (
-                              <ScopeChip key={s} scope={s} />
-                            ))}
-                          </Stack>
-                        </Stack>
                         </CardContent>
                       </Card>
                     ))}
@@ -286,16 +286,16 @@ export function EvaluateTab({
                     {explain.from_grants.map((g) => (
                       <Card key={g.grant_id}>
                         <CardContent padded>
-                        <Stack gap="snug">
-                          <Text size="caption" mono color="subtle">
-                            {g.grant_id}
-                          </Text>
-                          <Stack direction="horizontal" gap="tight" wrap>
-                            {g.scopes.map((s) => (
-                              <ScopeChip key={s} scope={s} />
-                            ))}
+                          <Stack gap="snug">
+                            <Text size="caption" mono color="subtle">
+                              {g.grant_id}
+                            </Text>
+                            <Stack direction="horizontal" gap="tight" wrap>
+                              {g.scopes.map((s) => (
+                                <ScopeChip key={s} scope={s} />
+                              ))}
+                            </Stack>
                           </Stack>
-                        </Stack>
                         </CardContent>
                       </Card>
                     ))}
@@ -312,10 +312,10 @@ export function EvaluateTab({
                     <Card>
                       <CardContent padded>
                         <Stack gap="snug" align="center" paddingBlock="spacious">
-                            <Icon name="shield-off" size="md" color="subtle" />
-                            <Text size="caption" color="muted">
-                              No effective scopes — this principal has no permissions.
-                            </Text>
+                          <Icon name="shield-off" size="md" color="subtle" />
+                          <Text size="caption" color="muted">
+                            No effective scopes — this principal has no permissions.
+                          </Text>
                         </Stack>
                       </CardContent>
                     </Card>

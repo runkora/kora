@@ -15,7 +15,14 @@ import {
 } from './spacing';
 import { MAX_W, MIN_W, MAX_H, MIN_H, TEXT_ALIGN, H, OVERFLOW, OVERFLOW_Y } from './sizing';
 import type { Responsive, SpacingSize } from './spacing';
-import type { ContainerWidth, ContainerHeight, TextAlign, StackHeight, OverflowValue, MaxHeight } from './sizing';
+import type {
+  ContainerWidth,
+  ContainerHeight,
+  TextAlign,
+  StackHeight,
+  OverflowValue,
+  MaxHeight,
+} from './sizing';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

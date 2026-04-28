@@ -271,19 +271,19 @@ export function GrantsTab({
         {deleteCandidate && (
           <Card>
             <CardContent padded>
-            <Stack gap="snug">
-              <Stack direction="horizontal" align="center" gap="snug">
-                <PrincipalBadge type={deleteCandidate.principal_type} />
-                <Text size="caption" mono weight="emphasis">
-                  {deleteCandidate.principal_id}
-                </Text>
+              <Stack gap="snug">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <PrincipalBadge type={deleteCandidate.principal_type} />
+                  <Text size="caption" mono weight="emphasis">
+                    {deleteCandidate.principal_id}
+                  </Text>
+                </Stack>
+                <Stack direction="horizontal" gap="tight" wrap>
+                  {deleteCandidate.scopes.map((s) => (
+                    <ScopeChip key={s} scope={s} />
+                  ))}
+                </Stack>
               </Stack>
-              <Stack direction="horizontal" gap="tight" wrap>
-                {deleteCandidate.scopes.map((s) => (
-                  <ScopeChip key={s} scope={s} />
-                ))}
-              </Stack>
-            </Stack>
             </CardContent>
           </Card>
         )}

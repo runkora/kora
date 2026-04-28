@@ -48,15 +48,22 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
       {pat && (
         <>
           {/* Header */}
-          <Stack direction="horizontal" align="start" justify="between" gap="comfortable" paddingBlock="comfortable" paddingInline="comfortable">
-              <Stack gap="none">
-                <Text size="body" weight="heavy" as="span">
-                  API key created
-                </Text>
-                <Text size="supporting" color="muted">
-                  {pat.name}
-                </Text>
-              </Stack>
+          <Stack
+            direction="horizontal"
+            align="start"
+            justify="between"
+            gap="comfortable"
+            paddingBlock="comfortable"
+            paddingInline="comfortable"
+          >
+            <Stack gap="none">
+              <Text size="body" weight="heavy" as="span">
+                API key created
+              </Text>
+              <Text size="supporting" color="muted">
+                {pat.name}
+              </Text>
+            </Stack>
           </Stack>
           <Separator />
 
@@ -68,8 +75,8 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
                 Copy this key now.
               </Text>
               <Text size="supporting" color="foreground">
-                It will not be shown again. If you lose it, you will need to revoke it and create
-                a new one.
+                It will not be shown again. If you lose it, you will need to revoke it and create a
+                new one.
               </Text>
             </Stack>
           </Alert>

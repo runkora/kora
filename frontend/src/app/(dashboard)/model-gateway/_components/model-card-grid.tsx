@@ -27,96 +27,96 @@ interface ModelCardProps {
 function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
   return (
     <Stack minWidth="none">
-        <Card
-          column
-          interactive={!!onSelect}
-          role={onSelect ? 'button' : undefined}
-          tabIndex={onSelect ? 0 : undefined}
-          onClick={() => onSelect?.(model)}
-          onKeyDown={(e) => {
-            if (!onSelect) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-                onSelect(model);
-              }
-            }}
-          >
-          <CardHeader compact>
-            <Stack direction="horizontal" align="start" justify="between" grow>
-              <Stack gap="none" minWidth="none" grow>
-                <CardTitle>{model.name}</CardTitle>
-                <Text size="caption" color="muted" mono truncate>
-                  {model.id}
-                </Text>
-              </Stack>
-              {onRemove && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Remove from favourites"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(model.id);
-                  }}
-                >
-                  <Icon name="heart" size="2xs" color="rose" filled />
-                </Button>
-              )}
+      <Card
+        column
+        interactive={!!onSelect}
+        role={onSelect ? 'button' : undefined}
+        tabIndex={onSelect ? 0 : undefined}
+        onClick={() => onSelect?.(model)}
+        onKeyDown={(e) => {
+          if (!onSelect) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect(model);
+          }
+        }}
+      >
+        <CardHeader compact>
+          <Stack direction="horizontal" align="start" justify="between" grow>
+            <Stack gap="none" minWidth="none" grow>
+              <CardTitle>{model.name}</CardTitle>
+              <Text size="caption" color="muted" mono truncate>
+                {model.id}
+              </Text>
             </Stack>
-          </CardHeader>
-          <CardContent>
-            <Stack gap="snug">
-              {/* Availability */}
-              <Stack direction="horizontal" align="center" gap="tight">
-                <AvailabilityDot status={model.status} />
-                <Text size="caption" color="muted">
-                  {model.status === 'available' ? 'Available' : 'Unavailable'}
-                </Text>
-              </Stack>
+            {onRemove && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Remove from favourites"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(model.id);
+                }}
+              >
+                <Icon name="heart" size="2xs" color="rose" filled />
+              </Button>
+            )}
+          </Stack>
+        </CardHeader>
+        <CardContent>
+          <Stack gap="snug">
+            {/* Availability */}
+            <Stack direction="horizontal" align="center" gap="tight">
+              <AvailabilityDot status={model.status} />
+              <Text size="caption" color="muted">
+                {model.status === 'available' ? 'Available' : 'Unavailable'}
+              </Text>
+            </Stack>
 
-              {/* Capabilities & Dialects */}
-              {(model.capabilities.length > 0 || model.dialects.length > 0) && (
-                <Stack direction="horizontal" wrap gap="tight">
-                  {model.capabilities.map((cap) => (
-                    <Badge key={cap} variant="outline" size="sm">
-                      {cap}
-                    </Badge>
-                  ))}
-                  {model.dialects.map((d) => (
-                    <Badge key={d} variant="outline" size="sm">
-                      {d}
-                    </Badge>
-                  ))}
+            {/* Capabilities & Dialects */}
+            {(model.capabilities.length > 0 || model.dialects.length > 0) && (
+              <Stack direction="horizontal" wrap gap="tight">
+                {model.capabilities.map((cap) => (
+                  <Badge key={cap} variant="outline" size="sm">
+                    {cap}
+                  </Badge>
+                ))}
+                {model.dialects.map((d) => (
+                  <Badge key={d} variant="outline" size="sm">
+                    {d}
+                  </Badge>
+                ))}
+              </Stack>
+            )}
+
+            {/* Modalities */}
+            <Stack gap="snug">
+              {model.input_modalities.length > 0 && (
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="muted">
+                    Input
+                  </Text>
+                  <Text size="caption" mono>
+                    {model.input_modalities.join(', ')}
+                  </Text>
                 </Stack>
               )}
 
-              {/* Modalities */}
-              <Stack gap="snug">
-                {model.input_modalities.length > 0 && (
-                  <Stack direction="horizontal" align="center" justify="between">
-                    <Text size="caption" color="muted">
-                      Input
-                    </Text>
-                    <Text size="caption" mono>
-                      {model.input_modalities.join(', ')}
-                    </Text>
-                  </Stack>
-                )}
-
-                {model.output_modalities.length > 0 && (
-                  <Stack direction="horizontal" align="center" justify="between">
-                    <Text size="caption" color="muted">
-                      Output
-                    </Text>
-                    <Text size="caption" mono>
-                      {model.output_modalities.join(', ')}
-                    </Text>
-                  </Stack>
-                )}
-              </Stack>
+              {model.output_modalities.length > 0 && (
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="muted">
+                    Output
+                  </Text>
+                  <Text size="caption" mono>
+                    {model.output_modalities.join(', ')}
+                  </Text>
+                </Stack>
+              )}
             </Stack>
-          </CardContent>
-        </Card>
+          </Stack>
+        </CardContent>
+      </Card>
     </Stack>
   );
 }

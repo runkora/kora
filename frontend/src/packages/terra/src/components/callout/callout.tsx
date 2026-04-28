@@ -6,10 +6,10 @@ import { cn } from '../../utils';
 type CalloutVariant = 'info' | 'warning' | 'success' | 'error';
 
 const VARIANT_CLASSES: Record<CalloutVariant, string> = {
-  info:    'border-accent/20 bg-accent/5',
+  info: 'border-accent/20 bg-accent/5',
   warning: 'border-status-degraded/30 bg-status-degraded/10',
   success: 'border-status-healthy/30 bg-status-healthy/5',
-  error:   'border-status-error/30 bg-status-error/5',
+  error: 'border-status-error/30 bg-status-error/5',
 };
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -62,11 +62,7 @@ const Callout = React.forwardRef<HTMLElement, CalloutProps>(
       ref={ref}
       data-slot="callout"
       data-variant={variant}
-      className={cn(
-        'rounded-lg border px-4 py-3',
-        VARIANT_CLASSES[variant],
-        className,
-      )}
+      className={cn('rounded-lg border px-4 py-3', VARIANT_CLASSES[variant], className)}
       {...props}
     >
       {children}

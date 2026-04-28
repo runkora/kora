@@ -437,187 +437,192 @@ export default function ChatPage() {
    */
   return (
     <Stack direction="vertical" height="full" overflow="hidden">
-        {/* ── Message area ─────────────────────────────────────────────────────── */}
-        <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            /* Welcome screen */
-            <Stack direction="vertical" align="center" justify="center" gap="none" height="full" paddingBlock="spacious" paddingInline="comfortable">
-                {/* Icon avatar — xl container (64px) with accent/15 bg */}
-                <Stack marginBottom="relaxed" gap="none">
-                  <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
-                </Stack>
-                <Stack marginBottom="snug" gap="none">
-                  <Heading variant="section">How can Orbit help?</Heading>
-                </Stack>
-                <Stack marginBottom="spacious" maxWidth="card" gap="none">
-                  <Text size="supporting" color="muted">
-                    The AI-powered control plane assistant. Ask about agent architecture, generate
-                    code, or explore Orbit&apos;s design.
-                  </Text>
-                </Stack>
-
-                {/* Suggestion chips */}
-                <Grid cols={{ base: 1, sm: 2 }} gap="snug">
-                    {SUGGESTIONS.map((s) => {
-                      return (
-                        <Button
-                          key={s.title}
-                          variant="secondary"
-                          onClick={() => handleSuggestion(s.prompt)}
-                        >
-                          <Stack
-                            gap="snug"
-                            align="start"
-                            paddingBlock="relaxed"
-                            paddingInline="relaxed"
-                          >
-                            <Icon name={s.icon} color="accent" />
-                            <Text as="span" size="supporting" weight="emphasis">
-                              {s.title}
-                            </Text>
-                            <Text as="span" size="caption" color="subtle">
-                              {s.desc}
-                            </Text>
-                          </Stack>
-                        </Button>
-                      );
-                    })}
-                </Grid>
+      {/* ── Message area ─────────────────────────────────────────────────────── */}
+      <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          /* Welcome screen */
+          <Stack
+            direction="vertical"
+            align="center"
+            justify="center"
+            gap="none"
+            height="full"
+            paddingBlock="spacious"
+            paddingInline="comfortable"
+          >
+            {/* Icon avatar — xl container (64px) with accent/15 bg */}
+            <Stack marginBottom="relaxed" gap="none">
+              <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
             </Stack>
-          ) : (
-            /* Message thread */
-            <Stack gap="spacious" asChild>
-              <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
-                {messages.map((msg) => (
-                  <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
-                    <li>
-                      <ChatBubble
-                        direction={msg.role === 'user' ? 'end' : 'start'}
-                        variant={msg.role === 'user' ? 'accent' : 'surface'}
-                      >
-                        {msg.content ? (
-                          <MessageContent content={msg.content} />
-                        ) : (
-                          <TypingIndicator />
-                        )}
-                        {msg.isStreaming && msg.content && <StreamingCursor />}
-                        <ChatBubbleActions>
-                          <Text size="micro" color="subtle">
-                            {formatTime(msg.timestamp)}
-                          </Text>
-                          {msg.role === 'assistant' && !msg.isStreaming && (
-                            <>
-                              <Button variant="ghost" size="icon-sm" aria-label="Copy message">
-                                <Icon name="copy" size="xs" />
-                              </Button>
-                              <Button variant="ghost" size="icon-sm" aria-label="Good response">
-                                <Icon name="thumbs-up" size="xs" />
-                              </Button>
-                              <Button variant="ghost" size="icon-sm" aria-label="Bad response">
-                                <Icon name="thumbs-down" size="xs" />
-                              </Button>
-                            </>
-                          )}
-                        </ChatBubbleActions>
-                      </ChatBubble>
-                    </li>
-                  </Stack>
-                ))}
-
-                {/* Thinking indicator (between user message and streaming start) */}
-                {isThinking && (
-                  <Stack direction="horizontal" gap="snug" asChild>
-                    <li>
-                      <ChatBubble direction="start">
-                        <TypingIndicator />
-                      </ChatBubble>
-                    </li>
-                  </Stack>
-                )}
-              </ol>
+            <Stack marginBottom="snug" gap="none">
+              <Heading variant="section">How can Orbit help?</Heading>
             </Stack>
-          )}
-        </main>
+            <Stack marginBottom="spacious" maxWidth="card" gap="none">
+              <Text size="supporting" color="muted">
+                The AI-powered control plane assistant. Ask about agent architecture, generate code,
+                or explore Orbit&apos;s design.
+              </Text>
+            </Stack>
 
-        {/* ── Input bar ────────────────────────────────────────────────────────── */}
-        <Stack paddingInline="comfortable" paddingBlock="snug">
-            <Stack asChild gap="snug">
-              <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
-                {/* Input card: compound rounding + dynamic focus border */}
-                <InputSurface>
-                  {/*
-                   * variant="bare": the outer span above owns the border, background,
-                   * focus ring, and border-radius. The Textarea provides only the
-                   * interaction surface — no redundant chrome of its own.
-                   */}
-                  <Textarea
-                    ref={textareaRef}
-                    variant="bare"
-                    autoResize
-                    rows={1}
-                    maxRows={6}
-                    placeholder="Message Orbit…"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={isThinking}
-                  />
-
-                  {/* Bottom toolbar */}
-                  <Stack direction="horizontal" align="center" justify="between" paddingInline="snug" paddingBlock="tight">
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        {/*
-                         * Model selector: clicking the badge cycles through MODELS.
-                         * Button muted keeps the badge visible without imposing a fixed size.
-                         */}
-                        <Button
-                          variant="muted"
-                          size="xs"
-                          shape="pill"
-                          onClick={cycleModel}
-                          title="Click to change model"
-                        >
-                          <Icon name="zap" size="xs" />
-                          {currentModel}
-                        </Button>
-
-                        {/* Clear button — only visible when there is a conversation */}
-                        {messages.length > 0 && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={handleClear}
-                            aria-label="Clear conversation"
-                          >
-                            <Icon name="refresh" size="xs" />
-                          </Button>
-                        )}
-                      </Stack>
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        {/* Responsive: keyboard hint — always visible */}
+            {/* Suggestion chips */}
+            <Grid cols={{ base: 1, sm: 2 }} gap="snug">
+              {SUGGESTIONS.map((s) => {
+                return (
+                  <Button
+                    key={s.title}
+                    variant="secondary"
+                    onClick={() => handleSuggestion(s.prompt)}
+                  >
+                    <Stack gap="snug" align="start" paddingBlock="relaxed" paddingInline="relaxed">
+                      <Icon name={s.icon} color="accent" />
+                      <Text as="span" size="supporting" weight="emphasis">
+                        {s.title}
+                      </Text>
+                      <Text as="span" size="caption" color="subtle">
+                        {s.desc}
+                      </Text>
+                    </Stack>
+                  </Button>
+                );
+              })}
+            </Grid>
+          </Stack>
+        ) : (
+          /* Message thread */
+          <Stack gap="spacious" asChild>
+            <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
+              {messages.map((msg) => (
+                <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
+                  <li>
+                    <ChatBubble
+                      direction={msg.role === 'user' ? 'end' : 'start'}
+                      variant={msg.role === 'user' ? 'accent' : 'surface'}
+                    >
+                      {msg.content ? <MessageContent content={msg.content} /> : <TypingIndicator />}
+                      {msg.isStreaming && msg.content && <StreamingCursor />}
+                      <ChatBubbleActions>
                         <Text size="micro" color="subtle">
-                          Shift + Enter for new line
+                          {formatTime(msg.timestamp)}
                         </Text>
-                        {/*
-                         * size="xs" shape="pill": compact pill send button.
-                         */}
-                        <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
-                          <Icon name="send" size="xs" />
-                          Send
-                        </Button>
-                      </Stack>
-                  </Stack>
-                </InputSurface>
+                        {msg.role === 'assistant' && !msg.isStreaming && (
+                          <>
+                            <Button variant="ghost" size="icon-sm" aria-label="Copy message">
+                              <Icon name="copy" size="xs" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" aria-label="Good response">
+                              <Icon name="thumbs-up" size="xs" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" aria-label="Bad response">
+                              <Icon name="thumbs-down" size="xs" />
+                            </Button>
+                          </>
+                        )}
+                      </ChatBubbleActions>
+                    </ChatBubble>
+                  </li>
+                </Stack>
+              ))}
 
-                {/*
-                 * mt-2 wrapper: spacing between the input card and the disclaimer.
-                 */}
-                <Text size="micro" color="subtle" align="center">
-                  Orbit AI can make mistakes. Verify important information before acting.
-                </Text>
-              </form>
-            </Stack>
+              {/* Thinking indicator (between user message and streaming start) */}
+              {isThinking && (
+                <Stack direction="horizontal" gap="snug" asChild>
+                  <li>
+                    <ChatBubble direction="start">
+                      <TypingIndicator />
+                    </ChatBubble>
+                  </li>
+                </Stack>
+              )}
+            </ol>
+          </Stack>
+        )}
+      </main>
+
+      {/* ── Input bar ────────────────────────────────────────────────────────── */}
+      <Stack paddingInline="comfortable" paddingBlock="snug">
+        <Stack asChild gap="snug">
+          <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
+            {/* Input card: compound rounding + dynamic focus border */}
+            <InputSurface>
+              {/*
+               * variant="bare": the outer span above owns the border, background,
+               * focus ring, and border-radius. The Textarea provides only the
+               * interaction surface — no redundant chrome of its own.
+               */}
+              <Textarea
+                ref={textareaRef}
+                variant="bare"
+                autoResize
+                rows={1}
+                maxRows={6}
+                placeholder="Message Orbit…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isThinking}
+              />
+
+              {/* Bottom toolbar */}
+              <Stack
+                direction="horizontal"
+                align="center"
+                justify="between"
+                paddingInline="snug"
+                paddingBlock="tight"
+              >
+                <Stack direction="horizontal" align="center" gap="snug">
+                  {/*
+                   * Model selector: clicking the badge cycles through MODELS.
+                   * Button muted keeps the badge visible without imposing a fixed size.
+                   */}
+                  <Button
+                    variant="muted"
+                    size="xs"
+                    shape="pill"
+                    onClick={cycleModel}
+                    title="Click to change model"
+                  >
+                    <Icon name="zap" size="xs" />
+                    {currentModel}
+                  </Button>
+
+                  {/* Clear button — only visible when there is a conversation */}
+                  {messages.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleClear}
+                      aria-label="Clear conversation"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </Button>
+                  )}
+                </Stack>
+                <Stack direction="horizontal" align="center" gap="snug">
+                  {/* Responsive: keyboard hint — always visible */}
+                  <Text size="micro" color="subtle">
+                    Shift + Enter for new line
+                  </Text>
+                  {/*
+                   * size="xs" shape="pill": compact pill send button.
+                   */}
+                  <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
+                    <Icon name="send" size="xs" />
+                    Send
+                  </Button>
+                </Stack>
+              </Stack>
+            </InputSurface>
+
+            {/*
+             * mt-2 wrapper: spacing between the input card and the disclaimer.
+             */}
+            <Text size="micro" color="subtle" align="center">
+              Orbit AI can make mistakes. Verify important information before acting.
+            </Text>
+          </form>
         </Stack>
+      </Stack>
     </Stack>
   );
 }

@@ -43,14 +43,21 @@ export const Default: Story = {
     <SidePanelDemo>
       {(onClose) => (
         <>
-          <SidePanelHeader title="Edit Model" description="Update the virtual model configuration." />
+          <SidePanelHeader
+            title="Edit Model"
+            description="Update the virtual model configuration."
+          />
           <SidePanelBody>
             <Stack gap="comfortable">
-              <Text size="supporting" color="muted">Panel body content goes here.</Text>
+              <Text size="supporting" color="muted">
+                Panel body content goes here.
+              </Text>
             </Stack>
           </SidePanelBody>
           <SidePanelFooter>
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
             <Button size="sm">Save changes</Button>
           </SidePanelFooter>
         </>
@@ -66,10 +73,14 @@ export const Small: Story = {
         <>
           <SidePanelHeader title="Quick edit" />
           <SidePanelBody>
-            <Text size="supporting" color="muted">Compact panel — 440 px wide.</Text>
+            <Text size="supporting" color="muted">
+              Compact panel — 440 px wide.
+            </Text>
           </SidePanelBody>
           <SidePanelFooter>
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
             <Button size="sm">Save</Button>
           </SidePanelFooter>
         </>
@@ -85,10 +96,14 @@ export const Large: Story = {
         <>
           <SidePanelHeader title="Full details" description="Wide panel — 720 px." />
           <SidePanelBody>
-            <Text size="supporting" color="muted">Large panel for complex forms or rich content.</Text>
+            <Text size="supporting" color="muted">
+              Large panel for complex forms or rich content.
+            </Text>
           </SidePanelBody>
           <SidePanelFooter>
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
             <Button size="sm">Save changes</Button>
           </SidePanelFooter>
         </>
@@ -122,19 +137,27 @@ export const FlushBody: Story = {
           <SidePanelHeader title="Route table" />
           <SidePanelBody flush>
             <Stack paddingBlock="snug" paddingInline="comfortable">
-              <Text size="caption" mono color="muted">GET /api/models</Text>
+              <Text size="caption" mono color="muted">
+                GET /api/models
+              </Text>
             </Stack>
             <Separator />
             <Stack paddingBlock="snug" paddingInline="comfortable">
-              <Text size="caption" mono color="muted">POST /api/models</Text>
+              <Text size="caption" mono color="muted">
+                POST /api/models
+              </Text>
             </Stack>
             <Separator />
             <Stack paddingBlock="snug" paddingInline="comfortable">
-              <Text size="caption" mono color="muted">DELETE /api/models/:id</Text>
+              <Text size="caption" mono color="muted">
+                DELETE /api/models/:id
+              </Text>
             </Stack>
           </SidePanelBody>
           <SidePanelFooter>
-            <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
           </SidePanelFooter>
         </>
       )}

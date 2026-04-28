@@ -138,16 +138,22 @@ export const WithSidebarFooter: Story = {
         sidebarFooter={
           <div className="px-4 py-3 flex items-center gap-2">
             <div className="size-6 rounded-full bg-surface-elevated flex items-center justify-center">
-              <Text size="micro" color="muted">U</Text>
+              <Text size="micro" color="muted">
+                U
+              </Text>
             </div>
-            <Text size="caption" color="muted" className="flex-1 truncate">user@example.com</Text>
+            <Text size="caption" color="muted" className="flex-1 truncate">
+              user@example.com
+            </Text>
           </div>
         }
         header={<HeaderContent />}
       >
         <Section heading="Dashboard">
           <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
-            <Text size="supporting" color="muted">Main content</Text>
+            <Text size="supporting" color="muted">
+              Main content
+            </Text>
           </div>
         </Section>
       </PageLayout>

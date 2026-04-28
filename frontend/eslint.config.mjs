@@ -424,11 +424,26 @@ const localPlugin = {
             }
             // The following five fire unconditionally — Terra provides compliant
             // alternatives for all product-code use cases.
-            if (tag === 'header')  { context.report({ node, messageId: 'noRawHeader' });  return; }
-            if (tag === 'article') { context.report({ node, messageId: 'noRawArticle' }); return; }
-            if (tag === 'nav')     { context.report({ node, messageId: 'noRawNav' });     return; }
-            if (tag === 'aside')   { context.report({ node, messageId: 'noRawAside' });   return; }
-            if (tag === 'footer')  { context.report({ node, messageId: 'noRawFooter' });  return; }
+            if (tag === 'header') {
+              context.report({ node, messageId: 'noRawHeader' });
+              return;
+            }
+            if (tag === 'article') {
+              context.report({ node, messageId: 'noRawArticle' });
+              return;
+            }
+            if (tag === 'nav') {
+              context.report({ node, messageId: 'noRawNav' });
+              return;
+            }
+            if (tag === 'aside') {
+              context.report({ node, messageId: 'noRawAside' });
+              return;
+            }
+            if (tag === 'footer') {
+              context.report({ node, messageId: 'noRawFooter' });
+              return;
+            }
             if (!SEMANTIC_ELEMENTS.has(tag)) return;
             const classNameAttr = node.attributes.find(
               (attr) =>

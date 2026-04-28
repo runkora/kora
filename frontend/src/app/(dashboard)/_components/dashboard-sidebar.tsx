@@ -21,23 +21,29 @@ export function DashboardSidebar() {
 
   return (
     <Stack direction="vertical">
-        {/* Logo */}
-        <Stack direction="horizontal" align="center" justify="between" height="header" paddingInline="snug">
-            <Stack direction="horizontal" align="center" gap="snug">
-              <Icon name="zap" size="sm" container containerVariant="accent" />
-              <Text size="supporting" weight="strong">
-                Orbit
-              </Text>
-            </Stack>
-            <Badge variant="outline" size="sm">
-              v0.4.0
-            </Badge>
+      {/* Logo */}
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        height="header"
+        paddingInline="snug"
+      >
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Icon name="zap" size="sm" container containerVariant="accent" />
+          <Text size="supporting" weight="strong">
+            Orbit
+          </Text>
         </Stack>
-        <Separator />
+        <Badge variant="outline" size="sm">
+          v0.4.0
+        </Badge>
+      </Stack>
+      <Separator />
 
-        {/* Nav groups */}
-        <Navigation aria-label="Main" grow overflowY="auto">
-          <Stack gap="spacious" paddingInline="snug" paddingBlock="snug">
+      {/* Nav groups */}
+      <Navigation aria-label="Main" grow overflowY="auto">
+        <Stack gap="spacious" paddingInline="snug" paddingBlock="snug">
           {NAV_GROUPS.map(({ label, items }) => {
             // Filter out entries that require a scope the user doesn't have.
             const visibleItems = items.filter(
@@ -77,8 +83,8 @@ export function DashboardSidebar() {
               </Stack>
             );
           })}
-          </Stack>
-        </Navigation>
+        </Stack>
+      </Navigation>
     </Stack>
   );
 }

@@ -77,12 +77,12 @@ function Step({
         <StepConnector />
       </Stack>
       <Stack grow paddingBottom="spacious">
-          <Stack marginBottom="tight">
-            <Text size="supporting" weight="emphasis">
-              {title}
-            </Text>
-          </Stack>
-          <Stack gap="snug">{children}</Stack>
+        <Stack marginBottom="tight">
+          <Text size="supporting" weight="emphasis">
+            {title}
+          </Text>
+        </Stack>
+        <Stack gap="snug">{children}</Stack>
       </Stack>
     </Stack>
   );

@@ -173,13 +173,13 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
           <Stack key={group.resourceType}>
             {/* Group header */}
             <Stack direction="horizontal" align="center" gap="snug" marginBottom="snug">
-                <Text size="supporting" color="accent" mono weight="strong">
-                  {group.resourceType}
-                </Text>
-                <Text size="caption" color="subtle">
-                  {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
-                </Text>
-              </Stack>
+              <Text size="supporting" color="accent" mono weight="strong">
+                {group.resourceType}
+              </Text>
+              <Text size="caption" color="subtle">
+                {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
+              </Text>
+            </Stack>
 
             {/* Group table */}
             <Card column>

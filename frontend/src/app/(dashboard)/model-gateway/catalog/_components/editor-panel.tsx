@@ -85,12 +85,16 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
   return (
     <SidePanel open size="md" onClose={onClose}>
-      <Stack direction="horizontal" align="center" justify="between" paddingBlock="comfortable" paddingInline="comfortable">
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        paddingBlock="comfortable"
+        paddingInline="comfortable"
+      >
         <Stack gap="tight">
           <Stack direction="horizontal" align="center" gap="snug">
-            <Heading variant="section">
-              {isNew ? 'New Virtual Model' : draft.displayName}
-            </Heading>
+            <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
             {!isNew && (
               <Badge variant={draft.enabled ? 'healthy' : 'muted'} shape="pill" size="sm">
                 {draft.enabled ? 'Enabled' : 'Disabled'}
@@ -200,10 +204,7 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
-          <Toggle
-            checked={draft.enabled}
-            onChange={(v) => setDraft({ ...draft, enabled: v })}
-          />
+          <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
           </Text>

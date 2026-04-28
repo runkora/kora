@@ -15,12 +15,12 @@ export interface StatRowProps {
 export function StatRow({ label, value }: StatRowProps) {
   return (
     <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
-        <Text size="supporting" color="muted">
-          {label}
-        </Text>
-        <Text size="supporting" weight="emphasis" mono tabular>
-          {value}
-        </Text>
+      <Text size="supporting" color="muted">
+        {label}
+      </Text>
+      <Text size="supporting" weight="emphasis" mono tabular>
+        {value}
+      </Text>
     </Stack>
   );
 }

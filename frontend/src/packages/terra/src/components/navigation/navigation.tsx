@@ -55,11 +55,7 @@ const Navigation = React.forwardRef<HTMLElement, NavigationProps>(
       ref={ref}
       aria-label={ariaLabel}
       data-slot="navigation"
-      className={cn(
-        grow && 'flex-1',
-        overflowY && OVERFLOW_Y[overflowY],
-        className,
-      )}
+      className={cn(grow && 'flex-1', overflowY && OVERFLOW_Y[overflowY], className)}
       {...props}
     >
       {children}

@@ -55,13 +55,13 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
   return (
     <Stack align="center" justify="center" paddingBlock="spacious">
       <Stack gap="snug" align="center">
-          <Text size="supporting" color="muted">
-            Couldn&apos;t load models. The inference gateway may be unavailable.
-          </Text>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        </Stack>
+        <Text size="supporting" color="muted">
+          Couldn&apos;t load models. The inference gateway may be unavailable.
+        </Text>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </Stack>
     </Stack>
   );
 }

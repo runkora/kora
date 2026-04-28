@@ -108,9 +108,7 @@ const SidePanel = ({
           PANEL_SIZE[size],
         )}
       >
-        <aside data-slot="side-panel">
-          {children}
-        </aside>
+        <aside data-slot="side-panel">{children}</aside>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   </DialogPrimitive.Root>
@@ -196,8 +194,8 @@ export interface SidePanelFooterProps {
 }
 
 const JUSTIFY_CLASSES: Record<Required<SidePanelFooterProps>['justify'], string> = {
-  start:   'justify-start',
-  end:     'justify-end',
+  start: 'justify-start',
+  end: 'justify-end',
   between: 'justify-between',
 };
 
