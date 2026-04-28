@@ -9,7 +9,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Icon, Input, Stack, Text } from '@orbit/terra';
+import { Button, Card, Icon, Input, Separator, Stack, Text } from '@orbit/terra';
 // Direct relative import — importing via @orbit/components barrel would be
 // circular (scope-picker is itself exported from that barrel).
 import { ScopeChip } from './scope-chip';
@@ -79,13 +79,13 @@ export function ScopePicker({
       />
 
       {/* Accordion */}
-      <aside className="border border-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+      <Card maxHeight="scroll-md" overflowY="auto">
         {groups.length === 0 ? (
-          <aside className="px-3 py-4 text-center">
+          <Stack paddingBlock="comfortable" paddingInline="snug" align="center">
             <Text size="caption" color="muted">
               No scopes match your filter
             </Text>
-          </aside>
+          </Stack>
         ) : (
           groups.map((group) => {
             const open = isGroupOpen(group.resourceType, group);
@@ -94,10 +94,7 @@ export function ScopePicker({
             const someSelected = selectedInGroup.length > 0 && !allSelected;
 
             return (
-              <article
-                key={group.resourceType}
-                className="border-b border-border-subtle last:border-b-0"
-              >
+              <Stack key={group.resourceType}>
                 {/* Group header */}
                 <Button
                   type="button"
@@ -120,10 +117,11 @@ export function ScopePicker({
                     </Text>
                   </Stack>
                 </Button>
+                <Separator />
 
                 {/* Group body */}
                 {open && (
-                  <aside className="bg-surface-elevated">
+                  <Stack>
                     {/* Select all */}
                     {group.scopes.length > 1 && (
                       <label className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border-subtle cursor-pointer select-none hover:bg-surface-overlay transition-colors">
@@ -157,13 +155,13 @@ export function ScopePicker({
                         <ScopeChip scope={scope} />
                       </label>
                     ))}
-                  </aside>
+                  </Stack>
                 )}
-              </article>
+              </Stack>
             );
           })
         )}
-      </aside>
+      </Card>
     </Stack>
   );
 }

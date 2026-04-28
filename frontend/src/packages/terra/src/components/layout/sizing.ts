@@ -55,6 +55,50 @@ export type ContainerWidth =
 export type ContainerHeight = 'screen' | 'full';
 
 /**
+ * Semantic height scale for the `height` prop on `Stack`.
+ *
+ * - `'full'`   — `h-full` — fills the available height of the parent.
+ * - `'screen'` — `h-screen` / `h-dvh` — fills the viewport height.
+ * - `'header'` — `h-14` — matches the standard shell header bar height (56 px).
+ */
+export type StackHeight = 'full' | 'screen' | 'header';
+
+/** h-* non-responsive lookup for the `height` prop. */
+export const H: Record<StackHeight, string> = {
+  full:   'h-full',
+  screen: 'h-dvh',
+  header: 'h-14',
+};
+
+/**
+ * Overflow control for the `overflow` and `overflowY` props on `Stack`.
+ */
+export type OverflowValue = 'hidden' | 'auto' | 'scroll';
+
+/** overflow-* lookup. */
+export const OVERFLOW: Record<OverflowValue, string> = {
+  hidden: 'overflow-hidden',
+  auto:   'overflow-auto',
+  scroll: 'overflow-scroll',
+};
+
+/** overflow-y-* lookup. */
+export const OVERFLOW_Y: Record<OverflowValue, string> = {
+  hidden: 'overflow-y-hidden',
+  auto:   'overflow-y-auto',
+  scroll: 'overflow-y-scroll',
+};
+
+/**
+ * Extended height scale for `maxHeight` — includes scrollable-container
+ * presets in addition to the viewport/full values.
+ *
+ * - `'scroll-sm'` — `max-h-56` (224 px / 14 rem) — short dropdown or picker.
+ * - `'scroll-md'` — `max-h-60` (240 px / 15 rem) — standard scrollable list.
+ */
+export type MaxHeight = ContainerHeight | 'scroll-sm' | 'scroll-md';
+
+/**
  * Text alignment for the `textAlign` prop on `Stack`.
  *
  * Maps to Tailwind's `text-*` utilities. Omitting the prop inherits alignment
@@ -194,12 +238,12 @@ export const MIN_H: Record<Breakpoint, Record<ContainerHeight, string>> = {
 };
 
 /** max-h-* per breakpoint */
-export const MAX_H: Record<Breakpoint, Record<ContainerHeight, string>> = {
-  base: { screen: 'max-h-dvh', full: 'max-h-full' },
-  sm: { screen: 'sm:max-h-dvh', full: 'sm:max-h-full' },
-  md: { screen: 'md:max-h-dvh', full: 'md:max-h-full' },
-  lg: { screen: 'lg:max-h-dvh', full: 'lg:max-h-full' },
-  xl: { screen: 'xl:max-h-dvh', full: 'xl:max-h-full' },
+export const MAX_H: Record<Breakpoint, Record<MaxHeight, string>> = {
+  base: { screen: 'max-h-dvh', full: 'max-h-full', 'scroll-sm': 'max-h-56', 'scroll-md': 'max-h-60' },
+  sm:   { screen: 'sm:max-h-dvh', full: 'sm:max-h-full', 'scroll-sm': 'sm:max-h-56', 'scroll-md': 'sm:max-h-60' },
+  md:   { screen: 'md:max-h-dvh', full: 'md:max-h-full', 'scroll-sm': 'md:max-h-56', 'scroll-md': 'md:max-h-60' },
+  lg:   { screen: 'lg:max-h-dvh', full: 'lg:max-h-full', 'scroll-sm': 'lg:max-h-56', 'scroll-md': 'lg:max-h-60' },
+  xl:   { screen: 'xl:max-h-dvh', full: 'xl:max-h-full', 'scroll-sm': 'xl:max-h-56', 'scroll-md': 'xl:max-h-60' },
 };
 
 /**

@@ -26,8 +26,7 @@ export function MessageContent({ content }: MessageContentProps) {
   const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
 
   return (
-    <Stack gap="snug" asChild>
-      <article className="text-sm leading-relaxed text-foreground">
+    <Stack gap="snug">
         {segments.map((seg, i) => {
           const codeMatch = seg.match(/^```([a-z]*)\n?([\s\S]*?)```$/);
           if (codeMatch) {
@@ -66,7 +65,6 @@ export function MessageContent({ content }: MessageContentProps) {
             </Text>
           ) : null;
         })}
-      </article>
     </Stack>
   );
 }

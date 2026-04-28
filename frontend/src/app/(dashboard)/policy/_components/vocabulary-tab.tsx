@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Callout,
   Alert,
   Badge,
   Button,
@@ -101,12 +102,12 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       </Stack>
 
       {/* Info box */}
-      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Scopes use the format <Code>resource:path:action</Code>. Sibling scopes are independent —{' '}
           <Code>mcp:github:read</Code> does not grant <Code>mcp:github:write</Code>
         </Text>
-      </aside>
+      </Callout>
 
       {initialError && (
         <Alert variant="error">
@@ -169,18 +170,16 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
         )
       ) : (
         groups.map((group) => (
-          <article key={group.resourceType}>
+          <Stack key={group.resourceType}>
             {/* Group header */}
-            <Stack direction="horizontal" align="center" gap="snug" asChild>
-              <header className="mb-3">
+            <Stack direction="horizontal" align="center" gap="snug" marginBottom="snug">
                 <Text size="supporting" color="accent" mono weight="strong">
                   {group.resourceType}
                 </Text>
                 <Text size="caption" color="subtle">
                   {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
                 </Text>
-              </header>
-            </Stack>
+              </Stack>
 
             {/* Group table */}
             <Card column>
@@ -239,7 +238,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                 </TableRoot>
               </CardContent>
             </Card>
-          </article>
+          </Stack>
         ))
       )}
     </Stack>

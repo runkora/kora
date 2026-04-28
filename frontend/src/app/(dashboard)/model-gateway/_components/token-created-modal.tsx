@@ -3,12 +3,14 @@
 import { useCallback, useState } from 'react';
 
 import {
+  Alert,
   Button,
   Icon,
   Modal,
   ModalAccessibleTitle,
   ModalBody,
   ModalFooter,
+  Separator,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -46,8 +48,7 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
       {pat && (
         <>
           {/* Header */}
-          <Stack asChild direction="horizontal" align="start" justify="between" gap="comfortable">
-            <header className="border-b border-border p-5">
+          <Stack direction="horizontal" align="start" justify="between" gap="comfortable" paddingBlock="comfortable" paddingInline="comfortable">
               <Stack gap="none">
                 <Text size="body" weight="heavy" as="span">
                   API key created
@@ -56,24 +57,22 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
                   {pat.name}
                 </Text>
               </Stack>
-            </header>
           </Stack>
+          <Separator />
 
           {/* Warning banner */}
-          <Stack asChild direction="horizontal" align="start" gap="snug">
-            <aside className="border-b border-border bg-status-degraded/10 px-5 py-3">
-              <Icon name="triangle-alert" color="status-degraded" />
-              <Stack gap="tight">
-                <Text size="supporting" color="foreground" weight="heavy">
-                  Copy this key now.
-                </Text>
-                <Text size="supporting" color="foreground">
-                  It will not be shown again. If you lose it, you will need to revoke it and create
-                  a new one.
-                </Text>
-              </Stack>
-            </aside>
-          </Stack>
+          <Alert variant="warning">
+            <Icon name="triangle-alert" color="status-degraded" />
+            <Stack gap="tight">
+              <Text size="supporting" color="foreground" weight="heavy">
+                Copy this key now.
+              </Text>
+              <Text size="supporting" color="foreground">
+                It will not be shown again. If you lose it, you will need to revoke it and create
+                a new one.
+              </Text>
+            </Stack>
+          </Alert>
 
           {/* Token */}
           <ModalBody>

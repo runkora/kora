@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, Badge, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { Alert, Badge, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from '@orbit/components';
@@ -122,13 +122,13 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
             Registered route→scope mappings across all services.
           </Text>
         </Stack>
-        <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+        <Callout>
           <Text size="caption" color="muted">
             Services register their route→scope mappings at startup. This is the source of truth for
             what scope is required to call each endpoint — compiled into OPA bundles and enforced by
             Envoy sidecars.
           </Text>
-        </aside>
+        </Callout>
         <EmptyState
           icon="route"
           title="No routes registered"
@@ -147,13 +147,13 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </Stack>
 
-      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Services register their route→scope mappings at startup. This is the source of truth for
           what scope is required to call each endpoint — compiled into OPA bundles and enforced by
           Envoy sidecars.
         </Text>
-      </aside>
+      </Callout>
 
       {initialError && (
         <Alert variant="error">

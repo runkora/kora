@@ -18,7 +18,8 @@ export type { SortDir, TableColumnVisibility, TableHeadProps } from './table';
 export { TableContainer } from './table-extras';
 
 // ─── Table toolbar ───────────────────────────────────────────────────────────
-export { TableToolbar } from './table-toolbar';
+export { TableToolbar, TableToolbarShell } from './table-toolbar';
+export type { TableToolbarShellProps } from './table-toolbar';
 export type { TableToolbarProps } from './table-toolbar';
 
 // ─── Table column header ─────────────────────────────────────────────────────

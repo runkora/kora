@@ -18,6 +18,7 @@ import {
   TableEmpty,
   // Toolbar
   TableToolbar,
+  TableToolbarShell,
   // Column header
   TableColumnHeader,
   // Utilities
@@ -626,5 +627,23 @@ export const FullTable: Story = {
         filteredEmptyMessage="No agents match your filters."
       />
     </div>
+  ),
+};
+
+// ── TableToolbarShell ─────────────────────────────────────────────────────────
+
+import { Skeleton } from '../skeleton';
+
+/** TableToolbarShell — bare container for skeleton placeholders and custom toolbar content */
+export const ToolbarShell: StoryObj = {
+  name: 'TableToolbarShell — skeleton',
+  render: () => (
+    <TableToolbarShell>
+      <Skeleton shape="block" width="quarter" size="sm" />
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <Skeleton shape="line" width="quarter" size="xs" />
+        <Skeleton shape="block" width="quarter" size="sm" />
+      </div>
+    </TableToolbarShell>
   ),
 };

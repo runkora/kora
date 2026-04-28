@@ -13,9 +13,9 @@ import {
   MARGIN_INLINE,
   resolveResponsive,
 } from './spacing';
-import { MAX_W, MIN_W, MAX_H, MIN_H, TEXT_ALIGN } from './sizing';
+import { MAX_W, MIN_W, MAX_H, MIN_H, TEXT_ALIGN, H, OVERFLOW, OVERFLOW_Y } from './sizing';
 import type { Responsive, SpacingSize } from './spacing';
-import type { ContainerWidth, ContainerHeight, TextAlign } from './sizing';
+import type { ContainerWidth, ContainerHeight, TextAlign, StackHeight, OverflowValue, MaxHeight } from './sizing';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -164,13 +164,45 @@ export interface StackProps {
   minHeight?: Responsive<ContainerHeight>;
 
   /**
-   * Maximum height constraint. Accepts a semantic `ContainerHeight` token.
+   * Maximum height constraint. Accepts semantic tokens including scrollable-
+   * container presets.
    *
    * ```tsx
-   * <Stack maxHeight="screen" style={{ overflowY: 'auto' }}>…</Stack>
+   * // Standard full/screen constraints
+   * <Stack maxHeight="screen" overflowY="auto">…</Stack>
+   *
+   * // Scrollable picker or dropdown list
+   * <Stack maxHeight="scroll-md" overflowY="auto" overflow="hidden">…</Stack>
    * ```
    */
-  maxHeight?: Responsive<ContainerHeight>;
+  maxHeight?: Responsive<MaxHeight>;
+
+  /**
+   * Height of the Stack element. Use when the Stack must fill its container
+   * (`'full'`), fill the viewport (`'screen'`), or match the standard shell
+   * header bar height (`'header'` = 56 px / h-14).
+   */
+  height?: StackHeight;
+
+  /**
+   * `overflow` CSS property. Use `'hidden'` to clip child content to the
+   * Stack's bounds (required for rounded-corner scroll containers).
+   * Use `'auto'` to make the Stack itself scrollable when content overflows.
+   */
+  overflow?: OverflowValue;
+
+  /**
+   * `overflow-y` CSS property. Use `'auto'` for a vertically scrollable
+   * Stack with a fixed height or `maxHeight` constraint.
+   */
+  overflowY?: OverflowValue;
+
+  /**
+   * When `true`, adds `pointer-events-none opacity-50` to visually and
+   * interactively disable the Stack and all of its children. Use for
+   * transient states (e.g. an item being deleted or a form being submitted).
+   */
+  disabled?: boolean;
 
   /**
    * Text alignment for all descendant text nodes. Emits a single `text-*`
@@ -378,6 +410,10 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
       marginTop,
       marginBottom,
       marginInline,
+      height,
+      overflow,
+      overflowY,
+      disabled,
       ...props
     },
     ref,
@@ -402,6 +438,10 @@ const Stack = React.forwardRef<HTMLDivElement, StackProps>(
           shrink && 'shrink-0',
           noWrap && 'whitespace-nowrap',
           position,
+          height && H[height],
+          overflow && OVERFLOW[overflow],
+          overflowY && OVERFLOW_Y[overflowY],
+          disabled && 'pointer-events-none opacity-50',
           padding && PADDING[padding],
           paddingBlock && PADDING_BLOCK[paddingBlock],
           paddingInline && PADDING_INLINE[paddingInline],

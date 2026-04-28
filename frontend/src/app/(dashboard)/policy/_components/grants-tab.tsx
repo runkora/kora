@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Callout,
   Alert,
   Button,
   Card,
@@ -152,13 +153,13 @@ export function GrantsTab({
       />
 
       {/* Info box */}
-      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Grants assign specific scopes directly to a principal. Unlike roles (which map OIDC claims
           to scopes), grants are explicit — they apply regardless of how the principal
           authenticates.
         </Text>
-      </aside>
+      </Callout>
 
       {error && (
         <Alert variant="error">
@@ -268,7 +269,8 @@ export function GrantsTab({
         }}
       >
         {deleteCandidate && (
-          <aside className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
+          <Card>
+            <CardContent padded>
             <Stack gap="snug">
               <Stack direction="horizontal" align="center" gap="snug">
                 <PrincipalBadge type={deleteCandidate.principal_type} />
@@ -282,7 +284,8 @@ export function GrantsTab({
                 ))}
               </Stack>
             </Stack>
-          </aside>
+            </CardContent>
+          </Card>
         )}
       </ConfirmDialog>
 
@@ -652,13 +655,13 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
           onChange={(e) => setSearch(e.target.value)}
         />
       </Stack>
-      <aside className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+      <Card maxHeight="scroll-sm" overflowY="auto">
         {loading || users.length === 0 ? (
-          <aside className="px-3 py-1.5">
+          <Stack paddingBlock="tight" paddingInline="snug">
             <Text size="caption" color="muted">
               {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
             </Text>
-          </aside>
+          </Stack>
         ) : (
           <ul className="list-none m-0 p-0">
             {users.map((u) => {
@@ -693,7 +696,7 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
             })}
           </ul>
         )}
-      </aside>
+      </Card>
     </Stack>
   );
 }

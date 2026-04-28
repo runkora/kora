@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
+  Callout,
   Alert,
   Badge,
   Button,
@@ -162,7 +163,7 @@ export function EvaluateTab({
       </Stack>
 
       {/* Info box */}
-      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Stack gap="tight">
           <Text size="caption" color="muted">
             Uses the same OPA evaluation path as live enforcement.
@@ -180,7 +181,7 @@ export function EvaluateTab({
             dry-runs a specific operation against a principal with a chosen role.
           </Text>
         </Stack>
-      </aside>
+      </Callout>
 
       {/* ── Scope Lookup ───────────────────────────────────────────────────────── */}
       <Card column>
@@ -254,10 +255,8 @@ export function EvaluateTab({
                       From roles
                     </Text>
                     {explain.from_roles.map((r) => (
-                      <article
-                        key={r.role}
-                        className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
-                      >
+                      <Card key={r.role}>
+                        <CardContent padded>
                         <Stack gap="snug">
                           <Stack direction="horizontal" align="center" gap="snug">
                             <Text size="caption" mono color="accent">
@@ -273,7 +272,8 @@ export function EvaluateTab({
                             ))}
                           </Stack>
                         </Stack>
-                      </article>
+                        </CardContent>
+                      </Card>
                     ))}
                   </Stack>
                 )}
@@ -284,10 +284,8 @@ export function EvaluateTab({
                       From grants
                     </Text>
                     {explain.from_grants.map((g) => (
-                      <article
-                        key={g.grant_id}
-                        className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
-                      >
+                      <Card key={g.grant_id}>
+                        <CardContent padded>
                         <Stack gap="snug">
                           <Text size="caption" mono color="subtle">
                             {g.grant_id}
@@ -298,7 +296,8 @@ export function EvaluateTab({
                             ))}
                           </Stack>
                         </Stack>
-                      </article>
+                        </CardContent>
+                      </Card>
                     ))}
                   </Stack>
                 )}
@@ -310,14 +309,16 @@ export function EvaluateTab({
                     Effective scope set ({explain.effective_scopes.length})
                   </Text>
                   {explain.effective_scopes.length === 0 ? (
-                    <article className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
-                      <Stack gap="snug" align="center">
-                        <Icon name="shield-off" size="md" color="subtle" />
-                        <Text size="caption" color="muted">
-                          No effective scopes — this principal has no permissions.
-                        </Text>
-                      </Stack>
-                    </article>
+                    <Card>
+                      <CardContent padded>
+                        <Stack gap="snug" align="center" paddingBlock="spacious">
+                            <Icon name="shield-off" size="md" color="subtle" />
+                            <Text size="caption" color="muted">
+                              No effective scopes — this principal has no permissions.
+                            </Text>
+                        </Stack>
+                      </CardContent>
+                    </Card>
                   ) : (
                     <Stack direction="horizontal" gap="tight" wrap>
                       {explain.effective_scopes.map((s) => (
@@ -440,13 +441,7 @@ export function EvaluateTab({
             )}
 
             {simResult && (
-              <article
-                className={`rounded-md border p-4 ${
-                  simResult.allow
-                    ? 'border-status-healthy/30 bg-status-healthy/5'
-                    : 'border-status-error/30 bg-status-error/5'
-                }`}
-              >
+              <Callout variant={simResult.allow ? 'success' : 'error'}>
                 <Stack gap="snug">
                   <Stack direction="horizontal" align="center" gap="snug">
                     {simResult.allow ? (
@@ -470,7 +465,7 @@ export function EvaluateTab({
                     {simResult.reason}
                   </Text>
                 </Stack>
-              </article>
+              </Callout>
             )}
           </Stack>
         </CardContent>

@@ -12,6 +12,7 @@
 
 import { useState, useCallback } from 'react';
 import {
+  Callout,
   Button,
   Card,
   CardContent,
@@ -75,15 +76,13 @@ function Step({
         <StepDot>{number}</StepDot>
         <StepConnector />
       </Stack>
-      <Stack grow asChild>
-        <article className="pb-8">
-          <header className="mb-2">
+      <Stack grow paddingBottom="spacious">
+          <Stack marginBottom="tight">
             <Text size="supporting" weight="emphasis">
               {title}
             </Text>
-          </header>
+          </Stack>
           <Stack gap="snug">{children}</Stack>
-        </article>
       </Stack>
     </Stack>
   );
@@ -167,17 +166,15 @@ print(response.choices[0].message.content)`}
             </figure>
           </Stack>
 
-          <Stack asChild gap="snug">
-            <aside className="rounded-lg bg-surface-elevated border border-border px-4 py-3">
-              <header className="mb-1">
-                <Heading variant="label">Compatible clients</Heading>
-              </header>
+          <Callout>
+            <Stack gap="snug">
+              <Heading variant="label">Compatible clients</Heading>
               <Text size="caption" color="muted">
                 Any OpenAI-compatible client works with the Orbit gateway — including Cursor, Aider,
                 Continue, Cline, and custom scripts using the OpenAI Python or Node.js SDKs.
               </Text>
-            </aside>
-          </Stack>
+            </Stack>
+          </Callout>
         </CardContent>
       </Card>
     </Stack>

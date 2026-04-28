@@ -436,14 +436,12 @@ export default function ChatPage() {
    * overflow-y-auto so the main element never scrolls itself.
    */
   return (
-    <Stack direction="vertical" asChild>
-      <article className="h-full overflow-hidden">
+    <Stack direction="vertical" height="full" overflow="hidden">
         {/* ── Message area ─────────────────────────────────────────────────────── */}
         <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             /* Welcome screen */
-            <Stack direction="vertical" align="center" justify="center" gap="none" asChild>
-              <aside className="h-full px-6 py-12 text-center">
+            <Stack direction="vertical" align="center" justify="center" gap="none" height="full" paddingBlock="spacious" paddingInline="comfortable">
                 {/* Icon avatar — xl container (64px) with accent/15 bg */}
                 <Stack marginBottom="relaxed" gap="none">
                   <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
@@ -459,8 +457,7 @@ export default function ChatPage() {
                 </Stack>
 
                 {/* Suggestion chips */}
-                <Grid cols={{ base: 1, sm: 2 }} gap="snug" asChild>
-                  <nav className="w-full max-w-xl">
+                <Grid cols={{ base: 1, sm: 2 }} gap="snug">
                     {SUGGESTIONS.map((s) => {
                       return (
                         <Button
@@ -485,9 +482,7 @@ export default function ChatPage() {
                         </Button>
                       );
                     })}
-                  </nav>
                 </Grid>
-              </aside>
             </Stack>
           ) : (
             /* Message thread */
@@ -545,8 +540,7 @@ export default function ChatPage() {
         </main>
 
         {/* ── Input bar ────────────────────────────────────────────────────────── */}
-        <Stack asChild>
-          <footer className="shrink-0 bg-background px-4 pt-3 pb-4">
+        <Stack paddingInline="comfortable" paddingBlock="snug">
             <Stack asChild gap="snug">
               <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
                 {/* Input card: compound rounding + dynamic focus border */}
@@ -570,8 +564,7 @@ export default function ChatPage() {
                   />
 
                   {/* Bottom toolbar */}
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <footer className="px-3 pb-2.5 pt-1">
+                  <Stack direction="horizontal" align="center" justify="between" paddingInline="snug" paddingBlock="tight">
                       <Stack direction="horizontal" align="center" gap="snug">
                         {/*
                          * Model selector: clicking the badge cycles through MODELS.
@@ -613,7 +606,6 @@ export default function ChatPage() {
                           Send
                         </Button>
                       </Stack>
-                    </footer>
                   </Stack>
                 </InputSurface>
 
@@ -625,9 +617,7 @@ export default function ChatPage() {
                 </Text>
               </form>
             </Stack>
-          </footer>
         </Stack>
-      </article>
     </Stack>
   );
 }

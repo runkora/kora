@@ -53,9 +53,8 @@ function Chips({ values }: { values: string[] }) {
 
 function LoadError({ onRetry }: { onRetry: () => void }) {
   return (
-    <Stack align="center" justify="center">
-      <figure style={{ padding: '3rem 0', textAlign: 'center', margin: 0 }}>
-        <Stack gap="snug" align="center">
+    <Stack align="center" justify="center" paddingBlock="spacious">
+      <Stack gap="snug" align="center">
           <Text size="supporting" color="muted">
             Couldn&apos;t load models. The inference gateway may be unavailable.
           </Text>
@@ -63,7 +62,6 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
             Try again
           </Button>
         </Stack>
-      </figure>
     </Stack>
   );
 }

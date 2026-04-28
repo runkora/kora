@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Callout,
   Alert,
   Badge,
   Button,
@@ -115,12 +116,12 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       />
 
       {/* Info box */}
-      <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
           the union of scopes from all matching roles.
         </Text>
-      </aside>
+      </Callout>
 
       {error && (
         <Alert variant="error">

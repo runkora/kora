@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import {
   Alert,
   Badge,
+  Progress,
   Card,
   CardContent,
   CardFooter,
@@ -182,12 +183,13 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                   </Text>
                 </Stack>
               </Stack>
-              <aside className="h-2 rounded-full bg-surface-elevated overflow-hidden">
-                <aside
-                  className="h-full rounded-full bg-accent transition-all"
-                  style={{ width: `${scopeCoverage.pct}%` }}
-                />
-              </aside>
+              <Progress
+                label="Scope coverage"
+                value={scopeCoverage.pct}
+                max={100}
+                variant="healthy"
+                size="sm"
+              />
               <Stack direction="horizontal" align="center" justify="between">
                 <Text size="caption" color="subtle">
                   {scopeCoverage.pct}% coverage

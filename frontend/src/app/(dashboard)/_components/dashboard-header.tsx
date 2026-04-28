@@ -10,11 +10,9 @@ import { Button, Icon, Indicator, Separator, Stack, Text } from '@orbit/terra';
  */
 export function DashboardHeader() {
   return (
-    <Stack direction="horizontal" align="center" justify="between" asChild>
-      <header className="h-full px-6">
+    <Stack direction="horizontal" align="center" justify="between" height="full" paddingInline="comfortable">
         {/* TODO: Replace with Terra Breadcrumbs component when available */}
-        <Stack direction="horizontal" align="center" gap="tight" asChild>
-          <nav>
+        <Stack direction="horizontal" align="center" gap="tight" role="navigation" aria-label="Breadcrumb">
             <Text size="supporting" color="muted">
               Orbit
             </Text>
@@ -22,7 +20,6 @@ export function DashboardHeader() {
             <Text size="supporting" weight="emphasis">
               Dashboard
             </Text>
-          </nav>
         </Stack>
 
         {/* Actions */}
@@ -42,7 +39,6 @@ export function DashboardHeader() {
             Deploy Agent
           </Button>
         </Stack>
-      </header>
     </Stack>
   );
 }

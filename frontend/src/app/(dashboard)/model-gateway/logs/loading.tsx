@@ -7,6 +7,7 @@
 import {
   Skeleton,
   Stack,
+  TableToolbarShell,
   Table,
   TableBody,
   TableCell,
@@ -19,8 +20,8 @@ import {
 
 function ToolbarSkeleton() {
   return (
-    <Stack asChild direction="horizontal" align="center" justify="between" gap="comfortable">
-      <header className="px-4 py-3 border-b border-border-subtle">
+    <TableToolbarShell>
+      <Stack direction="horizontal" align="center" justify="between" gap="comfortable" grow>
         {/* Search input */}
         <Skeleton shape="block" width="half" size="md" />
         {/* Right side: count + columns toggle */}
@@ -28,8 +29,8 @@ function ToolbarSkeleton() {
           <Skeleton shape="line" width="quarter" size="xs" />
           <Skeleton shape="block" width="quarter" size="md" />
         </Stack>
-      </header>
-    </Stack>
+      </Stack>
+    </TableToolbarShell>
   );
 }
 

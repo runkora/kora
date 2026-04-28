@@ -109,14 +109,13 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
           <ModalHeader title={model.name} description={model.id} />
 
           {/* Status strip — lives between header and body intentionally */}
-          <Stack asChild direction="horizontal" align="center" gap="snug">
-            <aside className="border-b border-border px-4 py-2">
+          <Stack direction="horizontal" align="center" gap="snug" paddingBlock="snug" paddingInline="comfortable">
               <AvailabilityDot status={model.status} />
               <Text size="supporting">
                 {model.status === 'available' ? 'Available' : 'Unavailable'}
               </Text>
-            </aside>
           </Stack>
+          <Separator />
 
           {/* Scrollable body — flush/gapless so inner sections own their
               padding; constrained caps height and overflow-y-auto enables scrolling. */}

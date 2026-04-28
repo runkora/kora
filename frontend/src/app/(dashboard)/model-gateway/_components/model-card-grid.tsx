@@ -26,21 +26,21 @@ interface ModelCardProps {
 
 function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
   return (
-    <Stack asChild>
-      <article
-        className="relative min-w-0 cursor-pointer transition-colors hover:bg-surface-elevated/50"
-        role={onSelect ? 'button' : undefined}
-        tabIndex={onSelect ? 0 : undefined}
-        onClick={() => onSelect?.(model)}
-        onKeyDown={(e) => {
-          if (!onSelect) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onSelect(model);
-          }
-        }}
-      >
-        <Card column>
+    <Stack minWidth="none">
+        <Card
+          column
+          interactive={!!onSelect}
+          role={onSelect ? 'button' : undefined}
+          tabIndex={onSelect ? 0 : undefined}
+          onClick={() => onSelect?.(model)}
+          onKeyDown={(e) => {
+            if (!onSelect) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+                onSelect(model);
+              }
+            }}
+          >
           <CardHeader compact>
             <Stack direction="horizontal" align="start" justify="between" grow>
               <Stack gap="none" minWidth="none" grow>
@@ -117,7 +117,6 @@ function ModelCard({ model, onRemove, onSelect }: ModelCardProps) {
             </Stack>
           </CardContent>
         </Card>
-      </article>
     </Stack>
   );
 }

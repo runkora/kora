@@ -15,6 +15,8 @@ export { cn } from './utils';
 // ─── Atoms ───────────────────────────────────────────────────────────────────
 export { Alert } from './components/alert';
 export type { AlertProps } from './components/alert';
+export { Callout } from './components/callout';
+export type { CalloutProps } from './components/callout';
 
 export { Icon } from './components/icon';
 export type {
@@ -120,6 +122,7 @@ export {
   nextSortDir,
   // Table toolbar
   TableToolbar,
+  TableToolbarShell,
   // Table column header
   TableColumnHeader,
   // Data table (TanStack-backed, fully opinionated)
@@ -130,6 +133,7 @@ export type {
   TableColumnVisibility,
   TableHeadProps,
   TableToolbarProps,
+  TableToolbarShellProps,
   TableColumnHeaderProps,
   TableColumnFilter,
   TableColumnFilterOption,
@@ -164,6 +168,10 @@ export type { SectionProps } from './components/section';
 export { PageSectionHeader } from './components/page-section-header';
 export type { PageSectionHeaderProps } from './components/page-section-header';
 
+// ─── Layout: Navigation ──────────────────────────────────────────────────────
+export { Navigation } from './components/navigation';
+export type { NavigationProps } from './components/navigation';
+
 // ─── Layout: Responsive visibility ───────────────────────────────────────────
 export { Show } from './components/show';
 export type { ShowProps, Breakpoint } from './components/show';
@@ -190,6 +198,21 @@ export type {
   ChatBubbleDirection,
   ChatBubbleVariant,
 } from './components/chat';
+
+// ─── Molecules: SidePanel ────────────────────────────────────────────────────
+export {
+  SidePanel,
+  SidePanelHeader,
+  SidePanelBody,
+  SidePanelFooter,
+  SidePanelAccessibleTitle,
+} from './components/side-panel';
+export type {
+  SidePanelProps,
+  SidePanelHeaderProps,
+  SidePanelBodyProps,
+  SidePanelFooterProps,
+} from './components/side-panel';
 
 // ─── Molecules: Modal ────────────────────────────────────────────────────────
 export {

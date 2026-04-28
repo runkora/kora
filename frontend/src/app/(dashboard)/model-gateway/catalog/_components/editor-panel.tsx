@@ -11,6 +11,10 @@ import {
   Input,
   Label,
   NativeSelect,
+  Separator,
+  SidePanel,
+  SidePanelBody,
+  SidePanelFooter,
   Stack,
   Text,
   Toggle,
@@ -80,45 +84,35 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
   }
 
   return (
-    <>
-      {/* Backdrop — Button asChild (not a layout element) so click-to-dismiss works;
-          aria-hidden + tabIndex={-1} keeps it out of the AT and tab order */}
-      <Button asChild variant="ghost" aria-hidden={true} tabIndex={-1} onClick={onClose}>
-        <aside className="fixed inset-0 z-40 bg-overlay" />
-      </Button>
-
-      {/* Panel — aside (semantic landmark); Stack injects flex-col at runtime */}
-      <Stack asChild direction="vertical">
-        <aside className="fixed inset-y-0 right-0 z-50 w-[580px] bg-surface shadow-2xl">
-          {/* Header — Stack injects flex + align/justify at runtime; header has no
-              display-mode class in JSX so no-raw-layout-elements does not fire */}
-          <Stack asChild direction="horizontal" align="center" justify="between">
-            <header className="border-b border-border px-5 py-4">
-              <Stack gap="tight">
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <Heading variant="section">
-                    {isNew ? 'New Virtual Model' : draft.displayName}
-                  </Heading>
-                  {!isNew && (
-                    <Badge variant={draft.enabled ? 'healthy' : 'muted'} shape="pill" size="sm">
-                      {draft.enabled ? 'Enabled' : 'Disabled'}
-                    </Badge>
-                  )}
-                </Stack>
-                {fullId && (
-                  <Text size="caption" color="muted" mono>
-                    {fullId}
-                  </Text>
-                )}
-              </Stack>
-              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel">
-                <Icon name="close" />
-              </Button>
-            </header>
+    <SidePanel open size="md" onClose={onClose}>
+      <Stack direction="horizontal" align="center" justify="between" paddingBlock="comfortable" paddingInline="comfortable">
+        <Stack gap="tight">
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Heading variant="section">
+              {isNew ? 'New Virtual Model' : draft.displayName}
+            </Heading>
+            {!isNew && (
+              <Badge variant={draft.enabled ? 'healthy' : 'muted'} shape="pill" size="sm">
+                {draft.enabled ? 'Enabled' : 'Disabled'}
+              </Badge>
+            )}
           </Stack>
+          {fullId && (
+            <Text size="caption" color="muted" mono>
+              {fullId}
+            </Text>
+          )}
+        </Stack>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel">
+          <Icon name="close" />
+        </Button>
+      </Stack>
+      <Separator />
 
+      <SidePanelBody>
+        <Stack gap="comfortable">
           {/* Identity fields */}
-          <aside className="border-b border-border px-5 py-4">
+          <Stack paddingBottom="comfortable">
             <Grid cols={2} gap="snug">
               <Field>
                 <Label>Family</Label>
@@ -166,8 +160,6 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
               <Field>
                 <Label>Scope (derived)</Label>
-                {/* output is a semantic form-result element; Stack injects flex +
-                    align="center" at runtime so it vertically centres the text */}
                 <Stack asChild direction="horizontal" align="center">
                   <output className="h-9 rounded-md border border-border bg-surface px-3 truncate">
                     <Text size="caption" color="muted" mono>
@@ -176,61 +168,55 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
                   </output>
                 </Stack>
               </Field>
-
-              {/* Description field spans two grid columns */}
-              <aside className="col-span-2">
-                <Field>
-                  <Label>Description</Label>
-                  <Input
-                    value={draft.description}
-                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                    placeholder="Optional description"
-                  />
-                </Field>
-              </aside>
             </Grid>
-          </aside>
+
+            {/* Description spans full width — outside the 2-col grid */}
+            <Field>
+              <Label>Description</Label>
+              <Input
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </Field>
+          </Stack>
+          <Separator />
 
           {/* Routes content */}
-          <article className="flex-1 overflow-y-auto px-5 py-4">
-            <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
-          </article>
+          <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
+        </Stack>
+      </SidePanelBody>
 
-          {error && (
-            <aside className="mx-5 mb-3">
-              <Alert variant="error">
-                <Icon name="alert-circle" size="2xs" color="status-error" />
-                <Text size="caption" color="muted">
-                  {error}
-                </Text>
-              </Alert>
-            </aside>
-          )}
+      {error && (
+        <Stack paddingInline="comfortable" paddingBlock="snug">
+          <Alert variant="error">
+            <Icon name="alert-circle" size="2xs" color="status-error" />
+            <Text size="caption" color="muted">
+              {error}
+            </Text>
+          </Alert>
+        </Stack>
+      )}
 
-          {/* Footer — Stack injects flex + align/justify at runtime */}
-          <Stack asChild direction="horizontal" align="center" justify="between">
-            <footer className="border-t border-border px-5 py-4">
-              <Stack direction="horizontal" align="center" gap="snug">
-                <Toggle
-                  checked={draft.enabled}
-                  onChange={(v) => setDraft({ ...draft, enabled: v })}
-                />
-                <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
-                  {draft.enabled ? 'Enabled' : 'Disabled'}
-                </Text>
-              </Stack>
-              <Stack direction="horizontal" gap="snug">
-                <Button variant="ghost" onClick={onClose}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save Changes'}
-                </Button>
-              </Stack>
-            </footer>
-          </Stack>
-        </aside>
-      </Stack>
-    </>
+      <SidePanelFooter justify="between">
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Toggle
+            checked={draft.enabled}
+            onChange={(v) => setDraft({ ...draft, enabled: v })}
+          />
+          <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
+            {draft.enabled ? 'Enabled' : 'Disabled'}
+          </Text>
+        </Stack>
+        <Stack direction="horizontal" gap="snug">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void handleSave()} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </Stack>
+      </SidePanelFooter>
+    </SidePanel>
   );
 }

@@ -6,6 +6,14 @@ import { cn } from '../../utils';
 export interface PageLayoutProps {
   /** Fixed-width left sidebar (optional — omit for full-width layouts). */
   sidebar?: React.ReactNode;
+  /**
+   * Optional content pinned to the bottom of the sidebar shell, rendered as a
+   * semantic `<footer>`. Intended for user identity rows, logout buttons, and
+   * similar persistent sidebar footer content.
+   *
+   * Has no effect when `sidebar` is not provided.
+   */
+  sidebarFooter?: React.ReactNode;
   /** Fixed top header bar (optional). */
   header?: React.ReactNode;
   /** Main scrollable content. */
@@ -29,8 +37,12 @@ export interface PageLayoutProps {
  * canvas layouts; omit the header for minimal shells.
  *
  * ```tsx
- * // Full shell — sidebar + header + scrollable main
- * <PageLayout sidebar={<Sidebar />} header={<Header />}>
+ * // Full shell — sidebar + sidebar footer + header + scrollable main
+ * <PageLayout
+ *   sidebar={<SidebarNav />}
+ *   sidebarFooter={<UserRow />}
+ *   header={<Header />}
+ * >
  *   <Section heading="Overview">…</Section>
  * </PageLayout>
  *
@@ -45,11 +57,14 @@ export interface PageLayoutProps {
  * </PageLayout>
  * ```
  */
-const PageLayout = ({ sidebar, header, children, className }: PageLayoutProps) => (
+const PageLayout = ({ sidebar, sidebarFooter, header, children, className }: PageLayoutProps) => (
   <div className={cn('flex h-screen w-full overflow-hidden bg-background', className)}>
     {sidebar && (
-      <aside className="h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface overflow-y-auto">
-        {sidebar}
+      <aside className="h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface">
+        <div className="flex-1 overflow-y-auto">{sidebar}</div>
+        {sidebarFooter && (
+          <footer className="shrink-0">{sidebarFooter}</footer>
+        )}
       </aside>
     )}
     <div className="flex flex-1 flex-col min-w-0 overflow-hidden">

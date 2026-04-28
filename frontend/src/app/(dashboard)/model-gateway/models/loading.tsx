@@ -8,6 +8,7 @@ import {
   Badge,
   Skeleton,
   Stack,
+  TableToolbarShell,
   TableBody,
   TableCell,
   TableContainer,
@@ -22,15 +23,15 @@ export default function ModelsLoading() {
   return (
     <TableContainer>
       {/* Toolbar skeleton: search left, count + toggle right */}
-      <Stack asChild direction="horizontal" align="center" justify="between" gap="comfortable">
-        <header className="px-4 py-3 border-b border-border-subtle">
+      <TableToolbarShell>
+        <Stack direction="horizontal" align="center" justify="between" gap="comfortable" grow>
           <Skeleton shape="block" width="quarter" size="sm" />
           <Stack direction="horizontal" align="center" gap="comfortable">
             <Skeleton shape="line" width="quarter" size="xs" />
             <Skeleton shape="block" width="quarter" size="sm" />
           </Stack>
-        </header>
-      </Stack>
+        </Stack>
+      </TableToolbarShell>
 
       <TableRoot>
         <Table>

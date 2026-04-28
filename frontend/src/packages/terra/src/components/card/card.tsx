@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 import { Heading, Text } from '../typography/typography';
+import { MAX_H, OVERFLOW_Y } from '../layout/sizing';
+import type { MaxHeight, OverflowValue } from '../layout/sizing';
 
 /**
  * Card
@@ -75,10 +77,21 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * target interactive cards explicitly.
    */
   interactive?: boolean;
+  /**
+   * `overflow-y` CSS property. Use `'auto'` to make the card contents
+   * vertically scrollable within a fixed height or `maxHeight` constraint.
+   * Card already applies `overflow-hidden` — `overflowY` adds a scroll layer.
+   */
+  overflowY?: OverflowValue;
+  /**
+   * Maximum height constraint. Use with `overflowY="auto"` for scrollable
+   * card containers (e.g. picker dropdowns, bounded user lists).
+   */
+  maxHeight?: MaxHeight;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, column = false, interactive = false, ...props }, ref) => (
+  ({ className, column = false, interactive = false, overflowY, maxHeight, ...props }, ref) => (
     <div
       ref={ref}
       data-interactive={interactive ? 'true' : undefined}
@@ -86,7 +99,9 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
         column && 'flex flex-col',
         interactive &&
-          'transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
+          'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
+        overflowY && OVERFLOW_Y[overflowY],
+        maxHeight && MAX_H.base[maxHeight],
         className,
       )}
       {...props}

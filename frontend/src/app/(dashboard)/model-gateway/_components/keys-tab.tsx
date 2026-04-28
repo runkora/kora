@@ -65,8 +65,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
   const spendVariant = hasSpend ? getSpendVariant(pat.spend ?? 0, pat.spendLimit ?? 0) : 'healthy';
 
   return (
-    <Stack asChild>
-      <article className={revoking ? 'pointer-events-none opacity-50' : undefined}>
+    <Stack disabled={revoking}>
         <Card>
           <CardHeader compact>
             <Stack direction="horizontal" align="center" justify="between">
@@ -181,7 +180,6 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
             </Stack>
           </CardContent>
         </Card>
-      </article>
     </Stack>
   );
 }
