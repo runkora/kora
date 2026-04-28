@@ -13,7 +13,8 @@ export const Default: Story = {
   args: {
     open: true,
     title: 'Delete Role',
-    description: 'Remove the role "tenant-viewer" and all its scope mappings? This action cannot be undone.',
+    description:
+      'Remove the role "tenant-viewer" and all its scope mappings? This action cannot be undone.',
     confirmLabel: 'Delete',
     onConfirm: () => {},
     onClose: () => {},
@@ -24,7 +25,8 @@ export const Confirming: Story = {
   args: {
     open: true,
     title: 'Revoke API key',
-    description: 'This key will be permanently revoked and any applications using it will lose access immediately.',
+    description:
+      'This key will be permanently revoked and any applications using it will lose access immediately.',
     confirmLabel: 'Revoke key',
     confirming: true,
     onConfirm: () => {},

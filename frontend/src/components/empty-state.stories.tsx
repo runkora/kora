@@ -14,7 +14,8 @@ export const Default: Story = {
   args: {
     icon: 'shield-check',
     title: 'No grants yet',
-    description: 'Grants assign scopes directly to principals. Create your first grant to define access.',
+    description:
+      'Grants assign scopes directly to principals. Create your first grant to define access.',
   },
 };
 

@@ -224,15 +224,15 @@ When you add a new component at any tier — update this document in the **same 
 
 Tier 2 components live at `frontend/src/components/` and are exported from `frontend/src/components/index.ts`. Import all Tier 2 components via `@orbit/components` (the `@orbit/*` path alias maps to `./src/*`).
 
-| Component | Description |
-|-----------|-------------|
-| `EmptyState` | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`. |
-| `ErrorBanner` | **Removed** — use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children. |
-| `StatusBadge` | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`. |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2). |
-| `ConfirmDialog` | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`. |
-| `MetricCard` | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`. |
-| `EventFeedItem` | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>` — wrap in `<ul className="divide-y">`. |
+| Component           | Description                                                                                                                                                                                                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmptyState`        | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`.                                                                                                       |
+| `ErrorBanner`       | **Removed** — use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
+| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                 |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                              |
+| `ConfirmDialog`     | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`.                                                                 |
+| `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.            |
+| `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>` — wrap in `<ul className="divide-y">`. |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/golden-paths/app-components.md`.
 

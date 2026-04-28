@@ -67,7 +67,9 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
         <Heading variant="title">Policy Engine</Heading>
         <Alert variant="error">
           <Icon name="triangle-alert" color="status-error" />
-          <Text size="caption" color="status-error">Unable to load policy stats. The policy service may be unavailable.</Text>
+          <Text size="caption" color="status-error">
+            Unable to load policy stats. The policy service may be unavailable.
+          </Text>
         </Alert>
       </Stack>
     );

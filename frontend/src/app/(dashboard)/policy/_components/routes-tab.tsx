@@ -158,7 +158,9 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {initialError && (
         <Alert variant="error">
           <Icon name="triangle-alert" color="status-error" />
-          <Text size="caption" color="status-error">{initialError}</Text>
+          <Text size="caption" color="status-error">
+            {initialError}
+          </Text>
         </Alert>
       )}
 

@@ -164,8 +164,8 @@ interface MetricCardProps {
 ```tsx
 interface EventFeedItemProps {
   status: OrbitStatus;
-  label: string;    // primary identifier, monospace (e.g. event type)
-  meta?: string;    // supporting identifier (e.g. agent name)
+  label: string; // primary identifier, monospace (e.g. event type)
+  meta?: string; // supporting identifier (e.g. agent name)
   message: string;
   timestamp: string;
 }

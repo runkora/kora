@@ -8,7 +8,14 @@ const meta: Meta<typeof StatusBadge> = {
   argTypes: {
     status: {
       control: 'select',
-      options: ['healthy', 'degraded', 'error', 'idle', 'pending', 'unknown'] satisfies OrbitStatus[],
+      options: [
+        'healthy',
+        'degraded',
+        'error',
+        'idle',
+        'pending',
+        'unknown',
+      ] satisfies OrbitStatus[],
     },
   },
 };

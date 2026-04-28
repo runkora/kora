@@ -125,7 +125,9 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {error && (
         <Alert variant="error">
           <Icon name="triangle-alert" color="status-error" />
-          <Text size="caption" color="status-error">{error}</Text>
+          <Text size="caption" color="status-error">
+            {error}
+          </Text>
         </Alert>
       )}
 
@@ -541,4 +543,3 @@ function UpsertRoleModal({
     </Modal>
   );
 }
-

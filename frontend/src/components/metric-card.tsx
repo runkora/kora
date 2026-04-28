@@ -6,7 +6,17 @@
  * @promote-to-tier-1 if: Orbit heading variants and delta colour semantics are removed
  * and a second non-dashboard surface needs a metric display.
  */
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, Heading, Separator, Stack, Text } from '@orbit/terra';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Heading,
+  Separator,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import Link from 'next/link';
 
 export interface MetricCardProps {

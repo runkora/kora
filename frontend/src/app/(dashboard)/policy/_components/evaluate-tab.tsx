@@ -228,7 +228,9 @@ export function EvaluateTab({
             {lookupError && (
               <Alert variant="error">
                 <Icon name="triangle-alert" color="status-error" />
-                <Text size="caption" color="status-error">{lookupError}</Text>
+                <Text size="caption" color="status-error">
+                  {lookupError}
+                </Text>
               </Alert>
             )}
 
@@ -431,7 +433,9 @@ export function EvaluateTab({
             {simError && (
               <Alert variant="error">
                 <Icon name="triangle-alert" color="status-error" />
-                <Text size="caption" color="status-error">{simError}</Text>
+                <Text size="caption" color="status-error">
+                  {simError}
+                </Text>
               </Alert>
             )}
 

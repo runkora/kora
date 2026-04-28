@@ -199,7 +199,15 @@ export default function DashboardPage() {
           {STATS.map((stat) => (
             <MetricCard
               key={stat.id}
-              icon={<Icon name={stat.icon} size="sm" container containerVariant="surface-subtle" aria-hidden />}
+              icon={
+                <Icon
+                  name={stat.icon}
+                  size="sm"
+                  container
+                  containerVariant="surface-subtle"
+                  aria-hidden
+                />
+              }
               label={stat.label}
               value={stat.value}
               delta={{ text: stat.delta, positive: stat.deltaPositive }}

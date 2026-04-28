@@ -163,7 +163,9 @@ export function GrantsTab({
       {error && (
         <Alert variant="error">
           <Icon name="triangle-alert" color="status-error" />
-          <Text size="caption" color="status-error">{error}</Text>
+          <Text size="caption" color="status-error">
+            {error}
+          </Text>
         </Alert>
       )}
 

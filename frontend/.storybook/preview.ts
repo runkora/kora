@@ -6,20 +6,25 @@ const preview: Preview = {
     backgrounds: {
       default: 'orbit',
       values: [
-        { name: 'orbit',   value: '#070a0f' },
+        { name: 'orbit', value: '#070a0f' },
         { name: 'surface', value: '#0d1117' },
-        { name: 'light',   value: '#ffffff' },
+        { name: 'light', value: '#ffffff' },
       ],
     },
     controls: {
       matchers: {
         color: /(background|color)$/i,
-        date:  /date$/i,
+        date: /date$/i,
       },
     },
     options: {
       storySort: {
-        order: ['Terra', ['Overview', 'Foundation', ['*', 'Typography'], 'Layout', 'Atoms', 'Molecules'], 'App', ['Shared']],
+        order: [
+          'Terra',
+          ['Overview', 'Foundation', ['*', 'Typography'], 'Layout', 'Atoms', 'Molecules'],
+          'App',
+          ['Shared'],
+        ],
       },
     },
   },
