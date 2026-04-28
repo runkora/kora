@@ -1,6 +1,6 @@
 'use client';
 
-import { NativeSelect } from '@orbit/terra';
+import { NativeSelect, Stack } from '@orbit/terra';
 import type { PAT } from '@orbit/shared/api';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
@@ -15,8 +15,8 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
 
   const filterSlot =
     pats.length > 0 ? (
-      <NativeSelect
-          style={{ width: '160px' }}
+      <Stack minWidth="form-field-sm" maxWidth="form-field-sm">
+        <NativeSelect
           value={tokenId ?? ''}
           onChange={(e) => setTokenId(e.target.value || null)}
           aria-label="Filter by API key"
@@ -28,6 +28,7 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
             </option>
           ))}
         </NativeSelect>
+      </Stack>
     ) : undefined;
 
   return (
