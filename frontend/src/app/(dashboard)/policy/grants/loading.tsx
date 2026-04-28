@@ -37,7 +37,7 @@ export default function GrantsLoading() {
                   <TableHead>
                     <Skeleton shape="line" width="half" size="xs" />
                   </TableHead>
-                  <TableHead />
+                  <TableHead srOnly>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

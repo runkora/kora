@@ -12,7 +12,7 @@ Before writing any UI boilerplate, check this list. If a component already cover
 
 **When to use:** Any section that can have zero items and needs a centred placeholder with an icon, title, description, and an optional CTA button.
 
-**When not to use:** Full-page error states (use `ErrorBanner`); loading skeletons (use Terra `Skeleton`).
+**When not to use:** Full-page error states (use `Alert variant="error"` from `@orbit/terra`); loading skeletons (use Terra `Skeleton`).
 
 ```tsx
 interface EmptyStateProps {
@@ -30,26 +30,6 @@ interface EmptyStateProps {
   description="Create a key to start making requests to the inference gateway."
   action={<Button size="sm">Create your first key</Button>}
 />
-```
-
----
-
-## ErrorBanner
-
-**Import:** `import { ErrorBanner } from '@orbit/components'`
-
-**When to use:** Inline error message when a server action or data fetch fails. Renders an alert icon + error text inside a subtle red border box.
-
-**When not to use:** Validation errors on individual form fields (use `FormField` error state from `@orbit/terra`); full-page unavailability (use a page-level error boundary).
-
-```tsx
-interface ErrorBannerProps {
-  message: string;
-}
-```
-
-```tsx
-<ErrorBanner message="Unable to load policy stats. The policy service may be unavailable." />
 ```
 
 ---
@@ -73,10 +53,6 @@ interface StatusBadgeProps {
 <StatusBadge status="healthy" />
 <StatusBadge status="degraded" label="Bundle stale" />
 ```
-
----
-
-> **`ErrorBanner` has been removed.** Use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children. The `Alert error` variant now carries the same visual style (`rounded-lg`, `px-4 py-3`, `bg-status-error/5`).
 
 ---
 

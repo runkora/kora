@@ -100,6 +100,7 @@ export function ScopePicker({
               >
                 {/* Group header */}
                 <Button
+                  type="button"
                   variant="ghost"
                   fullWidth
                   onClick={() => toggleGroupOpen(group.resourceType)}

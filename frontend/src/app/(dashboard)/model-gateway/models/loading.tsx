@@ -23,7 +23,7 @@ export default function ModelsLoading() {
     <TableContainer>
       {/* Toolbar skeleton: search left, count + toggle right */}
       <Stack asChild direction="horizontal" align="center" justify="between" gap="comfortable">
-        <header className="px-4 py-3 border-b border-border">
+        <header className="px-4 py-3 border-b border-border-subtle">
           <Skeleton shape="block" width="quarter" size="sm" />
           <Stack direction="horizontal" align="center" gap="comfortable">
             <Skeleton shape="line" width="quarter" size="xs" />
@@ -36,7 +36,7 @@ export default function ModelsLoading() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead />
+              <TableHead srOnly>Favourite</TableHead>
               <TableHead>
                 <Skeleton shape="line" width="half" size="xs" />
               </TableHead>
@@ -52,7 +52,7 @@ export default function ModelsLoading() {
               <TableHead>
                 <Skeleton shape="line" width="full" size="xs" />
               </TableHead>
-              <TableHead />
+              <TableHead srOnly>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

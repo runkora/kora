@@ -5,6 +5,9 @@
  * @promote-to-tier-2 if: AI-generated text rendering is needed outside the
  * chat page (e.g. policy explain, agent scratchpad viewer).
  */
+'use client';
+
+import { useState } from 'react';
 import { Button, Code, Icon, Stack, Text } from '@orbit/terra';
 
 export interface MessageContentProps {
@@ -12,6 +15,14 @@ export interface MessageContentProps {
 }
 
 export function MessageContent({ content }: MessageContentProps) {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  async function handleCopy(code: string, index: number) {
+    await navigator.clipboard.writeText(code);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 1500);
+  }
+
   const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
 
   return (
@@ -22,6 +33,7 @@ export function MessageContent({ content }: MessageContentProps) {
           if (codeMatch) {
             const lang = codeMatch[1] || 'code';
             const code = codeMatch[2].trim();
+            const copied = copiedIndex === i;
             return (
               <Stack key={i} gap="none" asChild>
                 <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
@@ -30,8 +42,14 @@ export function MessageContent({ content }: MessageContentProps) {
                       <Text size="micro" color="subtle" mono>
                         {lang}
                       </Text>
-                      <Button variant="ghost" size="icon-sm" aria-label="Copy code">
-                        <Icon name="copy" size="xs" />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={copied ? 'Copied' : 'Copy code'}
+                        onClick={() => void handleCopy(code, i)}
+                      >
+                        <Icon name={copied ? 'check' : 'copy'} size="xs" />
                       </Button>
                     </figcaption>
                   </Stack>

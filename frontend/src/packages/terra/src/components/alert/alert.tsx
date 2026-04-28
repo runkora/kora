@@ -55,11 +55,11 @@ export interface AlertProps {
  * ```
  */
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ variant = 'info', className, children, ...props }, ref) => {
+  ({ variant = 'info', className, children, role = 'alert', ...props }, ref) => {
     return (
       <div
         ref={ref}
-        role="alert"
+        role={role}
         className={cn(
           'flex items-center gap-2 rounded-lg border px-4 py-3',
           VARIANT_CLASSES[variant],

@@ -121,14 +121,14 @@ export function fmtDateTime(iso: string): string {
 // ── Tokens ────────────────────────────────────────────────────────────────────
 
 /**
- * Compact token count with B/M/K suffix, e.g. 1.2B, 345.6M, 1.2K.
+ * Compact token count with B/M/K suffix, e.g. 1.2B, 3.5M, 1.2K.
  * Use in billing stat cards and token breakdowns where the raw integer
  * would be too wide.
  */
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
 }
 

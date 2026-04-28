@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
+import type { MouseEvent } from 'react';
 
 /**
  * useDialog
@@ -63,7 +64,7 @@ export function useDialog(open: boolean, onClose: () => void) {
 
   // Detect backdrop clicks (click on the dialog element itself, not its content)
   const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDialogElement>) => {
+    (e: MouseEvent<HTMLDialogElement>) => {
       if (e.target === ref.current) onClose();
     },
     [onClose],
