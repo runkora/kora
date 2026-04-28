@@ -10,6 +10,8 @@
 
 import { useMemo, useState } from 'react';
 import { Button, Icon, Input, Stack, Text } from '@orbit/terra';
+// Direct relative import — importing via @orbit/components barrel would be
+// circular (scope-picker is itself exported from that barrel).
 import { ScopeChip } from './scope-chip';
 
 export interface ScopePickerProps {

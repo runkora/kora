@@ -20,6 +20,8 @@ export function ScopeChip({ scope }: ScopeChipProps) {
         const isFirst = i === 0;
         const isLast = i === parts.length - 1;
         return (
+          // Index key is safe: parts is derived from a fixed, immutable scope
+          // string and is never reordered or filtered.
           <Fragment key={i}>
             {i > 0 && (
               <Text as="span" size="caption" color="subtle" mono>

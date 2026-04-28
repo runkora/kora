@@ -474,6 +474,53 @@ Only `Text` exposes a string `as` prop. All other element-override use cases use
 
 ---
 
+## Status Indicators: Badge
+
+`Badge` is the canonical inline status/label chip. It replaces ad-hoc `<span className="rounded …">` patterns. All colour, size, and typography come from the variant prop — never override with `className`.
+
+```tsx
+import { Badge } from '@orbit/terra';
+```
+
+### Variants
+
+| Variant | Visual | When to use |
+|---------|--------|-------------|
+| `healthy` | Green dot/fill | Resource is live, available, or passing |
+| `degraded` | Amber | Partial failure, warning, stale state |
+| `error` | Red | Failed, unavailable, blocked |
+| `idle` | Grey-blue | Inactive, not scheduled |
+| `pending` | Blue | Starting up, awaiting input |
+| `default` | Subtle fill | Neutral label — no status semantics |
+| `secondary` | Muted fill | De-emphasised label (second-tier metadata) |
+| `outline` | Border only | Lowest-emphasis neutral chip |
+| `elevated` | Surface background + border | **Neutral filled chip for technical tokens** (scope strings, service names, provider labels). Stays readable on both light and dark surfaces. |
+
+```tsx
+// Status badge with dot indicator
+<Badge variant="healthy" dot>Available</Badge>
+<Badge variant="error" dot>Unreachable</Badge>
+
+// Scope chip — technical token in monospace
+<Badge variant="elevated" size="sm" mono>models:read</Badge>
+
+// Service name label
+<Badge variant="elevated">anthropic</Badge>
+
+// Neutral pill with no semantic meaning
+<Badge variant="default">v2</Badge>
+```
+
+### Size and shape
+
+```tsx
+<Badge size="sm">small</Badge>   // compact — use in table cells and card metadata
+<Badge size="md">medium</Badge>  // default — use in standalone contexts
+<Badge shape="pill" size="sm">pill</Badge>  // pill shape for tag-cloud layouts
+```
+
+---
+
 ## Page-Level Layout
 
 Use `Section` for page sections and `PageLayout` as the top-level page wrapper. These are higher-level primitives that compose `Stack` and `Grid` internally.
