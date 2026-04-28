@@ -119,7 +119,6 @@ function KPICard({ icon, label, value, deltaPercent, deltaText, positiveIsBad }:
   );
 }
 
-
 // ── Model Health Card ─────────────────────────────────────────────────────────
 
 function ModelHealthCard({ models }: { models: ModelRow[] }) {
@@ -488,72 +487,72 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
   return (
     <Stack direction="vertical" gap="comfortable">
       {/* Page header */}
-        <Stack gap="snug">
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Heading variant="title">Model Gateway</Heading>
-            <Badge variant={isOperational ? 'healthy' : 'degraded'} dot size="sm">
-              {isOperational ? 'Operational' : 'Degraded'}
-            </Badge>
-          </Stack>
-          <Text size="supporting" color="muted">
-            Unified inference proxy — route, observe, and govern all LLM traffic from a single
-            control plane.
-          </Text>
+      <Stack gap="snug">
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Heading variant="title">Model Gateway</Heading>
+          <Badge variant={isOperational ? 'healthy' : 'degraded'} dot size="sm">
+            {isOperational ? 'Operational' : 'Degraded'}
+          </Badge>
         </Stack>
+        <Text size="supporting" color="muted">
+          Unified inference proxy — route, observe, and govern all LLM traffic from a single control
+          plane.
+        </Text>
+      </Stack>
 
-        {/* KPI Cards */}
-        <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
-          <KPICard
-            icon={<Icon name="activity" />}
-            label="Total Requests"
-            value={data ? fmtNumCompact(currRequests) : '—'}
-            deltaPercent={data ? pctDelta(currRequests, prevRequests) : undefined}
-            deltaText="vs prior 7 days"
-          />
-          <KPICard
-            icon={<Icon name="zap" />}
-            label="Total Tokens"
-            value={data ? fmtNumCompact(currTokens) : '—'}
-            deltaPercent={data ? pctDelta(currTokens, prevTokens) : undefined}
-            deltaText="vs prior 7 days"
-          />
-          <KPICard
-            icon={<Icon name="dollar-sign" />}
-            label="Total Spend"
-            value={data ? fmtCost(currCost) : '—'}
-            deltaPercent={data ? pctDelta(currCost, prevCost) : undefined}
-            deltaText="vs prior 7 days"
-            positiveIsBad
-          />
-          <KPICard
-            icon={<Icon name="clock" />}
-            label="Avg Latency"
-            value={data ? `${Math.round(data.kpis.avg_latency_ms)}ms` : '—'}
-          />
-          <KPICard
-            icon={<Icon name="alert-circle" />}
-            label="Error Rate"
-            value={errorRateBadge}
-            deltaPercent={data ? pctDelta(currErrorRate, prevErrorRate) : undefined}
-            deltaText="vs prior 7 days"
-            positiveIsBad
-          />
-          <KPICard
-            icon={<Icon name="hard-drive" />}
-            label="Cache Hit Rate"
-            value={cacheHitRateBadge}
-          />
-        </Grid>
+      {/* KPI Cards */}
+      <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
+        <KPICard
+          icon={<Icon name="activity" />}
+          label="Total Requests"
+          value={data ? fmtNumCompact(currRequests) : '—'}
+          deltaPercent={data ? pctDelta(currRequests, prevRequests) : undefined}
+          deltaText="vs prior 7 days"
+        />
+        <KPICard
+          icon={<Icon name="zap" />}
+          label="Total Tokens"
+          value={data ? fmtNumCompact(currTokens) : '—'}
+          deltaPercent={data ? pctDelta(currTokens, prevTokens) : undefined}
+          deltaText="vs prior 7 days"
+        />
+        <KPICard
+          icon={<Icon name="dollar-sign" />}
+          label="Total Spend"
+          value={data ? fmtCost(currCost) : '—'}
+          deltaPercent={data ? pctDelta(currCost, prevCost) : undefined}
+          deltaText="vs prior 7 days"
+          positiveIsBad
+        />
+        <KPICard
+          icon={<Icon name="clock" />}
+          label="Avg Latency"
+          value={data ? `${Math.round(data.kpis.avg_latency_ms)}ms` : '—'}
+        />
+        <KPICard
+          icon={<Icon name="alert-circle" />}
+          label="Error Rate"
+          value={errorRateBadge}
+          deltaPercent={data ? pctDelta(currErrorRate, prevErrorRate) : undefined}
+          deltaText="vs prior 7 days"
+          positiveIsBad
+        />
+        <KPICard
+          icon={<Icon name="hard-drive" />}
+          label="Cache Hit Rate"
+          value={cacheHitRateBadge}
+        />
+      </Grid>
 
-        {/* Requests & errors chart */}
-        <RequestsAndErrorsChart buckets={data?.buckets.slice(-14) ?? []} />
+      {/* Requests & errors chart */}
+      <RequestsAndErrorsChart buckets={data?.buckets.slice(-14) ?? []} />
 
-        {/* Three-column grid: model status + top models + recent logs */}
-        <Grid cols={{ base: 1, lg: 3 }} gap="comfortable">
-          <ModelHealthCard models={models} />
-          <TopModelsCard costByModel={data?.costByModel ?? []} />
-          <RecentLogsCard records={recentRecords} />
-        </Grid>
+      {/* Three-column grid: model status + top models + recent logs */}
+      <Grid cols={{ base: 1, lg: 3 }} gap="comfortable">
+        <ModelHealthCard models={models} />
+        <TopModelsCard costByModel={data?.costByModel ?? []} />
+        <RecentLogsCard records={recentRecords} />
+      </Grid>
     </Stack>
   );
 }
