@@ -28,6 +28,9 @@ import {
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
+import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
+import { MetricCard } from '@orbit/components';
+import { ChartLegend } from './chart-legend';
 import {
   Activity,
   AlertCircle,
@@ -137,6 +140,7 @@ function KPICard({ icon, label, value, deltaPercent, deltaText, positiveIsBad }:
     </Card>
   );
 }
+
 
 // ── Model Health Card ─────────────────────────────────────────────────────────
 
@@ -331,20 +335,12 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
             />
           </ComposedChart>
         </ResponsiveContainer>
-        <Stack direction="horizontal" gap="comfortable" justify="center">
-          <Stack direction="horizontal" align="center" gap="tight">
-            <StatusDot status="accent" size="sm" aria-hidden />
-            <Text size="caption" color="subtle">
-              Total requests
-            </Text>
-          </Stack>
-          <Stack direction="horizontal" align="center" gap="tight">
-            <StatusDot status="error" size="sm" aria-hidden />
-            <Text size="caption" color="subtle">
-              Errors
-            </Text>
-          </Stack>
-        </Stack>
+        <ChartLegend
+          items={[
+            { color: 'accent', label: 'Total requests' },
+            { color: 'error', label: 'Errors' },
+          ]}
+        />
       </CardContent>
     </Card>
   );

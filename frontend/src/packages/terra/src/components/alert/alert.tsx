@@ -6,7 +6,7 @@ import { cn } from '../../utils';
 type AlertVariant = 'error' | 'warning' | 'info';
 
 const VARIANT_CLASSES: Record<AlertVariant, string> = {
-  error: 'border-status-error/30 bg-status-error/10',
+  error: 'border-status-error/30 bg-status-error/5',
   warning: 'border-status-degraded/30 bg-status-degraded/10',
   info: 'border-accent/30 bg-accent/10',
 };
@@ -61,7 +61,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         ref={ref}
         role="alert"
         className={cn(
-          'flex items-center gap-2 rounded-md border px-3 py-2',
+          'flex items-center gap-2 rounded-lg border px-4 py-3',
           VARIANT_CLASSES[variant],
           className,
         )}

@@ -1,7 +1,12 @@
+/**
+ * @tier 2 — App-level shared. Cross-feature; used by model-gateway, policy, and all future
+ * dashboard sections that need a zero-state placeholder.
+ * @promote-to-tier-1 if: domain knowledge is removed and a second non-dashboard Orbit surface needs it.
+ */
 import { Card, CardContent, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
 
-interface EmptyStateProps {
+export interface EmptyStateProps {
   icon: IconName;
   title: string;
   description: string;

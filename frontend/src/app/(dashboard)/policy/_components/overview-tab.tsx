@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import {
+  Alert,
   Badge,
   Card,
   CardContent,
@@ -23,6 +24,8 @@ import {
   Icon,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { MetricCard } from '@orbit/components';
+import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';
 import type {
   Grant,
@@ -32,7 +35,7 @@ import type {
   StatsResponse,
 } from '../_types';
 import { ScopeChip } from './scope-chip';
-import { ErrorBanner } from './error-banner';
+import { QuickLinkCard } from './quick-link-card';
 
 interface OverviewTabProps {
   stats: StatsResponse | null;
@@ -62,7 +65,10 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
     return (
       <Stack gap="comfortable">
         <Heading variant="title">Policy Engine</Heading>
-        <ErrorBanner message="Unable to load policy stats. The policy service may be unavailable." />
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">Unable to load policy stats. The policy service may be unavailable.</Text>
+        </Alert>
       </Stack>
     );
   }
@@ -105,7 +111,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
 
       {/* KPI Cards */}
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
-        <KPICard
+        <MetricCard
           icon={<Icon name="shield-check" />}
           label="Grants"
           value={stats.grants.total}
@@ -115,7 +121,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             value: count,
           }))}
         />
-        <KPICard
+        <MetricCard
           icon={<Icon name="user-check" />}
           label="Roles"
           value={stats.roles.total}
@@ -125,7 +131,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             { label: 'Custom', value: stats.roles.custom },
           ]}
         />
-        <KPICard
+        <MetricCard
           icon={<Icon name="library" />}
           label="Vocabulary"
           value={stats.vocabulary.total}
@@ -135,7 +141,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
             value: count,
           }))}
         />
-        <KPICard
+        <MetricCard
           icon={<Icon name="route" />}
           label="Routes"
           value={totalRouteCount}
@@ -228,7 +234,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                       </Text>
                       <Stack direction="horizontal" align="center" gap="snug">
                         <Text size="caption" color="subtle">
-                          {formatTimestamp(tenant.last_compiled_at)}
+                          {fmtDateTime(tenant.last_compiled_at)}
                         </Text>
                         <Badge
                           variant={tenant.status === 'current' ? 'healthy' : 'degraded'}
@@ -306,7 +312,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                       </TableCell>
                       <TableCell>
                         <Text size="caption" color="subtle">
-                          {formatDate(grant.created_at)}
+                          {fmtDate(grant.created_at)}
                         </Text>
                       </TableCell>
                     </TableRow>
@@ -399,101 +405,4 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
       </Grid>
     </Stack>
   );
-}
-
-// ── Sub-components ───────────────────────────────────────────────────────────
-
-interface KPICardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  href: string;
-  breakdown?: { label: string; value: number }[];
-}
-
-function KPICard({ icon, label, value, href, breakdown }: KPICardProps) {
-  return (
-    <Card column>
-      <CardHeader compact icon={icon}>
-        <CardTitle>{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Stack gap="snug">
-          <Heading variant="metric">{value}</Heading>
-          {breakdown && breakdown.length > 0 && (
-            <>
-              <Separator />
-              <Stack gap="tight">
-                {breakdown.map((item) => (
-                  <Stack key={item.label} direction="horizontal" align="center" justify="between">
-                    <Text size="caption" color="muted">
-                      {item.label}
-                    </Text>
-                    <Text size="caption" weight="emphasis">
-                      {item.value}
-                    </Text>
-                  </Stack>
-                ))}
-              </Stack>
-            </>
-          )}
-        </Stack>
-      </CardContent>
-      <CardFooter compact justify="end">
-        <Link href={href} className="text-xs text-subtle hover:text-foreground transition-colors">
-          View all →
-        </Link>
-      </CardFooter>
-    </Card>
-  );
-}
-
-interface QuickLinkCardProps {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  href: string;
-}
-
-function QuickLinkCard({ icon, title, description, href }: QuickLinkCardProps) {
-  return (
-    <Link href={href} className="block transition-colors [&>*]:hover:border-accent/40">
-      <Card column>
-        <CardHeader compact icon={icon}>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Text size="caption" color="muted">
-            {description}
-          </Text>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-function formatTimestamp(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
 }

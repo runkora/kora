@@ -87,6 +87,45 @@ export function fmtExpiry(iso: string | null | undefined): string {
   });
 }
 
+/**
+ * Formats a non-nullable ISO timestamp as a compact "date + time" string,
+ * e.g. "Jan 5, 12:34 PM". Year is omitted — use for recent/current events
+ * where the year is implied. Paired with fmtDate when year context is needed.
+ */
+export function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────────
+
+/**
+ * Compact token count with B/M/K suffix, e.g. 1.2B, 345.6M, 1.2K.
+ * Use in billing stat cards and token breakdowns where the raw integer
+ * would be too wide.
+ */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return n.toLocaleString();
+}
+
+// ── Billing amounts ───────────────────────────────────────────────────────────
+
+/**
+ * Formats a USD billing amount to two decimal places, e.g. "$1,234.56".
+ * Use for period/monthly/quarterly totals where sub-cent precision is not
+ * meaningful. For per-request micro-costs use fmtCost instead.
+ */
+export function fmtUsd(usd: number): string {
+  return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 // ── Expiry check ──────────────────────────────────────────────────────────────
 
 /**

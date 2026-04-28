@@ -160,6 +160,10 @@ export type {
 export { Section } from './components/section';
 export type { SectionProps } from './components/section';
 
+// ─── Layout: PageSectionHeader ────────────────────────────────────────────────
+export { PageSectionHeader } from './components/page-section-header';
+export type { PageSectionHeaderProps } from './components/page-section-header';
+
 // ─── Layout: Responsive visibility ───────────────────────────────────────────
 export { Show } from './components/show';
 export type { ShowProps, Breakpoint } from './components/show';

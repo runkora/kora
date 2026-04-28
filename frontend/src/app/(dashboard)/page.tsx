@@ -19,9 +19,11 @@ import {
   TableRoot,
   TableRow,
   Text,
-  type IconColor,
 } from '@orbit/terra';
 import { HealthStatus } from '@orbit/components/health-status';
+import { StatusBadge } from '@orbit/components';
+import { MetricCard } from '@orbit/components';
+import { EventFeedItem } from '@orbit/components';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -178,81 +180,6 @@ const HEALTH_RESOURCES = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: (typeof AGENTS)[number]['status'] }) {
-  const labels: Record<typeof status, string> = {
-    healthy: 'Healthy',
-    degraded: 'Degraded',
-    error: 'Error',
-    idle: 'Idle',
-    pending: 'Pending',
-  };
-  return (
-    <Badge variant={status} dot>
-      {labels[status]}
-    </Badge>
-  );
-}
-
-type EventSeverity = (typeof EVENTS)[number]['severity'];
-
-const SEVERITY_COLOR: Record<EventSeverity, IconColor> = {
-  healthy: 'status-healthy',
-  degraded: 'status-degraded',
-  error: 'status-error',
-  idle: 'muted',
-  pending: 'status-pending',
-};
-
-function EventIcon({ severity }: { severity: EventSeverity }) {
-  const name =
-    severity === 'healthy'
-      ? 'circle-check'
-      : severity === 'error' || severity === 'degraded'
-        ? 'triangle-alert'
-        : 'circle-dot';
-
-  return <Icon name={name} color={SEVERITY_COLOR[severity]} aria-hidden size="2xs" />;
-}
-
-function StatCard({ label, value, delta, deltaPositive, icon }: (typeof STATS)[number]) {
-  return (
-    <Card>
-      {/*
-       * compact: tightens pb-6 → pb-2 so the header sits close to the metric
-       * value below it. Standard header spacing feels too wide in stat cards.
-       */}
-      <CardHeader compact>
-        <Stack direction="horizontal" align="center" justify="between">
-          <Text size="supporting" color="muted">
-            {label}
-          </Text>
-          <Icon name={icon} size="sm" container containerVariant="surface-subtle" aria-hidden />
-        </Stack>
-      </CardHeader>
-      {/*
-       * No props needed: CardContent defaults to pt-0, which is correct here
-       * because CardHeader already supplies the leading rhythm.
-       */}
-      <CardContent>
-        <Stack gap="tight">
-          {/*
-           * variant="metric": text-3xl font-bold tabular-nums — the dedicated
-           * Terra variant for KPI display numbers. No className override needed.
-           */}
-          <Heading variant="metric">{value}</Heading>
-          {/*
-           * color="status-*": uses the Terra status colour tokens directly on
-           * Text so the delta matches badge/progress colours without className.
-           */}
-          <Text size="caption" color={deltaPositive ? 'status-healthy' : 'status-error'}>
-            {delta}
-          </Text>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -270,7 +197,13 @@ export default function DashboardPage() {
         {/* ── Stat cards ── */}
         <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
           {STATS.map((stat) => (
-            <StatCard key={stat.id} {...stat} />
+            <MetricCard
+              key={stat.id}
+              icon={<Icon name={stat.icon} size="sm" container containerVariant="surface-subtle" aria-hidden />}
+              label={stat.label}
+              value={stat.value}
+              delta={{ text: stat.delta, positive: stat.deltaPositive }}
+            />
           ))}
         </Grid>
 
@@ -411,39 +344,14 @@ export default function DashboardPage() {
             <CardContent flush grow>
               <ul className="divide-y divide-border-subtle">
                 {EVENTS.map((evt) => (
-                  <li
+                  <EventFeedItem
                     key={evt.id}
-                    className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
-                  >
-                    <EventIcon severity={evt.severity} />
-                    <Stack direction="vertical" gap="tight" grow minWidth="none">
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        {/*
-                         * mono: event type strings (e.g. "policy.allow") are
-                         * structured identifiers — monospace aids scanability.
-                         * weight="emphasis" and default color="foreground" give
-                         * it the prominence of a row label.
-                         */}
-                        <Text size="caption" weight="emphasis" mono>
-                          {evt.type}
-                        </Text>
-                        <Text size="caption" color="subtle">
-                          ·
-                        </Text>
-                        <Text size="caption" color="subtle">
-                          {evt.agent}
-                        </Text>
-                      </Stack>
-                      <Text size="caption" color="muted" truncate>
-                        {evt.message}
-                      </Text>
-                    </Stack>
-                    <Stack shrink gap="none">
-                      <Text size="caption" color="subtle" mono>
-                        {evt.ts}
-                      </Text>
-                    </Stack>
-                  </li>
+                    status={evt.severity}
+                    label={evt.type}
+                    meta={evt.agent}
+                    message={evt.message}
+                    timestamp={evt.ts}
+                  />
                 ))}
               </ul>
             </CardContent>

@@ -1,12 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Badge, DataTable, Heading, Stack, Text } from '@orbit/terra';
+import { Alert, Badge, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip } from './scope-chip';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {
   initialRegistrations: RouteRegistration[];
@@ -156,7 +155,12 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </aside>
 
-      {initialError && <ErrorBanner message={initialError} />}
+      {initialError && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">{initialError}</Text>
+        </Alert>
+      )}
 
       <DataTable
         data={flatRoutes}

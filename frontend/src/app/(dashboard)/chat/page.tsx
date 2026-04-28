@@ -5,7 +5,6 @@ import {
   Button,
   ChatBubble,
   ChatBubbleActions,
-  Code,
   Grid,
   Icon,
   InputSurface,
@@ -16,6 +15,7 @@ import {
   Textarea,
   TypingIndicator,
 } from '@orbit/terra';
+import { MessageContent } from './_components/message-content';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -298,55 +298,6 @@ function getAIResponse(userInput: string): string {
     return RESPONSES.template;
   }
   return RESPONSES.fallback;
-}
-
-// ─── TypingIndicator ──────────────────────────────────────────────────────────
-// Delegate to the Terra primitive — TypingIndicator imported from @orbit/terra.
-
-// ─── MessageContent ───────────────────────────────────────────────────────────
-
-function MessageContent({ content }: { content: string }) {
-  // Split on fenced code blocks, preserving them as separate segments.
-  const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
-
-  return (
-    <Stack gap="snug" asChild>
-      <article className="text-sm leading-relaxed text-foreground">
-        {segments.map((seg, i) => {
-          const codeMatch = seg.match(/^```([a-z]*)\n?([\s\S]*?)```$/);
-          if (codeMatch) {
-            const lang = codeMatch[1] || 'code';
-            const code = codeMatch[2].trim();
-            return (
-              <Stack key={i} gap="none" asChild>
-                <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <figcaption className="px-4 py-2 bg-surface border-b border-border-subtle">
-                      <Text size="micro" color="subtle" mono>
-                        {lang}
-                      </Text>
-                      <Button variant="ghost" size="icon-sm" aria-label="Copy code">
-                        <Icon name="copy" size="xs" />
-                      </Button>
-                    </figcaption>
-                  </Stack>
-                  <pre className="bg-background px-4 py-3 overflow-x-auto">
-                    <Code variant="bare">{code}</Code>
-                  </pre>
-                </figure>
-              </Stack>
-            );
-          }
-          // Plain text segment — preserve newlines.
-          return seg ? (
-            <Text key={i} as="span" preserveWhitespace>
-              {seg}
-            </Text>
-          ) : null;
-        })}
-      </article>
-    </Stack>
-  );
 }
 
 // ─── ChatPage ─────────────────────────────────────────────────────────────────

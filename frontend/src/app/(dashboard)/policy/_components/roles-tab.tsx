@@ -3,16 +3,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  Alert,
   Badge,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   DataTable,
   Grid,
-  Heading,
   Icon,
   Input,
   Modal,
@@ -21,16 +20,19 @@ import {
   ModalHeader,
   Stack,
   Text,
+  PageSectionHeader,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
+import { fmtDate } from '@orbit/utils';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { ViewToggle } from './view-toggle';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 
@@ -99,20 +101,18 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
   return (
     <Stack gap="comfortable">
       {/* Header */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <Stack gap="none">
-          <Heading variant="title">Roles</Heading>
-          <Text size="supporting" color="muted">
-            Map OIDC role names to platform scopes.
-          </Text>
-        </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Icon name="plus" />
-            Create Role
-          </Button>
-        )}
-      </Stack>
+      <PageSectionHeader
+        title="Roles"
+        description="Map OIDC role names to platform scopes."
+        action={
+          canWrite ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Icon name="plus" />
+              Create Role
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Info box */}
       <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
@@ -122,7 +122,12 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         </Text>
       </aside>
 
-      {error && <ErrorBanner message={error} />}
+      {error && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">{error}</Text>
+        </Alert>
+      )}
 
       {/* Search + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
@@ -179,11 +184,18 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       )}
 
       {/* Delete confirmation modal */}
-      <DeleteRoleModal
-        role={deleteCandidate}
-        deleting={deletingRole === deleteCandidate?.role}
+      <ConfirmDialog
+        open={!!deleteCandidate}
+        title="Delete Role"
+        description={
+          deleteCandidate
+            ? `Remove the role "${deleteCandidate.role}" and all its scope mappings? This action cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        confirming={deletingRole === deleteCandidate?.role}
         error={deleteError}
-        onConfirm={handleDeleteConfirm}
+        onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.role)}
         onClose={() => {
           setDeleteCandidate(null);
           setDeleteError(null);
@@ -262,7 +274,7 @@ function RoleCardGrid({
                 <Stack direction="horizontal" align="center" gap="snug">
                   {role.created_at && (
                     <Text size="caption" color="subtle">
-                      Created {formatDate(role.created_at)}
+                      Created {fmtDate(role.created_at)}
                     </Text>
                   )}
                   {onEdit && (
@@ -292,37 +304,6 @@ function RoleCardGrid({
         );
       })}
     </Grid>
-  );
-}
-
-// ── View toggle ──────────────────────────────────────────────────────────────
-
-function ViewToggle({
-  viewMode,
-  onToggle,
-}: {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
-}) {
-  return (
-    <ButtonGroup>
-      <Button
-        variant={viewMode === 'cards' ? 'default' : 'outline'}
-        size="icon-sm"
-        onClick={() => onToggle('cards')}
-        aria-label="Card view"
-      >
-        <Icon name="layout-grid" size="2xs" />
-      </Button>
-      <Button
-        variant={viewMode === 'list' ? 'default' : 'outline'}
-        size="icon-sm"
-        onClick={() => onToggle('list')}
-        aria-label="List view"
-      >
-        <Icon name="list" size="2xs" />
-      </Button>
-    </ButtonGroup>
   );
 }
 
@@ -383,7 +364,7 @@ function RoleTable({
           const isReserved = RESERVED_ROLES.has(r.role);
           return (
             <Text size="caption" color="subtle">
-              {!isReserved && r.created_at ? formatDate(r.created_at) : '—'}
+              {!isReserved && r.created_at ? fmtDate(r.created_at) : '—'}
             </Text>
           );
         },
@@ -449,56 +430,6 @@ function RoleTable({
       filteredEmptyMessage="No roles match your search."
       toolbarActions={viewToggle}
     />
-  );
-}
-
-// ── Delete modal ─────────────────────────────────────────────────────────────
-
-function DeleteRoleModal({
-  role,
-  deleting,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  role: RoleEntry | null;
-  deleting: boolean;
-  error: string | null;
-  onConfirm: (role: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal open={!!role} onClose={onClose} size="sm">
-      <ModalHeader title="Delete Role" />
-      <ModalBody>
-        <Stack gap="comfortable">
-          {role && (
-            <Text size="caption" color="muted">
-              Remove the role &ldquo;{role.role}&rdquo; and all its scope mappings? This action
-              cannot be undone.
-            </Text>
-          )}
-          {error && (
-            <Text color="status-error" size="caption">
-              {error}
-            </Text>
-          )}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => role && onConfirm(role.role)}
-          disabled={deleting}
-        >
-          {deleting ? 'Deleting...' : 'Delete'}
-        </Button>
-      </ModalFooter>
-    </Modal>
   );
 }
 
@@ -611,16 +542,3 @@ function UpsertRoleModal({
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
-}

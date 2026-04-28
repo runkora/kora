@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Badge,
   Button,
   Code,
@@ -22,8 +23,7 @@ import {
 } from '@orbit/terra';
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from './scope-chip';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { EmptyState } from '@orbit/components';
 
 interface VocabularyTabProps {
   initialScopes: ScopeEntryWithUsage[];
@@ -108,7 +108,12 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
         </Text>
       </aside>
 
-      {initialError && <ErrorBanner message={initialError} />}
+      {initialError && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">{initialError}</Text>
+        </Alert>
+      )}
 
       {/* Search */}
       <Stack asChild maxWidth="compact">

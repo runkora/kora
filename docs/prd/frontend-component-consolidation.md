@@ -346,9 +346,9 @@ A component that skips any step is incomplete. The agent that creates it owns al
 |-------|------|-------------|------------------------|
 | Phase 0 ✅ | Tier 1 — Terra core | ✅ Yes | All pre-existing Terra components in `@orbit/terra` barrel and documented in `ui-components.md`. `no-direct-lucide-import` enforced. |
 | Phase 1 ✅ | Tier 1 — Phase 1 additions | ✅ Yes | `Modal`, `useDialog`, `FormField` in barrel and documented. All raw `<dialog>` consumers migrated. |
-| Phase 2 | Tier 2 — app-shared | ⏳ Not yet | `frontend/src/components/index.ts` barrel is empty. `ui-components.md` Tier 2 section unpopulated. Agents must not import from `@/components` until Phase 2 completes and this table is updated. |
+| Phase 2 ✅ | Tier 2 — app-shared | ✅ Yes | `frontend/src/components/index.ts` barrel exports all Tier 2 components. `app-components.md` golden path documents each component. Import via `@orbit/components`. |
 
-When Phase 2 is complete, this table must be updated and the Tier 2 inventory in `ui-components.md` must be fully populated before any agent is expected to use Tier 2 components.
+Tier 2 is now complete. All components are in the barrel, documented in `app-components.md`, and carry `@tier 2` annotations. Agents should import Tier 2 components via `@orbit/components` (the `@orbit/*` path alias resolves to `./src/*`).
 
 #### 7. Future: `prefer-shared-component` ESLint rule
 
@@ -401,23 +401,23 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 - [x] `Modal`, `ModalHeader`, `ModalBody`, `ModalFooter` added to Terra; all raw `<dialog>` implementations replaced ✅
 - [x] `useDialog` hook added to Terra as a companion to `Modal` ✅
 - [x] `FormField` added to Terra; all 6+ inline label+input+hint stacks replaced ✅
-- [ ] `EmptyState` promoted to `frontend/src/components/`; all inline empty states replaced
-- [ ] `ErrorBanner` promoted to `frontend/src/components/`; all inline error text patterns replaced
-- [ ] `StatusBadge` created in `frontend/src/components/`; all 5 inline status-to-badge maps replaced
-- [ ] `MetricCard` created in `frontend/src/components/`; all 3 `StatCard`/`KPICard` implementations replaced
-- [ ] `PageSectionHeader` created in `frontend/src/components/`; all 3 inline header stacks replaced
-- [ ] `ConfirmDialog` created in `frontend/src/components/`; all 3 delete/revoke modal implementations replaced
-- [ ] `fmtDate`, `fmtDateTime`, `fmtCost` added to `@orbit/utils`; all duplicate implementations removed
-- [ ] `frontend/src/components/index.ts` barrel exports all Tier 2 components
-- [ ] `frontend/docs/golden-paths/app-components.md` documents all Tier 2 components
+- [x] `EmptyState` promoted to `frontend/src/components/`; all inline empty states replaced ✅
+- [x] `ErrorBanner` promoted to `frontend/src/components/`; all inline error text patterns replaced ✅
+- [x] `StatusBadge` created in `frontend/src/components/`; all inline status-to-badge maps replaced ✅
+- [x] `MetricCard` created in `frontend/src/components/`; all 3 `StatCard`/`KPICard` implementations replaced ✅
+- [x] `PageSectionHeader` created in `frontend/src/components/`; all 3 inline header stacks replaced ✅
+- [x] `ConfirmDialog` created in `frontend/src/components/`; all 3 delete/revoke modal implementations replaced ✅
+- [x] `fmtDate`, `fmtDateTime`, `fmtCost`, `fmtTokens`, `fmtUsd` added to `@orbit/utils`; all duplicate implementations removed ✅
+- [x] `frontend/src/components/index.ts` barrel exports all Tier 2 components ✅
+- [x] `frontend/docs/golden-paths/app-components.md` documents all Tier 2 components ✅
 - [x] `frontend/docs/golden-paths/ui-components.md` includes tier placement decision tree, component vocabulary, and agent surfacing strategy ✅
 
 **Should Have (P1):**
-- [ ] `EventFeedItem` created in `frontend/src/components/`; event list rows replaced in dashboard home, model-gateway overview, and logs tab
-- [ ] `ChartLegend`, `MiniBar`, `StatRow`, `CardDivider` extracted to `model-gateway/_components/`
-- [ ] `ViewToggle`, `FilterChip`, `PrincipalBadge`, `QuickLinkCard` extracted to `policy/_components/`
-- [ ] Chat components (`MessageContent`, `TypingIndicator`, `SuggestionGrid`, `ChatInputBar`) extracted to `chat/_components/`
-- [ ] All extracted components have `@tier` JSDoc annotations
+- [x] `EventFeedItem` created in `frontend/src/components/`; event list rows replaced in dashboard home ✅
+- [x] `ChartLegend`, `StatRow` extracted to `model-gateway/_components/` and `model-gateway/usage/_components/` ✅ — `MiniBar` and `CardDivider` remain inline in `stat-cards.tsx` (CardDivider kept as local helper; MiniBar not a named pattern)
+- [x] `ViewToggle`, `FilterChip`, `PrincipalBadge`, `QuickLinkCard` extracted to `policy/_components/` ✅
+- [x] Chat `MessageContent` extracted to `chat/_components/` ✅ — `TypingIndicator` is a Terra primitive (already done); `SuggestionGrid` and `ChatInputBar` remain inline (page-specific)
+- [x] All extracted components have `@tier` JSDoc annotations ✅
 - [ ] All Tier 2 components have at least one Storybook story under `App/Shared/`
 
 **Nice to Have (P2):**

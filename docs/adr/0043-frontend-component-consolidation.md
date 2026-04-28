@@ -242,7 +242,7 @@ The following primitives were added to Terra to eliminate lint-suppressed raw HT
 
 ---
 
-#### Phase 1 — planned
+#### Phase 1 — complete (2026-04-24)
 
 #### `Modal` + `Modal.Header` + `Modal.Body` + `Modal.Footer`
 
@@ -306,18 +306,45 @@ interface FormFieldProps {
 
 **Who relies on it**: `create-token-modal.tsx` (2 fields), `policy/grants-tab.tsx` `CreateGrantModal` (~3 fields), `policy/roles-tab.tsx` `UpsertRoleModal` (~3 fields). All 6+ occurrences of the raw `<Stack gap="tight"><label className="text-sm font-medium…"><input className="w-full rounded-md border border-border bg-surface-elevated…"><Text size="caption">` pattern.
 
+#### Phase 1 implementation status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `Modal` + `ModalHeader` + `ModalBody` + `ModalFooter` + `ModalAccessibleTitle` | ✅ Implemented | `Terra/Molecules/Modal` |
+| `useDialog(open, onClose)` | ✅ Implemented | `frontend/src/packages/terra/src/hooks/use-dialog.ts` |
+| `FormField` | ✅ Implemented | `Terra/Molecules/FormField` |
+| All raw `<dialog>` consumers migrated | ✅ Complete | All 5 model-gateway modals + all inline policy modals migrated |
+
 ---
 
 ### Tier 2 — App-level shared (`frontend/src/components/`)
 
+#### Phase 2 implementation status (complete 2026-04-24)
+
+| Component | Status | Import |
+|-----------|--------|--------|
+| `EmptyState` | ✅ Implemented | `@orbit/components` |
+| `ErrorBanner` | ✅ Deleted — styling transferred to `Alert variant="error"` in Terra (2026-04-28) | `@orbit/terra` `Alert` |
+| `StatusBadge` | ✅ Implemented | `@orbit/components` |
+| `PageSectionHeader` | ✅ Promoted to Tier 1 (2026-04-28) | `@orbit/terra` — zero domain knowledge confirmed |
+| `ConfirmDialog` | ✅ Implemented | `@orbit/components` |
+| `MetricCard` | ✅ Implemented | `@orbit/components` |
+| `EventFeedItem` | ✅ Implemented | `@orbit/components` |
+| Barrel `frontend/src/components/index.ts` | ✅ Complete | — |
+| Golden path `frontend/docs/golden-paths/app-components.md` | ✅ Complete | — |
+
+All callers migrated. All Tier 2 components carry `@tier 2` JSDoc annotations with `@promote-to-tier-1` triggers. `pnpm lint` and `pnpm tsc --noEmit` pass with zero errors.
+
+---
+
 #### `EmptyState`
 
-**Source**: Promote `policy/_components/empty-state.tsx` verbatim, then update `policy/` imports and replace 2+ inline implementations.
+**Source**: Promoted from `policy/_components/empty-state.tsx`. All callers migrated to `@orbit/components`.
 
 **Props**:
 ```ts
 interface EmptyStateProps {
-  icon: React.ReactNode
+  icon: IconName          // enforces icon governance — no raw SVG elements
   title: string
   description: string
   action?: React.ReactNode
@@ -371,9 +398,9 @@ interface MetricCardProps {
   label: string
   value: string | number
   delta?: {
-    value: number        // percentage
-    text: string         // e.g. "vs yesterday"
-    positiveIsBad?: boolean
+    text: string              // pre-formatted display string, e.g. "▲ 3.2% vs last 7 days"
+    positive: boolean         // determines colour (green = positive, red = negative)
+    positiveIsBad?: boolean   // inverts colour logic (e.g. error rate, latency)
   }
   breakdown?: Array<{ label: string; value: string | number }>
   href?: string          // makes the card a link via Next.js Link
@@ -386,16 +413,18 @@ interface MetricCardProps {
 
 #### `PageSectionHeader`
 
+> **Promoted to Tier 1 (2026-04-28).** `PageSectionHeader` carries zero Orbit domain knowledge — it is a generic layout primitive. It now lives at `frontend/src/packages/terra/src/components/page-section-header/` and is exported from `@orbit/terra`. All callers import from `@orbit/terra`. Storybook story at `Terra/Layout/PageSectionHeader`.
+
 **Props**:
 ```ts
-interface PageSectionHeaderProps {
+interface PageSectionHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   title: string
   description?: string
   action?: React.ReactNode
 }
 ```
 
-**Who relies on it**: `keys-tab.tsx`, `grants-tab.tsx`, `roles-tab.tsx` — 3 files today; all future list/management tabs.
+**Who relies on it**: `keys-tab.tsx`, `grants-tab.tsx`, `roles-tab.tsx` — 3 files; all future list/management tabs.
 
 ---
 
@@ -520,9 +549,9 @@ A component that skips any step is incomplete. The agent that creates it owns al
 |-------|------|-------------|------------------------|
 | Phase 0 ✅ | Tier 1 — Terra core | ✅ Yes | All pre-existing Terra components discoverable via `ui-components.md` and `@orbit/terra` barrel. `no-direct-lucide-import` enforced. |
 | Phase 1 ✅ | Tier 1 — Phase 1 additions | ✅ Yes | `Modal`, `useDialog`, `FormField` in barrel and documented. All raw `<dialog>` consumers migrated. |
-| Phase 2 | Tier 2 — app-shared | ⏳ Not yet | `frontend/src/components/index.ts` barrel empty. `ui-components.md` Tier 2 section unpopulated. Agents must not import from `@/components` until Phase 2 completes. |
+| Phase 2 ✅ | Tier 2 — app-shared | ✅ Yes | `@orbit/components` barrel exports all 7 Tier 2 components. `ui-components.md` Tier 2 section populated. `app-components.md` golden path created. All callers migrated. |
 
-When Phase 2 is complete, this table must be updated and the Tier 2 inventory in `ui-components.md` must be fully populated before any agent is expected to use Tier 2 components.
+Tier 2 is complete. Agents may import from `@orbit/components`.
 
 ---
 

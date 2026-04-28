@@ -14,17 +14,19 @@ import {
   Progress,
   Stack,
   Text,
+  PageSectionHeader,
 } from '@orbit/terra';
 import Link from 'next/link';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
-import { RevokeTokenModal } from './revoke-token-modal';
 import { EditScopesModal } from './edit-scopes-modal';
 import { ScopeChip } from '../../policy/_components/scope-chip';
 import type { CreatePATResponse, PAT } from '@orbit/shared/api';
 import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
 import type { TokenUsageStat } from '../_services/usage-server';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
 
 // ── View model ────────────────────────────────────────────────────────────────
 
@@ -245,17 +247,15 @@ export function KeysTab({
     <>
       <Stack gap="comfortable">
         {/* Header */}
-        <Stack direction="horizontal" align="start" justify="between">
-          <Stack gap="none">
-            <Heading variant="label">API keys</Heading>
-            <Text size="supporting" color="muted">
-              Manage your API keys and monitor their usage
-            </Text>
-          </Stack>
-          <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
-            Create key
-          </Button>
-        </Stack>
+        <PageSectionHeader
+          title="API keys"
+          description="Manage your API keys and monitor their usage"
+          action={
+            <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+              Create key
+            </Button>
+          }
+        />
 
         {/* Body */}
         {initialError ? (
@@ -263,22 +263,16 @@ export function KeysTab({
             {initialError}
           </Text>
         ) : initialTokens.length === 0 ? (
-          <Card>
-            <CardContent padded>
-              <Stack align="center" justify="center" gap="comfortable">
-                <Icon name="key" size="lg" container containerVariant="surface-subtle" circle />
-                <Stack align="center" gap="tight">
-                  <Heading variant="label">No API keys yet</Heading>
-                  <Text size="supporting" color="muted" align="center">
-                    Create a key to start making requests to the inference gateway.
-                  </Text>
-                </Stack>
-                <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
-                  Create your first key
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon="key"
+            title="No API keys yet"
+            description="Create a key to start making requests to the inference gateway."
+            action={
+              <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+                Create your first key
+              </Button>
+            }
+          />
         ) : (
           <Stack gap="comfortable">
             {initialTokens.map((pat) => {
@@ -310,16 +304,25 @@ export function KeysTab({
         onCreated={handleCreated}
       />
       <TokenCreatedModal pat={createdPAT} onClose={() => setCreatedPAT(null)} />
-      <RevokeTokenModal
-        pat={revokeCandidate}
-        revoking={revokingId === revokeCandidate?.id}
+      <ConfirmDialog
+        open={!!revokeCandidate}
+        title="Revoke API key"
+        description="This key will be permanently revoked and any applications using it will lose access immediately. This cannot be undone."
+        confirmLabel="Revoke key"
+        confirming={revokingId === revokeCandidate?.id}
         error={revokeError}
-        onConfirm={(id) => void handleRevokeConfirm(id)}
+        onConfirm={() => revokeCandidate && void handleRevokeConfirm(revokeCandidate.id)}
         onClose={() => {
           setRevokeCandidate(null);
           setRevokeError(null);
         }}
-      />
+      >
+        {revokeCandidate && (
+          <Text size="caption" mono weight="emphasis">
+            {revokeCandidate.name}
+          </Text>
+        )}
+      </ConfirmDialog>
       <EditScopesModal
         pat={editScopesCandidate}
         availableScopes={effectiveScopes}

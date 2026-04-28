@@ -3,16 +3,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Badge,
+  Alert,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   DataTable,
   Grid,
-  Heading,
   Icon,
   Input,
   Modal,
@@ -21,6 +19,7 @@ import {
   ModalHeader,
   Stack,
   Text,
+  PageSectionHeader,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type {
@@ -31,10 +30,14 @@ import type { Grant, PrincipalType } from '../_types';
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
+import { fmtDate } from '@orbit/utils';
 import { ScopeChip } from './scope-chip';
 import { ScopePicker } from './scope-picker';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { FilterChip } from './filter-chip';
+import { PrincipalBadge } from './principal-badge';
+import { ViewToggle } from './view-toggle';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -135,20 +138,18 @@ export function GrantsTab({
   return (
     <Stack gap="comfortable">
       {/* Header */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <Stack gap="none">
-          <Heading variant="title">Grants</Heading>
-          <Text size="supporting" color="muted">
-            Permission grants assigned to principals in your tenant.
-          </Text>
-        </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Icon name="plus" />
-            Create Grant
-          </Button>
-        )}
-      </Stack>
+      <PageSectionHeader
+        title="Grants"
+        description="Permission grants assigned to principals in your tenant."
+        action={
+          canWrite ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Icon name="plus" />
+              Create Grant
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Info box */}
       <aside className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
@@ -159,7 +160,12 @@ export function GrantsTab({
         </Text>
       </aside>
 
-      {error && <ErrorBanner message={error} />}
+      {error && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">{error}</Text>
+        </Alert>
+      )}
 
       {/* Search + filter chips + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
@@ -172,7 +178,7 @@ export function GrantsTab({
                 onChange={(e) => setSearch(e.target.value)}
               />
             </Stack>
-            <GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
           </Stack>
 
           <Stack direction="horizontal" align="center" justify="between">
@@ -238,7 +244,7 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />}
+          viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
 
@@ -246,16 +252,37 @@ export function GrantsTab({
       {total > limit && <GrantsPagination page={page} limit={limit} total={total} />}
 
       {/* Delete confirmation modal */}
-      <DeleteGrantModal
-        grant={deleteCandidate}
-        deleting={deletingId === deleteCandidate?.id}
+      <ConfirmDialog
+        open={!!deleteCandidate}
+        title="Delete Grant"
+        description="Remove this grant? This action cannot be undone."
+        confirmLabel="Delete"
+        confirming={deletingId === deleteCandidate?.id}
         error={deleteError}
-        onConfirm={handleDeleteConfirm}
+        onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.id)}
         onClose={() => {
           setDeleteCandidate(null);
           setDeleteError(null);
         }}
-      />
+      >
+        {deleteCandidate && (
+          <aside className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
+            <Stack gap="snug">
+              <Stack direction="horizontal" align="center" gap="snug">
+                <PrincipalBadge type={deleteCandidate.principal_type} />
+                <Text size="caption" mono weight="emphasis">
+                  {deleteCandidate.principal_id}
+                </Text>
+              </Stack>
+              <Stack direction="horizontal" gap="tight" wrap>
+                {deleteCandidate.scopes.map((s) => (
+                  <ScopeChip key={s} scope={s} />
+                ))}
+              </Stack>
+            </Stack>
+          </aside>
+        )}
+      </ConfirmDialog>
 
       {/* Create grant modal */}
       <CreateGrantModal
@@ -309,47 +336,6 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
         </Button>
       </Stack>
     </Stack>
-  );
-}
-
-// ── Filter Chip ─────────────────────────────────────────────────────────────
-
-function FilterChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
-      {label}
-      <Text as="span" size="micro" color="muted">
-        {count}
-      </Text>
-    </Button>
-  );
-}
-
-// ── PrincipalBadge ───────────────────────────────────────────────────────────
-
-function PrincipalBadge({ type }: { type: PrincipalType }) {
-  const variant =
-    type === 'AGENT'
-      ? 'default'
-      : type === 'HUMAN'
-        ? 'healthy'
-        : type === 'PAT'
-          ? 'secondary'
-          : 'degraded';
-  return (
-    <Badge variant={variant} size="sm">
-      {type}
-    </Badge>
   );
 }
 
@@ -453,7 +439,7 @@ function GrantCardGrid({
               </Text>
               <Stack direction="horizontal" align="center" gap="snug">
                 <Text size="caption" color="subtle">
-                  Created {formatDate(grant.created_at)}
+                  Created {fmtDate(grant.created_at)}
                 </Text>
                 {onDelete && (
                   <Button
@@ -471,37 +457,6 @@ function GrantCardGrid({
         );
       })}
     </Grid>
-  );
-}
-
-// ── View toggle ──────────────────────────────────────────────────────────────
-
-function GrantViewToggle({
-  viewMode,
-  onToggle,
-}: {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
-}) {
-  return (
-    <ButtonGroup>
-      <Button
-        variant={viewMode === 'cards' ? 'default' : 'outline'}
-        size="icon-sm"
-        onClick={() => onToggle('cards')}
-        aria-label="Card view"
-      >
-        <Icon name="layout-grid" size="2xs" />
-      </Button>
-      <Button
-        variant={viewMode === 'list' ? 'default' : 'outline'}
-        size="icon-sm"
-        onClick={() => onToggle('list')}
-        aria-label="List view"
-      >
-        <Icon name="list" size="2xs" />
-      </Button>
-    </ButtonGroup>
   );
 }
 
@@ -604,7 +559,7 @@ function GrantTable({
         cell: (g) => (
           <Stack noWrap>
             <Text size="caption" color="subtle">
-              {formatDate(g.created_at)}
+              {fmtDate(g.created_at)}
             </Text>
           </Stack>
         ),
@@ -658,72 +613,6 @@ function GrantTable({
       filteredEmptyMessage="No grants match your filters."
       toolbarActions={viewToggle}
     />
-  );
-}
-
-// ── Delete modal ─────────────────────────────────────────────────────────────
-
-function DeleteGrantModal({
-  grant,
-  deleting,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  grant: Grant | null;
-  deleting: boolean;
-  error: string | null;
-  onConfirm: (id: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal open={!!grant} onClose={onClose} size="sm">
-      <ModalHeader title="Delete Grant" />
-      <ModalBody>
-        <Stack gap="comfortable">
-          {grant && (
-            <Stack gap="snug">
-              <Text size="caption" color="muted">
-                Remove this grant? This action cannot be undone.
-              </Text>
-              <aside className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
-                <Stack gap="snug">
-                  <Stack direction="horizontal" align="center" gap="snug">
-                    <PrincipalBadge type={grant.principal_type} />
-                    <Text size="caption" mono weight="emphasis">
-                      {grant.principal_id}
-                    </Text>
-                  </Stack>
-                  <Stack direction="horizontal" gap="tight" wrap>
-                    {grant.scopes.map((s) => (
-                      <ScopeChip key={s} scope={s} />
-                    ))}
-                  </Stack>
-                </Stack>
-              </aside>
-            </Stack>
-          )}
-          {error && (
-            <Text color="status-error" size="caption">
-              {error}
-            </Text>
-          )}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => grant && onConfirm(grant.id)}
-          disabled={deleting}
-        >
-          {deleting ? 'Deleting...' : 'Delete'}
-        </Button>
-      </ModalFooter>
-    </Modal>
   );
 }
 
@@ -942,18 +831,4 @@ function CreateGrantModal({
       </ModalFooter>
     </Modal>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
 }

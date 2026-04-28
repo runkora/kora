@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -24,7 +25,6 @@ import type {
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
 import { ScopeChip } from './scope-chip';
-import { ErrorBanner } from './error-banner';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;
@@ -225,7 +225,12 @@ export function EvaluateTab({
               </Button>
             </Stack>
 
-            {lookupError && <ErrorBanner message={lookupError} />}
+            {lookupError && (
+              <Alert variant="error">
+                <Icon name="triangle-alert" color="status-error" />
+                <Text size="caption" color="status-error">{lookupError}</Text>
+              </Alert>
+            )}
 
             {explain && (
               <Stack gap="comfortable">
@@ -423,7 +428,12 @@ export function EvaluateTab({
               </Button>
             </Stack>
 
-            {simError && <ErrorBanner message={simError} />}
+            {simError && (
+              <Alert variant="error">
+                <Icon name="triangle-alert" color="status-error" />
+                <Text size="caption" color="status-error">{simError}</Text>
+              </Alert>
+            )}
 
             {simResult && (
               <article
