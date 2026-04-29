@@ -1,8 +1,13 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 
-export interface ButtonGroupProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ButtonGroupProps {
   children: React.ReactNode;
+  className?: string;
+  id?: string;
+  role?: React.AriaRole;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
 }
 
 /**

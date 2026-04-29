@@ -5,7 +5,7 @@
  * @promote-to-tier-1 if: destructive-action semantics and error display are removed and it
  * becomes a generic confirmation dialog.
  */
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
+import { Alert, Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -43,9 +43,7 @@ export function ConfirmDialog({
             {children}
           </Stack>
           {error && (
-            <Text color="status-error" size="caption">
-              {error}
-            </Text>
+            <Alert variant="error">{error}</Alert>
           )}
         </Stack>
       </ModalBody>

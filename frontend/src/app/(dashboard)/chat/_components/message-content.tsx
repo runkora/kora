@@ -34,6 +34,12 @@ export function MessageContent({ content }: MessageContentProps) {
           const code = codeMatch[2].trim();
           const copied = copiedIndex === i;
           return (
+            // Code block: <figure>/<figcaption>/<pre> are intentional semantic HTML.
+            // A fenced code block is self-contained content (<figure>), the language
+            // label is its caption (<figcaption>), and the raw source lives in <pre>.
+            // Terra has no equivalent primitives for this specialised rendering context.
+            // <figure> and <pre> are not covered by no-raw-layout-elements; the inline
+            // classNames are on raw HTML elements, which no-terra-classname does not target.
             <Stack key={i} gap="none" asChild>
               <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
                 <Stack direction="horizontal" align="center" justify="between" asChild>

@@ -5,8 +5,9 @@
  * chart legends with status dots.
  */
 import { Stack, StatusDot, Text } from '@orbit/terra';
+import type { StatusDotProps } from '@orbit/terra';
 
-type StatusDotStatus = 'healthy' | 'degraded' | 'error' | 'idle' | 'pending' | 'muted' | 'accent';
+type StatusDotStatus = StatusDotProps['status'];
 
 export interface ChartLegendItem {
   color: StatusDotStatus;
