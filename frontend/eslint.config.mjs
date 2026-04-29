@@ -508,6 +508,108 @@ const localPlugin = {
     },
 
     // -------------------------------------------------------------------------
+    // no-raw-list-elements
+    //
+    // Bans raw <ul>, <ol>, and <li> in product JSX. Semantic list elements
+    // were used as layout workarounds after <div>/<section> were forbidden.
+    // Terra now provides <List> and <ListItem> as replacements.
+    //
+    //   <ul>  →  <List> from @orbit/terra (or <Stack> for pure layout containers)
+    //   <ol>  →  <List ordered> from @orbit/terra
+    //   <li>  →  <ListItem> from @orbit/terra
+    //
+    // All three fire unconditionally. Terra source is exempt.
+    // -------------------------------------------------------------------------
+    'no-raw-list-elements': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Disallow raw <ul>, <ol>, <li> elements. Use <List> and <ListItem> from @orbit/terra.',
+        },
+        messages: {
+          noRawUl:
+            'Raw <ul> is not allowed. Use <List> from @orbit/terra for semantic lists, ' +
+            'or <Stack> if used as a pure layout container. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawOl:
+            'Raw <ol> is not allowed. Use <List ordered> from @orbit/terra for ordered lists, ' +
+            'or <Stack> if used as a pure layout container. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawLi:
+            'Raw <li> is not allowed. Use <ListItem> from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type !== 'JSXIdentifier') return;
+            const tag = node.name.name;
+            if (tag === 'ul') context.report({ node, messageId: 'noRawUl' });
+            else if (tag === 'ol') context.report({ node, messageId: 'noRawOl' });
+            else if (tag === 'li') context.report({ node, messageId: 'noRawLi' });
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // no-raw-form-elements
+    //
+    // Bans raw <form>, <label>, <input>, and <output> in product JSX. These
+    // were observed as workarounds — particularly <label>/<input type="checkbox">
+    // to avoid no-raw-inline-elements after <span> was forbidden.
+    //
+    //   <form>                   →  <Form> from @orbit/terra
+    //   <label>                  →  <Label> from @orbit/terra, or <Checkbox> for checkboxes
+    //   <input type="checkbox">  →  <Checkbox> from @orbit/terra
+    //   <input type="text/...">  →  <Input> from @orbit/terra
+    //   <output>                 →  <Output> from @orbit/terra
+    //
+    // All fire unconditionally. Terra source is exempt.
+    // -------------------------------------------------------------------------
+    'no-raw-form-elements': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'Disallow raw <form>, <label>, <input>, and <output> elements. Use Terra form components.',
+        },
+        messages: {
+          noRawForm:
+            'Raw <form> is not allowed. Use <Form> from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawLabel:
+            'Raw <label> is not allowed. Use <Label> from @orbit/terra for text labels, ' +
+            'or <Checkbox> for labeled checkbox inputs. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawInput:
+            'Raw <input> is not allowed. Use <Input> from @orbit/terra for text inputs, ' +
+            'or <Checkbox> for checkbox inputs. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+          noRawOutput:
+            'Raw <output> is not allowed. Use <Output> from @orbit/terra. ' +
+            'See frontend/docs/golden-paths/terra-design-system.md',
+        },
+        schema: [],
+      },
+      create(context) {
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type !== 'JSXIdentifier') return;
+            const tag = node.name.name;
+            if (tag === 'form') context.report({ node, messageId: 'noRawForm' });
+            else if (tag === 'label') context.report({ node, messageId: 'noRawLabel' });
+            else if (tag === 'input') context.report({ node, messageId: 'noRawInput' });
+            else if (tag === 'output') context.report({ node, messageId: 'noRawOutput' });
+          },
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------------
     // no-raw-inline-elements
     //
     // Errors on raw inline HTML elements in product JSX. Terra source is
@@ -672,6 +774,8 @@ const localPlugin = {
           'local/no-terra-classname',
           'local/no-direct-lucide-import',
           'local/no-raw-interactive-elements',
+          'local/no-raw-list-elements',
+          'local/no-raw-form-elements',
         ]);
 
         return {
@@ -910,6 +1014,26 @@ const eslintConfig = defineConfig([
     ignores: ['src/packages/terra/**'],
     rules: {
       'local/no-raw-interactive-elements': 'error',
+    },
+  },
+
+  // ---- Raw list element enforcement (Terra source exempted) -----------------
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-raw-list-elements': 'error',
+    },
+  },
+
+  // ---- Raw form element enforcement (Terra source exempted) -----------------
+  {
+    plugins: { local: localPlugin },
+    files: ['src/**/*.tsx'],
+    ignores: ['src/packages/terra/**'],
+    rules: {
+      'local/no-raw-form-elements': 'error',
     },
   },
 

@@ -11,6 +11,7 @@ import {
   Input,
   Label,
   NativeSelect,
+  Output,
   Separator,
   Stack,
   StepDot,
@@ -162,7 +163,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
             <Text size="caption" color="muted">
               Weights must sum to 100%. Current total:{' '}
               <Text asChild size="caption" weight="emphasis" color="foreground">
-                <output>{model.routes.reduce((s, r) => s + r.weight, 0)}%</output>
+                <Output>{model.routes.reduce((s, r) => s + r.weight, 0)}%</Output>
               </Text>
             </Text>
           </Alert>

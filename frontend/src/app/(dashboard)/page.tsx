@@ -9,6 +9,7 @@ import {
   CardTitle,
   Grid,
   Heading,
+  List,
   Progress,
   Stack,
   Table,
@@ -350,7 +351,7 @@ export default function DashboardPage() {
              * height before the footer. `grow` only works inside `<Card column>`.
              */}
             <CardContent flush grow>
-              <ul className="divide-y divide-border-subtle">
+              <List separator>
                 {EVENTS.map((evt) => (
                   <EventFeedItem
                     key={evt.id}
@@ -361,7 +362,7 @@ export default function DashboardPage() {
                     timestamp={evt.ts}
                   />
                 ))}
-              </ul>
+              </List>
             </CardContent>
             <CardFooter justify="center" compact>
               <Button variant="ghost" size="sm">

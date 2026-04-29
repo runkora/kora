@@ -227,3 +227,49 @@ The existing config block (`files: ['src/**/*.tsx']`, `ignores: ['src/packages/t
 | 7 — Migrate `<footer>` (4) | ✅ Complete (2026-04-28) |
 | 8 — Update golden-path docs | ⏳ Pending |
 
+
+---
+
+## Extension — Form and List Element Consolidation
+
+**Date:** 2026-04-29
+
+### Context
+
+After banning `<div>`, `<section>`, `<article>`, `<aside>`, `<nav>`, `<header>`, and `<footer>`, AI coding agents shifted to using the next available uncovered elements — `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, and `<output>` — as structural workarounds (e.g. `<ul className="list-none m-0 p-0">` replacing a `<Stack>`, `<label>` replacing a `<span>`). This closes those remaining loopholes.
+
+### Decision
+
+Ban all seven element types unconditionally in product code via two new ESLint rules:
+
+| Rule | Elements |
+|------|----------|
+| `local/no-raw-list-elements` | `<ul>`, `<ol>`, `<li>` |
+| `local/no-raw-form-elements` | `<form>`, `<label>`, `<input>`, `<output>` |
+
+### Replacements
+
+| Raw element | Terra replacement |
+|-------------|-------------------|
+| `<ul>` used as layout container | `<Stack>` |
+| `<ul>` as a genuine list | `<List>` from `@orbit/terra` |
+| `<ol>` as an ordered list | `<List ordered>` from `@orbit/terra` |
+| `<li>` | `<ListItem>` from `@orbit/terra` |
+| `<form>` | `<Form>` from `@orbit/terra` (accepts `onSubmit`, `noValidate`, `gap`, `maxWidth`) |
+| `<label>` for text | `<Label>` from `@orbit/terra` |
+| `<label>` wrapping a checkbox | `<Checkbox>` from `@orbit/terra` |
+| `<input type="checkbox">` | `<Checkbox>` from `@orbit/terra` (supports `indeterminate`) |
+| `<input type="text/...">` | `<Input>` from `@orbit/terra` |
+| `<output>` | `<Output>` from `@orbit/terra` (`field` prop for input-like styling) |
+
+### New Terra components added (2026-04-29)
+
+- **`Form`** — Renders `<form>` with flex-column layout and token-aligned gap.
+- **`Checkbox`** — Renders `<label>` + `<input type="checkbox">` with `indeterminate` support and a `variant="row"` for full-width interactive rows.
+- **`List`** — Renders `<ul>` or `<ol>` with `list-none` reset and optional `separator` prop.
+- **`ListItem`** — Renders `<li>`; children own their own layout.
+- **`Output`** — Renders `<output>` with an optional `field` prop for input-like styling.
+
+### Consequences
+
+All seven element types are now unconditionally banned in product code. The `no-terra-disable-comment` rule also tracks both new rules, preventing suppression. Terra source (`src/packages/terra/**`) remains fully exempt.

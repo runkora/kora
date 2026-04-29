@@ -9,7 +9,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Card, Icon, Input, Separator, Stack, Text } from '@orbit/terra';
+import { Button, Card, Checkbox, Icon, Input, Separator, Stack, Text } from '@orbit/terra';
 // Direct relative import — importing via @orbit/components barrel would be
 // circular (scope-picker is itself exported from that barrel).
 import { ScopeChip } from './scope-chip';
@@ -124,36 +124,34 @@ export function ScopePicker({
                   <Stack>
                     {/* Select all */}
                     {group.scopes.length > 1 && (
-                      <label className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border-subtle cursor-pointer select-none hover:bg-surface-overlay transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          ref={(el) => {
-                            if (el) el.indeterminate = someSelected;
-                          }}
-                          onChange={(e) => onToggleGroup(group.scopes, e.target.checked)}
-                          className="accent-accent size-3.5 cursor-pointer rounded shrink-0"
-                        />
+                      <Checkbox
+                        variant="row"
+                        checked={allSelected}
+                        indeterminate={someSelected}
+                        onChange={(checked) => onToggleGroup(group.scopes, checked)}
+                        paddingBlock="tight"
+                        paddingInline="snug"
+                        gap="snug"
+                      >
                         <Text size="caption" color="subtle">
                           Select all {group.resourceType} scopes
                         </Text>
-                      </label>
+                      </Checkbox>
                     )}
 
                     {/* Individual scopes */}
                     {group.scopes.map((scope) => (
-                      <label
+                      <Checkbox
                         key={scope}
-                        className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border-subtle last:border-b-0 cursor-pointer select-none hover:bg-surface-overlay transition-colors"
+                        variant="row"
+                        checked={selectedScopes.includes(scope)}
+                        onChange={(checked) => onToggle(scope, checked)}
+                        paddingBlock="tight"
+                        paddingInline="snug"
+                        gap="snug"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedScopes.includes(scope)}
-                          onChange={(e) => onToggle(scope, e.target.checked)}
-                          className="accent-accent size-3.5 cursor-pointer rounded shrink-0"
-                        />
                         <ScopeChip scope={scope} />
-                      </label>
+                      </Checkbox>
                     ))}
                   </Stack>
                 )}

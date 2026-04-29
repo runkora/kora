@@ -3,7 +3,6 @@ import { cn } from '../../utils';
 
 export interface ButtonGroupProps {
   children: React.ReactNode;
-  className?: string;
   id?: string;
   role?: React.AriaRole;
   'aria-label'?: string;
@@ -33,7 +32,7 @@ export interface ButtonGroupProps {
  * </ButtonGroup>
  * ```
  */
-const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps>(
+const ButtonGroup = React.forwardRef<HTMLDivElement, ButtonGroupProps & { className?: string }>(
   ({ className, children, ...props }, ref) => {
     return (
       <div

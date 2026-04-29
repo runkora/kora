@@ -11,6 +11,7 @@ import {
   Input,
   Label,
   NativeSelect,
+  Output,
   Separator,
   SidePanel,
   SidePanelBody,
@@ -164,13 +165,11 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
 
               <Field>
                 <Label>Scope (derived)</Label>
-                <Stack asChild direction="horizontal" align="center">
-                  <output className="h-9 rounded-md border border-border bg-surface px-3 truncate">
-                    <Text size="caption" color="muted" mono>
-                      {fullId ? vmPolicyScope(draft) : '—'}
-                    </Text>
-                  </output>
-                </Stack>
+                <Output field>
+                  <Text size="caption" color="muted" mono>
+                    {fullId ? vmPolicyScope(draft) : '—'}
+                  </Text>
+                </Output>
               </Field>
             </Grid>
 

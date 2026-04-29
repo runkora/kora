@@ -18,6 +18,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  Separator,
   Stack,
   Text,
   PageSectionHeader,
@@ -663,11 +664,11 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
             </Text>
           </Stack>
         ) : (
-          <ul className="list-none m-0 p-0">
+          <Stack gap="none">
             {users.map((u) => {
               const isSelected = value === u.id;
               return (
-                <li key={u.id} className="border-b border-border-subtle last:border-b-0">
+                <Stack key={u.id} gap="none">
                   <Button
                     variant={isSelected ? 'secondary' : 'ghost'}
                     fullWidth
@@ -691,10 +692,11 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
                       </Stack>
                     )}
                   </Button>
-                </li>
+                  <Separator />
+                </Stack>
               );
             })}
-          </ul>
+          </Stack>
         )}
       </Card>
     </Stack>
@@ -777,12 +779,11 @@ function CreateGrantModal({
             {principalType === 'HUMAN' ? (
               <UserPicker value={principalId} onChange={setPrincipalId} />
             ) : (
-              <input
+              <Input
                 type="text"
                 placeholder={principalType === 'AGENT' ? 'Agent UUID' : 'Service identifier'}
                 value={principalId}
                 onChange={(e) => setPrincipalId(e.target.value)}
-                className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
             )}
           </Stack>

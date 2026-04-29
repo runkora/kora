@@ -35,6 +35,9 @@ export type { ButtonProps } from './components/button';
 export { ButtonGroup } from './components/button-group';
 export type { ButtonGroupProps } from './components/button-group';
 
+export { Checkbox } from './components/checkbox';
+export type { CheckboxProps } from './components/checkbox';
+
 export { Badge, badgeVariants } from './components/badge';
 export type { BadgeProps } from './components/badge';
 
@@ -72,6 +75,9 @@ export type { ToggleProps } from './components/toggle';
 
 export { Field, FieldHint, FieldError } from './components/field';
 export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';
+
+export { Form } from './components/form';
+export type { FormProps } from './components/form';
 
 export { Anchor, anchorVariants } from './components/anchor';
 export type { AnchorProps } from './components/anchor';
@@ -162,6 +168,9 @@ export type {
   TextAlign,
 } from './components/layout';
 
+export { List, ListItem } from './components/list';
+export type { ListProps, ListItemProps } from './components/list';
+
 // ─── Layout: Section ─────────────────────────────────────────────────────────
 export { Section } from './components/section';
 export type { SectionProps } from './components/section';
@@ -234,6 +243,10 @@ export type {
 // ─── Molecules: FormField ─────────────────────────────────────────────────────
 export { FormField, useFormField } from './components/form-field';
 export type { FormFieldProps, FormFieldContextValue } from './components/form-field';
+
+// ─── Molecules: Output ───────────────────────────────────────────────────────
+export { Output } from './components/output';
+export type { OutputProps } from './components/output';
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 export { useDialog } from './hooks/use-dialog';

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { List } from '@orbit/terra';
 import { EventFeedItem } from './event-feed-item';
 
 const meta: Meta<typeof EventFeedItem> = {
@@ -7,9 +8,9 @@ const meta: Meta<typeof EventFeedItem> = {
   tags: ['autodocs'],
   decorators: [
     (Story) => (
-      <ul className="divide-y divide-border-subtle">
+      <List separator>
         <Story />
-      </ul>
+      </List>
     ),
   ],
 };

@@ -235,3 +235,42 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 | 7 | Migrate all `<footer>` instances (4) |
 | 8 | Update golden-path docs |
 
+
+---
+
+## Phase 2 — Form and List Element Consolidation (2026-04-29)
+
+### Problem
+
+After Phase 1 banned layout and structural HTML elements, AI coding agents were observed using `<ul>`, `<ol>`, `<li>` as layout containers and `<label>`, `<input>` as inline element substitutes — effectively re-opening the loopholes Phase 1 closed.
+
+### Scope
+
+**Elements to ban (unconditionally):** `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, `<output>`
+
+### New Terra components
+
+| Component | Description |
+|-----------|-------------|
+| `<Form>` | Wraps `<form>`; props: `onSubmit`, `noValidate`, `gap` (SpacingSize), `maxWidth` (ContainerWidth) |
+| `<Checkbox>` | Wraps `<input type="checkbox">` + `<label>`; supports `indeterminate`, `variant="row"` |
+| `<List>` | Wraps `<ul>` / `<ol>`; props: `ordered`, `gap`, `separator` |
+| `<ListItem>` | Wraps `<li>`; children own layout |
+| `<Output>` | Wraps `<output>`; `field` prop applies input-like styling |
+
+### Acceptance criteria
+
+- `no-raw-list-elements` and `no-raw-form-elements` ESLint rules are active and error-level.
+- Both rules are in the `no-terra-disable-comment` guard set.
+- Zero instances of `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, `<output>` remain in `src/app/**` or `src/components/**`.
+- All five new Terra components are exported from the `@orbit/terra` barrel.
+- `make check` passes with no lint errors.
+
+### Implementation status
+
+| Step | Status |
+|------|--------|
+| New Terra components (`Form`, `Checkbox`, `List`, `ListItem`, `Output`) | ✅ Complete (2026-04-29) |
+| ESLint rules (`no-raw-list-elements`, `no-raw-form-elements`) | ✅ Complete (2026-04-29) |
+| Migrate all product-code instances | ✅ Complete (2026-04-29) |
+| Update ADR-0045 | ✅ Complete (2026-04-29) |

@@ -5,9 +5,12 @@ import {
   Button,
   ChatBubble,
   ChatBubbleActions,
+  Form,
   Grid,
   Icon,
   InputSurface,
+  List,
+  ListItem,
   Stack,
   StreamingCursor,
   Text,
@@ -489,11 +492,11 @@ export default function ChatPage() {
           </Stack>
         ) : (
           /* Message thread */
-          <Stack gap="spacious" asChild>
-            <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
+          <Stack maxWidth="document" grow paddingInline="snug" paddingBlock="comfortable">
+            <List ordered gap="comfortable">
               {messages.map((msg) => (
-                <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
-                  <li>
+                <ListItem key={msg.id}>
+                  <Stack direction="horizontal" gap="snug">
                     <ChatBubble
                       direction={msg.role === 'user' ? 'end' : 'start'}
                       variant={msg.role === 'user' ? 'accent' : 'surface'}
@@ -519,21 +522,21 @@ export default function ChatPage() {
                         )}
                       </ChatBubbleActions>
                     </ChatBubble>
-                  </li>
-                </Stack>
+                  </Stack>
+                </ListItem>
               ))}
 
               {/* Thinking indicator (between user message and streaming start) */}
               {isThinking && (
-                <Stack direction="horizontal" gap="snug" asChild>
-                  <li>
+                <ListItem>
+                  <Stack direction="horizontal" gap="snug">
                     <ChatBubble direction="start">
                       <TypingIndicator />
                     </ChatBubble>
-                  </li>
-                </Stack>
+                  </Stack>
+                </ListItem>
               )}
-            </ol>
+            </List>
           </Stack>
         )}
       </main>
@@ -541,7 +544,7 @@ export default function ChatPage() {
       {/* ── Input bar ────────────────────────────────────────────────────────── */}
       <Stack paddingInline="comfortable" paddingBlock="snug">
         <Stack asChild gap="snug">
-          <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
+          <Form maxWidth="document" onSubmit={(e) => e.preventDefault()}>
             {/* Input card: compound rounding + dynamic focus border */}
             <InputSurface>
               {/*
@@ -620,7 +623,7 @@ export default function ChatPage() {
             <Text size="micro" color="subtle" align="center">
               Orbit AI can make mistakes. Verify important information before acting.
             </Text>
-          </form>
+          </Form>
         </Stack>
       </Stack>
     </Stack>

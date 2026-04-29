@@ -6,7 +6,7 @@
  * @promote-to-tier-1 if: OrbitStatus dependency is removed and a second
  * non-dashboard Orbit surface needs a generic feed row.
  */
-import { Stack, StatusDot, Text } from '@orbit/terra';
+import { ListItem, Stack, StatusDot, Text } from '@orbit/terra';
 import type { OrbitStatus } from './status-badge';
 
 export interface EventFeedItemProps {
@@ -22,7 +22,8 @@ export interface EventFeedItemProps {
 export function EventFeedItem({ status, label, meta, message, timestamp }: EventFeedItemProps) {
   const dotStatus = status === 'unknown' ? ('muted' as const) : status;
   return (
-    <li className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors">
+    <ListItem>
+      <Stack direction="horizontal" align="start" gap="snug" paddingInline="comfortable" paddingBlock="snug">
       <StatusDot status={dotStatus} size="sm" aria-hidden />
       <Stack direction="vertical" gap="tight" grow minWidth="none">
         <Stack direction="horizontal" align="center" gap="snug">
@@ -49,6 +50,7 @@ export function EventFeedItem({ status, label, meta, message, timestamp }: Event
           {timestamp}
         </Text>
       </Stack>
-    </li>
+      </Stack>
+    </ListItem>
   );
 }

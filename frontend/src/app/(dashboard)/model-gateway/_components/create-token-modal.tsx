@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
+  Form,
   FormField,
   Input,
   Modal,
@@ -119,7 +120,7 @@ export function CreateTokenModal({
         title="Create API key"
         description="Keys are scoped to your account and usable at inference endpoints."
       />
-      <form onSubmit={(e) => void handleSubmit(e)} noValidate>
+      <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
         <ModalBody>
           {/* Name */}
           <FormField
@@ -203,7 +204,7 @@ export function CreateTokenModal({
             {submitting ? 'Creating…' : 'Create key'}
           </Button>
         </ModalFooter>
-      </form>
+      </Form>
     </Modal>
   );
 }

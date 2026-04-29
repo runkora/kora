@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
+import { Button, Form, Modal, ModalBody, ModalFooter, ModalHeader, Stack, Text } from '@orbit/terra';
 import { updateTokenScopes } from '../_actions/tokens';
 import { ScopePicker } from '@orbit/components';
 import type { PAT } from '@orbit/shared/api';
@@ -83,7 +83,7 @@ export function EditScopesModal({
         title="Edit permissions"
         description={pat ? `Update scopes for ${pat.name}` : undefined}
       />
-      <form onSubmit={(e) => void handleSubmit(e)} noValidate>
+      <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
         <ModalBody>
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
@@ -133,7 +133,7 @@ export function EditScopesModal({
             {submitting ? 'Saving…' : 'Save permissions'}
           </Button>
         </ModalFooter>
-      </form>
+      </Form>
     </Modal>
   );
 }
