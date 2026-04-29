@@ -200,12 +200,12 @@ export const InlineCode: Story = {
 };
 
 /**
- * New text props added in ADR-0043: `micro` size, `mono`, `tabular`,
+ * New text props added in ADR-0045: `micro` size, `mono`, `tabular`,
  * `truncate`, `preserveWhitespace`, and `as` element override.
  * These are additive — all existing Text props continue to work unchanged.
  */
 export const TextEnhancements: Story = {
-  name: 'Text — enhancements (ADR-0043)',
+  name: 'Text — enhancements (ADR-0045)',
   render: () => (
     <div>
       <Section title="Text — micro size" />

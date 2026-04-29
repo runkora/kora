@@ -2,7 +2,7 @@
 
 **Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the Orbit frontend.
 **Last updated:** 2026-04-28
-**Authoritative ADR:** [`docs/adr/0043-frontend-component-consolidation.md`](../../docs/adr/0043-frontend-component-consolidation.md)
+**Authoritative ADR:** [`docs/adr/0045-frontend-component-consolidation.md`](../../docs/adr/0045-frontend-component-consolidation.md)
 
 > For the placement decision tree and `@tier` annotation rules, see `AGENTS.md` → **Frontend Development**.
 
@@ -177,5 +177,5 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 | [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                   | Full Terra component usage guide — props, examples, every lint rule explained            |
 | [`frontend/docs/reference/app-components.md`](./app-components.md)                                             | Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
 | [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)            | State management patterns (server actions, URL state, local state)                       |
-| [`docs/adr/0043-frontend-component-consolidation.md`](../../docs/adr/0043-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                            |
+| [`docs/adr/0045-frontend-component-consolidation.md`](../../docs/adr/0045-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                            |
 | [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                            | Full Terra export list — source of truth for available component names                   |

@@ -5,7 +5,7 @@
 **Last Updated:** 2026-04-28
 **Owner:** Frontend
 **Stakeholders:** Engineering
-**Authoritative ADR:** [docs/adr/0045-semantic-html-consolidation.md](../../docs/adr/0045-semantic-html-consolidation.md)
+**Authoritative ADR:** [docs/adr/0047-semantic-html-consolidation.md](../../docs/adr/0047-semantic-html-consolidation.md)
 
 ---
 
@@ -19,7 +19,7 @@ The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, 
 
 ### Current State
 
-ADR-0044 established that raw layout HTML is banned in product code. `<div>` and `<section>` are banned unconditionally. Five additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry layout-mode Tailwind classes (`flex`, `grid`, `block`, etc.). A systematic audit finds **53 instances** that bypass this rule today:
+ADR-0046 established that raw layout HTML is banned in product code. `<div>` and `<section>` are banned unconditionally. Five additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry layout-mode Tailwind classes (`flex`, `grid`, `block`, etc.). A systematic audit finds **53 instances** that bypass this rule today:
 
 | Tag | Count | Primary use patterns |
 |-----|-------|----------------------|
@@ -273,4 +273,4 @@ After Phase 1 banned layout and structural HTML elements, AI coding agents were 
 | New Terra components (`Form`, `Checkbox`, `List`, `ListItem`, `Output`) | ✅ Complete (2026-04-29) |
 | ESLint rules (`no-raw-list-elements`, `no-raw-form-elements`) | ✅ Complete (2026-04-29) |
 | Migrate all product-code instances | ✅ Complete (2026-04-29) |
-| Update ADR-0045 | ✅ Complete (2026-04-29) |
+| Update ADR-0047 | ✅ Complete (2026-04-29) |

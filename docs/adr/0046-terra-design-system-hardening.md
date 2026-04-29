@@ -1,4 +1,4 @@
-# 0044. Terra Design System Hardening
+# 0046. Terra Design System Hardening
 
 **Status:** Accepted
 **Date:** 2026-04-23
@@ -10,7 +10,7 @@
 
 ## Context
 
-ADR-0021 established the Terra design system (`@orbit/terra`) as the mandatory UI primitive layer for the Orbit frontend. ADR-0043 extended enforcement with a suite of custom ESLint rules and expanded Terra's component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
+ADR-0021 established the Terra design system (`@orbit/terra`) as the mandatory UI primitive layer for the Orbit frontend. ADR-0045 extended enforcement with a suite of custom ESLint rules and expanded Terra's component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
 
 However, a clean lint report is not the same as a fully hardened design system. The following structural gaps remain after Phase 1:
 
@@ -411,7 +411,7 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 ## Related Decisions
 
 - [ADR-0021](0021-terra-frontend-design-system.md) — Original Terra design system decision; this ADR extends its enforcement model
-- [ADR-0043](0043-frontend-component-consolidation.md) — Phase 1 ESLint rule framework and component catalogue expansion; this ADR builds on its enforcement infrastructure
+- [ADR-0045](0045-frontend-component-consolidation.md) — Phase 1 ESLint rule framework and component catalogue expansion; this ADR builds on its enforcement infrastructure
 
 ---
 

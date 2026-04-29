@@ -1,4 +1,4 @@
-# 0045. Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer
+# 0047. Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer
 
 **Status:** Accepted
 **Date:** 2026-04-28
@@ -10,7 +10,7 @@
 
 ## Context
 
-ADR-0044 established Terra as the mandatory UI foundation and introduced `no-raw-layout-elements`, which unconditionally bans `<div>` and `<section>` in product code. Four additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry Tailwind layout-mode classes. A full audit of `src/app/**` and `src/components/**` finds 53 raw instances that bypass enforcement today.
+ADR-0046 established Terra as the mandatory UI foundation and introduced `no-raw-layout-elements`, which unconditionally bans `<div>` and `<section>` in product code. Four additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry Tailwind layout-mode classes. A full audit of `src/app/**` and `src/components/**` finds 53 raw instances that bypass enforcement today.
 
 The existing conditional rule creates an inconsistency: `<div className="flex">` is an error but `<aside className="h-full">` or `<footer className="px-4 py-3">` (no layout class) is not, even though all are equally problematic from a design-system perspective. More importantly, several recurring patterns — info callout boxes (8 instances), slide-over panel (5 instances in one file), sidebar navigation (1 instance) — have no sanctioned Terra alternative, so developers reach for raw semantic HTML as the only viable option.
 

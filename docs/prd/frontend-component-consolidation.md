@@ -12,7 +12,7 @@
 
 The Orbit control plane frontend has accumulated 22 recurring UI patterns — metric cards, modal dialogs, status badges, empty states, section headers, and more — that are implemented inline, independently, in each page or feature tab that needs them. There is no shared abstraction layer between the Terra design system and the product pages. This PRD defines the work to extract those patterns into reusable components placed at the correct level of the component hierarchy, eliminating duplication and establishing a stable, consistent UI vocabulary for all current and future dashboard features.
 
-A Phase 0 of Terra primitive additions (Icon, ChatBubble, Show, Card `interactive`, Text enhancements) has been completed (ADR-0043). Phase 1 (`Modal`, `useDialog`, `FormField`) is complete. The remaining phases address the full suite of app-level shared components.
+A Phase 0 of Terra primitive additions (Icon, ChatBubble, Show, Card `interactive`, Text enhancements) has been completed (ADR-0045). Phase 1 (`Modal`, `useDialog`, `FormField`) is complete. The remaining phases address the full suite of app-level shared components.
 
 ---
 
@@ -64,7 +64,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 - This does **not** introduce a new state management pattern — components remain stateless presentational units that accept controlled props.
 - This does **not** address chart or data-visualisation component wrappers beyond the `ChartLegend` utility row.
 - This does **not** migrate the Terra design system to a different component foundation.
-- This does **not** add animation or motion primitives to Terra — the typing-indicator bounce and streaming cursor remain explicitly deferred (see ADR-0043 Notes).
+- This does **not** add animation or motion primitives to Terra — the typing-indicator bounce and streaming cursor remain explicitly deferred (see ADR-0045 Notes).
 
 ---
 
@@ -144,7 +144,7 @@ Extracted components must be:
 
 #### Tier 1 — Terra (`@orbit/terra`)
 
-**Phase 0 additions — implemented (ADR-0043 Terra Primitives):**
+**Phase 0 additions — implemented (ADR-0045 Terra Primitives):**
 
 | Component / Change | Description | Status |
 |--------------------|-------------|--------|
@@ -312,7 +312,7 @@ An agent must not write a component that already exists in a higher-priority sou
 ##### Pre-task protocol (required before writing any JSX)
 
 1. **Check the Tier 1 and Tier 2 inventories** in `ui-components.md`. If an existing component covers the need, use it.
-2. **Run the placement decision tree** (ADR-0043 § Agent placement decision tree). Every new component must pass through the decision tree before a file is created.
+2. **Run the placement decision tree** (ADR-0045 § Agent placement decision tree). Every new component must pass through the decision tree before a file is created.
 3. **Never reach for a raw HTML element that has a Terra equivalent.** The substitution table is unambiguous:
 
 | Banned raw element | Use instead |
@@ -549,7 +549,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 ### Key Milestones
 
 - [x] PRD Approved
-- [x] ADR-0043 Created and Accepted
+- [x] ADR-0045 Created and Accepted
 - [x] Phase 0 complete — Terra primitive foundations in place; all `chat/page.tsx` raw-div suppressions resolved; `no-direct-lucide-import` enforced
 - [x] Phase 1 complete — zero raw `<dialog>` elements remain in product code; `Modal`, `useDialog`, `FormField` in Terra; agent surfacing strategy documented
 - [ ] Phase 2 complete — zero duplicate `StatCard`/`KPICard`/`EmptyState` implementations remain; `App/Shared/` Storybook category, `app-components.md` golden path, and Tier 2 section of `ui-components.md` all populated; Tier 2 marked agent-ready
