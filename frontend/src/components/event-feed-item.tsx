@@ -23,33 +23,39 @@ export function EventFeedItem({ status, label, meta, message, timestamp }: Event
   const dotStatus = status === 'unknown' ? ('muted' as const) : status;
   return (
     <ListItem>
-      <Stack direction="horizontal" align="start" gap="snug" paddingInline="comfortable" paddingBlock="snug">
-      <StatusDot status={dotStatus} size="sm" aria-hidden />
-      <Stack direction="vertical" gap="tight" grow minWidth="none">
-        <Stack direction="horizontal" align="center" gap="snug">
-          <Text size="caption" weight="emphasis" mono>
-            {label}
+      <Stack
+        direction="horizontal"
+        align="start"
+        gap="snug"
+        paddingInline="comfortable"
+        paddingBlock="snug"
+      >
+        <StatusDot status={dotStatus} size="sm" aria-hidden />
+        <Stack direction="vertical" gap="tight" grow minWidth="none">
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Text size="caption" weight="emphasis" mono>
+              {label}
+            </Text>
+            {meta && (
+              <>
+                <Text size="caption" color="subtle">
+                  ·
+                </Text>
+                <Text size="caption" color="subtle">
+                  {meta}
+                </Text>
+              </>
+            )}
+          </Stack>
+          <Text size="caption" color="muted" truncate>
+            {message}
           </Text>
-          {meta && (
-            <>
-              <Text size="caption" color="subtle">
-                ·
-              </Text>
-              <Text size="caption" color="subtle">
-                {meta}
-              </Text>
-            </>
-          )}
         </Stack>
-        <Text size="caption" color="muted" truncate>
-          {message}
-        </Text>
-      </Stack>
-      <Stack shrink gap="none">
-        <Text size="caption" color="subtle" mono>
-          {timestamp}
-        </Text>
-      </Stack>
+        <Stack shrink gap="none">
+          <Text size="caption" color="subtle" mono>
+            {timestamp}
+          </Text>
+        </Stack>
       </Stack>
     </ListItem>
   );
