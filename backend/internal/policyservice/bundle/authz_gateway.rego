@@ -258,6 +258,10 @@ allow if {
 
 default reason := "deny:no_matching_grant"
 
+reason := "allow:frontend_bypass" if _is_frontend_request
+
+reason := "allow:platform_internal_bypass" if _is_platform_internal_path
+
 reason := concat("", ["grant:", matched_grant_scope]) if {
 	not _is_delegated
 	principal_has_required_scope
