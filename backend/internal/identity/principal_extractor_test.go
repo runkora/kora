@@ -91,6 +91,42 @@ func TestPrincipalFromSpiffeID_SetsFields(t *testing.T) {
 	}
 }
 
+func TestPrincipalFromSpiffeID_NormalizesIstioSystemIdentity(t *testing.T) {
+	transportID := "spiffe://orbit.test/ns/orbit-system/sa/orbit-inference-gateway"
+	p, err := principalFromSpiffeID(transportID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.ID != "spiffe://orbit.test/system/inference-gateway" {
+		t.Errorf("ID: got %q", p.ID)
+	}
+	if p.Type != PrincipalTypeSystem {
+		t.Errorf("Type: got %q", p.Type)
+	}
+	if p.DisplayName != "inference-gateway" {
+		t.Errorf("DisplayName: got %q", p.DisplayName)
+	}
+	if p.Claims["spiffe_id"] != "spiffe://orbit.test/system/inference-gateway" {
+		t.Errorf("Claims[spiffe_id]: got %q", p.Claims["spiffe_id"])
+	}
+	if p.Claims["spiffe_path"] != "/system/inference-gateway" {
+		t.Errorf("Claims[spiffe_path]: got %q", p.Claims["spiffe_path"])
+	}
+	if p.Claims["transport_spiffe_id"] != transportID {
+		t.Errorf("Claims[transport_spiffe_id]: got %q", p.Claims["transport_spiffe_id"])
+	}
+	if p.Claims["transport_spiffe_path"] != "/ns/orbit-system/sa/orbit-inference-gateway" {
+		t.Errorf("Claims[transport_spiffe_path]: got %q", p.Claims["transport_spiffe_path"])
+	}
+}
+
+func TestPrincipalFromSpiffeID_RejectsUnknownIstioIdentity(t *testing.T) {
+	_, err := principalFromSpiffeID("spiffe://orbit.test/ns/orbit-tenant-example/sa/orbit-example")
+	if err == nil {
+		t.Error("expected error for unsupported Istio SPIFFE identity")
+	}
+}
+
 func TestPrincipalFromSpiffeID_NotSpiffeURI(t *testing.T) {
 	_, err := principalFromSpiffeID("https://not-spiffe/foo")
 	if err == nil {
@@ -122,6 +158,27 @@ func TestXFCCPrincipalExtractor_Success(t *testing.T) {
 	}
 	if p.Type != PrincipalTypeAgent {
 		t.Errorf("principal type: got %q", p.Type)
+	}
+}
+
+func TestXFCCPrincipalExtractor_NormalizesIstioSystemIdentity(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("x-forwarded-client-cert",
+		`By=spiffe://orbit.test/system/envoy-proxy;Hash=abc;URI=spiffe://orbit.test/ns/orbit-system/sa/orbit-policy-gateway;DNS=orbit-policy-gateway`)
+
+	x := &XFCCPrincipalExtractor{}
+	p, err := x.Extract(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.ID != "spiffe://orbit.test/system/policy-gateway" {
+		t.Errorf("principal ID: got %q", p.ID)
+	}
+	if p.Type != PrincipalTypeSystem {
+		t.Errorf("principal type: got %q", p.Type)
+	}
+	if p.Claims["transport_spiffe_id"] != "spiffe://orbit.test/ns/orbit-system/sa/orbit-policy-gateway" {
+		t.Errorf("transport identity: got %q", p.Claims["transport_spiffe_id"])
 	}
 }
 

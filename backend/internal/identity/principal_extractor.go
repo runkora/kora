@@ -88,8 +88,16 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 //	Service: spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
 //	System:  spiffe://orbit.{instance-id}/system/{component-name}
 //
-// The full URI is stored as the principal ID and in Claims["spiffe_id"] so
-// that policy rules can match on it directly (ADR-0010).
+// Istio mTLS currently requires the standard SPIFFE path shape:
+//
+//	Istio:   spiffe://orbit.{instance-id}/ns/{namespace}/sa/{service-account}
+//
+// Known Orbit system service accounts are normalized back to their canonical
+// /system/{component-name} principal while preserving the transport identity in
+// Claims["transport_spiffe_id"].
+//
+// The canonical Orbit URI is stored as the principal ID and in
+// Claims["spiffe_id"] so that policy rules can match on it directly (ADR-0010).
 func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	if !strings.HasPrefix(spiffeID, "spiffe://") {
 		return nil, fmt.Errorf("not a SPIFFE URI: %q", spiffeID)
@@ -113,6 +121,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	var principalType PrincipalType
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	canonicalID := spiffeID
 
 	// Parse principal type and identifiers based on path structure
 	switch {
@@ -134,22 +143,57 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		default:
 			return nil, fmt.Errorf("unknown principal type %q in SPIFFE path %q", segments[2], path)
 		}
+	case len(segments) == 4 && segments[0] == "ns" && segments[2] == "sa":
+		component, ok := systemComponentFromIstioIdentity(segments[1], segments[3])
+		if !ok {
+			return nil, fmt.Errorf("unsupported Istio SPIFFE path %q: only known Orbit system service accounts can be normalized", path)
+		}
+		principalType = PrincipalTypeSystem
+		displayName = component
+		canonicalID = "spiffe://" + trustDomain + "/system/" + component
 	default:
 		return nil, fmt.Errorf("malformed SPIFFE path: expected /tenant/{id}/agent|service/{name} or /system/{name}, got %q", path)
 	}
 
+	claims := map[string]string{
+		"spiffe_id":    canonicalID,
+		"trust_domain": trustDomain,
+		"spiffe_path":  strings.TrimPrefix(canonicalID, "spiffe://"+trustDomain),
+	}
+	if canonicalID != spiffeID {
+		claims["transport_spiffe_id"] = spiffeID
+		claims["transport_spiffe_path"] = path
+	}
+
 	return &Principal{
-		// Use the full SPIFFE URI as the stable principal ID so that
+		// Use the canonical SPIFFE URI as the stable principal ID so that
 		// policy rules can match on it directly.
-		ID:             spiffeID,
+		ID:             canonicalID,
 		Type:           principalType,
 		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceAttested,
-		Claims: map[string]string{
-			"spiffe_id":    spiffeID,
-			"trust_domain": trustDomain,
-			"spiffe_path":  path,
-		},
+		Claims:         claims,
 	}, nil
+}
+
+func systemComponentFromIstioIdentity(namespace, serviceAccount string) (string, bool) {
+	if namespace != "orbit-system" {
+		return "", false
+	}
+
+	switch serviceAccount {
+	case "orbit-frontend":
+		return "frontend", true
+	case "orbit-identity":
+		return "identity", true
+	case "orbit-inference-gateway":
+		return "inference-gateway", true
+	case "orbit-policy-gateway":
+		return "policy-gateway", true
+	case "orbit-policy-service":
+		return "policy-service", true
+	default:
+		return "", false
+	}
 }
