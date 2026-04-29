@@ -1,20 +1,16 @@
 apiVersion: v2
 name: orbit-platform
 description: >
-  Orbit cluster-level resources — namespaces, ClusterSPIFFEIDs, and NetworkPolicies.
-  This is a thin chart that manages Orbit's cluster-scoped configuration only.
-  SPIRE and Istio are installed as SEPARATE Helm releases, driven by the
-  orbit-operator, configured entirely from the OrbitPlatform CR.
-type: application
-version: 0.3.0
-appVersion: "0.1.0"
+  Orbit cluster-level resources — namespaces, ClusterSPIFFEIDs, and NetworkPolicies. This is a thin chart that manages Orbit's cluster-scoped configuration only. SPIRE and Istio are installed as SEPARATE Helm releases, driven by the orbit-operator, configured entirely from the OrbitPlatform CR.
 
+type: application
+version: 0.0.0
+appVersion: "0.1.0"
 keywords:
   - orbit
   - spiffe
   - service-mesh
   - workload-identity
-
 maintainers:
   - name: Orbit Platform Team
 #

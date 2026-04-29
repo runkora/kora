@@ -19,11 +19,19 @@ spec:
         spiffe.io/component: policy-service
       annotations:
         inject.istio.io/templates: "sidecar,spire"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+          proxyMetadata:
+            PILOT_CERT_PROVIDER: spire
+            SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+        sidecar.istio.io/userVolumeMount: '{"spire-workload-socket":{"mountPath":"/run/secrets/workload-spiffe-uds","readOnly":true}}'
         # Postgres is external to the mesh — bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
     spec:
       serviceAccountName: orbit-policy-service
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.nodeSelector" . | nindent 6 }}
+      {{- include "orbit.tolerations" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -48,8 +56,6 @@ spec:
               value: {{ .Values.policyService.config.otlpInsecure | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ .Values.policyService.config.logFormat | quote }}
-            - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
-              value: {{ .Values.opaGateway.frontendHost | quote }}
           {{- if or .Values.policyService.existingConfigMap .Values.policyService.existingSecret }}
           envFrom:
             {{- if .Values.policyService.existingConfigMap }}

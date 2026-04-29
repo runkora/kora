@@ -32,10 +32,11 @@ spec:
       kubernetes.io/metadata.name: istio-system
   podSelector:
     matchLabels:
-      app: gateway
+      {{- toYaml .Values.gateway.spiffe.podSelector | nindent 6 }}
   workloadSelectorTemplates:
-    - "k8s:ns:istio-system"
-    - "k8s:sa:gateway"
+    {{- range .Values.gateway.spiffe.workloadSelectorTemplates }}
+    - {{ . | quote }}
+    {{- end }}
 ---
 # Istio sidecar proxies injected into non-system, non-tenant namespaces.
 # Scoped by exclusion: does NOT match orbit-system or any orbit.io/role=tenant namespace —

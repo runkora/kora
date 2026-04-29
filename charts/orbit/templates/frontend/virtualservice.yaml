@@ -1,9 +1,10 @@
+{{- if .Values.frontend.virtualService.enabled }}
 # VirtualService for the Orbit frontend.
 #
-# Routes all traffic for orbit.local.clearroute.io through the platform Gateway to the
-# orbit-frontend ClusterIP service. The Gateway resource itself lives in
-# charts/orbit-platform/templates/gateway.yaml (a platform concern shared
-# across all externally-reachable Orbit services).
+# Routes traffic for the configured frontend.virtualService.hosts entries
+# through the configured frontend.virtualService.gateways to the
+# orbit-frontend ClusterIP service. The shared Gateway resource typically
+# lives in charts/orbit-platform/templates/gateway.yaml.
 #
 # Ref: ADR-0034 (frontend cluster deployment and ingress routing)
 apiVersion: networking.istio.io/v1beta1
@@ -15,12 +16,17 @@ metadata:
     {{- include "orbit.frontend.labels" . | nindent 4 }}
 spec:
   hosts:
-    - "orbit.local.clearroute.io"
+    {{- range .Values.frontend.virtualService.hosts }}
+    - {{ . | quote }}
+    {{- end }}
   gateways:
-    - {{ include "orbit.systemNamespace" . }}/orbit-gateway
+    {{- range .Values.frontend.virtualService.gateways }}
+    - {{ . | quote }}
+    {{- end }}
   http:
     - route:
         - destination:
             host: orbit-frontend.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
+{{- end }}

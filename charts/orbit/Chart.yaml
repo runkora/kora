@@ -1,23 +1,19 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit control plane — deploys the Orbit identity service and associated
-  Kubernetes resources (ServiceAccount, Deployment, Service, DestinationRule,
-  EnvoyFilter). Requires orbit-platform to be installed first.
-type: application
-version: 0.5.10
-appVersion: "0.3.0"
+  Orbit control plane — deploys the Orbit identity service and associated Kubernetes resources (ServiceAccount, Deployment, Service, DestinationRule, EnvoyFilter). Requires orbit-platform to be installed first.
 
+type: application
+version: 0.0.0
+appVersion: "0.3.0"
 keywords:
   - orbit
   - identity
   - oidc
   - spiffe
   - agent-control-plane
-
 maintainers:
   - name: Orbit Platform Team
-
 # This chart has no sub-chart dependencies — it is a pure application chart.
 # Platform prerequisites (SPIRE, Istio, namespaces, ClusterSPIFFEIDs,
 # NetworkPolicies) are provided by the orbit-platform chart.

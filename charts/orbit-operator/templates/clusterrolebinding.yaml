@@ -11,4 +11,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "orbit-operator.serviceAccountName" . }}
-    namespace: {{ .Values.namespace }}
+    namespace: {{ .Release.Namespace }}

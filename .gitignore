@@ -96,6 +96,7 @@ dist/
 .forge/
 
 # helm
+.cr-release-packages/
 charts/**/charts/
 Chart.lock
 infrastructure/overlays/*/charts

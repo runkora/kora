@@ -24,18 +24,28 @@ spec:
         # token on outbound requests (e.g. route registration with policy service).
         orbit.io/identity-proxy: "enabled"
       annotations:
-        inject.istio.io/templates: "sidecar,spire,identity-proxy"
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+          proxyMetadata:
+            PILOT_CERT_PROVIDER: spire
+            SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+        sidecar.istio.io/userVolumeMount: '{"id-proxy-sock":{"mountPath":"/run/orbit"},"spire-workload-socket":{"mountPath":"/run/secrets/workload-spiffe-uds","readOnly":true}}'
         # Exclude PostgreSQL from sidecar interception — orbit-postgres is an
         # external container on orbit-network, not a mesh service.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
     spec:
       serviceAccountName: orbit-inference-gateway
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.nodeSelector" . | nindent 6 }}
+      {{- include "orbit.tolerations" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
         fsGroup: 65532
       volumes:
+        - name: id-proxy-sock
+          emptyDir: {}
         - name: spire-workload-socket
           csi:
             driver: csi.spiffe.io
@@ -97,6 +107,43 @@ spec:
           resources:
             {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
           volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true
+        - name: identity-proxy
+          image: "{{ .Values.inferenceGateway.identityProxy.image.repository }}:{{ include "orbit.inferenceGateway.identityProxy.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.inferenceGateway.identityProxy.imagePullPolicy" . }}
+          env:
+            - name: APP_ENV
+              value: {{ .Values.inferenceGateway.identityProxy.appEnv | quote }}
+            - name: ORBIT_IDENTITY_SERVICE_URL
+              value: "http://orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local"
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+          ports:
+            - name: health
+              containerPort: 9090
+              protocol: TCP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.inferenceGateway.identityProxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: id-proxy-sock
+              mountPath: /run/orbit
             - name: spire-workload-socket
               mountPath: /run/secrets/workload-spiffe-uds
               readOnly: true

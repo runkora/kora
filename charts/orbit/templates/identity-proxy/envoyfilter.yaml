@@ -2,8 +2,8 @@
 #
 # The identity-proxy is the MANDATORY trust enforcement point for all Orbit
 # platform agent workloads. It is not optional. Every agent pod on the platform
-# must carry the label `orbit.io/identity-proxy: "enabled"` and the sidecar
-# injection annotation `inject.istio.io/templates: "sidecar,spire,identity-proxy"`.
+# must carry the label `orbit.io/identity-proxy: "enabled"` and provide a
+# running identity-proxy container with the shared `/run/orbit` socket mount.
 #
 # This filter activates on all pods bearing that label and intercepts every
 # outbound HTTP request at the Envoy layer. It calls the identity-proxy sidecar
@@ -77,7 +77,7 @@ spec:
                       address:
                         pipe:
                           # Unix socket path — must match the mountPath of the
-                          # id-proxy-sock emptyDir volume in the identity-proxy
-                          # sidecar injection template (charts/orbit-platform values).
+                          # id-proxy-sock shared volume mounted into both the
+                          # identity-proxy container and the injected Envoy sidecar.
                           path: /run/orbit/identity-proxy.sock
           http2_protocol_options: {}

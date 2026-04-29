@@ -41,3 +41,33 @@ ServiceAccount name.
 {{- .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Optional image pull secrets for the operator pod.
+*/}}
+{{- define "orbit-operator.imagePullSecrets" -}}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Optional node selector for the operator pod.
+*/}}
+{{- define "orbit-operator.nodeSelector" -}}
+{{- with .Values.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Optional tolerations for the operator pod.
+*/}}
+{{- define "orbit-operator.tolerations" -}}
+{{- with .Values.tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}

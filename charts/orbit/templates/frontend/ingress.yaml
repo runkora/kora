@@ -1,0 +1,42 @@
+{{- if .Values.frontend.ingress.enabled }}
+# Ingress for the Orbit frontend.
+#
+# Exposes the orbit-frontend ClusterIP service through a Kubernetes ingress
+# controller. Configure annotations/className/hosts/TLS via frontend.ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orbit-frontend
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.frontend.labels" . | nindent 4 }}
+  {{- with .Values.frontend.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.frontend.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  rules:
+    {{- range .Values.frontend.ingress.hosts }}
+    - {{- with .host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: orbit-frontend
+                port:
+                  number: 80
+          {{- end }}
+    {{- end }}
+  {{- with .Values.frontend.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

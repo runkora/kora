@@ -680,6 +680,43 @@ A post-install trust domain assertion can be added to validate the running SPIRE
 
 **On chart versioning:**
 
-Until a chart registry publishing pipeline exists, both charts are consumed from the local filesystem in `deploy/local/` and the Makefile. The `version:` fields in `Chart.yaml` are maintained manually and bumped with each release. When a publishing pipeline is added, the only change in an operator's deployment repository is replacing `./charts/orbit-platform` and `./charts/orbit` with OCI registry URLs — no structural change to `charts/` or `deploy/local/` is required.
+Orbit Helm charts are published from `.github/workflows/helm-charts.yml` using `helm/chart-releaser-action`. The checked-in `version:` field in each `Chart.yaml` stays at the baseline `0.0.0`; humans do not manually bump chart versions. CI patches changed chart versions with `yq` before validation and publishing:
+
+- Pull requests set changed chart versions to `0.0.1` before `ct lint` / `ct install`.
+- Pushes to `main` set changed chart versions to `0.0.0-sha.<short-git-sha>` before chart-releaser packages them.
+
+Chart-releaser then creates the corresponding GitHub releases, updates the Helm repository index on the `gh-pages` branch, and the same generated chart packages in `.cr-release-packages/` are pushed to GitHub Container Registry as OCI artifacts.
+
+OCI chart references use the repository owner namespace:
+
+```bash
+helm install orbit-operator oci://ghcr.io/<owner>/charts/orbit-operator \
+  --version 0.0.0-sha.<short-git-sha> \
+  --namespace orbit-operator \
+  --create-namespace
+
+helm install orbit-platform oci://ghcr.io/<owner>/charts/orbit-platform \
+  --version 0.0.0-sha.<short-git-sha> \
+  --namespace orbit-system \
+  --create-namespace
+
+helm install orbit oci://ghcr.io/<owner>/charts/orbit \
+  --version 0.0.0-sha.<short-git-sha> \
+  --namespace orbit-system
+```
+
+The indexed Helm repository is served from GitHub Pages on the `gh-pages` branch. GitHub Pages must be enabled for the repository before HTTP chart repository consumption is advertised. Local development continues to consume charts from the local filesystem through `deploy/local/` and the Makefile. Published charts are the operator-facing distribution path for external installs and GitOps repositories.
+
+Once GitHub Pages is enabled, HTTP chart repository consumers can use:
+
+```bash
+helm repo add orbit https://<owner>.github.io/<repo>
+helm repo update
+
+helm install orbit-operator orbit/orbit-operator \
+  --version 0.0.0-sha.<short-git-sha> \
+  --namespace orbit-operator \
+  --create-namespace
+```
 
 **Last Updated:** 2026-06-04

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: orbit-operator
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "orbit-operator.labels" . | nindent 4 }}
 spec:
@@ -25,6 +25,9 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "orbit-operator.serviceAccountName" . }}
+      {{- include "orbit-operator.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit-operator.nodeSelector" . | nindent 6 }}
+      {{- include "orbit-operator.tolerations" . | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

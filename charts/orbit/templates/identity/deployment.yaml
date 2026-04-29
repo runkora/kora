@@ -21,13 +21,17 @@ spec:
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: identity
       annotations:
-        # Inject the Istio sidecar + SPIRE CSI volume template.
-        # The "spire" template adds SPIFFE_ENDPOINT_SOCKET and the CSI volume
-        # so Envoy can acquire its SVID from the SPIRE agent via SDS.
+        # Inject the base Istio sidecar plus the custom SPIRE socket template.
         inject.istio.io/templates: "sidecar,spire"
         # Hold the application container until the Envoy proxy is ready.
         # Prevents identity service from accepting traffic before mTLS is established.
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        proxy.istio.io/config: |
+          holdApplicationUntilProxyStarts: true
+          proxyMetadata:
+            PILOT_CERT_PROVIDER: spire
+            SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+        # Mount the SPIRE CSI socket into the injected Envoy sidecar.
+        sidecar.istio.io/userVolumeMount: '{"spire-workload-socket":{"mountPath":"/run/secrets/workload-spiffe-uds","readOnly":true}}'
         # Exclude PostgreSQL and Redis ports from sidecar interception.
         # Both orbit-postgres and orbit-redis are external containers on
         # orbit-network (external to the mesh). Envoy cannot route plain TCP
@@ -40,6 +44,9 @@ spec:
         {{- toYaml .Values.identity.hostAliases | nindent 8 }}
       {{- end }}
       serviceAccountName: orbit-identity
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      {{- include "orbit.nodeSelector" . | nindent 6 }}
+      {{- include "orbit.tolerations" . | nindent 6 }}
       volumes:
         # SPIFFE CSI volume — delivers the SVID workload socket to the container.
         # Mounted at /run/secrets/workload-spiffe-uds by the identity service

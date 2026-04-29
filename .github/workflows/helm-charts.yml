@@ -1,0 +1,222 @@
+name: Helm chart publish
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "deploy/local/**"
+      - ".github/workflows/helm-charts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-charts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-helm-charts-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VALIDATION_CHART_VERSION: 0.0.1
+  PUBLISH_CHART_VERSION_BASE: 0.0.0
+  ORBIT_HELM_EXTRA_SET_ARGS: >-
+    --set frontend.config.orbitApiUrl=http://orbit-identity.orbit-system/api/v1
+    --set frontend.config.inferenceGatewayUrl=http://orbit-inference-gateway.orbit-system/v1
+    --set frontend.config.policyGatewayUrl=http://orbit-policy-gateway.orbit-system/v1
+    --set frontend.config.policyServiceUrl=http://orbit-policy-service.orbit-system/api/v1
+    --set frontend.config.nextPublicAppUrl=https://orbit.local.clearroute.io:8443
+
+jobs:
+  validate:
+    name: Validate Helm Charts
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.8.0
+
+      - name: List changed charts
+        id: list-changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed="$(ct list-changed \
+            --chart-dirs charts \
+            --target-branch "${TARGET_BRANCH}")"
+          charts="$(echo "${changed}" | tr '\n' ' ' | xargs)"
+
+          if [ -n "${changed}" ]; then
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+            echo "changed_charts=${charts}" >> "${GITHUB_OUTPUT}"
+            echo "Changed charts: ${charts}"
+          else
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "No changed charts detected"
+          fi
+        env:
+          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
+
+      - name: Set validation chart versions
+        if: steps.list-changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for chart in ${CHANGED_CHARTS}; do
+            echo "Setting ${chart}/Chart.yaml version to ${VALIDATION_CHART_VERSION}"
+            yq -i ".version = \"${VALIDATION_CHART_VERSION}\"" "${chart}/Chart.yaml"
+          done
+        env:
+          CHANGED_CHARTS: ${{ steps.list-changed.outputs.changed_charts }}
+
+      - name: Run chart-testing lint
+        if: steps.list-changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          ct lint \
+            --chart-dirs charts \
+            --target-branch "${TARGET_BRANCH}" \
+            --validate-maintainers=false \
+            --check-version-increment=false
+        env:
+          TARGET_BRANCH: ${{ github.event.repository.default_branch }}
+
+      - name: Render changed charts
+        if: steps.list-changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for chart in ${CHANGED_CHARTS}; do
+            name="$(awk '/^name:/ {print $2; exit}' "${chart}/Chart.yaml")"
+            echo "Rendering ${chart}"
+            helm template "${name}" "${chart}" \
+              ${ORBIT_HELM_EXTRA_SET_ARGS} \
+              > "/tmp/${name}-render.yaml"
+          done
+        env:
+          CHANGED_CHARTS: ${{ steps.list-changed.outputs.changed_charts }}
+
+  publish:
+    name: Publish Helm Charts
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      OCI_REPOSITORY: oci://ghcr.io/${{ github.repository_owner }}/charts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Configure Git
+        shell: bash
+        run: |
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
+      - name: Set publish chart versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="${GITHUB_SHA::7}"
+          export PUBLISH_CHART_VERSION="${PUBLISH_CHART_VERSION_BASE}-sha.${short_sha}"
+
+          if latest_tag="$(git describe --tags --abbrev=0 HEAD~ 2>/dev/null)"; then
+            echo "Discovering changed charts since ${latest_tag}"
+          else
+            latest_tag="$(git rev-list --max-parents=0 --first-parent HEAD)"
+            echo "No prior tag found; discovering changed charts since ${latest_tag}"
+          fi
+
+          mapfile -t changed_charts < <(
+            git diff --find-renames --name-only "${latest_tag}" -- charts \
+              | cut -d / -f 1-2 \
+              | awk '!seen[$0]++' \
+              | while read -r chart; do
+                  if [ -f "${chart}/Chart.yaml" ]; then
+                    echo "${chart}"
+                  fi
+                done
+          )
+
+          if [ "${#changed_charts[@]}" -eq 0 ]; then
+            echo "No changed charts detected"
+            exit 0
+          fi
+
+          for chart in "${changed_charts[@]}"; do
+            echo "Setting ${chart}/Chart.yaml version to ${PUBLISH_CHART_VERSION}"
+            yq -i ".version = \"${PUBLISH_CHART_VERSION}\"" "${chart}/Chart.yaml"
+          done
+
+      - name: Run chart releaser
+        id: chart-releaser
+        uses: helm/chart-releaser-action@v1.7.0
+        with:
+          charts_dir: charts
+          skip_existing: true
+          mark_as_latest: false
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GHCR
+        if: steps.chart-releaser.outputs.changed_charts != ''
+        shell: bash
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io \
+                --username "${{ github.actor }}" \
+                --password-stdin
+
+      - name: Push chart packages to GHCR
+        if: steps.chart-releaser.outputs.changed_charts != ''
+        shell: bash
+        run: |
+          shopt -s nullglob
+
+          packages=(.cr-release-packages/*.tgz)
+          if [ "${#packages[@]}" -eq 0 ]; then
+            echo "No chart packages generated by chart-releaser"
+            exit 0
+          fi
+
+          for package in "${packages[@]}"; do
+            name="$(helm show chart "${package}" | awk '/^name:/ {print $2; exit}')"
+            version="$(helm show chart "${package}" | awk '/^version:/ {print $2; exit}')"
+
+            if helm show chart "${OCI_REPOSITORY}/${name}" --version "${version}" >/dev/null 2>&1; then
+              echo "Chart already exists in GHCR, skipping: ${OCI_REPOSITORY}/${name}:${version}"
+              continue
+            fi
+
+            helm push "${package}" "${OCI_REPOSITORY}"
+          done

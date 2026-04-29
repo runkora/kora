@@ -14,4 +14,5 @@ spec:
       mode: ISTIO_MUTUAL
       subjectAltNames:
         - "spiffe://{{ include "orbit.trustDomain" . }}/system/policy-gateway"
+        - "spiffe://{{ include "orbit.trustDomain" . }}/ns/{{ include "orbit.systemNamespace" . }}/sa/orbit-policy-gateway"
 {{- end }}

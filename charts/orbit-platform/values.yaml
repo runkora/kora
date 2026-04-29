@@ -52,6 +52,46 @@ networkPolicy:
 
 # -- Istio ingress gateway configuration.
 gateway:
+  # -- Labels selecting the Istio ingress gateway workload.
+  selector:
+    app: gateway
+
+  # -- Hosts accepted by the Istio Gateway.
+  hosts:
+    - "orbit.local.clearroute.io"
+    - "api.orbit.local.clearroute.io"
+
+  # -- Ports the Istio Gateway proxy listens on. In cloud environments these can
+  # be high ports while the Kubernetes Service still exposes 80/443.
+  ports:
+    http: 80
+    https: 443
+
+  # -- SPIFFE identity selection for the Istio ingress gateway workload.
+  spiffe:
+    podSelector:
+      app: gateway
+    workloadSelectorTemplates:
+      - "k8s:ns:istio-system"
+      - "k8s:sa:gateway"
+
+  # -- Optional Kubernetes Ingress exposing the Istio Gateway service through
+  # an ingress controller such as Traefik.
+  ingress:
+    enabled: false
+    namespace: "istio-system"
+    className: ""
+    annotations: {}
+    service:
+      name: "istio"
+      port: 80
+    hosts:
+      - host: "api.orbit.local.clearroute.io"
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
   tls:
     # -- Enable HTTPS on port 443 with HTTP→HTTPS redirect on port 80.
     # Requires a TLS secret named by credentialName in the istio-system namespace.

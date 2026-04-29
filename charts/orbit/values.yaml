@@ -35,6 +35,16 @@ global:
   # Use IfNotPresent for production and staging; Always for local dev registries.
   imagePullPolicy: IfNotPresent
 
+  # Optional image pull secrets applied to all Orbit workloads.
+  # Example:
+  # imagePullSecrets:
+  #   - name: orbit-registry-creds
+  imagePullSecrets: []
+
+  # Optional scheduling constraints applied to all Orbit workloads.
+  nodeSelector: {}
+  tolerations: []
+
 # -- Identity service configuration.
 identity:
   # Container image for the orbit-identity service.
@@ -110,6 +120,9 @@ identity:
 
 # -- Inference gateway service configuration.
 inferenceGateway:
+  serviceAccount:
+    annotations: {}
+
   # Container image for the orbit-inference-gateway service.
   image:
     repository: "ghcr.io/orbit-sh/orbit-inference-gateway"
@@ -148,6 +161,35 @@ inferenceGateway:
   # Name of the existing ConfigMap containing DB_HOST, DB_NAME, DB_PORT, DB_USER.
   # Operator default: "orbit-config" (managed by operator, same as identity service).
   existingConfigMap: "orbit-config"
+
+  # Identity-proxy sidecar configuration. This sidecar exchanges the workload's
+  # SPIFFE SVID for a platform token and injects it onto outbound requests via
+  # the Envoy ext_proc filter.
+  identityProxy:
+    image:
+      repository: "ghcr.io/orbit-sh/orbit-identity-proxy"
+      tag: ""  # Defaults to .Chart.AppVersion when empty.
+      pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+    # Environment selector for the identity-proxy config loader.
+    appEnv: "production"
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 64Mi
+
+  # Istio VirtualService exposing the inference gateway through the shared
+  # platform Gateway.
+  virtualService:
+    enabled: true
+    hosts:
+      - "api.orbit.local.clearroute.io"
+    gateways:
+      - "orbit-system/orbit-gateway"
 
 # -- Frontend service configuration.
 frontend:
@@ -194,6 +236,35 @@ frontend:
   # Name of the existing Secret containing BFF_SESSION_SECRET.
   # Created by scripts/cluster/create-secrets.sh before the operator deploys this chart.
   existingSecret: "orbit-frontend-secrets"
+
+  # Istio VirtualService exposing the frontend through the shared platform Gateway.
+  # Disable this when exposing the frontend with a Kubernetes Ingress instead.
+  virtualService:
+    enabled: true
+    hosts:
+      - "orbit.local.clearroute.io"
+    gateways:
+      - "orbit-system/orbit-gateway"
+
+  # Optional Kubernetes Ingress exposing the frontend service through an ingress controller.
+  # When enabled, keep hosts/TLS aligned with frontend.config.nextPublicAppUrl.
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: "orbit.local.clearroute.io"
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    # Example:
+    # annotations:
+    #   cert-manager.io/cluster-issuer: letsencrypt
+    # tls:
+    #   - secretName: orbit-frontend-tls
+    #     hosts:
+    #       - orbit.local.clearroute.io
 
 # -- Platform namespace configuration.
 # The operator injects these from the OrbitPlatform CR and active OrbitTenant CRs.
@@ -262,30 +333,21 @@ policyGateway:
     otlpInsecure: "false"
     logFormat: "json"
 
-# -- OPA Gateway configuration (ADR-0044: gateway-level enforcement).
-# Standalone OPA pod that enforces authz_gateway.rego on all traffic entering
-# through the Istio IngressGateway via gRPC ext_authz.
+# -- OPA Gateway configuration.
 opaGateway:
-  # frontendHost is the hostname (without port) of the frontend service as seen
-  # by the Istio IngressGateway :authority header. When set, an Envoy-level
-  # VirtualHost bypass is added so that browser cookie traffic never reaches OPA.
-  # Matches data.config.frontend_host in the gateway OPA bundle.
-  # Leave empty to rely only on the Rego-level bypass.
-  frontendHost: ""
-
   image:
-    # openpolicyagent/opa with the Envoy plugin built in.
     repository: "openpolicyagent/opa"
     tag: "1.15.2-envoy-static"
 
-  # Two replicas ensures the IngressGateway always has an ext_authz backend
-  # available. The PodDisruptionBudget keeps at least one pod up during drains.
-  replicas: 2
+  replicas: 1
 
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
       cpu: 500m
       memory: 256Mi
+
+  # Optional frontend host bypass configured in the EnvoyFilter.
+  frontendHost: ""

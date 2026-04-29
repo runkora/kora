@@ -122,6 +122,20 @@ Pod-level override → global default → IfNotPresent.
 {{- end }}
 
 {{/*
+Resolve the image tag for the inference gateway identity-proxy sidecar.
+*/}}
+{{- define "orbit.inferenceGateway.identityProxy.imageTag" -}}
+{{- .Values.inferenceGateway.identityProxy.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for the inference gateway identity-proxy sidecar.
+*/}}
+{{- define "orbit.inferenceGateway.identityProxy.imagePullPolicy" -}}
+{{- .Values.inferenceGateway.identityProxy.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
 Frontend service labels — applied to the Deployment and its pod template.
 */}}
 {{- define "orbit.frontend.labels" -}}
@@ -198,8 +212,6 @@ app: orbit-policy-gateway
 
 {{/*
 OPA Gateway labels.
-Standalone OPA pod that enforces authz_gateway.rego on the Istio IngressGateway
-via ext_authz (ADR-0044).
 */}}
 {{- define "orbit.opaGateway.labels" -}}
 {{ include "orbit.labels" . }}
@@ -209,4 +221,34 @@ app.kubernetes.io/component: opa-gateway
 
 {{- define "orbit.opaGateway.selectorLabels" -}}
 app: orbit-opa-gateway
+{{- end }}
+
+{{/*
+Optional image pull secrets shared by Orbit workloads.
+*/}}
+{{- define "orbit.imagePullSecrets" -}}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Optional node selector shared by Orbit workloads.
+*/}}
+{{- define "orbit.nodeSelector" -}}
+{{- with .Values.global.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
+{{/*
+Optional tolerations shared by Orbit workloads.
+*/}}
+{{- define "orbit.tolerations" -}}
+{{- with .Values.global.tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}

@@ -9,8 +9,15 @@ image:
   tag: ""
   pullPolicy: Always
 
-# Namespace the operator itself is deployed into.
-namespace: orbit-operator
+# Optional image pull secrets for private registries.
+# Example:
+# imagePullSecrets:
+#   - name: orbit-registry-creds
+imagePullSecrets: []
+
+# Optional scheduling constraints for the operator pod.
+nodeSelector: {}
+tolerations: []
 
 # Path to Helm charts directory inside the operator container.
 # Production: /etc/orbit/charts (charts baked into the image or mounted)
