@@ -358,9 +358,9 @@ BFF scope checks (`session.permissions`) are already UX-only — they control na
 
 The `orbit-opa-gateway` Deployment is assigned a Kubernetes ServiceAccount in `orbit-system`. The policy-service bundle endpoint (`GET /v1/policy/bundles/gateway`) is accessible without a bearer token — it is a cluster-internal polling endpoint, analogous to the per-tenant bundle endpoints.
 
-**Known limitation — mTLS on bundle fetches:** OPA runs as UID 1337 (the Envoy proxy UID) to prevent a recursive ext_authz loop when it fetches its own bundle. This UID causes OPA's outbound traffic to bypass Istio's iptables redirect rules, so bundle fetches go directly to the policy-service over plain HTTP — the Istio `DestinationRule` requiring mTLS is not applied. The ADR's original requirement of "SPIFFE SVIDs via Istio workload identity, mTLS" is not met by the current implementation.
+The `orbit-opa-gateway` pod is labelled `spiffe.io/component: opa-gateway`, which selects it for the `orbit-system-component` ClusterSPIFFEID. SPIRE issues it the identity `spiffe://orbit.test/system/opa-gateway`. The Istio sidecar presents this SVID when OPA's bundle fetch reaches the policy-service, satisfying the Istio DENY AuthorizationPolicy that restricts the gateway bundle endpoint to verified `orbit-system` sources.
 
-**Follow-on:** Proper mTLS on bundle fetches requires a non-1337 UID for OPA, combined with a separate mechanism to prevent the recursive ext_authz loop (e.g. a NetworkPolicy that blocks the OPA pod's TCP/9191 connections to itself, or OPA's `allow_oob` configuration). This is tracked as a follow-on hardening item.
+The pod runs as UID 1000 (not UID 1337). An earlier draft used UID 1337 on the assumption that it would prevent a recursive ext_authz loop on bundle fetches. This was incorrect: the `opa-gateway-ext-authz` EnvoyFilter targets the IngressGateway workload only (`app: gateway`); OPA's bundle fetch goes pod-to-pod within the cluster and never passes through the IngressGateway, so no loop is possible. Using UID 1337 had the opposite effect — it caused OPA's outbound traffic to bypass the Istio iptables redirect, making bundle fetches plain HTTP. Without an SVID in the TLS handshake, Istio's DENY policy treated OPA as an unverified source and blocked the fetch with 403.
 
 ### Deployment Order
 

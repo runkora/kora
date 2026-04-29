@@ -15,24 +15,30 @@ spec:
       labels:
         {{- include "orbit.opaGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.opaGateway.labels" . | nindent 8 }}
+        # Selects this pod for the orbit-system-component ClusterSPIFFEID, issuing
+        # spiffe://orbit.test/system/opa-gateway via SPIRE. Required so the Istio
+        # sidecar can do mTLS when fetching the gateway bundle from the policy service.
+        spiffe.io/component: opa-gateway
+        # Selects this pod for the istio-sidecar ClusterSPIFFEID so SPIRE tracks it,
+        # and pairs with inject.istio.io/templates: "sidecar,spire" above which causes
+        # the Istio injector to mount the SPIRE workload socket as a CSI volume.
+        spiffe.io/spire-managed-identity: "true"
       annotations:
-        # Inject the Istio sidecar for telemetry and gRPC from Envoy to OPA.
-        # OPA runs as UID 1337 (Envoy proxy UID) to bypass iptables redirect,
-        # preventing a recursive ext_authz loop on bundle fetches. Trade-off:
-        # OPA's own outbound traffic also bypasses the sidecar — bundle fetches
-        # are plain HTTP, not mTLS. Follow-on: switch to NetworkPolicy-based
-        # loop prevention so OPA can use a non-1337 UID and get mTLS bundle fetches.
         sidecar.istio.io/inject: "true"
+        # Tells Istio to apply the "spire" overlay template in addition to the standard
+        # sidecar template. The spire template replaces the workload-socket emptyDir with
+        # a csi.spiffe.io volume and sets PILOT_CERT_PROVIDER=spire on the proxy, so the
+        # Istio sidecar gets an X.509-SVID from SPIRE rather than falling back to istiod's
+        # built-in CA. Without this, mTLS with SPIRE-issued peers (e.g. policy-service)
+        # fails due to different certificate roots.
+        inject.istio.io/templates: "sidecar,spire"
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       serviceAccountName: orbit-opa-gateway
       securityContext:
         runAsNonRoot: true
-        # UID 1337 prevents recursive ext_authz: same UID as Envoy proxy, so OPA's
-        # outbound traffic skips iptables redirect. Bundle fetches go directly to the
-        # policy-service over plain HTTP — not mTLS via the Envoy sidecar.
-        runAsUser: 1337
-        fsGroup: 1337
+        runAsUser: 1000
+        fsGroup: 1000
       volumes:
         - name: opa-config
           configMap:

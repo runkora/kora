@@ -46,10 +46,13 @@ func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier
 
 func (c *Controller) GroupedBy() string { return "/policy" }
 
-// Middleware applies JWT auth to all policy routes except GET /bundles/{tenant_id}
-// and GET /bundles/gateway, which are polled by OPA instances inside the cluster
-// with no credentials. The bundle payload is compiled policy logic (not credentials
-// or PII), so unauthenticated cluster-internal access is acceptable.
+// Middleware applies JWT auth to all policy routes except bundle polling endpoints.
+// GET /bundles/{tenant_id} — polled by per-tenant OPA sidecars in tenant namespaces.
+// GET /bundles/gateway     — polled by the OPA gateway pod in orbit-system only;
+//
+//	an Istio AuthorizationPolicy (authorizationpolicy-policy-service.yaml) denies
+//	access from outside orbit-system, since the gateway bundle contains all tenants'
+//	grants, roles, and routes.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	authChain := mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
 	return func(next http.Handler) http.Handler {

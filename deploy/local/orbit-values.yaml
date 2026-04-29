@@ -28,6 +28,10 @@ global:
   # Local registry images are not content-addressed — Always ensures the
   # cluster always runs the freshest locally-built image.
   imagePullPolicy: Always
+  # Must match the SPIRE/Istio trust domain used by the orbit-platform chart.
+  # The operator injects this automatically; set it here so manual helm upgrades
+  # (e.g. make deploy-orbit) also produce correct SPIFFE SANs in DestinationRules.
+  trustDomain: "orbit.test"
 
 identity:
   image:
@@ -119,7 +123,7 @@ opaGateway:
   image:
     # Pulled by: make docker-pull-third-party
     repository: orbit-registry:5001/openpolicyagent/opa
-    tag: latest-envoy-static
+    tag: 1.15.2-envoy-static
   replicas: 1
   frontendHost: orbit.local.clearroute.io
 

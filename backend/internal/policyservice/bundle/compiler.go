@@ -367,11 +367,11 @@ func writeTarGz(files []tarEntry) ([]byte, error) {
 //
 //	.manifest
 //	policy/authz_gateway.rego
-//	data/config/data.json                       — jwks_url, issuer, audience, frontend_host
-//	data/routes/data.json                       — global (SYSTEM) route→scope mappings
-//	data/tenants/<tenantID>/grants/data.json    — grants for that tenant
-//	data/tenants/<tenantID>/roles/data.json     — roles for that tenant
-//	data/tenants/<tenantID>/routes/data.json    — tenant-specific route→scope mappings
+//	config/data.json                       — jwks_url, issuer, audience, frontend_host
+//	routes/data.json                       — global (SYSTEM) route→scope mappings
+//	tenants/<tenantID>/grants/data.json    — grants for that tenant
+//	tenants/<tenantID>/roles/data.json     — roles for that tenant
+//	tenants/<tenantID>/routes/data.json    — tenant-specific route→scope mappings
 func buildGatewayBundle(
 	tenantIDs []string,
 	allGrants map[string][]*grants.Grant,

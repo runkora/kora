@@ -276,7 +276,7 @@ opaGateway:
   image:
     # openpolicyagent/opa with the Envoy plugin built in.
     repository: "openpolicyagent/opa"
-    tag: "latest-envoy-static"
+    tag: "1.15.2-envoy-static"
 
   # Two replicas ensures the IngressGateway always has an ext_authz backend
   # available. The PodDisruptionBudget keeps at least one pod up during drains.
