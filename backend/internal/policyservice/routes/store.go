@@ -90,6 +90,60 @@ func (s *Store) ListAll() []*Registration {
 	return result
 }
 
+// GlobalRoutes returns only the global route scopes (TenantID == "").
+// Used by the gateway bundle compiler to build the top-level routes document.
+func (s *Store) GlobalRoutes() []RouteScope {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]RouteScope, 0)
+	for key, reg := range s.registrations {
+		if key.tenantID == "" {
+			result = append(result, reg.Routes...)
+		}
+	}
+	return result
+}
+
+// AllTenantRoutes returns all tenant-scoped route registrations grouped by tenant ID.
+// Global registrations (TenantID == "") are excluded.
+// Used by the gateway bundle compiler to build per-tenant route documents.
+func (s *Store) AllTenantRoutes() map[string][]RouteScope {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string][]RouteScope)
+	for key, reg := range s.registrations {
+		if key.tenantID == "" {
+			continue
+		}
+		result[key.tenantID] = append(result[key.tenantID], reg.Routes...)
+	}
+	return result
+}
+
+// RouteTenantIDs returns the distinct tenant IDs that have at least one
+// tenant-scoped route registration (TenantID != "").
+// Used by the gateway bundle compiler to include tenants that have routes but
+// no grants, so requests to those routes return deny:invalid_token rather than
+// the misleading deny:no_route_match.
+func (s *Store) RouteTenantIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	for key := range s.registrations {
+		if key.tenantID != "" {
+			seen[key.tenantID] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for tid := range seen {
+		result = append(result, tid)
+	}
+	return result
+}
+
 // RoutesForTenant returns the merged route scopes for a tenant:
 // all global registrations (tenant_id == "") plus all registrations for that
 // specific tenant. Always returns a non-nil slice so it marshals to JSON []

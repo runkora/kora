@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-04-26
 **Deciders:** Platform Engineering
-**Technical Story:** Browser-originated requests and direct API callers using PATs bypass all existing OPA enforcement. ADR-0011 established the universal enforcement principle; this ADR closes the gap for north-south traffic by placing OPA at the Istio IngressGateway rather than per-service sidecars.
+**Technical Story:** Direct API callers using PATs and SDK clients bypass all existing OPA enforcement. ADR-0011 established the universal enforcement principle; this ADR closes the gap for north-south traffic by placing OPA at the Istio IngressGateway rather than per-service sidecars.
 
 ---
 
@@ -21,7 +21,7 @@ Agent pod (orbit.io/opa-policy: enabled)
         ├── ext_proc → identity-proxy (token swap)
         └── ext_authz → OPA sidecar localhost:9191   ← enforced ✓
 
-Browser / SDK client (PAT)
+SDK client / PAT caller
   └── Istio IngressGateway
         └── (no ext_authz)                           ← gap ✗
               → inference-gateway service
@@ -29,26 +29,31 @@ Browser / SDK client (PAT)
 
 The OPA ext_authz EnvoyFilter (`opa-policy-ext-authz`) targets `SIDECAR_OUTBOUND` on pods labelled `orbit.io/opa-policy: "enabled"`. This covers agent-to-service traffic only. It does not cover:
 
-- Browser requests proxied via the BFF (Next.js) to backend services
 - Direct API callers using Platform Access Tokens (PATs) via the Anthropic or OpenAI SDK
 - Any external caller whose traffic enters via the IngressGateway
+- Tenant-deployed services (agents, MCP servers, APIs) exposed via the IngressGateway
+
+BFF-mediated browser traffic is a separate concern: the BFF is a trusted internal service that enforces scope at the application layer using the principal's session permissions. BFF-to-service east-west calls do not pass through the IngressGateway and are not addressed by this ADR — that enforcement gap is explicitly deferred to a follow-on ADR.
 
 ### Problem Statement
 
-External callers — browser sessions and PAT-authenticated SDK clients — have their JWTs verified by `AuthMiddleware` in the application process but face no network-layer scope enforcement before reaching the service. A valid JWT is sufficient to call any authenticated endpoint regardless of the principal's granted scopes, because the route→scope mapping enforced by the OPA sidecar only fires on agent pod outbound traffic.
+Direct API callers — PAT-authenticated SDK clients and any client app calling the API directly — have their JWTs verified by `AuthMiddleware` in the application process but face no network-layer scope enforcement before reaching the service. A valid JWT is sufficient to call any authenticated endpoint regardless of the principal's granted scopes, because the route→scope mapping enforced by the OPA sidecar only fires on agent pod outbound traffic.
+
+As the platform grows, every new service exposed via the IngressGateway inherits this gap. Tenant-deployed agents, MCP servers, and APIs that register their own routes have no enforcement at the network layer for external callers.
 
 Additionally, in-process `policy.Check()` calls placed inside service method implementations (Layer 2) are an antipattern: each service must independently implement and maintain scope enforcement, there is no single enforcement point auditable from the control plane, and the pattern does not extend to third-party services.
 
 ### Goals
 
-- Enforce scope requirements for all traffic entering the cluster via the IngressGateway — browser, PAT, SDK — without application code changes in target services
+- Enforce scope requirements for all external traffic entering the cluster via the IngressGateway — PAT, SDK, client apps — without application code changes in target services
 - Reuse the existing OPA bundle distribution and Rego policy infrastructure
 - Provide a single, auditable enforcement point for north-south traffic
-- Eliminate per-service `policy.Check()` calls for route-level scope decisions
-- Cover PAT-authenticated inference requests, browser analytics requests, and all future routes without per-route application code
+- Cover PAT-authenticated inference requests and all future routes — including tenant-deployed services — without per-route application code
+- Automatically cover any new service added to the IngressGateway with zero enforcement configuration
 
 ### Non-Goals
 
+- Enforcing scope on BFF-to-service east-west calls — the BFF is a trusted internal service; its scope enforcement is at the application layer via session permissions; this is deferred to a follow-on ADR
 - Replacing Layer 2 in-process `policy.Evaluator` calls for fine-grained decisions that require request body inspection (e.g. per-model access checks that depend on the `model` field in the POST body)
 - Replacing the SIDECAR_OUTBOUND OPA enforcement for agent-to-service east-west traffic
 - Removing the application-level `AuthMiddleware` JWT verification — that remains as defence-in-depth
@@ -58,10 +63,10 @@ Additionally, in-process `policy.Check()` calls placed inside service method imp
 
 ## Decision Drivers
 
-* **ADR-0011 compliance**: The universal enforcement principle requires all traffic to pass a policy enforcement point. Browser and PAT traffic currently violates this.
+* **ADR-0011 compliance**: The universal enforcement principle requires all traffic to pass a policy enforcement point. PAT and direct API callers currently violate this.
 * **No per-service application code**: Adding `policy.Check()` to every service handler or controller is not scalable. Each new service or route would require the same boilerplate, with no network-layer backstop if it is omitted.
 * **Sidecar count**: Adding an OPA sidecar to every service pod that handles external traffic (inference-gateway today, MCP servers and others tomorrow) multiplies the sidecar footprint for a problem that has a single enforcement point solution.
-* **Coverage breadth**: PAT-authenticated SDK clients are first-class API users. They receive identical enforcement to browser sessions and agent pods.
+* **Coverage breadth**: PAT-authenticated SDK clients are first-class API users. They receive identical enforcement to agent pods.
 * **Consistency with existing infrastructure**: OPA bundle distribution, the policy-service bundle API, and the existing Rego are already production infrastructure. The gateway enforcement reuses all of it.
 
 ---
@@ -103,7 +108,7 @@ Additionally, in-process `policy.Check()` calls placed inside service method imp
 **Description:** Deploy a standalone OPA instance (Kubernetes Deployment + Service) that polls the policy-service for bundles. Wire an EnvoyFilter on the IngressGateway (`context: GATEWAY`) to call this OPA deployment as an ext_authz provider. All traffic entering the cluster is evaluated at one point.
 
 **Pros:**
-- Single enforcement point covering all external traffic: browser, PAT, SDK, any future caller
+- Single enforcement point covering all external traffic: PAT, SDK, client apps, tenant-deployed services, any future caller
 - Zero application code in target services — no per-service changes for new routes
 - No OPA sidecar added to any service pod — sidecar count does not grow with service count
 - Reuses existing OPA Envoy plugin, bundle distribution, and Rego without modification
@@ -162,21 +167,117 @@ orbit-opa-gateway          Service (ClusterIP) — gRPC port 9191, called by Ing
 orbit-opa-gateway-config   ConfigMap — OPA bundle config
 ```
 
+**Availability requirement:** The Deployment must run a minimum of 2 replicas at all times. A `PodDisruptionBudget` with `minAvailable: 1` is required; without it a single node drain takes down all OPA replicas and fails all external traffic closed. The Deployment must also configure liveness and readiness probes against the OPA health endpoint (`GET /health`) so that Kubernetes restarts unhealthy replicas before they appear in the ext_authz cluster.
+
 **2. Cross-Tenant Bundle**
 
-The current per-tenant bundle model (`bundles/{{ .TenantID }}`) requires knowing the tenant at OPA startup. The IngressGateway OPA instance handles traffic from all tenants simultaneously.
+The current per-tenant bundle model (`GET /v1/policy/bundles/{tenant_id}`) requires knowing the tenant at OPA startup. The IngressGateway OPA instance handles traffic from all tenants simultaneously and cannot be parameterised with a single tenant ID.
 
-The policy-service adds a cross-tenant bundle endpoint that compiles all active tenants' grants and role mappings into a single bundle, partitioned by tenant ID under `data.tenants`:
+The policy-service adds a new `GET /v1/policy/bundles/gateway` endpoint that compiles all active tenants' data into a single bundle. Tenant-specific documents are namespaced under `data.tenants["<tenant-id>"]`. Route registrations are split: SYSTEM-principal registrations (global platform services) go into `data.routes`; SERVICE-principal registrations (tenant-deployed agents, MCP servers, APIs) go into `data.tenants["<tenant-id>"].routes`:
 
 ```
-data.tenants["<tenant-id>"].grants[...]
-data.tenants["<tenant-id>"].role_scopes[...]
-data.routes.route_scopes[...]      ← shared across tenants
+data/tenants/<tenant-id>/grants/data.json   → { "grants": [...] }
+data/tenants/<tenant-id>/roles/data.json    → { "role_scopes": { ... } }
+data/tenants/<tenant-id>/routes/data.json   → { "route_scopes": [...] }
+data/routes/data.json                       → { "route_scopes": [...] }  ← global only
+data/config/data.json                       → { "jwks_url": ..., "issuer": ..., "audience": ... }
 ```
 
-The Rego extracts the tenant ID from the JWT (`claims.orbit.tenant_id`), selects the correct data partition, and evaluates the allow decision. The route→scope mapping remains shared.
+Splitting routes this way means a tenant-deployed agent registering `/api/agent/v1/tasks` requiring `agent:tasks:invoke` is only enforced for principals from that tenant — not for principals from other tenants who may have a service on the same path.
 
-This is a breaking change to the bundle format isolated to the policy-service bundle compiler. The per-tenant bundle endpoint used by agent pod OPA sidecars is unchanged — both formats are served in parallel during the transition.
+The gateway bundle is recompiled on every grant, role, or route write. On startup, the policy-service compiles the gateway bundle alongside all per-tenant bundles.
+
+**Note on the `reason` field:** `authz_gateway.rego` computes a `reason` string (e.g. `deny:invalid_token`, `deny:no_route_match`, `grant:inference:invoke`). This value appears in OPA decision logs and is visible in the OPA audit trail, but it is **not** included in the gRPC ext_authz denied-response metadata visible to callers. The OPA Envoy plugin only evaluates the `allow` path for the ext_authz response; `reason` is for observability only.
+
+**Rego: separate gateway policy file.** Rather than modifying `authz.rego`, the gateway bundle ships `policy/authz_gateway.rego`. This file has four responsibilities beyond what `authz.rego` does:
+
+1. **Frontend host bypass** — requests to `orbit.local.clearroute.io` carry session cookies, not Bearer tokens. The BFF handles its own auth. These are passed through without evaluation.
+2. **Health check bypass** — `GET /health` is registered outside all middleware on every service. Hardcoded bypass alongside the existing platform-internal paths.
+3. **Tenant-scoped route matching** — SERVICE-principal route registrations live under `data.tenants[_tenant_id].routes.route_scopes`. The Rego checks these after global routes.
+4. **Cross-tenant data partition** — grants and roles are looked up under `data.tenants[_tenant_id]` rather than `data.grants` / `data.roles`.
+
+```rego
+package orbit.authz
+
+import rego.v1
+
+default allow := false
+
+_tenant_id := _layer1_claims.orbit.tenant_id
+
+# ── FRONTEND HOST BYPASS ─────────────────────────────────────────────────────
+# The frontend (orbit.local.clearroute.io) uses session cookies, not Bearer
+# tokens. The BFF handles its own session auth. Pass all frontend traffic
+# through without JWT evaluation.
+
+_is_frontend_host if {
+    input.attributes.request.http.headers[":authority"] == data.config.frontend_host
+}
+
+allow if _is_frontend_host
+
+# ── HEALTH CHECK BYPASS ───────────────────────────────────────────────────────
+# GET /health is registered outside all middleware on every service.
+
+_is_platform_internal_path if {
+    some prefix in [
+        "/health",
+        "/api/v1/identity/exchange",
+        "/api/v1/identity/.well-known/",
+        "/api/v1/policy/bundles/",
+    ]
+    startswith(input.attributes.request.http.path, prefix)
+}
+
+allow if _is_platform_internal_path
+
+# ── REQUIRED SCOPE: global routes then tenant routes ─────────────────────────
+
+_required_scope := route.required_scope if {
+    _is_envoy
+    some route in data.routes.route_scopes
+    startswith(input.attributes.request.http.path, route.path_prefix)
+    route.method == input.attributes.request.http.method
+}
+
+_required_scope := route.required_scope if {
+    _is_envoy
+    not _has_global_route_match
+    some route in data.tenants[_tenant_id].routes.route_scopes
+    startswith(input.attributes.request.http.path, route.path_prefix)
+    route.method == input.attributes.request.http.method
+}
+
+_has_global_route_match if {
+    some route in data.routes.route_scopes
+    startswith(input.attributes.request.http.path, route.path_prefix)
+    route.method == input.attributes.request.http.method
+}
+
+# ── GRANT EVALUATION: cross-tenant data partition ────────────────────────────
+
+principal_has_required_scope if {
+    some grant in data.tenants[_tenant_id].grants.grants
+    grant.principal_type == _principal_type
+    grant.principal_id == _principal_id
+    some granted_scope in grant.scopes
+    scope_covers(granted_scope, _required_scope)
+}
+
+allow if {
+    not _is_delegated
+    _principal_type == "HUMAN"
+    some role in _principal_roles
+    some role_scope in data.tenants[_tenant_id].roles.role_scopes[role]
+    scope_covers(role_scope, _required_scope)
+}
+```
+
+`data.config.frontend_host` is compiled into the gateway bundle's config document alongside `jwks_url`, `issuer`, and `audience` — making the frontend hostname configurable without a Rego change.
+
+All shared rules (`_layer1_token`, `_layer1_claims`, `_principal_type`, `_principal_id`, `_principal_roles`, delegation rules, `scope_covers`, the main `allow` rules) are duplicated from `authz.rego` into `authz_gateway.rego`. A CI diff check is required to catch unintended divergence between the two files.
+
+The per-tenant bundle endpoint (`GET /v1/policy/bundles/{tenant_id}`) and `authz.rego` are unchanged.
 
 **3. EnvoyFilter — IngressGateway**
 
@@ -191,7 +292,7 @@ metadata:
 spec:
   workloadSelector:
     labels:
-      istio: ingressgateway
+      app: gateway
   configPatches:
     - applyTo: HTTP_FILTER
       match:
@@ -240,21 +341,35 @@ spec:
 
 **4. Unauthenticated Routes**
 
-Routes that do not require authentication (health checks, OIDC callback paths, public endpoints) must be listed in the bundle's `data.routes.public_prefixes` document. The Rego passes these through without JWT evaluation. All other routes require a valid JWT and a matching scope grant.
+Two bypass categories are handled directly in `authz_gateway.rego` with no registration mechanism required:
 
-**5. Remove Application-Level Route Scope Checks**
+- **Frontend host** — all traffic to `orbit.local.clearroute.io` is passed through. The BFF is a trusted internal service managing its own session auth.
+- **Health checks and platform infrastructure** — `GET /health` (registered outside all middleware on every service) and the existing platform-internal paths (`/api/v1/identity/exchange`, `/.well-known/`, `/api/v1/policy/bundles/`) are hardcoded in the `_is_platform_internal_path` rule.
 
-Once gateway enforcement is in place, `policy.Check()` calls in service handlers for route-level scope decisions (e.g. `platform:analytics:read` on `GET /v1/analytics`) are removed. Fine-grained body-dependent checks (per-model access via `checkModelPolicy`) remain as Layer 2 — the gateway cannot inspect the request body to determine the requested model.
+All other paths without a matching route registration receive `deny:no_route_match`. Services with additional unauthenticated paths beyond `/health` must be added to the `_is_platform_internal_path` list in `authz_gateway.rego` via a pull request — this is expected to be rare and intentionally requires an explicit code change rather than a runtime registration.
+
+**5. Application-Level Scope Checks**
+
+Route-level `policy.Check()` calls in service handlers have already been removed — scope enforcement for registered routes is handled entirely by the Rego route matching against `data.routes.route_scopes`. The only remaining `policy.Check()` calls are Layer 2 body-dependent checks (`checkModelPolicy` in the inference gateway), which inspect the `model` field from the request body. These are not removable at the gateway layer and remain in place.
+
+BFF scope checks (`session.permissions`) are already UX-only — they control nav visibility and are not enforced as security gates. No BFF changes are required.
+
+**6. Workload Identity for the OPA Gateway Pod**
+
+The `orbit-opa-gateway` Deployment is assigned a Kubernetes ServiceAccount in `orbit-system`. The policy-service bundle endpoint (`GET /v1/policy/bundles/gateway`) is accessible without a bearer token — it is a cluster-internal polling endpoint, analogous to the per-tenant bundle endpoints.
+
+The `orbit-opa-gateway` pod is labelled `spiffe.io/component: opa-gateway`, which selects it for the `orbit-system-component` ClusterSPIFFEID. SPIRE issues it the identity `spiffe://orbit.test/system/opa-gateway`. The Istio sidecar presents this SVID when OPA's bundle fetch reaches the policy-service, satisfying the Istio DENY AuthorizationPolicy that restricts the gateway bundle endpoint to verified `orbit-system` sources.
+
+The pod runs as UID 1000 (not UID 1337). An earlier draft used UID 1337 on the assumption that it would prevent a recursive ext_authz loop on bundle fetches. This was incorrect: the `opa-gateway-ext-authz` EnvoyFilter targets the IngressGateway workload only (`app: gateway`); OPA's bundle fetch goes pod-to-pod within the cluster and never passes through the IngressGateway, so no loop is possible. Using UID 1337 had the opposite effect — it caused OPA's outbound traffic to bypass the Istio iptables redirect, making bundle fetches plain HTTP. Without an SVID in the TLS handshake, Istio's DENY policy treated OPA as an unverified source and blocked the fetch with 403.
 
 ### Deployment Order
 
-1. Deploy `orbit-opa-gateway` Deployment and Service
-2. Update policy-service to serve the cross-tenant bundle at a new endpoint
-3. Configure `orbit-opa-gateway` to poll the cross-tenant bundle endpoint
-4. Validate OPA evaluates correctly for a test tenant and route
-5. Apply the IngressGateway EnvoyFilter
-6. Remove application-level route-scope `policy.Check()` calls from services
-7. Deprecate BFF `withAuthAndScope` session-cache checks (these become UX helpers only, not security gates)
+1. Add `GET /v1/policy/bundles/gateway` endpoint to the policy-service; validate cross-tenant bundle compiles correctly including both global and tenant-scoped route registrations
+2. Write `authz_gateway.rego` and validate it evaluates correctly in unit tests: frontend host bypass, health check bypass, global route matching, tenant route matching, grant evaluation
+3. Deploy `orbit-opa-gateway` Deployment (2 replicas), Service, PodDisruptionBudget, and ServiceAccount in `orbit-system`
+4. Configure `orbit-opa-gateway` to poll the cross-tenant bundle endpoint; validate bundle sync and allow/deny decisions for principals across at least two tenants, including a tenant-registered service
+5. Apply the `opa-gateway-ext-authz` EnvoyFilter — from this point, all external traffic is evaluated at the gateway
+6. Validate: PAT-authenticated request without `inference:invoke` → 403 at gateway; PAT with correct scope → 200; frontend traffic unaffected; agent pod traffic unaffected
 
 ### Helm Chart Additions
 
@@ -263,6 +378,7 @@ charts/orbit/templates/opa-gateway/deployment.yaml
 charts/orbit/templates/opa-gateway/service.yaml
 charts/orbit/templates/opa-gateway/configmap.yaml
 charts/orbit/templates/opa-gateway/envoyfilter.yaml
+charts/orbit/templates/opa-gateway/poddisruptionbudget.yaml
 ```
 
 ---
@@ -271,22 +387,26 @@ charts/orbit/templates/opa-gateway/envoyfilter.yaml
 
 ### Positive
 
-- All external traffic — browser, PAT, SDK — passes OPA enforcement at the IngressGateway without any application code in target services
-- Service implementations are scope-agnostic for route-level decisions; they read verified claims from context and trust that access was already enforced
-- PAT-authenticated inference callers receive the same coarse-grained enforcement as agent pods (which go through SIDECAR_OUTBOUND OPA), closing the coverage gap
+- All traffic entering via the IngressGateway — PAT, SDK, client apps, tenant-deployed agents and APIs — passes OPA enforcement without any application code in target services
+- Any new service exposed via the IngressGateway is automatically covered; no enforcement configuration needed beyond registering its routes with the policy-service
+- Service implementations are scope-agnostic for route-level decisions; they read verified claims from context and trust that access was already enforced at the edge
+- PAT-authenticated inference callers receive the same enforcement as agent pods (which go through SIDECAR_OUTBOUND OPA), closing the direct-API-caller coverage gap
 - Sidecar count does not grow as new backend services are added
 - The enforcement point is visible to the control plane — the IngressGateway EnvoyFilter is a Kubernetes resource, not code buried in a service
 
 ### Negative
 
-- Cross-tenant bundle is a breaking change to the policy-service bundle compiler — requires careful versioning and parallel serving of both formats during migration
-- The OPA Gateway Deployment is a new infrastructure component: it must be sized, health-checked, and monitored; its availability is now on the critical path for all external traffic
-- The `timeout: 500ms` on the ext_authz call is stricter than the loopback timeout on agent pod sidecars (`timeout: 2s`) — OPA must evaluate within this budget under load
+- Cross-tenant bundle is a new bundle format requiring a new policy-service endpoint, a new `authz_gateway.rego`, and careful parallel serving with per-tenant bundles during rollout
+- The OPA Gateway Deployment is a new infrastructure component on the critical path for all external traffic: 2-replica minimum, PDB, and health probes are required before the EnvoyFilter is applied
+- The `timeout: 500ms` on the ext_authz call is strict. OPA must evaluate the cross-tenant bundle within this budget under load. Before applying the EnvoyFilter in production, the gateway OPA should be benchmarked under realistic load (cross-tenant bundle with N active tenants, concurrent requests) to confirm p99 latency is below 100ms and p100 is below 500ms. If the benchmark fails, either the timeout must be raised or the bundle size must be bounded.
+- `authz_gateway.rego` and `authz.rego` will diverge over time if not actively maintained in sync. A CI diff check between the two files is required to catch unintended divergence.
+- BFF-to-service east-west calls are not covered by this ADR — enforcement of browser-session-originated requests to backend services is deferred.
 
 ### Neutral
 
 - Agent pod SIDECAR_OUTBOUND enforcement is unchanged — agent traffic continues to pass two enforcement points (gateway + sidecar outbound) which is acceptable defence-in-depth
 - Application `AuthMiddleware` JWT verification remains — it is still the correct place to populate verified claims into the request context for Layer 2 use
+- BFF session scope checks remain as UX helpers; they are not a security gate and are not changed by this ADR
 
 ---
 
@@ -295,9 +415,11 @@ charts/orbit/templates/opa-gateway/envoyfilter.yaml
 ### Success Metrics
 
 - A PAT-authenticated request to `POST /v1/chat/completions` without `inference:invoke` scope returns 403 at the gateway before reaching the inference-gateway process
-- A browser session without `platform:analytics:read` receives 403 on `GET /v1/analytics` without the inference-gateway service being invoked
+- A PAT with correct scope reaches the service and receives a valid response
+- A principal from tenant A cannot access a tenant B service even if both are exposed on the same path
 - Agent pod traffic is unaffected — SIDECAR_OUTBOUND enforcement and routing continue to function correctly
-- OPA cross-tenant bundle serves correct allow/deny decisions for principals across at least two distinct tenants in integration testing
+- Frontend traffic (`orbit.local.clearroute.io`) is unaffected — login, OIDC callback, and all BFF routes pass through
+- OPA cross-tenant bundle serves correct allow/deny decisions for principals across at least two distinct tenants including one with tenant-registered routes
 
 ### Monitoring
 
@@ -328,6 +450,8 @@ charts/orbit/templates/opa-gateway/envoyfilter.yaml
 
 ## Notes
 
-Implementation is tracked separately from this branch (`feat/robust-inference`). The cross-tenant bundle format change in the policy-service is the highest-risk component and should be prototyped and validated before the EnvoyFilter is applied to production.
+The cross-tenant bundle and `authz_gateway.rego` are the highest-risk components. Both should be fully implemented and unit-tested before the EnvoyFilter is applied. The EnvoyFilter step is the point of no return — once applied, all external traffic fails closed if OPA is unavailable.
 
-**Last Updated:** 2026-04-26
+BFF-to-service east-west enforcement (browser sessions calling backend services directly) is explicitly out of scope and should be addressed in a follow-on ADR.
+
+**Last Updated:** 2026-04-28

@@ -1,0 +1,48 @@
+{{- if .Values.platform.spiffe.enabled }}
+# AuthorizationPolicy: restrict the cross-tenant gateway bundle endpoint to
+# the opa-gateway workload only.
+#
+# The gateway bundle (GET /api/v1/policy/bundles/gateway) contains all tenants'
+# grants, roles, and routes in a single document. Unlike per-tenant bundles
+# (GET /api/v1/policy/bundles/{tenant_id}), which are safely scoped to one
+# tenant, the gateway bundle must not be readable by pods in tenant namespaces.
+#
+# Per-tenant bundle endpoints are intentionally left unauthenticated and
+# reachable from all namespaces — agent pod OPA sidecars in tenant namespaces
+# poll their own bundle at startup.
+#
+# We match on source.principals (SPIFFE ID) rather than source.notNamespaces
+# because orbit-system components use a custom SPIFFE path format
+# (spiffe://<trustDomain>/system/<component>) that does not encode the namespace.
+# Istio cannot extract a namespace from these paths, so notNamespaces always
+# evaluates to "not orbit-system" and would incorrectly DENY the opa-gateway.
+# Matching the principal directly is also strictly more correct: only the
+# opa-gateway should ever fetch the gateway bundle.
+#
+# NOTE: Istio prepends "spiffe://" to the principal string when translating
+# AuthorizationPolicy to Envoy RBAC. Specify the principal WITHOUT the
+# "spiffe://" prefix — Istio adds it. Writing "spiffe://..." produces
+# "spiffe://spiffe://..." in the generated Envoy rule and never matches.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: orbit-policy-service-gateway-bundle
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    app.kubernetes.io/part-of: orbit
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app: orbit-policy-service
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/api/v1/policy/bundles/gateway"]
+      from:
+        - source:
+            notPrincipals:
+              - "{{ .Values.global.trustDomain }}/system/opa-gateway"
+{{- end }}
+

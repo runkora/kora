@@ -1,0 +1,20 @@
+{{- if gt (int .Values.opaGateway.replicas) 1 }}
+# PodDisruptionBudget for the OPA gateway deployment.
+#
+# Only created when replicas > 1. With replicas: 1, minAvailable: 1 permanently
+# blocks node drains — setting minAvailable equal to total replicas prevents all
+# voluntary disruptions. With multiple replicas, the PDB ensures at least one
+# OPA pod stays up so failure_mode_allow:false does not deny all external traffic.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orbit-opa-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.opaGateway.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "orbit.opaGateway.selectorLabels" . | nindent 6 }}
+{{- end }}

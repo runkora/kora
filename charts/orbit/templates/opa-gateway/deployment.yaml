@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-opa-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.opaGateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.opaGateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.opaGateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.opaGateway.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.opaGateway.labels" . | nindent 8 }}
+        # Selects this pod for the orbit-system-component ClusterSPIFFEID, issuing
+        # spiffe://orbit.test/system/opa-gateway via SPIRE. Required so the Istio
+        # sidecar can do mTLS when fetching the gateway bundle from the policy service.
+        spiffe.io/component: opa-gateway
+        # Selects this pod for the istio-sidecar ClusterSPIFFEID so SPIRE tracks it,
+        # and pairs with inject.istio.io/templates: "sidecar,spire" above which causes
+        # the Istio injector to mount the SPIRE workload socket as a CSI volume.
+        spiffe.io/spire-managed-identity: "true"
+      annotations:
+        sidecar.istio.io/inject: "true"
+        # Tells Istio to apply the "spire" overlay template in addition to the standard
+        # sidecar template. The spire template replaces the workload-socket emptyDir with
+        # a csi.spiffe.io volume and sets PILOT_CERT_PROVIDER=spire on the proxy, so the
+        # Istio sidecar gets an X.509-SVID from SPIRE rather than falling back to istiod's
+        # built-in CA. Without this, mTLS with SPIRE-issued peers (e.g. policy-service)
+        # fails due to different certificate roots.
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+    spec:
+      serviceAccountName: orbit-opa-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      volumes:
+        - name: opa-config
+          configMap:
+            name: orbit-opa-gateway-config
+      containers:
+        - name: opa
+          image: {{ .Values.opaGateway.image.repository }}:{{ .Values.opaGateway.image.tag }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          args:
+            - "run"
+            - "--server"
+            - "--addr=0.0.0.0:8181"
+            - "--config-file=/config/config.yaml"
+            - "--log-level=info"
+            - "--log-format=json"
+          securityContext:
+            allowPrivilegeEscalation: false
+          ports:
+            - name: grpc
+              containerPort: 9191
+              protocol: TCP
+            - name: http
+              containerPort: 8181
+              protocol: TCP
+          volumeMounts:
+            - name: opa-config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            # OPA is ready once it has fetched and activated the bundle.
+            httpGet:
+              path: /health?bundle=true
+              port: 8181
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.opaGateway.resources | nindent 12 }}

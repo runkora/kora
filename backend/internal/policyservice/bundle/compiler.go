@@ -32,10 +32,14 @@ import (
 //go:embed authz.rego
 var authzRego string
 
-// defaultRoleScopes maps OIDC role names to platform scopes.
+//go:embed authz_gateway.rego
+var authzGatewayRego string
+
+// DefaultRoleScopes maps OIDC role names to platform scopes.
 // The tenant-admin role is the bootstrapping exception — it grants
 // platform:grants:write without requiring a prior grant to exist.
-var defaultRoleScopes = map[string][]string{
+// Exported so the API layer can use the same set without duplication.
+var DefaultRoleScopes = map[string][]string{
 	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:analytics:read"},
 	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "platform:agents:read", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read"},
 }
@@ -47,6 +51,10 @@ type Config struct {
 	JWKSURL  string
 	Issuer   string
 	Audience string
+	// FrontendHost is the hostname (without port) of the frontend service as
+	// seen by the Istio IngressGateway `:authority` header. Used only by the
+	// gateway bundle to bypass OPA enforcement for browser UI traffic.
+	FrontendHost string
 }
 
 // grantsDocument is the JSON structure of data/grants/data.json.
@@ -93,6 +101,16 @@ type configDocument struct {
 	Audience string `json:"audience"`
 }
 
+// gatewayConfigDocument is the JSON structure of data/config/data.json in the
+// gateway bundle. Extends configDocument with frontend_host so authz_gateway.rego
+// can bypass enforcement for browser UI traffic.
+type gatewayConfigDocument struct {
+	JWKSURL      string `json:"jwks_url"`
+	Issuer       string `json:"issuer"`
+	Audience     string `json:"audience"`
+	FrontendHost string `json:"frontend_host"`
+}
+
 // manifest is the OPA bundle manifest.
 type manifest struct {
 	Revision string    `json:"revision"`
@@ -111,6 +129,9 @@ type Compiler struct {
 	bundles map[string]*CachedBundle // tenant_id → bundle
 	cfg     Config
 	routes  *routes.Store
+
+	gatewayMu     sync.RWMutex
+	gatewayBundle *CachedBundle
 }
 
 // CachedBundle holds a compiled bundle and its metadata.
@@ -161,6 +182,51 @@ func (c *Compiler) Get(tenantID string) *CachedBundle {
 	return c.bundles[tenantID]
 }
 
+// GetGateway returns the current cached gateway bundle, or nil if not yet compiled.
+func (c *Compiler) GetGateway() *CachedBundle {
+	c.gatewayMu.RLock()
+	defer c.gatewayMu.RUnlock()
+	return c.gatewayBundle
+}
+
+// RouteTenantIDs returns the distinct tenant IDs that have tenant-scoped route
+// registrations in the route store. Used by RecompileGateway to include tenants
+// with routes but no grants in the gateway bundle.
+func (c *Compiler) RouteTenantIDs() []string {
+	return c.routes.RouteTenantIDs()
+}
+
+// CompileGateway builds the cross-tenant OPA gateway bundle. The bundle
+// contains the shared global routes and per-tenant grants/roles/routes so
+// that authz_gateway.rego can enforce access for any external caller without
+// knowing the tenant at compile time. The result is cached and replaces any
+// prior gateway bundle.
+func (c *Compiler) CompileGateway(
+	tenantIDs []string,
+	allGrants map[string][]*grants.Grant,
+	allRoles map[string][]*roles.RoleEntry,
+) (*CachedBundle, error) {
+	tenantRoutes := c.routes.AllTenantRoutes()
+	globalRoutes := c.routes.GlobalRoutes()
+
+	data, revision, err := buildGatewayBundle(tenantIDs, allGrants, allRoles, globalRoutes, tenantRoutes, c.cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build gateway bundle: %w", err)
+	}
+
+	cached := &CachedBundle{
+		Data:       data,
+		Revision:   revision,
+		CompiledAt: time.Now().UTC(),
+	}
+
+	c.gatewayMu.Lock()
+	c.gatewayBundle = cached
+	c.gatewayMu.Unlock()
+
+	return cached, nil
+}
+
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
 func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
@@ -201,10 +267,10 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// Build roles data document: merge hardcoded platform admin roles with
 	// tenant-managed roles from the DB. Hardcoded roles take precedence so that
 	// tenant-admin and platform-admin cannot be overridden.
-	mergedRoles := make(map[string][]string, len(defaultRoleScopes)+len(roleEntries))
-	maps.Copy(mergedRoles, defaultRoleScopes)
+	mergedRoles := make(map[string][]string, len(DefaultRoleScopes)+len(roleEntries))
+	maps.Copy(mergedRoles, DefaultRoleScopes)
 	for _, e := range roleEntries {
-		if _, reserved := defaultRoleScopes[e.Role]; !reserved {
+		if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
 			mergedRoles[e.Role] = e.Scopes
 		}
 	}
@@ -223,7 +289,11 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	}
 
 	// Build config data document (cluster-specific values for authz.rego).
-	cfgJSON, err := json.Marshal(configDocument(cfg))
+	cfgJSON, err := json.Marshal(configDocument{
+		JWKSURL:  cfg.JWKSURL,
+		Issuer:   cfg.Issuer,
+		Audience: cfg.Audience,
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
@@ -289,4 +359,104 @@ func writeTarGz(files []tarEntry) ([]byte, error) {
 		return nil, fmt.Errorf("close gzip: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// buildGatewayBundle constructs the cross-tenant gateway bundle tar.gz.
+//
+// Layout:
+//
+//	.manifest
+//	policy/authz_gateway.rego
+//	config/data.json                       — jwks_url, issuer, audience, frontend_host
+//	routes/data.json                       — global (SYSTEM) route→scope mappings
+//	tenants/<tenantID>/grants/data.json    — grants for that tenant
+//	tenants/<tenantID>/roles/data.json     — roles for that tenant
+//	tenants/<tenantID>/routes/data.json    — tenant-specific route→scope mappings
+func buildGatewayBundle(
+	tenantIDs []string,
+	allGrants map[string][]*grants.Grant,
+	allRoles map[string][]*roles.RoleEntry,
+	globalRoutes []routes.RouteScope,
+	tenantRoutes map[string][]routes.RouteScope,
+	cfg Config,
+) ([]byte, string, error) {
+	revision := fmt.Sprintf("gateway-%d", time.Now().UnixNano())
+
+	cfgJSON, err := json.Marshal(gatewayConfigDocument(cfg))
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal gateway config: %w", err)
+	}
+
+	globalRoutesDoc := routesDocument{RouteScopes: globalRoutes}
+	globalRoutesJSON, err := json.Marshal(globalRoutesDoc)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal global routes: %w", err)
+	}
+
+	files := []tarEntry{
+		{"policy/authz_gateway.rego", []byte(authzGatewayRego)},
+		{"config/data.json", cfgJSON},
+		{"routes/data.json", globalRoutesJSON},
+	}
+
+	for _, tenantID := range tenantIDs {
+		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
+		for _, g := range allGrants[tenantID] {
+			grantDoc.Grants = append(grantDoc.Grants, grantEntry{
+				ID:            g.ID,
+				PrincipalType: string(g.PrincipalType),
+				PrincipalID:   g.PrincipalID,
+				Scopes:        g.Scopes,
+			})
+		}
+		var grantJSON, rolesJSON, tRoutesJSON []byte
+		grantJSON, err = json.Marshal(grantDoc)
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
+		}
+
+		mergedRoles := make(map[string][]string, len(DefaultRoleScopes)+len(allRoles[tenantID]))
+		maps.Copy(mergedRoles, DefaultRoleScopes)
+		for _, e := range allRoles[tenantID] {
+			if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
+				mergedRoles[e.Role] = e.Scopes
+			}
+		}
+		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergedRoles})
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal roles for tenant %s: %w", tenantID, err)
+		}
+
+		tRoutes := tenantRoutes[tenantID]
+		tRoutesJSON, err = json.Marshal(routesDocument{RouteScopes: tRoutes})
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal routes for tenant %s: %w", tenantID, err)
+		}
+
+		prefix := "tenants/" + tenantID + "/"
+		files = append(files,
+			tarEntry{prefix + "grants/data.json", grantJSON},
+			tarEntry{prefix + "roles/data.json", rolesJSON},
+			tarEntry{prefix + "routes/data.json", tRoutesJSON},
+		)
+	}
+
+	mf := manifest{
+		Revision: revision,
+		Roots:    []string{"orbit/authz_gateway", "routes", "config", "tenants"},
+		Metadata: &metadata{
+			CompiledAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	manifestJSON, err := json.Marshal(mf)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal gateway manifest: %w", err)
+	}
+	files = append([]tarEntry{{".manifest", manifestJSON}}, files...)
+
+	bundleBytes, err := writeTarGz(files)
+	if err != nil {
+		return nil, "", err
+	}
+	return bundleBytes, revision, nil
 }

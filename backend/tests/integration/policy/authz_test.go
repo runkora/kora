@@ -20,6 +20,7 @@ package policy_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -37,11 +38,16 @@ import (
 
 const (
 	defaultPolicyServiceURL = "http://localhost:8083"
+	defaultGatewayAPIURL    = "https://api.orbit.local.clearroute.io:8443"
+	defaultFrontendURL      = "https://orbit.local.clearroute.io:8443"
 	defaultTenantID         = "example"
 	defaultTenantNamespace  = "orbit-tenant-example"
 	defaultExamplePodLabel  = "app=orbit-example"
 
-	testAgentID = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/integration-test"
+	// testAgentID is the SPIFFE ID of the orbit-example pod's agent container.
+	// It must match the ClusterSPIFFEID-issued SVID so the identity-proxy JWT
+	// sub claim lines up with the grant principal_id checked by OPA.
+	testAgentID = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/example"
 )
 
 func policyServiceURL(t *testing.T) string {
@@ -316,8 +322,171 @@ func loadUserToken(t *testing.T) string {
 	return creds.AccessToken
 }
 
+// waitForBundleRefresh waits long enough for a per-tenant OPA sidecar bundle
+// to refresh. The per-tenant OPA polls with min=30s / max=60s, so 65s covers
+// a full cycle from the moment a grant is written.
 func waitForBundleRefresh(t *testing.T) {
 	t.Helper()
-	t.Log("waiting 35s for OPA bundle refresh...")
-	time.Sleep(35 * time.Second)
+	t.Log("waiting 65s for OPA bundle refresh...")
+	time.Sleep(65 * time.Second)
+}
+
+// waitForGatewayBundleRefresh waits long enough for the opa-gateway bundle to
+// refresh. The gateway OPA polls with min=30s / max=60s, so 65s covers a full
+// cycle from the moment the grant is written.
+func waitForGatewayBundleRefresh(t *testing.T) {
+	t.Helper()
+	t.Log("waiting 65s for OPA gateway bundle refresh...")
+	time.Sleep(65 * time.Second)
+}
+
+func gatewayAPIURL(t *testing.T) string {
+	t.Helper()
+	if v := os.Getenv("GATEWAY_API_URL"); v != "" {
+		return v
+	}
+	return defaultGatewayAPIURL
+}
+
+func frontendURL(t *testing.T) string {
+	t.Helper()
+	if v := os.Getenv("FRONTEND_URL"); v != "" {
+		return v
+	}
+	return defaultFrontendURL
+}
+
+// gatewayClient returns an HTTP client suitable for talking to the local dev
+// Istio gateway. TLS verification is skipped because the local cert is
+// mkcert-issued and may not be trusted by the test runner's root store.
+// Redirects are not followed so 3xx responses surface directly.
+func gatewayClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // local dev cert
+		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Timeout: 10 * time.Second,
+	}
+}
+
+// jwtSub decodes a JWT without verifying the signature and returns its sub claim.
+func jwtSub(t *testing.T, rawToken string) string {
+	t.Helper()
+	p := jwt.NewParser()
+	claims := jwt.MapClaims{}
+	_, _, err := p.ParseUnverified(rawToken, claims)
+	if err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		t.Fatal("token has no sub claim")
+	}
+	return sub
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Layer 3: OPA gateway ext_authz (external Istio ingress)
+//
+// These tests hit the cluster through the public Istio ingress gateway at
+// api.orbit.local.clearroute.io:8443. The opa-gateway pod acts as the
+// ext_authz filter — authz_gateway.rego is evaluated for every request.
+//
+// Prerequisites: same as Layer 1/2 plus the opa-gateway pod must be Ready
+// (its readiness probe waits for the gateway bundle to activate).
+// If inference-gateway was restarted since the last policy-service start,
+// run: make cluster-update-service SERVICE=inference-gateway
+// to re-register the /v1/ routes in the policy service route store.
+// ═══════════════════════════════════════════════════════════════════════════
+
+func TestLiveCluster_Layer3_Gateway_NoToken(t *testing.T) {
+	req, err := http.NewRequest("GET", gatewayAPIURL(t)+"/v1/models", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := gatewayClient().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Errorf("expected 403 without token, got %d", resp.StatusCode)
+	}
+}
+
+func TestLiveCluster_Layer3_Gateway_InvalidToken(t *testing.T) {
+	req, err := http.NewRequest("GET", gatewayAPIURL(t)+"/v1/models", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer not.a.real.jwt")
+	resp, err := gatewayClient().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Errorf("expected 403 with invalid token, got %d", resp.StatusCode)
+	}
+}
+
+func TestLiveCluster_Layer3_Gateway_HealthBypass(t *testing.T) {
+	// /health is listed in authz_gateway.rego _is_platform_internal_path.
+	req, err := http.NewRequest("GET", gatewayAPIURL(t)+"/health", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := gatewayClient().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 403 {
+		t.Error("expected infrastructure bypass to allow /health (got 403)")
+	}
+}
+
+func TestLiveCluster_Layer3_Gateway_FrontendHostBypass(t *testing.T) {
+	// Traffic whose :authority matches data.config.frontend_host bypasses JWT
+	// enforcement — the frontend BFF uses iron-session cookies, not bearer tokens.
+	req, err := http.NewRequest("GET", frontendURL(t), nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := gatewayClient().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 403 {
+		t.Error("expected frontend host bypass (got 403)")
+	}
+}
+
+func TestLiveCluster_Layer3_Gateway_AllowWithGrant(t *testing.T) {
+	userToken := loadUserToken(t)
+	userSub := jwtSub(t, userToken)
+
+	ensureGrant(t, "HUMAN", userSub, []string{"inference:invoke", "inference:list"})
+	waitForGatewayBundleRefresh(t)
+
+	req, err := http.NewRequest("GET", gatewayAPIURL(t)+"/v1/models", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	resp, err := gatewayClient().Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 503 is acceptable — OPA allowed the request but the upstream had no
+	// providers configured. Only 403 means the gateway policy denied it.
+	if resp.StatusCode == 403 {
+		t.Error("expected OPA gateway to allow the request with grant (got 403)")
+	}
 }

@@ -61,9 +61,10 @@ func realMain() error {
 	routeStore := routes.NewStore()
 
 	bundleCfg := bundle.Config{
-		JWKSURL:  psc.Current.Bundle.JWKSURL,
-		Issuer:   psc.Current.Bundle.Issuer,
-		Audience: psc.Current.Bundle.Audience,
+		JWKSURL:      psc.Current.Bundle.JWKSURL,
+		Issuer:       psc.Current.Bundle.Issuer,
+		Audience:     psc.Current.Bundle.Audience,
+		FrontendHost: psc.Current.Bundle.FrontendHost,
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
 	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, logger)
@@ -74,6 +75,9 @@ func realMain() error {
 	} else {
 		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: err.Error()})
 	}
+
+	// Pre-compile the cross-tenant gateway bundle.
+	bundleSrv.BootstrapGateway(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, bundleSrv, routeStore, logger)
