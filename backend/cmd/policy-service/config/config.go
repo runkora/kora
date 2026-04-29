@@ -2,6 +2,7 @@
 package policyServiceConfig
 
 import (
+	"os"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -51,4 +52,16 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current holds non-secret configuration for the policy-service.
-var Current = config.MustLoadService[Config]("cmd/policy-service", config.Environment())
+var Current = mustLoad()
+
+func mustLoad() *Config {
+	cfg := config.MustLoadService[Config]("cmd/policy-service", config.Environment())
+	// Allow the Helm chart to inject the frontend hostname at deploy time without
+	// rebuilding the image. The base.yaml default is intentionally empty so that
+	// production deployments with a missing override fail-safe (Envoy-level bypass
+	// still handles frontend traffic; the Rego bypass simply never fires).
+	if v := os.Getenv("POLICY_SERVICE_BUNDLE_FRONTEND_HOST"); v != "" {
+		cfg.Bundle.FrontendHost = v
+	}
+	return cfg
+}

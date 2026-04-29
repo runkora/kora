@@ -12,7 +12,10 @@ bundle:
   audience: "orbit-platform"
   # Hostname of the frontend service as seen in the Istio IngressGateway
   # :authority header. Port is stripped by authz_gateway.rego before comparison.
-  frontendHost: "orbit.local.clearroute.io"
+  # Empty by default — injected at deploy time via POLICY_SERVICE_BUNDLE_FRONTEND_HOST
+  # (set by the Helm chart from opaGateway.frontendHost). Without it the Rego-level
+  # frontend bypass is inactive, but the Envoy-level VirtualHost bypass still works.
+  frontendHost: ""
 
 observability:
   serviceName: "policy-service"
