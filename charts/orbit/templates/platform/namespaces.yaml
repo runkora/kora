@@ -2,15 +2,13 @@
 #
 # This chart only manages Orbit's own namespaces:
 #   orbit-system          — Orbit control-plane services (identity, etc.)
-#   <tenant namespaces>   — one per entry in .Values.namespaces.tenants
+#   <tenant namespaces>   — one per entry in .Values.platform.namespaces.tenants
 #
-# istio-system and spire-system are created by the orbit-operator via
-# client-go CreateOrUpdate before each Helm release install, and are NOT
-# managed here to avoid cross-release ownership conflicts.
+# istio-system is the recommended release namespace when Istio dependencies are
+# enabled. Create it with `helm install --namespace istio-system --create-namespace`.
+# SPIRE's dependency chart creates spire-system when spire.enabled=true.
 #
 # Uses lookup to make creation idempotent.
-
-{{- $labels := include "orbit-platform.labels" . | fromYaml }}
 
 {{- /* ── orbit-system ─────────────────────────────────────────────────── */}}
 {{- if not (lookup "v1" "Namespace" "" (include "orbit-platform.systemNamespace" .)) }}
@@ -31,7 +29,7 @@ metadata:
 {{- /* Use lookup guard: tenant namespaces may already exist (created by the   */}}
 {{- /* orbit-operator TenantReconciler). Helm cannot import externally-managed  */}}
 {{- /* namespaces, so we skip creation when the namespace already exists.       */}}
-{{- range .Values.namespaces.tenants }}
+{{- range .Values.platform.namespaces.tenants }}
 {{- if not (lookup "v1" "Namespace" "" .) }}
 ---
 apiVersion: v1

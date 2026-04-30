@@ -30,7 +30,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 spec:
   # Targets the Istio IngressGateway pods (app=gateway, deployed by the
-  # orbit-platform chart's gateway Helm release in istio-system).
+  # istio-gateway dependency in istio-system).
   workloadSelector:
     labels:
       app: gateway

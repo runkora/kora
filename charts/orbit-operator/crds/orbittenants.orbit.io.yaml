@@ -3,7 +3,8 @@ kind: CustomResourceDefinition
 metadata:
   name: orbittenants.orbit.io
   labels:
-    {{- include "orbit-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/name: orbit-crds
+    app.kubernetes.io/part-of: orbit
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
 spec:

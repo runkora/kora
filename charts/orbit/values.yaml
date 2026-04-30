@@ -20,15 +20,138 @@
 # These defaults match the operator's naming conventions so the chart works
 # correctly both when the operator manages it and when deployed standalone.
 #
-# Local dev example:
+# Local dev example with dependencies enabled:
+#   helm dependency build ./charts/orbit
 #   helm upgrade --install orbit ./charts/orbit \
-#     -f deploy/local/orbit-values.yaml -n orbit-system
+#     -f deploy/local/orbit-values.yaml \
+#     -n istio-system --create-namespace
 # =============================================================================
+
+# -- SPIRE dependency controls and pass-through values.
+# The spire-crds dependency may be enabled independently because the SPIRE CRD
+# chart must render before ClusterSPIFFEID resources are accepted by the API server.
+spire:
+  crds:
+    enabled: true
+  enabled: false
+
+  global:
+    spire:
+      trustDomain: "cluster.local"
+      clusterName: "orbit"
+      namespaces:
+        system:
+          name: "spire-system"
+          create: true
+        server:
+          name: "spire-system"
+          create: false
+
+  spire-server:
+    namespaceOverride: "spire-system"
+    controllerManager:
+      identities:
+        clusterSPIFFEIDs:
+          default:
+            enabled: false
+          oidc-discovery-provider:
+            enabled: false
+          test-keys:
+            enabled: false
+          spike-keeper:
+            enabled: false
+          spike-nexus:
+            enabled: false
+          spike-bootstrap:
+            enabled: false
+          spike-pilot:
+            enabled: false
+    nodeAttestor:
+      k8sPSAT:
+        enabled: true
+        clusters:
+          orbit:
+            service_account_allow_list:
+              - "spire-system:spire-agent"
+
+  spire-agent:
+    namespaceOverride: "spire-system"
+    server:
+      namespaceOverride: "spire-system"
+    sds:
+      enabled: true
+      defaultSVIDName: "default"
+      defaultBundleName: "ROOTCA"
+      defaultAllBundlesName: "ALL"
+    nodeAttestor:
+      k8sPSAT:
+        enabled: true
+    workloadAttestors:
+      k8s:
+        enabled: true
+        skipKubeletVerification: true
+        disableContainerSelectors: true
+        useNewContainerLocator: false
+
+  spiffe-csi-driver:
+    enabled: true
+    namespaceOverride: "spire-system"
+    serverNamespaceOverride: "spire-system"
+
+  spiffe-oidc-discovery-provider:
+    enabled: false
+    namespaceOverride: "spire-system"
+
+  spire-controller-manager:
+    enabled: true
+
+# -- Istio dependency controls. When these are enabled, install the Orbit chart
+# into the istio-system release namespace so the upstream istiod/gateway charts
+# render into their canonical namespace. Orbit workloads still render into
+# platform.namespaces.system explicitly.
+istio:
+  enabled: false
+  gateway:
+    enabled: false
+
+# -- Pass-through values for the aliased Istio base dependency.
+istio-base:
+  global:
+    istioNamespace: "istio-system"
+
+# -- Pass-through values for the Istio control-plane dependency.
+istiod:
+  global:
+    istioNamespace: "istio-system"
+  meshConfig:
+    trustDomain: "cluster.local"
+    defaultConfig:
+      discoveryAddress: "istiod.istio-system.svc:15012"
+  sidecarInjectorWebhook:
+    templates: {}
+
+# -- Pass-through values for the aliased Istio gateway dependency.
+istio-gateway:
+  name: gateway
+  service:
+    type: LoadBalancer
+  env:
+    PILOT_CERT_PROVIDER: spire
+    SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+  volumes:
+    - name: workload-socket
+      csi:
+        driver: csi.spiffe.io
+        readOnly: true
+  volumeMounts:
+    - name: workload-socket
+      mountPath: /run/secrets/workload-spiffe-uds
+      readOnly: true
 
 # -- Global values shared across all templates.
 global:
   # Trust domain for SPIFFE SVIDs and Istio mTLS.
-  # Must match global.trustDomain set in the orbit-platform chart.
+  # Must match the SPIRE and Istio trust domain.
   trustDomain: "cluster.local"
 
   # Image pull policy applied to all Orbit service containers.
@@ -281,10 +404,49 @@ platform:
   spiffe:
     enabled: true
 
-# -- NetworkPolicy toggle.
-# Should match the value used in the orbit-platform chart.
+  # Shared Istio Gateway resource consumed by Orbit VirtualServices.
+  gateway:
+    selector:
+      app: gateway
+
+    hosts:
+      - "orbit.local.clearroute.io"
+      - "api.orbit.local.clearroute.io"
+
+    ports:
+      http: 80
+      https: 443
+
+    spiffe:
+      podSelector:
+        app: gateway
+      workloadSelectorTemplates:
+        - "k8s:ns:istio-system"
+        - "k8s:sa:gateway"
+
+    ingress:
+      enabled: false
+      namespace: "istio-system"
+      className: ""
+      annotations: {}
+      service:
+        name: "istio"
+        port: 80
+      hosts:
+        - host: "api.orbit.local.clearroute.io"
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+
+    tls:
+      enabled: false
+      credentialName: "orbit-gateway-tls"
+
+# -- NetworkPolicy toggle for the Orbit system namespace.
 networkPolicy:
   enabled: true
+  externalServices: []
 
 # -- Policy Service configuration (PAP — Policy Administration Point).
 policyService:

@@ -3,8 +3,8 @@
 #
 # Routes traffic for the configured frontend.virtualService.hosts entries
 # through the configured frontend.virtualService.gateways to the
-# orbit-frontend ClusterIP service. The shared Gateway resource typically
-# lives in charts/orbit-platform/templates/gateway.yaml.
+# orbit-frontend ClusterIP service. The shared Gateway resource lives in this
+# chart under templates/platform/gateway.yaml.
 #
 # Ref: ADR-0034 (frontend cluster deployment and ingress routing)
 apiVersion: networking.istio.io/v1beta1

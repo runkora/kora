@@ -51,6 +51,10 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install chart-testing linters
+        shell: bash
+        run: python -m pip install yamllint
+
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.8.0
 
@@ -60,12 +64,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          changed="$(ct list-changed \
-            --chart-dirs charts \
-            --target-branch "${TARGET_BRANCH}")"
-          charts="$(echo "${changed}" | tr '\n' ' ' | xargs)"
+          changed="$(
+            ct list-changed \
+              --chart-dirs charts \
+              --target-branch "${TARGET_BRANCH}" \
+              | while read -r chart; do
+                  if [ -f "${chart}/Chart.yaml" ]; then
+                    echo "${chart}"
+                  fi
+                done
+          )"
+          charts="$(echo "${changed}" | awk 'NF && !seen[$0]++' | tr '\n' ' ' | xargs)"
 
-          if [ -n "${changed}" ]; then
+          if [ -n "${charts}" ]; then
             echo "changed=true" >> "${GITHUB_OUTPUT}"
             echo "changed_charts=${charts}" >> "${GITHUB_OUTPUT}"
             echo "Changed charts: ${charts}"
@@ -85,6 +96,19 @@ jobs:
           for chart in ${CHANGED_CHARTS}; do
             echo "Setting ${chart}/Chart.yaml version to ${VALIDATION_CHART_VERSION}"
             yq -i ".version = \"${VALIDATION_CHART_VERSION}\"" "${chart}/Chart.yaml"
+          done
+        env:
+          CHANGED_CHARTS: ${{ steps.list-changed.outputs.changed_charts }}
+
+      - name: Build chart dependencies
+        if: steps.list-changed.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for chart in ${CHANGED_CHARTS}; do
+            echo "Building dependencies for ${chart}"
+            helm dependency build "${chart}"
           done
         env:
           CHANGED_CHARTS: ${{ steps.list-changed.outputs.changed_charts }}
@@ -176,6 +200,18 @@ jobs:
           for chart in "${changed_charts[@]}"; do
             echo "Setting ${chart}/Chart.yaml version to ${PUBLISH_CHART_VERSION}"
             yq -i ".version = \"${PUBLISH_CHART_VERSION}\"" "${chart}/Chart.yaml"
+          done
+
+      - name: Build chart dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for chart in charts/*; do
+            if [ -f "${chart}/Chart.yaml" ]; then
+              echo "Building dependencies for ${chart}"
+              helm dependency build "${chart}"
+            fi
           done
 
       - name: Run chart releaser

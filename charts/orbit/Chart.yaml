@@ -1,7 +1,9 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit control plane — deploys the Orbit identity service and associated Kubernetes resources (ServiceAccount, Deployment, Service, DestinationRule, EnvoyFilter). Requires orbit-platform to be installed first.
+  Orbit control plane and platform resources. This chart deploys Orbit services,
+  namespaces, SPIFFE identity grants, Istio routing resources, and optional
+  infrastructure dependencies for SPIRE and Istio.
 
 type: application
 version: 0.0.0
@@ -14,10 +16,28 @@ keywords:
   - agent-control-plane
 maintainers:
   - name: Orbit Platform Team
-# This chart has no sub-chart dependencies — it is a pure application chart.
-# Platform prerequisites (SPIRE, Istio, namespaces, ClusterSPIFFEIDs,
-# NetworkPolicies) are provided by the orbit-platform chart.
-#
-# Install sequence:
-#   1. helm upgrade --install orbit-platform ./charts/orbit-platform -f <platform-values>
-#   2. helm upgrade --install orbit ./charts/orbit -f <orbit-values>
+dependencies:
+  # SPIRE CRDs and Istio base are listed before their dependent charts so
+  # chart dependency builds preserve the intended CRD-first order.
+  - name: spire-crds
+    version: 0.5.0
+    repository: https://spiffe.github.io/helm-charts-hardened
+    condition: spire.crds.enabled
+  - name: base
+    alias: istio-base
+    version: 1.29.1
+    repository: https://istio-release.storage.googleapis.com/charts
+    condition: istio.enabled
+  - name: spire
+    version: 0.28.3
+    repository: https://spiffe.github.io/helm-charts-hardened
+    condition: spire.enabled
+  - name: istiod
+    version: 1.29.1
+    repository: https://istio-release.storage.googleapis.com/charts
+    condition: istio.enabled
+  - name: gateway
+    alias: istio-gateway
+    version: 1.29.1
+    repository: https://istio-release.storage.googleapis.com/charts
+    condition: istio.gateway.enabled

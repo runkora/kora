@@ -5,7 +5,7 @@
 # entries through the configured inferenceGateway.virtualService.gateways to the
 # orbit-inference-gateway ClusterIP service.
 #
-# The Gateway resource lives in charts/orbit-platform/templates/gateway.yaml.
+# The Gateway resource lives in this chart under templates/platform/gateway.yaml.
 #
 # Ref: ADR-0034 (frontend cluster deployment and ingress routing)
 # Ref: ADR-0023 (inference gateway architecture)

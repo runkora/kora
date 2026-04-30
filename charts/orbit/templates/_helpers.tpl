@@ -77,10 +77,10 @@ Pod-level override → global default → IfNotPresent.
 
 {{/*
 The effective trust domain — used in DestinationRule SAN URIs.
-Sourced from global.trustDomain so it stays consistent with orbit-platform.
+Sourced from global.trustDomain so Orbit, SPIRE, and Istio stay aligned.
 */}}
 {{- define "orbit.trustDomain" -}}
-{{- required "global.trustDomain must be set — it must match the orbit-platform chart value" .Values.global.trustDomain }}
+{{- required "global.trustDomain must be set" .Values.global.trustDomain }}
 {{- end }}
 
 {{/*
@@ -88,6 +88,25 @@ The orbit-system namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}
 {{- .Values.platform.namespaces.system | default "orbit-system" }}
+{{- end }}
+
+{{/*
+Compatibility helpers for platform templates that were folded into this chart.
+*/}}
+{{- define "orbit-platform.chart" -}}
+{{- include "orbit.chart" . }}
+{{- end }}
+
+{{- define "orbit-platform.labels" -}}
+{{ include "orbit.labels" . }}
+{{- end }}
+
+{{- define "orbit-platform.trustDomain" -}}
+{{- include "orbit.trustDomain" . }}
+{{- end }}
+
+{{- define "orbit-platform.systemNamespace" -}}
+{{- include "orbit.systemNamespace" . }}
 {{- end }}
 
 {{/*

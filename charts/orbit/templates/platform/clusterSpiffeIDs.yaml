@@ -14,6 +14,7 @@
 # className (set in the controller-manager-config.yaml ConfigMap, field: className).
 #
 # Ref: ADR-0018 (SPIFFE identity grants), ADR-0019 (tenant isolation)
+{{- if .Values.platform.spiffe.enabled }}
 {{- $trustDomain := include "orbit-platform.trustDomain" . }}
 ---
 # Istio gateway pods need a SPIFFE identity so that the service mesh can
@@ -32,9 +33,9 @@ spec:
       kubernetes.io/metadata.name: istio-system
   podSelector:
     matchLabels:
-      {{- toYaml .Values.gateway.spiffe.podSelector | nindent 6 }}
+      {{- toYaml .Values.platform.gateway.spiffe.podSelector | nindent 6 }}
   workloadSelectorTemplates:
-    {{- range .Values.gateway.spiffe.workloadSelectorTemplates }}
+    {{- range .Values.platform.gateway.spiffe.workloadSelectorTemplates }}
     - {{ . | quote }}
     {{- end }}
 ---
@@ -123,3 +124,4 @@ spec:
     matchExpressions:
       - key: spiffe.io/agent
         operator: Exists
+{{- end }}

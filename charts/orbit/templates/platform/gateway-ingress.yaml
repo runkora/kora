@@ -1,4 +1,4 @@
-{{- if .Values.gateway.ingress.enabled }}
+{{- if .Values.platform.gateway.ingress.enabled }}
 # Ingress exposing the Istio Gateway service through an ingress controller.
 #
 # This keeps Istio VirtualService routing in the request path while using a
@@ -7,19 +7,19 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: orbit-gateway
-  namespace: {{ .Values.gateway.ingress.namespace | default "istio-system" }}
+  namespace: {{ .Values.platform.gateway.ingress.namespace | default "istio-system" }}
   labels:
     {{- include "orbit-platform.labels" . | nindent 4 }}
-  {{- with .Values.gateway.ingress.annotations }}
+  {{- with .Values.platform.gateway.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.gateway.ingress.className }}
+  {{- with .Values.platform.gateway.ingress.className }}
   ingressClassName: {{ . | quote }}
   {{- end }}
   rules:
-    {{- range .Values.gateway.ingress.hosts }}
+    {{- range .Values.platform.gateway.ingress.hosts }}
     - {{- with .host }}
       host: {{ . | quote }}
       {{- end }}
@@ -30,12 +30,12 @@ spec:
             pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ $.Values.gateway.ingress.service.name }}
+                name: {{ $.Values.platform.gateway.ingress.service.name }}
                 port:
-                  number: {{ $.Values.gateway.ingress.service.port }}
+                  number: {{ $.Values.platform.gateway.ingress.service.port }}
           {{- end }}
     {{- end }}
-  {{- with .Values.gateway.ingress.tls }}
+  {{- with .Values.platform.gateway.ingress.tls }}
   tls:
     {{- toYaml . | nindent 4 }}
   {{- end }}

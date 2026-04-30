@@ -3,7 +3,8 @@ kind: CustomResourceDefinition
 metadata:
   name: orbitplatforms.orbit.io
   labels:
-    {{- include "orbit-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/name: orbit-crds
+    app.kubernetes.io/part-of: orbit
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
 spec:
@@ -153,7 +154,7 @@ spec:
                         - Automatic
                       default: Explicit
                 platformValues:
-                  description: Raw Helm values merged into the orbit-platform chart.
+                  description: Raw Helm values for platform resources.
                     Use sparingly.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

@@ -5,6 +5,18 @@
 **Deciders:** Engineering Team
 **Technical Story:** ADR-0020 established that application manifests live in `k8s/` as raw Kustomize resources. As Orbit moves toward a model where operators deploy the platform into their own clusters via GitOps tooling (Flux, ArgoCD, Helmfile), the raw-Kustomize approach is the wrong distribution primitive. Operators need a versioned artifact with a documented values API they can override — not a copy of this repo's manifests. This ADR defines the target repository structure, two Helm charts as the distribution artifacts, and the "eat your own dog food" local deployment model.
 
+**Implementation Update:** The chart structure has been collapsed to a single
+`charts/orbit` chart plus `charts/orbit-operator`. The former
+`charts/orbit-platform` templates now live under `charts/orbit/templates/platform/`.
+`charts/orbit` owns Orbit services, namespaces, NetworkPolicies,
+ClusterSPIFFEIDs, the shared Istio Gateway resource, and optional SPIRE/Istio
+dependencies. Orbit's own CRDs are installed by `charts/orbit-operator` from
+its `crds/` directory because the Orbit chart does not create OrbitPlatform or
+OrbitTenant custom resources during installation. When Istio dependencies are
+enabled, install the Orbit release into `istio-system`; Orbit workloads still
+render into `platform.namespaces.system` (`orbit-system` by default), and SPIRE
+is configured to render into `spire-system`.
+
 ---
 
 ## Context
@@ -695,14 +707,13 @@ helm install orbit-operator oci://ghcr.io/<owner>/charts/orbit-operator \
   --namespace orbit-operator \
   --create-namespace
 
-helm install orbit-platform oci://ghcr.io/<owner>/charts/orbit-platform \
-  --version 0.0.0-sha.<short-git-sha> \
-  --namespace orbit-system \
-  --create-namespace
-
 helm install orbit oci://ghcr.io/<owner>/charts/orbit \
   --version 0.0.0-sha.<short-git-sha> \
-  --namespace orbit-system
+  --namespace istio-system \
+  --create-namespace \
+  --set istio.enabled=true \
+  --set istio.gateway.enabled=true \
+  --set spire.enabled=true
 ```
 
 The indexed Helm repository is served from GitHub Pages on the `gh-pages` branch. GitHub Pages must be enabled for the repository before HTTP chart repository consumption is advertised. Local development continues to consume charts from the local filesystem through `deploy/local/` and the Makefile. Published charts are the operator-facing distribution path for external installs and GitOps repositories.

@@ -3,9 +3,10 @@
 # =============================================================================
 #
 # Applied automatically by the orbit-operator when reconciling the OrbitPlatform CR.
-# To install manually (escape hatch):
+# To install manually with chart dependencies enabled:
+#   helm dependency build ./charts/orbit
 #   helm upgrade --install orbit ./charts/orbit \
-#     -f deploy/local/orbit-values.yaml -n orbit-system
+#     -f deploy/local/orbit-values.yaml -n istio-system --create-namespace
 #
 #
 # NOTE: The following fields are intentionally absent from this file because
@@ -23,12 +24,42 @@
 # or deploy/local/tenants/*.yaml (OrbitTenant CRs).
 # =============================================================================
 
+spire:
+  crds:
+    enabled: true
+  enabled: true
+  global:
+    spire:
+      trustDomain: "orbit.test"
+      clusterName: "orbit-local"
+  spire-server:
+    nodeAttestor:
+      k8sPSAT:
+        clusters:
+          orbit-local:
+            service_account_allow_list:
+              - "spire-system:spire-agent"
+
+istio:
+  enabled: true
+  gateway:
+    enabled: true
+
+istiod:
+  meshConfig:
+    trustDomain: "orbit.test"
+
+istio-gateway:
+  name: gateway
+  service:
+    type: LoadBalancer
+
 global:
   # Force pull from local k3d registry on every pod start.
   # Local registry images are not content-addressed — Always ensures the
   # cluster always runs the freshest locally-built image.
   imagePullPolicy: Always
-  # Must match the SPIRE/Istio trust domain used by the orbit-platform chart.
+  # Must match the SPIRE/Istio trust domain used by the Orbit chart dependencies.
   # The operator injects this automatically; set it here so manual helm upgrades
   # (e.g. make deploy-orbit) also produce correct SPIFFE SANs in DestinationRules.
   trustDomain: "orbit.test"
@@ -99,6 +130,12 @@ frontend:
 networkPolicy:
   enabled: true
 
+platform:
+  gateway:
+    tls:
+      enabled: true
+      credentialName: orbit-gateway-tls
+
 policyService:
   image:
     repository: orbit-registry:5001/orbit-policy-service
@@ -126,4 +163,3 @@ opaGateway:
     tag: 1.15.2-envoy-static
   replicas: 1
   frontendHost: orbit.local.clearroute.io
-
