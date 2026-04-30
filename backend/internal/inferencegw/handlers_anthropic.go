@@ -204,6 +204,10 @@ func sanitizeThinkingBlock(blockRaw json.RawMessage) (json.RawMessage, bool) {
 // The SDK decoder silently drops the field when it receives a string instead
 // of an array, so Claude never sees the system prompt.
 func normalizeSystemPrompt(b []byte) []byte {
+	if !bytes.Contains(b, []byte(`"system"`)) {
+		return b
+	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return b

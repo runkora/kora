@@ -33,12 +33,14 @@ func TestNormalizeSystemPrompt(t *testing.T) {
 	t.Run("array system is left unchanged", func(t *testing.T) {
 		in := `{"system":[{"type":"text","text":"Already an array."}],"messages":[]}`
 		out := normalizeSystemPrompt([]byte(in))
-		if string(out) != string(normalizeSystemPrompt([]byte(in))) {
-			t.Error("idempotent transform should not change array system")
+		if string(out) != in {
+			t.Errorf("array-form system should not be modified; got %s", out)
 		}
 		// Re-parse and confirm it is still an array.
 		var raw map[string]json.RawMessage
-		_ = json.Unmarshal(out, &raw)
+		if err := json.Unmarshal(out, &raw); err != nil {
+			t.Fatalf("output is not valid JSON: %v", err)
+		}
 		var blocks []map[string]string
 		if err := json.Unmarshal(raw["system"], &blocks); err != nil {
 			t.Fatalf("array system was corrupted: %v", err)
@@ -51,9 +53,10 @@ func TestNormalizeSystemPrompt(t *testing.T) {
 	t.Run("missing system field is a no-op", func(t *testing.T) {
 		in := `{"model":"claude-3-5-sonnet-latest","messages":[]}`
 		out := normalizeSystemPrompt([]byte(in))
-		var rawIn, rawOut map[string]json.RawMessage
-		_ = json.Unmarshal([]byte(in), &rawIn)
-		_ = json.Unmarshal(out, &rawOut)
+		var rawOut map[string]json.RawMessage
+		if err := json.Unmarshal(out, &rawOut); err != nil {
+			t.Fatalf("output is not valid JSON: %v", err)
+		}
 		if _, ok := rawOut["system"]; ok {
 			t.Error("system field should not be injected when absent")
 		}

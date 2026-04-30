@@ -669,6 +669,93 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 // HUMAN role-based allow (M4)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// x-api-key token extraction
+// ---------------------------------------------------------------------------
+
+// TestGateway_XAPIKey_WithOrbPrefix verifies that an Anthropic SDK-style
+// x-api-key credential prefixed with orb_ is accepted and authorised identically
+// to the Authorization: Bearer path.
+func TestGateway_XAPIKey_WithOrbPrefix_Allowed(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
+
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		jwksURL:   jwksSrv.URL + "/jwks",
+		tenantIDs: []string{testTenantID},
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+		grants: map[string][]*grants.Grant{
+			testTenantID: {
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeAgent, PrincipalID: agentID, Scopes: []string{"inference:invoke"}},
+			},
+		},
+	})
+
+	signed := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
+
+	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
+		"x-api-key": "orb_" + signed,
+	})
+	if !allow {
+		t.Errorf("expected x-api-key with orb_ prefix to be allowed, got deny (reason: %s)", reason)
+	}
+}
+
+// TestGateway_XAPIKey_WithoutOrbPrefix verifies that an x-api-key without the
+// orb_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
+func TestGateway_XAPIKey_WithoutOrbPrefix_Allowed(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
+
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		jwksURL:   jwksSrv.URL + "/jwks",
+		tenantIDs: []string{testTenantID},
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+		grants: map[string][]*grants.Grant{
+			testTenantID: {
+				{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeAgent, PrincipalID: agentID, Scopes: []string{"inference:invoke"}},
+			},
+		},
+	})
+
+	signed := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
+
+	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
+		"x-api-key": signed,
+	})
+	if !allow {
+		t.Errorf("expected x-api-key without orb_ prefix to be allowed, got deny (reason: %s)", reason)
+	}
+}
+
+// TestGateway_XAPIKey_InvalidToken_Denied verifies that an invalid JWT in the
+// x-api-key header produces deny:invalid_token.
+func TestGateway_XAPIKey_InvalidToken_Denied(t *testing.T) {
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+	})
+
+	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
+		"x-api-key": "orb_not.a.valid.jwt",
+	})
+	if allow {
+		t.Error("expected deny for invalid JWT in x-api-key header")
+	}
+	if reason != "deny:invalid_token" {
+		t.Errorf("expected deny:invalid_token, got %q", reason)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HUMAN role-based allow (M4)
+// ---------------------------------------------------------------------------
+
 // TestGateway_HUMAN_RoleAllow verifies that a HUMAN principal with a reserved
 // OIDC role (tenant-admin) is allowed to access a route that the role grants.
 func TestGateway_HUMAN_RoleAllow(t *testing.T) {
