@@ -35,6 +35,10 @@ func (e *messagesEnvelope) UnmarshalJSON(b []byte) error {
 	// history triggers a 400. We sanitize here as belt-and-suspenders on top of
 	// the SDK's own struct-based field filtering.
 	b = stripThinkingBlockExtras(b)
+	// The Python SDK serializes system as a plain string; the Go SDK's
+	// MessageNewParams.System expects []TextBlockParam. The SDK decoder silently
+	// drops the field on type mismatch, so we normalize before decoding.
+	b = normalizeSystemPrompt(b)
 	if err := e.Params.UnmarshalJSON(b); err != nil {
 		return err
 	}
@@ -190,6 +194,43 @@ func sanitizeThinkingBlock(blockRaw json.RawMessage) (json.RawMessage, bool) {
 		return blockRaw, false
 	}
 	return newBlock, true
+}
+
+// normalizeSystemPrompt converts a top-level "system" string to the array form
+// that MessageNewParams.System expects: [{"type":"text","text":"..."}].
+//
+// The Anthropic Python SDK (and other clients) send system as a plain JSON
+// string; the Go SDK's MessageNewParams.System is typed as []TextBlockParam.
+// The SDK decoder silently drops the field when it receives a string instead
+// of an array, so Claude never sees the system prompt.
+func normalizeSystemPrompt(b []byte) []byte {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return b
+	}
+
+	systemRaw, ok := raw["system"]
+	if !ok {
+		return b
+	}
+
+	var s string
+	if err := json.Unmarshal(systemRaw, &s); err != nil {
+		// Already an array or unexpected type — leave unchanged.
+		return b
+	}
+
+	block, err := json.Marshal([]map[string]string{{"type": "text", "text": s}})
+	if err != nil {
+		return b
+	}
+	raw["system"] = block
+
+	result, err := json.Marshal(raw)
+	if err != nil {
+		return b
+	}
+	return result
 }
 
 // ─── Anthropic-format error helpers ──────────────────────────────────────────

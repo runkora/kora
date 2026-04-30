@@ -17,6 +17,14 @@ _token := raw if {
 	raw := trim_prefix(bearer, "orb_")
 }
 
+# The Anthropic SDK sends credentials as x-api-key rather than Authorization:
+# Bearer. Support both so SDK clients work without reconfiguration.
+_token := raw if {
+	not input.attributes.request.http.headers.authorization
+	api_key := input.attributes.request.http.headers["x-api-key"]
+	raw := trim_prefix(api_key, "orb_")
+}
+
 _claims := claims if {
 	resp := http.send({
 		"url":                          data.config.jwks_url,
