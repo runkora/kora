@@ -351,8 +351,7 @@ func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEn
 			}
 			entry := profileEntry{id: profileID, name: name}
 			isRegionalMatch := regionalPrefix != "" && strings.HasPrefix(profileID, regionalPrefix)
-			existing, exists := result[baseID]
-			_ = existing
+			_, exists := result[baseID]
 			if !exists {
 				result[baseID] = entry
 				preferred[baseID] = isRegionalMatch

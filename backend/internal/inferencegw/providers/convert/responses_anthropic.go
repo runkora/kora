@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -13,10 +14,18 @@ import (
 // Claude models through the Anthropic Messages API when the client is using
 // the Responses API wire format.
 //
-// Limitations:
-//   - PreviousResponseID is not supported; inline conversation history in Input.
-//   - Tool definitions in params.Tools are silently ignored (text-only responses).
-//   - Input items of types other than easy_input_message / message are skipped.
+// Translation contract (see ADR-0045 "Bridge Limitations"):
+//   - PreviousResponseID is not supported and is rejected as INVALID_REQUEST.
+//   - system / developer role messages are hoisted into params.System (the
+//     Anthropic native location) rather than appended as user turns.
+//   - function-call and function-call-output input items are translated to
+//     Anthropic tool_use / tool_result blocks so multi-turn agentic flows
+//     (e.g. Codex) work end-to-end.
+//   - Custom function tools (params.Tools.OfFunction) are translated; built-in
+//     Responses tools (file_search, web_search, code_interpreter, mcp, …) are
+//     dropped — Anthropic does not host them.
+//   - Input items of types other than easy_input_message / message /
+//     function_call / function_call_output are skipped.
 func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthropic.MessageNewParams, error) {
 	if params.PreviousResponseID.Valid() {
 		return anthropic.MessageNewParams{}, &TranslationError{
@@ -26,13 +35,18 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 	}
 
 	out := anthropic.MessageNewParams{
-		Model:     params.Model,
+		Model: params.Model,
+		// Anthropic requires max_tokens. 4096 is a safe default for
+		// short-to-medium completions; clients that need more should set
+		// max_output_tokens explicitly. See ADR-0045 for the rationale.
 		MaxTokens: 4096,
 	}
 
+	var systemBlocks []anthropic.TextBlockParam
 	if params.Instructions.Valid() {
-		out.System = []anthropic.TextBlockParam{{Text: params.Instructions.Value}}
+		systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: params.Instructions.Value})
 	}
+
 	if params.MaxOutputTokens.Valid() {
 		out.MaxTokens = params.MaxOutputTokens.Value
 	}
@@ -43,50 +57,136 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 		out.TopP = anthropic.Float(params.TopP.Value)
 	}
 
-	msgs, err := responsesInputToAnthropicMessages(params.Input)
+	msgs, extraSystem, err := responsesInputToAnthropicMessages(params.Input)
 	if err != nil {
 		return anthropic.MessageNewParams{}, err
 	}
+	systemBlocks = append(systemBlocks, extraSystem...)
+	if len(systemBlocks) > 0 {
+		out.System = systemBlocks
+	}
 	out.Messages = msgs
+
+	if len(params.Tools) > 0 {
+		out.Tools = convertResponsesToolsToAnthropic(params.Tools)
+	}
 	return out, nil
 }
 
-func responsesInputToAnthropicMessages(input responses.ResponseNewParamsInputUnion) ([]anthropic.MessageParam, error) {
+// responsesInputToAnthropicMessages translates the Responses API Input union
+// into Anthropic MessageParams plus any system blocks extracted from
+// system/developer-role input items. System blocks are returned separately so
+// the caller can merge them with the system blocks derived from
+// params.Instructions.
+func responsesInputToAnthropicMessages(input responses.ResponseNewParamsInputUnion) ([]anthropic.MessageParam, []anthropic.TextBlockParam, error) {
 	if input.OfString.Valid() {
 		return []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(input.OfString.Value)),
-		}, nil
+		}, nil, nil
 	}
 	if len(input.OfInputItemList) > 0 {
 		return convertResponsesItems(input.OfInputItemList)
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
-func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]anthropic.MessageParam, error) {
-	var msgs []anthropic.MessageParam
+// convertResponsesItems walks the Responses input item list and produces an
+// Anthropic message sequence. Adjacent assistant function calls and the
+// following user function-call-outputs are coalesced into single assistant /
+// user messages so the Anthropic API sees the canonical
+// (assistant{tool_use}, user{tool_result}, …) shape.
+func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]anthropic.MessageParam, []anthropic.TextBlockParam, error) {
+	var (
+		msgs           []anthropic.MessageParam
+		systemBlocks   []anthropic.TextBlockParam
+		pendingTool    []anthropic.ContentBlockParamUnion // assistant tool_use blocks awaiting flush
+		pendingResults []anthropic.ContentBlockParamUnion // user tool_result blocks awaiting flush
+	)
+	flushPendingTool := func() {
+		if len(pendingTool) > 0 {
+			msgs = append(msgs, anthropic.NewAssistantMessage(pendingTool...))
+			pendingTool = nil
+		}
+	}
+	flushPendingResults := func() {
+		if len(pendingResults) > 0 {
+			msgs = append(msgs, anthropic.NewUserMessage(pendingResults...))
+			pendingResults = nil
+		}
+	}
+
 	for _, item := range items {
 		switch {
 		case item.OfMessage != nil:
-			msg := convertEasyMessage(item.OfMessage)
-			if msg != nil {
+			flushPendingTool()
+			flushPendingResults()
+			if sys := easyMessageSystemText(item.OfMessage); sys != "" {
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: sys})
+				continue
+			}
+			if msg := convertEasyMessage(item.OfMessage); msg != nil {
 				msgs = append(msgs, *msg)
 			}
+
 		case item.OfInputMessage != nil:
-			msg := convertInputMessageParam(item.OfInputMessage)
-			if msg != nil {
+			flushPendingTool()
+			flushPendingResults()
+			if sys := inputMessageSystemText(item.OfInputMessage); sys != "" {
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: sys})
+				continue
+			}
+			if msg := convertInputMessageParam(item.OfInputMessage); msg != nil {
 				msgs = append(msgs, *msg)
 			}
-			// Other item types (tool calls, tool outputs, etc.) are skipped.
+
+		case item.OfFunctionCall != nil:
+			flushPendingResults()
+			fc := item.OfFunctionCall
+			var input any = map[string]any{}
+			if fc.Arguments != "" {
+				var parsed map[string]any
+				if err := json.Unmarshal([]byte(fc.Arguments), &parsed); err == nil {
+					input = parsed
+				}
+			}
+			pendingTool = append(pendingTool, anthropic.NewToolUseBlock(fc.CallID, input, fc.Name))
+
+		case item.OfFunctionCallOutput != nil:
+			flushPendingTool()
+			fco := item.OfFunctionCallOutput
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output, false))
 		}
 	}
-	return msgs, nil
+	flushPendingTool()
+	flushPendingResults()
+	return msgs, systemBlocks, nil
 }
 
+// easyMessageSystemText returns the text content of an EasyInputMessageParam
+// when its role is system or developer; otherwise returns "".
+func easyMessageSystemText(m *responses.EasyInputMessageParam) string {
+	if m.Role != responses.EasyInputMessageRoleSystem && m.Role != responses.EasyInputMessageRoleDeveloper {
+		return ""
+	}
+	return extractEasyMessageText(m)
+}
+
+// inputMessageSystemText returns the text content of a
+// ResponseInputItemMessageParam when its role is system or developer.
+func inputMessageSystemText(m *responses.ResponseInputItemMessageParam) string {
+	if m.Role != "system" && m.Role != "developer" {
+		return ""
+	}
+	return extractContentListText(m.Content)
+}
+
+// convertEasyMessage converts a non-system EasyInputMessageParam to an
+// Anthropic MessageParam. System / developer messages are handled separately
+// by the caller (hoisted into params.System).
 func convertEasyMessage(m *responses.EasyInputMessageParam) *anthropic.MessageParam {
 	text := extractEasyMessageText(m)
 	switch m.Role {
-	case responses.EasyInputMessageRoleUser, responses.EasyInputMessageRoleSystem, responses.EasyInputMessageRoleDeveloper:
+	case responses.EasyInputMessageRoleUser:
 		msg := anthropic.NewUserMessage(anthropic.NewTextBlock(text))
 		return &msg
 	case responses.EasyInputMessageRoleAssistant:
@@ -96,10 +196,12 @@ func convertEasyMessage(m *responses.EasyInputMessageParam) *anthropic.MessagePa
 	return nil
 }
 
+// convertInputMessageParam converts a non-system ResponseInputItemMessageParam
+// to an Anthropic MessageParam.
 func convertInputMessageParam(m *responses.ResponseInputItemMessageParam) *anthropic.MessageParam {
 	text := extractContentListText(m.Content)
 	switch m.Role {
-	case "user", "system", "developer":
+	case "user":
 		msg := anthropic.NewUserMessage(anthropic.NewTextBlock(text))
 		return &msg
 	case "assistant":
@@ -126,20 +228,47 @@ func extractContentListText(parts responses.ResponseInputMessageContentListParam
 	return sb.String()
 }
 
+// convertResponsesToolsToAnthropic translates Responses API function tools to
+// Anthropic ToolUnionParams. Built-in tools (file_search, web_search,
+// code_interpreter, mcp, …) are silently dropped — Anthropic does not host them.
+func convertResponsesToolsToAnthropic(tools []responses.ToolUnionParam) []anthropic.ToolUnionParam {
+	out := make([]anthropic.ToolUnionParam, 0, len(tools))
+	for _, t := range tools {
+		if t.OfFunction == nil {
+			continue
+		}
+		fn := t.OfFunction
+		var desc string
+		if fn.Description.Valid() {
+			desc = fn.Description.Value
+		}
+		schema := openAISchemaToAnthropic(fn.Parameters)
+		out = append(out, anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        fn.Name,
+				Description: anthropic.String(desc),
+				InputSchema: schema,
+			},
+		})
+	}
+	return out
+}
+
 // AnthropicMessageToResponsesResponse converts a native anthropic.Message to a
 // responses.Response. Used by the AnthropicResponsesBridge to return Claude
-// responses in the Responses API wire format.
+// responses in the Responses API wire format. Tool-use blocks are emitted as
+// function_call output items so the streaming and non-streaming paths produce
+// equivalent shapes for tool calls.
 func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Response {
 	var textBuf strings.Builder
-	var outputItems []responses.ResponseOutputItemUnion
+	var toolItems []responses.ResponseOutputItemUnion
 
-	// Accumulate text blocks; each tool_use block becomes a function_call item.
 	for _, block := range msg.Content {
 		switch block.Type {
 		case "text":
 			textBuf.WriteString(block.Text)
 		case "tool_use":
-			outputItems = append(outputItems, responses.ResponseOutputItemUnion{
+			toolItems = append(toolItems, responses.ResponseOutputItemUnion{
 				ID:        block.ID,
 				Type:      "function_call",
 				Status:    "completed",
@@ -150,7 +279,6 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		}
 	}
 
-	// Build a single message output item containing all text.
 	msgItem := responses.ResponseOutputItemUnion{
 		ID:     msg.ID,
 		Type:   "message",
@@ -162,8 +290,7 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 			{Type: "output_text", Text: textBuf.String()},
 		}
 	}
-	// Prepend the message item; function call items follow.
-	output := append([]responses.ResponseOutputItemUnion{msgItem}, outputItems...)
+	output := append([]responses.ResponseOutputItemUnion{msgItem}, toolItems...)
 
 	status := responses.ResponseStatus("completed")
 	if msg.StopReason == "max_tokens" {
@@ -191,14 +318,24 @@ type AnthropicResponsesStreamState struct {
 	MessageID    string
 	Model        string
 	textBuf      strings.Builder
+	toolUses     map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
+	toolOrder    []int64                   // block indices in the order they appeared
 	seqNum       int64
 	outputTokens int64
 	stopReason   string
 }
 
+// pendingToolUse accumulates a tool_use block across content_block_start /
+// content_block_delta events.
+type pendingToolUse struct {
+	id       string
+	name     string
+	inputBuf strings.Builder
+}
+
 // NewAnthropicResponsesStreamState initializes state for a new stream.
 func NewAnthropicResponsesStreamState() *AnthropicResponsesStreamState {
-	return &AnthropicResponsesStreamState{}
+	return &AnthropicResponsesStreamState{toolUses: map[int64]*pendingToolUse{}}
 }
 
 func (s *AnthropicResponsesStreamState) nextSeq() int64 {
@@ -206,8 +343,6 @@ func (s *AnthropicResponsesStreamState) nextSeq() int64 {
 	return s.seqNum
 }
 
-// partialResponse builds an in-progress Response snapshot for emitting in
-// response.created / response.in_progress events.
 func (s *AnthropicResponsesStreamState) partialResponse() responses.Response {
 	return responses.Response{
 		ID:     s.MessageID,
@@ -217,12 +352,35 @@ func (s *AnthropicResponsesStreamState) partialResponse() responses.Response {
 	}
 }
 
+// completedToolItems produces a stable-ordered slice of function_call output
+// items from the accumulated tool_use blocks.
+func (s *AnthropicResponsesStreamState) completedToolItems() []responses.ResponseOutputItemUnion {
+	out := make([]responses.ResponseOutputItemUnion, 0, len(s.toolOrder))
+	for _, idx := range s.toolOrder {
+		t := s.toolUses[idx]
+		args := t.inputBuf.String()
+		if args == "" {
+			args = "{}"
+		}
+		out = append(out, responses.ResponseOutputItemUnion{
+			ID:        t.id,
+			Type:      "function_call",
+			Status:    "completed",
+			Name:      t.name,
+			CallID:    t.id,
+			Arguments: args,
+		})
+	}
+	return out
+}
+
 // AnthropicEventToResponsesEvents translates one Anthropic stream event into
 // zero or more Responses API stream events. The caller must process events in
 // order; state carries context across events within the same stream.
 //
-// Only text content is handled in the streaming path. Tool-use blocks are
-// omitted from the stream (they appear in the accumulated response on done).
+// Tool-use blocks are accumulated across events and emitted in the terminal
+// response.completed event so the streaming and non-streaming bridge outputs
+// agree on shape.
 func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s *AnthropicResponsesStreamState) []responses.ResponseStreamEventUnion {
 	switch event.Type {
 	case "message_start":
@@ -252,21 +410,39 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 			},
 		}
 
+	case "content_block_start":
+		if event.ContentBlock.Type == "tool_use" {
+			if _, ok := s.toolUses[event.Index]; !ok {
+				s.toolUses[event.Index] = &pendingToolUse{
+					id:   event.ContentBlock.ID,
+					name: event.ContentBlock.Name,
+				}
+				s.toolOrder = append(s.toolOrder, event.Index)
+			}
+		}
+		return nil
+
 	case "content_block_delta":
-		if event.Delta.Type != "text_delta" {
+		switch event.Delta.Type {
+		case "text_delta":
+			s.textBuf.WriteString(event.Delta.Text)
+			return []responses.ResponseStreamEventUnion{
+				{
+					Type:           "response.output_text.delta",
+					SequenceNumber: s.nextSeq(),
+					ItemID:         s.MessageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+					Text:           event.Delta.Text,
+				},
+			}
+		case "input_json_delta":
+			if t, ok := s.toolUses[event.Index]; ok {
+				t.inputBuf.WriteString(event.Delta.PartialJSON)
+			}
 			return nil
 		}
-		s.textBuf.WriteString(event.Delta.Text)
-		return []responses.ResponseStreamEventUnion{
-			{
-				Type:           "response.output_text.delta",
-				SequenceNumber: s.nextSeq(),
-				ItemID:         s.MessageID,
-				OutputIndex:    0,
-				ContentIndex:   0,
-				Text:           event.Delta.Text,
-			},
-		}
+		return nil
 
 	case "message_delta":
 		s.outputTokens = event.Usage.OutputTokens
@@ -280,20 +456,24 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 			Type:   "message",
 			Status: "completed",
 			Role:   constant.Assistant("assistant"),
-			Content: []responses.ResponseOutputMessageContentUnion{
-				{Type: "output_text", Text: fullText},
-			},
 		}
+		if fullText != "" {
+			completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
+				{Type: "output_text", Text: fullText},
+			}
+		}
+		toolItems := s.completedToolItems()
 		status := responses.ResponseStatus("completed")
 		if s.stopReason == "max_tokens" {
 			status = "incomplete"
 		}
+		output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
 		completedResp := responses.Response{
 			ID:     s.MessageID,
 			Object: constant.Response("response"),
 			Model:  s.Model,
 			Status: status,
-			Output: []responses.ResponseOutputItemUnion{completedMsg},
+			Output: output,
 		}
 		return []responses.ResponseStreamEventUnion{
 			{

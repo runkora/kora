@@ -13,11 +13,18 @@ import (
 // route models through Chat Completions when the client is using the Responses
 // API wire format.
 //
-// Limitations:
-//   - PreviousResponseID is not supported; inline conversation history in Input.
-//   - Input items of types other than easy_input_message / message are skipped.
-//   - Only function tools are translated; built-in tools (file_search, web_search,
-//     etc.) are silently dropped.
+// Translation contract (see ADR-0045 "Bridge Limitations"):
+//   - PreviousResponseID is rejected as INVALID_REQUEST.
+//   - system / developer role messages are emitted as system Chat Completions
+//     messages.
+//   - function-call and function-call-output input items are translated to
+//     assistant tool-call messages and tool-role messages so multi-turn agentic
+//     flows work end-to-end.
+//   - Custom function tools (params.Tools.OfFunction) are translated; built-in
+//     Responses tools (file_search, web_search, code_interpreter, mcp, …) are
+//     dropped — Chat Completions does not host them in the same shape.
+//   - Input items of types other than easy_input_message / message /
+//     function_call / function_call_output are skipped.
 func ResponsesParamsToChatCompletionParams(params responses.ResponseNewParams) (openai.ChatCompletionNewParams, error) {
 	if params.PreviousResponseID.Valid() {
 		return openai.ChatCompletionNewParams{}, &TranslationError{
@@ -66,29 +73,61 @@ func responsesInputToChatMessages(input responses.ResponseNewParamsInputUnion) (
 		}, nil
 	}
 	if len(input.OfInputItemList) > 0 {
-		return convertResponsesItemsToChatMessages(input.OfInputItemList)
+		return convertResponsesItemsToChatMessages(input.OfInputItemList), nil
 	}
 	return nil, nil
 }
 
-func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnionParam) ([]openai.ChatCompletionMessageParamUnion, error) {
-	var msgs []openai.ChatCompletionMessageParamUnion
+// convertResponsesItemsToChatMessages walks the Responses input item list and
+// produces a Chat Completions message sequence. Adjacent function_call items
+// are coalesced into a single assistant message carrying multiple tool_calls,
+// matching the canonical Chat Completions tool-use shape.
+func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnionParam) []openai.ChatCompletionMessageParamUnion {
+	var (
+		msgs        []openai.ChatCompletionMessageParamUnion
+		pendingTool []openai.ChatCompletionMessageToolCallParam
+	)
+	flushPendingTool := func() {
+		if len(pendingTool) == 0 {
+			return
+		}
+		assistant := openai.ChatCompletionAssistantMessageParam{ToolCalls: pendingTool}
+		msgs = append(msgs, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
+		pendingTool = nil
+	}
+
 	for _, item := range items {
 		switch {
 		case item.OfMessage != nil:
-			msg := convertEasyMessageToChat(item.OfMessage)
-			if msg != nil {
+			flushPendingTool()
+			if msg := convertEasyMessageToChat(item.OfMessage); msg != nil {
 				msgs = append(msgs, *msg)
 			}
+
 		case item.OfInputMessage != nil:
-			msg := convertInputMessageParamToChat(item.OfInputMessage)
-			if msg != nil {
+			flushPendingTool()
+			if msg := convertInputMessageParamToChat(item.OfInputMessage); msg != nil {
 				msgs = append(msgs, *msg)
 			}
-			// Other item types (tool calls, tool outputs, etc.) are skipped.
+
+		case item.OfFunctionCall != nil:
+			fc := item.OfFunctionCall
+			pendingTool = append(pendingTool, openai.ChatCompletionMessageToolCallParam{
+				ID: fc.CallID,
+				Function: openai.ChatCompletionMessageToolCallFunctionParam{
+					Name:      fc.Name,
+					Arguments: fc.Arguments,
+				},
+			})
+
+		case item.OfFunctionCallOutput != nil:
+			flushPendingTool()
+			fco := item.OfFunctionCallOutput
+			msgs = append(msgs, openai.ToolMessage(fco.Output, fco.CallID))
 		}
 	}
-	return msgs, nil
+	flushPendingTool()
+	return msgs
 }
 
 func convertEasyMessageToChat(m *responses.EasyInputMessageParam) *openai.ChatCompletionMessageParamUnion {
@@ -199,6 +238,13 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 	}
 }
 
+// pendingChatToolCall accumulates a streaming tool_call across deltas.
+type pendingChatToolCall struct {
+	id      string
+	name    string
+	argsBuf strings.Builder
+}
+
 // ChatCompletionsStreamState holds inter-event state for translating a
 // sequence of OpenAI ChatCompletionChunk events into Responses API stream events.
 // Create one per stream with NewChatCompletionsStreamState.
@@ -206,13 +252,15 @@ type ChatCompletionsStreamState struct {
 	CompletionID string
 	Model        string
 	textBuf      strings.Builder
+	toolCalls    map[int64]*pendingChatToolCall
+	toolOrder    []int64
 	seqNum       int64
 	started      bool
 }
 
 // NewChatCompletionsStreamState initializes state for a new stream.
 func NewChatCompletionsStreamState() *ChatCompletionsStreamState {
-	return &ChatCompletionsStreamState{}
+	return &ChatCompletionsStreamState{toolCalls: map[int64]*pendingChatToolCall{}}
 }
 
 func (s *ChatCompletionsStreamState) nextSeq() int64 {
@@ -229,16 +277,35 @@ func (s *ChatCompletionsStreamState) partialResponse() responses.Response {
 	}
 }
 
+func (s *ChatCompletionsStreamState) completedToolItems() []responses.ResponseOutputItemUnion {
+	out := make([]responses.ResponseOutputItemUnion, 0, len(s.toolOrder))
+	for _, idx := range s.toolOrder {
+		t := s.toolCalls[idx]
+		args := t.argsBuf.String()
+		if args == "" {
+			args = "{}"
+		}
+		out = append(out, responses.ResponseOutputItemUnion{
+			ID:        t.id,
+			Type:      "function_call",
+			Status:    "completed",
+			Name:      t.name,
+			CallID:    t.id,
+			Arguments: args,
+		})
+	}
+	return out
+}
+
 // ChatCompletionChunkToResponsesEvents translates one OpenAI ChatCompletionChunk
 // into zero or more Responses API stream events. The caller must process chunks
 // in order; state carries context across chunks within the same stream.
 //
-// Only text content is streamed. Tool call deltas are accumulated internally
-// and appear in the final response.completed event.
+// Tool-call deltas are accumulated and emitted in the terminal response.completed
+// event, matching the non-streaming bridge's output shape.
 func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *ChatCompletionsStreamState) []responses.ResponseStreamEventUnion {
 	var events []responses.ResponseStreamEventUnion
 
-	// Capture ID and model from first chunk that carries them.
 	if !s.started && chunk.ID != "" {
 		s.CompletionID = chunk.ID
 		s.Model = chunk.Model
@@ -269,8 +336,8 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 		)
 	}
 
-	// Emit text deltas.
 	for _, choice := range chunk.Choices {
+		// Accumulate text deltas and stream them through.
 		if choice.Delta.Content != "" {
 			s.textBuf.WriteString(choice.Delta.Content)
 			events = append(events, responses.ResponseStreamEventUnion{
@@ -283,9 +350,31 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 			})
 		}
 
+		// Accumulate tool-call deltas. They are emitted in the final
+		// response.completed event so the streaming and non-streaming bridge
+		// outputs agree on shape for tool calls.
+		for _, tc := range choice.Delta.ToolCalls {
+			pc, ok := s.toolCalls[tc.Index]
+			if !ok {
+				pc = &pendingChatToolCall{}
+				s.toolCalls[tc.Index] = pc
+				s.toolOrder = append(s.toolOrder, tc.Index)
+			}
+			if tc.ID != "" {
+				pc.id = tc.ID
+			}
+			if tc.Function.Name != "" {
+				pc.name = tc.Function.Name
+			}
+			if tc.Function.Arguments != "" {
+				pc.argsBuf.WriteString(tc.Function.Arguments)
+			}
+		}
+
 		// Close out the stream on finish.
 		if choice.FinishReason != "" {
 			fullText := s.textBuf.String()
+			toolItems := s.completedToolItems()
 			status := responses.ResponseStatus("completed")
 			if choice.FinishReason == "length" {
 				status = "incomplete"
@@ -295,16 +384,19 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 				Type:   "message",
 				Status: "completed",
 				Role:   constant.Assistant("assistant"),
-				Content: []responses.ResponseOutputMessageContentUnion{
-					{Type: "output_text", Text: fullText},
-				},
 			}
+			if fullText != "" {
+				completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
+					{Type: "output_text", Text: fullText},
+				}
+			}
+			output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
 			completedResp := responses.Response{
 				ID:     s.CompletionID,
 				Object: constant.Response("response"),
 				Model:  s.Model,
 				Status: status,
-				Output: []responses.ResponseOutputItemUnion{completedMsg},
+				Output: output,
 			}
 			events = append(events,
 				responses.ResponseStreamEventUnion{

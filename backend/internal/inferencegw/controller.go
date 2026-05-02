@@ -83,7 +83,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 }
 
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.
-// Shared by both the OpenAI and Anthropic dialect handlers.
+// Shared by every dialect handler (chat completions, messages, embeddings, responses).
 func inferenceErrorResponse(err error) *api.APIError {
 	// ConnectorError codes that map to client errors are handled first so they
 	// return the correct 4xx status rather than falling through to the generic
