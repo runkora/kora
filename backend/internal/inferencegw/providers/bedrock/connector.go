@@ -21,6 +21,7 @@ import (
 	openaiopt "github.com/openai/openai-go/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -89,6 +90,10 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 //
 // ChatCompletion/ChatCompletionStream dispatch to anthropicClient for Anthropic models,
 // mantleClient for Mantle models, and openaiClient for everything else.
+// anthropicBridge translates Responses API requests to the Anthropic Messages API for
+// Claude models (which lack native Responses API support on Bedrock's OpenAI-compat endpoint).
+// openAIBridge translates Responses API requests to Chat Completions for all other
+// OpenAI-compatible models (Nova, Llama, Mistral, etc.) on the standard Bedrock endpoint.
 // mantleModelIDs is populated at ListModels time; before it is populated, Mantle model
 // requests fall through to openaiClient, fail, and the router's failover advances to
 // the next target (same cold-start behavior as all provider model caches).
@@ -96,6 +101,8 @@ type Connector struct {
 	openaiClient    *openai.Client
 	mantleClient    *openai.Client
 	anthropicClient *anthropic.Client
+	anthropicBridge *bridge.AnthropicResponsesBridge
+	openAIBridge    *bridge.ChatCompletionsResponsesBridge
 	bedrockClient   *bedrockSDK.Client
 	runtimeClient   *bedrockruntimeSDK.Client
 	region          string // AWS region; used to prefer regionally-matching inference profiles
@@ -169,6 +176,8 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 		openaiClient:    &openaiClient,
 		mantleClient:    &mantleClient,
 		anthropicClient: &anthropicClient,
+		anthropicBridge: bridge.NewAnthropicResponsesBridge(&anthropicClient, inferencegw.ProviderBedrock, logger),
+		openAIBridge:    bridge.NewChatCompletionsResponsesBridge(&openaiClient, inferencegw.ProviderBedrock, logger),
 		bedrockClient:   bedrockClient,
 		runtimeClient:   runtimeClient,
 		region:          cfg.Region,

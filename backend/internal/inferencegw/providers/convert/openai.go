@@ -22,6 +22,39 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 )
 
+// TranslationError is returned by translation functions when the caller
+// supplied an invalid request (e.g. unsupported field). Bridges convert
+// this to a ConnectorError with Code "INVALID_REQUEST" and Retryable false,
+// so the gateway returns a 400 rather than a 503.
+type TranslationError struct {
+	Message string
+}
+
+func (e *TranslationError) Error() string { return e.Message }
+
+// AsTranslationError reports whether err is a *TranslationError and if so
+// returns it; otherwise returns nil.
+func AsTranslationError(err error) *TranslationError {
+	if te, ok := errors.AsType[*TranslationError](err); ok {
+		return te
+	}
+	return nil
+}
+
+// WrapTranslationError converts a *TranslationError into a ConnectorError.
+// If err is not a *TranslationError it is returned unchanged.
+func WrapTranslationError(provider inferencegw.ProviderName, err error) error {
+	if te := AsTranslationError(err); te != nil {
+		return &inferencegw.ConnectorError{
+			Provider:   provider,
+			Code:       "INVALID_REQUEST",
+			Retryable:  false,
+			Underlying: fmt.Errorf("%s", te.Message),
+		}
+	}
+	return err
+}
+
 // OpenAI to Anthropic (request)
 
 // OpenAIParamsToAnthropicParams translates native openai-go chat completion params

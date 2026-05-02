@@ -1,0 +1,96 @@
+package bridge
+
+import (
+	"context"
+
+	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
+
+	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// ChatCompletionsResponsesBridge translates Responses API calls to the OpenAI
+// Chat Completions API. Used for models that support Chat Completions but lack
+// native Responses API support (e.g. non-Anthropic, non-Mantle Bedrock models).
+// It is provider-agnostic — any connector holding an *openai.Client can use it.
+type ChatCompletionsResponsesBridge struct {
+	client   *openai.Client
+	provider inferencegw.ProviderName
+	logger   logging.Logger
+}
+
+// NewChatCompletionsResponsesBridge constructs a bridge for the given OpenAI-compatible client.
+func NewChatCompletionsResponsesBridge(
+	client *openai.Client,
+	provider inferencegw.ProviderName,
+	logger logging.Logger,
+) *ChatCompletionsResponsesBridge {
+	return &ChatCompletionsResponsesBridge{
+		client:   client,
+		provider: provider,
+		logger:   logger,
+	}
+}
+
+// Execute translates a Responses API request to Chat Completions, executes it,
+// and translates the result back to a Responses API response.
+func (b *ChatCompletionsResponsesBridge) Execute(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+	b.logger.Debug(ctx, "bridge: chat completions responses execute start",
+		logging.Field{Key: "model", Value: params.Model},
+	)
+
+	ccParams, err := convert.ResponsesParamsToChatCompletionParams(params)
+	if err != nil {
+		return nil, convert.WrapTranslationError(b.provider, err)
+	}
+
+	completion, err := b.client.Chat.Completions.New(ctx, ccParams)
+	if err != nil {
+		return nil, convert.MapOpenAIError(b.provider, err)
+	}
+
+	resp := convert.ChatCompletionToResponsesResponse(completion)
+	b.logger.Debug(ctx, "bridge: chat completions responses execute done",
+		logging.Field{Key: "status", Value: string(resp.Status)},
+	)
+	return resp, nil
+}
+
+// ExecuteStream translates a Responses API streaming request to Chat Completions
+// streaming, translating each chunk back to Responses API stream events forwarded
+// on the returned channel.
+func (b *ChatCompletionsResponsesBridge) ExecuteStream(ctx context.Context, params responses.ResponseNewParams) (<-chan inferencegw.ResponsesStreamResult, error) {
+	b.logger.Debug(ctx, "bridge: chat completions responses stream start",
+		logging.Field{Key: "model", Value: params.Model},
+	)
+
+	ccParams, err := convert.ResponsesParamsToChatCompletionParams(params)
+	if err != nil {
+		return nil, convert.WrapTranslationError(b.provider, err)
+	}
+
+	stream := b.client.Chat.Completions.NewStreaming(ctx, ccParams)
+
+	ch := make(chan inferencegw.ResponsesStreamResult, 32)
+	go func() {
+		defer close(ch)
+		defer stream.Close()
+
+		state := convert.NewChatCompletionsStreamState()
+		for stream.Next() {
+			for _, ev := range convert.ChatCompletionChunkToResponsesEvents(stream.Current(), state) {
+				ch <- inferencegw.ResponsesStreamResult{Event: ev}
+			}
+		}
+		if err := stream.Err(); err != nil {
+			b.logger.Error(ctx, "bridge: chat completions responses stream error",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			ch <- inferencegw.ResponsesStreamResult{Err: convert.MapOpenAIError(b.provider, err)}
+		}
+	}()
+
+	return ch, nil
+}
