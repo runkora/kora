@@ -88,12 +88,19 @@ func (b *AnthropicResponsesBridge) ExecuteStream(ctx context.Context, params res
 		defer stream.Close()
 
 		state := convert.NewAnthropicResponsesStreamState()
+		var completed bool
 		for stream.Next() {
 			for _, ev := range convert.AnthropicEventToResponsesEvents(stream.Current(), state) {
+				if ev.Type == "response.completed" {
+					completed = true
+				}
 				ch <- inferencegw.ResponsesStreamResult{Event: ev}
 			}
 		}
-		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
+		// Suppress trailing errors after the upstream has already produced a
+		// terminal response.completed event. The client has the final response;
+		// reporting an error here just confuses SDKs that latch on completion.
+		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) && !completed {
 			b.logger.Error(ctx, "bridge: anthropic responses stream error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)

@@ -31,8 +31,14 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 		}
 		return resp, nil
 	case backendAnthropic:
+		c.logger.Debug(ctx, "bedrock: responses dispatch via anthropic bridge",
+			logging.Field{Key: "model", Value: params.Model},
+		)
 		return c.anthropicBridge.Execute(ctx, params)
 	default:
+		c.logger.Debug(ctx, "bedrock: responses dispatch via chat completions bridge",
+			logging.Field{Key: "model", Value: params.Model},
+		)
 		return c.openAIBridge.Execute(ctx, params)
 	}
 }
@@ -62,8 +68,14 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 		}()
 		return ch, nil
 	case backendAnthropic:
+		c.logger.Debug(ctx, "bedrock: responsesStream dispatch via anthropic bridge",
+			logging.Field{Key: "model", Value: params.Model},
+		)
 		return c.anthropicBridge.ExecuteStream(ctx, params)
 	default:
+		c.logger.Debug(ctx, "bedrock: responsesStream dispatch via chat completions bridge",
+			logging.Field{Key: "model", Value: params.Model},
+		)
 		return c.openAIBridge.ExecuteStream(ctx, params)
 	}
 }

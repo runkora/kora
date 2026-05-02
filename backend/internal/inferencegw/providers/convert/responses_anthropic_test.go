@@ -40,11 +40,28 @@ func TestResponsesParamsToAnthropicParams_StringInput(t *testing.T) {
 	if got.Model != "claude-sonnet-4-6" {
 		t.Errorf("Model = %q, want claude-sonnet-4-6", got.Model)
 	}
-	if got.MaxTokens != 4096 {
-		t.Errorf("MaxTokens = %d, want default 4096", got.MaxTokens)
+	// claude-sonnet-4-6 documented max is 64K. When max_output_tokens is
+	// unset, the bridge must use the model's max, not an arbitrary cap.
+	if got.MaxTokens != 64_000 {
+		t.Errorf("MaxTokens = %d, want 64000 (claude-sonnet-4 model max)", got.MaxTokens)
 	}
 	if len(got.Messages) != 1 {
 		t.Fatalf("len(Messages) = %d, want 1", len(got.Messages))
+	}
+}
+
+func TestResponsesParamsToAnthropicParams_ExplicitMaxOutputTokensForwarded(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfString = openai.String("hi")
+	params.MaxOutputTokens = openai.Int(12_345)
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.MaxTokens != 12_345 {
+		t.Errorf("MaxTokens = %d, want 12345 (explicit value forwarded)", got.MaxTokens)
 	}
 }
 

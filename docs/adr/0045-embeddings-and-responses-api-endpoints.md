@@ -142,7 +142,9 @@ These limitations apply **only** to Bedrock-bridged paths. Native paths (Mantle,
 | Streaming tool-call deltas | tool_use blocks are not streamed; they appear in the terminal `response.completed` event with the same shape as the non-streaming path | identical: tool calls appear in the terminal `response.completed` |
 | Response IDs | the upstream Anthropic `msg_…` ID is used as the Response `id` (not a `resp_…` ID) | the upstream Chat Completion `chatcmpl-…` ID is used as the Response `id` |
 | Output item IDs | per-item IDs are derived from the upstream message ID; not stable Responses-API `item_…` IDs | same |
-| `MaxOutputTokens` default when omitted | 4096 (Anthropic requires `max_tokens`) | unset (Chat Completions has no required field) |
+| `MaxOutputTokens` / `max_tokens` when omitted | falls back to the model's documented maximum output via `AnthropicModelMaxOutputTokens` (e.g. 64K for Claude Sonnet 4.x, 32K for Claude Opus 4.x); unknown models use a 64K ceiling so the upstream surfaces a clear `INVALID_REQUEST` rather than silent truncation | unset (Chat Completions has no required field) |
+
+The bridge intentionally does **not** impose an arbitrary fallback like 4K — coding agents routinely emit long structured outputs and a silent low cap is a debugging trap. Operators must add new Claude families to the `anthropicMaxOutputTokens` table in `convert/anthropic_max_tokens.go` so the bridge can honour "no max_tokens" requests for them.
 
 `previous_response_id` is the most consequential omission: stateful multi-turn Codex flows that depend on it will not work on bridged paths. Inline conversation history in `input` works as expected.
 

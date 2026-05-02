@@ -16,6 +16,11 @@ import (
 //
 // Translation contract (see ADR-0045 "Bridge Limitations"):
 //   - PreviousResponseID is not supported and is rejected as INVALID_REQUEST.
+//   - max_output_tokens, when set, is forwarded verbatim. When the client
+//     omits it, the bridge falls back to the model's documented maximum
+//     output (see AnthropicModelMaxOutputTokens) rather than imposing an
+//     arbitrary cap — coding agents routinely emit long structured outputs
+//     and a silent cap is a debugging trap.
 //   - system / developer role messages are hoisted into params.System (the
 //     Anthropic native location) rather than appended as user turns.
 //   - function-call and function-call-output input items are translated to
@@ -34,12 +39,14 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 		}
 	}
 
+	maxTokens := params.MaxOutputTokens.Value
+	if !params.MaxOutputTokens.Valid() {
+		maxTokens, _ = AnthropicModelMaxOutputTokens(params.Model)
+	}
+
 	out := anthropic.MessageNewParams{
-		Model: params.Model,
-		// Anthropic requires max_tokens. 4096 is a safe default for
-		// short-to-medium completions; clients that need more should set
-		// max_output_tokens explicitly. See ADR-0045 for the rationale.
-		MaxTokens: 4096,
+		Model:     params.Model,
+		MaxTokens: maxTokens,
 	}
 
 	var systemBlocks []anthropic.TextBlockParam
@@ -47,9 +54,6 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 		systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: params.Instructions.Value})
 	}
 
-	if params.MaxOutputTokens.Valid() {
-		out.MaxTokens = params.MaxOutputTokens.Value
-	}
 	if params.Temperature.Valid() {
 		out.Temperature = anthropic.Float(params.Temperature.Value)
 	}
