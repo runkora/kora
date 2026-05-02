@@ -31,6 +31,8 @@ Two classes of workloads cannot be routed through Orbit today:
 1. **Embedding workloads** (RAG pipelines, semantic search, vector stores) — users must call providers directly, bypassing all Orbit policy, usage tracking, and cost attribution.
 2. **Codex and Responses API clients** — `OPENAI_BASE_URL` can be set to point Codex at any OpenAI-compatible endpoint, but Codex issues `POST /v1/responses`, which the gateway does not handle.
 
+A secondary product concern: AWS Bedrock is the largest provider catalogue in the platform, but only **Bedrock Mantle** (a separate AWS endpoint hosting OpenAI models) exposes the Responses API natively. Without a compatibility layer, Codex users on Bedrock would be limited to Mantle models — Claude (the most-used family on the platform) and the rest of the Bedrock catalogue (Nova, Llama, Mistral, Titan, …) would be unreachable from a Codex client.
+
 ### Goals
 
 - `POST /v1/embeddings`: accept OpenAI-compatible embedding requests, route via the virtual model catalog, return `CreateEmbeddingResponse`.
@@ -38,6 +40,7 @@ Two classes of workloads cannot be routed through Orbit today:
 - Full Orbit integration for both: auth, policy, usage attribution, retry/failover — identical to existing chat endpoints.
 - No new routing primitives, no new middleware, no catalog schema changes.
 - Bedrock Mantle support within the existing Bedrock connector — no new provider registration required.
+- **Codex reach across the Bedrock catalogue** — Claude and other Bedrock models are usable from Codex clients without operator intervention, even though they do not natively speak the Responses API.
 - `DialectResponses` as a first-class API dialect so usage analytics can distinguish Responses API traffic from Chat Completions traffic.
 
 ### Non-Goals
@@ -51,69 +54,103 @@ Two classes of workloads cannot be routed through Orbit today:
 
 ## Decision Drivers
 
-* **Consistency** — both endpoints should follow the existing seven-step orchestration pattern (principal extract → policy → route → call → retry → usage → respond) without special-casing
-* **Zero translation loss** — requests and responses should be native SDK types, passed through with no hand-rolled translation layer
-* **Provider-agnostic** — the gateway should not assume which providers support which endpoints; provider failures are handled by the existing retry/failover system
-* **Minimal blast radius** — changes should be additive; no existing code path should be modified except to add new interface methods and route entries
+* **Native where possible** — endpoints that genuinely speak the Responses API should pass through with zero translation, preserving response IDs, output item IDs, built-in tool results, and any future Responses-only fields.
+* **Bridge where it expands reach** — for providers / endpoints that do not natively speak the Responses API but do speak a compatible dialect (Anthropic Messages, OpenAI Chat Completions), a translation bridge is preferable to forcing operators to provision a different upstream.
+* **Provider-agnostic at the service layer** — the gateway routing engine and service layer never inspect the model name to pick a transport. Connectors are responsible for choosing the right wire path internally.
+* **Minimal blast radius** — changes are additive; no existing code path is modified except to add new interface methods and route entries.
+* **Honest contract** — bridge limitations are documented and detectable. Where translation cannot faithfully represent a request, the bridge returns a structured error so the routing engine can fail over to a native target.
 
 ---
 
 ## Considered Options
 
-### Option 1: Native SDK pass-through (chosen)
+### Option A: Native pass-through only
 
-Add `EmbeddingsConnector` and `ResponsesConnector` dialect interfaces to `ProviderConnector`. Each provider implements both using its existing `openaiClient` (identical pattern to `openaiChatCompletion`). The service layer adds `Embeddings()`, `Responses()`, and `ResponsesStream()` methods following the existing orchestration pattern. Two new handler files are added.
-
-**Pros:**
-- Preserves all Responses API fields (response IDs, output item IDs, built-in tool results) that a translation layer would lose or mangle
-- Minimal code: each provider implementation is ~20 lines, identical to `openaiChatCompletion`
-- Future-proof: when providers extend their Responses API support, no gateway changes are needed
-- Consistent with the "zero translation loss" principle established for chat completions
-
-**Cons:**
-- Providers that do not support the Responses API endpoint will return errors; the failover system handles this, but the operator must configure routing accordingly
-- No automatic mapping of Responses API calls to Anthropic Messages API for Claude models on Bedrock (those models are unavailable for Responses on Bedrock regardless)
-
-### Option 2: Translate Responses API → Chat Completions
-
-Implement a translation layer at the handler level: map `ResponseNewParams.Input` → `messages`, translate `tools`, call the existing `ChatCompletion` / `ChatCompletionStream` service methods, then translate the response back into the Responses API shape.
+Add `EmbeddingsConnector` and `ResponsesConnector` dialect interfaces to `ProviderConnector`. Each provider implements both using its existing `openaiClient`. Where a provider does not natively support an endpoint, the SDK call returns an error and the routing engine fails over to the next target.
 
 **Pros:**
-- Works for all providers that support chat completions (including Bedrock + Claude)
+- Zero translation loss for endpoints that are natively supported.
+- Minimal code surface.
 
 **Cons:**
-- Lossy: `response.id`, `output[].id`, built-in tool results, and Responses-specific metadata cannot be reconstructed from a Chat Completions response
-- High maintenance burden: the Responses and Chat Completions APIs continue to diverge; translation code needs ongoing updates
-- Defeats the purpose of supporting the Responses API — Codex and other clients expect the Responses schema
+- On Bedrock, the only models reachable from a Codex client would be Mantle models (`openai.gpt-oss-*`). Claude and Nova/Llama/Mistral routes would all return errors and exhaust failover.
+- Operators wanting Codex coverage for Claude would have to stand up Vertex AI or Azure routes for those models — a significant deployment burden.
 
-### Option 3: Proxy only to providers that natively support the Responses API
+### Option B: Translate Responses → Chat Completions (everywhere)
 
-Restrict `POST /v1/responses` routing to Azure and Vertex AI virtual model routes; reject Bedrock targets at the handler level.
+Implement translation at the handler level: map Responses API request shapes to Chat Completions request shapes, call the existing chat completion path, translate the response back.
 
 **Pros:**
-- No surprise failures on Bedrock routes
+- Maximum reach: every Chat-Completions-capable model serves Responses traffic.
 
 **Cons:**
-- Bakes provider capability assumptions into the gateway layer — violates the provider-agnostic principle
-- The virtual model catalog and retry/failover system already handle unavailable providers gracefully; explicit filtering is redundant and fragile
+- Lossy for providers that *do* natively speak Responses (Mantle, Vertex, Azure): response IDs, output item IDs, built-in tool results, and Responses-specific metadata are reconstructed instead of preserved.
+- High maintenance burden: the Responses and Chat Completions APIs continue to diverge.
+- Defeats the purpose of native Responses support where it exists.
+
+### Option C: Hybrid — native where supported, bridge where it expands reach (chosen)
+
+Native pass-through for any provider/endpoint that natively speaks the Responses API. For Bedrock specifically, where the standard runtime endpoint speaks Chat Completions / Messages but not Responses, two compatibility bridges live inside the Bedrock connector:
+
+- **`AnthropicResponsesBridge`** translates Responses API → Anthropic Messages API for Claude models.
+- **`ChatCompletionsResponsesBridge`** translates Responses API → OpenAI Chat Completions for the rest of the Bedrock catalogue (Nova, Llama, Mistral, …).
+
+The bridges are *only* used inside the Bedrock connector. Vertex AI and Azure use native pass-through unconditionally.
+
+**Pros:**
+- Codex reaches the full Bedrock catalogue through a single virtual model entry per family.
+- Native paths (Mantle, Vertex, Azure) preserve all Responses-specific fields with zero translation.
+- Provider-agnostic at the service layer: the bridge complexity is encapsulated inside the Bedrock connector.
+- Routing engine and policy layer treat all targets identically.
+
+**Cons:**
+- Bridge paths are lossy in well-defined ways (see "Bridge Limitations" below).
+- Two extra translation surfaces to maintain (`responses_anthropic.go`, `responses_chatcompletions.go`).
+- Streaming bridges are inherently approximate: SSE event sequences are reconstructed, not forwarded.
 
 ---
 
 ## Decision
 
-**Chosen Option: Option 1 — Native SDK pass-through**
+**Chosen Option: Option C — hybrid native + Bedrock compatibility bridges.**
 
-Two new dialect interfaces are added to `ProviderConnector`. All three providers implement both using their existing `openaiClient`. The service layer adds three new methods following the existing orchestration pattern. Two new handler files are added. Route entries are added to `Controller.Boot()` and `inferenceRoutes()`.
+Two new dialect interfaces (`EmbeddingsConnector`, `ResponsesConnector`) are added to `ProviderConnector`. Vertex AI and Azure implement both interfaces by delegating to their existing `openaiClient`. Bedrock implements them with three-way dispatch: Mantle endpoint (native), Anthropic bridge (Claude), Chat Completions bridge (everything else).
 
-### Rationale
+The service layer adds three new methods (`Embeddings`, `Responses`, `ResponsesStream`) following the existing seven-step orchestration pattern. Two new handler files are added. Route entries are added to `Controller.Boot()` and `inferenceRoutes()`.
 
-The native pass-through approach is consistent with every other dialect already implemented in the gateway. The translation approach was considered and rejected for the same reasons the Anthropic → OpenAI translation for the `/chat/completions` endpoint exists only as a compatibility shim inside Bedrock's connector (where a topology constraint forces it), not as a first-class translation layer.
+### Dispatch matrix
 
-Provider-level failures are an expected operational condition — they are handled gracefully by the retry/failover system without gateway-level special-casing.
+| Provider / endpoint | `Responses` / `ResponsesStream` |
+|----|----|
+| Bedrock Mantle (`openai.*`) | `mantleClient.Responses` (native) |
+| Bedrock Anthropic (`anthropic.*`, `claude-*`) | `AnthropicResponsesBridge` → Messages API |
+| Bedrock other (`amazon.nova-*`, `meta.llama-*`, `mistral.*`, …) | `ChatCompletionsResponsesBridge` → Chat Completions |
+| Vertex AI | `openaiClient.Responses` (native) |
+| Azure | `openaiClient.Responses` (native) |
 
----
+### Bridge Limitations (the lossy-by-design contract)
 
-## Implementation
+These limitations apply **only** to Bedrock-bridged paths. Native paths (Mantle, Vertex, Azure) preserve everything the upstream provider returns.
+
+| Limitation | Anthropic bridge | Chat Completions bridge |
+|----|----|----|
+| `previous_response_id` | rejected with `INVALID_REQUEST` (translation error) | rejected with `INVALID_REQUEST` |
+| Built-in tools (`web_search`, `file_search`, `code_interpreter`, `mcp`, …) | dropped silently (only `function` tools forwarded) | dropped silently (only `function` tools forwarded) |
+| Custom function tools (`OfFunction`) | translated to Anthropic `tools[]` | translated to Chat Completions `tools[]` |
+| `function_call` / `function_call_output` input items | translated to Anthropic `tool_use` / `tool_result` blocks so multi-turn agentic flows work | translated to Chat Completions assistant tool-call / tool-role messages |
+| `system` / `developer` role input items | hoisted into Anthropic `params.System` (not appended as user turns) | hoisted into a `system` Chat Completions message |
+| Streaming tool-call deltas | tool_use blocks are not streamed; they appear in the terminal `response.completed` event with the same shape as the non-streaming path | identical: tool calls appear in the terminal `response.completed` |
+| Response IDs | the upstream Anthropic `msg_…` ID is used as the Response `id` (not a `resp_…` ID) | the upstream Chat Completion `chatcmpl-…` ID is used as the Response `id` |
+| Output item IDs | per-item IDs are derived from the upstream message ID; not stable Responses-API `item_…` IDs | same |
+| `MaxOutputTokens` default when omitted | 4096 (Anthropic requires `max_tokens`) | unset (Chat Completions has no required field) |
+
+`previous_response_id` is the most consequential omission: stateful multi-turn Codex flows that depend on it will not work on bridged paths. Inline conversation history in `input` works as expected.
+
+### Failure modes & failover
+
+- A bridge that cannot honour the request (e.g. `previous_response_id` set) returns a `ConnectorError{Code: "INVALID_REQUEST", Retryable: false}`. The routing engine treats this as a non-retryable error: failover does not advance to the next target, and the client receives a 400.
+- A bridge whose underlying upstream (Anthropic / Chat Completions on Bedrock) returns a retryable error (`THROTTLED`, `PROVIDER_UNAVAILABLE`) propagates that error code through `MapAnthropicError` / `MapOpenAIError` so the routing engine can fail over normally.
+- A native target whose upstream does not speak Responses (e.g. a Vertex deployment that has not been provisioned for it) returns an SDK error which is mapped to `PROVIDER_ERROR` and causes failover.
 
 ### New Interfaces (`connector.go`)
 
@@ -122,8 +159,7 @@ type EmbeddingsConnector interface {
     Embeddings(ctx context.Context, req openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error)
 }
 
-// ResponsesStreamResult mirrors AnthropicStreamEvent: value type (not pointer)
-// for the event, consistent with how the union type is returned from stream.Current().
+// ResponsesStreamResult mirrors AnthropicStreamEvent.
 type ResponsesStreamResult struct {
     Event responses.ResponseStreamEventUnion
     Err   error
@@ -141,182 +177,74 @@ Both interfaces are embedded in `ProviderConnector` alongside the existing `Open
 
 No new capability constant is required for the Responses API.
 
-The three-layer taxonomy (capability → dialect → modality) describes **model** properties:
-- `CapabilityChat` — the model can do text generation
-- `CapabilityEmbedding` — the model produces embedding vectors
-- `CapabilityImageGeneration` — the model generates images
+The three-layer taxonomy (capability → dialect → modality) describes **model** properties. "Supports `POST /v1/responses`" is not a model property — it is a connector/endpoint property. Any virtual model with `CapabilityChat` routes is a valid target for `POST /v1/responses`. Operators use the same virtual model catalog entries they already have for chat completions.
 
-"Supports `POST /v1/responses`" is not a model property. It is a **connector/endpoint** property: does the provider's OpenAI-compatible endpoint implement the `/responses` path? No provider exposes this through their model listing APIs, so a `CapabilityResponses` constant would be a dead value that is never populated by discovery. The Responses API is better understood as a new wire format (a third dialect alongside `openai` and `anthropic`) for the existing chat capability.
-
-Any virtual model with `CapabilityChat` routes is a valid target for `POST /v1/responses`. Operators use the same virtual model catalog entries they already have for chat completions. If a provider connector's `Responses()` call fails, the retry/failover system handles it identically to any other provider error.
-
-The `CapabilityEmbedding` comment in `connector.go` is updated to remove the "handler not yet implemented" notice — no other changes to the capability constants are required.
+The `CapabilityEmbedding` comment in `connector.go` is updated to remove the "handler not yet implemented" notice.
 
 ### New Dialect Constant (`models.go`)
-
-A new `DialectResponses` constant is added:
 
 ```go
 DialectResponses APIDialect = "responses"
 ```
 
-The Responses API is a genuinely distinct wire format from Chat Completions (`input` vs `messages`, `output` vs `choices`, response IDs, stateful session concept). Recording it as `DialectOpenAI` would permanently obscure the distinction in usage analytics — operators would be unable to query "what fraction of my traffic is Codex/Responses API vs chat completions?"
-
-A one-line DB migration updates the `CHECK` constraint on `inference_usage.api_dialect` from `IN ('openai', 'anthropic')` to `IN ('openai', 'anthropic', 'responses')`. All `POST /v1/responses` usage records are written with `APIDialect = DialectResponses`. Embeddings continue to use `DialectOpenAI`.
+The Responses API is a genuinely distinct wire format from Chat Completions. Recording it as `DialectOpenAI` would permanently obscure the distinction in usage analytics. A one-line DB migration updates the `CHECK` constraint on `inference_usage.api_dialect` from `IN ('openai', 'anthropic')` to `IN ('openai', 'anthropic', 'responses')`. All `POST /v1/responses` usage records are written with `APIDialect = DialectResponses`. Embeddings continue to use `DialectOpenAI`.
 
 ### Provider Implementations
 
-Each provider adds two new files following the exact structure of `openai.go`:
+#### Bedrock (`providers/bedrock/`)
 
-**`embeddings.go`** (all 3 providers):
-```
-Embeddings() → openaiClient.Embeddings.New(ctx, params) → MapOpenAIError on error
-```
+- `connector.go` adds `mantleClient *openai.Client`, `anthropicBridge *bridge.AnthropicResponsesBridge`, `openAIBridge *bridge.ChatCompletionsResponsesBridge`, and `modelRegistry atomic.Pointer[map[string]backendID]`.
+- `backend.go` introduces a `backendID` enum (`backendOpenAICompat`, `backendAnthropic`, `backendMantle`, `backendTitanEmbed`, `backendCohereEmbed`) and a `dispatchBackend(modelID)` method that consults the registry populated by `ListModels` and falls back to prefix heuristics on cold start.
+- `responses.go` dispatches to Mantle (native), Anthropic bridge, or Chat Completions bridge.
+- `embeddings.go` dispatches to native InvokeModel for Titan / Cohere embedding models, OpenAI-compat for the rest.
 
-All three providers support embeddings via their OpenAI-compatible endpoint:
-- Bedrock: Amazon Titan Embed, Cohere Embed, etc.
-- Vertex AI: `text-embedding-004` and others via the Vertex AI OpenAI-compatible endpoint
-- Azure: Azure OpenAI embedding deployments
+#### Vertex AI / Azure (`providers/vertexai/`, `providers/azure/`)
 
-**`responses.go`** (all 3 providers):
-```
-Responses()       → openaiClient.Responses.New(ctx, params) → MapOpenAIError on error
-ResponsesStream() → openaiClient.Responses.NewStreaming(ctx, params) → goroutine drains ssestream.Stream[ResponseStreamEventUnion]
-```
+- `embeddings.go` and `responses.go` are thin wrappers around `openaiClient.Embeddings.New` / `openaiClient.Responses.New` / `openaiClient.Responses.NewStreaming`.
 
-Note on Vertex AI: Whether the Vertex AI OpenAI-compatible endpoint supports `POST /responses` is unconfirmed at time of writing. The same error-handling path applies if it does not.
+#### Bridges (`providers/bridge/`)
 
-### Bedrock Mantle Extension
+- `anthropic_responses.go` — `AnthropicResponsesBridge.Execute` and `ExecuteStream`. Holds an `*anthropic.Client`; provider-agnostic so it could be reused on any future connector that holds an Anthropic client.
+- `chat_completions_responses.go` — `ChatCompletionsResponsesBridge.Execute` and `ExecuteStream`. Holds an `*openai.Client`.
 
-AWS Bedrock exposes the Responses API through a separate service called **Bedrock Mantle** — a distributed inference engine that hosts OpenAI models (e.g. `openai.gpt-oss-120b`) on AWS infrastructure. Bedrock Mantle uses a different endpoint domain (`bedrock-mantle.{region}.api.aws`) but **accepts the same AWS credentials and SigV4 signing** as the existing Bedrock runtime endpoint. No new API keys or IAM credentials are required.
+#### Conversion helpers (`providers/convert/`)
 
-Because Mantle extends Bedrock's model catalog and shares the same AWS account, region, and credentials, it is implemented as an extension of the existing Bedrock connector rather than a separate connector. This avoids exposing two distinct "Bedrock" providers to operators.
-
-**Connector struct additions (`providers/bedrock/connector.go`):**
-
-```go
-type Connector struct {
-    openaiClient    *openai.Client            // bedrock-runtime endpoint (Nova, Titan, Llama, Mistral)
-    mantleClient    *openai.Client            // bedrock-mantle endpoint (OpenAI models)
-    anthropicClient *anthropic.Client         // Anthropic Messages API (Claude)
-    bedrockClient   *bedrockSDK.Client
-    region          string
-    logger          logging.Logger
-
-    // mantleModelIDs is populated during ListModels from the Mantle endpoint.
-    // Nil on cold start (before first ListModels call); requests for Mantle models
-    // during the warmup window fall through to openaiClient, fail, and are handled
-    // by the routing engine's failover system — the same cold-start behavior that
-    // applies to all provider model caches.
-    mantleModelIDs atomic.Pointer[map[string]bool]
-}
-```
-
-The `mantleClient` is constructed in `New()` using the same `newSigV4Transport(awsCfg)` as `openaiClient`, pointed at the Mantle endpoint:
-
-```go
-mantleEndpoint := fmt.Sprintf("https://bedrock-mantle.%s.api.aws/v1", cfg.Region)
-mantleClient := openai.NewClient(
-    openaiopt.WithBaseURL(mantleEndpoint),
-    openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-        httpclient.NewTracingTransport("orbit.bedrock-mantle", newSigV4Transport(awsCfg)),
-    )),
-)
-```
-
-**Model source classification at discovery time (`providers/bedrock/connector.go`):**
-
-`ListModels` calls both endpoints and merges results. Models discovered from the Mantle endpoint are stored in `mantleModelIDs`:
-
-```
-listMantleModels(ctx)   → models from mantleClient.Models.ListAutoPaging
-listOnDemandFMs(ctx)    → models from bedrockClient (existing)
-listSystemProfiles(ctx) → inference profiles (existing)
-→ store mantle model ID set in c.mantleModelIDs
-→ return merged []ProviderModel
-```
-
-**Request dispatch in `ChatCompletion` / `ChatCompletionStream`:**
-
-No prefix matching. Dispatch uses the discovery-time classification:
-
-```go
-func (c *Connector) useMantleClient(modelID string) bool {
-    set := c.mantleModelIDs.Load()
-    return set != nil && (*set)[modelID]
-}
-```
-
-Dispatch order in `ChatCompletion`:
-```
-useMantleClient(id)   → mantleClient      (discovered via Mantle at ListModels time)
-isAnthropicModel(id)  → anthropicClient   (Claude — still not on Mantle)
-else                  → openaiClient      (native Bedrock runtime models)
-```
-
-**`Responses` / `ResponsesStream` always use `mantleClient`** — the Responses API is only available on the Mantle endpoint. The `bedrock/responses.go` implementation is distinct from the other providers: it calls `mantleClient.Responses.New()` / `mantleClient.Responses.NewStreaming()` rather than `openaiClient`.
+- `responses_anthropic.go` — `ResponsesParamsToAnthropicParams`, `AnthropicMessageToResponsesResponse`, `AnthropicEventToResponsesEvents` plus stream state.
+- `responses_chatcompletions.go` — `ResponsesParamsToChatCompletionParams`, `ChatCompletionToResponsesResponse`, `ChatCompletionChunkToResponsesEvents` plus stream state.
 
 ### Service Layer (`service.go`)
 
-Three new methods, each following the existing seven-step orchestration pattern. All three pass `ChatCompletionRequest{Model: string(params.Model)}` to the routing engine — it is model-ID-based and `ChatCompletionRequest` is the shared routing key for all inference endpoints. This is safe: `responses.ResponseNewParams.Model` is `shared.ResponsesModel = string` and `openai.EmbeddingNewParams.Model` is `EmbeddingModel = string` — both are string type aliases with direct conversion.
+Three new methods, each following the existing seven-step orchestration pattern. All three pass `ChatCompletionRequest{Model: string(params.Model)}` to the routing engine — it is model-ID-based and `ChatCompletionRequest` is the shared routing key for all inference endpoints.
 
 ```
 Embeddings(ctx, EmbeddingNewParams) (*CreateEmbeddingResponse, error)
-  steps: principal → policy(checkModelPolicy) → route(ChatCompletionRequest{Model}) → retryTargets(Embeddings) → usage(promptTokens only) → return
+  steps: principal → policy(checkModelPolicy) → route → retryTargets(Embeddings) → usage(promptTokens only) → return
 
 Responses(ctx, ResponseNewParams) (*Response, error)
-  steps: principal → policy(checkModelPolicy) → route(ChatCompletionRequest{Model}) → retryTargets(Responses) → usage(InputTokens/OutputTokens) → return
+  steps: principal → policy(checkModelPolicy) → route → retryTargets(Responses) → usage(InputTokens/OutputTokens) → return
 
 ResponsesStream(ctx, ResponseNewParams) (<-chan ResponsesStreamResult, error)
-  steps: principal → policy(checkModelPolicy) → route(ChatCompletionRequest{Model}) → retryTargets(ResponsesStream) → goroutine(drainResponsesStream+usage) → return channel
+  steps: principal → policy(checkModelPolicy) → route → retryTargets(ResponsesStream) → goroutine(drainResponsesStream+usage) → return channel
 ```
 
-A new `drainResponsesStream` helper is required in `service.go`, analogous to the existing `drainOpenAIStream` and `drainAnthropicStream`. It:
-- Forwards all events from the provider channel to the output channel
-- Accumulates token usage by detecting the terminal `"response.completed"` event: `event.AsResponseCompleted().Response.Usage.InputTokens` / `.OutputTokens`
-- Treats `"response.failed"` and `"response.incomplete"` events as stream errors, wrapping them as `ErrProviderError`
-- Handles `errClientDisconnected` when `ctx.Done()` fires mid-stream
-- Returns `(inputTokens, outputTokens int, streamErr error)`
+`drainResponsesStream` accumulates token usage from the terminal `response.completed` event, treats `response.failed` and `response.incomplete` as stream errors, and handles `errClientDisconnected` on `ctx.Done()`.
 
 Usage attribution:
-- **Embeddings**: `PromptTokens = resp.Usage.PromptTokens`, `CompletionTokens = 0`, `TotalTokens = PromptTokens`, `APIDialect = DialectOpenAI`
-- **Responses (non-streaming)**: `PromptTokens = int(resp.Usage.InputTokens)`, `CompletionTokens = int(resp.Usage.OutputTokens)`, `APIDialect = DialectResponses`
-- **Responses (streaming)**: input/output tokens from `drainResponsesStream` return values, `APIDialect = DialectResponses`
+- **Embeddings**: `PromptTokens = resp.Usage.PromptTokens`, `CompletionTokens = 0`, `TotalTokens = PromptTokens`, `APIDialect = DialectOpenAI`.
+- **Responses (non-streaming)**: `PromptTokens = int(resp.Usage.InputTokens)`, `CompletionTokens = int(resp.Usage.OutputTokens)`, `APIDialect = DialectResponses`.
+- **Responses (streaming)**: input/output tokens from `drainResponsesStream`, `APIDialect = DialectResponses`.
 
 ### Handler Layer
 
 **`handlers_embeddings.go`**:
-- `POST /embeddings` — decode `EmbeddingNewParams`, call `svc.Embeddings()`, return `CreateEmbeddingResponse`
-- Body limit: 10 MB (embedding inputs are short; no conversation histories)
-- No streaming path
+- `POST /embeddings` — decode `EmbeddingNewParams`, call `svc.Embeddings()`, return `CreateEmbeddingResponse`.
+- Body limit: 10 MB.
 
 **`handlers_responses.go`**:
-- `POST /responses` — decode via `responsesEnvelope`, dispatch to streaming or non-streaming path
-
-`responsesEnvelope` is required because `responses.ResponseNewParams` does **not** have a `Stream` field (the SDK's `ResponseService.NewStreaming` injects `stream: true` via a request option rather than via the params struct). The same pattern used by `chatCompletionEnvelope` applies:
-
-```go
-type responsesEnvelope struct {
-    Params responses.ResponseNewParams
-    Stream bool
-}
-
-func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
-    if err := e.Params.UnmarshalJSON(b); err != nil {
-        return err
-    }
-    var raw struct {
-        Stream bool `json:"stream"`
-    }
-    _ = json.Unmarshal(b, &raw)
-    e.Stream = raw.Stream
-    return nil
-}
-```
-
-- Non-streaming: call `svc.Responses()`, return `Response` as JSON
-- Streaming (`stream: true`): call `svc.ResponsesStream()`, write SSE frames (`data: <json>\n\n`), terminate with `data: [DONE]\n\n`
-- Body limit: 100 MB (matches chat completions — large tool call results may appear in `input`)
+- `POST /responses` — decode via `responsesEnvelope` (the SDK's `ResponseNewParams` has no `Stream` field; streaming is selected via request options, so we capture `stream` from a parallel raw decode).
+- Non-streaming: `svc.Responses()`, return `Response` as JSON.
+- Streaming: `svc.ResponsesStream()`, write SSE frames (`data: <json>\n\n`), terminate with `data: [DONE]\n\n`.
+- Body limit: 100 MB.
 
 ### Route Registration
 
@@ -329,38 +257,36 @@ mux.Handle("POST /responses", c.handleResponses)
 `main.go` — `inferenceRoutes()`:
 ```go
 {PathPrefix: "/v1/embeddings", Method: "POST", RequiredScope: "inference:invoke"},
-{PathPrefix: "/v1/responses", Method: "POST", RequiredScope: "inference:invoke"},
+{PathPrefix: "/v1/responses",  Method: "POST", RequiredScope: "inference:invoke"},
 ```
 
 No new scope declarations are needed: both endpoints are governed by the existing `inference:invoke` (Layer 1) and `inference:{family}:{alias}:use` (Layer 2, via `checkModelPolicy`) scopes.
-
-### Model Visibility (`GET /v1/models`)
-
-**Correction to original framing:** There is no capability filter in `handleListModels` or `aggregateVMMetadata` that hides embedding models. The comment in `connector.go` describing them as "hidden" is misleading. Embedding models are absent from `GET /v1/models` only because no embedding virtual models have been configured in the catalog — there was no point doing so without a working endpoint.
-
-Once `POST /v1/embeddings` ships, operators can configure embedding virtual models in the catalog. Those models appear in `GET /v1/models` automatically with `capabilities: ["embedding"]`. The only code change in this area is updating the `CapabilityEmbedding` comment in `connector.go` to remove the "not yet implemented" notice.
 
 ### Files Modified / Created
 
 | File | Change |
 |------|--------|
-| `backend/internal/inferencegw/connector.go` | Add `EmbeddingsConnector`, `ResponsesConnector`, `ResponsesStreamResult`; embed new interfaces in `ProviderConnector`; update `CapabilityEmbedding` comment |
+| `backend/internal/inferencegw/connector.go` | Add `EmbeddingsConnector`, `ResponsesConnector`, `ResponsesStreamResult`; embed in `ProviderConnector`; update `CapabilityEmbedding` comment |
 | `backend/internal/inferencegw/models.go` | Add `DialectResponses APIDialect = "responses"` |
 | `backend/internal/inferencegw/service.go` | Add `Embeddings()`, `Responses()`, `ResponsesStream()`, `drainResponsesStream()` |
 | `backend/internal/inferencegw/handlers_embeddings.go` | New: `handleEmbeddings` |
 | `backend/internal/inferencegw/handlers_responses.go` | New: `responsesEnvelope`, `handleResponses`, `handleResponsesStream` |
 | `backend/internal/inferencegw/controller.go` | Add two routes in `Boot()`; update comment |
 | `backend/cmd/inference-gateway/main.go` | Add two entries in `inferenceRoutes()` |
-| `backend/internal/inferencegw/providers/bedrock/connector.go` | Add `mantleClient`, `mantleModelIDs`, `useMantleClient()`; update `New()` and `ListModels()` |
-| `backend/internal/inferencegw/providers/bedrock/embeddings.go` | New |
-| `backend/internal/inferencegw/providers/bedrock/responses.go` | New — uses `mantleClient` (not `openaiClient`) |
+| `backend/internal/inferencegw/providers/bedrock/connector.go` | Add `mantleClient`, `anthropicBridge`, `openAIBridge`, `modelRegistry`; update `New()` and `ListModels()` |
+| `backend/internal/inferencegw/providers/bedrock/backend.go` | New: `backendID` enum, `dispatchBackend`, `inferBackendID` |
+| `backend/internal/inferencegw/providers/bedrock/embeddings.go` | New — Titan / Cohere native InvokeModel + OpenAI-compat fallback |
+| `backend/internal/inferencegw/providers/bedrock/responses.go` | New — Mantle / Anthropic-bridge / Chat-Completions-bridge dispatch |
+| `backend/internal/inferencegw/providers/bridge/anthropic_responses.go` | New — Responses↔Anthropic Messages bridge |
+| `backend/internal/inferencegw/providers/bridge/chat_completions_responses.go` | New — Responses↔Chat Completions bridge |
+| `backend/internal/inferencegw/providers/convert/responses_anthropic.go` | New — Responses↔Anthropic translation helpers |
+| `backend/internal/inferencegw/providers/convert/responses_chatcompletions.go` | New — Responses↔Chat Completions translation helpers |
+| `backend/internal/inferencegw/providers/convert/openai.go` | Add `TranslationError`, `WrapTranslationError` |
 | `backend/internal/inferencegw/providers/vertexai/embeddings.go` | New |
 | `backend/internal/inferencegw/providers/vertexai/responses.go` | New |
 | `backend/internal/inferencegw/providers/azure/embeddings.go` | New |
 | `backend/internal/inferencegw/providers/azure/responses.go` | New |
-| `backend/migrations/inference-gateway/NNNN_add_responses_dialect.{up,down}.sql` | New: update `api_dialect` CHECK constraint |
-
-One database migration is required: adding `'responses'` to the `api_dialect` CHECK constraint on `inference_usage`.
+| `backend/cmd/inference-gateway/migrations/NNNN_add_responses_dialect.sql` | New: update `api_dialect` CHECK constraint |
 
 ---
 
@@ -368,23 +294,25 @@ One database migration is required: adding `'responses'` to the `api_dialect` CH
 
 ### Positive
 
-- Codex CLI can be pointed at Orbit with `OPENAI_BASE_URL` + `OPENAI_API_KEY` — zero client-side changes required
-- Embedding workloads gain all Orbit benefits: policy enforcement, usage attribution, cost tracking, provider failover
-- `GET /v1/models` begins returning embedding models once operators configure embedding virtual models in the catalog
-- The `ProviderConnector` interface gains `EmbeddingsConnector` and `ResponsesConnector`, completing the two most important OpenAI endpoint families
-- Bedrock Mantle support extends Bedrock's model catalog to include OpenAI models at zero additional credential cost — same AWS account, same SigV4 signing
-- `DialectResponses` in usage records gives operators clean analytics visibility into Codex/Responses API traffic separately from chat completions
+- Codex CLI can be pointed at Orbit with `OPENAI_BASE_URL` + `OPENAI_API_KEY` and reach the entire Bedrock model catalogue (Mantle, Claude, Nova, Llama, Mistral) plus any virtual models routed to Vertex / Azure.
+- Embedding workloads gain all Orbit benefits: policy enforcement, usage attribution, cost tracking, provider failover.
+- Native paths (Mantle, Vertex, Azure) preserve all Responses-specific fields with zero translation loss.
+- Bedrock Mantle support extends Bedrock's model catalogue to OpenAI models at zero additional credential cost — same AWS account, same SigV4 signing.
+- `DialectResponses` in usage records gives operators clean analytics visibility into Codex/Responses API traffic separately from chat completions.
 
 ### Negative
 
-- All three providers must implement two new interface methods — this is mechanical but increases interface surface area
-- One DB migration required to extend the `api_dialect` CHECK constraint
-- Bedrock Mantle model classification depends on `ListModels` having run — during the cold start window before the warmup goroutine completes, Mantle model requests fall through to `openaiClient`, fail, and failover to the next provider. This is the same cold-start behavior as all other provider model caches and is acceptable.
+- Two translation bridges must be maintained as the OpenAI Responses API and Anthropic Messages / OpenAI Chat Completions APIs continue to evolve.
+- Bridge paths are lossy in defined ways (see "Bridge Limitations"). Clients depending on `previous_response_id` will not work on bridged paths.
+- Streaming bridges reconstruct SSE event sequences from upstream events; the event ordering is correct but exact byte-for-byte parity with a native upstream is not guaranteed.
+- One DB migration required to extend the `api_dialect` CHECK constraint.
+- Bedrock model classification depends on `ListModels` having run — during the cold-start window the dispatch falls back to prefix heuristics (`inferBackendID`). Mantle models cannot be inferred from the model ID prefix alone, so cold-start Mantle requests fall through to `openaiClient` (the standard Bedrock OpenAI-compat endpoint), fail, and the routing engine fails over.
 
 ### Neutral
 
-- The `ResponsesConnector` interface adds streaming support; for providers that support the Responses API, streaming will work. For those that don't, it will fail and failover handles it.
-- `previous_response_id` is passed through to the upstream provider unchanged; stateful session management is a non-goal for this release.
+- Bridges live in a separate `providers/bridge/` package so non-Bedrock connectors do not import them.
+- `previous_response_id` is rejected as `INVALID_REQUEST` on bridged paths (to fail fast) and forwarded unchanged on native paths.
+- Function-call passthrough on bridged paths is best-effort: if the upstream returns malformed JSON arguments they are forwarded as-is to the client.
 
 ---
 
@@ -392,9 +320,15 @@ One database migration is required: adding `'responses'` to the `api_dialect` CH
 
 ### Testing
 
-- Unit tests for new handler files mirroring `handlers_openai_test.go` pattern
-- Service-layer tests for `Embeddings()` and `Responses()` mirroring `service_test.go`
-- `make check` from repo root must pass
+- Unit tests for `responses_anthropic.go` and `responses_chatcompletions.go` covering:
+  - System / developer role hoisting into `params.System` (Anthropic) / `system` message (Chat Completions).
+  - Function-call / function-call-output round-trip through both bridges.
+  - Tool definition translation.
+  - `previous_response_id` rejection.
+  - Streaming → terminal `response.completed` event includes function_call output items (parity with non-streaming).
+- Bridge tests asserting `INVALID_REQUEST` is wrapped as a non-retryable `ConnectorError`.
+- Embeddings tests for Titan / Cohere multi-input handling.
+- `make check` from repo root must pass.
 
 ### Manual Validation
 
@@ -417,7 +351,7 @@ curl -X POST https://<gateway>/v1/responses \
   -H "Content-Type: application/json" \
   -d '{"model": "<chat-vm-id>", "input": "Say hello", "stream": true}'
 
-# Codex CLI
+# Codex CLI — should reach Mantle, Claude, and Nova/Llama/Mistral routes
 OPENAI_BASE_URL=https://<gateway>/v1 OPENAI_API_KEY=orb_... codex "list files in current directory"
 ```
 
