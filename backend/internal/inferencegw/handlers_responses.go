@@ -30,7 +30,9 @@ func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
 	var raw struct {
 		Stream bool `json:"stream"`
 	}
-	_ = json.Unmarshal(b, &raw)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("decode stream flag: %w", err)
+	}
 	e.Stream = raw.Stream
 	return nil
 }

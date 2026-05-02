@@ -961,7 +961,10 @@ func (s *Service) Responses(
 
 	promptTokens := int(resp.Usage.InputTokens)
 	completionTokens := int(resp.Usage.OutputTokens)
-	totalTokens := promptTokens + completionTokens
+	totalTokens := int(resp.Usage.TotalTokens)
+	if totalTokens == 0 {
+		totalTokens = promptTokens + completionTokens
+	}
 	pricing := usedTarget.Pricing
 	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
 

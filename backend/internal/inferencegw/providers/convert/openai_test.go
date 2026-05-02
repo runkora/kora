@@ -341,10 +341,12 @@ func TestAnthropicEventToOpenAIChunk_ToolCallSlotIndexing(t *testing.T) {
 
 // ─── OpenAIParamsToAnthropicParams ────────────────────────────────────────────
 
-func TestOpenAIParamsToAnthropicParams_DefaultMaxTokens(t *testing.T) {
+func TestOpenAIParamsToAnthropicParams_FallsBackToModelMaxWhenUnset(t *testing.T) {
 	t.Parallel()
+	// claude-haiku-4-5 has a 64K documented output ceiling. When the client
+	// omits max_tokens we should pass the model's max — not an arbitrary cap.
 	params := openai.ChatCompletionNewParams{
-		Model: "claude-3",
+		Model: "anthropic.claude-haiku-4-5",
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{OfUser: &openai.ChatCompletionUserMessageParam{
 				Content: openai.ChatCompletionUserMessageParamContentUnion{
@@ -354,8 +356,27 @@ func TestOpenAIParamsToAnthropicParams_DefaultMaxTokens(t *testing.T) {
 		},
 	}
 	got := convert.OpenAIParamsToAnthropicParams(params)
-	if got.MaxTokens != 4096 {
-		t.Errorf("MaxTokens = %d, want 4096 (default when not specified)", got.MaxTokens)
+	if got.MaxTokens != 64_000 {
+		t.Errorf("MaxTokens = %d, want 64000 (claude-haiku-4-5 model max)", got.MaxTokens)
+	}
+}
+
+func TestOpenAIParamsToAnthropicParams_LegacyModelUsesItsOwnMax(t *testing.T) {
+	t.Parallel()
+	// Older Claude 3 family caps at 4K — the lookup must honour that.
+	params := openai.ChatCompletionNewParams{
+		Model: "anthropic.claude-3-haiku-20240307-v1:0",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{OfUser: &openai.ChatCompletionUserMessageParam{
+				Content: openai.ChatCompletionUserMessageParamContentUnion{
+					OfString: openai.String("Hi"),
+				},
+			}},
+		},
+	}
+	got := convert.OpenAIParamsToAnthropicParams(params)
+	if got.MaxTokens != 4_096 {
+		t.Errorf("MaxTokens = %d, want 4096 (claude-3-haiku model max)", got.MaxTokens)
 	}
 }
 
