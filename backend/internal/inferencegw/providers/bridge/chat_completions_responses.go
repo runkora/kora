@@ -79,12 +79,19 @@ func (b *ChatCompletionsResponsesBridge) ExecuteStream(ctx context.Context, para
 		defer stream.Close()
 
 		state := convert.NewChatCompletionsStreamState()
+		var completed bool
 		for stream.Next() {
 			for _, ev := range convert.ChatCompletionChunkToResponsesEvents(stream.Current(), state) {
+				if ev.Type == "response.completed" {
+					completed = true
+				}
 				ch <- inferencegw.ResponsesStreamResult{Event: ev}
 			}
 		}
-		if err := stream.Err(); err != nil {
+		// Suppress trailing errors after the upstream produced a terminal
+		// response.completed event — the client has the final response and
+		// emitting an error here confuses SDKs that latch on completion.
+		if err := stream.Err(); err != nil && !completed {
 			b.logger.Error(ctx, "bridge: chat completions responses stream error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)

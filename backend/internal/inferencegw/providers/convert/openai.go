@@ -61,10 +61,15 @@ func WrapTranslationError(provider inferencegw.ProviderName, err error) error {
 // to anthropic-sdk-go message params. Used by connectors that must route
 // Claude models through the Anthropic Messages API (Bedrock, Vertex AI) while
 // maintaining an OpenAI-compatible external interface.
+//
+// max_tokens, when set, is forwarded verbatim. When the client omits it the
+// bridge falls back to the model's documented maximum output (see
+// AnthropicModelMaxOutputTokens) rather than imposing an arbitrary cap —
+// silent caps truncate long-form coding-agent output and are hard to diagnose.
 func OpenAIParamsToAnthropicParams(params openai.ChatCompletionNewParams) anthropic.MessageNewParams {
-	maxTokens := int64(4096)
-	if params.MaxTokens.Valid() {
-		maxTokens = params.MaxTokens.Value
+	maxTokens := params.MaxTokens.Value
+	if !params.MaxTokens.Valid() {
+		maxTokens, _ = AnthropicModelMaxOutputTokens(params.Model)
 	}
 
 	var systemBlocks []anthropic.TextBlockParam
