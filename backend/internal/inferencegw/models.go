@@ -19,6 +19,8 @@ const (
 	DialectOpenAI APIDialect = "openai"
 	// DialectAnthropic is the Anthropic Messages API format.
 	DialectAnthropic APIDialect = "anthropic"
+	// DialectResponses is the OpenAI Responses API format (POST /v1/responses).
+	DialectResponses APIDialect = "responses"
 )
 
 // ─── Provider ────────────────────────────────────────────────────────────────

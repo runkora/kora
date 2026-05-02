@@ -16,28 +16,33 @@ import (
 
 // ChatCompletion sends a non-streaming request via the appropriate Bedrock endpoint.
 //
-// Bedrock has two physically separate endpoints:
+// Bedrock has three physically separate endpoints:
 //   - OpenAI-compatible endpoint (/openai/v1): Titan, Nova, Llama, Mistral, etc.
 //   - Anthropic Messages endpoint: Claude models only (anthropic. prefix)
+//   - Bedrock Mantle endpoint: OpenAI models (openai. prefix) hosted by AWS
 //
-// This method transparently routes Anthropic/Claude models to the Anthropic Messages
-// API and converts the response back to the native openai.ChatCompletion SDK type,
-// preserving tool_calls and all other fields with zero loss.
+// This method transparently routes to the correct transport based on model ID.
 func (c *Connector) ChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	if isAnthropicModel(params.Model) {
+	switch c.dispatchBackend(params.Model) {
+	case backendAnthropic:
 		return c.claudeChatCompletion(ctx, params)
+	case backendMantle:
+		return c.mantleChatCompletion(ctx, params)
+	default:
+		return c.openaiChatCompletion(ctx, params)
 	}
-	return c.openaiChatCompletion(ctx, params)
 }
 
 // ChatCompletionStream opens a streaming request via the appropriate Bedrock endpoint.
-// Anthropic/Claude models are transparently routed to the Anthropic Messages streaming
-// API — see ChatCompletion for the routing rationale.
 func (c *Connector) ChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (<-chan inferencegw.OpenAIStreamResult, error) {
-	if isAnthropicModel(params.Model) {
+	switch c.dispatchBackend(params.Model) {
+	case backendAnthropic:
 		return c.claudeChatCompletionStream(ctx, params)
+	case backendMantle:
+		return c.mantleChatCompletionStream(ctx, params)
+	default:
+		return c.openaiChatCompletionStream(ctx, params)
 	}
-	return c.openaiChatCompletionStream(ctx, params)
 }
 
 // openaiChatCompletion calls the Bedrock OpenAI-compatible endpoint.
@@ -163,6 +168,64 @@ func (c *Connector) claudeChatCompletionStream(ctx context.Context, params opena
 		}
 		c.logger.Debug(ctx, "bedrock: claudeChatCompletionStream done",
 			logging.Field{Key: "event_count", Value: fmt.Sprintf("%d", eventCount)},
+		)
+	}()
+
+	return ch, nil
+}
+
+// mantleChatCompletion calls the Bedrock Mantle endpoint for OpenAI models.
+func (c *Connector) mantleChatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	c.logger.Debug(ctx, "bedrock: mantleChatCompletion start",
+		logging.Field{Key: "model", Value: params.Model},
+		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
+	)
+
+	resp, err := c.mantleClient.Chat.Completions.New(ctx, params)
+	if err != nil {
+		c.logger.Error(ctx, "bedrock: mantleChatCompletion error",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil, convert.MapOpenAIError(inferencegw.ProviderBedrock, err)
+	}
+
+	if len(resp.Choices) > 0 {
+		c.logger.Debug(ctx, "bedrock: mantleChatCompletion done",
+			logging.Field{Key: "finish_reason", Value: resp.Choices[0].FinishReason},
+		)
+	}
+	return resp, nil
+}
+
+// mantleChatCompletionStream streams from the Bedrock Mantle endpoint for OpenAI models.
+func (c *Connector) mantleChatCompletionStream(ctx context.Context, params openai.ChatCompletionNewParams) (<-chan inferencegw.OpenAIStreamResult, error) {
+	c.logger.Debug(ctx, "bedrock: mantleChatCompletionStream start",
+		logging.Field{Key: "model", Value: params.Model},
+		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
+	)
+
+	stream := c.mantleClient.Chat.Completions.NewStreaming(ctx, params)
+
+	ch := make(chan inferencegw.OpenAIStreamResult, 32)
+	go func() {
+		defer close(ch)
+		defer stream.Close()
+		chunkCount := 0
+		for stream.Next() {
+			chunkCount++
+			cur := stream.Current()
+			ch <- inferencegw.OpenAIStreamResult{Chunk: &cur}
+		}
+		if err := stream.Err(); err != nil {
+			c.logger.Error(ctx, "bedrock: mantleChatCompletionStream error",
+				logging.Field{Key: "error", Value: err.Error()},
+				logging.Field{Key: "chunks_before_error", Value: fmt.Sprintf("%d", chunkCount)},
+			)
+			ch <- inferencegw.OpenAIStreamResult{Err: convert.MapOpenAIError(inferencegw.ProviderBedrock, err)}
+			return
+		}
+		c.logger.Debug(ctx, "bedrock: mantleChatCompletionStream done",
+			logging.Field{Key: "chunk_count", Value: fmt.Sprintf("%d", chunkCount)},
 		)
 	}()
 

@@ -8,6 +8,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -795,7 +796,403 @@ func nthModelFamily(targets []RouteTarget) *string {
 	return nil
 }
 
-// ─── AnthropicMessages (zero-translation, non-streaming) ─────────────────────
+// ─── Embeddings (non-streaming) ───────────────────────────────────────────────
+
+// Embeddings handles a POST /v1/embeddings request end-to-end.
+// The full openai.EmbeddingNewParams wire type is passed through to the
+// connector unchanged. Usage is attributed with prompt tokens only;
+// completion tokens are always zero for embedding requests.
+func (s *Service) Embeddings(
+	ctx context.Context,
+	params openai.EmbeddingNewParams,
+) (*openai.CreateEmbeddingResponse, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.Embeddings",
+		trace.WithAttributes(attribute.String("model", params.Model)),
+	)
+	defer span.End()
+
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (*openai.CreateEmbeddingResponse, error) {
+			q := params
+			q.Model = target.ModelID
+			return c.Embeddings(ctx, q)
+		})
+
+	latencyMS := int(time.Since(start).Milliseconds())
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		errCode := extractErrorCode(callErr)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	promptTokens := int(resp.Usage.PromptTokens)
+	pricing := usedTarget.Pricing
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, 0, 0, 0)
+
+	rec := InferenceUsageRecord{
+		ID:               uuid.NewString(),
+		TenantID:         p.TenantID,
+		PrincipalID:      p.PrincipalID,
+		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
+		APIDialect:       DialectOpenAI,
+		Provider:         &usedTarget.Provider,
+		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
+		ModelID:          usedTarget.ModelID,
+		ModelFamily:      nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:  &strategy,
+		PromptTokens:     promptTokens,
+		CompletionTokens: 0,
+		TotalTokens:      promptTokens,
+		EstimatedCostUSD: estimatedCost,
+		Status:           UsageStatusSuccess,
+		RetryCount:       retryCount,
+		LatencyMS:        latencyMS,
+		CreatedAt:        start.UTC(),
+	}
+
+	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+		s.logger.Error(ctx, "failed to write inference usage record",
+			logging.Field{Key: "error", Value: writeErr.Error()},
+			logging.Field{Key: "usage_id", Value: rec.ID},
+		)
+	}
+
+	span.SetStatus(codes.Ok, "")
+	return resp, nil
+}
+
+// ─── Responses (non-streaming) ────────────────────────────────────────────────
+
+// Responses handles a non-streaming POST /v1/responses request end-to-end.
+func (s *Service) Responses(
+	ctx context.Context,
+	params responses.ResponseNewParams,
+) (*responses.Response, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.Responses",
+		trace.WithAttributes(
+			attribute.String("model", params.Model),
+			attribute.Bool("stream", false),
+		),
+	)
+	defer span.End()
+
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (*responses.Response, error) {
+			q := params
+			q.Model = target.ModelID
+			return c.Responses(ctx, q)
+		})
+
+	latencyMS := int(time.Since(start).Milliseconds())
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		errCode := extractErrorCode(callErr)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	promptTokens := int(resp.Usage.InputTokens)
+	completionTokens := int(resp.Usage.OutputTokens)
+	totalTokens := promptTokens + completionTokens
+	pricing := usedTarget.Pricing
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
+
+	rec := InferenceUsageRecord{
+		ID:               uuid.NewString(),
+		TenantID:         p.TenantID,
+		PrincipalID:      p.PrincipalID,
+		PrincipalType:    p.PrincipalType,
+		TokenID:          nullableText(p.TokenID),
+		APIDialect:       DialectResponses,
+		Provider:         &usedTarget.Provider,
+		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
+		ModelID:          usedTarget.ModelID,
+		ModelFamily:      nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:  &strategy,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		EstimatedCostUSD: estimatedCost,
+		Status:           UsageStatusSuccess,
+		RetryCount:       retryCount,
+		LatencyMS:        latencyMS,
+		CreatedAt:        start.UTC(),
+	}
+
+	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+		s.logger.Error(ctx, "failed to write inference usage record",
+			logging.Field{Key: "error", Value: writeErr.Error()},
+			logging.Field{Key: "usage_id", Value: rec.ID},
+		)
+	}
+
+	span.SetStatus(codes.Ok, "")
+	return resp, nil
+}
+
+// ─── ResponsesStream (streaming) ─────────────────────────────────────────────
+
+// ResponsesStream handles a streaming POST /v1/responses request.
+// Returns a channel of ResponsesStreamResult values; the channel is closed
+// when the stream ends (successfully or on error).
+func (s *Service) ResponsesStream(
+	ctx context.Context,
+	params responses.ResponseNewParams,
+) (<-chan ResponsesStreamResult, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.ResponsesStream",
+		trace.WithAttributes(
+			attribute.String("model", params.Model),
+			attribute.Bool("stream", true),
+		),
+	)
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		span.End()
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	routeReq := ChatCompletionRequest{Model: params.Model}
+
+	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		return nil, err
+	}
+
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (<-chan ResponsesStreamResult, error) {
+			q := params
+			q.Model = target.ModelID
+			return c.ResponsesStream(ctx, q)
+		})
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	out := make(chan ResponsesStreamResult, 16)
+	capturedTarget := usedTarget
+	capturedStrategy := strategy
+
+	writeCtx := context.WithoutCancel(ctx)
+
+	go func() {
+		defer span.End()
+		defer close(out)
+
+		inputTokens, outputTokens, streamErr := drainResponsesStream(ctx, upstream, out)
+		latencyMS := int(time.Since(start).Milliseconds())
+
+		if streamErr != nil {
+			if errors.Is(streamErr, errClientDisconnected) {
+				span.SetStatus(codes.Ok, "client disconnected")
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				return
+			}
+			span.RecordError(streamErr)
+			span.SetStatus(codes.Error, ErrProviderError.Error())
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			return
+		}
+
+		span.SetStatus(codes.Ok, "")
+
+		totalTokens := inputTokens + outputTokens
+		pricing := capturedTarget.Pricing
+		estimatedCost := pricing.EstimatedCostUSD(inputTokens, outputTokens, 0, 0)
+
+		rec := InferenceUsageRecord{
+			ID:               uuid.NewString(),
+			TenantID:         p.TenantID,
+			PrincipalID:      p.PrincipalID,
+			PrincipalType:    p.PrincipalType,
+			TokenID:          nullableText(p.TokenID),
+			APIDialect:       DialectResponses,
+			Provider:         &capturedTarget.Provider,
+			VirtualModelID:   nullableText(capturedTarget.VirtualModelID),
+			ModelID:          capturedTarget.ModelID,
+			ModelFamily:      nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:  &capturedStrategy,
+			PromptTokens:     inputTokens,
+			CompletionTokens: outputTokens,
+			TotalTokens:      totalTokens,
+			EstimatedCostUSD: estimatedCost,
+			Status:           UsageStatusSuccess,
+			RetryCount:       streamRetryCount,
+			LatencyMS:        latencyMS,
+			CreatedAt:        start.UTC(),
+		}
+
+		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
+				logging.Field{Key: "error", Value: writeErr.Error()},
+				logging.Field{Key: "usage_id", Value: rec.ID},
+			)
+		}
+	}()
+
+	return out, nil
+}
+
+// drainResponsesStream forwards events from upstream to out and accumulates
+// token counts from the terminal response.completed event.
+// Returns (inputTokens, outputTokens, streamErr).
+func drainResponsesStream(
+	ctx context.Context,
+	upstream <-chan ResponsesStreamResult,
+	out chan<- ResponsesStreamResult,
+) (inputTokens, outputTokens int, streamErr error) {
+	for {
+		select {
+		case result, ok := <-upstream:
+			if !ok {
+				return
+			}
+			if result.Err != nil {
+				streamErr = result.Err
+				responsesStreamTrySend(ctx, out, result)
+				return
+			}
+			// Extract token counts from the terminal completed event.
+			if result.Event.Type == "response.completed" {
+				inputTokens = int(result.Event.Response.Usage.InputTokens)
+				outputTokens = int(result.Event.Response.Usage.OutputTokens)
+			}
+			// Treat failure and incomplete as stream errors.
+			if result.Event.Type == "response.failed" || result.Event.Type == "response.incomplete" {
+				streamErr = ErrProviderError
+				responsesStreamTrySend(ctx, out, result)
+				return
+			}
+			if !responsesStreamForward(ctx, out, result, upstream) {
+				streamErr = errClientDisconnected
+				return
+			}
+		case <-ctx.Done():
+			go func() {
+				for range upstream {
+				}
+			}()
+			streamErr = errClientDisconnected
+			return
+		}
+	}
+}
+
+// responsesStreamTrySend forwards a terminal event to out, best-effort.
+func responsesStreamTrySend(ctx context.Context, out chan<- ResponsesStreamResult, result ResponsesStreamResult) {
+	select {
+	case out <- result:
+	case <-ctx.Done():
+	}
+}
+
+// responsesStreamForward forwards a non-terminal event to out.
+// Returns false and drains upstream asynchronously if ctx is canceled while sending.
+func responsesStreamForward(ctx context.Context, out chan<- ResponsesStreamResult, result ResponsesStreamResult, upstream <-chan ResponsesStreamResult) bool {
+	select {
+	case out <- result:
+		return true
+	case <-ctx.Done():
+		go func() {
+			for range upstream {
+			}
+		}()
+		return false
+	}
+}
 
 // AnthropicMessages handles a non-streaming POST /v1/messages request using the
 // zero-translation path: params and response are native Anthropic SDK types.
