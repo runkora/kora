@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	bedrockruntimeSDK "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
@@ -131,6 +132,11 @@ type cohereEmbedRequest struct {
 
 type cohereEmbedResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
+	Meta       struct {
+		BilledUnits struct {
+			InputTokens int64 `json:"input_tokens"`
+		} `json:"billed_units"`
+	} `json:"meta"`
 }
 
 // cohereEmbeddings calls the Bedrock InvokeModel API using the Cohere embed
@@ -178,10 +184,23 @@ func (c *Connector) cohereEmbeddings(ctx context.Context, params openai.Embeddin
 		})
 	}
 
+	// Use billed token count from Cohere response metadata when available;
+	// fall back to a word-count estimate so usage records are never zero.
+	totalTokens := native.Meta.BilledUnits.InputTokens
+	if totalTokens == 0 {
+		for _, text := range inputs {
+			totalTokens += int64(len(strings.Fields(text)))
+		}
+	}
+
 	return &openai.CreateEmbeddingResponse{
 		Object: constant.List("list"),
 		Model:  params.Model,
 		Data:   data,
+		Usage: openai.CreateEmbeddingResponseUsage{
+			PromptTokens: totalTokens,
+			TotalTokens:  totalTokens,
+		},
 	}, nil
 }
 

@@ -39,10 +39,7 @@ func ResponsesParamsToChatCompletionParams(params responses.ResponseNewParams) (
 		msgs = append(msgs, openai.SystemMessage(params.Instructions.Value))
 	}
 
-	inputMsgs, err := responsesInputToChatMessages(params.Input)
-	if err != nil {
-		return openai.ChatCompletionNewParams{}, err
-	}
+	inputMsgs := responsesInputToChatMessages(params.Input)
 	msgs = append(msgs, inputMsgs...)
 
 	out := openai.ChatCompletionNewParams{
@@ -66,16 +63,16 @@ func ResponsesParamsToChatCompletionParams(params responses.ResponseNewParams) (
 	return out, nil
 }
 
-func responsesInputToChatMessages(input responses.ResponseNewParamsInputUnion) ([]openai.ChatCompletionMessageParamUnion, error) {
+func responsesInputToChatMessages(input responses.ResponseNewParamsInputUnion) []openai.ChatCompletionMessageParamUnion {
 	if input.OfString.Valid() {
 		return []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(input.OfString.Value),
-		}, nil
+		}
 	}
 	if len(input.OfInputItemList) > 0 {
-		return convertResponsesItemsToChatMessages(input.OfInputItemList), nil
+		return convertResponsesItemsToChatMessages(input.OfInputItemList)
 	}
-	return nil, nil
+	return nil
 }
 
 // convertResponsesItemsToChatMessages walks the Responses input item list and
@@ -113,7 +110,8 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 		case item.OfFunctionCall != nil:
 			fc := item.OfFunctionCall
 			pendingTool = append(pendingTool, openai.ChatCompletionMessageToolCallParam{
-				ID: fc.CallID,
+				ID:   fc.CallID,
+				Type: "function",
 				Function: openai.ChatCompletionMessageToolCallFunctionParam{
 					Name:      fc.Name,
 					Arguments: fc.Arguments,

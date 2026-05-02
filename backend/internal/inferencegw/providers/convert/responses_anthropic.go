@@ -2,12 +2,15 @@ package convert
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared/constant"
 )
+
+const blockTypeToolUse = "tool_use"
 
 // ResponsesParamsToAnthropicParams translates a Responses API request to an
 // Anthropic MessageNewParams. Used by the AnthropicResponsesBridge to route
@@ -149,9 +152,12 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 			var input any = map[string]any{}
 			if fc.Arguments != "" {
 				var parsed map[string]any
-				if err := json.Unmarshal([]byte(fc.Arguments), &parsed); err == nil {
-					input = parsed
+				if err := json.Unmarshal([]byte(fc.Arguments), &parsed); err != nil {
+					return nil, nil, &TranslationError{
+						Message: fmt.Sprintf("function_call %q has invalid JSON arguments: %s", fc.Name, err.Error()),
+					}
 				}
+				input = parsed
 			}
 			pendingTool = append(pendingTool, anthropic.NewToolUseBlock(fc.CallID, input, fc.Name))
 
@@ -271,7 +277,7 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		switch block.Type {
 		case "text":
 			textBuf.WriteString(block.Text)
-		case "tool_use":
+		case blockTypeToolUse:
 			toolItems = append(toolItems, responses.ResponseOutputItemUnion{
 				ID:        block.ID,
 				Type:      "function_call",
@@ -415,7 +421,7 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 		}
 
 	case "content_block_start":
-		if event.ContentBlock.Type == "tool_use" {
+		if event.ContentBlock.Type == blockTypeToolUse {
 			if _, ok := s.toolUses[event.Index]; !ok {
 				s.toolUses[event.Index] = &pendingToolUse{
 					id:   event.ContentBlock.ID,
