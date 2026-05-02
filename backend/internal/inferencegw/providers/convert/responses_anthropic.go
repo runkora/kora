@@ -331,6 +331,7 @@ type AnthropicResponsesStreamState struct {
 	toolUses     map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
 	toolOrder    []int64                   // block indices in the order they appeared
 	seqNum       int64
+	inputTokens  int64
 	outputTokens int64
 	stopReason   string
 }
@@ -396,6 +397,7 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 	case "message_start":
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
+		s.inputTokens = event.Message.Usage.InputTokens
 		r := s.partialResponse()
 		return []responses.ResponseStreamEventUnion{
 			{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},
@@ -484,6 +486,11 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 			Model:  s.Model,
 			Status: status,
 			Output: output,
+			Usage: responses.ResponseUsage{
+				InputTokens:  s.inputTokens,
+				OutputTokens: s.outputTokens,
+				TotalTokens:  s.inputTokens + s.outputTokens,
+			},
 		}
 		return []responses.ResponseStreamEventUnion{
 			{

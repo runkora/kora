@@ -247,13 +247,14 @@ type pendingChatToolCall struct {
 // sequence of OpenAI ChatCompletionChunk events into Responses API stream events.
 // Create one per stream with NewChatCompletionsStreamState.
 type ChatCompletionsStreamState struct {
-	CompletionID string
-	Model        string
-	textBuf      strings.Builder
-	toolCalls    map[int64]*pendingChatToolCall
-	toolOrder    []int64
-	seqNum       int64
-	started      bool
+	CompletionID         string
+	Model                string
+	textBuf              strings.Builder
+	toolCalls            map[int64]*pendingChatToolCall
+	toolOrder            []int64
+	seqNum               int64
+	started              bool
+	pendingCompletedResp *responses.Response // deferred until the usage chunk arrives
 }
 
 // NewChatCompletionsStreamState initializes state for a new stream.
@@ -293,6 +294,82 @@ func (s *ChatCompletionsStreamState) completedToolItems() []responses.ResponseOu
 		})
 	}
 	return out
+}
+
+// FlushPendingCompletion emits the deferred response.completed event, populating
+// usage from the provided token counts. Must be called after the upstream stream
+// ends to guarantee the terminal event is always sent even when the provider
+// does not return a usage chunk (e.g. stream_options not supported).
+func (s *ChatCompletionsStreamState) FlushPendingCompletion(inputTokens, outputTokens, totalTokens int64) *responses.ResponseStreamEventUnion {
+	if s.pendingCompletedResp == nil {
+		return nil
+	}
+	s.pendingCompletedResp.Usage = responses.ResponseUsage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  totalTokens,
+	}
+	ev := responses.ResponseStreamEventUnion{
+		Type:           "response.completed",
+		SequenceNumber: s.nextSeq(),
+		Response:       *s.pendingCompletedResp,
+	}
+	s.pendingCompletedResp = nil
+	return &ev
+}
+
+// finishEvents builds the terminal pre-completion events on FinishReason and
+// stores the pending completed response for deferred emission by FlushPendingCompletion.
+// response.completed itself is NOT included — it is deferred until usage is available.
+func (s *ChatCompletionsStreamState) finishEvents(finishReason string) []responses.ResponseStreamEventUnion {
+	fullText := s.textBuf.String()
+	toolItems := s.completedToolItems()
+	status := responses.ResponseStatus("completed")
+	if finishReason == "length" {
+		status = "incomplete"
+	}
+	completedMsg := responses.ResponseOutputItemUnion{
+		ID:     s.CompletionID,
+		Type:   "message",
+		Status: "completed",
+		Role:   constant.Assistant("assistant"),
+	}
+	if fullText != "" {
+		completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
+			{Type: "output_text", Text: fullText},
+		}
+	}
+	output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
+	s.pendingCompletedResp = &responses.Response{
+		ID:     s.CompletionID,
+		Object: constant.Response("response"),
+		Model:  s.Model,
+		Status: status,
+		Output: output,
+	}
+	return []responses.ResponseStreamEventUnion{
+		{
+			Type:           "response.output_text.done",
+			SequenceNumber: s.nextSeq(),
+			ItemID:         s.CompletionID,
+			OutputIndex:    0,
+			ContentIndex:   0,
+			Text:           fullText,
+		},
+		{
+			Type:           "response.content_part.done",
+			SequenceNumber: s.nextSeq(),
+			ItemID:         s.CompletionID,
+			OutputIndex:    0,
+			ContentIndex:   0,
+		},
+		{
+			Type:           "response.output_item.done",
+			SequenceNumber: s.nextSeq(),
+			OutputIndex:    0,
+			Item:           completedMsg,
+		},
+	}
 }
 
 // ChatCompletionChunkToResponsesEvents translates one OpenAI ChatCompletionChunk
@@ -369,61 +446,17 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 			}
 		}
 
-		// Close out the stream on finish.
 		if choice.FinishReason != "" {
-			fullText := s.textBuf.String()
-			toolItems := s.completedToolItems()
-			status := responses.ResponseStatus("completed")
-			if choice.FinishReason == "length" {
-				status = "incomplete"
-			}
-			completedMsg := responses.ResponseOutputItemUnion{
-				ID:     s.CompletionID,
-				Type:   "message",
-				Status: "completed",
-				Role:   constant.Assistant("assistant"),
-			}
-			if fullText != "" {
-				completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
-					{Type: "output_text", Text: fullText},
-				}
-			}
-			output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
-			completedResp := responses.Response{
-				ID:     s.CompletionID,
-				Object: constant.Response("response"),
-				Model:  s.Model,
-				Status: status,
-				Output: output,
-			}
-			events = append(events,
-				responses.ResponseStreamEventUnion{
-					Type:           "response.output_text.done",
-					SequenceNumber: s.nextSeq(),
-					ItemID:         s.CompletionID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Text:           fullText,
-				},
-				responses.ResponseStreamEventUnion{
-					Type:           "response.content_part.done",
-					SequenceNumber: s.nextSeq(),
-					ItemID:         s.CompletionID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-				},
-				responses.ResponseStreamEventUnion{
-					Type:           "response.output_item.done",
-					SequenceNumber: s.nextSeq(),
-					OutputIndex:    0,
-					Item:           completedMsg,
-				},
-				responses.ResponseStreamEventUnion{
-					Type:           "response.completed",
-					SequenceNumber: s.nextSeq(),
-					Response:       completedResp,
-				},
-			)
+			events = append(events, s.finishEvents(choice.FinishReason)...)
+		}
+	}
+
+	// Handle the trailing usage chunk sent by providers that support
+	// stream_options.include_usage. This chunk has empty Choices and
+	// non-zero Usage; flush the deferred response.completed with real token counts.
+	if chunk.Usage.TotalTokens > 0 && s.pendingCompletedResp != nil {
+		if ev := s.FlushPendingCompletion(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, chunk.Usage.TotalTokens); ev != nil {
+			events = append(events, *ev)
 		}
 	}
 

@@ -33,7 +33,7 @@ type listUsageResponse struct {
 // Allowed values for each enum query parameter.
 var (
 	providerNames = []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure}
-	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic}
+	apiDialects   = []APIDialect{DialectOpenAI, DialectAnthropic, DialectResponses}
 	usageStatuses = []UsageStatus{
 		UsageStatusSuccess, UsageStatusProviderError, UsageStatusPolicyDenied,
 		UsageStatusAuthError, UsageStatusTimeout, UsageStatusRoutingFailed,

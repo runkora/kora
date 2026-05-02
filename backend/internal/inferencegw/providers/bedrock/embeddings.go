@@ -174,6 +174,9 @@ func (c *Connector) cohereEmbeddings(ctx context.Context, params openai.Embeddin
 	if len(native.Embeddings) == 0 {
 		return nil, fmt.Errorf("bedrock cohere embeddings: response contained no embeddings")
 	}
+	if len(native.Embeddings) != len(inputs) {
+		return nil, fmt.Errorf("bedrock cohere embeddings: response contained %d embeddings, expected %d", len(native.Embeddings), len(inputs))
+	}
 
 	data := make([]openai.Embedding, 0, len(native.Embeddings))
 	for i, emb := range native.Embeddings {
@@ -215,5 +218,5 @@ func extractEmbeddingInputs(params openai.EmbeddingNewParams) ([]string, error) 
 	if len(params.Input.OfArrayOfStrings) > 0 {
 		return params.Input.OfArrayOfStrings, nil
 	}
-	return nil, fmt.Errorf("input must be a non-empty string or array of strings for native Bedrock models")
+	return nil, fmt.Errorf("input must be a non-empty string or array of strings (token arrays are not supported for native Titan/Cohere Bedrock models)")
 }

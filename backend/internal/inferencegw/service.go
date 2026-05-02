@@ -1153,8 +1153,10 @@ func drainResponsesStream(
 				inputTokens = int(result.Event.Response.Usage.InputTokens)
 				outputTokens = int(result.Event.Response.Usage.OutputTokens)
 			}
-			// Treat failure and incomplete as stream errors.
-			if result.Event.Type == "response.failed" || result.Event.Type == "response.incomplete" {
+			// response.incomplete means the model hit max_output_tokens — it is a
+			// successful, billable completion. Forward it and let the caller decide
+			// how to handle the truncation. Only response.failed is a true error.
+			if result.Event.Type == "response.failed" {
 				streamErr = ErrProviderError
 				responsesStreamTrySend(ctx, out, result)
 				return

@@ -185,6 +185,10 @@ func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 	for _, c := range chunks {
 		out = append(out, convert.ChatCompletionChunkToResponsesEvents(c, state)...)
 	}
+	// Simulate the bridge flushing the deferred response.completed after the stream ends.
+	if ev := state.FlushPendingCompletion(0, 0, 0); ev != nil {
+		out = append(out, *ev)
+	}
 
 	var completed *responses.ResponseStreamEventUnion
 	for i := range out {

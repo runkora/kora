@@ -2,6 +2,8 @@ package bridge
 
 import (
 	"context"
+	"errors"
+	"io"
 
 	openai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
@@ -71,6 +73,11 @@ func (b *ChatCompletionsResponsesBridge) ExecuteStream(ctx context.Context, para
 		return nil, convert.WrapTranslationError(b.provider, err)
 	}
 
+	// Request usage in the trailing chunk so token counts are available for billing.
+	ccParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+		IncludeUsage: openai.Bool(true),
+	}
+
 	stream := b.client.Chat.Completions.NewStreaming(ctx, ccParams)
 
 	ch := make(chan inferencegw.ResponsesStreamResult, 32)
@@ -88,10 +95,17 @@ func (b *ChatCompletionsResponsesBridge) ExecuteStream(ctx context.Context, para
 				ch <- inferencegw.ResponsesStreamResult{Event: ev}
 			}
 		}
-		// Suppress trailing errors after the upstream produced a terminal
-		// response.completed event — the client has the final response and
-		// emitting an error here confuses SDKs that latch on completion.
-		if err := stream.Err(); err != nil && !completed {
+		// Flush the deferred response.completed if the usage chunk never arrived
+		// (provider doesn't support stream_options) — ensures the terminal event
+		// is always emitted with whatever token counts are available.
+		if ev := state.FlushPendingCompletion(0, 0, 0); ev != nil {
+			completed = true
+			ch <- inferencegw.ResponsesStreamResult{Event: *ev}
+		}
+		// Suppress trailing errors after a terminal response.completed event —
+		// the client has the final response and emitting an error here confuses
+		// SDKs that latch on the first terminal event.
+		if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) && !completed {
 			b.logger.Error(ctx, "bridge: chat completions responses stream error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)
