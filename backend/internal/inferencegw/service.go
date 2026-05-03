@@ -1155,8 +1155,9 @@ func drainResponsesStream(
 				responsesStreamTrySend(ctx, out, result)
 				return
 			}
-			// Extract token counts from the terminal completed event.
-			if result.Event.Type == "response.completed" {
+			// Extract token counts from the terminal event. Both response.completed
+			// and response.incomplete carry a fully-populated Response.Usage field.
+			if result.Event.Type == "response.completed" || result.Event.Type == "response.incomplete" {
 				inputTokens = int(result.Event.Response.Usage.InputTokens)
 				outputTokens = int(result.Event.Response.Usage.OutputTokens)
 				cacheReadTokens = int(result.Event.Response.Usage.InputTokensDetails.CachedTokens)

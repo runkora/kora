@@ -198,6 +198,37 @@ func TestDrainResponsesStream_ExtractsCacheReadTokens(t *testing.T) {
 	}
 }
 
+func TestDrainResponsesStream_IncompleteExtractsTokens(t *testing.T) {
+	t.Parallel()
+	upstream := make(chan ResponsesStreamResult, 1)
+	out := make(chan ResponsesStreamResult, 1)
+
+	// response.incomplete is the terminal event when the model hits max_output_tokens
+	// via a native provider (Azure, Vertex, Mantle). It carries the same Usage
+	// structure as response.completed and must be billed correctly.
+	upstream <- ResponsesStreamResult{Event: responses.ResponseStreamEventUnion{
+		Type: "response.incomplete",
+		Response: responses.Response{
+			Usage: responses.ResponseUsage{
+				InputTokens:  80,
+				OutputTokens: 40,
+			},
+		},
+	}}
+	close(upstream)
+
+	inputTokens, outputTokens, _, err := drainResponsesStream(context.Background(), upstream, out)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inputTokens != 80 {
+		t.Errorf("inputTokens = %d, want 80", inputTokens)
+	}
+	if outputTokens != 40 {
+		t.Errorf("outputTokens = %d, want 40", outputTokens)
+	}
+}
+
 func TestDrainResponsesStream_PropagatesUpstreamError(t *testing.T) {
 	t.Parallel()
 	upstream := make(chan ResponsesStreamResult, 1)

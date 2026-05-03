@@ -22,7 +22,7 @@ export type Modality = 'text' | 'image' | 'embedding' | 'audio' | 'video';
  * Wire protocol used to call a chat model.
  * Mirrors Go: inferencegw.APIDialect
  */
-export type APIDialect = 'openai' | 'anthropic';
+export type APIDialect = 'openai' | 'anthropic' | 'responses';
 
 /**
  * Endpoint family a model belongs to.
