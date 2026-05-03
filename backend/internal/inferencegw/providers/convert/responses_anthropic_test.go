@@ -440,6 +440,118 @@ func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
 // TestAnthropicStreaming_CacheTokensInCompletedEvent verifies that cache_read_input_tokens
 // from the message_start event are surfaced in the terminal response.completed
 // Usage.InputTokensDetails.CachedTokens field.
+// ─── Image input translation ──────────────────────────────────────────────────
+
+func TestResponsesParamsToAnthropicParams_ImageURLInput(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
+		{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: responses.ResponseInputMessageContentListParam{
+						{OfInputText: &responses.ResponseInputTextParam{Text: "What is in this image?"}},
+						{OfInputImage: &responses.ResponseInputImageParam{
+							Detail:   responses.ResponseInputImageDetailAuto,
+							ImageURL: openai.String("https://example.com/photo.jpg"),
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(got.Messages))
+	}
+	b, _ := json.Marshal(got.Messages[0])
+	s := string(b)
+	if !strings.Contains(s, `"url"`) {
+		t.Errorf("expected URL image source in message, got: %s", s)
+	}
+	if !strings.Contains(s, "example.com/photo.jpg") {
+		t.Errorf("expected image URL preserved, got: %s", s)
+	}
+}
+
+func TestResponsesParamsToAnthropicParams_ImageBase64Input(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
+		{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: responses.ResponseInputMessageContentListParam{
+						{OfInputText: &responses.ResponseInputTextParam{Text: "Describe this."}},
+						{OfInputImage: &responses.ResponseInputImageParam{
+							Detail:   responses.ResponseInputImageDetailHigh,
+							ImageURL: openai.String("data:image/png;base64,iVBORw0KGgo="),
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	b, _ := json.Marshal(got.Messages[0])
+	s := string(b)
+	if !strings.Contains(s, `"base64"`) {
+		t.Errorf("expected base64 image source, got: %s", s)
+	}
+	if !strings.Contains(s, "image/png") {
+		t.Errorf("expected media type preserved, got: %s", s)
+	}
+	if !strings.Contains(s, "iVBORw0KGgo=") {
+		t.Errorf("expected base64 data preserved, got: %s", s)
+	}
+}
+
+func TestResponsesParamsToAnthropicParams_FileIDImageSkipped(t *testing.T) {
+	t.Parallel()
+	// File-ID-only images have no Anthropic equivalent — the image block is
+	// silently skipped but text content in the same message is preserved.
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
+		{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: responses.ResponseInputMessageContentListParam{
+						{OfInputText: &responses.ResponseInputTextParam{Text: "hello"}},
+						{OfInputImage: &responses.ResponseInputImageParam{
+							Detail: responses.ResponseInputImageDetailAuto,
+							FileID: openai.String("file-abc123"),
+							// no ImageURL
+						}},
+					},
+				},
+			},
+		},
+	}
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1 (text preserved, file-id image dropped)", len(got.Messages))
+	}
+	b, _ := json.Marshal(got.Messages[0])
+	if !strings.Contains(string(b), "hello") {
+		t.Errorf("text content should be preserved even when file-id image is skipped")
+	}
+}
+
 // ─── Multiple tool-use blocks (parallel tool calls) ──────────────────────────
 
 func TestAnthropicMessageToResponsesResponse_MultipleToolUse(t *testing.T) {

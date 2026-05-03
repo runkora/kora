@@ -208,13 +208,16 @@ func inputMessageSystemText(m *responses.ResponseInputItemMessageParam) string {
 // Anthropic MessageParam. System / developer messages are handled separately
 // by the caller (hoisted into params.System).
 func convertEasyMessage(m *responses.EasyInputMessageParam) *anthropic.MessageParam {
-	text := extractEasyMessageText(m)
+	blocks := extractEasyMessageBlocks(m)
+	if len(blocks) == 0 {
+		return nil
+	}
 	switch m.Role {
 	case responses.EasyInputMessageRoleUser:
-		msg := anthropic.NewUserMessage(anthropic.NewTextBlock(text))
+		msg := anthropic.NewUserMessage(blocks...)
 		return &msg
 	case responses.EasyInputMessageRoleAssistant:
-		msg := anthropic.NewAssistantMessage(anthropic.NewTextBlock(text))
+		msg := anthropic.NewAssistantMessage(blocks...)
 		return &msg
 	}
 	return nil
@@ -223,18 +226,86 @@ func convertEasyMessage(m *responses.EasyInputMessageParam) *anthropic.MessagePa
 // convertInputMessageParam converts a non-system ResponseInputItemMessageParam
 // to an Anthropic MessageParam.
 func convertInputMessageParam(m *responses.ResponseInputItemMessageParam) *anthropic.MessageParam {
-	text := extractContentListText(m.Content)
+	blocks := extractContentBlocks(m.Content)
+	if len(blocks) == 0 {
+		return nil
+	}
 	switch m.Role {
 	case "user":
-		msg := anthropic.NewUserMessage(anthropic.NewTextBlock(text))
+		msg := anthropic.NewUserMessage(blocks...)
 		return &msg
 	case "assistant":
-		msg := anthropic.NewAssistantMessage(anthropic.NewTextBlock(text))
+		msg := anthropic.NewAssistantMessage(blocks...)
 		return &msg
 	}
 	return nil
 }
 
+// extractEasyMessageBlocks returns Anthropic content blocks for a
+// EasyInputMessageParam, preserving text and image parts.
+func extractEasyMessageBlocks(m *responses.EasyInputMessageParam) []anthropic.ContentBlockParamUnion {
+	if m.Content.OfString.Valid() {
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content.OfString.Value)}
+	}
+	return extractContentBlocks(m.Content.OfInputItemContentList)
+}
+
+// extractContentBlocks converts a Responses API content list to Anthropic
+// content blocks. Text parts become text blocks; image parts become image
+// blocks (URL or base64 data URI). File-ID-only images and file attachments
+// have no Anthropic equivalent and are silently skipped.
+func extractContentBlocks(parts responses.ResponseInputMessageContentListParam) []anthropic.ContentBlockParamUnion {
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
+	for _, part := range parts {
+		switch {
+		case part.OfInputText != nil:
+			blocks = append(blocks, anthropic.NewTextBlock(part.OfInputText.Text))
+		case part.OfInputImage != nil:
+			if b := responseImageToAnthropicBlock(part.OfInputImage); b != nil {
+				blocks = append(blocks, *b)
+			}
+		}
+	}
+	return blocks
+}
+
+// responseImageToAnthropicBlock converts a Responses API image input to an
+// Anthropic image block. Returns nil for file-ID-only images (no Anthropic
+// equivalent) and for non-base64 data URIs.
+func responseImageToAnthropicBlock(img *responses.ResponseInputImageParam) *anthropic.ContentBlockParamUnion {
+	if !img.ImageURL.Valid() {
+		return nil
+	}
+	url := img.ImageURL.Value
+	if strings.HasPrefix(url, "data:") {
+		mediaType, data, ok := parseDataURI(url)
+		if !ok {
+			return nil
+		}
+		b := anthropic.NewImageBlockBase64(mediaType, data)
+		return &b
+	}
+	b := anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url})
+	return &b
+}
+
+// parseDataURI parses a data URI of the form data:[mediatype];base64,[data].
+// Only base64-encoded payloads are supported; non-base64 URIs return ok=false.
+func parseDataURI(s string) (mediaType, data string, ok bool) {
+	s = strings.TrimPrefix(s, "data:")
+	meta, data, found := strings.Cut(s, ",")
+	if !found {
+		return "", "", false
+	}
+	mimeType, encoding, hasSemi := strings.Cut(meta, ";")
+	if !hasSemi || encoding != "base64" {
+		return "", "", false
+	}
+	return mimeType, data, true
+}
+
+// extractEasyMessageText returns the plain text of an EasyInputMessageParam.
+// Used for system/developer role extraction and the Chat Completions bridge.
 func extractEasyMessageText(m *responses.EasyInputMessageParam) string {
 	if m.Content.OfString.Valid() {
 		return m.Content.OfString.Value
@@ -242,6 +313,9 @@ func extractEasyMessageText(m *responses.EasyInputMessageParam) string {
 	return extractContentListText(m.Content.OfInputItemContentList)
 }
 
+// extractContentListText concatenates only the input_text parts of a content
+// list. Used for system/developer role extraction where only text is valid,
+// and by the Chat Completions bridge.
 func extractContentListText(parts responses.ResponseInputMessageContentListParam) string {
 	var sb strings.Builder
 	for _, part := range parts {
