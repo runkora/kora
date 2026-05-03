@@ -377,18 +377,19 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		}
 	}
 
-	msgItem := responses.ResponseOutputItemUnion{
-		ID:     msg.ID,
-		Type:   "message",
-		Status: "completed",
-		Role:   constant.Assistant("assistant"),
-	}
+	var output []responses.ResponseOutputItemUnion
 	if textBuf.Len() > 0 {
-		msgItem.Content = []responses.ResponseOutputMessageContentUnion{
-			{Type: "output_text", Text: textBuf.String()},
-		}
+		output = append(output, responses.ResponseOutputItemUnion{
+			ID:     msg.ID,
+			Type:   "message",
+			Status: "completed",
+			Role:   constant.Assistant("assistant"),
+			Content: []responses.ResponseOutputMessageContentUnion{
+				{Type: "output_text", Text: textBuf.String()},
+			},
+		})
 	}
-	output := append([]responses.ResponseOutputItemUnion{msgItem}, toolItems...)
+	output = append(output, toolItems...)
 
 	status := responses.ResponseStatus("completed")
 	if msg.StopReason == "max_tokens" {
@@ -416,16 +417,17 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 // sequence of Anthropic SSE events into Responses API stream events.
 // Create one per stream with NewAnthropicResponsesStreamState.
 type AnthropicResponsesStreamState struct {
-	MessageID       string
-	Model           string
-	textBuf         strings.Builder
-	toolUses        map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
-	toolOrder       []int64                   // block indices in the order they appeared
-	seqNum          int64
-	inputTokens     int64
-	outputTokens    int64
-	cacheReadTokens int64
-	stopReason      string
+	MessageID         string
+	Model             string
+	textBuf           strings.Builder
+	toolUses          map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
+	toolOrder         []int64                   // block indices in the order they appeared
+	seqNum            int64
+	inputTokens       int64
+	outputTokens      int64
+	cacheReadTokens   int64
+	stopReason        string
+	sentMsgOutputItem bool // whether response.output_item.added (message) was emitted
 }
 
 // pendingToolUse accumulates a tool_use block across content_block_start /
@@ -481,9 +483,10 @@ func (s *AnthropicResponsesStreamState) completedToolItems() []responses.Respons
 // zero or more Responses API stream events. The caller must process events in
 // order; state carries context across events within the same stream.
 //
-// Tool-use blocks are accumulated across events and emitted in the terminal
-// response.completed event so the streaming and non-streaming bridge outputs
-// agree on shape.
+// Event mapping mirrors the OpenAI Responses API spec:
+//   - message output items are emitted lazily — only when a text block appears.
+//   - each tool_use block emits its own output_item.added / arguments.delta /
+//     arguments.done / output_item.done events inline.
 func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s *AnthropicResponsesStreamState) []responses.ResponseStreamEventUnion {
 	switch event.Type {
 	case "message_start":
@@ -495,101 +498,169 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 		return []responses.ResponseStreamEventUnion{
 			{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},
 			{Type: "response.in_progress", SequenceNumber: s.nextSeq(), Response: r},
-			{
-				Type:           "response.output_item.added",
-				SequenceNumber: s.nextSeq(),
-				OutputIndex:    0,
-				Item: responses.ResponseOutputItemUnion{
-					ID:     s.MessageID,
-					Type:   "message",
-					Status: "in_progress",
-					Role:   constant.Assistant("assistant"),
-				},
-			},
-			{
-				Type:           "response.content_part.added",
-				SequenceNumber: s.nextSeq(),
-				ItemID:         s.MessageID,
-				OutputIndex:    0,
-				ContentIndex:   0,
-			},
 		}
-
 	case "content_block_start":
-		if event.ContentBlock.Type == blockTypeToolUse {
-			if _, ok := s.toolUses[event.Index]; !ok {
-				s.toolUses[event.Index] = &pendingToolUse{
-					id:   event.ContentBlock.ID,
-					name: event.ContentBlock.Name,
-				}
-				s.toolOrder = append(s.toolOrder, event.Index)
-			}
-		}
-		return nil
-
+		return s.handleContentBlockStart(event)
 	case "content_block_delta":
-		switch event.Delta.Type {
-		case "text_delta":
-			s.textBuf.WriteString(event.Delta.Text)
-			return []responses.ResponseStreamEventUnion{
-				{
-					Type:           "response.output_text.delta",
-					SequenceNumber: s.nextSeq(),
-					ItemID:         s.MessageID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Text:           event.Delta.Text,
-				},
-			}
-		case "input_json_delta":
-			if t, ok := s.toolUses[event.Index]; ok {
-				t.inputBuf.WriteString(event.Delta.PartialJSON)
-			}
-			return nil
-		}
-		return nil
-
+		return s.handleContentBlockDelta(event)
+	case "content_block_stop":
+		return s.handleContentBlockStop(event)
 	case "message_delta":
 		s.outputTokens = event.Usage.OutputTokens
 		s.stopReason = string(event.Delta.StopReason)
 		return nil
-
 	case "message_stop":
-		fullText := s.textBuf.String()
-		completedMsg := responses.ResponseOutputItemUnion{
+		return s.handleMessageStop()
+	}
+	return nil
+}
+
+func (s *AnthropicResponsesStreamState) handleContentBlockStart(event anthropic.MessageStreamEventUnion) []responses.ResponseStreamEventUnion {
+	switch event.ContentBlock.Type {
+	case "text":
+		if !s.sentMsgOutputItem {
+			s.sentMsgOutputItem = true
+			return []responses.ResponseStreamEventUnion{
+				{
+					Type:           "response.output_item.added",
+					SequenceNumber: s.nextSeq(),
+					OutputIndex:    0,
+					Item: responses.ResponseOutputItemUnion{
+						ID:     s.MessageID,
+						Type:   "message",
+						Status: "in_progress",
+						Role:   constant.Assistant("assistant"),
+					},
+				},
+				{
+					Type:           "response.content_part.added",
+					SequenceNumber: s.nextSeq(),
+					ItemID:         s.MessageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+				},
+			}
+		}
+	case blockTypeToolUse:
+		if _, ok := s.toolUses[event.Index]; !ok {
+			s.toolUses[event.Index] = &pendingToolUse{
+				id:   event.ContentBlock.ID,
+				name: event.ContentBlock.Name,
+			}
+			s.toolOrder = append(s.toolOrder, event.Index)
+		}
+		outputIdx := s.toolOutputIndex(event.Index)
+		return []responses.ResponseStreamEventUnion{
+			{
+				Type:           "response.output_item.added",
+				SequenceNumber: s.nextSeq(),
+				OutputIndex:    outputIdx,
+				Item: responses.ResponseOutputItemUnion{
+					ID:     event.ContentBlock.ID,
+					Type:   "function_call",
+					Status: "in_progress",
+					Name:   event.ContentBlock.Name,
+					CallID: event.ContentBlock.ID,
+				},
+			},
+		}
+	}
+	return nil
+}
+
+func (s *AnthropicResponsesStreamState) handleContentBlockDelta(event anthropic.MessageStreamEventUnion) []responses.ResponseStreamEventUnion {
+	switch event.Delta.Type {
+	case "text_delta":
+		s.textBuf.WriteString(event.Delta.Text)
+		return []responses.ResponseStreamEventUnion{
+			{
+				Type:           "response.output_text.delta",
+				SequenceNumber: s.nextSeq(),
+				ItemID:         s.MessageID,
+				OutputIndex:    0,
+				ContentIndex:   0,
+				Text:           event.Delta.Text,
+			},
+		}
+	case "input_json_delta":
+		if t, ok := s.toolUses[event.Index]; ok {
+			t.inputBuf.WriteString(event.Delta.PartialJSON)
+			outputIdx := s.toolOutputIndex(event.Index)
+			return []responses.ResponseStreamEventUnion{
+				{
+					Type:           "response.function_call_arguments.delta",
+					SequenceNumber: s.nextSeq(),
+					ItemID:         t.id,
+					OutputIndex:    outputIdx,
+					Arguments:      event.Delta.PartialJSON,
+				},
+			}
+		}
+	}
+	return nil
+}
+
+func (s *AnthropicResponsesStreamState) handleContentBlockStop(event anthropic.MessageStreamEventUnion) []responses.ResponseStreamEventUnion {
+	t, ok := s.toolUses[event.Index]
+	if !ok {
+		return nil
+	}
+	args := t.inputBuf.String()
+	if args == "" {
+		args = "{}"
+	}
+	outputIdx := s.toolOutputIndex(event.Index)
+	completed := responses.ResponseOutputItemUnion{
+		ID:        t.id,
+		Type:      "function_call",
+		Status:    "completed",
+		Name:      t.name,
+		CallID:    t.id,
+		Arguments: args,
+	}
+	return []responses.ResponseStreamEventUnion{
+		{
+			Type:           "response.function_call_arguments.done",
+			SequenceNumber: s.nextSeq(),
+			ItemID:         t.id,
+			OutputIndex:    outputIdx,
+			Arguments:      args,
+		},
+		{
+			Type:           "response.output_item.done",
+			SequenceNumber: s.nextSeq(),
+			OutputIndex:    outputIdx,
+			Item:           completed,
+		},
+	}
+}
+
+func (s *AnthropicResponsesStreamState) handleMessageStop() []responses.ResponseStreamEventUnion {
+	fullText := s.textBuf.String()
+	toolItems := s.completedToolItems()
+	status := responses.ResponseStatus("completed")
+	if s.stopReason == "max_tokens" {
+		status = "incomplete"
+	}
+
+	var output []responses.ResponseOutputItemUnion
+	var events []responses.ResponseStreamEventUnion
+
+	if s.sentMsgOutputItem {
+		msgItem := responses.ResponseOutputItemUnion{
 			ID:     s.MessageID,
 			Type:   "message",
 			Status: "completed",
 			Role:   constant.Assistant("assistant"),
 		}
 		if fullText != "" {
-			completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
+			msgItem.Content = []responses.ResponseOutputMessageContentUnion{
 				{Type: "output_text", Text: fullText},
 			}
 		}
-		toolItems := s.completedToolItems()
-		status := responses.ResponseStatus("completed")
-		if s.stopReason == "max_tokens" {
-			status = "incomplete"
-		}
-		output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
-		completedResp := responses.Response{
-			ID:     s.MessageID,
-			Object: constant.Response("response"),
-			Model:  s.Model,
-			Status: status,
-			Output: output,
-			Usage: responses.ResponseUsage{
-				InputTokens: s.inputTokens,
-				InputTokensDetails: responses.ResponseUsageInputTokensDetails{
-					CachedTokens: s.cacheReadTokens,
-				},
-				OutputTokens: s.outputTokens,
-				TotalTokens:  s.inputTokens + s.outputTokens,
-			},
-		}
-		return []responses.ResponseStreamEventUnion{
-			{
+		output = append(output, msgItem)
+		events = append(events,
+			responses.ResponseStreamEventUnion{
 				Type:           "response.output_text.done",
 				SequenceNumber: s.nextSeq(),
 				ItemID:         s.MessageID,
@@ -597,26 +668,58 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 				ContentIndex:   0,
 				Text:           fullText,
 			},
-			{
+			responses.ResponseStreamEventUnion{
 				Type:           "response.content_part.done",
 				SequenceNumber: s.nextSeq(),
 				ItemID:         s.MessageID,
 				OutputIndex:    0,
 				ContentIndex:   0,
 			},
-			{
+			responses.ResponseStreamEventUnion{
 				Type:           "response.output_item.done",
 				SequenceNumber: s.nextSeq(),
 				OutputIndex:    0,
-				Item:           completedMsg,
+				Item:           msgItem,
 			},
-			{
-				Type:           "response.completed",
-				SequenceNumber: s.nextSeq(),
-				Response:       completedResp,
+		)
+	}
+	output = append(output, toolItems...)
+
+	completedResp := responses.Response{
+		ID:     s.MessageID,
+		Object: constant.Response("response"),
+		Model:  s.Model,
+		Status: status,
+		Output: output,
+		Usage: responses.ResponseUsage{
+			InputTokens: s.inputTokens,
+			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+				CachedTokens: s.cacheReadTokens,
 			},
+			OutputTokens: s.outputTokens,
+			TotalTokens:  s.inputTokens + s.outputTokens,
+		},
+	}
+	events = append(events, responses.ResponseStreamEventUnion{
+		Type:           "response.completed",
+		SequenceNumber: s.nextSeq(),
+		Response:       completedResp,
+	})
+	return events
+}
+
+// toolOutputIndex returns the output-array index for the tool_use block at
+// the given Anthropic content block index. Text message item (if present)
+// always occupies index 0, so tools are offset by 1.
+func (s *AnthropicResponsesStreamState) toolOutputIndex(blockIdx int64) int64 {
+	base := int64(0)
+	if s.sentMsgOutputItem {
+		base = 1
+	}
+	for i, idx := range s.toolOrder {
+		if idx == blockIdx {
+			return base + int64(i)
 		}
 	}
-
-	return nil
+	return base + int64(len(s.toolOrder)) - 1
 }

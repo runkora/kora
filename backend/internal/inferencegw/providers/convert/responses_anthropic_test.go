@@ -239,8 +239,9 @@ func TestAnthropicMessageToResponsesResponse_WithToolUse(t *testing.T) {
 // ─── Streaming / non-streaming parity ────────────────────────────────────────
 
 // TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent asserts that a
-// streaming tool_use block is reconstructed in the terminal response.completed
-// event so the streaming output shape matches AnthropicMessageToResponsesResponse.
+// pure-tool-call stream (no text) emits inline output_item.added /
+// arguments.delta / arguments.done / output_item.done events AND that the
+// terminal response.completed carries the same function_call item.
 func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 	t.Parallel()
 	state := convert.NewAnthropicResponsesStreamState()
@@ -270,6 +271,7 @@ func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 				PartialJSON: `{"city":"Berlin"}`,
 			},
 		},
+		{Type: "content_block_stop", Index: 0},
 		{Type: "message_delta", Delta: anthropic.MessageStreamEventUnionDelta{Type: "message_delta", StopReason: anthropic.StopReasonToolUse}},
 		{Type: "message_stop"},
 	}
@@ -279,7 +281,56 @@ func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 		out = append(out, convert.AnthropicEventToResponsesEvents(ev, state)...)
 	}
 
-	// Find the terminal response.completed event.
+	// output_item.added (function_call) must be emitted inline at content_block_start.
+	var addedItem *responses.ResponseOutputItemUnion
+	for i := range out {
+		if out[i].Type == "response.output_item.added" && out[i].Item.Type == "function_call" {
+			addedItem = &out[i].Item
+		}
+	}
+	if addedItem == nil {
+		t.Fatal("expected inline response.output_item.added for function_call")
+	}
+	if addedItem.Name != "get_weather" {
+		t.Errorf("output_item.added Name = %q, want get_weather", addedItem.Name)
+	}
+
+	// response.function_call_arguments.delta must carry partial JSON.
+	var argsDelta *responses.ResponseStreamEventUnion
+	for i := range out {
+		if out[i].Type == "response.function_call_arguments.delta" {
+			argsDelta = &out[i]
+		}
+	}
+	if argsDelta == nil {
+		t.Fatal("expected response.function_call_arguments.delta in stream")
+	}
+	if argsDelta.Arguments != `{"city":"Berlin"}` {
+		t.Errorf("arguments.delta = %q, want JSON fragment", argsDelta.Arguments)
+	}
+
+	// response.function_call_arguments.done must carry full accumulated args.
+	var argsDone *responses.ResponseStreamEventUnion
+	for i := range out {
+		if out[i].Type == "response.function_call_arguments.done" {
+			argsDone = &out[i]
+		}
+	}
+	if argsDone == nil {
+		t.Fatal("expected response.function_call_arguments.done in stream")
+	}
+	if argsDone.Arguments != `{"city":"Berlin"}` {
+		t.Errorf("arguments.done = %q, want full args", argsDone.Arguments)
+	}
+
+	// No message output item — pure tool call with no text.
+	for _, ev := range out {
+		if ev.Type == "response.output_item.added" && ev.Item.Type == "message" {
+			t.Error("unexpected message output_item.added for pure tool call stream")
+		}
+	}
+
+	// The terminal response.completed must include the function_call item.
 	var completed *responses.ResponseStreamEventUnion
 	for i := range out {
 		if out[i].Type == "response.completed" {
@@ -290,8 +341,6 @@ func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 		t.Fatal("expected a response.completed event in stream output")
 	}
 
-	// The completed response must include the function_call output item with
-	// the accumulated arguments — same shape as the non-streaming bridge.
 	gotFuncCall := false
 	for _, item := range completed.Response.Output {
 		if item.Type == "function_call" && item.CallID == "toolu_y" {
