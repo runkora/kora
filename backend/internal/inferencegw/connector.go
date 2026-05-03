@@ -6,6 +6,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -53,6 +54,28 @@ type AnthropicConnector interface {
 	AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error)
 }
 
+// EmbeddingsConnector is the embeddings dialect surface of a provider.
+// It is invoked when the client calls POST /v1/embeddings.
+type EmbeddingsConnector interface {
+	Embeddings(ctx context.Context, req openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error)
+}
+
+// ResponsesStreamResult is one element emitted on a ResponsesStream channel.
+// On a mid-stream provider error Err is non-nil and Event is the zero value;
+// callers must check Err before using Event. The channel is always closed when
+// the stream ends.
+type ResponsesStreamResult struct {
+	Event responses.ResponseStreamEventUnion
+	Err   error
+}
+
+// ResponsesConnector is the OpenAI Responses API dialect surface of a provider.
+// It is invoked when the client calls POST /v1/responses.
+type ResponsesConnector interface {
+	Responses(ctx context.Context, req responses.ResponseNewParams) (*responses.Response, error)
+	ResponsesStream(ctx context.Context, req responses.ResponseNewParams) (<-chan ResponsesStreamResult, error)
+}
+
 // ============================================================================
 // Modality
 // ============================================================================
@@ -90,8 +113,6 @@ const (
 	CapabilityChat ModelCapability = "chat"
 
 	// CapabilityEmbedding — model supports POST /v1/embeddings.
-	// Handler not yet implemented; models with this capability are hidden from
-	// GET /v1/models until the handler ships.
 	CapabilityEmbedding ModelCapability = "embedding"
 
 	// CapabilityImageGeneration — model supports POST /v1/images/generations.
@@ -186,7 +207,7 @@ func (m ProviderModel) PolicyAlias() string {
 // ============================================================================
 
 // ProviderConnector is the full abstraction over a cloud AI provider.
-// Every provider (Bedrock, Vertex AI, Azure) implements both dialect interfaces.
+// Every provider (Bedrock, Vertex AI, Azure) implements all dialect interfaces.
 // Providers that cannot support a dialect return ErrDialectNotSupported.
 //
 // Dialect selection is the responsibility of the HTTP handler and service layer.
@@ -203,6 +224,8 @@ type ProviderConnector interface {
 
 	OpenAIConnector
 	AnthropicConnector
+	EmbeddingsConnector
+	ResponsesConnector
 }
 
 // ============================================================================

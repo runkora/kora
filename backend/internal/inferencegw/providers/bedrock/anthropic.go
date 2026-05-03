@@ -27,7 +27,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
-	if !isAnthropicModel(params.Model) {
+	if c.dispatchBackend(params.Model) != backendAnthropic {
 		return nil, inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderBedrock,
 			Code:      "MODEL_NOT_SUPPORTED",
@@ -88,7 +88,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
-	if !isAnthropicModel(params.Model) {
+	if c.dispatchBackend(params.Model) != backendAnthropic {
 		return nil, inferencegw.ConnectorError{
 			Provider:  inferencegw.ProviderBedrock,
 			Code:      "MODEL_NOT_SUPPORTED",

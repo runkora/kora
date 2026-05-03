@@ -3,6 +3,11 @@ package bedrock
 import (
 	"context"
 	"fmt"
+	"os"
+	"slices"
+	"strings"
+	"sync/atomic"
+
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	awsbedrock "github.com/anthropics/anthropic-sdk-go/bedrock"
 	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
@@ -11,13 +16,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	bedrockSDK "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
+	bedrockruntimeSDK "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	openai "github.com/openai/openai-go"
 	openaiopt "github.com/openai/openai-go/option"
-	"os"
-	"slices"
-	"strings"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -77,20 +81,33 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 }
 
 // Connector implements inferencegw.ProviderConnector for AWS Bedrock.
-// It wraps the OpenAI-compatible Bedrock endpoint (via openai-go) and
-// the Anthropic Messages API on Bedrock (via anthropic-sdk-go/bedrock).
+// It wraps three separate endpoints:
+//   - openaiClient: OpenAI-compatible Bedrock endpoint (bedrock-runtime.{region}.amazonaws.com/openai/v1)
+//     for non-Anthropic, non-Mantle models (Titan, Nova, Llama, Mistral, etc.)
+//   - anthropicClient: Anthropic Messages API on Bedrock for Claude models
+//   - mantleClient: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/v1) for OpenAI
+//     models (e.g. openai.gpt-oss-120b) hosted by AWS. Supports ChatCompletion and Responses API.
 //
-// Bedrock is a multi-endpoint provider: Anthropic/Claude models must be called
-// via the Anthropic Messages API (anthropicClient) because the OpenAI-compatible
-// Bedrock endpoint does not support them. ChatCompletion and ChatCompletionStream
-// therefore inspect the model ID and self-dispatch to the correct transport so
-// that OpenAI-dialect callers targeting Claude models work transparently.
+// ChatCompletion/ChatCompletionStream dispatch to anthropicClient for Anthropic models,
+// mantleClient for Mantle models, and openaiClient for everything else.
+// anthropicBridge translates Responses API requests to the Anthropic Messages API for
+// Claude models (which lack native Responses API support on Bedrock's OpenAI-compat endpoint).
+// openAIBridge translates Responses API requests to Chat Completions for all other
+// OpenAI-compatible models (Nova, Llama, Mistral, etc.) on the standard Bedrock endpoint.
+// mantleModelIDs is populated at ListModels time; before it is populated, Mantle model
+// requests fall through to openaiClient, fail, and the router's failover advances to
+// the next target (same cold-start behavior as all provider model caches).
 type Connector struct {
 	openaiClient    *openai.Client
+	mantleClient    *openai.Client
 	anthropicClient *anthropic.Client
+	anthropicBridge *bridge.AnthropicResponsesBridge
+	openAIBridge    *bridge.ChatCompletionsResponsesBridge
 	bedrockClient   *bedrockSDK.Client
+	runtimeClient   *bedrockruntimeSDK.Client
 	region          string // AWS region; used to prefer regionally-matching inference profiles
 	logger          logging.Logger
+	modelRegistry   atomic.Pointer[map[string]backendID]
 }
 
 // New constructs a Bedrock Connector from a validated Config.
@@ -131,6 +148,16 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 		)),
 	)
 
+	// Bedrock Mantle endpoint — hosts OpenAI models (e.g. openai.gpt-oss-120b) under
+	// the same AWS credentials via SigV4. Uses the Responses API and ChatCompletions.
+	mantleEndpoint := fmt.Sprintf("https://bedrock-mantle.%s.api.aws/v1", cfg.Region)
+	mantleClient := openai.NewClient(
+		openaiopt.WithBaseURL(mantleEndpoint),
+		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
+			httpclient.NewTracingTransport("orbit.bedrock-mantle", newSigV4Transport(awsCfg)),
+		)),
+	)
+
 	// Anthropic Messages API on Bedrock — SigV4 is handled by the SDK's bedrockMiddleware
 	// (applied via WithConfig), so the tracing transport wraps http.DefaultTransport only.
 	// This gives us OTel client spans + W3C traceparent on every Anthropic call without
@@ -143,11 +170,16 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	)
 
 	bedrockClient := bedrockSDK.NewFromConfig(awsCfg)
+	runtimeClient := bedrockruntimeSDK.NewFromConfig(awsCfg)
 
 	return &Connector{
 		openaiClient:    &openaiClient,
+		mantleClient:    &mantleClient,
 		anthropicClient: &anthropicClient,
+		anthropicBridge: bridge.NewAnthropicResponsesBridge(&anthropicClient, inferencegw.ProviderBedrock, logger),
+		openAIBridge:    bridge.NewChatCompletionsResponsesBridge(&openaiClient, inferencegw.ProviderBedrock, logger),
 		bedrockClient:   bedrockClient,
+		runtimeClient:   runtimeClient,
 		region:          cfg.Region,
 		logger:          logger,
 	}, nil
@@ -191,6 +223,8 @@ type profileEntry struct {
 // throughput. It deduplicates models that appear both as a foundation model ID
 // and as an inference profile ID, always preferring the profile ID (which is
 // what the Bedrock OpenAI-compatible endpoint requires for many newer models).
+// It also fetches models from the Bedrock Mantle endpoint and appends them,
+// updating the mantleModelIDs set for dispatch-time routing.
 //
 // Algorithm:
 //  1. Fetch all foundation models; keep only those with ON_DEMAND throughput support.
@@ -200,14 +234,50 @@ type profileEntry struct {
 //  3. For each profile, strip its region prefix (apac., au., global., us., …) to
 //     find the base FM ID. When a match is found in the on-demand set, the profile
 //     ID replaces the raw FM ID so callers get the routable form.
-//  4. Return the merged, deduplicated list with real display names from the API.
+//  4. Fetch Mantle models via the Mantle endpoint's /v1/models; populate mantleModelIDs.
+//  5. Return the merged, deduplicated list with real display names from the API.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	activeFMs, excludedFMs, err := c.listOnDemandFMs(ctx)
 	if err != nil {
 		return nil, err
 	}
 	profilesByBase := c.listSystemProfiles(ctx)
-	return mergeModels(activeFMs, excludedFMs, profilesByBase), nil
+	models := mergeModels(activeFMs, excludedFMs, profilesByBase)
+	mantleModels, mantleIDs := c.listMantleModels(ctx)
+	models = append(models, mantleModels...)
+
+	registry := make(map[string]backendID, len(models))
+	for _, m := range models {
+		if mantleIDs[m.ModelID] {
+			registry[m.ModelID] = backendMantle
+		} else {
+			registry[m.ModelID] = inferBackendID(m.ModelID)
+		}
+	}
+	c.modelRegistry.Store(&registry)
+
+	return models, nil
+}
+
+// listMantleModels fetches the model list from the Bedrock Mantle endpoint.
+// Returns the discovered models and the set of their IDs. Errors are logged
+// as warnings and treated as non-fatal — the standard Bedrock model list is
+// still returned even when Mantle is unavailable.
+func (c *Connector) listMantleModels(ctx context.Context) ([]inferencegw.ProviderModel, map[string]bool) {
+	iter := c.mantleClient.Models.ListAutoPaging(ctx)
+	var models []inferencegw.ProviderModel
+	ids := make(map[string]bool)
+	for iter.Next() {
+		id := iter.Current().ID
+		ids[id] = true
+		models = append(models, buildProviderModel(id, "", nil, nil))
+	}
+	if err := iter.Err(); err != nil {
+		c.logger.Warn(ctx, "bedrock: list mantle models skipped",
+			logging.Field{Key: "error", Value: err})
+		return nil, nil
+	}
+	return models, ids
 }
 
 // listOnDemandFMs fetches all foundation models that support ON_DEMAND throughput.
@@ -281,8 +351,7 @@ func (c *Connector) listSystemProfiles(ctx context.Context) map[string]profileEn
 			}
 			entry := profileEntry{id: profileID, name: name}
 			isRegionalMatch := regionalPrefix != "" && strings.HasPrefix(profileID, regionalPrefix)
-			existing, exists := result[baseID]
-			_ = existing
+			_, exists := result[baseID]
 			if !exists {
 				result[baseID] = entry
 				preferred[baseID] = isRegionalMatch

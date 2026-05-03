@@ -13,8 +13,10 @@ import (
 // Controller wires the inference gateway service to HTTP routes.
 // Handler implementations are split by dialect:
 //
-//   - handlers_openai.go    — OpenAI-compatible dialect (POST /chat/completions, GET /models)
-//   - handlers_anthropic.go — Anthropic Messages dialect (POST /messages)
+//   - handlers_openai.go      — OpenAI-compatible dialect (POST /chat/completions, GET /models)
+//   - handlers_anthropic.go   — Anthropic Messages dialect (POST /messages)
+//   - handlers_embeddings.go  — OpenAI Embeddings API (POST /embeddings)
+//   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
 	svc      *Service
 	verifier *token.Verifier
@@ -59,6 +61,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 //	POST   /chat/completions      OpenAI-dialect completions (streaming and non-streaming)
 //	POST   /messages              Anthropic Messages API dialect
+//	POST   /embeddings            OpenAI Embeddings API
+//	POST   /responses             OpenAI Responses API (streaming and non-streaming)
 //	GET    /models                List available models
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
@@ -68,6 +72,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
+	mux.Handle("POST /embeddings", c.handleEmbeddings)
+	mux.Handle("POST /responses", c.handleResponses)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage", c.handleListUsage)
@@ -77,7 +83,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 }
 
 // inferenceErrorResponse maps service-layer sentinel errors to API error responses.
-// Shared by both the OpenAI and Anthropic dialect handlers.
+// Shared by every dialect handler (chat completions, messages, embeddings, responses).
 func inferenceErrorResponse(err error) *api.APIError {
 	// ConnectorError codes that map to client errors are handled first so they
 	// return the correct 4xx status rather than falling through to the generic

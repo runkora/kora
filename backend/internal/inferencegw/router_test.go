@@ -7,6 +7,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
 )
 
 // ─── stub connector ───────────────────────────────────────────────────────────
@@ -31,6 +32,15 @@ func (s *stubConnector) AnthropicMessages(_ context.Context, _ anthropic.Message
 	return nil, errors.New("stub")
 }
 func (s *stubConnector) AnthropicMessagesStream(_ context.Context, _ anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error) {
+	return nil, errors.New("stub")
+}
+func (s *stubConnector) Embeddings(_ context.Context, _ openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error) {
+	return nil, errors.New("stub")
+}
+func (s *stubConnector) Responses(_ context.Context, _ responses.ResponseNewParams) (*responses.Response, error) {
+	return nil, errors.New("stub")
+}
+func (s *stubConnector) ResponsesStream(_ context.Context, _ responses.ResponseNewParams) (<-chan ResponsesStreamResult, error) {
 	return nil, errors.New("stub")
 }
 

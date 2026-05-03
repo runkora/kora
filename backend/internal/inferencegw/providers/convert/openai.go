@@ -22,16 +22,54 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 )
 
+// TranslationError is returned by translation functions when the caller
+// supplied an invalid request (e.g. unsupported field). Bridges convert
+// this to a ConnectorError with Code "INVALID_REQUEST" and Retryable false,
+// so the gateway returns a 400 rather than a 503.
+type TranslationError struct {
+	Message string
+}
+
+func (e *TranslationError) Error() string { return e.Message }
+
+// AsTranslationError reports whether err is a *TranslationError and if so
+// returns it; otherwise returns nil.
+func AsTranslationError(err error) *TranslationError {
+	if te, ok := errors.AsType[*TranslationError](err); ok {
+		return te
+	}
+	return nil
+}
+
+// WrapTranslationError converts a *TranslationError into a ConnectorError.
+// If err is not a *TranslationError it is returned unchanged.
+func WrapTranslationError(provider inferencegw.ProviderName, err error) error {
+	if te := AsTranslationError(err); te != nil {
+		return &inferencegw.ConnectorError{
+			Provider:   provider,
+			Code:       "INVALID_REQUEST",
+			Retryable:  false,
+			Underlying: fmt.Errorf("%s", te.Message),
+		}
+	}
+	return err
+}
+
 // OpenAI to Anthropic (request)
 
 // OpenAIParamsToAnthropicParams translates native openai-go chat completion params
 // to anthropic-sdk-go message params. Used by connectors that must route
 // Claude models through the Anthropic Messages API (Bedrock, Vertex AI) while
 // maintaining an OpenAI-compatible external interface.
+//
+// max_tokens, when set, is forwarded verbatim. When the client omits it the
+// bridge falls back to the model's documented maximum output (see
+// AnthropicModelMaxOutputTokens) rather than imposing an arbitrary cap —
+// silent caps truncate long-form coding-agent output and are hard to diagnose.
 func OpenAIParamsToAnthropicParams(params openai.ChatCompletionNewParams) anthropic.MessageNewParams {
-	maxTokens := int64(4096)
-	if params.MaxTokens.Valid() {
-		maxTokens = params.MaxTokens.Value
+	maxTokens := params.MaxTokens.Value
+	if !params.MaxTokens.Valid() {
+		maxTokens, _ = AnthropicModelMaxOutputTokens(params.Model)
 	}
 
 	var systemBlocks []anthropic.TextBlockParam

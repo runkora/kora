@@ -256,6 +256,11 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
               +{fmtNum(row.cache_read_input_tokens)} cached
             </Text>
           )}
+          {row.cache_creation_input_tokens > 0 && (
+            <Text size="caption" color="subtle" mono align="end">
+              +{fmtNum(row.cache_creation_input_tokens)} written
+            </Text>
+          )}
         </Stack>
       ),
     },

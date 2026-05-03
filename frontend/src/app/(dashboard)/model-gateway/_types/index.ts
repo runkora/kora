@@ -72,6 +72,7 @@ export interface AnalyticsKPIs {
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
+  cache_creation_tokens: number;
   estimated_cost_usd: number;
   avg_latency_ms: number;
   p95_latency_ms: number;
@@ -88,6 +89,7 @@ export interface AnalyticsBucket {
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
+  cache_creation_tokens: number;
   estimated_cost_usd: number;
   p50_latency_ms: number;
   p95_latency_ms: number;
@@ -128,6 +130,7 @@ export interface PrincipalUsageSummary {
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
+  cache_creation_tokens: number;
   estimated_cost_usd: number;
   error_rate: number;
   avg_latency_ms: number;
