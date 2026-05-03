@@ -295,6 +295,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsBuckets(ctx context.Conte
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
 		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
 		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,
+		    COALESCE(SUM(cache_creation_input_tokens), 0)                          AS cache_creation_tokens,
 		    COALESCE(SUM(estimated_cost_usd), 0)                                   AS estimated_cost_usd,
 		    COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p50_latency_ms,
 		    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p95_latency_ms,
@@ -317,7 +318,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsBuckets(ctx context.Conte
 		if err := rows.Scan(
 			&b.Date,
 			&b.Requests, &b.SuccessfulRequests, &b.FailedRequests,
-			&b.PromptTokens, &b.CompletionTokens, &b.CacheReadTokens,
+			&b.PromptTokens, &b.CompletionTokens, &b.CacheReadTokens, &b.CacheCreationTokens,
 			&b.EstimatedCostUSD,
 			&b.P50LatencyMS, &b.P95LatencyMS, &b.P99LatencyMS,
 		); err != nil {
@@ -363,6 +364,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
 		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
 		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,
+		    COALESCE(SUM(cache_creation_input_tokens), 0)                          AS cache_creation_tokens,
 		    COALESCE(SUM(estimated_cost_usd), 0)                                   AS estimated_cost_usd,
 		    COALESCE(AVG(latency_ms), 0)                                           AS avg_latency_ms,
 		    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)  AS p95_latency_ms,
@@ -370,8 +372,8 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 		    CASE WHEN COUNT(*) > 0
 		         THEN COUNT(*) FILTER (WHERE status != 'success')::float / COUNT(*)
 		         ELSE 0 END                                                         AS error_rate,
-		    CASE WHEN COALESCE(SUM(prompt_tokens + cache_read_input_tokens), 0) > 0
-		         THEN SUM(cache_read_input_tokens)::float / SUM(prompt_tokens + cache_read_input_tokens)
+		    CASE WHEN COALESCE(SUM(prompt_tokens + cache_read_input_tokens + cache_creation_input_tokens), 0) > 0
+		         THEN SUM(cache_read_input_tokens)::float / SUM(prompt_tokens + cache_read_input_tokens + cache_creation_input_tokens)
 		         ELSE 0 END                                                         AS cache_hit_rate
 		FROM inference_usage
 		WHERE tenant_id = $1
@@ -380,7 +382,7 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsKPIs(ctx context.Context,
 	row := r.pool.QueryRow(ctx, q, args...)
 	var k AnalyticsKPIs
 	if err := row.Scan(
-		&k.TotalRequests, &k.TotalTokens, &k.PromptTokens, &k.CompletionTokens, &k.CacheReadTokens,
+		&k.TotalRequests, &k.TotalTokens, &k.PromptTokens, &k.CompletionTokens, &k.CacheReadTokens, &k.CacheCreationTokens,
 		&k.EstimatedCostUSD, &k.AvgLatencyMS, &k.P95LatencyMS, &k.P99LatencyMS,
 		&k.ErrorRate, &k.CacheHitRate,
 	); err != nil {
@@ -543,6 +545,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
 		    COALESCE(SUM(completion_tokens), 0)                                    AS completion_tokens,
 		    COALESCE(SUM(cache_read_input_tokens), 0)                              AS cache_read_tokens,
+		    COALESCE(SUM(cache_creation_input_tokens), 0)                          AS cache_creation_tokens,
 		    COALESCE(SUM(estimated_cost_usd), 0)                                   AS estimated_cost_usd,
 		    CASE WHEN COUNT(*) > 0
 		         THEN COUNT(*) FILTER (WHERE status != 'success')::float / COUNT(*)
@@ -568,7 +571,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		var lastActive time.Time
 		if err := rows.Scan(
 			&s.PrincipalID,
-			&s.RequestCount, &s.TotalTokens, &s.PromptTokens, &s.CompletionTokens, &s.CacheReadTokens,
+			&s.RequestCount, &s.TotalTokens, &s.PromptTokens, &s.CompletionTokens, &s.CacheReadTokens, &s.CacheCreationTokens,
 			&s.EstimatedCostUSD,
 			&s.ErrorRate, &s.AvgLatencyMS, &lastActive,
 		); err != nil {

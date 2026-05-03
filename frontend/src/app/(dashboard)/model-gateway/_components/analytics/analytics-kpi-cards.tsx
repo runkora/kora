@@ -141,6 +141,8 @@ function TokensCard({ kpis }: { kpis: AnalyticsKPIs }) {
           <StatRow label="Output" value={fmtTokens(kpis.completion_tokens)} />
           <Separator />
           <StatRow label="Cache read" value={fmtTokens(kpis.cache_read_tokens)} />
+          <Separator />
+          <StatRow label="Cache write" value={fmtTokens(kpis.cache_creation_tokens)} />
         </Stack>
       </CardContent>
     </Card>

@@ -19,7 +19,7 @@ func TestDrainOpenAIStream_CompletesNormally(t *testing.T) {
 	upstream <- OpenAIStreamResult{Chunk: &openai.ChatCompletionChunk{}}
 	close(upstream)
 
-	_, _, _, err := drainOpenAIStream(context.Background(), upstream, out)
+	_, _, _, _, err := drainOpenAIStream(context.Background(), upstream, out)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -37,7 +37,7 @@ func TestDrainOpenAIStream_PropagatesUpstreamError(t *testing.T) {
 	upstream <- OpenAIStreamResult{Err: sentinel}
 	close(upstream)
 
-	_, _, _, err := drainOpenAIStream(context.Background(), upstream, out)
+	_, _, _, _, err := drainOpenAIStream(context.Background(), upstream, out)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected upstream error, got %v", err)
 	}
@@ -51,7 +51,7 @@ func TestDrainOpenAIStream_ClientDisconnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel before drain starts — outer select fires immediately
 
-	_, _, _, err := drainOpenAIStream(ctx, upstream, out)
+	_, _, _, _, err := drainOpenAIStream(ctx, upstream, out)
 	if !errors.Is(err, errClientDisconnected) {
 		t.Fatalf("expected errClientDisconnected, got %v", err)
 	}

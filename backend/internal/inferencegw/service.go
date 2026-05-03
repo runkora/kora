@@ -218,30 +218,32 @@ func (s *Service) ChatCompletion(
 	if totalTokens == 0 {
 		totalTokens = promptTokens + completionTokens
 	}
+	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
 
 	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:               uuid.NewString(),
-		TenantID:         p.TenantID,
-		PrincipalID:      p.PrincipalID,
-		PrincipalType:    p.PrincipalType,
-		TokenID:          nullableText(p.TokenID),
-		APIDialect:       DialectOpenAI,
-		Provider:         &usedTarget.Provider,
-		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
-		ModelID:          usedTarget.ModelID,
-		ModelFamily:      nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:  &strategy,
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      totalTokens,
-		EstimatedCostUSD: estimatedCost,
-		Status:           UsageStatusSuccess,
-		RetryCount:       retryCount,
-		LatencyMS:        latencyMS,
-		CreatedAt:        start.UTC(),
+		ID:                   uuid.NewString(),
+		TenantID:             p.TenantID,
+		PrincipalID:          p.PrincipalID,
+		PrincipalType:        p.PrincipalType,
+		TokenID:              nullableText(p.TokenID),
+		APIDialect:           DialectOpenAI,
+		Provider:             &usedTarget.Provider,
+		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
+		ModelID:              usedTarget.ModelID,
+		ModelFamily:          nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:      &strategy,
+		PromptTokens:         promptTokens,
+		CompletionTokens:     completionTokens,
+		TotalTokens:          totalTokens,
+		CacheReadInputTokens: cacheReadTokens,
+		EstimatedCostUSD:     estimatedCost,
+		Status:               UsageStatusSuccess,
+		RetryCount:           retryCount,
+		LatencyMS:            latencyMS,
+		CreatedAt:            start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -360,7 +362,7 @@ func (s *Service) ChatCompletionStream(
 		defer span.End()
 		defer close(out)
 
-		promptTokens, completionTokens, totalTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
+		promptTokens, completionTokens, totalTokens, cacheReadTokens, streamErr := drainOpenAIStream(ctx, upstream, out)
 
 		latencyMS := int(time.Since(start).Milliseconds())
 
@@ -383,28 +385,29 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Ok, "")
 
 		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
+		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:               uuid.NewString(),
-			TenantID:         p.TenantID,
-			PrincipalID:      p.PrincipalID,
-			PrincipalType:    p.PrincipalType,
-			TokenID:          nullableText(p.TokenID),
-			APIDialect:       DialectOpenAI,
-			Provider:         &capturedTarget.Provider,
-			VirtualModelID:   nullableText(capturedTarget.VirtualModelID),
-			ModelID:          capturedTarget.ModelID,
-			ModelFamily:      nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:  &capturedStrategy,
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      totalTokens,
-			EstimatedCostUSD: estimatedCost,
-			Status:           UsageStatusSuccess,
-			RetryCount:       streamRetryCount,
-			LatencyMS:        latencyMS,
-			CreatedAt:        start.UTC(),
+			ID:                   uuid.NewString(),
+			TenantID:             p.TenantID,
+			PrincipalID:          p.PrincipalID,
+			PrincipalType:        p.PrincipalType,
+			TokenID:              nullableText(p.TokenID),
+			APIDialect:           DialectOpenAI,
+			Provider:             &capturedTarget.Provider,
+			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
+			ModelID:              capturedTarget.ModelID,
+			ModelFamily:          nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:      &capturedStrategy,
+			PromptTokens:         promptTokens,
+			CompletionTokens:     completionTokens,
+			TotalTokens:          totalTokens,
+			CacheReadInputTokens: cacheReadTokens,
+			EstimatedCostUSD:     estimatedCost,
+			Status:               UsageStatusSuccess,
+			RetryCount:           streamRetryCount,
+			LatencyMS:            latencyMS,
+			CreatedAt:            start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -433,7 +436,7 @@ func drainOpenAIStream(
 	ctx context.Context,
 	upstream <-chan OpenAIStreamResult,
 	out chan<- OpenAIStreamResult,
-) (promptTokens, completionTokens, totalTokens int, streamErr error) {
+) (promptTokens, completionTokens, totalTokens, cacheReadTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -454,6 +457,7 @@ func drainOpenAIStream(
 				promptTokens += int(result.Chunk.Usage.PromptTokens)
 				completionTokens += int(result.Chunk.Usage.CompletionTokens)
 				totalTokens += int(result.Chunk.Usage.TotalTokens)
+				cacheReadTokens += int(result.Chunk.Usage.PromptTokensDetails.CachedTokens)
 			}
 			select {
 			case out <- result:
@@ -965,29 +969,31 @@ func (s *Service) Responses(
 	if totalTokens == 0 {
 		totalTokens = promptTokens + completionTokens
 	}
+	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
 	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, 0, 0)
+	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:               uuid.NewString(),
-		TenantID:         p.TenantID,
-		PrincipalID:      p.PrincipalID,
-		PrincipalType:    p.PrincipalType,
-		TokenID:          nullableText(p.TokenID),
-		APIDialect:       DialectResponses,
-		Provider:         &usedTarget.Provider,
-		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
-		ModelID:          usedTarget.ModelID,
-		ModelFamily:      nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:  &strategy,
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      totalTokens,
-		EstimatedCostUSD: estimatedCost,
-		Status:           UsageStatusSuccess,
-		RetryCount:       retryCount,
-		LatencyMS:        latencyMS,
-		CreatedAt:        start.UTC(),
+		ID:                   uuid.NewString(),
+		TenantID:             p.TenantID,
+		PrincipalID:          p.PrincipalID,
+		PrincipalType:        p.PrincipalType,
+		TokenID:              nullableText(p.TokenID),
+		APIDialect:           DialectResponses,
+		Provider:             &usedTarget.Provider,
+		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
+		ModelID:              usedTarget.ModelID,
+		ModelFamily:          nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:      &strategy,
+		PromptTokens:         promptTokens,
+		CompletionTokens:     completionTokens,
+		TotalTokens:          totalTokens,
+		CacheReadInputTokens: cacheReadTokens,
+		EstimatedCostUSD:     estimatedCost,
+		Status:               UsageStatusSuccess,
+		RetryCount:           retryCount,
+		LatencyMS:            latencyMS,
+		CreatedAt:            start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -1075,7 +1081,7 @@ func (s *Service) ResponsesStream(
 		defer span.End()
 		defer close(out)
 
-		inputTokens, outputTokens, streamErr := drainResponsesStream(ctx, upstream, out)
+		inputTokens, outputTokens, cacheReadTokens, streamErr := drainResponsesStream(ctx, upstream, out)
 		latencyMS := int(time.Since(start).Milliseconds())
 
 		if streamErr != nil {
@@ -1094,28 +1100,29 @@ func (s *Service) ResponsesStream(
 
 		totalTokens := inputTokens + outputTokens
 		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(inputTokens, outputTokens, 0, 0)
+		estimatedCost := pricing.EstimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:               uuid.NewString(),
-			TenantID:         p.TenantID,
-			PrincipalID:      p.PrincipalID,
-			PrincipalType:    p.PrincipalType,
-			TokenID:          nullableText(p.TokenID),
-			APIDialect:       DialectResponses,
-			Provider:         &capturedTarget.Provider,
-			VirtualModelID:   nullableText(capturedTarget.VirtualModelID),
-			ModelID:          capturedTarget.ModelID,
-			ModelFamily:      nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:  &capturedStrategy,
-			PromptTokens:     inputTokens,
-			CompletionTokens: outputTokens,
-			TotalTokens:      totalTokens,
-			EstimatedCostUSD: estimatedCost,
-			Status:           UsageStatusSuccess,
-			RetryCount:       streamRetryCount,
-			LatencyMS:        latencyMS,
-			CreatedAt:        start.UTC(),
+			ID:                   uuid.NewString(),
+			TenantID:             p.TenantID,
+			PrincipalID:          p.PrincipalID,
+			PrincipalType:        p.PrincipalType,
+			TokenID:              nullableText(p.TokenID),
+			APIDialect:           DialectResponses,
+			Provider:             &capturedTarget.Provider,
+			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
+			ModelID:              capturedTarget.ModelID,
+			ModelFamily:          nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:      &capturedStrategy,
+			PromptTokens:         inputTokens,
+			CompletionTokens:     outputTokens,
+			TotalTokens:          totalTokens,
+			CacheReadInputTokens: cacheReadTokens,
+			EstimatedCostUSD:     estimatedCost,
+			Status:               UsageStatusSuccess,
+			RetryCount:           streamRetryCount,
+			LatencyMS:            latencyMS,
+			CreatedAt:            start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -1131,12 +1138,12 @@ func (s *Service) ResponsesStream(
 
 // drainResponsesStream forwards events from upstream to out and accumulates
 // token counts from the terminal response.completed event.
-// Returns (inputTokens, outputTokens, streamErr).
+// Returns (inputTokens, outputTokens, cacheReadTokens, streamErr).
 func drainResponsesStream(
 	ctx context.Context,
 	upstream <-chan ResponsesStreamResult,
 	out chan<- ResponsesStreamResult,
-) (inputTokens, outputTokens int, streamErr error) {
+) (inputTokens, outputTokens, cacheReadTokens int, streamErr error) {
 	for {
 		select {
 		case result, ok := <-upstream:
@@ -1152,6 +1159,7 @@ func drainResponsesStream(
 			if result.Event.Type == "response.completed" {
 				inputTokens = int(result.Event.Response.Usage.InputTokens)
 				outputTokens = int(result.Event.Response.Usage.OutputTokens)
+				cacheReadTokens = int(result.Event.Response.Usage.InputTokensDetails.CachedTokens)
 			}
 			// response.incomplete means the model hit max_output_tokens — it is a
 			// successful, billable completion. Forward it and let the caller decide

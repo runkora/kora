@@ -18,6 +18,7 @@ const CHART_CONFIG: ChartConfig = {
   promptTokens: { label: 'Prompt', color: 'var(--color-accent)' },
   completionTokens: { label: 'Completion', color: 'var(--color-subtle)' },
   cacheReadTokens: { label: 'Cache read', color: 'var(--color-muted)' },
+  cacheCreationTokens: { label: 'Cache write', color: 'var(--color-warning)' },
 };
 
 function fmtTokens(n: number): string {
@@ -31,6 +32,7 @@ interface TokenPoint {
   promptTokens: number;
   completionTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 function toPoints(buckets: AnalyticsBucket[]): TokenPoint[] {
@@ -39,6 +41,7 @@ function toPoints(buckets: AnalyticsBucket[]): TokenPoint[] {
     promptTokens: b.prompt_tokens,
     completionTokens: b.completion_tokens,
     cacheReadTokens: b.cache_read_tokens,
+    cacheCreationTokens: b.cache_creation_tokens,
   }));
 }
 
@@ -49,7 +52,7 @@ export function AnalyticsTokensChart({ buckets }: { buckets: AnalyticsBucket[] }
     <Card column>
       <CardHeader compact>
         <CardTitle>Token usage over time</CardTitle>
-        <CardDescription>Prompt, completion, and cache-read token consumption</CardDescription>
+        <CardDescription>Prompt, completion, and cache token consumption</CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer config={CHART_CONFIG} height={280}>
@@ -105,6 +108,16 @@ export function AnalyticsTokensChart({ buckets }: { buckets: AnalyticsBucket[] }
               dot={false}
               activeDot={{ r: 4 }}
               strokeDasharray="2 2"
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="cacheCreationTokens"
+              stroke="var(--color-cacheCreationTokens)"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 4 }}
+              strokeDasharray="2 4"
               isAnimationActive={false}
             />
           </LineChart>

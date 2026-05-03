@@ -126,11 +126,25 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     align: 'right',
     defaultVisible: false,
     sortable: true,
-    sortAccessor: (row) => row.cache_read_tokens,
+    sortAccessor: (row) => row.cache_read_tokens + row.cache_creation_tokens,
     cell: (row) => (
-      <Text size="supporting" color="muted" mono align="end">
-        {fmtNum(row.cache_read_tokens)}
-      </Text>
+      <Stack gap="none" align="end">
+        {row.cache_read_tokens > 0 && (
+          <Text size="supporting" color="muted" mono align="end">
+            {fmtNum(row.cache_read_tokens)} read
+          </Text>
+        )}
+        {row.cache_creation_tokens > 0 && (
+          <Text size="supporting" color="muted" mono align="end">
+            {fmtNum(row.cache_creation_tokens)} write
+          </Text>
+        )}
+        {row.cache_read_tokens === 0 && row.cache_creation_tokens === 0 && (
+          <Text size="supporting" color="subtle" mono align="end">
+            —
+          </Text>
+        )}
+      </Stack>
     ),
   },
   {

@@ -314,7 +314,10 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		Status: status,
 		Output: output,
 		Usage: responses.ResponseUsage{
-			InputTokens:  msg.Usage.InputTokens,
+			InputTokens: msg.Usage.InputTokens,
+			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+				CachedTokens: msg.Usage.CacheReadInputTokens,
+			},
 			OutputTokens: msg.Usage.OutputTokens,
 			TotalTokens:  msg.Usage.InputTokens + msg.Usage.OutputTokens,
 		},
@@ -325,15 +328,16 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 // sequence of Anthropic SSE events into Responses API stream events.
 // Create one per stream with NewAnthropicResponsesStreamState.
 type AnthropicResponsesStreamState struct {
-	MessageID    string
-	Model        string
-	textBuf      strings.Builder
-	toolUses     map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
-	toolOrder    []int64                   // block indices in the order they appeared
-	seqNum       int64
-	inputTokens  int64
-	outputTokens int64
-	stopReason   string
+	MessageID       string
+	Model           string
+	textBuf         strings.Builder
+	toolUses        map[int64]*pendingToolUse // anthropic block index → accumulated tool_use
+	toolOrder       []int64                   // block indices in the order they appeared
+	seqNum          int64
+	inputTokens     int64
+	outputTokens    int64
+	cacheReadTokens int64
+	stopReason      string
 }
 
 // pendingToolUse accumulates a tool_use block across content_block_start /
@@ -398,6 +402,7 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
 		s.inputTokens = event.Message.Usage.InputTokens
+		s.cacheReadTokens = event.Message.Usage.CacheReadInputTokens
 		r := s.partialResponse()
 		return []responses.ResponseStreamEventUnion{
 			{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},
@@ -487,7 +492,10 @@ func AnthropicEventToResponsesEvents(event anthropic.MessageStreamEventUnion, s 
 			Status: status,
 			Output: output,
 			Usage: responses.ResponseUsage{
-				InputTokens:  s.inputTokens,
+				InputTokens: s.inputTokens,
+				InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+					CachedTokens: s.cacheReadTokens,
+				},
 				OutputTokens: s.outputTokens,
 				TotalTokens:  s.inputTokens + s.outputTokens,
 			},
