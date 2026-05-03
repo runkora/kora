@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 )
@@ -214,5 +216,336 @@ func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 	}
 	if !gotCall {
 		t.Errorf("function_call not found in completed output: %+v", completed.Response.Output)
+	}
+}
+
+// ─── Multiple tool calls (parallel) ──────────────────────────────────────────
+
+func TestChatCompletionToResponsesResponse_MultipleToolCalls(t *testing.T) {
+	t.Parallel()
+	completion := &openai.ChatCompletion{
+		ID:    "chatcmpl_multi",
+		Model: "gpt-4o",
+		Choices: []openai.ChatCompletionChoice{
+			{
+				FinishReason: "tool_calls",
+				Message: openai.ChatCompletionMessage{
+					Role: "assistant",
+					ToolCalls: []openai.ChatCompletionMessageToolCall{
+						{ID: "call_a", Type: "function", Function: openai.ChatCompletionMessageToolCallFunction{Name: "search", Arguments: `{"q":"foo"}`}},
+						{ID: "call_b", Type: "function", Function: openai.ChatCompletionMessageToolCallFunction{Name: "calc", Arguments: `{"expr":"1+1"}`}},
+					},
+				},
+			},
+		},
+	}
+	got := convert.ChatCompletionToResponsesResponse(completion)
+	if len(got.Output) != 3 {
+		t.Fatalf("len(Output) = %d, want 3 (message + 2 function_calls)", len(got.Output))
+	}
+	if got.Output[1].CallID != "call_a" || got.Output[1].Name != "search" {
+		t.Errorf("Output[1] = %+v, want call_a/search", got.Output[1])
+	}
+	if got.Output[2].CallID != "call_b" || got.Output[2].Name != "calc" {
+		t.Errorf("Output[2] = %+v, want call_b/calc", got.Output[2])
+	}
+}
+
+// ─── length finish reason → incomplete status ─────────────────────────────────
+
+func TestChatCompletionToResponsesResponse_LengthIncomplete(t *testing.T) {
+	t.Parallel()
+	completion := &openai.ChatCompletion{
+		ID:    "chatcmpl_trunc",
+		Model: "gpt-4o",
+		Choices: []openai.ChatCompletionChoice{
+			{FinishReason: "length", Message: openai.ChatCompletionMessage{Role: "assistant", Content: "Truncated..."}},
+		},
+	}
+	got := convert.ChatCompletionToResponsesResponse(completion)
+	if got.Status != "incomplete" {
+		t.Errorf("Status = %q, want incomplete for finish_reason=length", got.Status)
+	}
+}
+
+func TestChatCompletionsStreaming_LengthIncomplete(t *testing.T) {
+	t.Parallel()
+	state := convert.NewChatCompletionsStreamState()
+
+	chunks := []openai.ChatCompletionChunk{
+		{
+			ID:    "chatcmpl_trunc_stream",
+			Model: "gpt-4o",
+			Choices: []openai.ChatCompletionChunkChoice{
+				{Delta: openai.ChatCompletionChunkChoiceDelta{Role: "assistant", Content: "partial"}},
+			},
+		},
+		{
+			ID:    "chatcmpl_trunc_stream",
+			Model: "gpt-4o",
+			Choices: []openai.ChatCompletionChunkChoice{
+				{Delta: openai.ChatCompletionChunkChoiceDelta{}, FinishReason: "length"},
+			},
+		},
+	}
+
+	var out []responses.ResponseStreamEventUnion
+	for _, c := range chunks {
+		out = append(out, convert.ChatCompletionChunkToResponsesEvents(c, state)...)
+	}
+	if ev := state.FlushPendingCompletion(0, 0, 0); ev != nil {
+		out = append(out, *ev)
+	}
+
+	var completed *responses.ResponseStreamEventUnion
+	for i := range out {
+		if out[i].Type == "response.completed" {
+			completed = &out[i]
+		}
+	}
+	if completed == nil {
+		t.Fatal("expected response.completed event")
+	}
+	if completed.Response.Status != "incomplete" {
+		t.Errorf("Status = %q, want incomplete for finish_reason=length", completed.Response.Status)
+	}
+}
+
+// ─── Multiple adjacent function_call items coalesced ─────────────────────────
+
+func TestResponsesParamsToChatCompletionParams_MultipleAdjacentFunctionCalls(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "gpt-4o"}
+	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
+		responses.ResponseInputItemParamOfMessage("do both", responses.EasyInputMessageRoleUser),
+		responses.ResponseInputItemParamOfFunctionCall(`{"q":"foo"}`, "call_a", "search"),
+		responses.ResponseInputItemParamOfFunctionCall(`{"expr":"1+1"}`, "call_b", "calc"),
+		responses.ResponseInputItemParamOfFunctionCallOutput("call_a", `{"result":"bar"}`),
+		responses.ResponseInputItemParamOfFunctionCallOutput("call_b", `{"result":"2"}`),
+	}
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Expect: user → assistant(2 tool_calls) → tool(call_a) → tool(call_b)
+	if len(got.Messages) != 4 {
+		t.Fatalf("len(Messages) = %d, want 4", len(got.Messages))
+	}
+	b, _ := json.Marshal(got.Messages[1])
+	s := string(b)
+	if !strings.Contains(s, `"call_a"`) || !strings.Contains(s, `"call_b"`) {
+		t.Errorf("both call IDs should be in the coalesced assistant message, got: %s", s)
+	}
+}
+
+// ─── Tool choice translation ──────────────────────────────────────────────────
+
+func TestChatCompletionToolChoice_Modes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		mode responses.ToolChoiceOptions
+		want string
+	}{
+		{responses.ToolChoiceOptionsAuto, "auto"},
+		{responses.ToolChoiceOptionsNone, "none"},
+		{responses.ToolChoiceOptionsRequired, "required"},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			t.Parallel()
+			p := responses.ResponseNewParams{Model: "gpt-4o"}
+			p.Input.OfString = openai.String("hi")
+			p.ToolChoice.OfToolChoiceMode = param.NewOpt(tc.mode)
+
+			got, err := convert.ResponsesParamsToChatCompletionParams(p)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !got.ToolChoice.OfAuto.Valid() {
+				t.Fatalf("ToolChoice.OfAuto should be set for mode %q", tc.mode)
+			}
+			if got.ToolChoice.OfAuto.Value != tc.want {
+				t.Errorf("OfAuto.Value = %q, want %q", got.ToolChoice.OfAuto.Value, tc.want)
+			}
+			if got.ToolChoice.OfChatCompletionNamedToolChoice != nil {
+				t.Error("OfChatCompletionNamedToolChoice should not be set for a mode")
+			}
+		})
+	}
+}
+
+func TestChatCompletionToolChoice_SpecificFunction(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+	p.ToolChoice.OfFunctionTool = &responses.ToolChoiceFunctionParam{Name: "my_fn"}
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	nc := got.ToolChoice.OfChatCompletionNamedToolChoice
+	if nc == nil {
+		t.Fatal("OfChatCompletionNamedToolChoice should be set for a specific function")
+	}
+	if nc.Function.Name != "my_fn" {
+		t.Errorf("Function.Name = %q, want my_fn", nc.Function.Name)
+	}
+	if got.ToolChoice.OfAuto.Valid() {
+		t.Error("OfAuto should not be set when a specific function is specified")
+	}
+}
+
+func TestChatCompletionToolChoice_Unset(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ToolChoice.OfAuto.Valid() || got.ToolChoice.OfChatCompletionNamedToolChoice != nil {
+		t.Error("ToolChoice should be zero when not set in params")
+	}
+}
+
+// ─── Response format translation ─────────────────────────────────────────────
+
+func TestChatCompletionResponseFormat_JSONSchema(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+	p.Text.Format.OfJSONSchema = &responses.ResponseFormatTextJSONSchemaConfigParam{
+		Name:        "my_schema",
+		Schema:      map[string]any{"type": "object"},
+		Strict:      openai.Bool(true),
+		Description: openai.String("a structured reply"),
+	}
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	js := got.ResponseFormat.OfJSONSchema
+	if js == nil {
+		t.Fatal("ResponseFormat.OfJSONSchema should be set")
+	}
+	if js.JSONSchema.Name != "my_schema" {
+		t.Errorf("Name = %q, want my_schema", js.JSONSchema.Name)
+	}
+	if !js.JSONSchema.Strict.Valid() || !js.JSONSchema.Strict.Value {
+		t.Error("Strict should be forwarded as true")
+	}
+	if !js.JSONSchema.Description.Valid() || js.JSONSchema.Description.Value != "a structured reply" {
+		t.Error("Description should be forwarded")
+	}
+	if got.ResponseFormat.OfJSONObject != nil || got.ResponseFormat.OfText != nil {
+		t.Error("only OfJSONSchema should be set")
+	}
+}
+
+func TestChatCompletionResponseFormat_JSONObject(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+	p.Text.Format.OfJSONObject = &shared.ResponseFormatJSONObjectParam{}
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ResponseFormat.OfJSONObject == nil {
+		t.Error("ResponseFormat.OfJSONObject should be set")
+	}
+	if got.ResponseFormat.OfJSONSchema != nil || got.ResponseFormat.OfText != nil {
+		t.Error("only OfJSONObject should be set")
+	}
+}
+
+func TestChatCompletionResponseFormat_Text(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+	p.Text.Format.OfText = &shared.ResponseFormatTextParam{}
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ResponseFormat.OfText == nil {
+		t.Error("ResponseFormat.OfText should be set")
+	}
+	if got.ResponseFormat.OfJSONSchema != nil || got.ResponseFormat.OfJSONObject != nil {
+		t.Error("only OfText should be set")
+	}
+}
+
+func TestChatCompletionResponseFormat_Unset(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ResponseFormat.OfJSONSchema != nil || got.ResponseFormat.OfJSONObject != nil || got.ResponseFormat.OfText != nil {
+		t.Error("ResponseFormat should be zero when params.Text.Format is not set")
+	}
+}
+
+// ─── Scalar field forwarding ─────────────────────────────────────────────────
+
+// TestChatCompletionScalarFields_Forwarded verifies that MaxOutputTokens,
+// Temperature, TopP, and ParallelToolCalls are direct-assigned from the Responses
+// API params to the Chat Completions params (both use the same param.Opt types).
+func TestChatCompletionScalarFields_Forwarded(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+	p.MaxOutputTokens = openai.Int(1234)
+	p.Temperature = openai.Float(0.7)
+	p.TopP = openai.Float(0.9)
+	p.ParallelToolCalls = openai.Bool(false) // false is the interesting case: zero value but explicitly set
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.MaxTokens.Valid() || got.MaxTokens.Value != 1234 {
+		t.Errorf("MaxTokens = {valid=%v value=%v}, want {true 1234}", got.MaxTokens.Valid(), got.MaxTokens.Value)
+	}
+	if !got.Temperature.Valid() || got.Temperature.Value != 0.7 {
+		t.Errorf("Temperature = {valid=%v value=%v}, want {true 0.7}", got.Temperature.Valid(), got.Temperature.Value)
+	}
+	if !got.TopP.Valid() || got.TopP.Value != 0.9 {
+		t.Errorf("TopP = {valid=%v value=%v}, want {true 0.9}", got.TopP.Valid(), got.TopP.Value)
+	}
+	if !got.ParallelToolCalls.Valid() || got.ParallelToolCalls.Value != false {
+		t.Errorf("ParallelToolCalls = {valid=%v value=%v}, want {true false}", got.ParallelToolCalls.Valid(), got.ParallelToolCalls.Value)
+	}
+}
+
+func TestChatCompletionScalarFields_Unset(t *testing.T) {
+	t.Parallel()
+	p := responses.ResponseNewParams{Model: "gpt-4o"}
+	p.Input.OfString = openai.String("hi")
+
+	got, err := convert.ResponsesParamsToChatCompletionParams(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.MaxTokens.Valid() {
+		t.Error("MaxTokens should be omitted when MaxOutputTokens is not set")
+	}
+	if got.Temperature.Valid() {
+		t.Error("Temperature should be omitted when not set")
+	}
+	if got.TopP.Valid() {
+		t.Error("TopP should be omitted when not set")
+	}
+	if got.ParallelToolCalls.Valid() {
+		t.Error("ParallelToolCalls should be omitted when not set")
 	}
 }

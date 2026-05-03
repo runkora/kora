@@ -5,6 +5,7 @@ import (
 
 	openai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 	"github.com/openai/openai-go/shared/constant"
 )
 
@@ -34,33 +35,69 @@ func ResponsesParamsToChatCompletionParams(params responses.ResponseNewParams) (
 	}
 
 	var msgs []openai.ChatCompletionMessageParamUnion
-
 	if params.Instructions.Valid() {
 		msgs = append(msgs, openai.SystemMessage(params.Instructions.Value))
 	}
+	msgs = append(msgs, responsesInputToChatMessages(params.Input)...)
 
-	inputMsgs := responsesInputToChatMessages(params.Input)
-	msgs = append(msgs, inputMsgs...)
+	// MaxOutputTokens, Temperature, TopP, and ParallelToolCalls are all
+	// param.Opt[T] from the same openai-go/packages/param package, so they
+	// assign directly — no value extraction needed.
+	return openai.ChatCompletionNewParams{
+		Model:             params.Model,
+		Messages:          msgs,
+		MaxTokens:         params.MaxOutputTokens,
+		Temperature:       params.Temperature,
+		TopP:              params.TopP,
+		Tools:             convertResponsesToolsToChatCompletion(params.Tools),
+		ToolChoice:        chatCompletionToolChoice(params.ToolChoice),
+		ParallelToolCalls: params.ParallelToolCalls,
+		ResponseFormat:    chatCompletionResponseFormat(params.Text.Format),
+	}, nil
+}
 
-	out := openai.ChatCompletionNewParams{
-		Model:    params.Model,
-		Messages: msgs,
+// chatCompletionToolChoice translates a Responses API tool_choice to the Chat
+// Completions union. Hosted and MCP tool choices are not representable in Chat
+// Completions and are ignored (they have no function equivalent).
+func chatCompletionToolChoice(tc responses.ResponseNewParamsToolChoiceUnion) openai.ChatCompletionToolChoiceOptionUnionParam {
+	if tc.OfToolChoiceMode.Valid() {
+		return openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String(string(tc.OfToolChoiceMode.Value)),
+		}
 	}
+	if fn := tc.OfFunctionTool; fn != nil {
+		return openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
+				Function: openai.ChatCompletionNamedToolChoiceFunctionParam{Name: fn.Name},
+			},
+		}
+	}
+	return openai.ChatCompletionToolChoiceOptionUnionParam{}
+}
 
-	if params.MaxOutputTokens.Valid() {
-		out.MaxTokens = openai.Int(params.MaxOutputTokens.Value)
+// chatCompletionResponseFormat translates a Responses API text.format to the
+// Chat Completions response_format union. The Strict and Description fields on
+// both JSON schema types are param.Opt[T] from the same package and assign directly.
+func chatCompletionResponseFormat(f responses.ResponseFormatTextConfigUnionParam) openai.ChatCompletionNewParamsResponseFormatUnion {
+	if js := f.OfJSONSchema; js != nil {
+		return openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
+				JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name:        js.Name,
+					Schema:      js.Schema,
+					Strict:      js.Strict,
+					Description: js.Description,
+				},
+			},
+		}
 	}
-	if params.Temperature.Valid() {
-		out.Temperature = openai.Float(params.Temperature.Value)
+	if f.OfJSONObject != nil {
+		return openai.ChatCompletionNewParamsResponseFormatUnion{OfJSONObject: &shared.ResponseFormatJSONObjectParam{}}
 	}
-	if params.TopP.Valid() {
-		out.TopP = openai.Float(params.TopP.Value)
+	if f.OfText != nil {
+		return openai.ChatCompletionNewParamsResponseFormatUnion{OfText: &shared.ResponseFormatTextParam{}}
 	}
-	if len(params.Tools) > 0 {
-		out.Tools = convertResponsesToolsToChatCompletion(params.Tools)
-	}
-
-	return out, nil
+	return openai.ChatCompletionNewParamsResponseFormatUnion{}
 }
 
 func responsesInputToChatMessages(input responses.ResponseNewParamsInputUnion) []openai.ChatCompletionMessageParamUnion {

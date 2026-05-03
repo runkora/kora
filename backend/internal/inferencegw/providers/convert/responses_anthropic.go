@@ -47,37 +47,51 @@ func ResponsesParamsToAnthropicParams(params responses.ResponseNewParams) (anthr
 		maxTokens, _ = AnthropicModelMaxOutputTokens(params.Model)
 	}
 
-	out := anthropic.MessageNewParams{
-		Model:     params.Model,
-		MaxTokens: maxTokens,
+	msgs, systemFromInput, err := responsesInputToAnthropicMessages(params.Input)
+	if err != nil {
+		return anthropic.MessageNewParams{}, err
 	}
 
-	var systemBlocks []anthropic.TextBlockParam
+	// Instructions always precede any system blocks extracted from the input.
+	var system []anthropic.TextBlockParam
 	if params.Instructions.Valid() {
-		systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: params.Instructions.Value})
+		system = append(system, anthropic.TextBlockParam{Text: params.Instructions.Value})
 	}
+	system = append(system, systemFromInput...)
 
+	out := anthropic.MessageNewParams{
+		Model:      params.Model,
+		MaxTokens:  maxTokens,
+		Messages:   msgs,
+		System:     system,
+		Tools:      convertResponsesToolsToAnthropic(params.Tools),
+		ToolChoice: anthropicToolChoice(params.ToolChoice),
+	}
 	if params.Temperature.Valid() {
 		out.Temperature = anthropic.Float(params.Temperature.Value)
 	}
 	if params.TopP.Valid() {
 		out.TopP = anthropic.Float(params.TopP.Value)
 	}
-
-	msgs, extraSystem, err := responsesInputToAnthropicMessages(params.Input)
-	if err != nil {
-		return anthropic.MessageNewParams{}, err
-	}
-	systemBlocks = append(systemBlocks, extraSystem...)
-	if len(systemBlocks) > 0 {
-		out.System = systemBlocks
-	}
-	out.Messages = msgs
-
-	if len(params.Tools) > 0 {
-		out.Tools = convertResponsesToolsToAnthropic(params.Tools)
-	}
 	return out, nil
+}
+
+// anthropicToolChoice translates a Responses API tool_choice to the Anthropic
+// ToolChoiceUnionParam. "required" maps to Anthropic's "any" — both mean "must
+// call some tool". Hosted/MCP variants are not representable and are ignored.
+func anthropicToolChoice(tc responses.ResponseNewParamsToolChoiceUnion) anthropic.ToolChoiceUnionParam {
+	if fn := tc.OfFunctionTool; fn != nil {
+		return anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: fn.Name}}
+	}
+	switch tc.OfToolChoiceMode.Value {
+	case responses.ToolChoiceOptionsNone:
+		return anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+	case responses.ToolChoiceOptionsRequired:
+		return anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+	case responses.ToolChoiceOptionsAuto:
+		return anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
+	}
+	return anthropic.ToolChoiceUnionParam{}
 }
 
 // responsesInputToAnthropicMessages translates the Responses API Input union

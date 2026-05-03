@@ -7,6 +7,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
@@ -305,5 +306,334 @@ func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 	}
 	if !gotFuncCall {
 		t.Errorf("function_call output item not found in completed response: %+v", completed.Response.Output)
+	}
+}
+
+// ─── Tool choice translation ──────────────────────────────────────────────────
+
+// TestResponsesParamsToAnthropicParams_ToolChoice exercises every branch of
+// anthropicToolChoice. The "required"→OfAny mapping is the non-obvious one:
+// Responses API "required" means "call any tool", which is exactly Anthropic's
+// "any" mode — not OfTool, which would mean a specific function.
+func TestResponsesParamsToAnthropicParams_ToolChoice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mode    responses.ToolChoiceOptions
+		fnName  string
+		checkFn func(*testing.T, anthropic.ToolChoiceUnionParam)
+	}{
+		{
+			name: "auto → OfAuto",
+			mode: responses.ToolChoiceOptionsAuto,
+			checkFn: func(t *testing.T, tc anthropic.ToolChoiceUnionParam) {
+				if tc.OfAuto == nil {
+					t.Fatal("expected OfAuto for auto mode")
+				}
+				if tc.OfAny != nil || tc.OfNone != nil || tc.OfTool != nil {
+					t.Error("only OfAuto should be set")
+				}
+			},
+		},
+		{
+			name: "required → OfAny",
+			mode: responses.ToolChoiceOptionsRequired,
+			checkFn: func(t *testing.T, tc anthropic.ToolChoiceUnionParam) {
+				if tc.OfAny == nil {
+					t.Fatal("expected OfAny for required mode (Anthropic equivalent of required)")
+				}
+				if tc.OfAuto != nil || tc.OfNone != nil || tc.OfTool != nil {
+					t.Error("only OfAny should be set")
+				}
+			},
+		},
+		{
+			name: "none → OfNone",
+			mode: responses.ToolChoiceOptionsNone,
+			checkFn: func(t *testing.T, tc anthropic.ToolChoiceUnionParam) {
+				if tc.OfNone == nil {
+					t.Fatal("expected OfNone for none mode")
+				}
+				if tc.OfAuto != nil || tc.OfAny != nil || tc.OfTool != nil {
+					t.Error("only OfNone should be set")
+				}
+			},
+		},
+		{
+			name:   "specific function → OfTool",
+			fnName: "my_fn",
+			checkFn: func(t *testing.T, tc anthropic.ToolChoiceUnionParam) {
+				if tc.OfTool == nil {
+					t.Fatal("expected OfTool for specific function")
+				}
+				if tc.OfTool.Name != "my_fn" {
+					t.Errorf("OfTool.Name = %q, want my_fn", tc.OfTool.Name)
+				}
+				if tc.OfAuto != nil || tc.OfAny != nil || tc.OfNone != nil {
+					t.Error("only OfTool should be set")
+				}
+			},
+		},
+		{
+			name: "unset → zero value",
+			checkFn: func(t *testing.T, tc anthropic.ToolChoiceUnionParam) {
+				if tc.OfAuto != nil || tc.OfAny != nil || tc.OfNone != nil || tc.OfTool != nil {
+					t.Error("expected zero ToolChoiceUnionParam when not set in params")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+			p.Input.OfString = openai.String("hi")
+			if tc.mode != "" {
+				p.ToolChoice.OfToolChoiceMode = param.NewOpt(tc.mode)
+			}
+			if tc.fnName != "" {
+				p.ToolChoice.OfFunctionTool = &responses.ToolChoiceFunctionParam{Name: tc.fnName}
+			}
+
+			got, err := convert.ResponsesParamsToAnthropicParams(p)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tc.checkFn(t, got.ToolChoice)
+		})
+	}
+}
+
+// ─── Cache token attribution ──────────────────────────────────────────────────
+
+func TestAnthropicMessageToResponsesResponse_CacheReadTokens(t *testing.T) {
+	t.Parallel()
+	msg := &anthropic.Message{
+		ID:    "msg_cache",
+		Model: "claude-sonnet-4-6",
+		Content: []anthropic.ContentBlockUnion{
+			{Type: "text", Text: "Answer."},
+		},
+		StopReason: anthropic.StopReasonEndTurn,
+		Usage: anthropic.Usage{
+			InputTokens:              100,
+			OutputTokens:             20,
+			CacheReadInputTokens:     30,
+			CacheCreationInputTokens: 0,
+		},
+	}
+	got := convert.AnthropicMessageToResponsesResponse(msg)
+
+	if got.Usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", got.Usage.InputTokens)
+	}
+	if got.Usage.InputTokensDetails.CachedTokens != 30 {
+		t.Errorf("InputTokensDetails.CachedTokens = %d, want 30 (cache_read_input_tokens)", got.Usage.InputTokensDetails.CachedTokens)
+	}
+	if got.Usage.TotalTokens != 120 {
+		t.Errorf("TotalTokens = %d, want 120 (input+output)", got.Usage.TotalTokens)
+	}
+}
+
+// TestAnthropicStreaming_CacheTokensInCompletedEvent verifies that cache_read_input_tokens
+// from the message_start event are surfaced in the terminal response.completed
+// Usage.InputTokensDetails.CachedTokens field.
+// ─── Multiple tool-use blocks (parallel tool calls) ──────────────────────────
+
+func TestAnthropicMessageToResponsesResponse_MultipleToolUse(t *testing.T) {
+	t.Parallel()
+	msg := &anthropic.Message{
+		ID:    "msg_multi",
+		Model: "claude-sonnet-4-6",
+		Content: []anthropic.ContentBlockUnion{
+			{Type: "text", Text: "I'll call both tools."},
+			{Type: "tool_use", ID: "toolu_1", Name: "search", Input: json.RawMessage(`{"q":"foo"}`)},
+			{Type: "tool_use", ID: "toolu_2", Name: "calc", Input: json.RawMessage(`{"expr":"1+1"}`)},
+		},
+		StopReason: anthropic.StopReasonToolUse,
+	}
+	got := convert.AnthropicMessageToResponsesResponse(msg)
+	if len(got.Output) != 3 {
+		t.Fatalf("len(Output) = %d, want 3 (message + 2 function_calls)", len(got.Output))
+	}
+	if got.Output[1].CallID != "toolu_1" || got.Output[1].Name != "search" {
+		t.Errorf("Output[1] = %+v, want toolu_1/search", got.Output[1])
+	}
+	if got.Output[2].CallID != "toolu_2" || got.Output[2].Name != "calc" {
+		t.Errorf("Output[2] = %+v, want toolu_2/calc", got.Output[2])
+	}
+}
+
+// ─── max_tokens → incomplete status ──────────────────────────────────────────
+
+func TestAnthropicMessageToResponsesResponse_MaxTokensIncomplete(t *testing.T) {
+	t.Parallel()
+	msg := &anthropic.Message{
+		ID:         "msg_trunc",
+		Model:      "claude-sonnet-4-6",
+		Content:    []anthropic.ContentBlockUnion{{Type: "text", Text: "Truncated..."}},
+		StopReason: anthropic.StopReasonMaxTokens,
+	}
+	got := convert.AnthropicMessageToResponsesResponse(msg)
+	if got.Status != "incomplete" {
+		t.Errorf("Status = %q, want incomplete for max_tokens stop reason", got.Status)
+	}
+}
+
+func TestAnthropicStreaming_MaxTokensIncomplete(t *testing.T) {
+	t.Parallel()
+	state := convert.NewAnthropicResponsesStreamState()
+
+	events := []anthropic.MessageStreamEventUnion{
+		{Type: "message_start", Message: anthropic.Message{ID: "msg_trunc_stream", Model: "claude-sonnet-4-6"}},
+		{Type: "content_block_start", Index: 0, ContentBlock: anthropic.ContentBlockStartEventContentBlockUnion{Type: "text"}},
+		{Type: "content_block_delta", Index: 0, Delta: anthropic.MessageStreamEventUnionDelta{Type: "text_delta", Text: "partial"}},
+		{Type: "message_delta", Delta: anthropic.MessageStreamEventUnionDelta{Type: "message_delta", StopReason: anthropic.StopReasonMaxTokens}},
+		{Type: "message_stop"},
+	}
+
+	var out []responses.ResponseStreamEventUnion
+	for _, ev := range events {
+		out = append(out, convert.AnthropicEventToResponsesEvents(ev, state)...)
+	}
+
+	var completed *responses.ResponseStreamEventUnion
+	for i := range out {
+		if out[i].Type == "response.completed" {
+			completed = &out[i]
+		}
+	}
+	if completed == nil {
+		t.Fatal("expected response.completed event")
+	}
+	if completed.Response.Status != "incomplete" {
+		t.Errorf("Status = %q, want incomplete for max_tokens", completed.Response.Status)
+	}
+}
+
+// ─── Instructions + system input items ordering ───────────────────────────────
+
+func TestResponsesParamsToAnthropicParams_InstructionsPrecedeSystemInputItems(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Instructions = openai.String("top-level instruction")
+	params.Input.OfInputItemList = []responses.ResponseInputItemUnionParam{
+		responses.ResponseInputItemParamOfMessage("input system block", responses.EasyInputMessageRoleSystem),
+		responses.ResponseInputItemParamOfMessage("hi", responses.EasyInputMessageRoleUser),
+	}
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.System) != 2 {
+		t.Fatalf("len(System) = %d, want 2", len(got.System))
+	}
+	if got.System[0].Text != "top-level instruction" {
+		t.Errorf("System[0] = %q, want instructions first", got.System[0].Text)
+	}
+	if got.System[1].Text != "input system block" {
+		t.Errorf("System[1] = %q, want input system block second", got.System[1].Text)
+	}
+}
+
+// ─── Temperature / TopP forwarding ───────────────────────────────────────────
+
+func TestResponsesParamsToAnthropicParams_TemperatureTopPForwarded(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfString = openai.String("hi")
+	params.Temperature = openai.Float(0.4)
+	params.TopP = openai.Float(0.85)
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.Temperature.Valid() || got.Temperature.Value != 0.4 {
+		t.Errorf("Temperature = {valid=%v value=%v}, want {true 0.4}", got.Temperature.Valid(), got.Temperature.Value)
+	}
+	if !got.TopP.Valid() || got.TopP.Value != 0.85 {
+		t.Errorf("TopP = {valid=%v value=%v}, want {true 0.85}", got.TopP.Valid(), got.TopP.Value)
+	}
+}
+
+func TestResponsesParamsToAnthropicParams_TemperatureTopPUnset(t *testing.T) {
+	t.Parallel()
+	params := responses.ResponseNewParams{Model: "claude-sonnet-4-6"}
+	params.Input.OfString = openai.String("hi")
+
+	got, err := convert.ResponsesParamsToAnthropicParams(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Temperature.Valid() {
+		t.Error("Temperature should be omitted when not set")
+	}
+	if got.TopP.Valid() {
+		t.Error("TopP should be omitted when not set")
+	}
+}
+
+// ─── Cache token attribution ──────────────────────────────────────────────────
+
+func TestAnthropicStreaming_CacheTokensInCompletedEvent(t *testing.T) {
+	t.Parallel()
+	state := convert.NewAnthropicResponsesStreamState()
+
+	events := []anthropic.MessageStreamEventUnion{
+		{
+			Type: "message_start",
+			Message: anthropic.Message{
+				ID:    "msg_cache_stream",
+				Model: "claude-sonnet-4-6",
+				Usage: anthropic.Usage{
+					InputTokens:          50,
+					CacheReadInputTokens: 15,
+				},
+			},
+		},
+		{
+			Type:         "content_block_start",
+			Index:        0,
+			ContentBlock: anthropic.ContentBlockStartEventContentBlockUnion{Type: "text"},
+		},
+		{
+			Type:  "content_block_delta",
+			Index: 0,
+			Delta: anthropic.MessageStreamEventUnionDelta{Type: "text_delta", Text: "Hi"},
+		},
+		{
+			Type:  "message_delta",
+			Delta: anthropic.MessageStreamEventUnionDelta{Type: "message_delta", StopReason: anthropic.StopReasonEndTurn},
+			Usage: anthropic.MessageDeltaUsage{OutputTokens: 5},
+		},
+		{Type: "message_stop"},
+	}
+
+	var out []responses.ResponseStreamEventUnion
+	for _, ev := range events {
+		out = append(out, convert.AnthropicEventToResponsesEvents(ev, state)...)
+	}
+
+	var completed *responses.ResponseStreamEventUnion
+	for i := range out {
+		if out[i].Type == "response.completed" {
+			completed = &out[i]
+		}
+	}
+	if completed == nil {
+		t.Fatal("expected response.completed event")
+	}
+	if completed.Response.Usage.InputTokensDetails.CachedTokens != 15 {
+		t.Errorf("CachedTokens = %d, want 15", completed.Response.Usage.InputTokensDetails.CachedTokens)
+	}
+	if completed.Response.Usage.InputTokens != 50 {
+		t.Errorf("InputTokens = %d, want 50", completed.Response.Usage.InputTokens)
+	}
+	if completed.Response.Usage.OutputTokens != 5 {
+		t.Errorf("OutputTokens = %d, want 5", completed.Response.Usage.OutputTokens)
 	}
 }
