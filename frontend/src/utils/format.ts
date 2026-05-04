@@ -56,6 +56,10 @@ export function fmtCost(usd: number | null): string {
  *
  * Appends T00:00:00Z before parsing to force UTC midnight and avoid ±1-day
  * off-by-one errors from local-timezone interpretation.
+ *
+ * 'en-US' is intentional: chart axis labels are data, not prose — abbreviated
+ * English month names ("Jan", "Feb") are universally readable in technical
+ * contexts and keep label width predictable across locales.
  */
 export function fmtDateAxis(dateStr: string): string {
   try {

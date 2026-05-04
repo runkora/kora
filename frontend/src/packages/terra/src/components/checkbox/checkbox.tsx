@@ -57,13 +57,15 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
     ref,
   ) => {
     const internalRef = React.useRef<HTMLInputElement>(null);
-    const resolvedRef = (ref as React.RefObject<HTMLInputElement>) ?? internalRef;
+    // Expose the underlying input via the forwarded ref while keeping internalRef
+    // usable for the indeterminate imperative write below.
+    React.useImperativeHandle(ref, () => internalRef.current!);
 
     React.useEffect(() => {
-      if (resolvedRef && 'current' in resolvedRef && resolvedRef.current) {
-        resolvedRef.current.indeterminate = indeterminate;
+      if (internalRef.current) {
+        internalRef.current.indeterminate = indeterminate;
       }
-    }, [indeterminate, resolvedRef]);
+    }, [indeterminate]);
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
       onChange?.(event.target.checked, event);
@@ -82,7 +84,7 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         )}
       >
         <input
-          ref={resolvedRef}
+          ref={internalRef}
           type="checkbox"
           id={id}
           name={name}

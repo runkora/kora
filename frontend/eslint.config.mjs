@@ -16,7 +16,8 @@ import prettier from 'eslint-config-prettier';
 //      importable from client components with no compile-time error.
 //
 //   2. require-use-client-for-hooks — every file in src/app/** (excluding
-//      Route Handlers) that imports React client hooks must carry a
+//      Route Handlers) that imports React client hooks (from 'react') or
+//      Next.js navigation hooks (from 'next/navigation') must carry a
 //      "use client" directive. Prevents accidental Server Component/Client
 //      Component boundary violations from being caught only at runtime.
 //
@@ -93,6 +94,20 @@ const CLIENT_HOOKS = new Set([
 ]);
 
 /**
+ * Next.js navigation hooks that are only valid in Client Components.
+ * These are not caught by the react-import check above because they are
+ * imported from 'next/navigation', not from 'react'.
+ */
+const CLIENT_NEXT_NAV_HOOKS = new Set([
+  'useRouter',
+  'usePathname',
+  'useSearchParams',
+  'useParams',
+  'useSelectedLayoutSegment',
+  'useSelectedLayoutSegments',
+]);
+
+/**
  * Convert a PascalCase or camelCase string to kebab-case, used to generate
  * rename suggestions in `require-kebab-filename` error messages.
  *
@@ -150,11 +165,11 @@ const localPlugin = {
         type: 'problem',
         docs: {
           description:
-            'Require a `"use client"` directive in files that import React client hooks.',
+            'Require a `"use client"` directive in files that import React or Next.js client hooks.',
         },
         messages: {
           missing:
-            'This file imports React client hook(s) ({{ hooks }}) but is missing a `"use client"` ' +
+            'This file imports client-only hook(s) ({{ hooks }}) but is missing a `"use client"` ' +
             'directive. Add `"use client"` as the first line of the file.',
         },
       },
@@ -167,22 +182,37 @@ const localPlugin = {
             );
             if (hasUseClient) return;
 
-            // Find any `import { … } from "react"` declarations.
+            const allClientHooks = [];
+
+            // Check `import { … } from 'react'` for React client hooks.
             const reactImport = node.body.find(
               (n) => n.type === 'ImportDeclaration' && n.source.value === 'react',
             );
-            if (!reactImport) return;
+            if (reactImport) {
+              const hooks = reactImport.specifiers
+                .filter((s) => s.type === 'ImportSpecifier' && CLIENT_HOOKS.has(s.imported.name))
+                .map((s) => s.imported.name);
+              allClientHooks.push(...hooks);
+            }
 
-            // Collect the client-only hooks being imported.
-            const usedClientHooks = reactImport.specifiers
-              .filter((s) => s.type === 'ImportSpecifier' && CLIENT_HOOKS.has(s.imported.name))
-              .map((s) => s.imported.name);
+            // Check `import { … } from 'next/navigation'` for Next.js client hooks.
+            const nextNavImport = node.body.find(
+              (n) => n.type === 'ImportDeclaration' && n.source.value === 'next/navigation',
+            );
+            if (nextNavImport) {
+              const hooks = nextNavImport.specifiers
+                .filter(
+                  (s) => s.type === 'ImportSpecifier' && CLIENT_NEXT_NAV_HOOKS.has(s.imported.name),
+                )
+                .map((s) => s.imported.name);
+              allClientHooks.push(...hooks);
+            }
 
-            if (usedClientHooks.length > 0) {
+            if (allClientHooks.length > 0) {
               context.report({
                 node,
                 messageId: 'missing',
-                data: { hooks: usedClientHooks.join(', ') },
+                data: { hooks: allClientHooks.join(', ') },
               });
             }
           },
