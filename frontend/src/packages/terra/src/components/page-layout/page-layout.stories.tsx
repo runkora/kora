@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Text } from '../typography/typography';
+import { Stack } from '../layout/stack';
+import { Navigation } from '../navigation/navigation';
+import { NavItem } from '../nav-item/nav-item';
 import { PageLayout } from './page-layout';
 import { Section } from '../section/section';
 
@@ -18,25 +21,29 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
+const NAV_ITEMS = ['Overview', 'Agents', 'Policies', 'Credentials', 'Events', 'Settings'];
+
 const SidebarContent = () => (
-  <nav className="flex flex-col gap-1 p-3">
-    {['Overview', 'Agents', 'Policies', 'Credentials', 'Events', 'Settings'].map((item) => (
-      <a
-        key={item}
-        href="#"
-        className="px-3 py-2 rounded-md text-sm text-muted hover:text-foreground hover:bg-surface-elevated transition-colors"
-      >
-        {item}
-      </a>
-    ))}
-  </nav>
+  <Navigation>
+    <Stack gap="none" paddingInline="snug" paddingBlock="snug">
+      {NAV_ITEMS.map((item) => (
+        <NavItem key={item} asChild>
+          <a href="#">{item}</a>
+        </NavItem>
+      ))}
+    </Stack>
+  </Navigation>
 );
 
 const HeaderContent = () => (
-  <div className="flex items-center justify-between w-full">
-    <span className="text-sm font-semibold text-foreground tracking-tight">Orbit</span>
-    <span className="text-xs text-muted">v0.1.0</span>
-  </div>
+  <Stack direction="horizontal" align="center" justify="between">
+    <Text size="supporting" weight="strong" color="foreground">
+      Orbit
+    </Text>
+    <Text size="micro" color="muted">
+      v0.1.0
+    </Text>
+  </Stack>
 );
 
 /** Full shell — sidebar + header + main content */
@@ -49,12 +56,16 @@ export const FullShell: Story = {
           description="Agents currently running in your control plane."
         >
           <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
-            <span className="text-sm text-muted">Agent table placeholder</span>
+            <Text size="supporting" color="muted">
+              Agent table placeholder
+            </Text>
           </div>
         </Section>
         <Section heading="Recent events" description="Last 50 events from the event spine.">
           <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
-            <span className="text-sm text-muted">Event log placeholder</span>
+            <Text size="supporting" color="muted">
+              Event log placeholder
+            </Text>
           </div>
         </Section>
       </PageLayout>
@@ -69,7 +80,9 @@ export const NoSidebar: Story = {
       <PageLayout header={<HeaderContent />}>
         <Section heading="Settings" description="Manage your Orbit control plane configuration.">
           <div className="rounded-lg border border-border-subtle bg-surface h-48 flex items-center justify-center">
-            <span className="text-sm text-muted">Settings panel placeholder</span>
+            <Text size="supporting" color="muted">
+              Settings panel placeholder
+            </Text>
           </div>
         </Section>
       </PageLayout>
@@ -112,6 +125,38 @@ export const SectionNoHeading: Story = {
           heading hierarchy.
         </Text>
       </Section>
+    </div>
+  ),
+};
+
+/** Full shell with sidebar footer — user identity row pinned below the nav */
+export const WithSidebarFooter: Story = {
+  render: () => (
+    <div className="h-screen">
+      <PageLayout
+        sidebar={<SidebarContent />}
+        sidebarFooter={
+          <div className="px-4 py-3 flex items-center gap-2">
+            <div className="size-6 rounded-full bg-surface-elevated flex items-center justify-center">
+              <Text size="micro" color="muted">
+                U
+              </Text>
+            </div>
+            <Text size="caption" color="muted" className="flex-1 truncate">
+              user@example.com
+            </Text>
+          </div>
+        }
+        header={<HeaderContent />}
+      >
+        <Section heading="Dashboard">
+          <div className="rounded-lg border border-border-subtle bg-surface h-40 flex items-center justify-center">
+            <Text size="supporting" color="muted">
+              Main content
+            </Text>
+          </div>
+        </Section>
+      </PageLayout>
     </div>
   ),
 };

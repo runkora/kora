@@ -172,11 +172,11 @@ export function TableColumnHeader({
             onClick={onSort}
             className="group/sort inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
           >
-            <span>{children}</span>
+            {children}
             <SortIcon dir={sortDir ?? null} />
           </button>
         ) : (
-          <span>{children}</span>
+          children
         )}
 
         {/* Filter popover — only rendered when filter is supplied */}

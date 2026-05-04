@@ -1,10 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
-import { Button, Heading, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  Form,
+  FormField,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { createToken } from '../_actions/tokens';
-import { ScopePicker } from '../../policy/_components/scope-picker';
+import { ScopePicker } from '@orbit/components';
 import type { CreatePATResponse } from '@orbit/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -24,7 +34,6 @@ export function CreateTokenModal({
   onClose,
   onCreated,
 }: CreateTokenModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState('');
@@ -34,38 +43,18 @@ export function CreateTokenModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Focus name input when modal opens; reset on close.
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
     if (open) {
-      if (!dialog.open) dialog.showModal();
       setTimeout(() => nameInputRef.current?.focus(), 0);
     } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => {
       setName('');
       setExpiresInDays('90');
       setSelectedScopes([]);
       setScopeSearch('');
       setError(null);
-      onClose();
-    };
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDialogElement>) => {
-      if (e.target === dialogRef.current) onClose();
-    },
-    [onClose],
-  );
+    }
+  }, [open]);
 
   const handleToggleScope = useCallback((scope: string, checked: boolean) => {
     setSelectedScopes((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)));
@@ -126,81 +115,55 @@ export function CreateTokenModal({
   );
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        {/* Header */}
-        <Stack asChild direction="horizontal" align="start" justify="between" gap="comfortable">
-          <header className="border-b border-border p-5">
-            <Stack gap="none">
-              <Heading variant="section">Create API key</Heading>
-              <Text size="supporting" color="muted">
-                Keys are scoped to your account and usable at inference endpoints.
-              </Text>
-            </Stack>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X className="size-4" />
-            </Button>
-          </header>
-        </Stack>
-
-        <section className="flex flex-col gap-5 p-5">
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader
+        title="Create API key"
+        description="Keys are scoped to your account and usable at inference endpoints."
+      />
+      <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
+        <ModalBody>
           {/* Name */}
-          <Stack gap="tight">
-            <label htmlFor="pat-name" className="text-sm font-medium text-foreground">
-              Name <span aria-hidden>*</span>
-            </label>
-            <input
+          <FormField
+            id="pat-name"
+            label="Name"
+            required
+            hint="A short label to identify this key. Max 128 characters."
+          >
+            <Input
               ref={nameInputRef}
-              id="pat-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Production Agent Fleet"
               maxLength={128}
-              required
-              className="w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
-            <Text size="caption" color="subtle">
-              A short label to identify this key. Max 128 characters.
-            </Text>
-          </Stack>
+          </FormField>
 
           {/* Expiry */}
-          <Stack gap="tight">
-            <label htmlFor="pat-expiry" className="text-sm font-medium text-foreground">
-              Expires in (days)
-            </label>
-            <input
-              id="pat-expiry"
+          <FormField
+            id="pat-expiry"
+            label="Expires in (days)"
+            hint="Defaults to 90 days. Maximum 365 days."
+          >
+            <Input
               type="number"
               value={expiresInDays}
               onChange={(e) => setExpiresInDays(e.target.value)}
               min={1}
               max={365}
               placeholder="90"
-              className="w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
             />
-            <Text size="caption" color="subtle">
-              Defaults to 90 days. Maximum 365 days.
-            </Text>
-          </Stack>
+          </FormField>
 
           {/* Scopes */}
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
-              <label className="text-sm font-medium text-foreground">
-                Permissions <span aria-hidden>*</span>
-              </label>
+              <Text size="supporting" weight="emphasis">
+                Permissions{' '}
+                <Text as="span" aria-hidden={true}>
+                  *
+                </Text>
+              </Text>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">
                   {selectedScopes.length} selected
@@ -226,26 +189,22 @@ export function CreateTokenModal({
             </Text>
           </Stack>
 
-          {/* Error */}
           {error && (
             <Text size="supporting" color="status-error">
               {error}
             </Text>
           )}
-        </section>
+        </ModalBody>
 
-        {/* Footer */}
-        <Stack asChild direction="horizontal" justify="end" gap="snug">
-          <footer className="border-t border-border px-5 py-3">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="default" size="sm" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create key'}
-            </Button>
-          </footer>
-        </Stack>
-      </form>
-    </dialog>
+        <ModalFooter>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="default" size="sm" disabled={submitting}>
+            {submitting ? 'Creating…' : 'Create key'}
+          </Button>
+        </ModalFooter>
+      </Form>
+    </Modal>
   );
 }

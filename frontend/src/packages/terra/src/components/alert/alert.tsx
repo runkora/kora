@@ -6,14 +6,14 @@ import { cn } from '../../utils';
 type AlertVariant = 'error' | 'warning' | 'info';
 
 const VARIANT_CLASSES: Record<AlertVariant, string> = {
-  error: 'border-status-error/30 bg-status-error/10',
+  error: 'border-status-error/30 bg-status-error/5',
   warning: 'border-status-degraded/30 bg-status-degraded/10',
   info: 'border-accent/30 bg-accent/10',
 };
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
-export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface AlertProps {
   /**
    * Visual intent of the alert.
    *
@@ -24,6 +24,13 @@ export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
    * Default: `'info'`
    */
   variant?: AlertVariant;
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  role?: React.AriaRole;
+  'aria-label'?: string;
+  'aria-live'?: 'off' | 'assertive' | 'polite';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -48,13 +55,13 @@ export interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
  * ```
  */
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ variant = 'info', className, children, ...props }, ref) => {
+  ({ variant = 'info', className, children, role = 'alert', ...props }, ref) => {
     return (
       <div
         ref={ref}
-        role="alert"
+        role={role}
         className={cn(
-          'flex items-center gap-2 rounded-md border px-3 py-2',
+          'flex items-center gap-2 rounded-lg border px-4 py-3',
           VARIANT_CLASSES[variant],
           className,
         )}

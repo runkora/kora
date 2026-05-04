@@ -21,6 +21,7 @@ import {
 import { DAILY_SPEND, type DailySpendRow } from '../../_data/mock';
 import { TableControls, type Granularity, type Period } from './table-controls';
 import { aggregateByWeek, aggregateByMonth, filterByPeriod } from './utils/table-utils';
+import { fmtCost } from '@orbit/utils';
 
 // ── Types & helpers ───────────────────────────────────────────────────────────
 
@@ -51,10 +52,6 @@ function buildRows(data: DailySpendRow[], granularity: Granularity, period: Peri
     promptUsd: rows.reduce((s, r) => s + r.promptUsd, 0),
     outputUsd: rows.reduce((s, r) => s + r.outputUsd, 0),
   }));
-}
-
-function fmt(n: number) {
-  return `$${n.toFixed(4)}`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -118,21 +115,21 @@ export function SpendTable() {
                     <TableCell>
                       <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular weight="emphasis">
-                          {fmt(row.totalUsd)}
+                          {fmtCost(row.totalUsd)}
                         </Text>
                       </Stack>
                     </TableCell>
                     <TableCell>
                       <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular color="muted">
-                          {fmt(row.promptUsd)}
+                          {fmtCost(row.promptUsd)}
                         </Text>
                       </Stack>
                     </TableCell>
                     <TableCell>
                       <Stack direction="horizontal" justify="end">
                         <Text size="supporting" mono tabular color="muted">
-                          {fmt(row.outputUsd)}
+                          {fmtCost(row.outputUsd)}
                         </Text>
                       </Stack>
                     </TableCell>

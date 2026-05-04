@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 import { Heading, Text } from '../typography/typography';
+import { MAX_H, OVERFLOW_Y } from '../layout/sizing';
+import type { MaxHeight, OverflowValue } from '../layout/sizing';
 
 /**
  * Card
@@ -53,15 +55,53 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * ```
    */
   column?: boolean;
+
+  /**
+   * When true, the card tracks focus events from any descendant input or
+   * interactive element and applies a visible accent border ring when any
+   * child has focus.
+   *
+   * Use for composite input areas where you want the entire card to
+   * "light up" when the user tabs into a contained input — for example,
+   * a chat input card that wraps a `<textarea>` and action buttons:
+   *
+   * ```tsx
+   * <Card interactive>
+   *   <textarea … />
+   *   <Button>Send</Button>
+   * </Card>
+   * ```
+   *
+   * Implemented via `focus-within:border-accent` + a subtle ring. The
+   * `data-interactive` attribute is set so tests and E2E selectors can
+   * target interactive cards explicitly.
+   */
+  interactive?: boolean;
+  /**
+   * `overflow-y` CSS property. Use `'auto'` to make the card contents
+   * vertically scrollable within a fixed height or `maxHeight` constraint.
+   * Card already applies `overflow-hidden` — `overflowY` adds a scroll layer.
+   */
+  overflowY?: OverflowValue;
+  /**
+   * Maximum height constraint. Use with `overflowY="auto"` for scrollable
+   * card containers (e.g. picker dropdowns, bounded user lists).
+   */
+  maxHeight?: MaxHeight;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, column = false, ...props }, ref) => (
+  ({ className, column = false, interactive = false, overflowY, maxHeight, ...props }, ref) => (
     <div
       ref={ref}
+      data-interactive={interactive ? 'true' : undefined}
       className={cn(
         'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
         column && 'flex flex-col',
+        interactive &&
+          'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
+        overflowY && OVERFLOW_Y[overflowY],
+        maxHeight && MAX_H.base[maxHeight],
         className,
       )}
       {...props}
@@ -125,9 +165,9 @@ const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
           <div className="flex flex-col gap-1.5" style={{ marginTop: '-6px' }}>
             {children}
           </div>
-          <span className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
+          <div className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
             {icon}
-          </span>
+          </div>
         </div>
       ) : (
         children
@@ -139,21 +179,36 @@ CardHeader.displayName = 'CardHeader';
 
 // ─── CardTitle ────────────────────────────────────────────────────────────────
 
+export interface CardTitleProps {
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  'aria-label'?: string;
+}
+
 /**
  * CardTitle
  *
  * Primary heading inside a `CardHeader`. Delegates directly to the Terra
  * `Heading` primitive (variant="label" renders an `<h4>` by default).
  */
-const CardTitle = React.forwardRef<
-  HTMLHeadingElement,
-  Omit<React.HTMLAttributes<HTMLHeadingElement>, 'color'>
->(({ className, ...props }, ref) => (
-  <Heading ref={ref} variant="label" className={cn('leading-tight', className)} {...props} />
-));
+const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ className, ...props }, ref) => (
+    <Heading ref={ref} variant="label" className={cn('leading-tight', className)} {...props} />
+  ),
+);
 CardTitle.displayName = 'CardTitle';
 
 // ─── CardDescription ──────────────────────────────────────────────────────────
+
+export interface CardDescriptionProps {
+  children?: React.ReactNode;
+  /** @internal Used for internal Terra composition via cn(). */
+  className?: string;
+  id?: string;
+  'aria-label'?: string;
+}
 
 /**
  * CardDescription
@@ -161,18 +216,17 @@ CardTitle.displayName = 'CardTitle';
  * Supporting text beneath `CardTitle`. Delegates to the Terra `Text`
  * primitive so colour and size stay in the token system.
  */
-const CardDescription = React.forwardRef<
-  HTMLParagraphElement,
-  Omit<React.HTMLAttributes<HTMLParagraphElement>, 'color'>
->(({ className, ...props }, ref) => (
-  <Text
-    ref={ref}
-    size="supporting"
-    color="muted"
-    className={cn('leading-snug', className)}
-    {...props}
-  />
-));
+const CardDescription = React.forwardRef<HTMLParagraphElement, CardDescriptionProps>(
+  ({ className, ...props }, ref) => (
+    <Text
+      ref={ref}
+      size="supporting"
+      color="muted"
+      className={cn('leading-snug', className)}
+      {...props}
+    />
+  ),
+);
 CardDescription.displayName = 'CardDescription';
 
 // ─── CardContent ──────────────────────────────────────────────────────────────
@@ -272,6 +326,7 @@ interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
    *   start   — left-aligned (default)
    *   center  — centred, e.g. for a single "Load more" action
    *   between — space-between, e.g. for a count label + action button pair
+   *   end     — right-aligned, e.g. for a single confirm/submit action
    *
    * ```tsx
    * <CardFooter justify="between">
@@ -285,8 +340,14 @@ interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
    *   <Button variant="ghost" size="sm">Open event log</Button>
    * </CardFooter>
    * ```
+   *
+   * ```tsx
+   * <CardFooter justify="end">
+   *   <Button variant="default" size="sm">Save changes</Button>
+   * </CardFooter>
+   * ```
    */
-  justify?: 'start' | 'center' | 'between';
+  justify?: 'start' | 'center' | 'between' | 'end';
 
   /**
    * When `true`, reduces vertical padding from `pb-6 pt-0` to `py-3`.
@@ -307,6 +368,7 @@ const FOOTER_JUSTIFY: Record<NonNullable<CardFooterProps['justify']>, string> = 
   start: 'justify-start',
   center: 'justify-center',
   between: 'justify-between',
+  end: 'justify-end',
 };
 
 /**

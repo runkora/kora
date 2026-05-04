@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, Search, ShieldCheck, Trash2, Plus, X } from 'lucide-react';
 import {
-  Badge,
+  Callout,
+  Alert,
   Button,
   Card,
   CardContent,
@@ -12,9 +12,16 @@ import {
   CardHeader,
   DataTable,
   Grid,
-  Heading,
+  Icon,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Separator,
   Stack,
   Text,
+  PageSectionHeader,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type {
@@ -25,10 +32,14 @@ import type { Grant, PrincipalType } from '../_types';
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { ScopeChip } from './scope-chip';
-import { ScopePicker } from './scope-picker';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { fmtDate } from '@orbit/utils';
+import { ScopeChip } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { FilterChip } from './filter-chip';
+import { PrincipalBadge } from './principal-badge';
+import { ViewToggle } from './view-toggle';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -129,69 +140,72 @@ export function GrantsTab({
   return (
     <Stack gap="comfortable">
       {/* Header */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <Stack gap="none">
-          <Heading variant="title">Grants</Heading>
-          <Text size="supporting" color="muted">
-            Permission grants assigned to principals in your tenant.
-          </Text>
-        </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4 mr-1" />
-            Create Grant
-          </Button>
-        )}
-      </Stack>
+      <PageSectionHeader
+        title="Grants"
+        description="Permission grants assigned to principals in your tenant."
+        action={
+          canWrite ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Icon name="plus" />
+              Create Grant
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Grants assign specific scopes directly to a principal. Unlike roles (which map OIDC claims
           to scopes), grants are explicit — they apply regardless of how the principal
           authenticates.
         </Text>
-      </section>
+      </Callout>
 
-      {error && <ErrorBanner message={error} />}
+      {error && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">
+            {error}
+          </Text>
+        </Alert>
+      )}
 
       {/* Search + filter chips + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
         <>
           <Stack direction="horizontal" align="center" justify="between">
-            <span className="relative max-w-xs flex-1">
-              <input
-                type="text"
+            <Stack asChild grow maxWidth="compact">
+              <Input
                 placeholder="Search grants..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
-            </span>
-            <GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            </Stack>
+            <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
           </Stack>
 
-          <Stack direction="horizontal" align="center" gap="snug" wrap>
-            <FilterChip
-              label="All"
-              count={grants.length}
-              active={typeFilter === 'all'}
-              onClick={() => setTypeFilter('all')}
-            />
-            {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+          <Stack direction="horizontal" align="center" justify="between">
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
               <FilterChip
-                key={type}
-                label={type}
-                count={typeCounts[type] ?? 0}
-                active={typeFilter === type}
-                onClick={() => setTypeFilter(type)}
+                label="All"
+                count={grants.length}
+                active={typeFilter === 'all'}
+                onClick={() => setTypeFilter('all')}
               />
-            ))}
-            <span className="ml-auto">
-              <Text size="caption" color="subtle">
-                {filtered.length} shown · {total} total
-              </Text>
-            </span>
+              {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+                <FilterChip
+                  key={type}
+                  label={type}
+                  count={typeCounts[type] ?? 0}
+                  active={typeFilter === type}
+                  onClick={() => setTypeFilter(type)}
+                />
+              ))}
+            </Stack>
+            <Text size="caption" color="subtle">
+              {filtered.length} shown · {total} total
+            </Text>
           </Stack>
         </>
       )}
@@ -201,19 +215,19 @@ export function GrantsTab({
         filtered.length === 0 ? (
           search || typeFilter !== 'all' ? (
             <EmptyState
-              icon={<Search className="size-5" />}
+              icon="search"
               title="No matches"
               description="No grants match your current filters. Try adjusting your search or clearing the filter."
             />
           ) : (
             <EmptyState
-              icon={<ShieldCheck className="size-5" />}
+              icon="shield-check"
               title="No grants yet"
               description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
               action={
                 canWrite ? (
                   <Button size="sm" onClick={() => setCreating(true)}>
-                    <Plus className="size-4 mr-1" />
+                    <Icon name="plus" />
                     Create Grant
                   </Button>
                 ) : undefined
@@ -234,7 +248,7 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<GrantViewToggle viewMode={viewMode} onToggle={setViewMode} />}
+          viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
 
@@ -242,16 +256,39 @@ export function GrantsTab({
       {total > limit && <GrantsPagination page={page} limit={limit} total={total} />}
 
       {/* Delete confirmation modal */}
-      <DeleteGrantModal
-        grant={deleteCandidate}
-        deleting={deletingId === deleteCandidate?.id}
+      <ConfirmDialog
+        open={!!deleteCandidate}
+        title="Delete Grant"
+        description="Remove this grant? This action cannot be undone."
+        confirmLabel="Delete"
+        confirming={deletingId === deleteCandidate?.id}
         error={deleteError}
-        onConfirm={handleDeleteConfirm}
+        onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.id)}
         onClose={() => {
           setDeleteCandidate(null);
           setDeleteError(null);
         }}
-      />
+      >
+        {deleteCandidate && (
+          <Card>
+            <CardContent padded>
+              <Stack gap="snug">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <PrincipalBadge type={deleteCandidate.principal_type} />
+                  <Text size="caption" mono weight="emphasis">
+                    {deleteCandidate.principal_id}
+                  </Text>
+                </Stack>
+                <Stack direction="horizontal" gap="tight" wrap>
+                  {deleteCandidate.scopes.map((s) => (
+                    <ScopeChip key={s} scope={s} />
+                  ))}
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+        )}
+      </ConfirmDialog>
 
       {/* Create grant modal */}
       <CreateGrantModal
@@ -290,11 +327,11 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
         >
           Previous
         </Button>
-        <span className="flex items-center px-2">
+        <Stack align="center" paddingInline="snug">
           <Text size="caption" color="muted">
             Page {page} of {totalPages}
           </Text>
-        </span>
+        </Stack>
         <Button
           variant="outline"
           size="sm"
@@ -305,54 +342,6 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
         </Button>
       </Stack>
     </Stack>
-  );
-}
-
-// ── Filter Chip ─────────────────────────────────────────────────────────────
-
-function FilterChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors select-none cursor-pointer',
-        active
-          ? 'bg-accent/10 text-accent border-accent/30'
-          : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
-      ].join(' ')}
-    >
-      <span>{label}</span>
-      <span className="text-[0.6875rem] opacity-70">{count}</span>
-    </button>
-  );
-}
-
-// ── PrincipalBadge ───────────────────────────────────────────────────────────
-
-function PrincipalBadge({ type }: { type: PrincipalType }) {
-  const variant =
-    type === 'AGENT'
-      ? 'default'
-      : type === 'HUMAN'
-        ? 'healthy'
-        : type === 'PAT'
-          ? 'secondary'
-          : 'degraded';
-  return (
-    <Badge variant={variant} size="sm">
-      {type}
-    </Badge>
   );
 }
 
@@ -456,7 +445,7 @@ function GrantCardGrid({
               </Text>
               <Stack direction="horizontal" align="center" gap="snug">
                 <Text size="caption" color="subtle">
-                  Created {formatDate(grant.created_at)}
+                  Created {fmtDate(grant.created_at)}
                 </Text>
                 {onDelete && (
                   <Button
@@ -465,7 +454,7 @@ function GrantCardGrid({
                     onClick={() => onDelete(grant)}
                     aria-label="Delete grant"
                   >
-                    <Trash2 className="size-3.5" />
+                    <Icon name="trash" size="2xs" />
                   </Button>
                 )}
               </Stack>
@@ -474,41 +463,6 @@ function GrantCardGrid({
         );
       })}
     </Grid>
-  );
-}
-
-// ── View toggle ──────────────────────────────────────────────────────────────
-
-function GrantViewToggle({
-  viewMode,
-  onToggle,
-}: {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
-}) {
-  return (
-    <Stack direction="horizontal" gap="none">
-      <span className="[&>button]:rounded-r-none">
-        <Button
-          variant={viewMode === 'cards' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('cards')}
-          aria-label="Card view"
-        >
-          <LayoutGrid className="size-3.5" />
-        </Button>
-      </span>
-      <span className="[&>button]:rounded-l-none -ml-px">
-        <Button
-          variant={viewMode === 'list' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('list')}
-          aria-label="List view"
-        >
-          <List className="size-3.5" />
-        </Button>
-      </span>
-    </Stack>
   );
 }
 
@@ -572,11 +526,11 @@ function GrantTable({
           const { rawId, primary } = resolveGrantIdentity(g, patAttribution, userAttribution);
           const id = rawId ?? primary;
           return (
-            <span className="whitespace-nowrap">
+            <Stack noWrap>
               <Text size="caption" color="subtle" mono>
                 {id}
               </Text>
-            </span>
+            </Stack>
           );
         },
       },
@@ -609,11 +563,11 @@ function GrantTable({
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
-          <span className="whitespace-nowrap">
+          <Stack noWrap>
             <Text size="caption" color="subtle">
-              {formatDate(g.created_at)}
+              {fmtDate(g.created_at)}
             </Text>
-          </span>
+          </Stack>
         ),
       },
       {
@@ -632,7 +586,7 @@ function GrantTable({
               }}
               aria-label="Delete grant"
             >
-              <Trash2 className="size-3.5" />
+              <Icon name="trash" size="2xs" />
             </Button>
           ) : null,
       },
@@ -668,100 +622,6 @@ function GrantTable({
   );
 }
 
-// ── Delete modal ─────────────────────────────────────────────────────────────
-
-function DeleteGrantModal({
-  grant,
-  deleting,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  grant: Grant | null;
-  deleting: boolean;
-  error: string | null;
-  onConfirm: (id: string) => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (grant) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [grant]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-md rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
-        <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">Delete Grant</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
-          {grant && (
-            <Stack gap="snug">
-              <Text size="caption" color="muted">
-                Remove this grant? This action cannot be undone.
-              </Text>
-              <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-3">
-                <Stack gap="snug">
-                  <Stack direction="horizontal" align="center" gap="snug">
-                    <PrincipalBadge type={grant.principal_type} />
-                    <Text size="caption" mono weight="emphasis">
-                      {grant.principal_id}
-                    </Text>
-                  </Stack>
-                  <Stack direction="horizontal" gap="tight" wrap>
-                    {grant.scopes.map((s) => (
-                      <ScopeChip key={s} scope={s} />
-                    ))}
-                  </Stack>
-                </Stack>
-              </section>
-            </Stack>
-          )}
-          {error && (
-            <Text color="status-error" size="caption">
-              {error}
-            </Text>
-          )}
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => grant && onConfirm(grant.id)}
-              disabled={deleting}
-            >
-              {deleting ? 'Deleting...' : 'Delete'}
-            </Button>
-          </Stack>
-        </Stack>
-      </section>
-    </dialog>
-  );
-}
-
 // ── User picker ───────────────────────────────────────────────────────────────
 
 function UserPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
@@ -787,55 +647,59 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
   }, [search]);
 
   return (
-    <section>
-      <span className="relative mb-1.5 block">
-        <input
+    <Stack gap="none">
+      <Stack marginBottom="tight">
+        <Input
           type="text"
           placeholder="Search users…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
-      </span>
-      <section className="border border-border rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+      </Stack>
+      <Card maxHeight="scroll-sm" overflowY="auto">
         {loading || users.length === 0 ? (
-          <section className="px-3 py-1.5">
+          <Stack paddingBlock="tight" paddingInline="snug">
             <Text size="caption" color="muted">
               {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
             </Text>
-          </section>
+          </Stack>
         ) : (
-          <ul className="list-none m-0 p-0">
+          <Stack gap="none">
             {users.map((u) => {
               const isSelected = value === u.id;
               return (
-                <li key={u.id} className="border-b border-border-subtle last:border-b-0">
-                  <button
-                    type="button"
+                <Stack key={u.id} gap="none">
+                  <Button
+                    variant={isSelected ? 'secondary' : 'ghost'}
+                    fullWidth
                     onClick={() => onChange(u.id)}
-                    className={[
-                      'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors cursor-pointer select-none',
-                      isSelected ? 'bg-accent/10' : 'hover:bg-surface-overlay',
-                    ].join(' ')}
                   >
-                    <span
-                      className={`flex-1 min-w-0 truncate text-xs leading-none ${isSelected ? 'font-medium text-accent' : 'text-foreground'}`}
-                    >
-                      {u.display_name || u.email}
-                    </span>
+                    <Stack grow minWidth="none" gap="none">
+                      <Text
+                        size="caption"
+                        truncate
+                        color={isSelected ? 'accent' : 'foreground'}
+                        weight={isSelected ? 'emphasis' : undefined}
+                      >
+                        {u.display_name || u.email}
+                      </Text>
+                    </Stack>
                     {u.display_name && u.display_name !== u.email && (
-                      <span className="shrink-0 text-[11px] leading-none text-muted">
-                        {u.email}
-                      </span>
+                      <Stack shrink gap="none">
+                        <Text size="caption" color="muted">
+                          {u.email}
+                        </Text>
+                      </Stack>
                     )}
-                  </button>
-                </li>
+                  </Button>
+                  <Separator />
+                </Stack>
               );
             })}
-          </ul>
+          </Stack>
         )}
-      </section>
-    </section>
+      </Card>
+    </Stack>
   );
 }
 
@@ -852,31 +716,12 @@ function CreateGrantModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [principalType, setPrincipalType] = useState<PrincipalType>('AGENT');
   const [principalId, setPrincipalId] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     const trimmedId = principalId.trim();
@@ -900,19 +745,10 @@ function CreateGrantModal({
   }, [principalType, principalId, selectedScopes, onCreated]);
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader title="Create Grant" />
+      <ModalBody>
         <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">Create Grant</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
-
           {/* Principal type */}
           <Stack gap="tight">
             <Text size="caption" weight="emphasis">
@@ -943,12 +779,11 @@ function CreateGrantModal({
             {principalType === 'HUMAN' ? (
               <UserPicker value={principalId} onChange={setPrincipalId} />
             ) : (
-              <input
+              <Input
                 type="text"
                 placeholder={principalType === 'AGENT' ? 'Agent UUID' : 'Service identifier'}
                 value={principalId}
                 onChange={(e) => setPrincipalId(e.target.value)}
-                className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               />
             )}
           </Stack>
@@ -986,35 +821,20 @@ function CreateGrantModal({
               {submitError}
             </Text>
           )}
-
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={submitting || !principalId || selectedScopes.length === 0}
-            >
-              {submitting ? 'Creating...' : 'Create Grant'}
-            </Button>
-          </Stack>
         </Stack>
-      </section>
-    </dialog>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void handleSubmit()}
+          disabled={submitting || !principalId || selectedScopes.length === 0}
+        >
+          {submitting ? 'Creating...' : 'Create Grant'}
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
 }

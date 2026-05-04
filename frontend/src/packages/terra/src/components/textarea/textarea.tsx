@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
+import { useFormField } from '../form-field';
 
 // ─── Variants ────────────────────────────────────────────────────────────────
 
@@ -171,10 +172,15 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       maxRows = 8,
       style,
       onChange,
+      id,
+      'aria-describedby': ariaDescribedby,
+      'aria-invalid': ariaInvalid,
+      'aria-required': ariaRequired,
       ...props
     },
     ref,
   ) => {
+    const field = useFormField();
     // Line-height is 1.5 × 14px (text-sm) = 21px; add vertical padding
     // (pt-3=12px + pb-2=8px = 20px for bare; py-2=16px for default).
     const LINE_HEIGHT_PX = 21;
@@ -199,6 +205,17 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       <textarea
         ref={ref}
         onChange={handleChange}
+        id={id ?? field?.id}
+        aria-describedby={
+          ariaDescribedby ??
+          (field
+            ? [field.hasHint ? field.hintId : '', field.hasError ? field.errorId : '']
+                .filter(Boolean)
+                .join(' ') || undefined
+            : undefined)
+        }
+        aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
+        aria-required={ariaRequired ?? field?.required ?? undefined}
         style={autoResize ? { overflowY: 'hidden', ...style } : style}
         className={cn(textareaVariants({ variant, error: hasError }), className)}
         {...props}

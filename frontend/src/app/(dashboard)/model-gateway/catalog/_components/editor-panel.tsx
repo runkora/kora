@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertCircle, X } from 'lucide-react';
 import {
   Alert,
+  Badge,
   Button,
   Field,
   Grid,
@@ -11,9 +11,15 @@ import {
   Input,
   Label,
   NativeSelect,
+  Output,
+  Separator,
+  SidePanel,
+  SidePanelBody,
+  SidePanelFooter,
   Stack,
   Text,
   Toggle,
+  Icon,
 } from '@orbit/terra';
 import type { VirtualModel, ProviderModel } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
@@ -79,148 +85,138 @@ export function EditorPanel({ model, onClose, onSaved, providerModels }: EditorP
   }
 
   return (
-    <>
-      <span className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden />
-      <section className="fixed inset-y-0 right-0 z-50 flex w-[580px] flex-col bg-surface shadow-2xl">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" gap="snug">
-              <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
-              {!isNew && (
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    draft.enabled
-                      ? 'bg-status-healthy/15 text-status-healthy'
-                      : 'bg-muted/20 text-muted'
-                  }`}
-                >
-                  {draft.enabled ? 'Enabled' : 'Disabled'}
-                </span>
-              )}
-            </Stack>
-            {fullId && (
-              <Text size="caption" color="muted" mono>
-                {fullId}
-              </Text>
+    <SidePanel open size="md" onClose={onClose}>
+      <Stack
+        direction="horizontal"
+        align="center"
+        justify="between"
+        paddingBlock="comfortable"
+        paddingInline="comfortable"
+      >
+        <Stack gap="tight">
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Heading variant="section">{isNew ? 'New Virtual Model' : draft.displayName}</Heading>
+            {!isNew && (
+              <Badge variant={draft.enabled ? 'healthy' : 'muted'} shape="pill" size="sm">
+                {draft.enabled ? 'Enabled' : 'Disabled'}
+              </Badge>
             )}
           </Stack>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1.5 text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
+          {fullId && (
+            <Text size="caption" color="muted" mono>
+              {fullId}
+            </Text>
+          )}
+        </Stack>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel">
+          <Icon name="close" />
+        </Button>
+      </Stack>
+      <Separator />
 
-        {/* Identity fields */}
-        <section className="border-b border-border px-5 py-4">
-          <Grid cols={2} gap="snug">
-            <Field>
-              <Label>Family</Label>
-              {knownFamilies.length > 0 ? (
-                <NativeSelect
-                  value={draft.family}
-                  onChange={(e) => setDraft({ ...draft, family: e.target.value })}
-                  mono
-                >
-                  <option value="">— select —</option>
-                  {knownFamilies.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </NativeSelect>
-              ) : (
-                <span className="font-mono">
+      <SidePanelBody>
+        <Stack gap="comfortable">
+          {/* Identity fields */}
+          <Stack paddingBottom="comfortable">
+            <Grid cols={2} gap="snug">
+              <Field>
+                <Label>Family</Label>
+                {knownFamilies.length > 0 ? (
+                  <NativeSelect
+                    value={draft.family}
+                    onChange={(e) => setDraft({ ...draft, family: e.target.value })}
+                    mono
+                  >
+                    <option value="">— select —</option>
+                    {knownFamilies.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                ) : (
                   <Input
+                    mono
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     placeholder="e.g. anthropic"
                   />
-                </span>
-              )}
-            </Field>
+                )}
+              </Field>
 
-            <Field>
-              <Label>Model name</Label>
-              <span className="font-mono">
+              <Field>
+                <Label>Model name</Label>
                 <Input
+                  mono
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="e.g. claude-sonnet-4-6"
                 />
-              </span>
-            </Field>
+              </Field>
 
-            <Field>
-              <Label>Display name</Label>
-              <Input
-                value={draft.displayName}
-                onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
-                placeholder="e.g. Claude Sonnet 4.6"
-              />
-            </Field>
+              <Field>
+                <Label>Display name</Label>
+                <Input
+                  value={draft.displayName}
+                  onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
+                  placeholder="e.g. Claude Sonnet 4.6"
+                />
+              </Field>
 
-            <Field>
-              <Label>Scope (derived)</Label>
-              <span className="flex h-9 items-center rounded-md border border-border bg-surface px-3">
-                <span className="truncate">
+              <Field>
+                <Label>Scope (derived)</Label>
+                <Output field>
                   <Text size="caption" color="muted" mono>
                     {fullId ? vmPolicyScope(draft) : '—'}
                   </Text>
-                </span>
-              </span>
-            </Field>
-
-            <span className="col-span-2">
-              <Field>
-                <Label>Description</Label>
-                <Input
-                  value={draft.description}
-                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  placeholder="Optional description"
-                />
+                </Output>
               </Field>
-            </span>
-          </Grid>
-        </section>
+            </Grid>
 
-        {/* Routes content */}
-        <section className="flex-1 overflow-y-auto px-5 py-4">
+            {/* Description spans full width — outside the 2-col grid */}
+            <Field>
+              <Label>Description</Label>
+              <Input
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </Field>
+          </Stack>
+          <Separator />
+
+          {/* Routes content */}
           <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
-        </section>
+        </Stack>
+      </SidePanelBody>
 
-        {error && (
-          <span className="mx-5 mb-3 block">
-            <Alert variant="error">
-              <AlertCircle className="size-3.5 shrink-0 text-status-error" />
-              <Text size="caption" color="muted">
-                {error}
-              </Text>
-            </Alert>
-          </span>
-        )}
-
-        {/* Footer */}
-        <footer className="flex items-center justify-between border-t border-border px-5 py-4">
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
-            <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
-              {draft.enabled ? 'Enabled' : 'Disabled'}
+      {error && (
+        <Stack paddingInline="comfortable" paddingBlock="snug">
+          <Alert variant="error">
+            <Icon name="alert-circle" size="2xs" color="status-error" />
+            <Text size="caption" color="muted">
+              {error}
             </Text>
-          </Stack>
-          <Stack direction="horizontal" gap="snug">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSave()} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </Button>
-          </Stack>
-        </footer>
-      </section>
-    </>
+          </Alert>
+        </Stack>
+      )}
+
+      <SidePanelFooter justify="between">
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+          <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
+            {draft.enabled ? 'Enabled' : 'Disabled'}
+          </Text>
+        </Stack>
+        <Stack direction="horizontal" gap="snug">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void handleSave()} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </Stack>
+      </SidePanelFooter>
+    </SidePanel>
   );
 }

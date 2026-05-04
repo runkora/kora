@@ -72,22 +72,30 @@ const skeletonVariants = cva('animate-pulse bg-surface-elevated', {
  * <Skeleton shape="block" width="full" size="xl" />
  * ```
  */
-const Skeleton = React.forwardRef<
-  HTMLDivElement,
-  Omit<React.HTMLAttributes<HTMLDivElement>, 'className'> & VariantProps<typeof skeletonVariants>
->(({ shape = 'line', width = 'full', size = 'sm', ...props }, ref) => (
-  <div
-    ref={ref}
-    // When shape is 'circle', width is intentionally omitted so that
-    // aspect-square + the size height token control the diameter cleanly.
-    className={skeletonVariants({
-      shape,
-      width: shape === 'circle' ? undefined : width,
-      size,
-    })}
-    {...props}
-  />
-));
+export interface SkeletonProps extends VariantProps<typeof skeletonVariants> {
+  /** @internal className is locked — all styling must go through typed props. */
+  className?: never;
+  id?: string;
+  role?: React.AriaRole;
+  'aria-label'?: string;
+  'aria-hidden'?: boolean | 'true' | 'false';
+}
+
+const Skeleton = React.forwardRef<HTMLDivElement, SkeletonProps>(
+  ({ shape = 'line', width = 'full', size = 'sm', ...props }, ref) => (
+    <div
+      ref={ref}
+      // When shape is 'circle', width is intentionally omitted so that
+      // aspect-square + the size height token control the diameter cleanly.
+      className={skeletonVariants({
+        shape,
+        width: shape === 'circle' ? undefined : width,
+        size,
+      })}
+      {...props}
+    />
+  ),
+);
 
 Skeleton.displayName = 'Skeleton';
 

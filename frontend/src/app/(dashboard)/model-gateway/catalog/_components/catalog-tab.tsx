@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { AlertCircle, CircleDot, Layers, Network, ShieldCheck } from 'lucide-react';
 import {
   Alert,
   Badge,
@@ -13,6 +12,7 @@ import {
   TabsList,
   TabsTrigger,
   Text,
+  Icon,
 } from '@orbit/terra';
 import type {
   VirtualModel as ApiVirtualModel,
@@ -73,7 +73,7 @@ export function CatalogTab({
         </Text>
         {initialError && (
           <Alert variant="error">
-            <AlertCircle className="size-3.5 shrink-0 text-status-error" />
+            <Icon name="alert-circle" size="2xs" color="status-error" />
             <Text size="caption" color="muted">
               Failed to load catalog: {initialError}
             </Text>
@@ -83,25 +83,25 @@ export function CatalogTab({
 
       <Grid cols={{ base: 2, lg: 4 }} gap="snug">
         <StatCard
-          icon={<Layers className="size-4" />}
+          icon={<Icon name="layers" />}
           label="Virtual Models"
           value={virtualModels.length}
           sub={`${enabledVMs} enabled`}
         />
         <StatCard
-          icon={<CircleDot className="size-4" />}
+          icon={<Icon name="circle-dot" />}
           label="Provider Models"
           value={providerModels.length}
           sub={`${enabledPMs} enabled`}
         />
         <StatCard
-          icon={<Network className="size-4" />}
+          icon={<Icon name="network" />}
           label="Connected Providers"
           value={connectedProviders || '—'}
           sub={connectedProviders > 0 ? 'discovered' : 'none yet'}
         />
         <StatCard
-          icon={<ShieldCheck className="size-4" />}
+          icon={<Icon name="shield-check" />}
           label="Policy Scopes"
           value={virtualModels.length}
           sub="auto-registered"
@@ -112,15 +112,15 @@ export function CatalogTab({
         <TabsList>
           <TabsTrigger value="virtual">
             Virtual Models
-            <span className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
+            <Badge variant="secondary" size="sm">
               {virtualModels.length}
-            </span>
+            </Badge>
           </TabsTrigger>
           <TabsTrigger value="provider">
             Provider Catalog
-            <span className="ml-2 rounded-full bg-surface-elevated px-1.5 py-0.5 text-[11px] text-muted">
+            <Badge variant="secondary" size="sm">
               {providerModels.length}
-            </span>
+            </Badge>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="virtual">

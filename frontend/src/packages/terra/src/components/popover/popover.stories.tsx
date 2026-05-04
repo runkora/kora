@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { Settings, Filter, Info, ChevronDown } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from './popover';
 import { Button } from '../button/button';
+import { Text } from '../typography/typography';
+import { Stack } from '../layout/stack';
 
 const meta: Meta = {
   title: 'Terra/Atoms/Popover',
@@ -28,8 +30,14 @@ export const Default: Story = {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="p-3">
-        <p className="text-sm text-foreground">Popover content goes here.</p>
-        <p className="mt-1 text-xs text-muted">Any React node is valid content.</p>
+        <Stack gap="tight">
+          <Text size="supporting" color="foreground">
+            Popover content goes here.
+          </Text>
+          <Text size="micro" color="muted">
+            Any React node is valid content.
+          </Text>
+        </Stack>
       </PopoverContent>
     </Popover>
   ),
@@ -56,23 +64,25 @@ function PolicyFilterDemo() {
           <Filter size={13} />
           Filter
           {selected.length > 0 && (
-            <span className="ml-0.5 rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+            <output className="ml-0.5 rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {selected.length}
-            </span>
+            </output>
           )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-44 p-1.5">
-        <p className="px-2 pb-1.5 pt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
-          Decision type
-        </p>
+        <div className="px-2 pb-1.5 pt-0.5">
+          <Text size="micro" color="muted" weight="emphasis" transform="uppercase">
+            Decision type
+          </Text>
+        </div>
         {options.map(({ value, label }) => (
           <button
             key={value}
             onClick={() => toggle(value)}
             className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm text-foreground hover:bg-surface transition-colors"
           >
-            <span
+            <div
               className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-colors ${
                 selected.includes(value) ? 'border-accent bg-accent text-white' : 'border-border'
               }`}
@@ -89,7 +99,7 @@ function PolicyFilterDemo() {
                   />
                 </svg>
               )}
-            </span>
+            </div>
             {label}
           </button>
         ))}
@@ -151,7 +161,11 @@ export const CredentialInfo: Story = {
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3">
-        <p className="mb-2 text-xs font-medium text-foreground">prod-s3-read</p>
+        <div className="mb-2">
+          <Text size="micro" color="foreground" weight="emphasis">
+            prod-s3-read
+          </Text>
+        </div>
         <dl className="space-y-1.5">
           {[
             { term: 'Type', detail: 'AWS IAM' },
@@ -181,9 +195,14 @@ export const Positions: Story = {
             </Button>
           </PopoverTrigger>
           <PopoverContent side={side} className="px-3 py-2">
-            <p className="text-xs text-muted">
-              Opens on <span className="text-foreground">{side}</span>
-            </p>
+            <Stack direction="horizontal" gap="tight" align="center">
+              <Text size="micro" color="muted">
+                Opens on
+              </Text>
+              <Text size="micro" color="foreground">
+                {side}
+              </Text>
+            </Stack>
           </PopoverContent>
         </Popover>
       ))}
@@ -195,10 +214,12 @@ export const WithAnchor: Story = {
   name: 'Custom anchor',
   render: () => (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-muted">Model:</span>
+      <Text size="supporting" color="muted">
+        Model:
+      </Text>
       <Popover>
         <PopoverAnchor asChild>
-          <span className="text-sm font-mono text-foreground">claude-sonnet-4</span>
+          <code className="text-sm font-mono text-foreground">claude-sonnet-4</code>
         </PopoverAnchor>
         <PopoverTrigger asChild>
           <button
@@ -209,8 +230,14 @@ export const WithAnchor: Story = {
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-56 p-3">
-          <p className="mb-1 text-xs font-medium text-foreground">claude-sonnet-4</p>
-          <p className="text-xs text-muted">200k context · $3 / 1M input tokens</p>
+          <div className="mb-1">
+            <Text size="micro" color="foreground" weight="emphasis">
+              claude-sonnet-4
+            </Text>
+          </div>
+          <Text size="micro" color="muted">
+            200k context · $3 / 1M input tokens
+          </Text>
         </PopoverContent>
       </Popover>
     </div>

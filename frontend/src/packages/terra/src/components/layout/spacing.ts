@@ -13,7 +13,7 @@
  *   comfortable →  16px  (gap-4)
  *   relaxed     →  24px  (gap-6)
  *   loose       →  32px  (gap-8)
- *   spacious    →  48px  (gap-12)
+ *   spacious    →  40px  (gap-10)
  */
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-4',
     relaxed: 'gap-6',
     loose: 'gap-8',
-    spacious: 'gap-12',
+    spacious: 'gap-10',
   },
   sm: {
     none: 'sm:gap-0',
@@ -79,7 +79,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-4',
     relaxed: 'sm:gap-6',
     loose: 'sm:gap-8',
-    spacious: 'sm:gap-12',
+    spacious: 'sm:gap-10',
   },
   md: {
     none: 'md:gap-0',
@@ -88,7 +88,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-4',
     relaxed: 'md:gap-6',
     loose: 'md:gap-8',
-    spacious: 'md:gap-12',
+    spacious: 'md:gap-10',
   },
   lg: {
     none: 'lg:gap-0',
@@ -97,7 +97,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-4',
     relaxed: 'lg:gap-6',
     loose: 'lg:gap-8',
-    spacious: 'lg:gap-12',
+    spacious: 'lg:gap-10',
   },
   xl: {
     none: 'xl:gap-0',
@@ -106,7 +106,7 @@ export const GAP: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-4',
     relaxed: 'xl:gap-6',
     loose: 'xl:gap-8',
-    spacious: 'xl:gap-12',
+    spacious: 'xl:gap-10',
   },
 };
 
@@ -119,7 +119,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-x-4',
     relaxed: 'gap-x-6',
     loose: 'gap-x-8',
-    spacious: 'gap-x-12',
+    spacious: 'gap-x-10',
   },
   sm: {
     none: 'sm:gap-x-0',
@@ -128,7 +128,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-x-4',
     relaxed: 'sm:gap-x-6',
     loose: 'sm:gap-x-8',
-    spacious: 'sm:gap-x-12',
+    spacious: 'sm:gap-x-10',
   },
   md: {
     none: 'md:gap-x-0',
@@ -137,7 +137,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-x-4',
     relaxed: 'md:gap-x-6',
     loose: 'md:gap-x-8',
-    spacious: 'md:gap-x-12',
+    spacious: 'md:gap-x-10',
   },
   lg: {
     none: 'lg:gap-x-0',
@@ -146,7 +146,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-x-4',
     relaxed: 'lg:gap-x-6',
     loose: 'lg:gap-x-8',
-    spacious: 'lg:gap-x-12',
+    spacious: 'lg:gap-x-10',
   },
   xl: {
     none: 'xl:gap-x-0',
@@ -155,7 +155,7 @@ export const GAP_X: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-x-4',
     relaxed: 'xl:gap-x-6',
     loose: 'xl:gap-x-8',
-    spacious: 'xl:gap-x-12',
+    spacious: 'xl:gap-x-10',
   },
 };
 
@@ -168,7 +168,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'gap-y-4',
     relaxed: 'gap-y-6',
     loose: 'gap-y-8',
-    spacious: 'gap-y-12',
+    spacious: 'gap-y-10',
   },
   sm: {
     none: 'sm:gap-y-0',
@@ -177,7 +177,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'sm:gap-y-4',
     relaxed: 'sm:gap-y-6',
     loose: 'sm:gap-y-8',
-    spacious: 'sm:gap-y-12',
+    spacious: 'sm:gap-y-10',
   },
   md: {
     none: 'md:gap-y-0',
@@ -186,7 +186,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'md:gap-y-4',
     relaxed: 'md:gap-y-6',
     loose: 'md:gap-y-8',
-    spacious: 'md:gap-y-12',
+    spacious: 'md:gap-y-10',
   },
   lg: {
     none: 'lg:gap-y-0',
@@ -195,7 +195,7 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'lg:gap-y-4',
     relaxed: 'lg:gap-y-6',
     loose: 'lg:gap-y-8',
-    spacious: 'lg:gap-y-12',
+    spacious: 'lg:gap-y-10',
   },
   xl: {
     none: 'xl:gap-y-0',
@@ -204,8 +204,100 @@ export const GAP_Y: Record<Breakpoint, Record<SpacingSize, string>> = {
     comfortable: 'xl:gap-y-4',
     relaxed: 'xl:gap-y-6',
     loose: 'xl:gap-y-8',
-    spacious: 'xl:gap-y-12',
+    spacious: 'xl:gap-y-10',
   },
+};
+
+// ── Padding / margin class maps (non-responsive) ──────────────────────────────
+// These are scalar lookups used by Stack's padding/margin props.
+// Full string literals required for Tailwind v4's static scanner.
+
+/** All-sides padding: p-* */
+export const PADDING: Record<SpacingSize, string> = {
+  none: 'p-0',
+  tight: 'p-1',
+  snug: 'p-2',
+  comfortable: 'p-4',
+  relaxed: 'p-6',
+  loose: 'p-8',
+  spacious: 'p-10',
+};
+
+/** Block (vertical) padding: py-* */
+export const PADDING_BLOCK: Record<SpacingSize, string> = {
+  none: 'py-0',
+  tight: 'py-1',
+  snug: 'py-2',
+  comfortable: 'py-4',
+  relaxed: 'py-6',
+  loose: 'py-8',
+  spacious: 'py-10',
+};
+
+/** Inline (horizontal) padding: px-* */
+export const PADDING_INLINE: Record<SpacingSize, string> = {
+  none: 'px-0',
+  tight: 'px-1',
+  snug: 'px-2',
+  comfortable: 'px-4',
+  relaxed: 'px-6',
+  loose: 'px-8',
+  spacious: 'px-10',
+};
+
+/** Top padding: pt-* */
+export const PADDING_TOP: Record<SpacingSize, string> = {
+  none: 'pt-0',
+  tight: 'pt-1',
+  snug: 'pt-2',
+  comfortable: 'pt-4',
+  relaxed: 'pt-6',
+  loose: 'pt-8',
+  spacious: 'pt-10',
+};
+
+/** Bottom padding: pb-* */
+export const PADDING_BOTTOM: Record<SpacingSize, string> = {
+  none: 'pb-0',
+  tight: 'pb-1',
+  snug: 'pb-2',
+  comfortable: 'pb-4',
+  relaxed: 'pb-6',
+  loose: 'pb-8',
+  spacious: 'pb-10',
+};
+
+/** Top margin: mt-* */
+export const MARGIN_TOP: Record<SpacingSize, string> = {
+  none: 'mt-0',
+  tight: 'mt-1',
+  snug: 'mt-2',
+  comfortable: 'mt-4',
+  relaxed: 'mt-6',
+  loose: 'mt-8',
+  spacious: 'mt-10',
+};
+
+/** Bottom margin: mb-* */
+export const MARGIN_BOTTOM: Record<SpacingSize, string> = {
+  none: 'mb-0',
+  tight: 'mb-1',
+  snug: 'mb-2',
+  comfortable: 'mb-4',
+  relaxed: 'mb-6',
+  loose: 'mb-8',
+  spacious: 'mb-10',
+};
+
+/** Inline (horizontal) margin: mx-* */
+export const MARGIN_INLINE: Record<SpacingSize, string> = {
+  none: 'mx-0',
+  tight: 'mx-1',
+  snug: 'mx-2',
+  comfortable: 'mx-4',
+  relaxed: 'mx-6',
+  loose: 'mx-8',
+  spacious: 'mx-10',
 };
 
 // ── Internal helper ───────────────────────────────────────────────────────────

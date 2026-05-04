@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Heart, MoreVertical } from 'lucide-react';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
@@ -54,17 +53,15 @@ function Chips({ values }: { values: string[] }) {
 
 function LoadError({ onRetry }: { onRetry: () => void }) {
   return (
-    <Stack align="center" justify="center">
-      <figure style={{ padding: '3rem 0', textAlign: 'center', margin: 0 }}>
-        <Stack gap="snug" align="center">
-          <Text size="supporting" color="muted">
-            Couldn&apos;t load models. The inference gateway may be unavailable.
-          </Text>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        </Stack>
-      </figure>
+    <Stack align="center" justify="center" paddingBlock="spacious">
+      <Stack gap="snug" align="center">
+        <Text size="supporting" color="muted">
+          Couldn&apos;t load models. The inference gateway may be unavailable.
+        </Text>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </Stack>
     </Stack>
   );
 }
@@ -94,20 +91,14 @@ export function ModelsTab() {
             <Button
               variant="ghost"
               size="icon-sm"
+              dim={!isFav}
               aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleFavourite(row.id);
               }}
             >
-              <Heart
-                className={[
-                  'size-3.5 transition-colors',
-                  isFav
-                    ? 'fill-rose-500 text-rose-500'
-                    : 'text-muted-foreground opacity-30 hover:opacity-100',
-                ].join(' ')}
-              />
+              <Icon name="heart" size="2xs" color={isFav ? 'rose' : 'muted'} filled={isFav} />
             </Button>
           );
         },
@@ -120,11 +111,9 @@ export function ModelsTab() {
         sortAccessor: (row) => row.name,
         cell: (row) => (
           <Stack gap="none">
-            <span className="mb-0.5 block text-[10px] uppercase tracking-wider">
-              <Text size="caption" color="subtle">
-                {row.family}
-              </Text>
-            </span>
+            <Text size="caption" color="subtle" transform="uppercase">
+              {row.family}
+            </Text>
             <Text size="supporting" weight="emphasis" mono>
               {row.id}
             </Text>
@@ -197,7 +186,7 @@ export function ModelsTab() {
               setSelectedModel(row);
             }}
           >
-            <MoreVertical className="size-3.5" />
+            <Icon name="more-vertical" size="2xs" />
           </Button>
         ),
       },

@@ -12,13 +12,14 @@ export {
   TableEmpty,
   nextSortDir,
 } from './table';
-export type { SortDir, TableColumnVisibility } from './table';
+export type { SortDir, TableColumnVisibility, TableHeadProps } from './table';
 
 // ─── Table container ─────────────────────────────────────────────────────────
 export { TableContainer } from './table-extras';
 
 // ─── Table toolbar ───────────────────────────────────────────────────────────
-export { TableToolbar } from './table-toolbar';
+export { TableToolbar, TableToolbarShell } from './table-toolbar';
+export type { TableToolbarShellProps } from './table-toolbar';
 export type { TableToolbarProps } from './table-toolbar';
 
 // ─── Table column header ─────────────────────────────────────────────────────

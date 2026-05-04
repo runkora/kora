@@ -128,6 +128,19 @@ export interface ButtonProps
    * ```
    */
   fullWidth?: boolean;
+
+  /**
+   * When true, the button renders at reduced opacity (30%) and becomes fully
+   * opaque on hover. Use for contextual toggle actions that should recede
+   * visually in their "off" state (e.g. a favourites heart button).
+   *
+   * ```tsx
+   * <Button variant="ghost" size="icon-sm" dim={!isFavourite}>
+   *   <Icon name="heart" size="2xs" filled={isFavourite} />
+   * </Button>
+   * ```
+   */
+  dim?: boolean;
 }
 
 /**
@@ -155,12 +168,20 @@ export interface ButtonProps
  * ```
  */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, shape, fullWidth = false, asChild = false, ...props }, ref) => {
+  (
+    { className, variant, size, shape, fullWidth = false, asChild = false, dim = false, ...props },
+    ref,
+  ) => {
     const Comp = asChild ? Slot : 'button';
     return (
       <Comp
         ref={ref}
-        className={cn(buttonVariants({ variant, size, shape }), fullWidth && 'w-full', className)}
+        className={cn(
+          buttonVariants({ variant, size, shape }),
+          fullWidth && 'w-full',
+          dim && 'opacity-30 hover:opacity-100',
+          className,
+        )}
         {...props}
       />
     );

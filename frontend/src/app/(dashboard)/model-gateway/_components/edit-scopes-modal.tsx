@@ -1,10 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
-import { Button, Heading, Stack, Text } from '@orbit/terra';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Button,
+  Form,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Stack,
+  Text,
+} from '@orbit/terra';
 import { updateTokenScopes } from '../_actions/tokens';
-import { ScopePicker } from '../../policy/_components/scope-picker';
+import { ScopePicker } from '@orbit/components';
 import type { PAT } from '@orbit/shared/api';
 
 interface EditScopesModalProps {
@@ -20,48 +28,23 @@ export function EditScopesModal({
   onClose,
   onUpdated,
 }: EditScopesModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const open = pat !== null;
-
-  // Sync dialog open/close.
+  // Initialise / reset state whenever the target PAT changes.
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open) {
-      setSelectedScopes(pat.scopes ?? []);
-      setScopeSearch('');
-      setError(null);
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open, pat]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => {
+    if (!pat) {
       setSelectedScopes([]);
       setScopeSearch('');
       setError(null);
-      onClose();
-    };
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent<HTMLDialogElement>) => {
-      if (e.target === dialogRef.current) onClose();
-    },
-    [onClose],
-  );
+      return;
+    }
+    setSelectedScopes(pat.scopes ?? []);
+    setScopeSearch('');
+    setError(null);
+  }, [pat]);
 
   const handleToggleScope = useCallback((scope: string, checked: boolean) => {
     setSelectedScopes((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)));
@@ -104,41 +87,21 @@ export function EditScopesModal({
   );
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        {/* Header */}
-        <Stack asChild direction="horizontal" align="start" justify="between" gap="comfortable">
-          <header className="border-b border-border p-5">
-            <Stack gap="none">
-              <Heading variant="section">Edit permissions</Heading>
-              {pat && (
-                <Text size="supporting" color="muted">
-                  Update scopes for <span className="font-medium text-foreground">{pat.name}</span>
-                </Text>
-              )}
-            </Stack>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X className="size-4" />
-            </Button>
-          </header>
-        </Stack>
-
-        <section className="flex flex-col gap-5 p-5">
+    <Modal open={!!pat} onClose={onClose} size="lg">
+      <ModalHeader
+        title="Edit permissions"
+        description={pat ? `Update scopes for ${pat.name}` : undefined}
+      />
+      <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
+        <ModalBody>
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
-              <label className="text-sm font-medium text-foreground">
-                Permissions <span aria-hidden>*</span>
-              </label>
+              <Text size="caption" weight="emphasis">
+                Permissions{' '}
+                <Text as="span" aria-hidden="true">
+                  *
+                </Text>
+              </Text>
               {selectedScopes.length > 0 && (
                 <Text size="caption" color="muted">
                   {selectedScopes.length} selected
@@ -169,19 +132,17 @@ export function EditScopesModal({
               {error}
             </Text>
           )}
-        </section>
+        </ModalBody>
 
-        <Stack asChild direction="horizontal" justify="end" gap="snug">
-          <footer className="border-t border-border px-5 py-3">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="default" size="sm" disabled={submitting}>
-              {submitting ? 'Saving…' : 'Save permissions'}
-            </Button>
-          </footer>
-        </Stack>
-      </form>
-    </dialog>
+        <ModalFooter>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="default" size="sm" disabled={submitting}>
+            {submitting ? 'Saving…' : 'Save permissions'}
+          </Button>
+        </ModalFooter>
+      </Form>
+    </Modal>
   );
 }

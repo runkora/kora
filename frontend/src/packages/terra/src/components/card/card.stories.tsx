@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Activity } from 'lucide-react';
 import { Badge } from '../badge/badge';
 import { Button } from '../button/button';
+import { Icon } from '../icon/icon';
+import { Stack } from '../layout/stack';
 import { Text } from '../typography/typography';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card';
 
@@ -85,7 +86,7 @@ export const WithBadge: Story = {
 export const WithIcon: Story = {
   render: () => (
     <Card column className="w-72">
-      <CardHeader compact icon={<Activity className="size-4" />}>
+      <CardHeader compact icon={<Icon name="activity" size="sm" />}>
         <CardTitle>Total Requests</CardTitle>
         <CardDescription>Last billing period</CardDescription>
       </CardHeader>
@@ -111,5 +112,116 @@ export const ElevatedSurface: Story = {
         </Text>
       </CardContent>
     </Card>
+  ),
+};
+
+/**
+ * The `interactive` prop adds a `focus-within:border-accent` ring so the card
+ * responds visually when a focusable descendant (an input, textarea, or button)
+ * receives keyboard focus. Use for input cards, chat boxes, and search surfaces
+ * where the card itself acts as the focus container.
+ *
+ * Click or tab into the textarea below to see the accent border activate.
+ */
+export const Interactive: Story = {
+  render: () => (
+    <Card interactive className="w-96">
+      <CardContent>
+        <Stack direction="vertical" gap="snug">
+          <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+            Ask Orbit AI
+          </Text>
+          <textarea
+            className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+            rows={3}
+            placeholder="Type a message&hellip;"
+          />
+        </Stack>
+      </CardContent>
+      <CardFooter justify="between" compact>
+        <Text size="micro" color="subtle">
+          ⌘↵ to send
+        </Text>
+        <Button size="sm" variant="default">
+          Send
+        </Button>
+      </CardFooter>
+    </Card>
+  ),
+};
+
+/**
+ * The four `CardFooter` justify modes — `start` (default), `center`, `between`,
+ * and `end` — control the horizontal distribution of footer content.
+ * The `compact` flag reduces vertical padding for dense card layouts.
+ */
+export const CardFooterVariants: Story = {
+  name: 'CardFooter — justify variants',
+  render: () => (
+    <Stack direction="vertical" gap="comfortable" className="w-80">
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify start (default)
+      </Text>
+      <Card>
+        <CardFooter justify="start">
+          <Button size="sm" variant="secondary">
+            Cancel
+          </Button>
+          <Button size="sm" variant="default">
+            Save
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify center
+      </Text>
+      <Card>
+        <CardFooter justify="center">
+          <Button size="sm" variant="default">
+            Get started
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify between
+      </Text>
+      <Card>
+        <CardFooter justify="between">
+          <Button size="sm" variant="ghost">
+            Revoke
+          </Button>
+          <Button size="sm" variant="default">
+            Renew
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify end
+      </Text>
+      <Card>
+        <CardFooter justify="end">
+          <Button size="sm" variant="default">
+            Save changes
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Text size="caption" color="subtle" weight="strong" transform="uppercase">
+        justify between + compact
+      </Text>
+      <Card>
+        <CardFooter justify="between" compact>
+          <Text size="caption" color="subtle">
+            Last updated 2 min ago
+          </Text>
+          <Button size="sm" variant="ghost">
+            Refresh
+          </Button>
+        </CardFooter>
+      </Card>
+    </Stack>
   ),
 };

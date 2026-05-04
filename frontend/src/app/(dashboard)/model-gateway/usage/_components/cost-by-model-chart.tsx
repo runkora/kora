@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@orbit/terra';
+import { fmtUsd } from '@orbit/utils';
 import { MODEL_COSTS } from '../../_data/mock';
 
 // ── Chart Colors (Terra tokens as hex) ────────────────────────────────────────
@@ -33,10 +34,6 @@ const MODEL_BAR_COLORS = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(usd: number): string {
-  return `$${usd.toFixed(2)}`;
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -62,7 +59,7 @@ export function CostByModelChart() {
               tick={{ fill: COLORS.subtle, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={fmt}
+              tickFormatter={fmtUsd}
             />
             <YAxis
               type="category"
@@ -79,7 +76,7 @@ export function CostByModelChart() {
                 borderRadius: '6px',
                 padding: '8px 12px',
               }}
-              formatter={(value: unknown) => [fmt(Number(value)), 'Cost']}
+              formatter={(value: unknown) => [fmtUsd(Number(value)), 'Cost']}
               cursor={{ fill: 'rgba(255,255,255,0.05)' }}
             />
             <Bar dataKey="cost" isAnimationActive={false}>

@@ -6,6 +6,8 @@
 
 import {
   Skeleton,
+  Stack,
+  TableToolbarShell,
   Table,
   TableBody,
   TableCell,
@@ -18,15 +20,17 @@ import {
 
 function ToolbarSkeleton() {
   return (
-    <span className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle">
-      {/* Search input */}
-      <Skeleton shape="block" width="half" size="md" />
-      {/* Right side: count + columns toggle */}
-      <span className="ml-auto flex items-center gap-3">
-        <Skeleton shape="line" width="quarter" size="xs" />
-        <Skeleton shape="block" width="quarter" size="md" />
-      </span>
-    </span>
+    <TableToolbarShell>
+      <Stack direction="horizontal" align="center" justify="between" gap="comfortable" grow>
+        {/* Search input */}
+        <Skeleton shape="block" width="half" size="md" />
+        {/* Right side: count + columns toggle */}
+        <Stack direction="horizontal" align="center" gap="comfortable">
+          <Skeleton shape="line" width="quarter" size="xs" />
+          <Skeleton shape="block" width="quarter" size="md" />
+        </Stack>
+      </Stack>
+    </TableToolbarShell>
   );
 }
 

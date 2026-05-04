@@ -69,11 +69,11 @@ export function AnalyticsCostByModelChart({
         </CardHeader>
         <CardContent>
           <Stack align="center" justify="center" asChild>
-            <section className="h-[240px]">
+            <figure className="h-[240px]">
               <Text size="supporting" color="subtle">
                 No data for this period
               </Text>
-            </section>
+            </figure>
           </Stack>
         </CardContent>
       </Card>

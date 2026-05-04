@@ -216,26 +216,22 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         </Text>
       )}
 
-      <section
-        className={loading ? 'pointer-events-none opacity-50 transition-opacity' : undefined}
-      >
-        <DataTable
-          data={data?.data ?? []}
-          columns={COLUMNS}
-          getRowKey={(row) => row.principal_id}
-          noun="users"
-          searchPlaceholder="Search email or user ID…"
-          searchFn={(row, q) =>
-            row.principal_id.toLowerCase().includes(q) ||
-            (row.email?.toLowerCase().includes(q) ?? false) ||
-            (row.display_name?.toLowerCase().includes(q) ?? false)
-          }
-          defaultSortId="cost"
-          defaultSortDir="desc"
-          emptyMessage="No inference activity in this period."
-          filteredEmptyMessage="No users match your search."
-        />
-      </section>
+      <DataTable
+        data={data?.data ?? []}
+        columns={COLUMNS}
+        getRowKey={(row) => row.principal_id}
+        noun="users"
+        searchPlaceholder="Search email or user ID…"
+        searchFn={(row, q) =>
+          row.principal_id.toLowerCase().includes(q) ||
+          (row.email?.toLowerCase().includes(q) ?? false) ||
+          (row.display_name?.toLowerCase().includes(q) ?? false)
+        }
+        defaultSortId="cost"
+        defaultSortDir="desc"
+        emptyMessage="No inference activity in this period."
+        filteredEmptyMessage="No users match your search."
+      />
 
       {totalPages > 1 && (
         <Stack direction="horizontal" gap="tight" justify="end" align="center">

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import {
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -17,6 +18,7 @@ import {
 import { DAILY_LATENCY } from '../../_data/mock';
 import { type Period } from './table-controls';
 import { filterByPeriod } from './utils/table-utils';
+import { fmtDateAxis } from '@orbit/utils';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -40,15 +42,6 @@ function fmtLatency(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
-function formatDateAxis(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
-}
-
 function filterLatencyByPeriod(period: Period) {
   return filterByPeriod(DAILY_LATENCY, period);
 }
@@ -68,21 +61,9 @@ interface PeriodButtonProps {
 
 function PeriodButton({ active, onClick, children }: PeriodButtonProps) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '2px 8px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        border: active ? '1px solid #e8a07a' : '1px solid #44444d',
-        background: active ? 'rgba(232,160,122,0.15)' : 'transparent',
-        color: active ? '#e8a07a' : '#8a8a94',
-        cursor: 'pointer',
-      }}
-    >
+    <Button variant={active ? 'secondary' : 'ghost'} size="xs" onClick={onClick}>
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -119,7 +100,7 @@ export function LatencyChart() {
               tick={{ fill: COLORS.subtle, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatDateAxis}
+              tickFormatter={fmtDateAxis}
               minTickGap={40}
             />
             <YAxis
@@ -133,7 +114,7 @@ export function LatencyChart() {
               cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
               content={
                 <ChartTooltipContent
-                  labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+                  labelFormatter={(label: unknown) => fmtDateAxis(String(label))}
                   formatter={(v) => fmtLatency(Number(v))}
                 />
               }

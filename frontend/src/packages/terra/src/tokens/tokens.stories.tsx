@@ -47,27 +47,33 @@ function Swatch({ cssVar, label, detail, utility }: SwatchProps) {
         <Text size="supporting" weight="emphasis">
           {label}
         </Text>
-        <Text size="caption" color="muted" className="font-mono truncate">
-          <Text asChild size="caption" color="subtle">
-            <span>CSS: </span>
+        <div className="flex min-w-0 font-mono">
+          <Text size="caption" color="subtle" className="shrink-0">
+            CSS:&nbsp;
           </Text>
-          {cssVar}
-        </Text>
+          <Text size="caption" color="muted" className="truncate">
+            {cssVar}
+          </Text>
+        </div>
         {utility && (
-          <Text size="caption" color="muted" className="font-mono truncate">
-            <Text asChild size="caption" color="subtle">
-              <span>Tailwind: </span>
+          <div className="flex min-w-0 font-mono">
+            <Text size="caption" color="subtle" className="shrink-0">
+              Tailwind:&nbsp;
             </Text>
-            {utility}
-          </Text>
+            <Text size="caption" color="muted" className="truncate">
+              {utility}
+            </Text>
+          </div>
         )}
         {detail && (
-          <Text size="caption" color="muted" className="truncate">
-            <Text asChild size="caption" color="subtle">
-              <span>Context: </span>
+          <div className="flex min-w-0">
+            <Text size="caption" color="subtle" className="shrink-0">
+              Context:&nbsp;
             </Text>
-            {detail}
-          </Text>
+            <Text size="caption" color="muted" className="truncate">
+              {detail}
+            </Text>
+          </div>
         )}
       </div>
     </div>
@@ -335,10 +341,8 @@ export const Typography: Story = {
             <Text size="caption" color="subtle" className="font-mono">
               --font-sans · font-sans · Geist Sans → ui-sans-serif → system-ui
             </Text>
-            <Text size="lead" style={{ fontFamily: 'var(--font-sans)' }}>
-              The quick brown fox jumps over the lazy dog
-            </Text>
-            <Text size="supporting" color="muted" style={{ fontFamily: 'var(--font-sans)' }}>
+            <Text size="lead">The quick brown fox jumps over the lazy dog</Text>
+            <Text size="supporting" color="muted">
               ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789
             </Text>
           </div>
@@ -349,10 +353,10 @@ export const Typography: Story = {
             <Text size="caption" color="subtle" className="font-mono">
               --font-mono · font-mono · Geist Mono → Cascadia Code → ui-monospace
             </Text>
-            <Text size="lead" style={{ fontFamily: 'var(--font-mono)' }}>
+            <Text size="lead" mono>
               The quick brown fox jumps over the lazy dog
             </Text>
-            <Text size="supporting" color="muted" style={{ fontFamily: 'var(--font-mono)' }}>
+            <Text size="supporting" color="muted" mono>
               agent.id = &quot;agt_x7k2m&quot;; status = 0x1A; latency = 42ms;
             </Text>
           </div>

@@ -2,18 +2,22 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
+  Callout,
+  Alert,
   Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  FormField,
   Heading,
+  Input,
   Separator,
   Stack,
   Text,
+  Icon,
 } from '@orbit/terra';
-import { CheckCircle2, Search, ShieldOff, XCircle } from 'lucide-react';
 import type {
   CheckResponse,
   CheckSimulateRequest,
@@ -21,8 +25,7 @@ import type {
   ScopesExplainResponse,
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
-import { ScopeChip } from './scope-chip';
-import { ErrorBanner } from './error-banner';
+import { ScopeChip } from '@orbit/components';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;
@@ -160,19 +163,29 @@ export function EvaluateTab({
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
-        <Text size="caption" color="muted">
-          Uses the same OPA evaluation path as live enforcement.{' '}
-          <strong className="text-foreground">Scope lookup</strong> shows the full permission set
-          for a principal (your own session is pre-loaded).{' '}
-          <strong className="text-foreground">Policy check</strong> dry-runs a specific operation
-          against a principal with a chosen role.
-        </Text>
-      </section>
+      <Callout>
+        <Stack gap="tight">
+          <Text size="caption" color="muted">
+            Uses the same OPA evaluation path as live enforcement.
+          </Text>
+          <Text size="caption" color="muted">
+            <Text as="span" size="caption" color="foreground" weight="emphasis">
+              Scope lookup
+            </Text>{' '}
+            shows the full permission set for a principal (your own session is pre-loaded).
+          </Text>
+          <Text size="caption" color="muted">
+            <Text as="span" size="caption" color="foreground" weight="emphasis">
+              Policy check
+            </Text>{' '}
+            dry-runs a specific operation against a principal with a chosen role.
+          </Text>
+        </Stack>
+      </Callout>
 
       {/* ── Scope Lookup ───────────────────────────────────────────────────────── */}
       <Card column>
-        <CardHeader compact icon={<Search className="size-4" />}>
+        <CardHeader compact icon={<Icon name="search" />}>
           <CardTitle>Scope lookup</CardTitle>
         </CardHeader>
         <CardContent>
@@ -198,39 +211,42 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <span className="flex-1 min-w-[200px]">
-                <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Principal ID
-                  </Text>
-                  <input
+              <Stack grow minWidth="form-field">
+                <FormField id="scope-lookup-id" label="Principal ID">
+                  <Input
                     type="text"
                     placeholder="e.g. agent-uuid or user@example.com"
                     value={lookupId}
                     onChange={(e) => setLookupId(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
-                </Stack>
-              </span>
+                </FormField>
+              </Stack>
               <Button size="sm" onClick={handleLookup} disabled={lookupLoading || !lookupId}>
                 {lookupLoading ? 'Looking up...' : 'Look up'}
               </Button>
             </Stack>
 
-            {lookupError && <ErrorBanner message={lookupError} />}
+            {lookupError && (
+              <Alert variant="error">
+                <Icon name="triangle-alert" color="status-error" />
+                <Text size="caption" color="status-error">
+                  {lookupError}
+                </Text>
+              </Alert>
+            )}
 
             {explain && (
               <Stack gap="comfortable">
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <PrincipalBadge type={explain.principal_type as PrincipalType} />
-                  <Text size="caption" mono color="muted">
-                    {explain.principal_id}
-                  </Text>
-                  <span className="ml-auto">
-                    <Badge variant="secondary" size="sm">
-                      {explain.tenant_id}
-                    </Badge>
-                  </span>
+                <Stack direction="horizontal" align="center" justify="between" gap="snug">
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <PrincipalBadge type={explain.principal_type as PrincipalType} />
+                    <Text size="caption" mono color="muted">
+                      {explain.principal_id}
+                    </Text>
+                  </Stack>
+                  <Badge variant="secondary" size="sm">
+                    {explain.tenant_id}
+                  </Badge>
                 </Stack>
 
                 {explain.from_roles.length > 0 && (
@@ -239,26 +255,25 @@ export function EvaluateTab({
                       From roles
                     </Text>
                     {explain.from_roles.map((r) => (
-                      <section
-                        key={r.role}
-                        className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
-                      >
-                        <Stack gap="snug">
-                          <Stack direction="horizontal" align="center" gap="snug">
-                            <Text size="caption" mono color="accent">
-                              {r.role}
-                            </Text>
-                            <Text size="caption" color="subtle">
-                              → {r.scopes.length} {r.scopes.length === 1 ? 'scope' : 'scopes'}
-                            </Text>
+                      <Card key={r.role}>
+                        <CardContent padded>
+                          <Stack gap="snug">
+                            <Stack direction="horizontal" align="center" gap="snug">
+                              <Text size="caption" mono color="accent">
+                                {r.role}
+                              </Text>
+                              <Text size="caption" color="subtle">
+                                → {r.scopes.length} {r.scopes.length === 1 ? 'scope' : 'scopes'}
+                              </Text>
+                            </Stack>
+                            <Stack direction="horizontal" gap="tight" wrap>
+                              {r.scopes.map((s) => (
+                                <ScopeChip key={s} scope={s} />
+                              ))}
+                            </Stack>
                           </Stack>
-                          <Stack direction="horizontal" gap="tight" wrap>
-                            {r.scopes.map((s) => (
-                              <ScopeChip key={s} scope={s} />
-                            ))}
-                          </Stack>
-                        </Stack>
-                      </section>
+                        </CardContent>
+                      </Card>
                     ))}
                   </Stack>
                 )}
@@ -269,21 +284,20 @@ export function EvaluateTab({
                       From grants
                     </Text>
                     {explain.from_grants.map((g) => (
-                      <section
-                        key={g.grant_id}
-                        className="rounded-md border border-border-subtle bg-surface-elevated px-3 py-2.5"
-                      >
-                        <Stack gap="snug">
-                          <Text size="caption" mono color="subtle">
-                            {g.grant_id}
-                          </Text>
-                          <Stack direction="horizontal" gap="tight" wrap>
-                            {g.scopes.map((s) => (
-                              <ScopeChip key={s} scope={s} />
-                            ))}
+                      <Card key={g.grant_id}>
+                        <CardContent padded>
+                          <Stack gap="snug">
+                            <Text size="caption" mono color="subtle">
+                              {g.grant_id}
+                            </Text>
+                            <Stack direction="horizontal" gap="tight" wrap>
+                              {g.scopes.map((s) => (
+                                <ScopeChip key={s} scope={s} />
+                              ))}
+                            </Stack>
                           </Stack>
-                        </Stack>
-                      </section>
+                        </CardContent>
+                      </Card>
                     ))}
                   </Stack>
                 )}
@@ -295,14 +309,16 @@ export function EvaluateTab({
                     Effective scope set ({explain.effective_scopes.length})
                   </Text>
                   {explain.effective_scopes.length === 0 ? (
-                    <section className="rounded-md border border-border-subtle bg-surface-elevated px-4 py-6 text-center">
-                      <Stack gap="snug" align="center">
-                        <ShieldOff className="size-5 text-subtle" />
-                        <Text size="caption" color="muted">
-                          No effective scopes — this principal has no permissions.
-                        </Text>
-                      </Stack>
-                    </section>
+                    <Card>
+                      <CardContent padded>
+                        <Stack gap="snug" align="center" paddingBlock="spacious">
+                          <Icon name="shield-off" size="md" color="subtle" />
+                          <Text size="caption" color="muted">
+                            No effective scopes — this principal has no permissions.
+                          </Text>
+                        </Stack>
+                      </CardContent>
+                    </Card>
                   ) : (
                     <Stack direction="horizontal" gap="tight" wrap>
                       {explain.effective_scopes.map((s) => (
@@ -347,68 +363,65 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <span className="flex-1 min-w-[160px]">
-                <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Principal ID
-                  </Text>
-                  <input
+              <Stack grow minWidth="form-field-sm">
+                <FormField id="sim-principal-id" label="Principal ID">
+                  <Input
                     type="text"
                     placeholder="e.g. agent-uuid or user@example.com"
                     value={simPrincipalId}
                     onChange={(e) => setSimPrincipalId(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   />
-                </Stack>
-              </span>
+                </FormField>
+              </Stack>
             </Stack>
 
             {/* Role + scope row */}
             <Stack direction="horizontal" align="end" gap="snug" wrap>
-              <span className="flex-1 min-w-[160px]">
-                <Stack gap="tight">
+              <Stack gap="tight" grow minWidth="form-field-sm">
+                <Stack direction="horizontal" align="center" gap="tight">
                   <Text size="caption" weight="emphasis">
-                    Role <span className="font-normal text-subtle">(optional)</span>
+                    Role
                   </Text>
-                  <select
-                    value={simRole}
-                    onChange={(e) => setSimRole(e.target.value)}
-                    aria-label="Role"
-                    className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
-                  >
-                    <option value="">No role (grants only)</option>
-                    {availableRoles.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </Stack>
-              </span>
-              <span className="flex-1 min-w-[200px]">
-                <Stack gap="tight">
-                  <Text size="caption" weight="emphasis">
-                    Scope to check
+                  <Text size="caption" color="subtle">
+                    (optional)
                   </Text>
-                  <select
-                    value={simScope}
-                    onChange={(e) => setSimScope(e.target.value)}
-                    aria-label="Scope to check"
-                    className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
-                  >
-                    <option value="">Select a scope...</option>
-                    {scopeGroups.map(([group, scopes]) => (
-                      <optgroup key={group} label={group}>
-                        {scopes.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
                 </Stack>
-              </span>
+                <select
+                  value={simRole}
+                  onChange={(e) => setSimRole(e.target.value)}
+                  aria-label="Role"
+                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground"
+                >
+                  <option value="">No role (grants only)</option>
+                  {availableRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </Stack>
+              <Stack gap="tight" grow minWidth="form-field">
+                <Text size="caption" weight="emphasis">
+                  Scope to check
+                </Text>
+                <select
+                  value={simScope}
+                  onChange={(e) => setSimScope(e.target.value)}
+                  aria-label="Scope to check"
+                  className="h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground font-mono"
+                >
+                  <option value="">Select a scope...</option>
+                  {scopeGroups.map(([group, scopes]) => (
+                    <optgroup key={group} label={group}>
+                      {scopes.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </Stack>
               <Button
                 size="sm"
                 onClick={handleSimulate}
@@ -418,22 +431,23 @@ export function EvaluateTab({
               </Button>
             </Stack>
 
-            {simError && <ErrorBanner message={simError} />}
+            {simError && (
+              <Alert variant="error">
+                <Icon name="triangle-alert" color="status-error" />
+                <Text size="caption" color="status-error">
+                  {simError}
+                </Text>
+              </Alert>
+            )}
 
             {simResult && (
-              <section
-                className={`rounded-md border p-4 ${
-                  simResult.allow
-                    ? 'border-status-healthy/30 bg-status-healthy/5'
-                    : 'border-status-error/30 bg-status-error/5'
-                }`}
-              >
+              <Callout variant={simResult.allow ? 'success' : 'error'}>
                 <Stack gap="snug">
                   <Stack direction="horizontal" align="center" gap="snug">
                     {simResult.allow ? (
-                      <CheckCircle2 className="size-5 text-status-healthy shrink-0" />
+                      <Icon name="check-circle" size="md" color="status-healthy" />
                     ) : (
-                      <XCircle className="size-5 text-status-error shrink-0" />
+                      <Icon name="x-circle" size="md" color="status-error" />
                     )}
                     <Text size="caption" weight="emphasis">
                       {simResult.allow ? 'ALLOW' : 'DENY'}
@@ -451,7 +465,7 @@ export function EvaluateTab({
                     {simResult.reason}
                   </Text>
                 </Stack>
-              </section>
+              </Callout>
             )}
           </Stack>
         </CardContent>

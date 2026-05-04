@@ -34,9 +34,7 @@ export default function RolesLoading() {
                   <TableHead>
                     <Skeleton shape="line" width="half" size="xs" />
                   </TableHead>
-                  <TableHead>
-                    <span className="w-10 block" />
-                  </TableHead>
+                  <TableHead srOnly>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

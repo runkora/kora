@@ -50,6 +50,27 @@ export function fmtCost(usd: number | null): string {
 // ── Dates & times ─────────────────────────────────────────────────────────────
 
 /**
+ * Formats a date-only string (e.g. "2025-01-15") as a compact "Mon D" label,
+ * e.g. "Jan 15". Intended for Recharts X-axis tick labels where space is limited
+ * and the year is implied by context.
+ *
+ * Appends T00:00:00Z before parsing to force UTC midnight and avoid ±1-day
+ * off-by-one errors from local-timezone interpretation.
+ *
+ * 'en-US' is intentional: chart axis labels are data, not prose — abbreviated
+ * English month names ("Jan", "Feb") are universally readable in technical
+ * contexts and keep label width predictable across locales.
+ */
+export function fmtDateAxis(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
  * Formats a non-nullable ISO timestamp as a short date, e.g. "Jan 1, 2025".
  * Intended for table cells where a date is always present (e.g. log rows).
  */
@@ -85,6 +106,45 @@ export function fmtExpiry(iso: string | null | undefined): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+/**
+ * Formats a non-nullable ISO timestamp as a compact "date + time" string,
+ * e.g. "Jan 5, 12:34 PM". Year is omitted — use for recent/current events
+ * where the year is implied. Paired with fmtDate when year context is needed.
+ */
+export function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────────
+
+/**
+ * Compact token count with B/M/K suffix, e.g. 1.2B, 3.5M, 1.2K.
+ * Use in billing stat cards and token breakdowns where the raw integer
+ * would be too wide.
+ */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+// ── Billing amounts ───────────────────────────────────────────────────────────
+
+/**
+ * Formats a USD billing amount to two decimal places, e.g. "$1,234.56".
+ * Use for period/monthly/quarterly totals where sub-cent precision is not
+ * meaningful. For per-request micro-costs use fmtCost instead.
+ */
+export function fmtUsd(usd: number): string {
+  return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // ── Expiry check ──────────────────────────────────────────────────────────────

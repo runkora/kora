@@ -1,12 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Check, Library, Search } from 'lucide-react';
 import {
+  Callout,
+  Alert,
+  Badge,
   Button,
+  Code,
+  Icon,
   Card,
   CardContent,
   Heading,
+  Input,
   Stack,
   Text,
   TableRoot,
@@ -18,9 +23,8 @@ import {
   TableCell,
 } from '@orbit/terra';
 import type { ScopeEntryWithUsage } from '../_types';
-import { ScopeChip } from './scope-chip';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { ScopeChip } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
 
 interface VocabularyTabProps {
   initialScopes: ScopeEntryWithUsage[];
@@ -98,89 +102,83 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
       </Stack>
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
-          Scopes use the format{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            resource:path:action
-          </code>
-          . Sibling scopes are independent —{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            mcp:github:read
-          </code>{' '}
-          does not grant{' '}
-          <code className="font-mono text-[0.6875rem] bg-surface-overlay border border-border-subtle rounded px-1 py-0.5">
-            mcp:github:write
-          </code>
+          Scopes use the format <Code>resource:path:action</Code>. Sibling scopes are independent —{' '}
+          <Code>mcp:github:read</Code> does not grant <Code>mcp:github:write</Code>
         </Text>
-      </section>
+      </Callout>
 
-      {initialError && <ErrorBanner message={initialError} />}
+      {initialError && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">
+            {initialError}
+          </Text>
+        </Alert>
+      )}
 
       {/* Search */}
-      <span className="relative max-w-xs">
-        <input
+      <Stack asChild maxWidth="compact">
+        <Input
           type="text"
           placeholder="Filter scopes..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
-      </span>
+      </Stack>
 
       {/* Filter chips */}
-      <Stack direction="horizontal" align="center" gap="snug" wrap>
-        <FilterChip
-          label="All"
-          count={initialScopes.length}
-          active={activeFilter === 'all'}
-          onClick={() => setActiveFilter('all')}
-        />
-        {resourceTypes.map(([type, count]) => (
+      <Stack direction="horizontal" align="center" justify="between">
+        <Stack direction="horizontal" align="center" gap="snug" wrap>
           <FilterChip
-            key={type}
-            label={type}
-            count={count}
-            mono
-            active={activeFilter === type}
-            onClick={() => setActiveFilter(type)}
+            label="All"
+            count={initialScopes.length}
+            active={activeFilter === 'all'}
+            onClick={() => setActiveFilter('all')}
           />
-        ))}
-        <span className="ml-auto">
-          <Text size="caption" color="subtle">
-            {filtered.length} of {initialScopes.length} scopes
-          </Text>
-        </span>
+          {resourceTypes.map(([type, count]) => (
+            <FilterChip
+              key={type}
+              label={type}
+              count={count}
+              mono
+              active={activeFilter === type}
+              onClick={() => setActiveFilter(type)}
+            />
+          ))}
+        </Stack>
+        <Text size="caption" color="subtle">
+          {filtered.length} of {initialScopes.length} scopes
+        </Text>
       </Stack>
 
       {/* Grouped tables */}
       {groups.length === 0 ? (
         search || activeFilter !== 'all' ? (
           <EmptyState
-            icon={<Search className="size-5" />}
+            icon="search"
             title="No matches"
             description="No scopes match your current filters. Try adjusting your search or selecting a different resource type."
           />
         ) : (
           <EmptyState
-            icon={<Library className="size-5" />}
+            icon="library"
             title="No scopes registered"
             description="Scopes are declared by services when they register their routes. Once a service registers its route→scope mappings, they will appear here."
           />
         )
       ) : (
         groups.map((group) => (
-          <section key={group.resourceType}>
+          <Stack key={group.resourceType}>
             {/* Group header */}
-            <Stack direction="horizontal" align="center" gap="snug" asChild>
-              <header className="mb-3">
-                <span className="font-mono font-semibold text-sm text-accent">
-                  {group.resourceType}
-                </span>
-                <Text size="caption" color="subtle">
-                  {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
-                </Text>
-              </header>
+            <Stack direction="horizontal" align="center" gap="snug" marginBottom="snug">
+              <Text size="supporting" color="accent" mono weight="strong">
+                {group.resourceType}
+              </Text>
+              <Text size="caption" color="subtle">
+                {group.scopes.length} {group.scopes.length === 1 ? 'scope' : 'scopes'}
+              </Text>
             </Stack>
 
             {/* Group table */}
@@ -192,12 +190,8 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                       <TableRow>
                         <TableHead>Scope</TableHead>
                         <TableHead>Description</TableHead>
-                        <TableHead>
-                          <span className="flex justify-end">Used in</span>
-                        </TableHead>
-                        <TableHead>
-                          <span className="sr-only">Copy</span>
-                        </TableHead>
+                        <TableHead align="right">Used in</TableHead>
+                        <TableHead srOnly>Copy</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -231,9 +225,9 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                               aria-label={`Copy ${scope.scope}`}
                             >
                               {copiedScope === scope.scope ? (
-                                <Check className="size-3.5 text-status-healthy" />
+                                <Icon name="check" size="2xs" color="status-healthy" />
                               ) : (
-                                <Copy className="size-3.5 text-subtle" />
+                                <Icon name="copy" size="2xs" color="subtle" />
                               )}
                             </Button>
                           </TableCell>
@@ -244,7 +238,7 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
                 </TableRoot>
               </CardContent>
             </Card>
-          </section>
+          </Stack>
         ))
       )}
     </Stack>
@@ -267,19 +261,18 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors select-none cursor-pointer',
-        active
-          ? 'bg-accent/10 text-accent border-accent/30'
-          : 'bg-transparent text-muted border-border hover:bg-surface-elevated hover:text-foreground',
-      ].join(' ')}
-    >
-      <span className={mono ? 'font-mono' : ''}>{label}</span>
-      <span className="text-[0.6875rem] opacity-70">{count}</span>
-    </button>
+    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
+      {mono ? (
+        <Text as="span" size="micro" mono>
+          {label}
+        </Text>
+      ) : (
+        label
+      )}
+      <Text as="span" size="micro" color="muted">
+        {count}
+      </Text>
+    </Button>
   );
 }
 
@@ -287,13 +280,8 @@ function FilterChip({
 
 function UsagePill({ count, label }: { count: number; label: string }) {
   return (
-    <span
-      className={[
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.6875rem] font-medium',
-        count > 0 ? 'bg-surface-elevated text-foreground' : 'bg-transparent text-subtle',
-      ].join(' ')}
-    >
+    <Badge variant={count > 0 ? 'elevated' : 'muted'} size="sm">
       {count} {label}
-    </span>
+    </Badge>
   );
 }

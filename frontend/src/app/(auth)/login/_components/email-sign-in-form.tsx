@@ -20,7 +20,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Field, FieldError, Input, Label, Text } from '@orbit/terra';
+import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@orbit/terra';
 
 import {
   buildUserManager,
@@ -125,14 +125,11 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+    <Form onSubmit={handleSubmit} noValidate gap="comfortable">
       {bannerError && (
-        // eslint-disable-next-line local/no-raw-div
-        <div role="alert" className="rounded-md border border-red-500/40 bg-red-950/40 px-3 py-2">
-          <Text size="caption" color="status-error">
-            {bannerError}
-          </Text>
-        </div>
+        <Alert variant="error">
+          <Text size="caption">{bannerError}</Text>
+        </Alert>
       )}
 
       <Field>
@@ -155,6 +152,6 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
       <Button type="submit" shape="pill" fullWidth disabled={loading}>
         {loading ? 'Looking up your organisation…' : 'Continue'}
       </Button>
-    </form>
+    </Form>
   );
 }

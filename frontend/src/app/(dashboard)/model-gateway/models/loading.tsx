@@ -8,6 +8,7 @@ import {
   Badge,
   Skeleton,
   Stack,
+  TableToolbarShell,
   TableBody,
   TableCell,
   TableContainer,
@@ -22,23 +23,21 @@ export default function ModelsLoading() {
   return (
     <TableContainer>
       {/* Toolbar skeleton: search left, count + toggle right */}
-      {/* eslint-disable-next-line local/no-raw-div */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-        <Skeleton shape="block" width="quarter" size="sm" />
-        {/* eslint-disable-next-line local/no-raw-div */}
-        <div className="ml-auto flex items-center gap-4">
-          <Skeleton shape="line" width="quarter" size="xs" />
+      <TableToolbarShell>
+        <Stack direction="horizontal" align="center" justify="between" gap="comfortable" grow>
           <Skeleton shape="block" width="quarter" size="sm" />
-        </div>
-      </div>
+          <Stack direction="horizontal" align="center" gap="comfortable">
+            <Skeleton shape="line" width="quarter" size="xs" />
+            <Skeleton shape="block" width="quarter" size="sm" />
+          </Stack>
+        </Stack>
+      </TableToolbarShell>
 
       <TableRoot>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <span className="w-10 block" />
-              </TableHead>
+              <TableHead srOnly>Favourite</TableHead>
               <TableHead>
                 <Skeleton shape="line" width="half" size="xs" />
               </TableHead>
@@ -54,9 +53,7 @@ export default function ModelsLoading() {
               <TableHead>
                 <Skeleton shape="line" width="full" size="xs" />
               </TableHead>
-              <TableHead>
-                <span className="w-10 block" />
-              </TableHead>
+              <TableHead srOnly>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

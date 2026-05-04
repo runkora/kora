@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { useFormField } from '../form-field';
 
 export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   /** Renders the select in an error state with a coloured border. */
@@ -23,10 +24,35 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
  * ```
  */
 const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
-  ({ className, hasError = false, mono = false, children, ...props }, ref) => {
+  (
+    {
+      className,
+      hasError = false,
+      mono = false,
+      children,
+      id,
+      'aria-describedby': ariaDescribedby,
+      'aria-invalid': ariaInvalid,
+      'aria-required': ariaRequired,
+      ...props
+    },
+    ref,
+  ) => {
+    const field = useFormField();
     return (
       <select
         ref={ref}
+        id={id ?? field?.id}
+        aria-describedby={
+          ariaDescribedby ??
+          (field
+            ? [field.hasHint ? field.hintId : '', field.hasError ? field.errorId : '']
+                .filter(Boolean)
+                .join(' ') || undefined
+            : undefined)
+        }
+        aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
+        aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
           // Layout & typography — matches Input height and padding
           'flex h-9 w-full rounded-md px-3 py-1',

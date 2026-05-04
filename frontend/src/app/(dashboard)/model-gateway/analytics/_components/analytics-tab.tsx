@@ -16,7 +16,7 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
 
   const filterSlot =
     models.length > 0 ? (
-      <section style={{ width: '200px' }}>
+      <Stack minWidth="form-field" maxWidth="form-field">
         <NativeSelect
           value={modelId ?? ''}
           onChange={(e) => setModelId(e.target.value || null)}
@@ -29,7 +29,7 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
             </option>
           ))}
         </NativeSelect>
-      </section>
+      </Stack>
     ) : undefined;
 
   return (

@@ -2,23 +2,19 @@
 
 import { useState, useRef } from 'react';
 import {
-  AlertCircle,
-  ArrowUpDown,
-  DollarSign,
-  GripVertical,
-  Network,
-  Plus,
-  Trash2,
-} from 'lucide-react';
-import {
+  Alert,
   Button,
+  DragCard,
+  Icon,
   Field,
   Grid,
   Input,
   Label,
   NativeSelect,
+  Output,
   Separator,
   Stack,
+  StepDot,
   Text,
   Toggle,
 } from '@orbit/terra';
@@ -92,44 +88,37 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               value: 'priority' as const,
               label: 'Priority / Failover',
               desc: 'Try routes in order. Move to next on failure.',
-              icon: <ArrowUpDown className="size-4" />,
+              iconName: 'arrow-up-down' as const,
             },
             {
               value: 'weighted' as const,
               label: 'Weighted Split',
               desc: 'Distribute traffic by percentage across routes.',
-              icon: <Network className="size-4" />,
+              iconName: 'network' as const,
             },
             {
               value: 'lowest_cost' as const,
               label: 'Lowest Cost',
               desc: 'Always route to the cheapest available provider.',
-              icon: <DollarSign className="size-4" />,
+              iconName: 'dollar-sign' as const,
             },
           ].map((s) => (
-            <button
+            <Button
               key={s.value}
-              type="button"
+              asChild
+              variant={model.strategy === s.value ? 'secondary' : 'outline'}
               onClick={() => onChange({ ...model, strategy: s.value })}
-              className={[
-                'rounded-md border p-3 text-left transition-colors',
-                model.strategy === s.value
-                  ? 'border-accent bg-accent/10'
-                  : 'border-border bg-surface-elevated hover:border-border/80',
-              ].join(' ')}
             >
-              <Stack gap="tight">
-                <span className={model.strategy === s.value ? 'text-accent' : 'text-muted'}>
-                  {s.icon}
-                </span>
-                <Text size="caption" weight="emphasis">
+              <Stack gap="tight" align="start" paddingBlock="snug" paddingInline="snug">
+                <Icon name={s.iconName} color={model.strategy === s.value ? 'accent' : 'muted'} />
+                <Text as="span" size="caption" weight="emphasis">
                   {s.label}
                 </Text>
-                <Text size="caption" color="muted">
+                <Text as="span" size="caption" color="muted">
                   {s.desc}
                 </Text>
               </Stack>
-            </button>
+            </Button>
           ))}
         </Grid>
       </Stack>
@@ -137,12 +126,10 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
       <Separator />
 
       <Stack gap="snug">
-        <Stack direction="horizontal" align="center" gap="snug">
-          <span className="flex-1">
-            <Text size="supporting" weight="emphasis">
-              Routes
-            </Text>
-          </span>
+        <Stack direction="horizontal" align="center" justify="between" gap="snug">
+          <Text size="supporting" weight="emphasis">
+            Routes
+          </Text>
           <Button
             variant="ghost"
             size="sm"
@@ -165,54 +152,48 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
               });
             }}
           >
-            <Plus className="mr-1.5 size-3.5" />
+            <Icon name="plus" size="2xs" />
             Add Route
           </Button>
         </Stack>
 
         {model.strategy === 'weighted' && (
-          <section className="flex items-center gap-2 rounded-md border border-[#a855f7]/30 bg-[#a855f7]/10 px-3 py-2">
-            <AlertCircle className="size-3.5 shrink-0 text-[#a855f7]" />
+          <Alert variant="warning">
+            <Icon name="alert-circle" size="2xs" color="status-degraded" />
             <Text size="caption" color="muted">
               Weights must sum to 100%. Current total:{' '}
-              <span className="font-medium text-foreground">
-                {model.routes.reduce((s, r) => s + r.weight, 0)}%
-              </span>
+              <Text asChild size="caption" weight="emphasis" color="foreground">
+                <Output>{model.routes.reduce((s, r) => s + r.weight, 0)}%</Output>
+              </Text>
             </Text>
-          </section>
+          </Alert>
         )}
 
         <Stack gap="snug">
           {model.routes.map((route, idx) => (
-            <section
+            <DragCard
               key={route.id || idx}
               draggable
+              dragging={draggingIdx === idx}
+              dropTarget={overIdx === idx && draggingIdx !== null}
               onDragStart={() => handleDragStart(idx)}
               onDragOver={(e) => handleDragOver(e, idx)}
               onDragLeave={handleDragLeave}
               onDrop={() => handleDrop(idx)}
               onDragEnd={handleDragEnd}
-              className={[
-                'flex gap-3 rounded-md border p-3 transition-all duration-150',
-                draggingIdx === idx
-                  ? 'opacity-40 scale-[0.98] border-border bg-surface-elevated'
-                  : overIdx === idx && draggingIdx !== null
-                    ? 'border-accent bg-accent/5 shadow-sm'
-                    : 'border-border bg-surface-elevated',
-              ].join(' ')}
             >
               {/* Left column: drag handle + priority number */}
-              <span className="flex shrink-0 flex-col items-center gap-1 pt-2">
-                <GripVertical className="size-4 cursor-grab text-muted active:cursor-grabbing" />
+              <Stack direction="vertical" align="center" gap="tight" shrink paddingTop="snug">
+                <Icon name="grip-vertical" color="muted" cursorGrab />
                 {model.strategy === 'priority' && (
-                  <span className="flex size-4 items-center justify-center rounded-full bg-surface text-[10px] font-bold text-muted">
+                  <StepDot variant="surface" size="sm">
                     {idx + 1}
-                  </span>
+                  </StepDot>
                 )}
-              </span>
+              </Stack>
 
               {/* Center column: all fields stacked */}
-              <span className="flex min-w-0 flex-1 flex-col gap-2">
+              <Stack direction="vertical" grow gap="snug" minWidth="none">
                 <NativeSelect
                   value={route.provider}
                   onChange={(e) => {
@@ -256,75 +237,68 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                       ))}
                   </NativeSelect>
                 ) : (
-                  <span className="font-mono">
+                  <Input
+                    mono
+                    value={route.modelId}
+                    onChange={(e) => {
+                      const updated = model.routes.map((r, i) =>
+                        i === idx ? { ...r, modelId: e.target.value } : r,
+                      );
+                      onChange({ ...model, routes: updated });
+                    }}
+                    placeholder="Provider model ID"
+                  />
+                )}
+
+                <Grid cols={2} gap="snug">
+                  <Field>
+                    <Label>
+                      <Text size="caption" color="muted">
+                        Input /1M
+                      </Text>
+                    </Label>
                     <Input
-                      value={route.modelId}
+                      type="number"
+                      value={route.inputCostPer1M}
+                      step="0.01"
+                      min="0"
                       onChange={(e) => {
                         const updated = model.routes.map((r, i) =>
-                          i === idx ? { ...r, modelId: e.target.value } : r,
+                          i === idx ? { ...r, inputCostPer1M: parseFloat(e.target.value) || 0 } : r,
                         );
                         onChange({ ...model, routes: updated });
                       }}
-                      placeholder="Provider model ID"
                     />
-                  </span>
-                )}
-
-                <Stack direction="horizontal" gap="snug">
-                  <span className="flex-1">
-                    <Field>
-                      <Label>
-                        <Text size="caption" color="muted">
-                          Input /1M
-                        </Text>
-                      </Label>
-                      <Input
-                        type="number"
-                        value={route.inputCostPer1M}
-                        step="0.01"
-                        min="0"
-                        onChange={(e) => {
-                          const updated = model.routes.map((r, i) =>
-                            i === idx
-                              ? { ...r, inputCostPer1M: parseFloat(e.target.value) || 0 }
-                              : r,
-                          );
-                          onChange({ ...model, routes: updated });
-                        }}
-                      />
-                    </Field>
-                  </span>
-                  <span className="flex-1">
-                    <Field>
-                      <Label>
-                        <Text size="caption" color="muted">
-                          Output /1M
-                        </Text>
-                      </Label>
-                      <Input
-                        type="number"
-                        value={route.outputCostPer1M}
-                        step="0.01"
-                        min="0"
-                        onChange={(e) => {
-                          const updated = model.routes.map((r, i) =>
-                            i === idx
-                              ? { ...r, outputCostPer1M: parseFloat(e.target.value) || 0 }
-                              : r,
-                          );
-                          onChange({ ...model, routes: updated });
-                        }}
-                      />
-                    </Field>
-                  </span>
-                </Stack>
-              </span>
+                  </Field>
+                  <Field>
+                    <Label>
+                      <Text size="caption" color="muted">
+                        Output /1M
+                      </Text>
+                    </Label>
+                    <Input
+                      type="number"
+                      value={route.outputCostPer1M}
+                      step="0.01"
+                      min="0"
+                      onChange={(e) => {
+                        const updated = model.routes.map((r, i) =>
+                          i === idx
+                            ? { ...r, outputCostPer1M: parseFloat(e.target.value) || 0 }
+                            : r,
+                        );
+                        onChange({ ...model, routes: updated });
+                      }}
+                    />
+                  </Field>
+                </Grid>
+              </Stack>
 
               {/* Right column: weight (weighted only) + toggle + delete */}
-              <span className="flex shrink-0 flex-col items-end gap-2">
+              <Stack direction="vertical" align="end" gap="snug" shrink>
                 {model.strategy === 'weighted' && (
                   <Stack direction="horizontal" align="center" gap="tight">
-                    <span className="w-16 text-center">
+                    <Stack asChild maxWidth="form-field-sm">
                       <Input
                         type="number"
                         value={route.weight}
@@ -337,7 +311,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                           onChange({ ...model, routes: updated });
                         }}
                       />
-                    </span>
+                    </Stack>
                     <Text size="caption" color="muted">
                       %
                     </Text>
@@ -353,18 +327,19 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                       onChange({ ...model, routes: updated });
                     }}
                   />
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() =>
                       onChange({ ...model, routes: model.routes.filter((_, i) => i !== idx) })
                     }
-                    className="rounded p-1.5 text-muted transition-colors hover:bg-surface hover:text-status-error"
+                    aria-label="Remove route"
                   >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                    <Icon name="trash" size="2xs" />
+                  </Button>
                 </Stack>
-              </span>
-            </section>
+              </Stack>
+            </DragCard>
           ))}
         </Stack>
 

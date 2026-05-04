@@ -118,9 +118,9 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
 
         {/* Optional numeric label */}
         {showValue && (
-          <span className="shrink-0 w-9 text-right text-xs tabular-nums text-muted">
+          <div className="shrink-0 w-9 text-right text-xs tabular-nums text-muted">
             {Math.round(pct)}%
-          </span>
+          </div>
         )}
       </div>
     );

@@ -1,26 +1,15 @@
 import {
-  Activity,
-  Bot,
-  ChevronRight,
-  CircleCheck,
-  CircleDot,
-  Cpu,
-  KeyRound,
-  RefreshCw,
-  ShieldCheck,
-  TriangleAlert,
-} from 'lucide-react';
-
-import {
   Badge,
   Button,
   Card,
+  Icon,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
   Grid,
   Heading,
+  List,
   Progress,
   Stack,
   Table,
@@ -32,7 +21,10 @@ import {
   TableRow,
   Text,
 } from '@orbit/terra';
-import { HealthStatus } from '@orbit/components/health-status';
+import { HealthStatus } from '@orbit/components';
+import { StatusBadge } from '@orbit/components';
+import { MetricCard } from '@orbit/components';
+import { EventFeedItem } from '@orbit/components';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -43,7 +35,7 @@ const STATS = [
     value: '12',
     delta: '+2 this hour',
     deltaPositive: true,
-    icon: Bot,
+    icon: 'bot',
   },
   {
     id: 'policies',
@@ -51,7 +43,7 @@ const STATS = [
     value: '4,821',
     delta: '↑ 18% vs yesterday',
     deltaPositive: true,
-    icon: ShieldCheck,
+    icon: 'shield-check',
   },
   {
     id: 'credentials',
@@ -59,7 +51,7 @@ const STATS = [
     value: '203',
     delta: '↓ 4% vs yesterday',
     deltaPositive: false,
-    icon: KeyRound,
+    icon: 'key',
   },
   {
     id: 'events',
@@ -67,7 +59,7 @@ const STATS = [
     value: '91.4k',
     delta: 'across 6 pipelines',
     deltaPositive: true,
-    icon: Activity,
+    icon: 'activity',
   },
 ] as const;
 
@@ -189,85 +181,6 @@ const HEALTH_RESOURCES = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: (typeof AGENTS)[number]['status'] }) {
-  const labels: Record<typeof status, string> = {
-    healthy: 'Healthy',
-    degraded: 'Degraded',
-    error: 'Error',
-    idle: 'Idle',
-    pending: 'Pending',
-  };
-  return (
-    <Badge variant={status} dot>
-      {labels[status]}
-    </Badge>
-  );
-}
-
-type EventSeverity = (typeof EVENTS)[number]['severity'];
-
-function EventIcon({ severity }: { severity: EventSeverity }) {
-  const cls: Record<EventSeverity, string> = {
-    healthy: 'text-status-healthy',
-    degraded: 'text-status-degraded',
-    error: 'text-status-error',
-    idle: 'text-muted',
-    pending: 'text-status-pending',
-  };
-
-  const Icon =
-    severity === 'healthy'
-      ? CircleCheck
-      : severity === 'error' || severity === 'degraded'
-        ? TriangleAlert
-        : CircleDot;
-
-  return <Icon aria-hidden className={`size-3.5 shrink-0 mt-0.5 ${cls[severity]}`} />;
-}
-
-function StatCard({ label, value, delta, deltaPositive, icon: Icon }: (typeof STATS)[number]) {
-  return (
-    <Card>
-      {/*
-       * compact: tightens pb-6 → pb-2 so the header sits close to the metric
-       * value below it. Standard header spacing feels too wide in stat cards.
-       */}
-      <CardHeader compact>
-        <Stack direction="horizontal" align="center" justify="between">
-          <Text size="supporting" color="muted">
-            {label}
-          </Text>
-          <span className="flex size-8 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted">
-            <Icon className="size-4" aria-hidden />
-          </span>
-        </Stack>
-      </CardHeader>
-      {/*
-       * No props needed: CardContent defaults to pt-0, which is correct here
-       * because CardHeader already supplies the leading rhythm.
-       */}
-      <CardContent>
-        {/*
-         * variant="metric": text-3xl font-bold tabular-nums — the dedicated
-         * Terra variant for KPI display numbers. No className override needed.
-         */}
-        <Heading variant="metric">{value}</Heading>
-        {/*
-         * mt-1 wrapper: spacing between the metric number and the delta string.
-         * Layout spacing belongs on a wrapper element, not on Text itself.
-         * color="status-*": uses the Terra status colour tokens directly on
-         * Text so the delta matches badge/progress colours without className.
-         */}
-        <span className="mt-1 block">
-          <Text size="caption" color={deltaPositive ? 'status-healthy' : 'status-error'}>
-            {delta}
-          </Text>
-        </span>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -275,15 +188,9 @@ export default function DashboardPage() {
     <Stack gap="spacious" asChild>
       <main className="px-6 py-8 max-w-screen-xl mx-auto">
         {/* Page title */}
-        <Stack gap="none">
+        <Stack gap="tight">
           <Heading variant="title">Dashboard</Heading>
-          {/*
-           * mt-1 wrapper: spacing between the page title and the subtitle.
-           * Layout spacing belongs on the wrapper, not on Text itself.
-           */}
-          <span className="mt-1 block">
-            <Text color="muted">Real-time overview of the Orbit control plane.</Text>
-          </span>
+          <Text color="muted">Real-time overview of the Orbit control plane.</Text>
         </Stack>
 
         <HealthStatus />
@@ -291,7 +198,21 @@ export default function DashboardPage() {
         {/* ── Stat cards ── */}
         <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
           {STATS.map((stat) => (
-            <StatCard key={stat.id} {...stat} />
+            <MetricCard
+              key={stat.id}
+              icon={
+                <Icon
+                  name={stat.icon}
+                  size="sm"
+                  container
+                  containerVariant="surface-subtle"
+                  aria-hidden
+                />
+              }
+              label={stat.label}
+              value={stat.value}
+              delta={{ text: stat.delta, positive: stat.deltaPositive }}
+            />
           ))}
         </Grid>
 
@@ -299,21 +220,15 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <Stack direction="horizontal" align="center" justify="between">
-              <Stack gap="none">
+              <Stack gap="tight">
                 <CardTitle>Active Agents</CardTitle>
-                {/*
-                 * mt-0.5 wrapper: tightens the gap between the card title and
-                 * its supporting description. Layout concern → wrapper div.
-                 */}
-                <span className="mt-0.5 block">
-                  <Text size="supporting" color="muted">
-                    All agents currently registered with the control plane.
-                  </Text>
-                </span>
+                <Text size="supporting" color="muted">
+                  All agents currently registered with the control plane.
+                </Text>
               </Stack>
               <Button variant="outline" size="sm">
                 View all
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </Stack>
           </CardHeader>
@@ -405,7 +320,7 @@ export default function DashboardPage() {
             </Text>
             <Button variant="ghost" size="sm">
               Load more
-              <ChevronRight className="size-3.5" />
+              <Icon name="chevron-right" size="2xs" />
             </Button>
           </CardFooter>
         </Card>
@@ -420,13 +335,11 @@ export default function DashboardPage() {
           <Card column>
             <CardHeader>
               <Stack direction="horizontal" align="center" justify="between">
-                <Stack gap="none">
+                <Stack gap="tight">
                   <CardTitle>Recent Events</CardTitle>
-                  <span className="mt-0.5 block">
-                    <Text size="supporting" color="muted">
-                      Live feed from the event spine.
-                    </Text>
-                  </span>
+                  <Text size="supporting" color="muted">
+                    Live feed from the event spine.
+                  </Text>
                 </Stack>
                 <Badge variant="pending" dot>
                   Live
@@ -438,62 +351,23 @@ export default function DashboardPage() {
              * height before the footer. `grow` only works inside `<Card column>`.
              */}
             <CardContent flush grow>
-              <ul className="divide-y divide-border-subtle">
+              <List separator>
                 {EVENTS.map((evt) => (
-                  <li
+                  <EventFeedItem
                     key={evt.id}
-                    className="flex items-start gap-3 px-6 py-3 hover:bg-surface-elevated/50 transition-colors"
-                  >
-                    <EventIcon severity={evt.severity} />
-                    <Stack gap="none" asChild>
-                      <span className="flex-1 min-w-0">
-                        <Stack direction="horizontal" align="center" gap="snug">
-                          {/*
-                           * mono: event type strings (e.g. "policy.allow") are
-                           * structured identifiers — monospace aids scanability.
-                           * weight="emphasis" and default color="foreground" give
-                           * it the prominence of a row label.
-                           */}
-                          <Text size="caption" weight="emphasis" mono>
-                            {evt.type}
-                          </Text>
-                          <Text size="caption" color="subtle">
-                            ·
-                          </Text>
-                          <Text size="caption" color="subtle">
-                            {evt.agent}
-                          </Text>
-                        </Stack>
-                        {/*
-                         * mt-0.5 wrapper: tight gap between the type/agent row
-                         * and the message below it. truncate: messages can be
-                         * long — clip at one line in the dense event list.
-                         */}
-                        <span className="mt-0.5 block">
-                          <Text size="caption" color="muted" truncate>
-                            {evt.message}
-                          </Text>
-                        </span>
-                      </span>
-                    </Stack>
-                    {/*
-                     * shrink-0 wrapper: prevents the timestamp from compressing
-                     * in the flex row when long messages are present.
-                     * mono: timestamps benefit from fixed-width digit rendering.
-                     */}
-                    <span className="shrink-0">
-                      <Text size="caption" color="subtle" mono>
-                        {evt.ts}
-                      </Text>
-                    </span>
-                  </li>
+                    status={evt.severity}
+                    label={evt.type}
+                    meta={evt.agent}
+                    message={evt.message}
+                    timestamp={evt.ts}
+                  />
                 ))}
-              </ul>
+              </List>
             </CardContent>
             <CardFooter justify="center" compact>
               <Button variant="ghost" size="sm">
                 Open event log
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </CardFooter>
           </Card>
@@ -502,16 +376,14 @@ export default function DashboardPage() {
           <Card column>
             <CardHeader>
               <Stack direction="horizontal" align="center" justify="between">
-                <Stack gap="none">
+                <Stack gap="tight">
                   <CardTitle>System Health</CardTitle>
-                  <span className="mt-0.5 block">
-                    <Text size="supporting" color="muted">
-                      Control plane resource utilisation.
-                    </Text>
-                  </span>
+                  <Text size="supporting" color="muted">
+                    Control plane resource utilisation.
+                  </Text>
                 </Stack>
                 <Button variant="ghost" size="icon" aria-label="Refresh health">
-                  <RefreshCw className="size-4" />
+                  <Icon name="refresh-cw" />
                 </Button>
               </Stack>
             </CardHeader>
@@ -556,14 +428,14 @@ export default function DashboardPage() {
             </CardContent>
             <CardFooter justify="between" compact>
               <Stack direction="horizontal" align="center" gap="snug">
-                <Cpu className="size-3.5 text-subtle" aria-hidden />
+                <Icon name="cpu" size="2xs" color="subtle" aria-hidden />
                 <Text size="caption" color="subtle">
                   Updated 30 s ago
                 </Text>
               </Stack>
               <Button variant="ghost" size="sm">
                 Infrastructure
-                <ChevronRight className="size-3.5" />
+                <Icon name="chevron-right" size="2xs" />
               </Button>
             </CardFooter>
           </Card>

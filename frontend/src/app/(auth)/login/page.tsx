@@ -19,6 +19,7 @@
 import { redirect } from 'next/navigation';
 
 import {
+  Alert,
   Card,
   CardContent,
   CardDescription,
@@ -82,27 +83,23 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </CardHeader>
 
         <CardContent>
-          {/* Error banner — shown only after a failed OIDC round-trip */}
-          {message && (
-            // eslint-disable-next-line local/no-raw-div
-            <div
-              role="alert"
-              className="mb-4 rounded-md border border-red-500/40 bg-red-950/40 px-3 py-2"
-            >
-              <Text size="caption" color="status-error">
-                {message}
-              </Text>
-            </div>
-          )}
+          <Stack gap="comfortable">
+            {/* Error banner — shown only after a failed OIDC round-trip */}
+            {message && (
+              <Alert variant="error">
+                <Text size="caption">{message}</Text>
+              </Alert>
+            )}
 
-          {/*
-           * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
-           * enters their work email, the BFF resolves the tenant's OIDC
-           * configuration, and the browser is redirected to the correct IdP.
-           * The `next` destination is encoded in the PKCE state so the
-           * callback page can restore it after the provider round-trip.
-           */}
-          <EmailSignInForm next={next} />
+            {/*
+             * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
+             * enters their work email, the BFF resolves the tenant's OIDC
+             * configuration, and the browser is redirected to the correct IdP.
+             * The `next` destination is encoded in the PKCE state so the
+             * callback page can restore it after the provider round-trip.
+             */}
+            <EmailSignInForm next={next} />
+          </Stack>
         </CardContent>
 
         {/* CardFooter already applies border-t border-border-subtle */}

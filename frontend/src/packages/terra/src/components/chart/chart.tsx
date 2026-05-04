@@ -174,11 +174,11 @@ function ChartTooltipContent({
 
           return (
             <div key={`${key}-${i}`} className="flex items-center gap-2">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-              <span className="flex-1 text-muted">{series?.label ?? key}</span>
-              <span className="font-mono font-medium text-foreground tabular-nums">
+              <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+              <div className="flex-1 text-muted">{series?.label ?? key}</div>
+              <div className="font-mono font-medium text-foreground tabular-nums">
                 {displayValue}
-              </span>
+              </div>
             </div>
           );
         })}
@@ -222,8 +222,8 @@ function ChartLegendContent({ payload }: ChartLegendContentProps) {
         const color = entry.color ?? series?.color ?? 'var(--color-subtle)';
         return (
           <div key={`${key}-${i}`} className="flex items-center gap-1.5 text-xs text-muted">
-            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
-            <span>{series?.label ?? key}</span>
+            <div className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
+            <div>{series?.label ?? key}</div>
           </div>
         );
       })}

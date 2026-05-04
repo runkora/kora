@@ -1,13 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { DataTable, Heading, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
-import { Route } from 'lucide-react';
+import { Alert, Badge, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip } from './scope-chip';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { ScopeChip } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {
   initialRegistrations: RouteRegistration[];
@@ -22,12 +20,12 @@ interface FlatRoute {
   requiredScope: string;
 }
 
-const METHOD_COLORS: Record<string, string> = {
-  GET: 'text-status-healthy',
-  POST: 'text-accent',
-  PUT: 'text-status-degraded',
-  PATCH: 'text-status-degraded',
-  DELETE: 'text-status-error',
+const METHOD_COLORS: Record<string, TextProps['color']> = {
+  GET: 'status-healthy',
+  POST: 'accent',
+  PUT: 'status-degraded',
+  PATCH: 'status-degraded',
+  DELETE: 'status-error',
 };
 
 export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps) {
@@ -75,11 +73,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           options: serviceOptions,
           filterFn: (r, selected) => selected.has(r.service),
         },
-        cell: (r) => (
-          <span className="inline-flex items-center rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-xs font-medium text-foreground">
-            {r.service}
-          </span>
-        ),
+        cell: (r) => <Badge variant="elevated">{r.service}</Badge>,
       },
       {
         id: 'method',
@@ -92,9 +86,9 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
           filterFn: (r, selected) => selected.has(r.method),
         },
         cell: (r) => (
-          <span className={`font-mono text-xs ${METHOD_COLORS[r.method] ?? 'text-muted'}`}>
+          <Text size="micro" mono color={METHOD_COLORS[r.method] ?? 'muted'}>
             {r.method}
-          </span>
+          </Text>
         ),
       },
       {
@@ -102,7 +96,11 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         header: 'Path Prefix',
         sortable: true,
         sortAccessor: (r) => r.pathPrefix,
-        cell: (r) => <span className="font-mono text-xs text-subtle">{r.pathPrefix}</span>,
+        cell: (r) => (
+          <Text size="micro" mono color="subtle">
+            {r.pathPrefix}
+          </Text>
+        ),
       },
       {
         id: 'requiredScope',
@@ -124,15 +122,15 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
             Registered route→scope mappings across all services.
           </Text>
         </Stack>
-        <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+        <Callout>
           <Text size="caption" color="muted">
             Services register their route→scope mappings at startup. This is the source of truth for
             what scope is required to call each endpoint — compiled into OPA bundles and enforced by
             Envoy sidecars.
           </Text>
-        </section>
+        </Callout>
         <EmptyState
-          icon={<Route className="size-5" />}
+          icon="route"
           title="No routes registered"
           description="Routes are registered by services at startup. Once a service declares its route→scope mappings, they will appear here."
         />
@@ -149,15 +147,22 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
         </Text>
       </Stack>
 
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Services register their route→scope mappings at startup. This is the source of truth for
           what scope is required to call each endpoint — compiled into OPA bundles and enforced by
           Envoy sidecars.
         </Text>
-      </section>
+      </Callout>
 
-      {initialError && <ErrorBanner message={initialError} />}
+      {initialError && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">
+            {initialError}
+          </Text>
+        </Alert>
+      )}
 
       <DataTable
         data={flatRoutes}

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Textarea } from './textarea';
+import { Text } from '../typography/typography';
 
 const meta: Meta<typeof Textarea> = {
   title: 'Terra/Atoms/Textarea',
@@ -96,7 +97,9 @@ export const ChatInput: Story = {
         <Textarea variant="bare" placeholder="Ask the agent anything…" autoResize maxRows={6} />
       </div>
       <div className="flex items-center justify-between px-3 py-2 border-t border-border-subtle">
-        <span className="text-xs text-subtle">Shift+Enter for new line</span>
+        <Text size="micro" color="subtle">
+          Shift+Enter for new line
+        </Text>
         <button className="text-xs bg-accent text-white rounded-md px-3 py-1 font-medium">
           Send
         </button>

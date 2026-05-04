@@ -154,28 +154,66 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
 );
 TableRow.displayName = 'TableRow';
 
+type TableHeadAlign = 'left' | 'center' | 'right';
+
+const TABLE_HEAD_ALIGN: Record<TableHeadAlign, string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
+export interface TableHeadProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
+  /**
+   * Horizontal text alignment for the header cell.
+   *
+   * Defaults to `'left'`. Use `'right'` for numeric or action columns to
+   * mirror the alignment of body cells beneath them.
+   *
+   * ```tsx
+   * <TableHead align="right">Amount</TableHead>
+   * ```
+   */
+  align?: TableHeadAlign;
+
+  /**
+   * When `true`, visually hides the header cell while keeping it accessible
+   * to screen readers. Emits `sr-only` — no visible text is rendered.
+   *
+   * Use for action columns where the heading is implied by context.
+   *
+   * ```tsx
+   * <TableHead srOnly>Actions</TableHead>
+   * ```
+   */
+  srOnly?: boolean;
+}
+
 /**
  * TableHead
  *
  * Column header cell (`<th>`). Uppercase, spaced tracking, and `text-subtle`
  * colour create clear visual separation from body content.
+ *
+ * Use `align="right"` for numeric or action columns. Use `srOnly` for
+ * implicit action columns that need no visible label.
  */
-const TableHead = React.forwardRef<
-  HTMLTableCellElement,
-  React.ThHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
-  <th
-    ref={ref}
-    className={cn(
-      'h-10 px-4 text-left align-middle',
-      'text-xs font-medium uppercase tracking-wider text-subtle',
-      'whitespace-nowrap',
-      '[&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
-      className,
-    )}
-    {...props}
-  />
-));
+const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
+  ({ className, align = 'left', srOnly = false, ...props }, ref) => (
+    <th
+      ref={ref}
+      className={cn(
+        'h-10 px-4 align-middle',
+        TABLE_HEAD_ALIGN[align],
+        'text-xs font-medium uppercase tracking-wider text-subtle',
+        'whitespace-nowrap',
+        '[&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        srOnly && 'sr-only',
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
 TableHead.displayName = 'TableHead';
 
 /**

@@ -1,6 +1,4 @@
-import { Bell, Bot, ChevronRight, RefreshCw } from 'lucide-react';
-
-import { Button, Separator, Stack } from '@orbit/terra';
+import { Button, Icon, Indicator, Separator, Stack, Text } from '@orbit/terra';
 
 /**
  * Top header bar for the dashboard shell.
@@ -9,44 +7,50 @@ import { Button, Separator, Stack } from '@orbit/terra';
  * and the primary "Deploy Agent" CTA.
  *
  * Rendered as a server component — no client-side state required.
- * The `PageLayout` header slot constrains this to h-14 and handles overflow.
  */
 export function DashboardHeader() {
   return (
-    <Stack direction="horizontal" align="center" justify="between" asChild>
-      <header className="h-full px-6">
-        {/* TODO: Replace with a Terra native Breadcrumbs component */}
-        {/* Breadcrumb — raw spans: breadcrumb is a navigation pattern, not body prose */}
-        <Stack direction="horizontal" align="center" asChild>
-          <nav className="gap-1.5 text-sm text-muted">
-            <span>Orbit</span>
-            <ChevronRight className="size-3.5" aria-hidden />
-            <span className="text-foreground font-medium">Dashboard</span>
-          </nav>
-        </Stack>
+    <Stack
+      direction="horizontal"
+      align="center"
+      justify="between"
+      height="full"
+      paddingInline="comfortable"
+    >
+      {/* TODO: Replace with Terra Breadcrumbs component when available */}
+      <Stack
+        direction="horizontal"
+        align="center"
+        gap="tight"
+        role="navigation"
+        aria-label="Breadcrumb"
+      >
+        <Text size="supporting" color="muted">
+          Orbit
+        </Text>
+        <Icon name="chevron-right" size="2xs" label="" />
+        <Text size="supporting" weight="emphasis">
+          Dashboard
+        </Text>
+      </Stack>
 
-        {/* Actions */}
-        <Stack direction="horizontal" align="center" gap="snug">
-          <Button variant="ghost" size="icon" aria-label="Refresh">
-            <RefreshCw className="size-4" />
+      {/* Actions */}
+      <Stack direction="horizontal" align="center" gap="snug">
+        <Button variant="ghost" size="icon" aria-label="Refresh">
+          <Icon name="refresh-cw" />
+        </Button>
+        {/* Positioning context for the notification dot */}
+        <Indicator status="error">
+          <Button variant="ghost" size="icon" aria-label="Notifications">
+            <Icon name="bell" />
           </Button>
-          <span className="relative">
-            <Button variant="ghost" size="icon" aria-label="Notifications">
-              <Bell className="size-4" />
-            </Button>
-            {/* Notification dot — decorative, aria-hidden */}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute top-1.5 right-1.5 size-1.5 rounded-full bg-status-error"
-            />
-          </span>
-          <Separator orientation="vertical" span="narrow" />
-          <Button variant="default" size="sm">
-            <Bot className="size-4" />
-            Deploy Agent
-          </Button>
-        </Stack>
-      </header>
+        </Indicator>
+        <Separator orientation="vertical" span="narrow" />
+        <Button variant="default" size="sm">
+          <Icon name="bot" />
+          Deploy Agent
+        </Button>
+      </Stack>
     </Stack>
   );
 }

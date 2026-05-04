@@ -97,6 +97,20 @@
   --terra-raw-error: #ef4444;
   --terra-raw-idle: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-pending: oklch(72% var(--terra-accent-chroma) var(--terra-accent-hue));
+
+  /* Provider brand colours — used only for provider identity badges.           */
+  /* Raw hex values kept as-is; cloud providers own these brand colours and they */
+  /* do not derive from the Terra seed system.                                   */
+  --terra-raw-provider-bedrock: #ff9900; /* AWS Orange   */
+  --terra-raw-provider-vertexai: #4285f4; /* Google Blue  */
+  --terra-raw-provider-azure: #0078d4; /* Azure Blue   */
+
+  /* Strategy colours — routing-strategy identity badges.                        */
+  --terra-raw-strategy-weighted: #a855f7; /* Purple — weighted split             */
+
+  /* Overlay — semi-transparent backdrop for modal/drawer overlays.              */
+  /* Using OKLCH pure-black at 40% opacity: perceptually uniform across displays */
+  --terra-raw-overlay: oklch(0% 0 0 / 40%);
 }
 
 /* ─── Semantic tokens (Tailwind v4 @theme) ───────────────────────────────── */
@@ -140,6 +154,17 @@
   /* L=63% — same perceptual tier, clears 4.58:1 on the darkest surface layer.   */
   --color-status-idle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --color-status-pending: var(--terra-raw-pending);
+
+  /* Provider brand identity tokens */
+  --color-provider-bedrock: var(--terra-raw-provider-bedrock);
+  --color-provider-vertexai: var(--terra-raw-provider-vertexai);
+  --color-provider-azure: var(--terra-raw-provider-azure);
+
+  /* Strategy identity tokens */
+  --color-strategy-weighted: var(--terra-raw-strategy-weighted);
+
+  /* Overlay — for modal/drawer backdrop elements */
+  --color-overlay: var(--terra-raw-overlay);
 
   /* Typography */
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);

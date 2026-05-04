@@ -1,16 +1,14 @@
 'use client';
 
 /**
- * LogoutButton
- *
- * Calls the BFF POST /api/auth/logout endpoint, which revokes both the access
- * and refresh tokens server-side before clearing the session cookie. The
- * browser is then redirected to /login regardless of the outcome so the user
- * is never left in an ambiguous auth state.
+ * @tier 2 — App-level shared. Calls the BFF POST /api/auth/logout endpoint,
+ * revokes tokens server-side, clears the session cookie, then redirects to
+ * /login. Used in the dashboard sidebar.
+ * @promote-to-tier-1 if: the Orbit-specific auth endpoint is removed and a
+ * generic sign-out button is needed outside the dashboard.
  */
 import { useState } from 'react';
-import { Button } from '@orbit/terra';
-import { LoaderCircle, LogOut } from 'lucide-react';
+import { Button, Icon } from '@orbit/terra';
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -34,7 +32,7 @@ export function LogoutButton() {
       onClick={() => void handleLogout()}
       disabled={pending}
     >
-      {pending ? <LoaderCircle /> : <LogOut />}
+      {pending ? <Icon name="loader" /> : <Icon name="log-out" />}
     </Button>
   );
 }

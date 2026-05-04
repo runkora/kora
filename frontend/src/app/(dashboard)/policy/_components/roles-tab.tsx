@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, List, Pencil, Search, Trash2, Plus, UserCheck, X } from 'lucide-react';
 import {
+  Callout,
+  Alert,
   Badge,
   Button,
   Card,
@@ -12,19 +13,27 @@ import {
   CardHeader,
   DataTable,
   Grid,
-  Heading,
+  Icon,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Stack,
   Text,
+  PageSectionHeader,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { ScopeChip } from './scope-chip';
-import { ScopePicker } from './scope-picker';
-import { EmptyState } from './empty-state';
-import { ErrorBanner } from './error-banner';
+import { fmtDate } from '@orbit/utils';
+import { ScopeChip } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
+import { EmptyState } from '@orbit/components';
+import { ConfirmDialog } from '@orbit/components';
+import { ViewToggle } from './view-toggle';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 
@@ -93,43 +102,46 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
   return (
     <Stack gap="comfortable">
       {/* Header */}
-      <Stack direction="horizontal" align="center" justify="between">
-        <Stack gap="none">
-          <Heading variant="title">Roles</Heading>
-          <Text size="supporting" color="muted">
-            Map OIDC role names to platform scopes.
-          </Text>
-        </Stack>
-        {canWrite && (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4 mr-1" />
-            Create Role
-          </Button>
-        )}
-      </Stack>
+      <PageSectionHeader
+        title="Roles"
+        description="Map OIDC role names to platform scopes."
+        action={
+          canWrite ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Icon name="plus" />
+              Create Role
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Info box */}
-      <section className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+      <Callout>
         <Text size="caption" color="muted">
           Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
           the union of scopes from all matching roles.
         </Text>
-      </section>
+      </Callout>
 
-      {error && <ErrorBanner message={error} />}
+      {error && (
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Text size="caption" color="status-error">
+            {error}
+          </Text>
+        </Alert>
+      )}
 
       {/* Search + view toggle — card mode only; list mode toolbar is owned by DataTable */}
       {viewMode === 'cards' && (
         <Stack direction="horizontal" align="center" justify="between">
-          <span className="relative max-w-xs flex-1">
-            <input
-              type="text"
+          <Stack asChild grow maxWidth="compact">
+            <Input
               placeholder="Search roles..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             />
-          </span>
+          </Stack>
           <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
         </Stack>
       )}
@@ -139,19 +151,19 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
         filtered.length === 0 ? (
           search ? (
             <EmptyState
-              icon={<Search className="size-5" />}
+              icon="search"
               title="No matches"
               description="No roles match your search. Try a different query."
             />
           ) : (
             <EmptyState
-              icon={<UserCheck className="size-5" />}
+              icon="user-check"
               title="No roles yet"
               description="Roles map OIDC role claims to platform scopes. Create a role to define what permissions a role name grants."
               action={
                 canWrite ? (
                   <Button size="sm" onClick={() => setCreating(true)}>
-                    <Plus className="size-4 mr-1" />
+                    <Icon name="plus" />
                     Create Role
                   </Button>
                 ) : undefined
@@ -175,11 +187,18 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       )}
 
       {/* Delete confirmation modal */}
-      <DeleteRoleModal
-        role={deleteCandidate}
-        deleting={deletingRole === deleteCandidate?.role}
+      <ConfirmDialog
+        open={!!deleteCandidate}
+        title="Delete Role"
+        description={
+          deleteCandidate
+            ? `Remove the role "${deleteCandidate.role}" and all its scope mappings? This action cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        confirming={deletingRole === deleteCandidate?.role}
         error={deleteError}
-        onConfirm={handleDeleteConfirm}
+        onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.role)}
         onClose={() => {
           setDeleteCandidate(null);
           setDeleteError(null);
@@ -258,7 +277,7 @@ function RoleCardGrid({
                 <Stack direction="horizontal" align="center" gap="snug">
                   {role.created_at && (
                     <Text size="caption" color="subtle">
-                      Created {formatDate(role.created_at)}
+                      Created {fmtDate(role.created_at)}
                     </Text>
                   )}
                   {onEdit && (
@@ -268,7 +287,7 @@ function RoleCardGrid({
                       onClick={() => onEdit(role)}
                       aria-label="Edit role"
                     >
-                      <Pencil className="size-3.5" />
+                      <Icon name="edit" size="2xs" />
                     </Button>
                   )}
                   {onDelete && (
@@ -278,7 +297,7 @@ function RoleCardGrid({
                       onClick={() => onDelete(role)}
                       aria-label="Delete role"
                     >
-                      <Trash2 className="size-3.5" />
+                      <Icon name="trash" size="2xs" />
                     </Button>
                   )}
                 </Stack>
@@ -288,41 +307,6 @@ function RoleCardGrid({
         );
       })}
     </Grid>
-  );
-}
-
-// ── View toggle ──────────────────────────────────────────────────────────────
-
-function ViewToggle({
-  viewMode,
-  onToggle,
-}: {
-  viewMode: 'cards' | 'list';
-  onToggle: (mode: 'cards' | 'list') => void;
-}) {
-  return (
-    <Stack direction="horizontal" gap="none">
-      <span className="[&>button]:rounded-r-none">
-        <Button
-          variant={viewMode === 'cards' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('cards')}
-          aria-label="Card view"
-        >
-          <LayoutGrid className="size-3.5" />
-        </Button>
-      </span>
-      <span className="[&>button]:rounded-l-none -ml-px">
-        <Button
-          variant={viewMode === 'list' ? 'default' : 'outline'}
-          size="icon-sm"
-          onClick={() => onToggle('list')}
-          aria-label="List view"
-        >
-          <List className="size-3.5" />
-        </Button>
-      </span>
-    </Stack>
   );
 }
 
@@ -383,7 +367,7 @@ function RoleTable({
           const isReserved = RESERVED_ROLES.has(r.role);
           return (
             <Text size="caption" color="subtle">
-              {!isReserved && r.created_at ? formatDate(r.created_at) : '—'}
+              {!isReserved && r.created_at ? fmtDate(r.created_at) : '—'}
             </Text>
           );
         },
@@ -408,7 +392,7 @@ function RoleTable({
                   }}
                   aria-label="Edit role"
                 >
-                  <Pencil className="size-3.5" />
+                  <Icon name="edit" size="2xs" />
                 </Button>
               )}
               {onDelete && (
@@ -421,7 +405,7 @@ function RoleTable({
                   }}
                   aria-label="Delete role"
                 >
-                  <Trash2 className="size-3.5" />
+                  <Icon name="trash" size="2xs" />
                 </Button>
               )}
             </Stack>
@@ -452,84 +436,6 @@ function RoleTable({
   );
 }
 
-// ── Delete modal ─────────────────────────────────────────────────────────────
-
-function DeleteRoleModal({
-  role,
-  deleting,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  role: RoleEntry | null;
-  deleting: boolean;
-  error: string | null;
-  onConfirm: (role: string) => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (role) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [role]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-md rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
-        <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">Delete Role</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
-          {role && (
-            <Text size="caption" color="muted">
-              Remove the role <strong>{role.role}</strong> and all its scope mappings? This action
-              cannot be undone.
-            </Text>
-          )}
-          {error && (
-            <Text color="status-error" size="caption">
-              {error}
-            </Text>
-          )}
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => role && onConfirm(role.role)}
-              disabled={deleting}
-            >
-              {deleting ? 'Deleting...' : 'Delete'}
-            </Button>
-          </Stack>
-        </Stack>
-      </section>
-    </dialog>
-  );
-}
-
 // ── Create / Edit modal ──────────────────────────────────────────────────────
 
 function UpsertRoleModal({
@@ -545,31 +451,12 @@ function UpsertRoleModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   // Initialized from props; component is keyed so it remounts for each open/edit.
   const [roleName, setRoleName] = useState(editingRole?.role ?? '');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open) {
-      if (!dialog.open) dialog.showModal();
-    } else {
-      if (dialog.open) dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const handler = () => onClose();
-    dialog.addEventListener('close', handler);
-    return () => dialog.removeEventListener('close', handler);
-  }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     if (!roleName || selectedScopes.length === 0) return;
@@ -588,31 +475,21 @@ function UpsertRoleModal({
   }, [roleName, selectedScopes, onSaved]);
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto w-full max-w-lg rounded-xl border border-border bg-surface p-0 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm open:flex open:flex-col"
-    >
-      <section className="p-6">
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader title={editingRole ? 'Edit Role' : 'Create Role'} />
+      <ModalBody>
         <Stack gap="comfortable">
-          <Stack direction="horizontal" align="center" justify="between">
-            <Heading variant="section">{editingRole ? 'Edit Role' : 'Create Role'}</Heading>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-              <X className="size-4" />
-            </Button>
-          </Stack>
-
           {/* Role name */}
           <Stack gap="tight">
             <Text size="caption" weight="emphasis">
               Role Name
             </Text>
-            <input
+            <Input
               type="text"
               placeholder="e.g. ml-engineer"
               value={roleName}
               onChange={(e) => setRoleName(e.target.value)}
               disabled={!!editingRole}
-              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
             />
           </Stack>
 
@@ -649,35 +526,20 @@ function UpsertRoleModal({
               {submitError}
             </Text>
           )}
-
-          <Stack direction="horizontal" gap="snug" justify="end">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={submitting || !roleName || selectedScopes.length === 0}
-            >
-              {submitting ? 'Saving...' : editingRole ? 'Update Role' : 'Create Role'}
-            </Button>
-          </Stack>
         </Stack>
-      </section>
-    </dialog>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void handleSubmit()}
+          disabled={submitting || !roleName || selectedScopes.length === 0}
+        >
+          {submitting ? 'Saving...' : editingRole ? 'Update Role' : 'Create Role'}
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
 }

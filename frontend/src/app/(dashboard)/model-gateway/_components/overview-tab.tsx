@@ -19,24 +19,17 @@ import {
   CardFooter,
   Grid,
   Heading,
+  Icon,
+  Progress,
   Separator,
   Stack,
+  StatusDot,
   Text,
 } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
-import {
-  Activity,
-  AlertCircle,
-  Clock,
-  DollarSign,
-  HardDrive,
-  ScrollText,
-  Server,
-  TrendingUp,
-  Zap,
-} from 'lucide-react';
-import { fmtCost, fmtNumCompact, fmtTime } from '@orbit/utils';
+import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';
+import { ChartLegend } from './chart-legend';
 import type {
   AnalyticsBucket,
   AnalyticsCostByModel,
@@ -57,15 +50,6 @@ export interface OverviewData {
 
 function fmtPercent(n: number): string {
   return `${n.toFixed(1)}%`;
-}
-
-function formatDateAxis(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return dateStr;
-  }
 }
 
 function formatRequestsAxis(n: number): string {
@@ -155,7 +139,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
 
   return (
     <Card column>
-      <CardHeader compact icon={<Server className="size-4" />}>
+      <CardHeader compact icon={<Icon name="server" />}>
         <CardTitle>Models</CardTitle>
       </CardHeader>
       <CardContent>
@@ -174,26 +158,12 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                 </Text>
               </Stack>
               {/* Health bar */}
-              <span
-                style={{
-                  display: 'block',
-                  height: 4,
-                  borderRadius: 2,
-                  background: COLORS.borderSubtle,
-                  overflow: 'hidden',
-                }}
-              >
-                <span
-                  style={{
-                    display: 'block',
-                    height: '100%',
-                    width: `${pct}%`,
-                    background: unavailable > 0 ? COLORS.degraded : COLORS.healthy,
-                    borderRadius: 2,
-                    transition: 'width 0.3s',
-                  }}
-                />
-              </span>
+              <Progress
+                label="Model health"
+                value={pct}
+                variant={unavailable > 0 ? 'degraded' : 'healthy'}
+                size="sm"
+              />
               {unavailable > 0 && (
                 <Text size="caption" color="muted">
                   {unavailable} unavailable
@@ -229,7 +199,7 @@ function ModelHealthCard({ models }: { models: ModelRow[] }) {
                   <Text size="caption" color="subtle" weight="emphasis">
                     By modality
                   </Text>
-                  <Stack direction="horizontal" gap="snug" style={{ flexWrap: 'wrap' }}>
+                  <Stack direction="horizontal" gap="snug" wrap>
                     {Object.entries(modalityCounts).map(([mod, count]) => (
                       <Stack key={mod} direction="horizontal" align="center" gap="tight">
                         <Text size="caption" weight="emphasis">
@@ -291,7 +261,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
               tick={{ fill: COLORS.subtle, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatDateAxis}
+              tickFormatter={fmtDateAxis}
               minTickGap={40}
             />
             <YAxis
@@ -318,7 +288,7 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
                 borderRadius: '6px',
                 padding: '8px 12px',
               }}
-              labelFormatter={(label: unknown) => formatDateAxis(String(label))}
+              labelFormatter={(label: unknown) => fmtDateAxis(String(label))}
               formatter={(value: unknown) => [formatRequestsAxis(Number(value)), '']}
               cursor={{ stroke: COLORS.borderSubtle, strokeWidth: 1 }}
             />
@@ -342,36 +312,12 @@ function RequestsAndErrorsChart({ buckets }: { buckets: AnalyticsBucket[] }) {
             />
           </ComposedChart>
         </ResponsiveContainer>
-        <Stack direction="horizontal" gap="comfortable" justify="center">
-          <Stack direction="horizontal" align="center" gap="tight">
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: COLORS.accent,
-                display: 'inline-block',
-              }}
-            />
-            <Text size="caption" color="subtle">
-              Total requests
-            </Text>
-          </Stack>
-          <Stack direction="horizontal" align="center" gap="tight">
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: COLORS.error,
-                display: 'inline-block',
-              }}
-            />
-            <Text size="caption" color="subtle">
-              Errors
-            </Text>
-          </Stack>
-        </Stack>
+        <ChartLegend
+          items={[
+            { color: 'accent', label: 'Total requests' },
+            { color: 'error', label: 'Errors' },
+          ]}
+        />
       </CardContent>
     </Card>
   );
@@ -387,7 +333,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
 
   return (
     <Card column>
-      <CardHeader compact icon={<TrendingUp className="size-4" />}>
+      <CardHeader compact icon={<Icon name="trending-up" />}>
         <CardTitle>Top Models</CardTitle>
       </CardHeader>
       <CardContent>
@@ -400,38 +346,22 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
             top5.map((entry) => (
               <Stack key={entry.model_id} gap="tight">
                 <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="caption" mono truncate style={{ flex: 1, minWidth: 0 }}>
-                    {entry.model_id}
-                  </Text>
-                  <Text
-                    size="caption"
-                    color="muted"
-                    mono
-                    style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}
-                  >
-                    {fmtCost(entry.estimated_cost_usd)}
-                  </Text>
+                  <Stack grow minWidth="none">
+                    <Text size="caption" mono truncate>
+                      {entry.model_id}
+                    </Text>
+                  </Stack>
+                  <Stack shrink>
+                    <Text size="caption" color="muted" mono tabular>
+                      {fmtCost(entry.estimated_cost_usd)}
+                    </Text>
+                  </Stack>
                 </Stack>
-                <span
-                  style={{
-                    flex: 1,
-                    display: 'block',
-                    height: 3,
-                    borderRadius: 2,
-                    background: COLORS.borderSubtle,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <span
-                    style={{
-                      display: 'block',
-                      height: '100%',
-                      width: `${(entry.estimated_cost_usd / maxCost) * 100}%`,
-                      background: COLORS.accent,
-                      borderRadius: 2,
-                    }}
-                  />
-                </span>
+                <Progress
+                  value={(entry.estimated_cost_usd / maxCost) * 100}
+                  label={entry.model_id}
+                  size="sm"
+                />
               </Stack>
             ))
           )}
@@ -457,7 +387,7 @@ function TopModelsCard({ costByModel }: { costByModel: AnalyticsCostByModel[] })
 function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<ScrollText className="size-4" />}>
+      <CardHeader compact icon={<Icon name="scroll-text" />}>
         <CardTitle>Recent Requests</CardTitle>
       </CardHeader>
       <CardContent>
@@ -476,54 +406,27 @@ function RecentLogsCard({ records }: { records: InferenceUsageRecord[] }) {
                     direction="horizontal"
                     align="center"
                     gap="snug"
-                    style={{
-                      paddingBlock: '7px',
-                      paddingInline: '6px',
-                      marginInline: '-6px',
-                      borderRadius: '4px',
-                      background: isError ? 'rgba(239,68,68,0.06)' : 'transparent',
-                    }}
+                    paddingBlock="snug"
+                    paddingInline="tight"
                   >
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        flexShrink: 0,
-                        background: isError ? COLORS.error : COLORS.healthy,
-                        boxShadow: isError ? `0 0 0 2px rgba(239,68,68,0.2)` : undefined,
-                      }}
-                    />
-                    <Text
-                      size="caption"
-                      mono
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {model}
-                    </Text>
-                    <Text
-                      size="caption"
-                      color={isError ? 'muted' : 'subtle'}
-                      mono
-                      style={{ flexShrink: 0 }}
-                    >
-                      {record.latency_ms >= 1000
-                        ? `${(record.latency_ms / 1000).toFixed(1)}s`
-                        : `${record.latency_ms}ms`}
-                    </Text>
-                    <Text
-                      size="caption"
-                      color="subtle"
-                      style={{ flexShrink: 0, minWidth: '44px', textAlign: 'right' }}
-                    >
-                      {fmtTime(record.created_at)}
-                    </Text>
+                    <StatusDot status={isError ? 'error' : 'healthy'} size="sm" />
+                    <Stack grow minWidth="none">
+                      <Text size="caption" mono truncate>
+                        {model}
+                      </Text>
+                    </Stack>
+                    <Stack shrink>
+                      <Text size="caption" color={isError ? 'muted' : 'subtle'} mono>
+                        {record.latency_ms >= 1000
+                          ? `${(record.latency_ms / 1000).toFixed(1)}s`
+                          : `${record.latency_ms}ms`}
+                      </Text>
+                    </Stack>
+                    <Stack shrink>
+                      <Text size="caption" color="subtle" align="end">
+                        {fmtTime(record.created_at)}
+                      </Text>
+                    </Stack>
                   </Stack>
                   {i < records.length - 1 && <Separator />}
                 </Stack>
@@ -582,76 +485,74 @@ export function OverviewTab({ models, data, recentRecords }: OverviewTabProps) {
   const isOperational = data === null || (data.kpis.error_rate ?? 0) < 0.1;
 
   return (
-    <Stack direction="vertical" gap="comfortable" asChild>
-      <section>
-        {/* Page header */}
-        <Stack gap="snug">
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Heading variant="title">Model Gateway</Heading>
-            <Badge variant={isOperational ? 'healthy' : 'degraded'} dot size="sm">
-              {isOperational ? 'Operational' : 'Degraded'}
-            </Badge>
-          </Stack>
-          <Text size="supporting" color="muted">
-            Unified inference proxy — route, observe, and govern all LLM traffic from a single
-            control plane.
-          </Text>
+    <Stack direction="vertical" gap="comfortable">
+      {/* Page header */}
+      <Stack gap="snug">
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Heading variant="title">Model Gateway</Heading>
+          <Badge variant={isOperational ? 'healthy' : 'degraded'} dot size="sm">
+            {isOperational ? 'Operational' : 'Degraded'}
+          </Badge>
         </Stack>
+        <Text size="supporting" color="muted">
+          Unified inference proxy — route, observe, and govern all LLM traffic from a single control
+          plane.
+        </Text>
+      </Stack>
 
-        {/* KPI Cards */}
-        <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
-          <KPICard
-            icon={<Activity className="size-4" />}
-            label="Total Requests"
-            value={data ? fmtNumCompact(currRequests) : '—'}
-            deltaPercent={data ? pctDelta(currRequests, prevRequests) : undefined}
-            deltaText="vs prior 7 days"
-          />
-          <KPICard
-            icon={<Zap className="size-4" />}
-            label="Total Tokens"
-            value={data ? fmtNumCompact(currTokens) : '—'}
-            deltaPercent={data ? pctDelta(currTokens, prevTokens) : undefined}
-            deltaText="vs prior 7 days"
-          />
-          <KPICard
-            icon={<DollarSign className="size-4" />}
-            label="Total Spend"
-            value={data ? fmtCost(currCost) : '—'}
-            deltaPercent={data ? pctDelta(currCost, prevCost) : undefined}
-            deltaText="vs prior 7 days"
-            positiveIsBad
-          />
-          <KPICard
-            icon={<Clock className="size-4" />}
-            label="Avg Latency"
-            value={data ? `${Math.round(data.kpis.avg_latency_ms)}ms` : '—'}
-          />
-          <KPICard
-            icon={<AlertCircle className="size-4" />}
-            label="Error Rate"
-            value={errorRateBadge}
-            deltaPercent={data ? pctDelta(currErrorRate, prevErrorRate) : undefined}
-            deltaText="vs prior 7 days"
-            positiveIsBad
-          />
-          <KPICard
-            icon={<HardDrive className="size-4" />}
-            label="Cache Hit Rate"
-            value={cacheHitRateBadge}
-          />
-        </Grid>
+      {/* KPI Cards */}
+      <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
+        <KPICard
+          icon={<Icon name="activity" />}
+          label="Total Requests"
+          value={data ? fmtNumCompact(currRequests) : '—'}
+          deltaPercent={data ? pctDelta(currRequests, prevRequests) : undefined}
+          deltaText="vs prior 7 days"
+        />
+        <KPICard
+          icon={<Icon name="zap" />}
+          label="Total Tokens"
+          value={data ? fmtNumCompact(currTokens) : '—'}
+          deltaPercent={data ? pctDelta(currTokens, prevTokens) : undefined}
+          deltaText="vs prior 7 days"
+        />
+        <KPICard
+          icon={<Icon name="dollar-sign" />}
+          label="Total Spend"
+          value={data ? fmtCost(currCost) : '—'}
+          deltaPercent={data ? pctDelta(currCost, prevCost) : undefined}
+          deltaText="vs prior 7 days"
+          positiveIsBad
+        />
+        <KPICard
+          icon={<Icon name="clock" />}
+          label="Avg Latency"
+          value={data ? `${Math.round(data.kpis.avg_latency_ms)}ms` : '—'}
+        />
+        <KPICard
+          icon={<Icon name="alert-circle" />}
+          label="Error Rate"
+          value={errorRateBadge}
+          deltaPercent={data ? pctDelta(currErrorRate, prevErrorRate) : undefined}
+          deltaText="vs prior 7 days"
+          positiveIsBad
+        />
+        <KPICard
+          icon={<Icon name="hard-drive" />}
+          label="Cache Hit Rate"
+          value={cacheHitRateBadge}
+        />
+      </Grid>
 
-        {/* Requests & errors chart */}
-        <RequestsAndErrorsChart buckets={data?.buckets.slice(-14) ?? []} />
+      {/* Requests & errors chart */}
+      <RequestsAndErrorsChart buckets={data?.buckets.slice(-14) ?? []} />
 
-        {/* Three-column grid: model status + top models + recent logs */}
-        <Grid cols={{ base: 1, lg: 3 }} gap="comfortable">
-          <ModelHealthCard models={models} />
-          <TopModelsCard costByModel={data?.costByModel ?? []} />
-          <RecentLogsCard records={recentRecords} />
-        </Grid>
-      </section>
+      {/* Three-column grid: model status + top models + recent logs */}
+      <Grid cols={{ base: 1, lg: 3 }} gap="comfortable">
+        <ModelHealthCard models={models} />
+        <TopModelsCard costByModel={data?.costByModel ?? []} />
+        <RecentLogsCard records={recentRecords} />
+      </Grid>
     </Stack>
   );
 }

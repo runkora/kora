@@ -55,13 +55,46 @@ export interface TableToolbarProps {
   actions?: React.ReactNode;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── TableToolbarShell ────────────────────────────────────────────────────────
+
+export interface TableToolbarShellProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+/**
+ * TableToolbarShell
+ *
+ * The bare toolbar container — the same `<div>` that `TableToolbar` renders
+ * internally. Use this when you need to place arbitrary content (e.g. loading
+ * skeletons) inside the correctly styled toolbar container without using the
+ * full opinionated `TableToolbar` API.
+ *
+ * ```tsx
+ * // In a loading skeleton — mirrors DataTable's exact toolbar structure
+ * <TableToolbarShell>
+ *   <Skeleton shape="block" width="quarter" size="sm" />
+ *   <Skeleton shape="block" width="quarter" size="sm" />
+ * </TableToolbarShell>
+ * ```
+ */
+export function TableToolbarShell({ children, className }: TableToolbarShellProps) {
+  return (
+    <div
+      className={`flex items-center gap-3 px-4 py-3 border-b border-border-subtle${className ? ` ${className}` : ''}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─── TableToolbar ─────────────────────────────────────────────────────────────
 
 export function TableToolbar({ search, count, columns, actions }: TableToolbarProps) {
   const hasRight = count !== undefined || columns !== undefined;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle">
+    <TableToolbarShell>
       {search && (
         <ToolbarSearch
           value={search.value}
@@ -84,7 +117,7 @@ export function TableToolbar({ search, count, columns, actions }: TableToolbarPr
           {columns && <ToolbarColumnsToggle columns={columns.items} onToggle={columns.onToggle} />}
         </div>
       )}
-    </div>
+    </TableToolbarShell>
   );
 }
 
@@ -123,9 +156,9 @@ function ToolbarCount({
   label: string;
 }) {
   return (
-    <span className="text-sm text-subtle whitespace-nowrap">
+    <div className="text-sm text-subtle whitespace-nowrap">
       Showing {showing.toLocaleString()} of {total.toLocaleString()} {label}
-    </span>
+    </div>
   );
 }
 

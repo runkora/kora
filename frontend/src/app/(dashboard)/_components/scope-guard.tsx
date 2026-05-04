@@ -20,14 +20,11 @@ export function ScopeGuard({ scope, children }: { scope: string; children: React
 
   if (!hasScope(scopes, scope)) {
     return (
-      <Stack direction="vertical" align="center" justify="center" asChild>
-        {/* Single-child sizing wrapper — asChild merges onto the <section>. */}
-        <section className="h-full">
-          <Text size="lead" weight="emphasis">
-            Forbidden
-          </Text>
-          <Text color="subtle">You do not have permission to view this page.</Text>
-        </section>
+      <Stack direction="vertical" align="center" justify="center" minHeight="full">
+        <Text size="lead" weight="emphasis">
+          Forbidden
+        </Text>
+        <Text color="subtle">You do not have permission to view this page.</Text>
       </Stack>
     );
   }

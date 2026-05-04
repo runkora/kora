@@ -12,28 +12,42 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { Activity, Info, Rocket, Settings, Shield, Trash2, Zap } from 'lucide-react';
 import {
+  Alert,
   Anchor,
   Badge,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
+  ChatBubble,
+  ChatBubbleActions,
   Code,
+  DragCard,
   Grid,
   Heading,
+  Icon,
+  Indicator,
+  InputSurface,
+  NativeSelect,
   PageLayout,
   Section,
   Stack,
+  StatusDot,
+  StepConnector,
+  StepDot,
+  StreamingCursor,
   Text,
+  Toggle,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  TypingIndicator,
 } from '../../index';
 
 // ─── Story meta ───────────────────────────────────────────────────────────────
@@ -332,7 +346,7 @@ export const ComponentGrid: Story = {
                   <Button variant="ghost">Dismiss</Button>
                   <Button variant="muted">Archive</Button>
                   <Button variant="destructive">
-                    <Trash2 />
+                    <Icon name="trash" size="sm" />
                     Revoke access
                   </Button>
                 </Stack>
@@ -354,19 +368,19 @@ export const ComponentGrid: Story = {
               <Group label="With icon">
                 <Stack direction="horizontal" gap="snug" wrap>
                   <Button variant="default">
-                    <Rocket />
+                    <Icon name="rocket" size="sm" />
                     Launch
                   </Button>
                   <Button variant="secondary">
-                    <Shield />
+                    <Icon name="shield" size="sm" />
                     Policies
                   </Button>
                   <Button variant="outline">
-                    <Activity />
+                    <Icon name="activity" size="sm" />
                     Monitor
                   </Button>
                   <Button variant="destructive">
-                    <Trash2 />
+                    <Icon name="trash" size="sm" />
                     Delete
                   </Button>
                 </Stack>
@@ -377,16 +391,16 @@ export const ComponentGrid: Story = {
               <Group label="Icon-only">
                 <Stack direction="horizontal" gap="snug">
                   <Button variant="ghost" size="icon" aria-label="Settings">
-                    <Settings />
+                    <Icon name="settings" size="sm" />
                   </Button>
                   <Button variant="ghost" size="icon-sm" aria-label="Info">
-                    <Info />
+                    <Icon name="info" size="sm" />
                   </Button>
                   <Button variant="outline" size="icon" aria-label="Activity">
-                    <Activity />
+                    <Icon name="activity" size="sm" />
                   </Button>
                   <Button variant="default" size="icon" aria-label="Launch">
-                    <Rocket />
+                    <Icon name="rocket" size="sm" />
                   </Button>
                 </Stack>
               </Group>
@@ -573,7 +587,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Settings">
-                        <Settings />
+                        <Icon name="settings" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Agent settings</TooltipContent>
@@ -581,7 +595,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Deploy">
-                        <Rocket />
+                        <Icon name="rocket" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Deploy to production</TooltipContent>
@@ -589,7 +603,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Trigger">
-                        <Zap />
+                        <Icon name="zap" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Trigger manual run</TooltipContent>
@@ -597,7 +611,7 @@ export const ComponentGrid: Story = {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Delete">
-                        <Trash2 />
+                        <Icon name="trash" size="sm" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>Delete agent</TooltipContent>
@@ -787,7 +801,7 @@ export const ComponentGrid: Story = {
                   </Stack>
                   <Stack direction="horizontal" gap="snug">
                     <Button variant="ghost" size="icon-sm" aria-label="Settings">
-                      <Settings />
+                      <Icon name="settings" size="sm" />
                     </Button>
                     <Button variant="outline" size="sm">
                       View logs
@@ -937,7 +951,7 @@ export const ComponentGrid: Story = {
                             Healthy
                           </Badge>
                           <Button variant="ghost" size="icon-sm" aria-label="Settings">
-                            <Settings />
+                            <Icon name="settings" size="sm" />
                           </Button>
                         </Stack>
                       </Stack>
@@ -994,7 +1008,7 @@ export const ComponentGrid: Story = {
                             Configure
                           </Button>
                           <Button variant="default" size="sm">
-                            <Rocket />
+                            <Icon name="rocket" size="sm" />
                             Deploy
                           </Button>
                         </Stack>
@@ -1014,6 +1028,418 @@ export const ComponentGrid: Story = {
                     <></>
                   </PageLayout>
                 </div>
+              </Group>
+            </Stack>
+          </Section>
+          {/* ── Button — dim prop ──────────────────────────────────────── */}
+          <Section heading="Button · dim">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="dim — off state recedes, hover reveals">
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <Button variant="ghost" size="icon-sm" dim aria-label="Not favourite">
+                    <Icon name="heart" size="2xs" color="muted" />
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" aria-label="Favourite">
+                    <Icon name="heart" size="2xs" color="rose" filled />
+                  </Button>
+                  <Text size="caption" color="muted">
+                    dim=true (left) recedes until hover; dim=false (right) stays opaque
+                  </Text>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── ButtonGroup ────────────────────────────────────────────── */}
+          <Section heading="ButtonGroup">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Icon-button toggle — view mode switcher">
+                <ButtonGroup>
+                  <Button variant="default" size="icon-sm" aria-label="Grid view">
+                    <Icon name="layout-grid" size="2xs" />
+                  </Button>
+                  <Button variant="outline" size="icon-sm" aria-label="List view">
+                    <Icon name="list" size="2xs" />
+                  </Button>
+                </ButtonGroup>
+              </Group>
+
+              <Rule />
+
+              <Group label="Text buttons — segmented control">
+                <ButtonGroup>
+                  <Button variant="default" size="sm">
+                    Overview
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    Agents
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    Policies
+                  </Button>
+                </ButtonGroup>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── StatusDot ──────────────────────────────────────────────── */}
+          <Section heading="StatusDot">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Status variants — all seven">
+                <Stack direction="horizontal" gap="comfortable" align="center" wrap>
+                  {(
+                    ['healthy', 'degraded', 'error', 'idle', 'pending', 'muted', 'accent'] as const
+                  ).map((status) => (
+                    <Stack key={status} gap="tight" align="center">
+                      <StatusDot status={status} />
+                      <Text size="micro" color="muted">
+                        {status}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Sizes — sm / md / lg">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  {(['sm', 'md', 'lg'] as const).map((size) => (
+                    <Stack key={size} gap="tight" align="center">
+                      <StatusDot status="healthy" size={size} />
+                      <Text size="micro" color="muted">
+                        {size}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="With glow">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StatusDot status="healthy" glow />
+                  <StatusDot status="degraded" glow />
+                  <StatusDot status="error" glow />
+                  <StatusDot status="pending" glow />
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── StepDot + StepConnector ────────────────────────────────── */}
+          <Section heading="StepDot + StepConnector">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Variants — accent (active) / surface (upcoming)">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StepDot variant="accent">1</StepDot>
+                  <StepDot variant="surface">2</StepDot>
+                  <StepDot variant="surface">3</StepDot>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Sizes — md (24 px) / sm (16 px)">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <StepDot size="md">1</StepDot>
+                  <StepDot size="sm">1</StepDot>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Step flow — with StepConnector">
+                <Stack direction="horizontal" gap="comfortable">
+                  <Stack align="center" gap="none">
+                    <StepDot>1</StepDot>
+                    <StepConnector />
+                    <StepDot>2</StepDot>
+                    <StepConnector />
+                    <StepDot variant="surface">3</StepDot>
+                  </Stack>
+                  <Stack gap="relaxed">
+                    <Text size="supporting" weight="emphasis">
+                      Create an API key
+                    </Text>
+                    <Text size="supporting" weight="emphasis">
+                      Configure the gateway
+                    </Text>
+                    <Text size="supporting" weight="emphasis" color="muted">
+                      Verify the connection
+                    </Text>
+                  </Stack>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Indicator ──────────────────────────────────────────────── */}
+          <Section heading="Indicator">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Status variants on icon buttons">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  {(
+                    [
+                      { status: 'error', icon: 'bell' },
+                      { status: 'pending', icon: 'clock' },
+                      { status: 'degraded', icon: 'alert-circle' },
+                      { status: 'healthy', icon: 'activity' },
+                    ] as const
+                  ).map(({ status, icon }) => (
+                    <Stack key={status} gap="tight" align="center">
+                      <Indicator status={status}>
+                        <Button variant="ghost" size="icon" aria-label={`${icon} (${status})`}>
+                          <Icon name={icon} />
+                        </Button>
+                      </Indicator>
+                      <Text size="micro" color="muted">
+                        {status}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── DragCard ───────────────────────────────────────────────── */}
+          <Section heading="DragCard">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Visual states — default / dragging / drop-target">
+                <Stack gap="snug" className="max-w-xs">
+                  <DragCard>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Default
+                    </Text>
+                  </DragCard>
+                  <DragCard dragging>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Dragging
+                    </Text>
+                  </DragCard>
+                  <DragCard dropTarget>
+                    <Icon name="grip-vertical" color="muted" cursorGrab />
+                    <Text size="supporting" mono>
+                      Drop target
+                    </Text>
+                  </DragCard>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Chat Primitives ────────────────────────────────────────── */}
+          <Section heading="Chat Primitives">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="TypingIndicator — AI thinking state">
+                <ChatBubble direction="start">
+                  <TypingIndicator />
+                </ChatBubble>
+              </Group>
+
+              <Rule />
+
+              <Group label="StreamingCursor — inline pulse during streaming">
+                <ChatBubble direction="start">
+                  <Text as="span" size="supporting">
+                    Evaluating the credential request against the active policy
+                  </Text>
+                  <StreamingCursor />
+                </ChatBubble>
+              </Group>
+
+              <Rule />
+
+              <Group label="InputSurface — focus-within border container">
+                <InputSurface className="max-w-sm">
+                  <div className="px-4 py-3 text-sm text-muted-foreground">Message Orbit…</div>
+                  <Stack
+                    direction="horizontal"
+                    align="center"
+                    justify="end"
+                    paddingInline="snug"
+                    paddingBottom="snug"
+                  >
+                    <Button size="xs" shape="pill" disabled>
+                      <Icon name="send" size="xs" />
+                      Send
+                    </Button>
+                  </Stack>
+                </InputSurface>
+              </Group>
+
+              <Rule />
+
+              <Group label="ChatBubble + ChatBubbleActions (hover to reveal)">
+                <Stack gap="snug" className="max-w-sm">
+                  <ChatBubble direction="start">
+                    <Text as="span" size="supporting" preserveWhitespace>
+                      Zero policy violations in the last 24 h across all agents.
+                    </Text>
+                    <ChatBubbleActions>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-overlay hover:text-foreground"
+                        aria-label="Copy"
+                      >
+                        <Icon name="copy" size="xs" />
+                      </button>
+                    </ChatBubbleActions>
+                  </ChatBubble>
+                  <ChatBubble direction="end" variant="accent">
+                    <Text as="span" size="supporting">
+                      Which agents were active?
+                    </Text>
+                    <ChatBubbleActions>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-surface-overlay hover:text-foreground"
+                        aria-label="Copy"
+                      >
+                        <Icon name="copy" size="xs" />
+                      </button>
+                    </ChatBubbleActions>
+                  </ChatBubble>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Alert ──────────────────────────────────────────────────── */}
+          <Section heading="Alert">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Info — neutral informational callout">
+                <Alert variant="info">
+                  <Icon name="info" size="xs" color="accent" />
+                  <Text size="caption">Model gateway is processing your request.</Text>
+                </Alert>
+              </Group>
+
+              <Rule />
+
+              <Group label="Warning — degraded-state notice">
+                <Alert variant="warning">
+                  <Icon name="alert-circle" size="xs" color="status-degraded" />
+                  <Text size="caption">Weights must sum to 100%.</Text>
+                </Alert>
+              </Group>
+
+              <Rule />
+
+              <Group label="Error — validation error or failure">
+                <Alert variant="error">
+                  <Icon name="alert-circle" size="xs" color="status-error" />
+                  <Text size="caption" color="muted">
+                    Credential rotation failed — try again.
+                  </Text>
+                </Alert>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── NativeSelect ───────────────────────────────────────────── */}
+          <Section heading="NativeSelect">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="Default — provider selector">
+                <NativeSelect defaultValue="bedrock" className="w-56">
+                  <option value="bedrock">AWS Bedrock</option>
+                  <option value="vertexai">Vertex AI</option>
+                  <option value="openai">OpenAI</option>
+                </NativeSelect>
+              </Group>
+
+              <Rule />
+
+              <Group label="With optgroup — model catalog">
+                <NativeSelect defaultValue="claude-3" className="w-56">
+                  <optgroup label="Anthropic">
+                    <option value="claude-3">claude-3-opus</option>
+                    <option value="claude-haiku">claude-haiku</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="gpt-4">gpt-4o</option>
+                    <option value="gpt-3.5">gpt-3.5-turbo</option>
+                  </optgroup>
+                </NativeSelect>
+              </Group>
+
+              <Rule />
+
+              <Group label="States — error / mono / disabled">
+                <Stack direction="horizontal" gap="snug" align="center" wrap>
+                  <NativeSelect hasError defaultValue="" className="w-40">
+                    <option value="" disabled>
+                      Select provider
+                    </option>
+                    <option value="bedrock">AWS Bedrock</option>
+                  </NativeSelect>
+                  <NativeSelect mono defaultValue="us-east-1" className="w-40">
+                    <option value="us-east-1">us-east-1</option>
+                    <option value="eu-west-1">eu-west-1</option>
+                  </NativeSelect>
+                  <NativeSelect disabled defaultValue="bedrock" className="w-40">
+                    <option value="bedrock">AWS Bedrock</option>
+                  </NativeSelect>
+                </Stack>
+              </Group>
+            </Stack>
+          </Section>
+
+          {/* ── Toggle ─────────────────────────────────────────────────── */}
+          <Section heading="Toggle">
+            <Stack direction="vertical" gap="relaxed">
+              <Group label="On / off states">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <Stack gap="tight" align="center">
+                    <Toggle checked onChange={() => {}} aria-label="Enabled" />
+                    <Text size="micro" color="muted">
+                      on
+                    </Text>
+                  </Stack>
+                  <Stack gap="tight" align="center">
+                    <Toggle checked={false} onChange={() => {}} aria-label="Disabled" />
+                    <Text size="micro" color="muted">
+                      off
+                    </Text>
+                  </Stack>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="Disabled state">
+                <Stack direction="horizontal" gap="comfortable" align="center">
+                  <Stack gap="tight" align="center">
+                    <Toggle checked onChange={() => {}} disabled aria-label="Disabled on" />
+                    <Text size="micro" color="muted">
+                      on
+                    </Text>
+                  </Stack>
+                  <Stack gap="tight" align="center">
+                    <Toggle
+                      checked={false}
+                      onChange={() => {}}
+                      disabled
+                      aria-label="Disabled off"
+                    />
+                    <Text size="micro" color="muted">
+                      off
+                    </Text>
+                  </Stack>
+                </Stack>
+              </Group>
+
+              <Rule />
+
+              <Group label="With visible label">
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <Toggle checked onChange={() => {}} aria-label="Enable model routing" />
+                  <Text size="body">Enable model routing</Text>
+                </Stack>
               </Group>
             </Stack>
           </Section>

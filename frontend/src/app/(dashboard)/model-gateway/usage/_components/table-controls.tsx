@@ -26,8 +26,8 @@ interface InlineSelectProps<T extends string> {
 function InlineSelect<T extends string>({ label, value, options, onChange }: InlineSelectProps<T>) {
   return (
     <Stack direction="horizontal" align="center" gap="tight">
-      <Text size="caption" color="subtle" asChild>
-        <label>{label}</label>
+      <Text size="caption" color="subtle">
+        {label}
       </Text>
       <select
         value={value}

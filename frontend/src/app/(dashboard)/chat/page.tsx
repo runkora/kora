@@ -2,20 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Bot,
-  Code2,
-  Copy,
-  RotateCcw,
-  Send,
-  Shield,
-  Sparkles,
-  Terminal,
-  ThumbsDown,
-  ThumbsUp,
-  Zap,
-} from 'lucide-react';
-
-import { Badge, Button, Grid, Stack, Text, Heading, Textarea, cn } from '@orbit/terra';
+  Button,
+  ChatBubble,
+  ChatBubbleActions,
+  Form,
+  Grid,
+  Icon,
+  InputSurface,
+  List,
+  ListItem,
+  Stack,
+  StreamingCursor,
+  Text,
+  Heading,
+  Textarea,
+  TypingIndicator,
+} from '@orbit/terra';
+import { MessageContent } from './_components/message-content';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,28 +38,28 @@ const MODELS = ['Orbit-3 Opus', 'Orbit-3 Sonnet', 'Orbit-3 Haiku'] as const;
 
 const SUGGESTIONS = [
   {
-    icon: Shield,
+    icon: 'shield' as const,
     title: 'Policy engine deep dive',
     desc: 'How does OPA integration work in Orbit?',
     prompt:
       'Explain how the Orbit policy engine works with OPA integration, including how policies are evaluated before agent actions execute.',
   },
   {
-    icon: Bot,
+    icon: 'bot' as const,
     title: 'Agent authentication flow',
     desc: 'Walk me through identity verification',
     prompt:
       'Walk me through how agent authentication and identity verification works in Orbit, from SPIFFE SVID to session JWT.',
   },
   {
-    icon: Terminal,
+    icon: 'square-terminal' as const,
     title: 'Generate a Go service template',
     desc: 'Bootstrap a new feature package',
     prompt:
       'Generate a Go service template for a new Orbit feature package following the DDD-lite repository pattern.',
   },
   {
-    icon: Code2,
+    icon: 'code-2' as const,
     title: 'Credential broker pattern',
     desc: 'How are credentials scoped and issued?',
     prompt:
@@ -300,73 +303,6 @@ function getAIResponse(userInput: string): string {
   return RESPONSES.fallback;
 }
 
-// ─── TypingIndicator ──────────────────────────────────────────────────────────
-
-function TypingIndicator() {
-  return (
-    <Stack direction="horizontal" align="center" gap="tight" asChild>
-      <span className="px-1 py-0.5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce"
-            style={{ animationDelay: `${i * 150}ms`, animationDuration: '900ms' }}
-          />
-        ))}
-      </span>
-    </Stack>
-  );
-}
-
-// ─── MessageContent ───────────────────────────────────────────────────────────
-
-function MessageContent({ content }: { content: string }) {
-  // Split on fenced code blocks, preserving them as separate segments.
-  const segments = content.split(/(```(?:[a-z]*\n)?[\s\S]*?```)/g);
-
-  return (
-    <Stack gap="snug" asChild>
-      <article className="text-sm leading-relaxed text-foreground">
-        {segments.map((seg, i) => {
-          const codeMatch = seg.match(/^```([a-z]*)\n?([\s\S]*?)```$/);
-          if (codeMatch) {
-            const lang = codeMatch[1] || 'code';
-            const code = codeMatch[2].trim();
-            return (
-              <Stack key={i} gap="none" asChild>
-                <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <figcaption className="px-4 py-2 bg-surface border-b border-border-subtle">
-                      {/* Language label — raw span intentional: font-mono overrides font-sans */}
-                      <span className="font-mono text-[11px] text-subtle">{lang}</span>
-                      <span className="-mr-1">
-                        <Button variant="ghost" size="icon-sm" aria-label="Copy code">
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </span>
-                    </figcaption>
-                  </Stack>
-                  <pre className="bg-background px-4 py-3 overflow-x-auto">
-                    <code className="font-mono text-xs text-foreground leading-relaxed">
-                      {code}
-                    </code>
-                  </pre>
-                </figure>
-              </Stack>
-            );
-          }
-          // Plain text segment — preserve newlines.
-          return seg ? (
-            <span key={i} className="whitespace-pre-wrap">
-              {seg}
-            </span>
-          ) : null;
-        })}
-      </article>
-    </Stack>
-  );
-}
-
 // ─── ChatPage ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
@@ -503,248 +439,193 @@ export default function ChatPage() {
    * overflow-y-auto so the main element never scrolls itself.
    */
   return (
-    <Stack direction="vertical" asChild>
-      <section className="h-full overflow-hidden">
-        {/* ── Message area ─────────────────────────────────────────────────────── */}
-        <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            /* Welcome screen */
-            <Stack direction="vertical" align="center" justify="center" asChild>
-              <section className="h-full px-6 py-12 text-center">
-                <span className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/15">
-                  <Sparkles className="h-8 w-8 text-accent" />
-                </span>
-                <span className="mb-2 block">
-                  <Heading variant="section">How can Orbit help?</Heading>
-                </span>
-                <span className="mb-10 block max-w-sm">
-                  <Text size="supporting" color="muted">
-                    The AI-powered control plane assistant. Ask about agent architecture, generate
-                    code, or explore Orbit&apos;s design.
-                  </Text>
-                </span>
-
-                {/* Suggestion chips */}
-                <Grid cols={{ base: 1, sm: 2 }} gap="snug" asChild>
-                  <nav className="w-full max-w-xl">
-                    {SUGGESTIONS.map((s) => {
-                      const Icon = s.icon;
-                      return (
-                        <button
-                          key={s.title}
-                          onClick={() => handleSuggestion(s.prompt)}
-                          className={cn(
-                            'group flex flex-col items-start gap-1.5 rounded-xl p-4 text-left',
-                            'border border-border bg-surface',
-                            'hover:border-accent/50 hover:bg-accent/5',
-                            'transition-colors duration-150',
-                          )}
-                        >
-                          <Icon className="h-4 w-4 text-accent mb-0.5" />
-                          <span className="text-sm font-medium text-foreground leading-snug">
-                            {s.title}
-                          </span>
-                          <span className="text-xs text-subtle leading-snug">{s.desc}</span>
-                        </button>
-                      );
-                    })}
-                  </nav>
-                </Grid>
-              </section>
+    <Stack direction="vertical" height="full" overflow="hidden">
+      {/* ── Message area ─────────────────────────────────────────────────────── */}
+      <main ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          /* Welcome screen */
+          <Stack
+            direction="vertical"
+            align="center"
+            justify="center"
+            gap="none"
+            height="full"
+            paddingBlock="spacious"
+            paddingInline="comfortable"
+          >
+            {/* Icon avatar — xl container (64px) with accent/15 bg */}
+            <Stack marginBottom="relaxed" gap="none">
+              <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
             </Stack>
-          ) : (
-            /* Message thread */
-            <Stack gap="spacious" asChild>
-              <ol className="max-w-3xl mx-auto w-full px-4 py-6 list-none m-0 p-6">
-                {messages.map((msg) => (
-                  <Stack key={msg.id} direction="horizontal" gap="snug" asChild>
-                    <li className={cn(msg.role === 'user' ? 'flex-row-reverse' : 'flex-row')}>
-                      {/* Bubble */}
-                      <Stack direction="vertical" gap="snug" asChild>
-                        <span
-                          className={cn(
-                            'group relative max-w-[78%]',
-                            msg.role === 'user' ? 'items-end' : 'items-start',
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              'rounded-2xl px-4 py-3',
-                              msg.role === 'assistant'
-                                ? 'bg-surface border border-border-subtle rounded-tl-sm'
-                                : 'bg-accent/10 border border-accent/20 rounded-tr-sm',
-                            )}
-                          >
-                            {msg.content ? (
-                              <MessageContent content={msg.content} />
-                            ) : (
-                              /* Streaming start — show dots before first words arrive */
-                              <TypingIndicator />
-                            )}
-                            {msg.isStreaming && msg.content && (
-                              /* Blinking cursor during streaming */
-                              <span className="inline-block ml-0.5 h-3.5 w-0.5 bg-accent align-middle animate-pulse" />
-                            )}
-                          </span>
-
-                          {/* Timestamp + actions */}
-                          <Stack direction="horizontal" align="center" gap="snug" asChild>
-                            <span
-                              className={cn(
-                                'px-1',
-                                'opacity-0 group-hover:opacity-100 transition-opacity',
-                                msg.role === 'user' ? 'flex-row-reverse' : 'flex-row',
-                              )}
-                            >
-                              {/*
-                               * Timestamp — raw span: carries text styling.
-                               */}
-                              <span className="text-[11px] text-subtle">
-                                {formatTime(msg.timestamp)}
-                              </span>
-                              {msg.role === 'assistant' && !msg.isStreaming && (
-                                <>
-                                  {/*
-                                   * Message action buttons — raw <button>: icon-only
-                                   * micro-actions in the hover overlay.
-                                   */}
-                                  <button
-                                    className="text-subtle hover:text-foreground transition-colors"
-                                    aria-label="Copy message"
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    className="text-subtle hover:text-status-healthy transition-colors"
-                                    aria-label="Good response"
-                                  >
-                                    <ThumbsUp className="h-3 w-3" />
-                                  </button>
-                                  <button
-                                    className="text-subtle hover:text-status-error transition-colors"
-                                    aria-label="Bad response"
-                                  >
-                                    <ThumbsDown className="h-3 w-3" />
-                                  </button>
-                                </>
-                              )}
-                            </span>
-                          </Stack>
-                        </span>
-                      </Stack>
-                    </li>
-                  </Stack>
-                ))}
-
-                {/* Thinking indicator (between user message and streaming start) */}
-                {isThinking && (
-                  <Stack direction="horizontal" gap="snug" asChild>
-                    <li className="list-none">
-                      <span className="rounded-2xl rounded-tl-sm px-4 py-3 bg-surface border border-border-subtle">
-                        <TypingIndicator />
-                      </span>
-                    </li>
-                  </Stack>
-                )}
-              </ol>
+            <Stack marginBottom="snug" gap="none">
+              <Heading variant="section">How can Orbit help?</Heading>
             </Stack>
-          )}
-        </main>
+            <Stack marginBottom="spacious" maxWidth="card" gap="none">
+              <Text size="supporting" color="muted">
+                The AI-powered control plane assistant. Ask about agent architecture, generate code,
+                or explore Orbit&apos;s design.
+              </Text>
+            </Stack>
 
-        {/* ── Input bar ────────────────────────────────────────────────────────── */}
-        <Stack asChild>
-          <footer className="shrink-0 bg-background px-4 pt-3 pb-4">
-            <Stack asChild>
-              <form className="max-w-3xl mx-auto w-full" onSubmit={(e) => e.preventDefault()}>
-                <span
-                  className={cn(
-                    'rounded-2xl border bg-surface transition-colors duration-150',
-                    'focus-within:border-accent border-border',
-                  )}
-                >
-                  {/*
-                   * variant="bare": the outer span above owns the border, background,
-                   * focus ring, and border-radius. The Textarea provides only the
-                   * interaction surface — no redundant chrome of its own.
-                   */}
-                  <Textarea
-                    ref={textareaRef}
-                    variant="bare"
-                    autoResize
-                    rows={1}
-                    maxRows={6}
-                    placeholder="Message Orbit…"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={isThinking}
-                  />
-
-                  {/* Bottom toolbar */}
-                  <Stack direction="horizontal" align="center" justify="between" asChild>
-                    <footer className="px-3 pb-2.5 pt-1">
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        {/*
-                         * Model selector: clicking the badge cycles through MODELS.
-                         * Raw <button> wrapper: we need onClick + hover on the badge
-                         * without adding a Terra Button's fixed size around it.
-                         */}
-                        <button
-                          onClick={cycleModel}
-                          className="flex items-center gap-1 rounded-md hover:opacity-75 transition-opacity"
-                          title="Click to change model"
-                        >
-                          <Badge variant="dim" size="sm">
-                            <Zap className="h-2.5 w-2.5 mr-1" />
-                            {currentModel}
-                          </Badge>
-                        </button>
-
-                        {/* Clear button — only visible when there is a conversation */}
-                        {messages.length > 0 && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={handleClear}
-                            aria-label="Clear conversation"
-                          >
-                            <RotateCcw className="h-3 w-3" />
-                          </Button>
+            {/* Suggestion chips */}
+            <Grid cols={{ base: 1, sm: 2 }} gap="snug">
+              {SUGGESTIONS.map((s) => {
+                return (
+                  <Button
+                    key={s.title}
+                    variant="secondary"
+                    onClick={() => handleSuggestion(s.prompt)}
+                  >
+                    <Stack gap="snug" align="start" paddingBlock="relaxed" paddingInline="relaxed">
+                      <Icon name={s.icon} color="accent" />
+                      <Text as="span" size="supporting" weight="emphasis">
+                        {s.title}
+                      </Text>
+                      <Text as="span" size="caption" color="subtle">
+                        {s.desc}
+                      </Text>
+                    </Stack>
+                  </Button>
+                );
+              })}
+            </Grid>
+          </Stack>
+        ) : (
+          /* Message thread */
+          <Stack maxWidth="document" grow paddingInline="snug" paddingBlock="comfortable">
+            <List ordered gap="comfortable">
+              {messages.map((msg) => (
+                <ListItem key={msg.id}>
+                  <Stack direction="horizontal" gap="snug">
+                    <ChatBubble
+                      direction={msg.role === 'user' ? 'end' : 'start'}
+                      variant={msg.role === 'user' ? 'accent' : 'surface'}
+                    >
+                      {msg.content ? <MessageContent content={msg.content} /> : <TypingIndicator />}
+                      {msg.isStreaming && msg.content && <StreamingCursor />}
+                      <ChatBubbleActions>
+                        <Text size="micro" color="subtle">
+                          {formatTime(msg.timestamp)}
+                        </Text>
+                        {msg.role === 'assistant' && !msg.isStreaming && (
+                          <>
+                            <Button variant="ghost" size="icon-sm" aria-label="Copy message">
+                              <Icon name="copy" size="xs" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" aria-label="Good response">
+                              <Icon name="thumbs-up" size="xs" />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" aria-label="Bad response">
+                              <Icon name="thumbs-down" size="xs" />
+                            </Button>
+                          </>
                         )}
-                      </Stack>
-                      <Stack direction="horizontal" align="center" gap="snug">
-                        {/*
-                         * Keyboard hint — raw span: carries responsive utility
-                         * (hidden sm:block) alongside text styling.
-                         */}
-                        <span className="text-[11px] text-subtle hidden sm:block">
-                          Shift + Enter for new line
-                        </span>
-                        {/*
-                         * size="xs" shape="pill": compact pill send button.
-                         */}
-                        <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
-                          <Send className="h-3 w-3" />
-                          Send
-                        </Button>
-                      </Stack>
-                    </footer>
+                      </ChatBubbleActions>
+                    </ChatBubble>
                   </Stack>
-                </span>
+                </ListItem>
+              ))}
 
-                {/*
-                 * mt-2 wrapper: spacing between the input card and the disclaimer.
-                 */}
-                <span className="mt-2 block">
-                  <Text size="micro" color="subtle" align="center">
-                    Orbit AI can make mistakes. Verify important information before acting.
+              {/* Thinking indicator (between user message and streaming start) */}
+              {isThinking && (
+                <ListItem>
+                  <Stack direction="horizontal" gap="snug">
+                    <ChatBubble direction="start">
+                      <TypingIndicator />
+                    </ChatBubble>
+                  </Stack>
+                </ListItem>
+              )}
+            </List>
+          </Stack>
+        )}
+      </main>
+
+      {/* ── Input bar ────────────────────────────────────────────────────────── */}
+      <Stack paddingInline="comfortable" paddingBlock="snug">
+        <Stack asChild gap="snug">
+          <Form maxWidth="document" onSubmit={(e) => e.preventDefault()}>
+            {/* Input card: compound rounding + dynamic focus border */}
+            <InputSurface>
+              {/*
+               * variant="bare": the outer span above owns the border, background,
+               * focus ring, and border-radius. The Textarea provides only the
+               * interaction surface — no redundant chrome of its own.
+               */}
+              <Textarea
+                ref={textareaRef}
+                variant="bare"
+                autoResize
+                rows={1}
+                maxRows={6}
+                placeholder="Message Orbit…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isThinking}
+              />
+
+              {/* Bottom toolbar */}
+              <Stack
+                direction="horizontal"
+                align="center"
+                justify="between"
+                paddingInline="snug"
+                paddingBlock="tight"
+              >
+                <Stack direction="horizontal" align="center" gap="snug">
+                  {/*
+                   * Model selector: clicking the badge cycles through MODELS.
+                   * Button muted keeps the badge visible without imposing a fixed size.
+                   */}
+                  <Button
+                    variant="muted"
+                    size="xs"
+                    shape="pill"
+                    onClick={cycleModel}
+                    title="Click to change model"
+                  >
+                    <Icon name="zap" size="xs" />
+                    {currentModel}
+                  </Button>
+
+                  {/* Clear button — only visible when there is a conversation */}
+                  {messages.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleClear}
+                      aria-label="Clear conversation"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </Button>
+                  )}
+                </Stack>
+                <Stack direction="horizontal" align="center" gap="snug">
+                  {/* Responsive: keyboard hint — always visible */}
+                  <Text size="micro" color="subtle">
+                    Shift + Enter for new line
                   </Text>
-                </span>
-              </form>
-            </Stack>
-          </footer>
+                  {/*
+                   * size="xs" shape="pill": compact pill send button.
+                   */}
+                  <Button size="xs" shape="pill" disabled={!canSubmit} onClick={handleSubmit}>
+                    <Icon name="send" size="xs" />
+                    Send
+                  </Button>
+                </Stack>
+              </Stack>
+            </InputSurface>
+
+            {/*
+             * mt-2 wrapper: spacing between the input card and the disclaimer.
+             */}
+            <Text size="micro" color="subtle" align="center">
+              Orbit AI can make mistakes. Verify important information before acting.
+            </Text>
+          </Form>
         </Stack>
-      </section>
+      </Stack>
     </Stack>
   );
 }

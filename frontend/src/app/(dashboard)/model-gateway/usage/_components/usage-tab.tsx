@@ -11,34 +11,32 @@ import { STATS } from '../../_data/mock';
 
 export function UsageTab() {
   return (
-    <Stack direction="vertical" gap="comfortable" asChild>
-      <section>
-        {/* Page header */}
-        <Stack gap="snug">
-          <Heading variant="title">Usage</Heading>
-          <Text size="supporting" color="muted">
-            Detailed analytics for spend, tokens, and request volume across your inference gateway.
-          </Text>
-        </Stack>
+    <Stack direction="vertical" gap="comfortable">
+      {/* Page header */}
+      <Stack gap="snug">
+        <Heading variant="title">Usage</Heading>
+        <Text size="supporting" color="muted">
+          Detailed analytics for spend, tokens, and request volume across your inference gateway.
+        </Text>
+      </Stack>
 
-        {/* KPI stat cards */}
-        <StatCards stats={STATS} />
+      {/* KPI stat cards */}
+      <StatCards stats={STATS} />
 
-        {/* Spend and Tokens charts */}
-        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-          <SpendChart />
-          <TokensChart />
-        </Grid>
+      {/* Spend and Tokens charts */}
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+        <SpendChart />
+        <TokensChart />
+      </Grid>
 
-        {/* Requests chart — full width */}
-        <RequestsChart />
+      {/* Requests chart — full width */}
+      <RequestsChart />
 
-        {/* Cost by model and Latency charts */}
-        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-          <CostByModelChart />
-          <LatencyChart />
-        </Grid>
-      </section>
+      {/* Cost by model and Latency charts */}
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+        <CostByModelChart />
+        <LatencyChart />
+      </Grid>
     </Stack>
   );
 }

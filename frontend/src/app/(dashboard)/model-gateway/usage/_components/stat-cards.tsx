@@ -1,4 +1,3 @@
-import { DollarSign, Zap, Activity } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -6,10 +5,13 @@ import {
   CardContent,
   Grid,
   Heading,
+  Icon,
   Separator,
   Stack,
   Text,
 } from '@orbit/terra';
+import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
+import { StatRow } from './stat-row';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,50 +21,8 @@ export interface StatsShape {
   tokens: { period: number; month: number; quarter: number; year: number };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Cards ─────────────────────────────────────────────────────────────────────
 
-function fmt(usd: number) {
-  return `$${usd.toFixed(2)}`;
-}
-
-function fmtTokens(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return n.toLocaleString();
-}
-
-function fmtReqs(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-interface StatRowProps {
-  label: string;
-  value: string;
-}
-
-function StatRow({ label, value }: StatRowProps) {
-  return (
-    <Stack asChild direction="horizontal" align="center" justify="between">
-      <section className="py-1.5">
-        <Text size="supporting" color="muted">
-          {label}
-        </Text>
-        <Text size="supporting" weight="emphasis" mono tabular>
-          {value}
-        </Text>
-      </section>
-    </Stack>
-  );
-}
-
-/**
- * Separator omits className — wrap in a figure to apply vertical margin.
- */
 function CardDivider() {
   return (
     <Stack asChild>
@@ -73,26 +33,24 @@ function CardDivider() {
   );
 }
 
-// ── Cards ─────────────────────────────────────────────────────────────────────
-
 function CostCard({ spend }: { spend: StatsShape['spend'] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<DollarSign className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="dollar-sign" />}>
         <CardTitle>Costs</CardTitle>
       </CardHeader>
       <CardContent>
-        <Heading variant="metric">{fmt(spend.period)}</Heading>
+        <Heading variant="metric">{fmtUsd(spend.period)}</Heading>
         <Text size="caption" color="muted">
           Current billing period
         </Text>
         <CardDivider />
         <Stack gap="none">
-          <StatRow label="This month" value={fmt(spend.month)} />
+          <StatRow label="This month" value={fmtUsd(spend.month)} />
           <Separator />
-          <StatRow label="This quarter" value={fmt(spend.quarter)} />
+          <StatRow label="This quarter" value={fmtUsd(spend.quarter)} />
           <Separator />
-          <StatRow label="This year" value={fmt(spend.year)} />
+          <StatRow label="This year" value={fmtUsd(spend.year)} />
         </Stack>
       </CardContent>
     </Card>
@@ -105,19 +63,19 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
 
   return (
     <Card column>
-      <CardHeader compact icon={<Activity className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="activity" />}>
         <CardTitle>Requests</CardTitle>
       </CardHeader>
       <CardContent>
-        <Heading variant="metric">{fmtReqs(requests.total)}</Heading>
+        <Heading variant="metric">{fmtNumCompact(requests.total)}</Heading>
         <Text size="caption" color="status-healthy">
           {successRate}% success rate
         </Text>
         <CardDivider />
         <Stack gap="none">
-          <StatRow label="Successful" value={fmtReqs(requests.successful)} />
+          <StatRow label="Successful" value={fmtNumCompact(requests.successful)} />
           <Separator />
-          <StatRow label="Failed" value={fmtReqs(requests.errored)} />
+          <StatRow label="Failed" value={fmtNumCompact(requests.errored)} />
         </Stack>
       </CardContent>
     </Card>
@@ -127,7 +85,7 @@ function RequestsCard({ requests }: { requests: StatsShape['requests'] }) {
 function TokensCard({ tokens }: { tokens: StatsShape['tokens'] }) {
   return (
     <Card column>
-      <CardHeader compact icon={<Zap className="size-4" aria-hidden />}>
+      <CardHeader compact icon={<Icon name="zap" />}>
         <CardTitle>Tokens</CardTitle>
       </CardHeader>
       <CardContent>
