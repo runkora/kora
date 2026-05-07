@@ -5,6 +5,12 @@
  * All BFF API calls are intercepted via page.route() — the Next.js dev server
  * is the only real process under test.
  *
+ * Authentication: the Edge middleware checks the iron-session cookie before
+ * rendering any protected page.  page.route() intercepts browser-side requests
+ * only and cannot bypass the server-side cookie check.  injectSessionCookie()
+ * seals a valid test session with the dev-server secret and sets it in the
+ * browser context via context.addCookies() before each navigation.
+ *
  * Coverage:
  *   1. Dashboard page renders the main heading
  *   2. HealthStatus renders the "Backend" section label
@@ -12,6 +18,7 @@
  *   4. HealthStatus renders the error/unreachable state when the API returns 502
  */
 import { test, expect, type Route } from '@playwright/test';
+import { injectSessionCookie } from './fixtures';
 
 // ── Shared fixture data ────────────────────────────────────────────────────────
 
@@ -54,8 +61,14 @@ async function mockHealth(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe('/ — Dashboard', () => {
-  test('renders the Dashboard page heading', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
+    // Inject a valid iron-session cookie so the middleware auth guard passes.
+    // mockSession mocks the client-side BFF fetch made by PermissionsProvider.
+    await injectSessionCookie(page.context());
     await mockSession(page);
+  });
+
+  test('renders the Dashboard page heading', async ({ page }) => {
     await mockHealth(page, 200, HEALTH_OK_RESPONSE);
     await page.goto('/');
 
@@ -63,7 +76,6 @@ test.describe('/ — Dashboard', () => {
   });
 
   test('HealthStatus renders the Backend section label', async ({ page }) => {
-    await mockSession(page);
     await mockHealth(page, 200, HEALTH_OK_RESPONSE);
     await page.goto('/');
 
@@ -74,18 +86,15 @@ test.describe('/ — Dashboard', () => {
   test('HealthStatus renders healthy badge and service name from the mocked API', async ({
     page,
   }) => {
-    await mockSession(page);
     await mockHealth(page, 200, HEALTH_OK_RESPONSE);
     await page.goto('/');
 
-    // Badge text matches the status field in the API response.
-    await expect(page.getByText('healthy')).toBeVisible();
-    // Service name rendered alongside the badge.
-    await expect(page.getByText('identity')).toBeVisible();
+    // exact: true — case-sensitive to avoid matching "Healthy" agent status badges in the table.
+    await expect(page.getByText('healthy', { exact: true })).toBeVisible();
+    await expect(page.getByText('identity', { exact: true })).toBeVisible();
   });
 
   test('HealthStatus renders the error state when the API returns 502', async ({ page }) => {
-    await mockSession(page);
     await mockHealth(page, 502, {
       error: { code: 'BACKEND_UNREACHABLE', message: 'Backend unreachable' },
     });
