@@ -1,4 +1,4 @@
-# 0030. Frontend Test Strategy and Toolchain
+# 0049. Frontend Test Strategy and Toolchain
 
 **Status:** Approved
 **Date:** 2026-04-08
@@ -697,4 +697,4 @@ All other mocking uses MSW handlers from `test-utils/`.
 
 **DOM environment rationale:** `happy-dom` for Terra, `jsdom` for the app. `happy-dom` is faster and sufficient for isolated component tests that do not require `NextResponse`, `Headers`, or other Web API surface that Next.js depends on internally. `jsdom` provides the compatibility layer that makes App Router API testing reliable. If Terra ever needs a browser API not supported by `happy-dom`, switch per-file using `@vitest-environment jsdom`.
 
-**Last Updated:** 2026-04-01
+**Last Updated:** 2026-05-07

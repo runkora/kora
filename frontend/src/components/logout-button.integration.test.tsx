@@ -7,7 +7,7 @@
  * - MSW intercepts POST /api/auth/logout for request capture and error states.
  * - `delay('infinite')` keeps the fetch pending to verify the in-flight state.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, delay } from 'msw';
@@ -25,7 +25,11 @@ const mockLocation = { href: 'http://localhost/', origin: 'http://localhost' };
 
 beforeEach(() => {
   mockLocation.href = 'http://localhost/';
-  Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
+  vi.stubGlobal('location', mockLocation);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

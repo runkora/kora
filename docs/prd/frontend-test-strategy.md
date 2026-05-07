@@ -388,7 +388,7 @@ Key rules:
 
 Two categories of E2E tests are distinguished:
 
-**Category A — Frontend-isolated** (`frontend/e2e/`): Playwright tests where the Go backend is entirely mocked via `page.route()`. The full Next.js routing, middleware, and BFF pipeline is exercised; only outbound calls from the BFF to the Go backend are intercepted. These are owned by the frontend team, run in `make frontend-test`, and require no external services beyond the Next.js build.
+**Category A — Frontend-isolated** (`frontend/e2e/`): Playwright tests where the Go backend is entirely mocked via `page.route()`. The full Next.js routing, middleware, and BFF pipeline is exercised; only outbound calls from the BFF to the Go backend are intercepted. These are owned by the frontend team, run in `make frontend-test-e2e`, and require no external services beyond the Next.js build.
 
 **Category B — Full-stack (out of scope):** Tests that require the real Go backend, Postgres, or Redis are system-level concerns, not frontend concerns. They are entirely out of scope for this PRD. No directory, no CI step, and no Playwright config for them should be created as part of this work. If and when they are needed, a dedicated ADR will define them.
 

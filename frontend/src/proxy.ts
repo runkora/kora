@@ -185,7 +185,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (refreshedCookieValue) {
       const existingCookieHeader = request.headers.get('cookie') ?? '';
       const updatedCookieHeader = [
-        ...existingCookieHeader.split('; ').filter((c) => !c.startsWith(`${SESSION_COOKIE_NAME}=`)),
+        ...existingCookieHeader.split(';').map((c) => c.trim()).filter((c) => c && !c.startsWith(`${SESSION_COOKIE_NAME}=`)),
         `${SESSION_COOKIE_NAME}=${refreshedCookieValue}`,
       ].join('; ');
 
