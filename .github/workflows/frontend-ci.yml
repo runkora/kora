@@ -46,6 +46,7 @@ jobs:
         run: cd frontend && pnpm run test:coverage:unit
 
       - name: Integration tests
+        if: always()
         run: cd frontend && pnpm run test:coverage:integration
 
       - name: Upload unit coverage report
