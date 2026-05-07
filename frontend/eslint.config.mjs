@@ -907,6 +907,7 @@ const eslintConfig = defineConfig([
   {
     plugins: { local: localPlugin },
     files: ['src/server/**/*.{ts,tsx}', 'src/app/api/**/route.ts'],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.integration.test.{ts,tsx}'],
     rules: {
       'local/require-server-only': 'error',
     },
