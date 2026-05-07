@@ -64,9 +64,7 @@ describe('GET /api/auth/discover', () => {
 
   describe('successful upstream response', () => {
     it('forwards the tenant config body with a 200 status', async () => {
-      server.use(
-        http.get(UPSTREAM_URL, () => HttpResponse.json(tenantConfig, { status: 200 })),
-      );
+      server.use(http.get(UPSTREAM_URL, () => HttpResponse.json(tenantConfig, { status: 200 })));
 
       const res = await GET(makeGetRequest('alice@acme.com'));
       expect(res.status).toBe(200);

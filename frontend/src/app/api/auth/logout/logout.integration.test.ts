@@ -61,7 +61,9 @@ function makeMockSession(payload: ReturnType<typeof createSessionPayload> | null
     refreshToken: payload?.refreshToken ?? '',
     destroy,
   };
-  vi.mocked(getSession).mockResolvedValue(session as unknown as Awaited<ReturnType<typeof getSession>>);
+  vi.mocked(getSession).mockResolvedValue(
+    session as unknown as Awaited<ReturnType<typeof getSession>>,
+  );
   return { destroy };
 }
 
@@ -72,9 +74,7 @@ describe('POST /api/auth/logout', () => {
     vi.mocked(getSession).mockReset();
 
     // Default: revocation succeeds — individual tests override as needed.
-    server.use(
-      http.post(REVOKE_URL, () => new HttpResponse(null, { status: 200 })),
-    );
+    server.use(http.post(REVOKE_URL, () => new HttpResponse(null, { status: 200 })));
   });
 
   describe('when the user is logged in', () => {
@@ -109,9 +109,7 @@ describe('POST /api/auth/logout', () => {
     });
 
     it('still destroys the session and redirects when revocation returns an error status', async () => {
-      server.use(
-        http.post(REVOKE_URL, () => new HttpResponse(null, { status: 500 })),
-      );
+      server.use(http.post(REVOKE_URL, () => new HttpResponse(null, { status: 500 })));
 
       const { destroy } = makeMockSession(createSessionPayload());
       const res = await POST(makePostRequest());

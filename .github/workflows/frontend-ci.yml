@@ -43,10 +43,30 @@ jobs:
         run: make frontend-fmt
 
       - name: Unit tests
-        run: make frontend-test-unit
+        run: cd frontend && pnpm run test:coverage:unit
 
       - name: Integration tests
-        run: make frontend-test-integration
+        run: cd frontend && pnpm run test:coverage:integration
+
+      - name: Upload unit coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit
+          path: frontend/coverage/unit/
+          retention-days: 30
+          if-no-files-found: ignore
+          fail_ci_if_error: false
+
+      - name: Upload integration coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-integration
+          path: frontend/coverage/integration/
+          retention-days: 30
+          if-no-files-found: ignore
+          fail_ci_if_error: false
 
   frontend-e2e:
     name: Frontend E2E Tests
@@ -77,7 +97,7 @@ jobs:
       - name: Run E2E tests
         run: make frontend-test-e2e
 
-    - name: Upload Playwright report
+      - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: always()
         with:
