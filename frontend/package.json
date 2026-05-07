@@ -12,7 +12,10 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test:unit": "vitest run --config vitest.config.unit.ts",
-    "test:integration": "vitest run --config vitest.config.integration.ts"
+    "test:integration": "vitest run --config vitest.config.integration.ts",
+    "test:coverage:unit": "vitest run --config vitest.config.unit.ts --coverage",
+    "test:coverage:integration": "vitest run --config vitest.config.integration.ts --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@orbit/terra": "workspace:*",
@@ -36,6 +39,7 @@
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.0",
     "@storybook/addon-a11y": "^10.3.5",
     "@storybook/addon-docs": "^10.3.5",
     "@storybook/nextjs": "^10.3.5",

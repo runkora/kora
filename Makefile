@@ -803,8 +803,14 @@ frontend-test-terra: ## Run Terra component unit tests in isolation (happy-dom)
 	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
 	@echo "$(COLOR_GREEN)✓ Terra unit tests passed$(COLOR_RESET)"
 
+.PHONY: frontend-test-e2e
+frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
+	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm run test:e2e
+	@echo "$(COLOR_GREEN)✓ Frontend E2E tests passed$(COLOR_RESET)"
+
 .PHONY: frontend-test
-frontend-test: frontend-test-unit frontend-test-integration ## Run all frontend tests
+frontend-test: frontend-test-unit frontend-test-integration ## Run all frontend tests (unit + integration; use frontend-test-e2e for Playwright)
 
 .PHONY: frontend-check
 frontend-check: frontend-lint frontend-type-check frontend-fmt frontend-test ## Run all frontend checks (eslint + tsc + prettier + tests)

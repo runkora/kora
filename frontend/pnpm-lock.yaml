@@ -66,6 +66,9 @@ importers:
         specifier: ^3.3.0
         version: 3.5.0
     devDependencies:
+      '@playwright/test':
+        specifier: ^1.53.0
+        version: 1.59.1
       '@storybook/addon-a11y':
         specifier: ^10.3.5
         version: 10.3.6(storybook@10.3.6(@testing-library/dom@10.4.0)(prettier@3.8.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
@@ -7445,7 +7448,6 @@ snapshots:
   '@playwright/test@1.59.1':
     dependencies:
       playwright: 1.59.1
-    optional: true
 
   '@pmmmwh/react-refresh-webpack-plugin@0.5.17(react-refresh@0.14.2)(type-fest@2.19.0)(webpack-hot-middleware@2.26.1)(webpack@5.106.2(esbuild@0.25.12))':
     dependencies:
@@ -11339,15 +11341,13 @@ snapshots:
     dependencies:
       find-up: 6.3.0
 
-  playwright-core@1.59.1:
-    optional: true
+  playwright-core@1.59.1: {}
 
   playwright@1.59.1:
     dependencies:
       playwright-core: 1.59.1
     optionalDependencies:
       fsevents: 2.3.2
-    optional: true
 
   polished@4.3.1:
     dependencies:

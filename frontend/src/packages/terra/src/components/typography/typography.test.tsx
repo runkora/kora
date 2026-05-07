@@ -135,7 +135,7 @@ describe('Text', () => {
     });
 
     it('forwards ref to the underlying element', () => {
-      let ref: HTMLParagraphElement | null = null;
+      let ref: HTMLElement | null = null;
       render(
         <Text
           ref={(el) => {

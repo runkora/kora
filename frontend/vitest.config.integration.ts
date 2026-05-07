@@ -21,6 +21,27 @@ export default defineConfig({
     ],
     setupFiles: ['./src/test-utils/setup.ts'],
     globals: false,
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: './coverage/integration',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.integration.test.{ts,tsx}',
+        'src/packages/**',
+        'src/test-utils/**',
+        'src/**/*.d.ts',
+      ],
+      thresholds: {
+        // Reporting-only: these numbers surface coverage trends in CI but
+        // never block a green build.  Raise incrementally as tests grow.
+        lines: 15,
+        functions: 15,
+        branches: 10,
+        statements: 15,
+      },
+    },
   },
   resolve: {
     alias: {

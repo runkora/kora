@@ -63,6 +63,7 @@ export function createSessionPayload(overrides: Partial<SessionPayload> = {}): S
     refreshToken: 'test-refresh-token',
     expiresAt,
     tenantId: 'test-tenant',
+    permissions: { scopes: [], evaluatedAt: issuedAt },
     ...overrides,
   };
 }

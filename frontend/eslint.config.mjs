@@ -917,7 +917,7 @@ const eslintConfig = defineConfig([
   {
     plugins: { local: localPlugin },
     files: ['src/app/**/*.{ts,tsx}'],
-    ignores: ['src/app/api/**'],
+    ignores: ['src/app/api/**', '**/*.test.{ts,tsx}', '**/*.integration.test.{ts,tsx}'],
     rules: {
       'local/require-use-client-for-hooks': 'error',
     },
