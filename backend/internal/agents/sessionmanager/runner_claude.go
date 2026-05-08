@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -31,6 +33,14 @@ type ClaudeRunnerConfig struct {
 	// auto-memory). Defaults to true — containers are the standard runtime.
 	// Local development overrides to false via config/local.yaml to use OAuth.
 	Bare bool
+
+	// SessionManagerURL is the base URL of this session-manager, passed to
+	// orbit-runtime-mcp so it can call back for provision_sandbox requests.
+	// Always http://localhost:{port} since they run in the same pod.
+	SessionManagerURL string
+
+	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
+	RunID string
 }
 
 // ClaudeRunner implements Runner for Claude Code's --input-format stream-json mode.
@@ -89,6 +99,12 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		args = append(args, "--tools", "")
 	}
 
+	mcpConfigPath, mcpErr := r.writeMCPConfig(workDir)
+	if mcpErr != nil {
+		return fmt.Errorf("write mcp config: %w", mcpErr)
+	}
+	args = append(args, "--mcp-config", mcpConfigPath)
+
 	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, args...)
 	r.cmd.Dir = workDir
 	r.cmd.Env = append(r.cmd.Environ(), r.cfg.ExtraEnv...)
@@ -137,6 +153,33 @@ func (r *ClaudeRunner) SendToolResult(_ context.Context, toolUseID, content stri
 			}},
 		},
 	})
+}
+
+// writeMCPConfig writes the per-session MCP server config to the workspace and
+// returns the path. Claude Code reads this via --mcp-config at startup.
+func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"runtime": map[string]any{
+				"type":    "stdio",
+				"command": "orbit-runtime-mcp",
+				"args":    []string{},
+				"env": map[string]string{
+					"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+					"ORBIT_RUN_ID":              r.cfg.RunID,
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(workDir, ".mcp-config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (r *ClaudeRunner) writeInput(msg claudeInputMessage) error {

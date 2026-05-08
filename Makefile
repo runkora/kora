@@ -31,6 +31,9 @@ GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
 NODE_VERSION=24
 PNPM_VERSION=10.32.1
+PROTOC_GEN_GO_VERSION=v1.36.11
+PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
+BUF_VERSION=v1.55.1
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -176,12 +179,25 @@ worktree-list: ## List all active worktrees
 	@git worktree list
 
 .PHONY: install-tools
-install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
+install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks, buf, protoc-gen-go)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
 	@echo "  Installing goose $(GOOSE_VERSION)..."
 	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	@echo "  Installing air $(AIR_VERSION)..."
 	@$(GOCMD) install github.com/air-verse/air@$(AIR_VERSION)
+	@echo "  Installing protoc-gen-go $(PROTOC_GEN_GO_VERSION)..."
+	@$(GOCMD) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	@echo "  Installing protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION)..."
+	@$(GOCMD) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	@BUF_INSTALLED=$$(buf --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$BUF_INSTALLED" != "$(BUF_VERSION:v%=%)" ]; then \
+		echo "  Installing buf $(BUF_VERSION) (installed: $${BUF_INSTALLED:-none})..."; \
+		BUF_OS=$$(uname -s); BUF_ARCH=$$(uname -m); \
+		curl -sSfL --retry 3 "https://github.com/bufbuild/buf/releases/download/$(BUF_VERSION)/buf-$${BUF_OS}-$${BUF_ARCH}" \
+			-o "$$(go env GOPATH)/bin/buf" && chmod +x "$$(go env GOPATH)/bin/buf"; \
+	else \
+		echo "  buf $(BUF_VERSION) already installed"; \
+	fi
 	@LINT_INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$LINT_INSTALLED" != "$(GOLANGCI_LINT_VERSION)" ]; then \
 		echo "  Installing golangci-lint $(GOLANGCI_LINT_VERSION) (installed: $${LINT_INSTALLED:-none})..."; \
@@ -202,6 +218,12 @@ install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks
 		echo "  gitleaks $(GITLEAKS_VERSION) already installed"; \
 	fi
 	@echo "$(COLOR_GREEN)✓ Tools installed$(COLOR_RESET)"
+
+.PHONY: proto-gen
+proto-gen: ## Generate Go code from proto files (requires buf — run make install-tools first)
+	@echo "$(COLOR_YELLOW)Generating proto files...$(COLOR_RESET)"
+	@cd backend && buf generate
+	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-tool-versions
 check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
@@ -629,12 +651,16 @@ run-example: ## Run the example service
 		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/example/main.go
 
 .PHONY: build-backend
-build-backend: ## Build all service binaries to .bin directory
+build-backend: proto-gen ## Build all service binaries to .bin directory (runs proto-gen first)
 	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
-	@echo "$(COLOR_GREEN)✓ Binaries built: $(BINARY_DIR)/orbit-identity, $(BINARY_DIR)/orbit-example$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
+	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
 
 # ===========================================
 # Testing & Quality

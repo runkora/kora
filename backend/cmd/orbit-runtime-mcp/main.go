@@ -1,0 +1,197 @@
+package main
+
+// orbit-runtime-mcp is the MCP server for session-runtime tools.
+// Claude Code spawns this binary (via --mcp-config) and communicates over
+// stdio using JSON-RPC 2.0. It exposes tools that let Claude interact with
+// the session-manager to manage its own execution environment.
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+)
+
+func main() {
+	srv := &mcpServer{
+		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
+		runID:             requireEnv("ORBIT_RUN_ID"),
+	}
+	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
+		log.Fatalf("orbit-runtime-mcp: %v", err)
+	}
+}
+
+func requireEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("orbit-runtime-mcp: %s is required", key)
+	}
+	return v
+}
+
+// ── JSON-RPC types ────────────────────────────────────────────────────────────
+
+type jsonRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      any             `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id,omitempty"`
+	Result  any       `json:"result,omitempty"`
+	Error   *rpcError `json:"error,omitempty"`
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// ── MCP server ────────────────────────────────────────────────────────────────
+
+type mcpServer struct {
+	sessionManagerURL string
+	runID             string
+}
+
+func (s *mcpServer) serve(r io.Reader, w io.Writer) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+	enc := json.NewEncoder(w)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var req jsonRPCRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			continue
+		}
+		resp := s.handle(req)
+		if err := enc.Encode(resp); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func (s *mcpServer) handle(req jsonRPCRequest) jsonRPCResponse {
+	switch req.Method {
+	case "initialize":
+		return s.handleInitialize(req)
+	case "notifications/initialized":
+		return jsonRPCResponse{} // no response needed for notifications
+	case "tools/list":
+		return s.handleToolsList(req)
+	case "tools/call":
+		return s.handleToolsCall(req)
+	default:
+		return jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &rpcError{Code: -32601, Message: "method not found"},
+		}
+	}
+}
+
+func (s *mcpServer) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"serverInfo": map[string]any{
+				"name":    "orbit-runtime",
+				"version": "1.0.0",
+			},
+			"capabilities": map[string]any{
+				"tools": map[string]any{},
+			},
+		},
+	}
+}
+
+func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]any{
+			"tools": []map[string]any{
+				{
+					"name":        "provision_sandbox",
+					"description": "Provisions a sandbox execution environment for this session. Call this before running build commands, compiling code, starting servers, or installing packages. After this tool returns successfully, all Bash commands will execute inside the sandbox.",
+					"inputSchema": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+						"required":   []string{},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errResponse(req.ID, -32602, "invalid params")
+	}
+
+	switch params.Name {
+	case "provision_sandbox":
+		if err := s.provisionSandbox(); err != nil {
+			return errResponse(req.ID, -32000, fmt.Sprintf("provision_sandbox failed: %v", err))
+		}
+		return jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": "Sandbox provisioned. Bash commands will now execute in the sandbox environment."},
+				},
+			},
+		}
+	default:
+		return errResponse(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
+	}
+}
+
+func (s *mcpServer) provisionSandbox() error {
+	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", s.sessionManagerURL, s.runID)
+	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte("{}"))) //nolint:noctx,gosec
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("session-manager returned %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func errResponse(id any, code int, msg string) jsonRPCResponse {
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error:   &rpcError{Code: code, Message: msg},
+	}
+}
+
+// provisionSandbox may block up to 120s (cold pod start). No client-side
+// timeout is set here; the session-manager enforces the deadline.
+func init() {
+	http.DefaultClient.Timeout = 0
+}

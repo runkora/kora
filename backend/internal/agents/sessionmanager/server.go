@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -17,6 +18,9 @@ type ControllerConfig struct {
 	ClaudeDefaultModel string
 	// ClaudeBare enables --bare mode (required in containers).
 	ClaudeBare bool
+	// SelfPort is the port this session-manager listens on. orbit-runtime-mcp
+	// uses it to call back for provision_sandbox requests.
+	SelfPort int
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -86,10 +90,12 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		model = c.cfg.ClaudeDefaultModel
 	}
 	runner := NewClaudeRunner(ClaudeRunnerConfig{
-		BinaryPath:   c.cfg.ClaudeBinaryPath,
-		Model:        model,
-		AllowedTools: req.AllowedTools,
-		Bare:         c.cfg.ClaudeBare,
+		BinaryPath:        c.cfg.ClaudeBinaryPath,
+		Model:             model,
+		AllowedTools:      req.AllowedTools,
+		Bare:              c.cfg.ClaudeBare,
+		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+		RunID:             req.RunID,
 	})
 
 	cfg := SessionConfig{

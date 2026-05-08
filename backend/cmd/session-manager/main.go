@@ -9,13 +9,13 @@ import (
 	"syscall"
 
 	smConfig "github.com/clear-route/orbit/cmd/session-manager/config"
+	"github.com/clear-route/orbit/internal/agents/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/sessionmanager"
 )
 
 func main() {
@@ -92,6 +92,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		ClaudeBinaryPath:   cfg.Claude.BinaryPath,
 		ClaudeDefaultModel: cfg.Claude.DefaultModel,
 		ClaudeBare:         cfg.Claude.Bare,
+		SelfPort:           cfg.Server.Port,
 	}, registry)
 
 	return apiServer.Server(

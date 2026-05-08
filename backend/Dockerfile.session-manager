@@ -17,7 +17,9 @@ RUN go mod download && go mod verify
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go && \
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go
 
 RUN find /app -path "*/config/*.yaml" | while read f; do \
         rel="${f#/app/}"; \
@@ -36,9 +38,9 @@ WORKDIR /app
 # go:   required so Claude Code can build/run Go programs in agent workspaces.
 RUN apk add --no-cache ca-certificates bash git go
 
-# Claude Code's Bash tool reads $SHELL to locate the shell binary.
-# Alpine does not set SHELL for system users; without this, all Bash tool calls fail.
-ENV SHELL=/bin/bash
+# orbit-shell is the Bash proxy: routes commands locally or to a sandbox pod via gRPC.
+# Falls back to /bin/bash when no sandbox endpoint file is present.
+ENV SHELL=/usr/local/bin/orbit-shell
 
 # Install claude CLI. Pin to the tested major version.
 RUN npm install -g @anthropic-ai/claude-code@2
@@ -48,6 +50,8 @@ RUN addgroup -S orbit && adduser -S orbit -G orbit
 
 COPY --from=builder /configs/ ./
 COPY --from=builder /orbit ./orbit
+COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
+COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
 
 # Workspaces directory (matches config/base.yaml workspaces.basePath)
 RUN mkdir -p /workspaces && chown orbit:orbit /workspaces /app
