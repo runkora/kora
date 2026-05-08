@@ -1,0 +1,18 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8090
+  basePath: ""
+  shutdownTimeoutSecs: 30
+
+observability:
+  serviceName: orbit-session-manager
+
+workspaces:
+  basePath: /workspaces
+
+claude:
+  binaryPath: claude
+  defaultModel: "anthropic/claude-sonnet-4-6"
+  bare: true # containers use ANTHROPIC_API_KEY; local dev overrides to false
