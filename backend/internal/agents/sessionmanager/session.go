@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,30 +29,33 @@ type SessionConfig struct {
 
 // session represents one active run backed by a CLI subprocess.
 type session struct {
-	runID  string
-	runner Runner
-	cancel context.CancelFunc
-	done   chan struct{}
+	runID            string
+	runner           Runner
+	cancel           context.CancelFunc
+	done             chan struct{}
+	intentionalClose atomic.Bool // true when closed by timeout or explicit request
 }
 
 // Registry manages all active sessions for this session-manager pod.
 type Registry struct {
-	logger     logging.Logger
-	pool       *pgxpool.Pool
-	workspaces string // base path for workspace directories
-	notifier   Notifier
-	mu         sync.RWMutex
-	sessions   map[string]*session
+	logger      logging.Logger
+	pool        *pgxpool.Pool
+	workspaces  string // base path for workspace directories
+	notifier    Notifier
+	idleTimeout time.Duration
+	mu          sync.RWMutex
+	sessions    map[string]*session
 }
 
 // NewRegistry creates a session registry.
-func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase string, notifier Notifier) *Registry {
+func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase string, notifier Notifier, idleTimeout time.Duration) *Registry {
 	return &Registry{
-		logger:     logger,
-		pool:       pool,
-		workspaces: workspacesBase,
-		notifier:   notifier,
-		sessions:   make(map[string]*session),
+		logger:      logger,
+		pool:        pool,
+		workspaces:  workspacesBase,
+		notifier:    notifier,
+		idleTimeout: idleTimeout,
+		sessions:    make(map[string]*session),
 	}
 }
 
@@ -130,6 +135,7 @@ func (reg *Registry) Close(ctx context.Context, runID string) error {
 		return ErrSessionNotFound
 	}
 
+	s.intentionalClose.Store(true)
 	s.cancel()
 	if err := s.runner.Close(); err != nil {
 		return err
@@ -147,10 +153,15 @@ func (reg *Registry) ActiveCount() int {
 }
 
 // drain reads events from a session's runner, persists durable events to the DB,
-// and pushes all events to orbit-agents for live SSE fan-out.
+// pushes all events to orbit-agents for live SSE fan-out, and manages the idle
+// timeout that closes the session after inactivity.
 //
 // Durable events (message_complete, tool_use, tool_result) → DB + push.
-// Ephemeral events (text_delta, thinking_delta, message_stop) → push only (ADR-0054).
+// Ephemeral events (text_delta, thinking_delta, message_stop) → push only.
+//
+// After message_stop, an idle timer is armed. Any subsequent event from the
+// runner cancels it (new turn started). If the timer fires, the session is
+// closed and the run is marked completed.
 //
 // Runs in its own goroutine; ctx is the session-scoped context.
 func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
@@ -160,27 +171,84 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			delete(reg.sessions, s.runID)
 		}
 		reg.mu.Unlock()
+
+		failed := !s.intentionalClose.Load()
+		bgCtx := context.Background()
+		if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, failed); err != nil {
+			reg.logger.Warn(bgCtx, "Failed to notify run completion",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+				logging.Field{Key: "failed", Value: failed},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+
 		close(s.done)
 	}()
 
 	eventRepo := newEventRepository(reg.pool)
 
-	for ev := range s.runner.Events() {
-		if isDurableEvent(ev.Type) {
-			if err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload); err != nil {
-				reg.logger.Error(ctx, "Failed to write run event",
+	var idleTimerC <-chan time.Time // nil = no timer armed (blocks in select)
+	var idleTimer *time.Timer
+
+	armIdle := func() {
+		if idleTimer != nil {
+			idleTimer.Stop()
+		}
+		idleTimer = time.NewTimer(reg.idleTimeout)
+		idleTimerC = idleTimer.C
+		reg.logger.Info(ctx, "Session idle timer armed",
+			logging.Field{Key: "run_id", Value: cfg.RunID},
+			logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
+		)
+	}
+	disarmIdle := func() {
+		if idleTimer != nil {
+			idleTimer.Stop()
+			idleTimer = nil
+		}
+		idleTimerC = nil
+	}
+
+	events := s.runner.Events()
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+
+			if ev.Type == EventTypeMessageStop {
+				armIdle()
+			} else {
+				disarmIdle()
+			}
+
+			if isDurableEvent(ev.Type) {
+				if err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload); err != nil {
+					reg.logger.Error(ctx, "Failed to write run event",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+						logging.Field{Key: "event_type", Value: string(ev.Type)},
+						logging.Field{Key: "error", Value: err.Error()},
+					)
+				}
+			}
+			if err := reg.notifier.Notify(ctx, cfg.RunID, ev); err != nil {
+				reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
 					logging.Field{Key: "run_id", Value: cfg.RunID},
 					logging.Field{Key: "event_type", Value: string(ev.Type)},
 					logging.Field{Key: "error", Value: err.Error()},
 				)
 			}
-		}
-		if err := reg.notifier.Notify(ctx, cfg.RunID, ev); err != nil {
-			reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
+
+		case <-idleTimerC:
+			reg.logger.Info(ctx, "Session idle timeout — closing",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
-				logging.Field{Key: "event_type", Value: string(ev.Type)},
-				logging.Field{Key: "error", Value: err.Error()},
+				logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
 			)
+			s.intentionalClose.Store(true)
+			s.cancel()
+			_ = s.runner.Close()
+			return
 		}
 	}
 }

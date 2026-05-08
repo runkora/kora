@@ -19,3 +19,6 @@ claude:
   binaryPath: claude
   defaultModel: "anthropic/claude-sonnet-4-6"
   bare: true # containers use ANTHROPIC_API_KEY; local dev overrides to false
+
+session:
+  idleTimeoutSecs: 1200 # 20 minutes

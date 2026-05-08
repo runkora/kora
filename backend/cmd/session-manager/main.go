@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"time"
+
 	smConfig "github.com/clear-route/orbit/cmd/session-manager/config"
 	"github.com/clear-route/orbit/internal/agents/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -93,7 +95,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
 	}
 
-	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier)
+	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
+	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:   cfg.Claude.BinaryPath,
 		ClaudeDefaultModel: cfg.Claude.DefaultModel,

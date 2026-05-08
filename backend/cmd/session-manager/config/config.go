@@ -55,6 +55,12 @@ type Config struct {
 		// Required in containers where ANTHROPIC_API_KEY is set via env var.
 		Bare bool `yaml:"bare"`
 	} `yaml:"claude"`
+
+	Session struct {
+		// IdleTimeoutSecs is how long a session may be idle (no message_stop
+		// followed by a new message) before it is automatically closed.
+		IdleTimeoutSecs int `yaml:"idleTimeoutSecs"`
+	} `yaml:"session"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

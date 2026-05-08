@@ -9,17 +9,22 @@ import (
 	"time"
 )
 
-// Notifier delivers events to orbit-agents for live SSE fan-out.
+// Notifier delivers events to orbit-agents for live SSE fan-out and run
+// lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
 type Notifier interface {
 	Notify(ctx context.Context, runID string, ev Event) error
+	// CompleteRun transitions a run from active/completing to completed or
+	// failed. Called by the session drain loop when the subprocess exits.
+	CompleteRun(ctx context.Context, runID string, failed bool) error
 }
 
 // NoopNotifier silently discards all events.
 // Used when ORBIT_AGENTS_URL is not configured (local dev without orbit-agents).
 type NoopNotifier struct{}
 
-func (NoopNotifier) Notify(_ context.Context, _ string, _ Event) error { return nil }
+func (NoopNotifier) Notify(_ context.Context, _ string, _ Event) error     { return nil }
+func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ bool) error { return nil }
 
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
 // Each call is fire-and-forget with a short timeout so a slow or absent
@@ -51,6 +56,29 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (n *HTTPNotifier) CompleteRun(ctx context.Context, runID string, failed bool) error {
+	toState := "completed"
+	if failed {
+		toState = "failed"
+	}
+	body, err := json.Marshal(map[string]string{"from": "active", "to": toState})
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+	url := fmt.Sprintf("%s/internal/runs/%s/state", n.baseURL, runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("post state: %w", err)
 	}
 	resp.Body.Close()
 	return nil
