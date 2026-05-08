@@ -94,6 +94,7 @@ dist/
 
 # agents
 .forge/
+.codex/
 
 # helm
 charts/**/charts/
