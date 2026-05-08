@@ -6,29 +6,31 @@ import "encoding/json"
 type EventType string
 
 const (
+	// Persistence events — written to run_events by the session-manager.
+	EventTypeMessageComplete EventType = "message_complete"
+	EventTypeToolUse         EventType = "tool_use"
+	EventTypeToolResult      EventType = "tool_result"
+
+	// Streaming-only events — emitted on the live SSE path once orbit-agents
+	// implements a direct streaming subscription to the session-manager.
+	// Not written to run_events; kept here so the types are defined ahead of time.
 	EventTypeTextDelta     EventType = "text_delta"
 	EventTypeThinkingDelta EventType = "thinking_delta"
-	EventTypeToolUse       EventType = "tool_use"
-	EventTypeToolResult    EventType = "tool_result"
 	EventTypeMessageStop   EventType = "message_stop"
 )
 
 // Event is an Orbit standard event emitted by the transform layer.
-// The Payload field is marshaled to the appropriate payload struct
-// based on Type.
 type Event struct {
 	Type    EventType       `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// TextDeltaPayload carries a streaming text chunk.
-type TextDeltaPayload struct {
-	Delta string `json:"delta"`
-}
-
-// ThinkingDeltaPayload carries a streaming thinking (reasoning) chunk.
-type ThinkingDeltaPayload struct {
-	Delta string `json:"delta"`
+// MessageCompletePayload carries the full accumulated text and thinking for one
+// completed assistant turn. Written once per turn, replacing the N text_delta
+// and thinking_delta events that would otherwise be stored individually.
+type MessageCompletePayload struct {
+	Text     string `json:"text"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 // ToolUsePayload carries a completed tool call (id, name, and full input).

@@ -45,6 +45,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("POST /session", c.handleCreateSession)
 	mux.Handle("POST /session/{runID}/messages", c.handleSendMessage)
+	mux.Handle("POST /session/{runID}/tool-results", c.handleSendToolResult)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 }
 
@@ -139,6 +140,42 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// SendToolResultRequest is the body for POST /session/{runID}/tool-results.
+type SendToolResultRequest struct {
+	ToolUseID string `json:"tool_use_id"`
+	Content   string `json:"content"`
+}
+
+// handleSendToolResult injects a tool result for a pending AskFollowupQuestion.
+// orbit-agents calls this when the user has answered a question Claude asked.
+func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+
+	var req SendToolResultRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	if req.ToolUseID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "tool_use_id is required", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	if err := c.registry.SendToolResult(ctx, runID, req.ToolUseID, req.Content); err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send tool result", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}

@@ -92,7 +92,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	return nil
 }
 
-// Send delivers a user message to an existing session.
+// Send delivers a user text message to an existing session.
 func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
@@ -101,6 +101,18 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 		return ErrSessionNotFound
 	}
 	return s.runner.Send(ctx, text)
+}
+
+// SendToolResult injects a tool result for a pending AskFollowupQuestion in an
+// existing session. toolUseID must match the id from the tool_use event.
+func (reg *Registry) SendToolResult(ctx context.Context, runID, toolUseID, content string) error {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotFound
+	}
+	return s.runner.SendToolResult(ctx, toolUseID, content)
 }
 
 // Close terminates a session and cleans up its resources.
@@ -134,8 +146,18 @@ func (reg *Registry) ActiveCount() int {
 
 // drain reads events from a session's runner and writes them to run_events.
 // Runs in its own goroutine per session; ctx is the session-scoped context.
+// When the runner's events channel closes (subprocess exit, crash, or Close),
+// drain removes the session from the registry so the run_id becomes reusable.
 func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
-	defer close(s.done)
+	defer func() {
+		// Auto-remove if still present (subprocess crashed without an explicit Close call).
+		reg.mu.Lock()
+		if reg.sessions[s.runID] == s {
+			delete(reg.sessions, s.runID)
+		}
+		reg.mu.Unlock()
+		close(s.done)
+	}()
 
 	eventRepo := newEventRepository(reg.pool)
 

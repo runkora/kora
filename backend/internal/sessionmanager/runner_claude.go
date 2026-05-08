@@ -41,14 +41,18 @@ type ClaudeRunnerConfig struct {
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
 //	       --no-session-persistence --bare [--model M] [--tools T,...]
 //
-// Each user message is sent as a JSON line on stdin. Stdout is parsed line
-// by line and translated to Orbit standard events.
+// Each user message is sent as a JSON line on stdin. Stdout is parsed line by
+// line: text and thinking deltas are accumulated in memory; one message_complete
+// event is emitted per turn containing the full accumulated text. tool_use and
+// tool_result events are emitted as they arrive.
 type ClaudeRunner struct {
-	cfg    ClaudeRunnerConfig
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	events chan Event
-	once   sync.Once
+	cfg         ClaudeRunnerConfig
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	events      chan Event
+	once        sync.Once
+	textBuf     strings.Builder // accumulates text_delta chunks; reset per turn
+	thinkingBuf strings.Builder // accumulates thinking_delta chunks; reset per turn
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -108,18 +112,37 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	return nil
 }
 
-// Send writes a user message to Claude Code's stdin.
+// Send writes a user text message to Claude Code's stdin.
 func (r *ClaudeRunner) Send(_ context.Context, text string) error {
-	msg := claudeInputMessage{
+	return r.writeInput(claudeInputMessage{
 		Type: "user",
 		Message: claudeInputMessageBody{
 			Role:    "user",
 			Content: []claudeInputContent{{Type: "text", Text: text}},
 		},
-	}
+	})
+}
+
+// SendToolResult injects a tool result for a pending AskFollowupQuestion (or any
+// other human-in-the-loop tool). Claude Code resumes processing once received.
+func (r *ClaudeRunner) SendToolResult(_ context.Context, toolUseID, content string) error {
+	return r.writeInput(claudeInputMessage{
+		Type: "user",
+		Message: claudeInputMessageBody{
+			Role: "user",
+			Content: []claudeInputContent{{
+				Type:      "tool_result",
+				ToolUseID: toolUseID,
+				Content:   content,
+			}},
+		},
+	})
+}
+
+func (r *ClaudeRunner) writeInput(msg claudeInputMessage) error {
 	line, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("marshal message: %w", err)
+		return fmt.Errorf("marshal input: %w", err)
 	}
 	_, err = r.stdin.Write(append(line, '\n'))
 	return err
@@ -181,21 +204,28 @@ func (r *ClaudeRunner) dispatch(w claudeOutputWrapper) {
 		r.handleUser(w.Message)
 	case "result":
 		if w.Subtype == "success" && w.StopReason == "end_turn" {
-			r.emit(EventTypeMessageStop, struct{}{})
+			r.emit(EventTypeMessageComplete, MessageCompletePayload{
+				Text:     r.textBuf.String(),
+				Thinking: r.thinkingBuf.String(),
+			})
+			r.textBuf.Reset()
+			r.thinkingBuf.Reset()
 		}
 	}
 }
 
-// handleStreamEvent translates a content_block_delta to an Orbit delta event.
+// handleStreamEvent accumulates text and thinking deltas in memory.
+// Deltas are not emitted individually; the turn's accumulated content is
+// emitted as a single message_complete event when the result arrives.
 func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 	if ev.Type != "content_block_delta" || ev.Delta == nil {
 		return
 	}
 	switch ev.Delta.DeltaType {
 	case "text_delta":
-		r.emit(EventTypeTextDelta, TextDeltaPayload{Delta: ev.Delta.Text})
+		r.textBuf.WriteString(ev.Delta.Text)
 	case "thinking_delta":
-		r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: ev.Delta.Thinking})
+		r.thinkingBuf.WriteString(ev.Delta.Thinking)
 		// input_json_delta: tool input arrives complete in the assistant message snapshot.
 	}
 }
@@ -233,11 +263,7 @@ func (r *ClaudeRunner) emit(t EventType, payload any) {
 	if err != nil {
 		return
 	}
-	select {
-	case r.events <- ev:
-	default:
-		// Drop if buffer full; Postgres writer applies backpressure naturally.
-	}
+	r.events <- ev
 }
 
 // isExitKilled returns true for process terminations that are normal shutdown.
@@ -264,8 +290,10 @@ type claudeInputMessageBody struct {
 }
 
 type claudeInputContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   string `json:"content,omitempty"`
 }
 
 // claudeOutputWrapper is the top-level envelope for every stdout line.
