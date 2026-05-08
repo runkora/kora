@@ -41,6 +41,17 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/identity/health`
+   *
+   * Proxies the identity service health check server-side so the browser never
+   * communicates with the Go API directly. Displayed by the HealthStatus
+   * component on the dashboard.
+   */
+  identityHealth: {
+    GET: (): `${typeof API_BASE}/identity/health` => `${API_BASE}/identity/health`,
+  },
+
+  /**
    * `/api/auth/logout`
    *
    * Revokes the Orbit tokens server-side (best-effort) and destroys the
@@ -263,6 +274,7 @@ export const ApiRoute = {
  */
 export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['health']['GET']>
+  | ReturnType<(typeof ApiRoute)['identityHealth']['GET']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>

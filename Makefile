@@ -784,9 +784,36 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 	@cd $(FRONTEND_DIR) && pnpm exec prettier $(if $(CI),--check,--write) .
 	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
 
-# TODO: add frontend-test as a dependency once frontend tests are implemented
+.PHONY: frontend-test-unit
+frontend-test-unit: ## Run frontend unit tests (Terra first, then app)
+	@echo "$(COLOR_YELLOW)Running frontend unit tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	@cd $(FRONTEND_DIR) && pnpm run test:unit
+	@echo "$(COLOR_GREEN)✓ Frontend unit tests passed$(COLOR_RESET)"
+
+.PHONY: frontend-test-integration
+frontend-test-integration: ## Run frontend integration tests (MSW + jsdom)
+	@echo "$(COLOR_YELLOW)Running frontend integration tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm run test:integration
+	@echo "$(COLOR_GREEN)✓ Frontend integration tests passed$(COLOR_RESET)"
+
+.PHONY: frontend-test-terra
+frontend-test-terra: ## Run Terra component unit tests in isolation (happy-dom)
+	@echo "$(COLOR_YELLOW)Running Terra unit tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	@echo "$(COLOR_GREEN)✓ Terra unit tests passed$(COLOR_RESET)"
+
+.PHONY: frontend-test-e2e
+frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
+	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm run test:e2e
+	@echo "$(COLOR_GREEN)✓ Frontend E2E tests passed$(COLOR_RESET)"
+
+.PHONY: frontend-test
+frontend-test: frontend-test-unit frontend-test-integration ## Run all frontend tests (unit + integration; use frontend-test-e2e for Playwright)
+
 .PHONY: frontend-check
-frontend-check: frontend-lint frontend-type-check frontend-fmt ## Run all frontend checks (eslint + tsc + prettier)
+frontend-check: frontend-lint frontend-type-check frontend-fmt frontend-test ## Run all frontend checks (eslint + tsc + prettier + tests)
 
 .PHONY: frontend-clean
 frontend-clean: ## Remove frontend build artifacts and installed dependencies

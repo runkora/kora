@@ -21,6 +21,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import {
   getSessionOptions,
+  SESSION_COOKIE_NAME,
   type SessionPayload,
   type SessionPermissions,
   type BackendSessionResponse,
@@ -139,7 +140,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // `response` object it was bound to. We copy those cookies onto the
       // redirect so the browser actually receives the delete instruction
       // and the stale cookie is cleared (preventing a redirect loop).
-      session.destroy();
+      await session.destroy();
       const loginUrl = new URL(APP_ROUTES.login, request.url);
       if (isSafeRedirectPath(pathname)) {
         loginUrl.searchParams.set('next', pathname);
@@ -174,6 +175,36 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       session.permissions ?? { scopes: [], evaluatedAt: 0 };
 
     await refreshedSession.save();
+
+    // Forward the refreshed session cookie to downstream Server Components and
+    // Route Handlers. Middleware writes to response.cookies (→ Set-Cookie for
+    // the browser) but cookies() from next/headers reads from the *request*
+    // side. Without this, Server Components in the same render cycle still see
+    // the expired token and render with empty/error data.
+    const refreshedCookieValue = response.cookies.get(SESSION_COOKIE_NAME)?.value;
+    if (refreshedCookieValue) {
+      const existingCookieHeader = request.headers.get('cookie') ?? '';
+      const updatedCookieHeader = [
+        ...existingCookieHeader
+          .split(';')
+          .map((c) => c.trim())
+          .filter((c) => c && !c.startsWith(`${SESSION_COOKIE_NAME}=`)),
+        `${SESSION_COOKIE_NAME}=${refreshedCookieValue}`,
+      ].join('; ');
+
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('cookie', updatedCookieHeader);
+
+      const forwardedResponse = NextResponse.next({ request: { headers: requestHeaders } });
+      for (const cookie of response.cookies.getAll()) {
+        forwardedResponse.cookies.set(cookie);
+      }
+      return forwardedResponse;
+    } else {
+      console.warn(
+        '[proxy] Token refresh succeeded but sealed cookie was absent from response — falling back to unfixed response. Server Components may see the expired token.',
+      );
+    }
   }
 
   return response;
