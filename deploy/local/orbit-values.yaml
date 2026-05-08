@@ -99,6 +99,18 @@ frontend:
 networkPolicy:
   enabled: true
 
+agents:
+  image:
+    repository: orbit-registry:5001/orbit-agents
+    tag: latest
+  replicas: 1
+  config:
+    postgresSSLMode: "disable"
+    postgresCaptureQueryText: "true"
+    otlpInsecure: "true"
+    logFormat: "console"
+    sessionManagerPostgresSSLMode: "disable"
+
 policyService:
   image:
     repository: orbit-registry:5001/orbit-policy-service

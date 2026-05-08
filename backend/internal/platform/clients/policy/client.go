@@ -107,6 +107,42 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 	return g.ID, nil
 }
 
+// ListGrants returns all grants for a principal within a tenant.
+// Used by the provisioner to find grant IDs for deletion on deprovision.
+func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, principalID string) ([]Grant, error) {
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/policy/grants?tenant_id=%s&principal_type=%s&principal_id=%s",
+		c.serviceURL, tenantID, principalType, principalID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build list grants request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.ListGrants", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("list grants failed: status %d", resp.StatusCode))
+	}
+
+	var result struct {
+		Grants []Grant `json:"grants"`
+	}
+	if err := c.DecodeJSON(span, resp, &result); err != nil {
+		return nil, fmt.Errorf("decode list grants response: %w", err)
+	}
+	return result.Grants, nil
+}
+
 // DeleteGrant removes a grant by ID within the given tenant.
 func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 	tok, err := c.bearerToken(ctx)

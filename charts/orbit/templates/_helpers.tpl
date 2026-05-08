@@ -210,3 +210,25 @@ app.kubernetes.io/component: opa-gateway
 {{- define "orbit.opaGateway.selectorLabels" -}}
 app: orbit-opa-gateway
 {{- end }}
+
+{{/*
+Agents service labels — orbit-agents manages the agent/run lifecycle and
+provisions StatefulSets, sandboxes, and services in tenant namespaces.
+*/}}
+{{- define "orbit.agents.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-agents
+app.kubernetes.io/component: agents
+{{- end }}
+
+{{- define "orbit.agents.selectorLabels" -}}
+app: orbit-agents
+{{- end }}
+
+{{- define "orbit.agents.imageTag" -}}
+{{- .Values.agents.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "orbit.agents.imagePullPolicy" -}}
+{{- .Values.agents.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}

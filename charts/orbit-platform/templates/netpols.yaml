@@ -107,9 +107,10 @@ spec:
         - port: 15008
 ---
 # Allow inbound mTLS mesh traffic from tenant namespaces into orbit-system.
-# Two cross-namespace flows require this:
+# Cross-namespace flows requiring this:
 # - identity-proxy sidecar calls orbit-identity (/api/v1/identity/exchange) on port 8080
 # - OPA sidecar polls orbit-policy-service for bundles on port 8083
+# - session-manager (agent pods) calls orbit-inference-gateway on port 8081
 # With Istio mTLS, the source Envoy connects on the original destination port before
 # iptables redirect. Without this rule, the default-deny-all blocks the connection
 # and Envoy returns 503 "delayed connect error: Connection refused".
@@ -132,11 +133,38 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+        - port: 8081
+          protocol: TCP
         - port: 8083
           protocol: TCP
         - port: 15006
           protocol: TCP
         - port: 15008
+          protocol: TCP
+---
+# Allow orbit-system pods to reach session-manager pods in tenant namespaces.
+# orbit-agents calls the session-manager HTTP API (port 8090) on each agent
+# pod to create, message, and terminate Claude Code subprocesses.
+# Cilium eBPF enforces NetworkPolicy before iptables redirect, so we must
+# allow the actual application port (8090) on the egress side.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-session-manager-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              orbit.io/role: tenant
+      ports:
+        - port: 8090
           protocol: TCP
 ---
 # Allow orbit-system pods to reach istiod on port 15012 (gRPC xDS).

@@ -1,0 +1,11 @@
+kubernetes:
+  inCluster: false # use KUBECONFIG / k3d for local development
+
+# Leave policyServiceURL empty so grant management is skipped when running locally
+# outside the cluster (no policy service reachable).
+platform:
+  policyServiceURL: ""
+
+agents:
+  sessionManager:
+    postgresSSLMode: disable

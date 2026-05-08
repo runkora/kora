@@ -509,6 +509,45 @@ docker-push-frontend: docker-build-frontend ## Push the frontend image to the lo
 	@docker push localhost:5001/orbit-frontend:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
 
+.PHONY: docker-build-agents
+docker-build-agents: ## Build the orbit-agents image
+	@echo "$(COLOR_YELLOW)Building orbit-agents:latest...$(COLOR_RESET)"
+	@cd backend && docker build --build-arg SERVICE=orbit-agents -t orbit-agents:latest .
+	@echo "$(COLOR_GREEN)✓ orbit-agents:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-agents
+docker-push-agents: docker-build-agents ## Build and push orbit-agents image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-agents to local registry...$(COLOR_RESET)"
+	@docker tag orbit-agents:latest localhost:5001/orbit-agents:latest
+	@docker push localhost:5001/orbit-agents:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-agents:latest$(COLOR_RESET)"
+
+.PHONY: docker-build-session-manager
+docker-build-session-manager: ## Build the session-manager image (includes orbit-shell and orbit-runtime-mcp)
+	@echo "$(COLOR_YELLOW)Building orbit-session-manager:latest...$(COLOR_RESET)"
+	@cd backend && docker build --no-cache -t orbit-session-manager:latest -f Dockerfile.session-manager .
+	@echo "$(COLOR_GREEN)✓ orbit-session-manager:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-session-manager
+docker-push-session-manager: docker-build-session-manager ## Build and push session-manager image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-session-manager to local registry...$(COLOR_RESET)"
+	@docker tag orbit-session-manager:latest localhost:5001/orbit-session-manager:latest
+	@docker push localhost:5001/orbit-session-manager:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-session-manager:latest$(COLOR_RESET)"
+
+.PHONY: docker-build-sandbox-exec
+docker-build-sandbox-exec: ## Build the sandbox-exec image (gRPC exec server for sandbox pods)
+	@echo "$(COLOR_YELLOW)Building orbit-sandbox-exec:latest...$(COLOR_RESET)"
+	@cd backend && docker build -t orbit-sandbox-exec:latest -f Dockerfile.sandbox-exec .
+	@echo "$(COLOR_GREEN)✓ orbit-sandbox-exec:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-sandbox-exec
+docker-push-sandbox-exec: docker-build-sandbox-exec ## Build and push sandbox-exec image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-sandbox-exec to local registry...$(COLOR_RESET)"
+	@docker tag orbit-sandbox-exec:latest localhost:5001/orbit-sandbox-exec:latest
+	@docker push localhost:5001/orbit-sandbox-exec:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-sandbox-exec:latest$(COLOR_RESET)"
+
 .PHONY: cluster-operator
 cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
