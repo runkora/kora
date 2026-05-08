@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_active
 
 CREATE TABLE IF NOT EXISTS sessions (
     id              TEXT        PRIMARY KEY,
-    run_id          TEXT        NOT NULL REFERENCES runs(id),
+    run_id          TEXT        NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     principal_id    TEXT        NOT NULL,
     connected_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     disconnected_at TIMESTAMPTZ
@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_run_id
 
 CREATE TABLE IF NOT EXISTS run_events (
     sequence_no BIGSERIAL   PRIMARY KEY,
-    run_id      TEXT        NOT NULL REFERENCES runs(id),
+    run_id      TEXT        NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     event_type  TEXT        NOT NULL,
     payload     JSONB       NOT NULL DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -84,7 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_run_events_run_id
 
 CREATE TABLE IF NOT EXISTS run_messages (
     id          TEXT        PRIMARY KEY,
-    run_id      TEXT        NOT NULL REFERENCES runs(id),
+    run_id      TEXT        NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     sequence_no BIGSERIAL   NOT NULL,
     content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()

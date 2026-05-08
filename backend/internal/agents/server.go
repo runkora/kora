@@ -2,7 +2,9 @@ package agents
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -35,9 +37,11 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
+	mux.Handle("GET /api/v1/runs/{id}/events", c.handleStreamEvents)
 
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
 	mux.Handle("POST /internal/runs/{id}/state", c.handleRunStateCallback)
+	mux.Handle("POST /internal/runs/{id}/events", c.handlePushEvent)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 }
 
@@ -277,6 +281,87 @@ func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleStreamEvents serves a Server-Sent Events stream for a run.
+//
+// On connect: subscribes to the in-memory PubSub first (to avoid a gap),
+// replays persisted events from run_events (honoring Last-Event-ID), then
+// streams live pushed events until the client disconnects.
+func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	var afterSeqNo int64
+	if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
+		if n, err := strconv.ParseInt(lastID, 10, 64); err == nil {
+			afterSeqNo = n
+		}
+	}
+
+	// Register subscriber BEFORE replaying from DB — events pushed during replay
+	// are buffered in the channel and will be emitted after the replay loop.
+	ch, cancel := c.svc.SubscribeRun(id)
+	defer cancel()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Replay persisted events from DB.
+	events, err := c.svc.ListRunEvents(ctx, id, afterSeqNo)
+	if err != nil {
+		c.logger.Error(ctx, "Failed to list run events for SSE replay",
+			logging.Field{Key: "run_id", Value: id},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	for _, ev := range events {
+		fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.EventType, ev.Payload)
+	}
+	flusher.Flush()
+
+	// Stream live events from the push channel.
+	for {
+		select {
+		case ev, open := <-ch:
+			if !open {
+				return
+			}
+			payload := ev.Payload
+			if payload == nil {
+				payload = []byte("{}")
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
+			flusher.Flush()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// handlePushEvent receives an event pushed by a session-manager pod and fans
+// it out to any live SSE subscribers for that run.
+func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	var ev PushedEvent
+	if !api.DecodeJSON(ctx, r, w, c.logger, &ev) {
+		return
+	}
+
+	c.svc.PublishEvent(id, ev)
 	w.WriteHeader(http.StatusNoContent)
 }
 

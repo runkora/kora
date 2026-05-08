@@ -38,16 +38,18 @@ type Registry struct {
 	logger     logging.Logger
 	pool       *pgxpool.Pool
 	workspaces string // base path for workspace directories
+	notifier   Notifier
 	mu         sync.RWMutex
 	sessions   map[string]*session
 }
 
 // NewRegistry creates a session registry.
-func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase string) *Registry {
+func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase string, notifier Notifier) *Registry {
 	return &Registry{
 		logger:     logger,
 		pool:       pool,
 		workspaces: workspacesBase,
+		notifier:   notifier,
 		sessions:   make(map[string]*session),
 	}
 }
@@ -144,13 +146,15 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
-// drain reads events from a session's runner and writes them to run_events.
-// Runs in its own goroutine per session; ctx is the session-scoped context.
-// When the runner's events channel closes (subprocess exit, crash, or Close),
-// drain removes the session from the registry so the run_id becomes reusable.
+// drain reads events from a session's runner, persists durable events to the DB,
+// and pushes all events to orbit-agents for live SSE fan-out.
+//
+// Durable events (message_complete, tool_use, tool_result) → DB + push.
+// Ephemeral events (text_delta, thinking_delta, message_stop) → push only (ADR-0054).
+//
+// Runs in its own goroutine; ctx is the session-scoped context.
 func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	defer func() {
-		// Auto-remove if still present (subprocess crashed without an explicit Close call).
 		reg.mu.Lock()
 		if reg.sessions[s.runID] == s {
 			delete(reg.sessions, s.runID)
@@ -162,12 +166,30 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	eventRepo := newEventRepository(reg.pool)
 
 	for ev := range s.runner.Events() {
-		if err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload); err != nil {
-			reg.logger.Error(ctx, "Failed to write run event",
+		if isDurableEvent(ev.Type) {
+			if err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload); err != nil {
+				reg.logger.Error(ctx, "Failed to write run event",
+					logging.Field{Key: "run_id", Value: cfg.RunID},
+					logging.Field{Key: "event_type", Value: string(ev.Type)},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}
+		if err := reg.notifier.Notify(ctx, cfg.RunID, ev); err != nil {
+			reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
 				logging.Field{Key: "event_type", Value: string(ev.Type)},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
 	}
+}
+
+// isDurableEvent returns true for events that must be persisted to run_events.
+func isDurableEvent(t EventType) bool {
+	switch t {
+	case EventTypeMessageComplete, EventTypeToolUse, EventTypeToolResult:
+		return true
+	}
+	return false
 }

@@ -15,6 +15,7 @@ type Service struct {
 	repo   Repository
 	k8s    *K8sProvisioner
 	sm     *sessionmanager.Client
+	pubsub *PubSub
 	logger logging.Logger
 	cfg    ServiceConfig
 }
@@ -26,8 +27,8 @@ type ServiceConfig struct {
 }
 
 // NewService creates a Service with the given dependencies.
-func NewService(repo Repository, k8s *K8sProvisioner, sm *sessionmanager.Client, logger logging.Logger, cfg ServiceConfig) *Service {
-	return &Service{repo: repo, k8s: k8s, sm: sm, logger: logger, cfg: cfg}
+func NewService(repo Repository, k8s *K8sProvisioner, sm *sessionmanager.Client, pubsub *PubSub, logger logging.Logger, cfg ServiceConfig) *Service {
+	return &Service{repo: repo, k8s: k8s, sm: sm, pubsub: pubsub, logger: logger, cfg: cfg}
 }
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
@@ -196,6 +197,7 @@ func (s *Service) TerminateRun(ctx context.Context, id string) error {
 }
 
 // TransitionRunState applies a state transition signaled by the session-manager callback.
+// It also persists a run_state event and pushes it to live SSE subscribers.
 func (s *Service) TransitionRunState(ctx context.Context, runID string, from, to RunState) error {
 	if err := s.repo.SetRunState(ctx, runID, from, to); err != nil {
 		return fmt.Errorf("transition run state %s→%s: %w", from, to, err)
@@ -205,7 +207,25 @@ func (s *Service) TransitionRunState(ctx context.Context, runID string, from, to
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
+	payload := []byte(`{"state":"` + string(to) + `"}`)
+	_ = s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload})
 	return nil
+}
+
+// PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
+func (s *Service) PublishEvent(runID string, ev PushedEvent) {
+	s.pubsub.Publish(runID, ev)
+}
+
+// ListRunEvents returns persisted events for a run after the given sequence number.
+func (s *Service) ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error) {
+	return s.repo.ListRunEvents(ctx, runID, afterSeqNo)
+}
+
+// SubscribeRun registers an SSE subscriber for the given run. See PubSub.Subscribe.
+func (s *Service) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
+	return s.pubsub.Subscribe(runID)
 }
 
 // SendMessage relays a user message to the active session-manager for this run.

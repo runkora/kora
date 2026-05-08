@@ -387,7 +387,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 						{
 							Name:            "session-manager",
 							Image:           p.cfg.SessionManagerImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
+							ImagePullPolicy: corev1.PullAlways,
 							Ports: []corev1.ContainerPort{
 								{Name: "http", ContainerPort: 8090, Protocol: corev1.ProtocolTCP},
 							},
@@ -410,6 +410,8 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 							Env: []corev1.EnvVar{
 								{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"},
 								{Name: "ORBIT_POSTGRES_SSL_MODE", Value: p.cfg.SessionManagerPostgresSSL},
+								// orbit-agents URL for live event push (ADR-0054).
+								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key — actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.

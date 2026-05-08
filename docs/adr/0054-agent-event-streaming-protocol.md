@@ -1,7 +1,8 @@
 # 54. Agent Event Streaming Protocol
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-05-08  
+**Updated:** 2026-05-08  
 **Deciders:** Platform Engineering  
 **Technical Story:** Users must see agent output streaming in real time — text, thinking, tool calls — regardless of when they connect. This ADR defines the event format, the streaming path from CLI subprocess to browser, and how context is preserved on reconnect.
 
@@ -42,9 +43,10 @@ The platform needs a streaming protocol that:
 ## Decision Drivers
 
 * The CLI subprocess owns the output stream — we must read stdout, not tap the inference-gateway
-* Events must be persisted before being emitted to SSE — no data loss on reconnect
-* `orbit-agents` must be stateless with respect to active streams — any instance can serve any session
+* Token-level events (`text_delta`, `thinking_delta`) are ephemeral — only meaningful to clients watching live; persisting every delta at 100+ agents × many tokens/second creates unacceptable DB write pressure
+* Completed events (`message_complete`, `tool_use`, `tool_result`) must be persisted for history replay on reconnect
 * SSE is simpler than WebSocket and sufficient for the one-way output stream
+* A single `orbit-agents` deployment instance is the norm — full stateless horizontal scaling of the streaming path is deferred
 
 ---
 
@@ -87,13 +89,27 @@ The platform needs a streaming protocol that:
 - Two systems to keep in sync — event written to Postgres but not Redis (or vice versa) creates inconsistency
 - Postgres LISTEN/NOTIFY latency is acceptable for token streaming (sub-10ms typical)
 
+### Option D: Session-manager HTTP push + in-memory fan-out in orbit-agents
+
+**Description:** Each session-manager pod pushes events directly to `orbit-agents` via `POST /internal/runs/{id}/events`. `orbit-agents` maintains an in-memory subscriber map (`map[runID][]chan Event`). If a client has an active SSE connection for that run, the event is fanned out; otherwise it is dropped. Token-level events (`text_delta`, `thinking_delta`) are never written to Postgres. Completed events (`message_complete`, `tool_use`, `tool_result`, `run_state`) are written to Postgres by their respective owners AND pushed, so that late-joining or reconnecting clients can replay history then receive live events.
+
+**Pros:**
+- No Postgres write per token — eliminates the primary scaling concern with Options A and B at 100+ concurrent agents
+- Session-managers are already initiating HTTP calls to `orbit-agents` (state callbacks) — this is the same pattern
+- Simple to implement — no LISTEN/NOTIFY infrastructure, no Redis
+- Dropped events when nobody is watching costs nothing — correct behaviour by design
+
+**Cons:**
+- `orbit-agents` is stateful for active SSE connections — horizontal scaling requires sticky routing for the SSE path (standard pattern, deferred to multi-instance phase)
+- Token deltas are not recoverable after the fact — a client that misses them during a live run will not see them on reconnect (only `message_complete` is available for completed turns)
+
 ---
 
 ## Decision
 
-**Chosen Option: B — Event log in PostgreSQL + LISTEN/NOTIFY**
+**Chosen Option: D — Session-manager HTTP push + in-memory fan-out**
 
-Postgres LISTEN/NOTIFY is already available in the platform stack, provides sufficient latency for streaming text, and eliminates the need for Redis on the hot path. The event log is the single source of truth for both live streaming and history replay.
+At the scale the platform targets (100+ agents across 20+ agent types), writing every `text_delta` to Postgres is not viable. Token-level events are inherently ephemeral — they only have value to a browser watching live. Option D avoids that write entirely while keeping the history path intact for durable events. The push model reuses the existing session-manager → orbit-agents HTTP callback pattern and requires no new infrastructure dependencies.
 
 ### Orbit Standard Event Format
 
@@ -117,24 +133,34 @@ CLI subprocess stdout
   ↓ (read by)
 transform layer (per-framework, inside session-manager)
   ↓ (normalises to Orbit event format)
-  ↓ INSERT INTO run_events + NOTIFY run:{run_id}
-PostgreSQL
-  ↓ LISTEN run:{run_id}
-orbit-agents (any instance)
-  ↓ SSE data: {event JSON}
-browser (EventSource)
+  ├─ text_delta / thinking_delta / message_stop
+  │    ↓ POST /internal/runs/{id}/events  (no DB write)
+  │  orbit-agents in-memory fan-out
+  │    ↓ if subscriber present → SSE data: {event JSON}
+  │      if no subscriber      → dropped
+  │
+  └─ message_complete / tool_use / tool_result
+       ↓ INSERT INTO run_events (Postgres)
+       ↓ POST /internal/runs/{id}/events
+     orbit-agents in-memory fan-out
+       ↓ SSE data: {event JSON}
+       browser (EventSource)
+
+orbit-agents (on run state transition)
+  ↓ INSERT INTO run_events (run_state event)
+  ↓ POST to own /internal/runs/{id}/events  (or direct fan-out)
+  browser (EventSource)
 ```
 
 ### Connect / Reconnect Flow
 
-1. Browser opens `GET /api/v1/runs/{id}/events` (SSE)
-2. `orbit-agents` acquires a Postgres connection
-3. Begins LISTEN on channel `run:{run_id}`
-4. Replays all existing `run_events` for this run in `sequence_no` order as SSE events
-5. Transitions to live tail: each NOTIFY triggers a read of new events since last replayed sequence and emits them
-6. On browser disconnect: stops LISTEN, releases Postgres connection
+1. Browser opens `GET /api/v1/runs/{id}/events` (SSE), optionally with `Last-Event-ID` header
+2. `orbit-agents` registers a channel in the in-memory subscriber map for this `run_id`
+3. Replays all existing `run_events` from Postgres in `sequence_no` order as SSE events (or from `Last-Event-ID + 1` on reconnect)
+4. Transitions to live: pushed events from session-manager are fanned out to the registered channel
+5. On browser disconnect: removes channel from subscriber map
 
-This ensures the browser always sees all events in order from the beginning of the run, regardless of when it connects.
+Token-level events (`text_delta`, `thinking_delta`) that occurred before the client connected are not replayed — only `message_complete` (the accumulated full text per turn) is available for history. A client connecting after a turn completes will see the `message_complete` for that turn.
 
 ### User Message Input Path
 
@@ -151,17 +177,23 @@ CLI subprocess (processes message, emits new events on stdout)
 
 User messages are stored in a separate `run_messages` table (ADR-0053) — not in `run_events`. The agent's response is captured as `text_delta` and `tool_use` / `tool_result` events in `run_events`. This split keeps the event log strictly as agent output (what the UI renders), while `run_messages` captures the input side for resume.
 
-### Event Write Ownership
+### Event Write and Push Ownership
 
-**Transform layer (session-manager)** writes all CLI output events to `run_events`: `text_delta`, `thinking_delta`, `tool_use`, `tool_result`, `message_stop`. These come from parsing CLI subprocess stdout.
+| Event type | Written to `run_events` | Pushed to orbit-agents |
+|---|---|---|
+| `text_delta` | No | Yes (dropped if no subscriber) |
+| `thinking_delta` | No | Yes (dropped if no subscriber) |
+| `message_stop` | No | Yes (dropped if no subscriber) |
+| `message_complete` | Yes (session-manager) | Yes |
+| `tool_use` | Yes (session-manager) | Yes |
+| `tool_result` | Yes (session-manager) | Yes |
+| `run_state` | Yes (orbit-agents) | Yes (direct fan-out, no HTTP round-trip needed) |
 
-**orbit-agents** writes `run_state` events to `run_events` when a state transition occurs (triggered by the session-manager's internal callback `POST /internal/runs/{id}/state`). `run_state` events are never written by the session-manager directly.
-
-Both writers INSERT into `run_events` and issue `NOTIFY run:{run_id}` in the same transaction. Sequence numbers are monotonically increasing per run — all writers use a Postgres sequence for `sequence_no` to ensure ordering without coordination.
+The session-manager pushes to `orbit-agents` at `http://orbit-agents.orbit-system.svc.cluster.local/internal/runs/{id}/events`. This URL is injected as `ORBIT_AGENTS_URL` into session-manager pods at provision time.
 
 ### Backpressure
 
-If the browser's SSE connection is slow, `orbit-agents` applies natural backpressure: it does not read the next NOTIFY until it has written the current batch to the SSE connection. This is acceptable — the event log preserves all events regardless.
+The in-memory channel per subscriber has a fixed buffer. If the browser's SSE connection is slow and the channel fills, new events for that subscriber are dropped. This is acceptable — the token stream is a live view, not a guarantee of delivery. Durable events (`message_complete`, `tool_use`, `tool_result`) remain in Postgres regardless.
 
 ---
 
@@ -169,15 +201,15 @@ If the browser's SSE connection is slow, `orbit-agents` applies natural backpres
 
 ### Positive
 
-- `orbit-agents` is fully stateless for streaming — horizontal scaling works without sticky sessions
-- Full history always available — replayed deterministically from event log
-- No data loss on `orbit-agents` or session-manager restart — events in Postgres survive
-- Works identically for interactive chat and headless observation
+- No Postgres write per token — scales to 100+ concurrent agents without DB pressure on the hot path
+- Session-managers fire-and-forget on push — no persistent connections from orbit-agents to session-manager pods
+- Dropped events when no subscriber is watching cost nothing
+- Full durable-event history always available for replay from Postgres
 
 ### Negative
 
-- Postgres write per event adds latency — acceptable for text streaming (sub-10ms), needs validation at token throughput
-- LISTEN/NOTIFY does not guarantee delivery if the listener disconnects — mitigated by the replay-from-log approach (missed NOTIFYs are caught by sequence_no gap detection on reconnect)
+- `orbit-agents` holds in-memory SSE subscriber state — horizontal scaling of the SSE path requires sticky routing (deferred)
+- Token deltas (`text_delta`, `thinking_delta`) are not recoverable after the fact — clients that miss them mid-turn will not see them on reconnect
 
 ### Neutral
 
@@ -187,9 +219,12 @@ If the browser's SSE connection is slow, `orbit-agents` applies natural backpres
 
 ## Implementation
 
-### Sequence Number Gap Detection
+### Replay / Live Handoff
 
-On reconnect, `orbit-agents` replays from `sequence_no = 0`. No gap detection is required for the reconnect case. LISTEN/NOTIFY gaps during a live session are handled by reading all events with `sequence_no > last_emitted` on each NOTIFY, not just the single notified event.
+On SSE connect, `orbit-agents`:
+1. Registers the subscriber channel in the fan-out map **before** reading from Postgres. This prevents a gap where a push arrives after Postgres replay ends but before the channel is registered.
+2. Queries `run_events WHERE run_id = $1 AND sequence_no > $2 ORDER BY sequence_no` and emits each row as an SSE event.
+3. Switches to draining the live channel. Any events that arrived during step 2 are already buffered in the channel.
 
 ### SSE Event Format
 
@@ -208,10 +243,10 @@ The SSE `id` field allows browsers to send `Last-Event-ID` on reconnect. `orbit-
 
 ### Success Metrics
 
-- First event delivered to browser within 5 seconds of run start
-- No events lost on `orbit-agents` restart while a run is active
-- Full event log replayed correctly on reconnect for runs up to 1 hour in duration
-- Event write latency (INSERT + NOTIFY) ≤ 5ms p95
+- First `text_delta` delivered to browser within 1 second of Claude Code emitting it
+- No durable events (`message_complete`, `tool_use`, `tool_result`) lost on `orbit-agents` restart
+- Full durable event log replayed correctly on reconnect for runs up to 1 hour in duration
+- Push HTTP call from session-manager to orbit-agents ≤ 5ms p95
 
 ---
 

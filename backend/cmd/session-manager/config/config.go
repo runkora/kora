@@ -2,6 +2,7 @@
 package smConfig
 
 import (
+	"os"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -34,6 +35,12 @@ type Config struct {
 		BasePath string `yaml:"basePath"`
 	} `yaml:"workspaces"`
 
+	OrbitAgents struct {
+		// URL is the base URL of orbit-agents (e.g. "http://orbit-agents.orbit-system.svc.cluster.local").
+		// When empty, event push is disabled (local dev without orbit-agents).
+		URL string `yaml:"url"`
+	} `yaml:"orbitAgents"`
+
 	Claude struct {
 		// BinaryPath overrides the location of the claude binary.
 		// Defaults to "claude" (resolved via $PATH).
@@ -57,4 +64,10 @@ func (c *Config) ShutdownTimeout() time.Duration {
 
 // Current holds all non-secret configuration for the session-manager.
 // Secrets (Postgres DSN, API key) must be supplied via environment variables.
-var Current = config.MustLoadService[Config]("cmd/session-manager", config.Environment())
+var Current = func() *Config {
+	cfg := config.MustLoadService[Config]("cmd/session-manager", config.Environment())
+	if v := os.Getenv("ORBIT_AGENTS_URL"); v != "" {
+		cfg.OrbitAgents.URL = v
+	}
+	return cfg
+}()

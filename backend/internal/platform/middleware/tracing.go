@@ -127,6 +127,14 @@ func (w *tracingResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Flush implements http.Flusher by delegating to the underlying writer if it supports it.
+// Required so that SSE and streaming responses can flush data through the middleware chain.
+func (w *tracingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // schemeFromRequest determines the URL scheme from the request
 func schemeFromRequest(r *http.Request) string {
 	if r.TLS != nil {

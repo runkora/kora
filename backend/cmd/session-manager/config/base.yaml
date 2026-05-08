@@ -12,6 +12,9 @@ observability:
 workspaces:
   basePath: /workspaces
 
+orbitAgents:
+  url: "http://orbit-agents.orbit-system.svc.cluster.local"
+
 claude:
   binaryPath: claude
   defaultModel: "anthropic/claude-sonnet-4-6"

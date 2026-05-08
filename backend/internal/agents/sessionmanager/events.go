@@ -47,6 +47,18 @@ type ToolResultPayload struct {
 	IsError   bool   `json:"is_error"`
 }
 
+// TextDeltaPayload carries one chunk of streamed assistant text.
+// Push-only — never persisted to run_events (ADR-0054).
+type TextDeltaPayload struct {
+	Delta string `json:"delta"`
+}
+
+// ThinkingDeltaPayload carries one chunk of streamed assistant reasoning.
+// Push-only — never persisted to run_events (ADR-0054).
+type ThinkingDeltaPayload struct {
+	Delta string `json:"delta"`
+}
+
 // newEvent marshals a typed payload into an Event.
 func newEvent(t EventType, payload any) (Event, error) {
 	raw, err := json.Marshal(payload)

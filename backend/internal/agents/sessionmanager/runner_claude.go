@@ -93,11 +93,7 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	if r.cfg.Model != "" {
 		args = append(args, "--model", r.cfg.Model)
 	}
-	if len(r.cfg.AllowedTools) > 0 {
-		args = append(args, "--tools", strings.Join(r.cfg.AllowedTools, ","))
-	} else {
-		args = append(args, "--tools", "")
-	}
+	args = append(args, "--tools", scopesToClaudeTools(r.cfg.AllowedTools))
 
 	mcpConfigPath, mcpErr := r.writeMCPConfig(workDir)
 	if mcpErr != nil {
@@ -253,13 +249,13 @@ func (r *ClaudeRunner) dispatch(w claudeOutputWrapper) {
 			})
 			r.textBuf.Reset()
 			r.thinkingBuf.Reset()
+			r.emit(EventTypeMessageStop, nil)
 		}
 	}
 }
 
-// handleStreamEvent accumulates text and thinking deltas in memory.
-// Deltas are not emitted individually; the turn's accumulated content is
-// emitted as a single message_complete event when the result arrives.
+// handleStreamEvent accumulates text and thinking deltas for message_complete
+// and also emits them immediately as push-only streaming events (ADR-0054).
 func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 	if ev.Type != "content_block_delta" || ev.Delta == nil {
 		return
@@ -267,8 +263,10 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 	switch ev.Delta.DeltaType {
 	case "text_delta":
 		r.textBuf.WriteString(ev.Delta.Text)
+		r.emit(EventTypeTextDelta, TextDeltaPayload{Delta: ev.Delta.Text})
 	case "thinking_delta":
 		r.thinkingBuf.WriteString(ev.Delta.Thinking)
+		r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: ev.Delta.Thinking})
 		// input_json_delta: tool input arrives complete in the assistant message snapshot.
 	}
 }
@@ -318,6 +316,42 @@ func isExitKilled(err error) bool {
 	return strings.Contains(s, "signal: killed") ||
 		strings.Contains(s, "signal: terminated") ||
 		strings.Contains(s, "context canceled")
+}
+
+// scopesToClaudeTools converts Orbit tool scope names to Claude Code built-in
+// tool names for the --tools flag. Unrecognized scopes are ignored.
+// An empty result produces "--tools default" (all built-in tools allowed).
+func scopesToClaudeTools(scopes []string) string {
+	// Orbit scope → Claude Code built-in tool names.
+	// AskUserQuestion is intentionally excluded: Claude Code auto-rejects it in
+	// headless stream-json mode; use a custom MCP tool for human-in-the-loop instead.
+	scopeMap := map[string][]string{
+		"shell":      {"Bash"},
+		"filesystem": {"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"},
+		"web":        {"WebFetch", "WebSearch"},
+		"notebook":   {"NotebookEdit"},
+		"agents":     {"Agent", "SendMessage"},
+		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "TodoWrite"},
+		"mcp":        {"ListMcpResourcesTool", "ReadMcpResourceTool"},
+		"lsp":        {"LSP"},
+		"monitoring": {"Monitor"},
+		"scheduling": {"CronCreate", "CronDelete", "CronList"},
+		"meta":       {"ToolSearch", "Skill"},
+	}
+	seen := map[string]bool{}
+	var tools []string
+	for _, scope := range scopes {
+		for _, t := range scopeMap[scope] {
+			if !seen[t] {
+				seen[t] = true
+				tools = append(tools, t)
+			}
+		}
+	}
+	if len(tools) == 0 {
+		return "default"
+	}
+	return strings.Join(tools, ",")
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────

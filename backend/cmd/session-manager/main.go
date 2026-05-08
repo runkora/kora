@@ -87,7 +87,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
-	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath)
+
+	var notifier sessionmanager.Notifier = sessionmanager.NoopNotifier{}
+	if cfg.OrbitAgents.URL != "" {
+		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL)
+	}
+
+	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:   cfg.Claude.BinaryPath,
 		ClaudeDefaultModel: cfg.Claude.DefaultModel,

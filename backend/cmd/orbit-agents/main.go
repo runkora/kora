@@ -127,7 +127,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*ht
 
 	repo := agents.NewPostgresRepository(db.Pool())
 	sm := smclient.NewClient(logger)
-	svc := agents.NewService(repo, k8s, sm, logger, agents.ServiceConfig{
+	pubsub := agents.NewPubSub()
+	svc := agents.NewService(repo, k8s, sm, pubsub, logger, agents.ServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	})
