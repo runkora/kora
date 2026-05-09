@@ -21,16 +21,22 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+var k8sTracer = otel.Tracer("orbit.agents.k8s")
 
 var destinationRuleGVR = schema.GroupVersionResource{
 	Group:    "networking.istio.io",
 	Version:  "v1beta1",
 	Resource: "destinationrules",
 }
-
 
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
@@ -96,28 +102,50 @@ func buildRestConfig(inCluster bool) (*rest.Config, error) {
 // ProvisionAgentType creates all k8s resources for a managed agent type in the
 // given namespace. Idempotent — existing resources are left unchanged.
 func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionAgentType",
+		trace.WithAttributes(
+			attribute.String("slug", at.Slug),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
 	slug := at.Slug
 	labels := agentTypeLabels(at)
 
 	if err := p.ensureServiceAccount(ctx, slug, namespace, labels); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure service account")
 		return err
 	}
 	if err := p.ensureStatefulSet(ctx, at, namespace, labels); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure statefulset")
 		return err
 	}
 	if err := p.ensureHeadlessService(ctx, slug, namespace, labels); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure headless service")
 		return err
 	}
 	if err := p.ensureHPA(ctx, slug, namespace, labels); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure hpa")
 		return err
 	}
 	if err := p.ensurePDB(ctx, slug, namespace, labels); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure pdb")
 		return err
 	}
 	if err := p.ensureAgentGrant(ctx, at, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure agent grant")
 		return err
 	}
 	if err := p.ensureDestinationRule(ctx, at, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ensure destination rule")
 		return err
 	}
 	return nil
@@ -126,6 +154,14 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 // DeprovisionAgentType deletes all k8s resources created by ProvisionAgentType.
 // Missing resources are silently ignored.
 func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.DeprovisionAgentType",
+		trace.WithAttributes(
+			attribute.String("slug", at.Slug),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
 	slug := at.Slug
 	del := metav1.DeletePropagationForeground
 	opts := metav1.DeleteOptions{PropagationPolicy: &del}
@@ -160,6 +196,10 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 			firstErr = err
 		}
 	}
+	if firstErr != nil {
+		span.RecordError(firstErr)
+		span.SetStatus(codes.Error, "deprovision agent type")
+	}
 	return firstErr
 }
 
@@ -189,6 +229,15 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container
 // (Edit, Write tools) are immediately visible in the sandbox without copying.
 func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error) {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
+		trace.WithAttributes(
+			attribute.String("run_id", run.ID),
+			attribute.String("agent_type_slug", agentTypeSlug),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
 	uid := int64(100)
 	nonRoot := true
@@ -270,6 +319,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 	_, err := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create sandbox pod")
 		return "", fmt.Errorf("create sandbox pod: %w", err)
 	}
 	if apierrors.IsAlreadyExists(err) {
@@ -287,10 +338,13 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 	podIP, err := p.waitForPodReady(ctx, podName, namespace)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "wait for sandbox pod ready")
 		return "", fmt.Errorf("wait for sandbox pod ready: %w", err)
 	}
 
 	endpoint := fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort)
+	span.SetAttributes(attribute.String("endpoint", endpoint))
 	p.logger.Info(ctx, "Sandbox pod ready",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "pod", Value: podName},
@@ -301,6 +355,14 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
 func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.DeleteSandbox",
+		trace.WithAttributes(
+			attribute.String("run_id", runID),
+			attribute.String("namespace", namespace),
+		),
+	)
+	defer span.End()
+
 	podName := fmt.Sprintf("sandbox-%s", runID)
 	p.logger.Info(ctx, "Deleting sandbox pod",
 		logging.Field{Key: "run_id", Value: runID},
@@ -308,7 +370,12 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 		logging.Field{Key: "namespace", Value: namespace},
 	)
 	del := metav1.DeletePropagationForeground
-	return ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del}))
+	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "delete sandbox pod")
+		return err
+	}
+	return nil
 }
 
 // waitForPodReady polls until the pod is Ready, returning its pod IP.
@@ -369,8 +436,18 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	}
 	principalID := p.agentSpiffeID(at, namespace)
 
+	ctx, span := k8sTracer.Start(ctx, "agents.k8s.EnsureAgentGrant",
+		trace.WithAttributes(
+			attribute.String("principal_id", principalID),
+			attribute.String("tenant_id", at.TenantID),
+		),
+	)
+	defer span.End()
+
 	existing, err := p.policyClient.ListGrants(ctx, at.TenantID, "AGENT", principalID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list agent grants")
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
@@ -403,6 +480,8 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	}
 
 	if _, err := p.policyClient.CreateGrant(ctx, at.TenantID, "AGENT", principalID, at.GrantScopes); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
 	}
 	p.logger.Info(ctx, "agent grant created",
