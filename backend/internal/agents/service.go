@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -117,6 +118,14 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 		return nil, ErrNotFound
 	}
 
+	// Ensure k8s resources exist — idempotent, fast no-op if already present.
+	// Guards against cluster resets where the DB retains agent types but the
+	// StatefulSet/Service/HPA were lost.
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+	if provErr := s.k8s.ProvisionAgentType(ctx, *at, namespace); provErr != nil {
+		return nil, fmt.Errorf("ensure agent infrastructure: %w", provErr)
+	}
+
 	podOrdinal, err := s.selectPod(ctx, at)
 	if err != nil {
 		return nil, fmt.Errorf("select pod: %w", err)
@@ -138,7 +147,6 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 	run.State = RunStateStarting
 	run.PodOrdinal = podOrdinal
 
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
 	smReq := sessionmanager.CreateSessionRequest{
 		RunID:        run.ID,
@@ -214,7 +222,9 @@ func (s *Service) TransitionRunState(ctx context.Context, runID string, from, to
 }
 
 // PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
-func (s *Service) PublishEvent(runID string, ev PushedEvent) {
+func (s *Service) PublishEvent(ctx context.Context, runID string, ev PushedEvent) {
+	payload, _ := json.Marshal(ev.Payload)
+	_ = s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: payload})
 	s.pubsub.Publish(runID, ev)
 }
 
@@ -265,8 +275,13 @@ func (s *Service) ProvisionSandbox(ctx context.Context, runID string) (string, e
 		return "", err
 	}
 
+	at, err := s.repo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		return "", fmt.Errorf("get agent type: %w", err)
+	}
+
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, namespace)
+	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace)
 	if err != nil {
 		return "", fmt.Errorf("provision sandbox pod: %w", err)
 	}

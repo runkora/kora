@@ -187,11 +187,22 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
 // be Ready. Returns the gRPC endpoint string ("podIP:port") on success.
 // The caller (session-manager) is responsible for writing the endpoint file.
-func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, namespace string) (string, error) {
+//
+// The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
+// (named "workspaces-{slug}-{ordinal}") so files written by the agent container
+// (Edit, Write tools) are immediately visible in the sandbox without copying.
+func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error) {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
+	uid := int64(100)
+	nonRoot := true
+	// PVC name follows StatefulSet volumeClaimTemplate convention:
+	// {volumeName}-{statefulSetName}-{ordinal}
+	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
+
 	labels := map[string]string{
-		"orbit.io/role":   "sandbox",
-		"orbit.io/run-id": run.ID,
+		"orbit.io/role":           "sandbox",
+		"orbit.io/run-id":         run.ID,
+		"orbit.io/skip-injection": "true",
 	}
 
 	pod := &corev1.Pod{
@@ -199,9 +210,29 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, namespac
 			Name:      podName,
 			Namespace: namespace,
 			Labels:    labels,
+			Annotations: map[string]string{
+				// No sidecars — sandbox-exec is a pure gRPC server with no outbound
+				// calls. The session-manager's Envoy excludes port 50051 so orbit-shell
+				// connects directly via plain TCP without mTLS.
+				"sidecar.istio.io/inject": "false",
+			},
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser:    &uid,
+				RunAsNonRoot: &nonRoot,
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "workspaces",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: workspacesPVC,
+						},
+					},
+				},
+			},
 			Containers: []corev1.Container{
 				{
 					Name:            "sandbox-exec",
@@ -212,6 +243,9 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, namespac
 					},
 					Env: []corev1.EnvVar{
 						{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", p.cfg.SandboxGRPCPort)},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "workspaces", MountPath: "/workspaces"},
 					},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
@@ -374,7 +408,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 						// (no opa-policy: session-manager is platform-managed, not a tenant app)
 						"inject.istio.io/templates":                     "sidecar,spire,identity-proxy",
 						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
-						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432",
+						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -436,6 +470,22 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 									corev1.ResourceCPU:    resource.MustParse("2"),
 									corev1.ResourceMemory: resource.MustParse("4Gi"),
 								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "workspaces", MountPath: "/workspaces"},
+							},
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "workspaces"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("10Gi"),
 							},
 						},
 					},

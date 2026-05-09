@@ -184,11 +184,22 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 }
 
 func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, to RunState) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state=$1, updated_at=$2
-		WHERE id=$3 AND state=$4`,
-		string(to), time.Now().UTC(), id, string(from),
-	)
+	now := time.Now().UTC()
+	var tag interface{ RowsAffected() int64 }
+	var err error
+	if to == RunStateCompleted || to == RunStateFailed {
+		tag, err = r.pool.Exec(ctx, `
+			UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
+			WHERE id=$3 AND state=$4`,
+			string(to), now, id, string(from),
+		)
+	} else {
+		tag, err = r.pool.Exec(ctx, `
+			UPDATE runs SET state=$1, updated_at=$2
+			WHERE id=$3 AND state=$4`,
+			string(to), now, id, string(from),
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("set run state: %w", err)
 	}

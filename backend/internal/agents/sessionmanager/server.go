@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -21,6 +22,9 @@ type ControllerConfig struct {
 	// SelfPort is the port this session-manager listens on. orbit-runtime-mcp
 	// uses it to call back for provision_sandbox requests.
 	SelfPort int
+	// WorkspacesBasePath is the base directory for run workspaces (e.g. /workspaces).
+	// Used to set WORKSPACE env var for Claude and to write sandbox endpoint files.
+	WorkspacesBasePath string
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -51,6 +55,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session/{runID}/messages", c.handleSendMessage)
 	mux.Handle("POST /session/{runID}/tool-results", c.handleSendToolResult)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
+	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
 }
 
 // handleHealth returns liveness + active session count.
@@ -96,6 +101,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Bare:              c.cfg.ClaudeBare,
 		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 		RunID:             req.RunID,
+		ExtraEnv:          []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))},
 	})
 
 	cfg := SessionConfig{
@@ -206,4 +212,21 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
+// to provision a sandbox pod. It delegates to orbit-agents then writes the
+// gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
+func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
 }

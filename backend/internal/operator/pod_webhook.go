@@ -25,6 +25,11 @@ const (
 	podAnnotationTenantID  = "orbit.io/tenant-id"
 	podAnnotationTemplates = "inject.istio.io/templates"
 	requiredTemplates      = "sidecar,spire,identity-proxy,opa-policy"
+
+	// podLabelSkipInjection opts a pod out of the PodMutator webhook.
+	// Set to "true" on system pods (e.g. sandbox-exec) that don't need
+	// the identity-proxy/OPA pair.
+	podLabelSkipInjection = "orbit.io/skip-injection"
 )
 
 // PodMutator injects the identity-proxy and OPA policy sidecar labels and
@@ -60,6 +65,10 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 
 	if ns.Labels[nsLabelRole] != "tenant" {
 		return admission.Allowed("not a tenant namespace")
+	}
+
+	if pod.Labels[podLabelSkipInjection] == "true" {
+		return admission.Allowed("orbit.io/skip-injection=true")
 	}
 
 	tenantName := ns.Labels[nsLabelTenant]

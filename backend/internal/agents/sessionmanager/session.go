@@ -152,6 +152,24 @@ func (reg *Registry) ActiveCount() int {
 	return len(reg.sessions)
 }
 
+// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
+// given run, then writes the returned gRPC endpoint to
+// $workspaces/{runID}/.sandbox/endpoint so orbit-shell can discover it.
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+	endpoint, err := reg.notifier.ProvisionSandbox(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	sandboxDir := filepath.Join(reg.workspaces, runID, ".sandbox")
+	if err := os.MkdirAll(sandboxDir, 0o700); err != nil {
+		return "", fmt.Errorf("create sandbox dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(sandboxDir, "endpoint"), []byte(endpoint), 0o600); err != nil {
+		return "", fmt.Errorf("write endpoint: %w", err)
+	}
+	return endpoint, nil
+}
+
 // drain reads events from a session's runner, persists durable events to the DB,
 // pushes all events to orbit-agents for live SSE fan-out, and manages the idle
 // timeout that closes the session after inactivity.

@@ -471,6 +471,7 @@ docker-push-platform: ## Push platform service images to local registry
 		docker push localhost:5001/orbit-$$svc:latest; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-push-tenant
 docker-push-tenant: ## Push tenant workload images to local registry
@@ -480,6 +481,7 @@ docker-push-tenant: ## Push tenant workload images to local registry
 		docker push localhost:5001/orbit-$$svc:latest; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-operator
 docker-build-operator: ## Build the orbit-operator Docker image (uses Dockerfile.operator — bakes charts into image)
@@ -493,6 +495,7 @@ docker-push-operator: ## Push orbit-operator image to local registry
 	@docker tag orbit-operator:latest localhost:5001/orbit-operator:latest
 	@docker push localhost:5001/orbit-operator:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL into client bundle)
@@ -508,6 +511,7 @@ docker-push-frontend: docker-build-frontend ## Push the frontend image to the lo
 	@docker tag orbit-frontend:latest localhost:5001/orbit-frontend:latest
 	@docker push localhost:5001/orbit-frontend:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-agents
 docker-build-agents: ## Build the orbit-agents image
@@ -521,11 +525,12 @@ docker-push-agents: docker-build-agents ## Build and push orbit-agents image to 
 	@docker tag orbit-agents:latest localhost:5001/orbit-agents:latest
 	@docker push localhost:5001/orbit-agents:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-agents:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-session-manager
 docker-build-session-manager: ## Build the session-manager image (includes orbit-shell and orbit-runtime-mcp)
 	@echo "$(COLOR_YELLOW)Building orbit-session-manager:latest...$(COLOR_RESET)"
-	@cd backend && docker build --no-cache -t orbit-session-manager:latest -f Dockerfile.session-manager .
+	@cd backend && docker build -t orbit-session-manager:latest -f Dockerfile.session-manager .
 	@echo "$(COLOR_GREEN)✓ orbit-session-manager:latest$(COLOR_RESET)"
 
 .PHONY: docker-push-session-manager
@@ -534,6 +539,7 @@ docker-push-session-manager: docker-build-session-manager ## Build and push sess
 	@docker tag orbit-session-manager:latest localhost:5001/orbit-session-manager:latest
 	@docker push localhost:5001/orbit-session-manager:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-session-manager:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-sandbox-exec
 docker-build-sandbox-exec: ## Build the sandbox-exec image (gRPC exec server for sandbox pods)
@@ -547,9 +553,31 @@ docker-push-sandbox-exec: docker-build-sandbox-exec ## Build and push sandbox-ex
 	@docker tag orbit-sandbox-exec:latest localhost:5001/orbit-sandbox-exec:latest
 	@docker push localhost:5001/orbit-sandbox-exec:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-sandbox-exec:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
+
+# cluster-restore pushes every locally-built image to the registry.
+# Run this after 'colima start' to recover from a restart without rebuilding anything.
+# Only pushes images that already exist locally — skips ones that haven't been built yet.
+.PHONY: cluster-restore
+cluster-restore: ## Re-push locally-built images to the registry after a Colima/k3d restart
+	@echo "$(COLOR_YELLOW)Syncing locally-built images to local registry...$(COLOR_RESET)"
+	@for img in $(PLATFORM_SERVICES) $(TENANT_SERVICES) operator frontend agents session-manager sandbox-exec; do \
+		if docker image inspect orbit-$$img:latest > /dev/null 2>&1; then \
+			echo "  pushing orbit-$$img:latest"; \
+			docker tag orbit-$$img:latest localhost:5001/orbit-$$img:latest; \
+			docker push localhost:5001/orbit-$$img:latest > /dev/null; \
+		fi; \
+	done
+	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
+		echo "  pushing $(OPA_ENVOY_IMAGE)"; \
+		docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE); \
+		docker push localhost:5001/$(OPA_ENVOY_IMAGE) > /dev/null; \
+	fi
+	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend docker-pull-third-party docker-build-agents docker-push-agents docker-build-sandbox-exec docker-push-sandbox-exec ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
@@ -641,10 +669,19 @@ cluster-update-service: ## Build, push and restart a single service (usage: make
 	@echo "$(COLOR_YELLOW)Pushing orbit-$(SERVICE) to local registry...$(COLOR_RESET)"
 	@docker tag orbit-$(SERVICE):latest localhost:5001/orbit-$(SERVICE):latest
 	@docker push localhost:5001/orbit-$(SERVICE):latest
+	@docker image prune -f > /dev/null
 	@echo "$(COLOR_YELLOW)Restarting orbit-$(SERVICE)...$(COLOR_RESET)"
 	@kubectl rollout restart deployment/orbit-$(SERVICE) -n orbit-system
 	@kubectl rollout status deployment/orbit-$(SERVICE) -n orbit-system --timeout=120s
 	@echo "$(COLOR_GREEN)✓ orbit-$(SERVICE) updated$(COLOR_RESET)"
+
+.PHONY: prune
+prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
+	@echo "$(COLOR_YELLOW)Pruning dangling images...$(COLOR_RESET)"
+	@docker image prune -f
+	@echo "$(COLOR_YELLOW)Pruning BuildKit cache (keeping ≤5 GB)...$(COLOR_RESET)"
+	@docker buildx prune -f --keep-storage 5GB
+	@echo "$(COLOR_GREEN)✓ Pruned$(COLOR_RESET)"
 
 # ===========================================
 # Development Workflow

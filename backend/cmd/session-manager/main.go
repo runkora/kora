@@ -102,6 +102,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		ClaudeDefaultModel: cfg.Claude.DefaultModel,
 		ClaudeBare:         cfg.Claude.Bare,
 		SelfPort:           cfg.Server.Port,
+		WorkspacesBasePath: cfg.Workspaces.BasePath,
 	}, registry)
 
 	return apiServer.Server(

@@ -361,7 +361,7 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.svc.PublishEvent(id, ev)
+	c.svc.PublishEvent(ctx, id, ev)
 	w.WriteHeader(http.StatusNoContent)
 }
 
