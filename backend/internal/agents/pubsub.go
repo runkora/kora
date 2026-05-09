@@ -8,8 +8,9 @@ import (
 // PushedEvent is the payload received at POST /internal/runs/{id}/events
 // from a session-manager pod.
 type PushedEvent struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	SequenceNo int64           `json:"sequence_no,omitempty"` // non-zero for durable events; set by session-manager after DB write
 }
 
 // PubSub is the in-memory fan-out hub for live run events.

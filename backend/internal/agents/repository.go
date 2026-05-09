@@ -34,7 +34,7 @@ type Repository interface {
 
 	// ── Events ────────────────────────────────────────────────────────────────
 
-	AppendRunEvent(ctx context.Context, e RunEvent) error
+	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
 	ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error)
 
 	// ── Messages ──────────────────────────────────────────────────────────────

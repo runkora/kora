@@ -39,10 +39,10 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	now := time.Now().UTC()
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO agent_types
-			(id, tenant_id, name, slug, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		at.ID, at.TenantID, at.Name, at.Slug, at.ToolScopes, at.GrantScopes,
-		at.MaxConcurrentRunsPerPod, string(at.State), now, now,
+			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
+		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -55,21 +55,21 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
 		FROM agent_types WHERE id = $1`, id)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
 		FROM agent_types WHERE tenant_id = $1 AND slug = $2`, tenantID, slug)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, slug, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
 		FROM agent_types WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types: %w", err)
@@ -90,9 +90,9 @@ func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string
 func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE agent_types
-		SET name=$1, slug=$2, tool_scopes=$3, grant_scopes=$4, max_concurrent_runs_per_pod=$5, updated_at=$6
-		WHERE id=$7`,
-		at.Name, at.Slug, at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, time.Now().UTC(), at.ID,
+		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, updated_at=$9
+		WHERE id=$10`,
+		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, time.Now().UTC(), at.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update agent_type: %w", err)
@@ -277,16 +277,18 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) AppendRunEvent(ctx context.Context, e RunEvent) error {
-	_, err := r.pool.Exec(ctx, `
+func (r *PostgresRepository) AppendRunEvent(ctx context.Context, e RunEvent) (int64, error) {
+	var seqNo int64
+	err := r.pool.QueryRow(ctx, `
 		INSERT INTO run_events (run_id, event_type, payload, created_at)
-		VALUES ($1,$2,$3,$4)`,
+		VALUES ($1,$2,$3,$4)
+		RETURNING sequence_no`,
 		e.RunID, e.EventType, e.Payload, time.Now().UTC(),
-	)
+	).Scan(&seqNo)
 	if err != nil {
-		return fmt.Errorf("insert run_event: %w", err)
+		return 0, fmt.Errorf("insert run_event: %w", err)
 	}
-	return nil
+	return seqNo, nil
 }
 
 func (r *PostgresRepository) ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error) {
@@ -335,10 +337,10 @@ type scanner interface {
 
 func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
-	var state string
+	var state, framework string
 	err := s.Scan(
-		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.ToolScopes, &at.GrantScopes,
-		&at.MaxConcurrentRunsPerPod, &state, &at.CreatedAt, &at.UpdatedAt,
+		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
+		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.CreatedAt, &at.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -347,6 +349,7 @@ func scanAgentType(s scanner) (*AgentType, error) {
 		return nil, fmt.Errorf("scan agent_type: %w", err)
 	}
 	at.State = AgentTypeState(state)
+	at.Framework = AgentFramework(framework)
 	return &at, nil
 }
 

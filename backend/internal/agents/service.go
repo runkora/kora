@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -61,12 +60,19 @@ func (s *Service) CreateAgentType(ctx context.Context, req CreateAgentTypeReques
 	if maxRuns <= 0 {
 		maxRuns = s.cfg.MaxConcurrentRunsPerPod
 	}
+	framework := req.Framework
+	if framework == "" {
+		framework = AgentFrameworkClaudeCode
+	}
 
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
 		Name:                    req.Name,
 		Slug:                    req.Slug,
+		Description:             req.Description,
+		SystemPrompt:            req.SystemPrompt,
+		Framework:               framework,
 		ToolScopes:              req.ToolScopes,
 		GrantScopes:             req.GrantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
@@ -357,8 +363,8 @@ func (s *Service) TransitionRunState(ctx context.Context, runID string, from, to
 		logging.Field{Key: "to", Value: string(to)},
 	)
 	payload := []byte(`{"state":"` + string(to) + `"}`)
-	_ = s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload})
+	seqNo, _ := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
 
 	if to == RunStateCompleted || to == RunStateFailed {
 		run, err := s.repo.GetRun(ctx, runID)
@@ -392,9 +398,10 @@ func (s *Service) deprovisionSandbox(ctx context.Context, run *Run) {
 }
 
 // PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
+// Durable events (message_complete, tool_use, tool_result) are written to the DB by the
+// session-manager before this is called; orbit-agents skips re-writing them and only fans
+// out to SSE. Ephemeral events (text_delta, thinking_delta, message_stop) are push-only.
 func (s *Service) PublishEvent(ctx context.Context, runID string, ev PushedEvent) {
-	payload, _ := json.Marshal(ev.Payload)
-	_ = s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: payload})
 	s.pubsub.Publish(runID, ev)
 }
 
@@ -532,12 +539,15 @@ func (s *Service) selectPod(ctx context.Context, at *AgentType) (int, error) {
 // ── Request types ─────────────────────────────────────────────────────────────
 
 type CreateAgentTypeRequest struct {
-	TenantID                string   `json:"tenant_id"`
-	Name                    string   `json:"name"`
-	Slug                    string   `json:"slug"`
-	ToolScopes              []string `json:"tool_scopes"`
-	GrantScopes             []string `json:"grant_scopes"`
-	MaxConcurrentRunsPerPod int      `json:"max_concurrent_runs_per_pod"`
+	TenantID                string         `json:"tenant_id"`
+	Name                    string         `json:"name"`
+	Slug                    string         `json:"slug"`
+	Description             string         `json:"description"`
+	SystemPrompt            string         `json:"system_prompt"`
+	Framework               AgentFramework `json:"framework"`
+	ToolScopes              []string       `json:"tool_scopes"`
+	GrantScopes             []string       `json:"grant_scopes"`
+	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 }
 
 type StartRunRequest struct {

@@ -342,7 +342,11 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 			if payload == nil {
 				payload = []byte("{}")
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
+			if ev.SequenceNo > 0 {
+				fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.Type, payload)
+			} else {
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
+			}
 			flusher.Flush()
 		case <-ctx.Done():
 			return

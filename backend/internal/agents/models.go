@@ -15,16 +15,28 @@ const (
 	AgentTypeStateDeleting     AgentTypeState = "deleting"
 )
 
+// AgentFramework identifies the CLI framework running inside agent pods.
+type AgentFramework string
+
+const (
+	AgentFrameworkClaudeCode AgentFramework = "claude-code"
+	AgentFrameworkCodex      AgentFramework = "codex"
+	AgentFrameworkOpenCode   AgentFramework = "opencode"
+)
+
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
 	ID                      string
 	TenantID                string
 	Name                    string
-	Slug                    string   // URL-safe identifier, unique per tenant
-	ToolScopes              []string // Claude Code built-in tools allowed (e.g. ["shell", "filesystem"])
-	GrantScopes             []string // inference gateway scopes granted via OPA (e.g. ["inference:invoke"])
-	MaxConcurrentRunsPerPod int      // cap per StatefulSet pod
+	Slug                    string         // URL-safe identifier, unique per tenant
+	Description             string         // human-readable summary shown in the portal
+	SystemPrompt            string         // injected as the agent's initial system context
+	Framework               AgentFramework // CLI framework running in the pod
+	ToolScopes              []string       // Claude Code built-in tools allowed (e.g. ["shell", "filesystem"])
+	GrantScopes             []string       // inference gateway scopes granted via OPA (e.g. ["inference:invoke"])
+	MaxConcurrentRunsPerPod int            // cap per StatefulSet pod
 	State                   AgentTypeState
 	CreatedAt               time.Time
 	UpdatedAt               time.Time

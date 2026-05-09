@@ -21,8 +21,9 @@ const (
 
 // Event is an Orbit standard event emitted by the transform layer.
 type Event struct {
-	Type    EventType       `json:"type"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type       EventType       `json:"type"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	SequenceNo int64           `json:"sequence_no,omitempty"` // set for durable events after DB write
 }
 
 // MessageCompletePayload carries the full accumulated text and thinking for one

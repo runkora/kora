@@ -261,12 +261,15 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			}
 
 			if isDurableEvent(ev.Type) {
-				if err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload); err != nil {
+				seqNo, err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload)
+				if err != nil {
 					reg.logger.Error(ctx, "Failed to write run event",
 						logging.Field{Key: "run_id", Value: cfg.RunID},
 						logging.Field{Key: "event_type", Value: string(ev.Type)},
 						logging.Field{Key: "error", Value: err.Error()},
 					)
+				} else {
+					ev.SequenceNo = seqNo
 				}
 			}
 			if err := reg.notifier.Notify(ctx, cfg.RunID, ev); err != nil {
