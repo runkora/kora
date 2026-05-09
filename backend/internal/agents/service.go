@@ -47,6 +47,7 @@ func (s *Service) CreateAgentType(ctx context.Context, req CreateAgentTypeReques
 		Name:                    req.Name,
 		Slug:                    req.Slug,
 		ToolScopes:              req.ToolScopes,
+		GrantScopes:             req.GrantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
 		State:                   AgentTypeStateProvisioning,
 	}
@@ -100,8 +101,6 @@ func (s *Service) DeleteAgentType(ctx context.Context, id string) error {
 	if err := s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}
-
-	// TODO(Phase 5): delete grant from policy-service.
 
 	return s.repo.DeleteAgentType(ctx, id)
 }
@@ -371,6 +370,7 @@ type CreateAgentTypeRequest struct {
 	Name                    string   `json:"name"`
 	Slug                    string   `json:"slug"`
 	ToolScopes              []string `json:"tool_scopes"`
+	GrantScopes             []string `json:"grant_scopes"`
 	MaxConcurrentRunsPerPod int      `json:"max_concurrent_runs_per_pod"`
 }
 

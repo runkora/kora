@@ -22,7 +22,8 @@ type AgentType struct {
 	TenantID                string
 	Name                    string
 	Slug                    string   // URL-safe identifier, unique per tenant
-	ToolScopes              []string // e.g. ["tools:bash", "tools:files"]
+	ToolScopes              []string // Claude Code built-in tools allowed (e.g. ["shell", "filesystem"])
+	GrantScopes             []string // inference gateway scopes granted via OPA (e.g. ["inference:invoke"])
 	MaxConcurrentRunsPerPod int      // cap per StatefulSet pod
 	State                   AgentTypeState
 	CreatedAt               time.Time

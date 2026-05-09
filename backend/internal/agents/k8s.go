@@ -31,9 +31,6 @@ var destinationRuleGVR = schema.GroupVersionResource{
 	Resource: "destinationrules",
 }
 
-// agentGrantScopes are the inference gateway scopes granted to every managed
-// agent. Scoped down per-model in a future iteration.
-var agentGrantScopes = []string{"inference:invoke", "inference:list", "inference:use"}
 
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
@@ -355,17 +352,57 @@ func (p *K8sProvisioner) agentSpiffeID(at AgentType, namespace string) string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", p.cfg.TrustDomain, namespace, at.Slug)
 }
 
-// ensureAgentGrant creates a policy-service grant giving this agent's SPIFFE
-// identity access to the inference gateway. Idempotent — if a grant already
-// exists for the same principal it is left unchanged.
+// ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
+// principal toward exactly one grant containing at.GrantScopes.
+//
+// Reconcile logic:
+//   - Keep the first existing grant whose scopes exactly match at.GrantScopes.
+//   - Delete all other grants for this principal (duplicates + stale scope sets).
+//   - If no matching grant was kept, create one.
+//
+// This handles first-time provisioning, scope updates, and deduplication in a
+// single idempotent call.
 // Skipped silently when policyClient is nil (local dev without policy service).
 func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, namespace string) error {
 	if p.policyClient == nil {
 		return nil
 	}
 	principalID := p.agentSpiffeID(at, namespace)
-	_, err := p.policyClient.CreateGrant(ctx, at.TenantID, "AGENT", principalID, agentGrantScopes)
+
+	existing, err := p.policyClient.ListGrants(ctx, at.TenantID, "AGENT", principalID)
 	if err != nil {
+		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
+	}
+
+	// Walk existing grants: keep the first with correct scopes, delete the rest.
+	var keepID string
+	for _, g := range existing {
+		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) {
+			keepID = g.ID
+			continue
+		}
+		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
+			p.logger.Warn(ctx, "delete stale agent grant failed",
+				logging.Field{Key: "grant_id", Value: g.ID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+		} else {
+			p.logger.Info(ctx, "stale agent grant deleted",
+				logging.Field{Key: "grant_id", Value: g.ID},
+				logging.Field{Key: "principal_id", Value: principalID},
+			)
+		}
+	}
+
+	if keepID != "" {
+		p.logger.Info(ctx, "agent grant up to date",
+			logging.Field{Key: "principal_id", Value: principalID},
+			logging.Field{Key: "grant_id", Value: keepID},
+		)
+		return nil
+	}
+
+	if _, err := p.policyClient.CreateGrant(ctx, at.TenantID, "AGENT", principalID, at.GrantScopes); err != nil {
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
 	}
 	p.logger.Info(ctx, "agent grant created",
@@ -373,6 +410,23 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		logging.Field{Key: "tenant_id", Value: at.TenantID},
 	)
 	return nil
+}
+
+// scopeSetsEqual returns true when a and b contain the same elements (order-independent).
+func scopeSetsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	have := make(map[string]struct{}, len(a))
+	for _, s := range a {
+		have[s] = struct{}{}
+	}
+	for _, s := range b {
+		if _, ok := have[s]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // deleteAgentGrant removes all policy-service grants for this agent's SPIFFE
