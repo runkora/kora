@@ -99,7 +99,6 @@ func realMain() error {
 		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
 		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
 		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
-		{Scope: "platform:agents:read", ResourceType: "platform", PathSegments: []string{"agents"}, Action: "read", Description: "Read agent registrations"},
 		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
 	}); err != nil {
 		logger.Error(ctx, "policy-service self-registration failed", logging.Field{Key: "error", Value: err.Error()})

@@ -118,6 +118,24 @@ func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, f
 	return nil
 }
 
+func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT DISTINCT slug FROM agent_types ORDER BY slug`)
+	if err != nil {
+		return nil, fmt.Errorf("query agent_type slugs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out = append(out, slug)
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) DeleteAgentType(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id=$1`, id)
 	if err != nil {

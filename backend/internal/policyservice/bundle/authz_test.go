@@ -327,7 +327,10 @@ func TestScopes_HumanWithRoleOnly(t *testing.T) {
 		"platform:grants:write",
 		"platform:roles:read",
 		"platform:roles:write",
-		"platform:agents:read",
+		"agents:types:read",
+		"agents:types:write",
+		"agents:runs:read",
+		"agents:runs:write",
 	} {
 		if !scopeSetContains(scopes, expected) {
 			t.Errorf("expected %s in tenant-admin scopes, got %v", expected, scopes)

@@ -17,8 +17,11 @@ spec:
         {{- include "orbit.agents.labels" . | nindent 8 }}
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: orbit-agents
+        # Required for the identity-proxy EnvoyFilter to inject the platform
+        # token into outbound requests to other platform services.
+        orbit.io/identity-proxy: "enabled"
       annotations:
-        inject.istio.io/templates: "sidecar,spire"
+        inject.istio.io/templates: "sidecar,spire,identity-proxy"
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         # Postgres is external to the mesh — bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"

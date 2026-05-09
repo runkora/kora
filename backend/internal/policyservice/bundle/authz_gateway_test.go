@@ -369,7 +369,7 @@ func TestGateway_TenantRoute_Matched(t *testing.T) {
 		tenantIDs: []string{testTenantID},
 		tenantRoutes: map[string][]routes.RouteScope{
 			testTenantID: {
-				{PathPrefix: "/api/v1/agents", Method: "GET", RequiredScope: "platform:agents:read"},
+				{PathPrefix: "/api/v1/agents", Method: "GET", RequiredScope: "agents:types:read"},
 			},
 		},
 	})
@@ -428,7 +428,7 @@ func TestGateway_TenantRoute_OtherTenantNotVisible(t *testing.T) {
 		tenantIDs: []string{tenantA},
 		tenantRoutes: map[string][]routes.RouteScope{
 			tenantA: {
-				{PathPrefix: "/api/v1/agents", Method: "GET", RequiredScope: "platform:agents:read"},
+				{PathPrefix: "/api/v1/agents", Method: "GET", RequiredScope: "agents:types:read"},
 			},
 		},
 	})

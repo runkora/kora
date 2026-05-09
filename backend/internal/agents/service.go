@@ -20,13 +20,19 @@ var agentsTracer = otel.Tracer("orbit.agents")
 
 // Service orchestrates agent type and run lifecycle.
 type Service struct {
-	repo   Repository
-	k8s    *K8sProvisioner
-	sm     *sessionmanager.Client
-	pubsub *PubSub
-	logger logging.Logger
-	cfg    ServiceConfig
+	repo          Repository
+	k8s           *K8sProvisioner
+	sm            *sessionmanager.Client
+	pubsub        *PubSub
+	logger        logging.Logger
+	cfg           ServiceConfig
+	agentTypeHook func() // called after agent type create/delete; nil if unset
 }
+
+// SetAgentTypeHook installs a callback that is invoked (synchronously, before
+// returning) after any agent type is created or deleted. Intended for scope
+// re-registration — the hook should launch its own goroutine if needed.
+func (s *Service) SetAgentTypeHook(fn func()) { s.agentTypeHook = fn }
 
 // ServiceConfig holds runtime parameters for the service layer.
 type ServiceConfig struct {
@@ -95,6 +101,9 @@ func (s *Service) CreateAgentType(ctx context.Context, req CreateAgentTypeReques
 		logging.Field{Key: "tenant_id", Value: at.TenantID},
 		logging.Field{Key: "slug", Value: at.Slug},
 	)
+	if s.agentTypeHook != nil {
+		s.agentTypeHook()
+	}
 	return &at, nil
 }
 
@@ -159,6 +168,9 @@ func (s *Service) DeleteAgentType(ctx context.Context, id string) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "delete agent type")
 		return err
+	}
+	if s.agentTypeHook != nil {
+		s.agentTypeHook()
 	}
 	return nil
 }
