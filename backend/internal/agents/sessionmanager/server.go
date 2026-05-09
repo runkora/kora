@@ -74,6 +74,7 @@ type CreateSessionRequest struct {
 	TenantID     string   `json:"tenant_id"`
 	Model        string   `json:"model"`
 	AllowedTools []string `json:"allowed_tools"`
+	SystemPrompt string   `json:"system_prompt"`
 }
 
 // handleCreateSession starts a new Claude Code subprocess for the given run.
@@ -98,6 +99,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		BinaryPath:        c.cfg.ClaudeBinaryPath,
 		Model:             model,
 		AllowedTools:      req.AllowedTools,
+		SystemPrompt:      req.SystemPrompt,
 		Bare:              c.cfg.ClaudeBare,
 		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 		RunID:             req.RunID,

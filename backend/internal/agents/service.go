@@ -248,6 +248,7 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 		AgentTypeID:  run.AgentTypeID,
 		TenantID:     run.TenantID,
 		AllowedTools: at.ToolScopes,
+		SystemPrompt: at.SystemPrompt,
 	}
 	if err := s.sm.CreateSession(ctx, podURL, smReq); err != nil {
 		span.RecordError(err)

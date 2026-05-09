@@ -70,6 +70,7 @@ type CreateSessionRequest struct {
 	TenantID     string   `json:"tenant_id"`
 	Model        string   `json:"model,omitempty"`
 	AllowedTools []string `json:"allowed_tools,omitempty"`
+	SystemPrompt string   `json:"system_prompt,omitempty"`
 }
 
 // CreateSession starts a new Claude Code subprocess on the target pod.

@@ -28,6 +28,10 @@ type ClaudeRunnerConfig struct {
 	// (e.g. ["Bash", "Edit", "Read"]). Derived from the agent type's tool_scopes.
 	AllowedTools []string
 
+	// SystemPrompt is appended to Claude's default system prompt via
+	// --append-system-prompt. Empty means no additional prompt is injected.
+	SystemPrompt string
+
 	// ExtraEnv is appended to the subprocess environment (e.g. ANTHROPIC_BASE_URL).
 	ExtraEnv []string
 
@@ -99,6 +103,9 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		args = append(args, "--model", r.cfg.Model)
 	}
 	args = append(args, "--tools", scopesToClaudeTools(r.cfg.AllowedTools))
+	if r.cfg.SystemPrompt != "" {
+		args = append(args, "--append-system-prompt", r.cfg.SystemPrompt)
+	}
 
 	mcpConfigPath, mcpErr := r.writeMCPConfig(workDir)
 	if mcpErr != nil {
