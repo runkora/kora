@@ -17,11 +17,27 @@ import (
 
 var agentsTracer = otel.Tracer("orbit.agents")
 
+// k8sProvisioner abstracts K8sProvisioner so it can be replaced in tests.
+type k8sProvisioner interface {
+	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
+	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
+	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
+	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error)
+	DeleteSandbox(ctx context.Context, runID, namespace string) error
+}
+
+// smClient abstracts sessionmanager.Client so it can be replaced in tests.
+type smClient interface {
+	CreateSession(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error
+	SendMessage(ctx context.Context, podURL, runID, content string) error
+	CloseSession(ctx context.Context, podURL, runID string) error
+}
+
 // Service orchestrates agent type and run lifecycle.
 type Service struct {
 	repo          Repository
-	k8s           *K8sProvisioner
-	sm            *sessionmanager.Client
+	k8s           k8sProvisioner
+	sm            smClient
 	pubsub        *PubSub
 	logger        logging.Logger
 	cfg           ServiceConfig
@@ -40,7 +56,7 @@ type ServiceConfig struct {
 }
 
 // NewService creates a Service with the given dependencies.
-func NewService(repo Repository, k8s *K8sProvisioner, sm *sessionmanager.Client, pubsub *PubSub, logger logging.Logger, cfg ServiceConfig) *Service {
+func NewService(repo Repository, k8s k8sProvisioner, sm smClient, pubsub *PubSub, logger logging.Logger, cfg ServiceConfig) *Service {
 	return &Service{repo: repo, k8s: k8s, sm: sm, pubsub: pubsub, logger: logger, cfg: cfg}
 }
 

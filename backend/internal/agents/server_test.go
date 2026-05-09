@@ -1,0 +1,500 @@
+package agents
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,
+// which is required by the SSE handler.
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (fr *flushRecorder) Flush() {}
+
+func newTestController(t *testing.T) (*Controller, *mockRepository, *mockK8s, *mockSMClient) {
+	t.Helper()
+	svc, repo, k8s, sm := newTestService(t)
+	c := NewController(svc, logging.NewLoggerWithOutput(io.Discard))
+	return c, repo, k8s, sm
+}
+
+func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler(w, req)
+	return w
+}
+
+func getRequest(t *testing.T, handler http.HandlerFunc, queryParams ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	url := "/"
+	if len(queryParams) > 0 {
+		url += "?" + queryParams[0]
+	}
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+	return w
+}
+
+func deleteRequest(t *testing.T, handler http.HandlerFunc, id string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/"+id, nil)
+	req.SetPathValue("id", id)
+	w := httptest.NewRecorder()
+	handler(w, req)
+	return w
+}
+
+// ── Health ────────────────────────────────────────────────────────────────────
+
+func TestHandleHealth(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	w := getRequest(t, c.handleHealth)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+// ── Agent Types ───────────────────────────────────────────────────────────────
+
+func TestHandleCreateAgentType_Created(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	w := postJSON(t, c.handleCreateAgentType, map[string]any{
+		"tenant_id": "t-1",
+		"name":      "My Bot",
+		"slug":      "my-bot",
+	})
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCreateAgentType_MissingFields(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	cases := []map[string]any{
+		{"name": "Bot", "slug": "bot"},      // missing tenant_id
+		{"tenant_id": "t-1", "slug": "bot"}, // missing name
+		{"tenant_id": "t-1", "name": "Bot"}, // missing slug
+	}
+	for _, body := range cases {
+		w := postJSON(t, c.handleCreateAgentType, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body=%v: status = %d, want 422", body, w.Code)
+		}
+	}
+}
+
+func TestHandleCreateAgentType_SlugConflict(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	body := map[string]any{"tenant_id": "t-1", "name": "Bot", "slug": "dup"}
+	postJSON(t, c.handleCreateAgentType, body)
+	w := postJSON(t, c.handleCreateAgentType, body)
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", w.Code)
+	}
+}
+
+func TestHandleCreateAgentType_K8sError(t *testing.T) {
+	c, _, k8s, _ := newTestController(t)
+	k8s.provisionAgentTypeErr = errors.New("k8s down")
+
+	w := postJSON(t, c.handleCreateAgentType, map[string]any{
+		"tenant_id": "t-1", "name": "Bot", "slug": "bot",
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListAgentTypes_OK(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+
+	w := getRequest(t, c.handleListAgentTypes, "tenant_id=t-1")
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	types, _ := resp["agent_types"].([]any)
+	if len(types) != 1 {
+		t.Errorf("expected 1 agent type, got %d", len(types))
+	}
+}
+
+func TestHandleListAgentTypes_MissingTenantID(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	w := getRequest(t, c.handleListAgentTypes)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+}
+
+func TestHandleGetAgentType_Found(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-types/at-1", nil)
+	req.SetPathValue("id", at.ID)
+	w := httptest.NewRecorder()
+	c.handleGetAgentType(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHandleGetAgentType_NotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-types/missing", nil)
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+	c.handleGetAgentType(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleDeleteAgentType_NoContent(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+
+	w := deleteRequest(t, c.handleDeleteAgentType, at.ID)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+}
+
+func TestHandleDeleteAgentType_NotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	w := deleteRequest(t, c.handleDeleteAgentType, "missing")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ── Runs ──────────────────────────────────────────────────────────────────────
+
+func TestHandleStartRun_Created(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+
+	w := postJSON(t, c.handleStartRun, map[string]any{
+		"tenant_id":     "t-1",
+		"agent_type_id": at.ID,
+	})
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleStartRun_MissingFields(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	cases := []map[string]any{
+		{"agent_type_id": "at-1"}, // missing tenant_id
+		{"tenant_id": "t-1"},      // missing agent_type_id
+	}
+	for _, body := range cases {
+		w := postJSON(t, c.handleStartRun, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body=%v: status = %d, want 422", body, w.Code)
+		}
+	}
+}
+
+func TestHandleStartRun_AgentTypeNotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	w := postJSON(t, c.handleStartRun, map[string]any{
+		"tenant_id":     "t-1",
+		"agent_type_id": "nonexistent",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleListRuns_OK(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	w := getRequest(t, c.handleListRuns, "tenant_id=t-1")
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	runs, _ := resp["runs"].([]any)
+	if len(runs) != 1 {
+		t.Errorf("expected 1 run, got %d", len(runs))
+	}
+}
+
+func TestHandleListRuns_MissingTenantID(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	w := getRequest(t, c.handleListRuns)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+}
+
+func TestHandleGetRun_Found(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1", nil)
+	req.SetPathValue("id", run.ID)
+	w := httptest.NewRecorder()
+	c.handleGetRun(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHandleGetRun_NotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/missing", nil)
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+	c.handleGetRun(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleTerminateRun_NoContent(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	w := deleteRequest(t, c.handleTerminateRun, run.ID)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+}
+
+func TestHandleTerminateRun_NotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	w := deleteRequest(t, c.handleTerminateRun, "missing")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleSendMessage_Accepted(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages",
+		bytes.NewBufferString(`{"content":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", run.ID)
+	w := httptest.NewRecorder()
+	c.handleSendMessage(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSendMessage_EmptyContent(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages",
+		bytes.NewBufferString(`{"content":""}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "run-1")
+	w := httptest.NewRecorder()
+	c.handleSendMessage(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+}
+
+func TestHandleSendMessage_RunNotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/missing/messages",
+		bytes.NewBufferString(`{"content":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+	c.handleSendMessage(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ── Internal callbacks ────────────────────────────────────────────────────────
+
+func TestHandleRunStateCallback_NoContent(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateStarting})
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
+		bytes.NewBufferString(`{"from":"starting","to":"active"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "run-1")
+	w := httptest.NewRecorder()
+	c.handleRunStateCallback(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunStateCallback_Conflict(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	// Wrong `from` state — triggers CAS conflict.
+	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
+		bytes.NewBufferString(`{"from":"pending","to":"active"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "run-1")
+	w := httptest.NewRecorder()
+	c.handleRunStateCallback(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", w.Code)
+	}
+}
+
+func TestHandlePushEvent_NoContent(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events",
+		bytes.NewBufferString(`{"type":"text_delta","payload":{"delta":"hi"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "run-1")
+	w := httptest.NewRecorder()
+	c.handlePushEvent(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+}
+
+func TestHandleProvisionSandbox_OK(t *testing.T) {
+	c, repo, k8s, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	k8s.sandboxEndpoint = "10.0.0.5:50051"
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/provision-sandbox", http.NoBody)
+	req.SetPathValue("id", run.ID)
+	w := httptest.NewRecorder()
+	c.handleProvisionSandbox(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "10.0.0.5:50051") {
+		t.Errorf("endpoint not in response: %s", w.Body.String())
+	}
+}
+
+func TestHandleProvisionSandbox_NotFound(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/runs/missing/provision-sandbox", http.NoBody)
+	req.SetPathValue("id", "missing")
+	w := httptest.NewRecorder()
+	c.handleProvisionSandbox(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ── SSE stream ────────────────────────────────────────────────────────────────
+
+func TestHandleStreamEvents_ReplaysPersisted(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+	repo.AppendRunEvent(context.Background(), RunEvent{ //nolint:errcheck
+		RunID:     "run-1",
+		EventType: "message_complete",
+		Payload:   []byte(`{"text":"hello world"}`),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/events", nil).WithContext(ctx)
+	req.SetPathValue("id", "run-1")
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	c.handleStreamEvents(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "message_complete") {
+		t.Errorf("expected message_complete in SSE replay, got: %s", body)
+	}
+	if !strings.Contains(body, "hello world") {
+		t.Errorf("expected payload in SSE replay, got: %s", body)
+	}
+}
+
+func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	svc := c.svc
+	seedRun(t, repo, Run{ID: "run-2", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Publish an event shortly after the handler connects.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		svc.PublishEvent(context.Background(), "run-2", PushedEvent{
+			Type:    "text_delta",
+			Payload: []byte(`{"delta":"hi"}`),
+		})
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-2/events", nil).WithContext(ctx)
+	req.SetPathValue("id", "run-2")
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	c.handleStreamEvents(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "text_delta") {
+		t.Errorf("expected text_delta in pushed event, got: %s", body)
+	}
+}
