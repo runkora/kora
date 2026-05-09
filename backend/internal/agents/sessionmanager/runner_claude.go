@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ClaudeRunnerConfig holds settings for the Claude Code subprocess.
@@ -41,6 +43,9 @@ type ClaudeRunnerConfig struct {
 
 	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
 	RunID string
+
+	// Logger is used to emit structured log events from the subprocess lifecycle.
+	Logger logging.Logger
 }
 
 // ClaudeRunner implements Runner for Claude Code's --input-format stream-json mode.
@@ -120,7 +125,15 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("claude start: %w", err)
 	}
 
-	go r.transform(stdout)
+	r.cfg.Logger.Info(ctx, "Claude subprocess started",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "pid", Value: r.cmd.Process.Pid},
+		logging.Field{Key: "model", Value: r.cfg.Model},
+		logging.Field{Key: "bare", Value: r.cfg.Bare},
+		logging.Field{Key: "tool_count", Value: len(r.cfg.AllowedTools)},
+	)
+
+	go r.transform(ctx, stdout)
 	return nil
 }
 
@@ -210,7 +223,7 @@ func (r *ClaudeRunner) Close() error {
 
 // transform reads Claude Code's stream-json stdout and emits Orbit events.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
-func (r *ClaudeRunner) transform(stdout io.Reader) {
+func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	defer close(r.events)
 
 	scanner := bufio.NewScanner(stdout)
@@ -225,12 +238,16 @@ func (r *ClaudeRunner) transform(stdout io.Reader) {
 		if err := json.Unmarshal(line, &wrapper); err != nil {
 			continue
 		}
-		r.dispatch(wrapper)
+		r.dispatch(ctx, wrapper)
 	}
+
+	r.cfg.Logger.Info(ctx, "Claude subprocess exited",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+	)
 }
 
 // dispatch routes a parsed output wrapper to the appropriate handler.
-func (r *ClaudeRunner) dispatch(w claudeOutputWrapper) {
+func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 	switch w.Type {
 	case "stream_event":
 		var ev claudeStreamEvent
@@ -238,11 +255,16 @@ func (r *ClaudeRunner) dispatch(w claudeOutputWrapper) {
 			r.handleStreamEvent(ev)
 		}
 	case "assistant":
-		r.handleAssistant(w.Message)
+		r.handleAssistant(ctx, w.Message)
 	case "user":
 		r.handleUser(w.Message)
 	case "result":
 		if w.Subtype == "success" && w.StopReason == "end_turn" {
+			r.cfg.Logger.Info(ctx, "Claude turn complete",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "text_len", Value: r.textBuf.Len()},
+				logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
+			)
 			r.emit(EventTypeMessageComplete, MessageCompletePayload{
 				Text:     r.textBuf.String(),
 				Thinking: r.thinkingBuf.String(),
@@ -272,12 +294,17 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 }
 
 // handleAssistant emits tool_use events from a completed assistant message.
-func (r *ClaudeRunner) handleAssistant(msg *claudeMessage) {
+func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) {
 	if msg == nil {
 		return
 	}
 	for _, block := range msg.Content {
 		if block.Type == "tool_use" {
+			r.cfg.Logger.Info(ctx, "Tool call",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "tool", Value: block.Name},
+				logging.Field{Key: "tool_use_id", Value: block.ID},
+			)
 			r.emit(EventTypeToolUse, ToolUsePayload{ID: block.ID, Name: block.Name, Input: block.Input})
 		}
 	}

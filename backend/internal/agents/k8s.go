@@ -275,18 +275,41 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return "", fmt.Errorf("create sandbox pod: %w", err)
 	}
+	if apierrors.IsAlreadyExists(err) {
+		p.logger.Info(ctx, "Sandbox pod already exists, waiting for ready",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod", Value: podName},
+		)
+	} else {
+		p.logger.Info(ctx, "Sandbox pod created, waiting for ready",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod", Value: podName},
+			logging.Field{Key: "namespace", Value: namespace},
+		)
+	}
 
 	podIP, err := p.waitForPodReady(ctx, podName, namespace)
 	if err != nil {
 		return "", fmt.Errorf("wait for sandbox pod ready: %w", err)
 	}
 
-	return fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort), nil
+	endpoint := fmt.Sprintf("%s:%d", podIP, p.cfg.SandboxGRPCPort)
+	p.logger.Info(ctx, "Sandbox pod ready",
+		logging.Field{Key: "run_id", Value: run.ID},
+		logging.Field{Key: "pod", Value: podName},
+		logging.Field{Key: "endpoint", Value: endpoint},
+	)
+	return endpoint, nil
 }
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
 func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
 	podName := fmt.Sprintf("sandbox-%s", runID)
+	p.logger.Info(ctx, "Deleting sandbox pod",
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "pod", Value: podName},
+		logging.Field{Key: "namespace", Value: namespace},
+	)
 	del := metav1.DeletePropagationForeground
 	return ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del}))
 }

@@ -155,16 +155,27 @@ func (reg *Registry) ActiveCount() int {
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 // given run, then writes the returned gRPC endpoint to
 // $workspaces/{runID}/.sandbox/endpoint so orbit-shell can discover it.
+//
+// Idempotent: if the endpoint file already exists the cached value is returned
+// immediately without contacting orbit-agents or creating a new pod.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+	endpointFile := filepath.Join(reg.workspaces, runID, ".sandbox", "endpoint")
+	if data, err := os.ReadFile(endpointFile); err == nil && len(data) > 0 {
+		reg.logger.Info(ctx, "Sandbox endpoint cache hit",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "endpoint", Value: string(data)},
+		)
+		return string(data), nil
+	}
+
 	endpoint, err := reg.notifier.ProvisionSandbox(ctx, runID)
 	if err != nil {
 		return "", err
 	}
-	sandboxDir := filepath.Join(reg.workspaces, runID, ".sandbox")
-	if err := os.MkdirAll(sandboxDir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(endpointFile), 0o700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(sandboxDir, "endpoint"), []byte(endpoint), 0o600); err != nil {
+	if err := os.WriteFile(endpointFile, []byte(endpoint), 0o600); err != nil {
 		return "", fmt.Errorf("write endpoint: %w", err)
 	}
 	return endpoint, nil
@@ -192,6 +203,10 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 
 		failed := !s.intentionalClose.Load()
 		bgCtx := context.Background()
+		reg.logger.Info(bgCtx, "Session drain complete",
+			logging.Field{Key: "run_id", Value: cfg.RunID},
+			logging.Field{Key: "failed", Value: failed},
+		)
 		if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, failed); err != nil {
 			reg.logger.Warn(bgCtx, "Failed to notify run completion",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -221,10 +236,14 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	}
 	disarmIdle := func() {
 		if idleTimer != nil {
+			// Timer was running — a new turn has started; log once per resumption.
 			idleTimer.Stop()
 			idleTimer = nil
+			idleTimerC = nil
+			reg.logger.Info(ctx, "Session new turn started",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+			)
 		}
-		idleTimerC = nil
 	}
 
 	events := s.runner.Events()

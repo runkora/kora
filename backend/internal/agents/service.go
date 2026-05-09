@@ -201,6 +201,7 @@ func (s *Service) TerminateRun(ctx context.Context, id string) error {
 		}
 	}
 
+	s.deprovisionSandbox(ctx, run)
 	return s.repo.DeleteRun(ctx, id)
 }
 
@@ -218,7 +219,36 @@ func (s *Service) TransitionRunState(ctx context.Context, runID string, from, to
 	payload := []byte(`{"state":"` + string(to) + `"}`)
 	_ = s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload})
+
+	if to == RunStateCompleted || to == RunStateFailed {
+		run, err := s.repo.GetRun(ctx, runID)
+		if err != nil {
+			s.logger.Warn(ctx, "get run for sandbox cleanup failed",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			return nil
+		}
+		s.deprovisionSandbox(ctx, run)
+	}
 	return nil
+}
+
+// deprovisionSandbox deletes the sandbox pod for a run. Best-effort — logs on
+// failure but never returns an error so callers are not blocked.
+func (s *Service) deprovisionSandbox(ctx context.Context, run *Run) {
+	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
+	if err := s.k8s.DeleteSandbox(ctx, run.ID, namespace); err != nil {
+		s.logger.Warn(ctx, "Sandbox pod deletion failed",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.logger.Info(ctx, "Sandbox pod deleted",
+		logging.Field{Key: "run_id", Value: run.ID},
+		logging.Field{Key: "namespace", Value: namespace},
+	)
 }
 
 // PublishEvent fans out a pushed event from a session-manager pod to live SSE subscribers.
@@ -325,6 +355,12 @@ func (s *Service) selectPod(ctx context.Context, at *AgentType) (int, error) {
 	if bestCount < 0 {
 		return 0, fmt.Errorf("all pods at capacity (%d runs/pod)", at.MaxConcurrentRunsPerPod)
 	}
+	s.logger.Info(ctx, "Pod selected",
+		logging.Field{Key: "agent_type_id", Value: at.ID},
+		logging.Field{Key: "pod_ordinal", Value: best},
+		logging.Field{Key: "active_runs", Value: bestCount},
+		logging.Field{Key: "max_runs_per_pod", Value: at.MaxConcurrentRunsPerPod},
+	)
 	return best, nil
 }
 

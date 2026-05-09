@@ -102,6 +102,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 		RunID:             req.RunID,
 		ExtraEnv:          []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))},
+		Logger:            c.logger,
 	})
 
 	cfg := SessionConfig{
