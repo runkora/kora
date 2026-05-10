@@ -326,17 +326,27 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	var lastReplayedSeqNo int64
 	for _, ev := range events {
 		fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.EventType, ev.Payload)
+		if ev.SequenceNo > lastReplayedSeqNo {
+			lastReplayedSeqNo = ev.SequenceNo
+		}
 	}
 	flusher.Flush()
 
 	// Stream live events from the push channel.
+	// Durable events (SequenceNo > 0) that arrived in the channel while the DB
+	// replay was in progress are skipped if their sequence number was already
+	// sent, preventing double delivery.
 	for {
 		select {
 		case ev, open := <-ch:
 			if !open {
 				return
+			}
+			if ev.SequenceNo > 0 && ev.SequenceNo <= lastReplayedSeqNo {
+				continue
 			}
 			payload := ev.Payload
 			if payload == nil {

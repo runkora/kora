@@ -498,3 +498,45 @@ func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 		t.Errorf("expected text_delta in pushed event, got: %s", body)
 	}
 }
+
+// TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel proves Fix 3:
+// a durable event (SequenceNo > 0) that arrives on the pubsub channel while the
+// DB replay is in progress must not be emitted a second time.
+func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	svc := c.svc
+	seedRun(t, repo, Run{ID: "run-dedup", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	// Append a durable event — the mock assigns it SequenceNo=1.
+	repo.AppendRunEvent(context.Background(), RunEvent{ //nolint:errcheck
+		RunID:     "run-dedup",
+		EventType: "message_complete",
+		Payload:   []byte(`{"text":"hello"}`),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	// Simulate the race: the session-manager pod also calls POST /internal/runs/{id}/events
+	// for the same durable event (seqNo=1) while the DB replay is still in flight.
+	// Without the dedup guard this would write message_complete twice to the SSE stream.
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		svc.PublishEvent(context.Background(), "run-dedup", PushedEvent{
+			Type:       "message_complete",
+			SequenceNo: 1, // same seqNo that the DB replay will emit
+			Payload:    []byte(`{"text":"hello"}`),
+		})
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-dedup/events", nil).WithContext(ctx)
+	req.SetPathValue("id", "run-dedup")
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	c.handleStreamEvents(w, req)
+
+	body := w.Body.String()
+	count := strings.Count(body, "message_complete")
+	if count != 1 {
+		t.Errorf("expected message_complete exactly once, got %d; body:\n%s", count, body)
+	}
+}

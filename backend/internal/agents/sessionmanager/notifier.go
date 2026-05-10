@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -64,7 +65,11 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 	if err != nil {
 		return fmt.Errorf("post event: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+	}
 	return nil
 }
 
@@ -79,6 +84,10 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (stri
 		return "", fmt.Errorf("post provision-sandbox: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return "", fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+	}
 	var result struct {
 		Endpoint string `json:"endpoint"`
 	}
@@ -93,6 +102,10 @@ func (n *HTTPNotifier) CompleteRun(ctx context.Context, runID string, failed boo
 	if failed {
 		toState = "failed"
 	}
+	// The run is always in "active" state when the subprocess exits because the
+	// current flow has no intermediate states between active and terminal states.
+	// RunStateCompleting is defined for future snapshot support; if that transition
+	// is added, from must be updated to match.
 	body, err := json.Marshal(map[string]string{"from": "active", "to": toState})
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
@@ -107,6 +120,10 @@ func (n *HTTPNotifier) CompleteRun(ctx context.Context, runID string, failed boo
 	if err != nil {
 		return fmt.Errorf("post state: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+	}
 	return nil
 }
