@@ -56,11 +56,12 @@ func (ps *PubSub) Subscribe(runID string) (<-chan PushedEvent, func()) {
 
 // Publish fans an event out to all current subscribers for the run.
 // Drops the event for any subscriber whose buffer is full.
+// The read lock is held for the duration so cancel() cannot close a channel
+// while a send is in flight (which would panic even with a select).
 func (ps *PubSub) Publish(runID string, ev PushedEvent) {
 	ps.mu.RLock()
-	subs := ps.subs[runID]
-	ps.mu.RUnlock()
-	for _, ch := range subs {
+	defer ps.mu.RUnlock()
+	for _, ch := range ps.subs[runID] {
 		select {
 		case ch <- ev:
 		default:

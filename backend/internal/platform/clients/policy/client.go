@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -115,9 +116,16 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/api/v1/policy/grants?tenant_id=%s&principal_type=%s&principal_id=%s",
-		c.serviceURL, tenantID, principalType, principalID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	u, err := url.Parse(c.serviceURL + "/api/v1/policy/grants")
+	if err != nil {
+		return nil, fmt.Errorf("parse list grants URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("tenant_id", tenantID)
+	q.Set("principal_type", principalType)
+	q.Set("principal_id", principalID)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build list grants request: %w", err)
 	}

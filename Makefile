@@ -577,7 +577,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend docker-pull-third-party docker-build-agents docker-push-agents docker-build-sandbox-exec docker-push-sandbox-exec ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend docker-pull-third-party docker-build-agents docker-push-agents docker-build-session-manager docker-push-session-manager docker-build-sandbox-exec docker-push-sandbox-exec ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \

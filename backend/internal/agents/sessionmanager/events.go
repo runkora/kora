@@ -11,9 +11,8 @@ const (
 	EventTypeToolUse         EventType = "tool_use"
 	EventTypeToolResult      EventType = "tool_result"
 
-	// Streaming-only events — emitted on the live SSE path once orbit-agents
-	// implements a direct streaming subscription to the session-manager.
-	// Not written to run_events; kept here so the types are defined ahead of time.
+	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
+	// Not written to run_events (ADR-0054); consumed by orbit-agents SSE subscribers.
 	EventTypeTextDelta     EventType = "text_delta"
 	EventTypeThinkingDelta EventType = "thinking_delta"
 	EventTypeMessageStop   EventType = "message_stop"
