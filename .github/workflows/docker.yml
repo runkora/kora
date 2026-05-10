@@ -52,6 +52,11 @@ jobs:
             docker-bake.ci.hcl
           targets: |
             backend-images
+            orbit-agents
+            orbit-shell
+            orbit-runtime-mcp
+            orbit-session-manager
+            orbit-sandbox-exec
             orbit-frontend
             orbit-operator
           load: true
@@ -115,6 +120,11 @@ jobs:
             docker-bake.ci.hcl
           targets: |
             backend-images
+            orbit-agents
+            orbit-shell
+            orbit-runtime-mcp
+            orbit-session-manager
+            orbit-sandbox-exec
             orbit-frontend
             orbit-operator
           push: true

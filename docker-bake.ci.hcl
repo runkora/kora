@@ -20,6 +20,31 @@ target "backend-images" {
   cache-to = ["type=gha,scope=orbit-${item.service},mode=max"]
 }
 
+target "orbit-agents" {
+  cache-from = ["type=gha,scope=orbit-agents"]
+  cache-to = ["type=gha,scope=orbit-agents,mode=max"]
+}
+
+target "orbit-shell" {
+  cache-from = ["type=gha,scope=orbit-shell"]
+  cache-to = ["type=gha,scope=orbit-shell,mode=max"]
+}
+
+target "orbit-runtime-mcp" {
+  cache-from = ["type=gha,scope=orbit-runtime-mcp"]
+  cache-to = ["type=gha,scope=orbit-runtime-mcp,mode=max"]
+}
+
+target "orbit-session-manager" {
+  cache-from = ["type=gha,scope=orbit-session-manager"]
+  cache-to = ["type=gha,scope=orbit-session-manager,mode=max"]
+}
+
+target "orbit-sandbox-exec" {
+  cache-from = ["type=gha,scope=orbit-sandbox-exec"]
+  cache-to = ["type=gha,scope=orbit-sandbox-exec,mode=max"]
+}
+
 target "orbit-frontend" {
   cache-from = ["type=gha,scope=orbit-frontend"]
   cache-to = ["type=gha,scope=orbit-frontend,mode=max"]

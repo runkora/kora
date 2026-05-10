@@ -732,6 +732,7 @@ build-backend: proto-gen ## Build all service binaries to .bin directory (runs p
 	@mkdir -p $(BINARY_DIR)
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-agents ./cmd/orbit-agents
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
