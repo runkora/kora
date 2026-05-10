@@ -181,3 +181,18 @@ target "orbit-operator" {
   }
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-operator:${IMAGE_TAG}"]
 }
+
+// Default group — all images built by CI and `docker buildx bake`.
+// Adding a new image here automatically includes it in the CI matrix.
+group "default" {
+  targets = [
+    "backend-images",
+    "orbit-agents",
+    "orbit-shell",
+    "orbit-runtime-mcp",
+    "orbit-session-manager",
+    "orbit-sandbox-exec",
+    "orbit-frontend",
+    "orbit-operator",
+  ]
+}
