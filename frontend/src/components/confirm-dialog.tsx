@@ -42,8 +42,8 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Modal open={open} onClose={onClose} size="sm">
-      <ModalHeader title={title} />
-      <ModalBody>
+      <ModalHeader title={title} borderless />
+      <ModalBody flushY>
         <Stack gap="comfortable">
           <Stack gap="snug">
             <Text size="caption" color="muted">
@@ -54,7 +54,7 @@ export function ConfirmDialog({
           {error && <Alert variant="error">{error}</Alert>}
         </Stack>
       </ModalBody>
-      <ModalFooter>
+      <ModalFooter borderless>
         <Button variant="outline" size="sm" onClick={onClose} disabled={confirming}>
           Cancel
         </Button>

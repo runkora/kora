@@ -270,8 +270,8 @@ export function GrantsTab({
         }}
       >
         {deleteCandidate && (
-          <Card>
-            <CardContent padded>
+          <Card subtle>
+            <CardContent padded compact>
               <Stack gap="snug">
                 <Stack direction="horizontal" align="center" gap="snug">
                   <PrincipalBadge type={deleteCandidate.principal_type} />

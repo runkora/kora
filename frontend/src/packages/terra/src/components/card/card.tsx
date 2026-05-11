@@ -139,6 +139,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * (collapsed). Has no effect on non-toggleable cards.
    */
   defaultOpen?: boolean;
+
+  /**
+   * When `true`, uses `bg-surface-elevated` instead of `bg-surface`.
+   * Use for summary or detail cards that sit inside a modal or panel
+   * where you want a subtle visual distinction from the surrounding surface.
+   */
+  subtle?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
@@ -151,6 +158,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       maxHeight,
       toggleable = false,
       defaultOpen = false,
+      subtle = false,
       children,
       ...props
     },
@@ -163,7 +171,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         ref={ref}
         data-interactive={interactive ? 'true' : undefined}
         className={cn(
-          'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
+          'rounded-lg border border-border-subtle text-foreground overflow-hidden',
+          subtle ? 'bg-surface-elevated' : 'bg-surface',
           (column || toggleable) && 'flex flex-col',
           interactive &&
             'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
@@ -468,6 +477,18 @@ export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
    * ```
    */
   grow?: boolean;
+  /**
+   * When `true`, reduces padding from `px-6 py-6` to `px-3 py-3`.
+   * Use for summary or detail cards inside modals where the standard spacing
+   * feels too generous relative to the compact context.
+   *
+   * ```tsx
+   * <Card subtle>
+   *   <CardContent padded compact>…</CardContent>
+   * </Card>
+   * ```
+   */
+  compact?: boolean;
 }
 
 /**
@@ -483,14 +504,18 @@ export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
  * automatically while the card is collapsed.
  */
 const CardContent = React.forwardRef<HTMLDivElement, CardContentProps>(
-  ({ className, padded = false, flush = false, grow = false, ...props }, ref) => {
+  ({ className, padded = false, flush = false, grow = false, compact = false, ...props }, ref) => {
     const ctx = React.useContext(CardContext);
     if (ctx && !ctx.open) return null;
     return (
       <div
         ref={ref}
         className={cn(
-          flush ? 'p-0' : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
+          flush
+            ? 'p-0'
+            : compact
+              ? cn('px-3 pb-3', padded ? 'pt-3' : 'pt-0')
+              : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
           grow && 'flex-1',
           className,
         )}
