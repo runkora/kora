@@ -1,0 +1,2 @@
+claude:
+  bare: false  # use OAuth for local development instead of ANTHROPIC_API_KEY

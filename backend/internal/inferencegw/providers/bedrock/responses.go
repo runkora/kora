@@ -3,12 +3,52 @@ package bedrock
 import (
 	"context"
 
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// stripMantleUnsupportedInputItems removes input item types that Mantle's
+// Responses API doesn't accept. Mantle supports basic message types but
+// rejects output-specific types (reasoning) and messages with empty content
+// that OpenAI allows clients to include as stateless multi-turn context.
+func stripMantleUnsupportedInputItems(params responses.ResponseNewParams) responses.ResponseNewParams {
+	items := params.Input.OfInputItemList
+	if len(items) == 0 {
+		return params
+	}
+	filtered := make(responses.ResponseInputParam, 0, len(items))
+	for _, item := range items {
+		// Drop reasoning items only when they carry no actual content.
+		// A real reasoning model (e.g. o3) produces items with a non-empty ID
+		// and either a summary or encrypted_content — those are worth preserving.
+		// Non-reasoning models (e.g. gpt-oss-120b) produce empty stubs that
+		// Mantle rejects and that contain nothing useful anyway.
+		if item.OfReasoning != nil {
+			r := item.OfReasoning
+			emptyReasoning := r.ID == "" && len(r.Summary) == 0 && !r.EncryptedContent.Valid()
+			if emptyReasoning {
+				continue
+			}
+		}
+		// All type="message" items deserialize as OfMessage (first discriminator).
+		// Mantle rejects messages with no content, so patch empty ones to use an
+		// empty string rather than dropping them — this preserves the assistant
+		// turn marker in conversation history, which matters for long agentic sessions.
+		if item.OfMessage != nil {
+			c := item.OfMessage.Content
+			if param.IsOmitted(c.OfString) && len(c.OfInputItemContentList) == 0 {
+				item.OfMessage.Content.OfString = param.NewOpt("")
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	params.Input.OfInputItemList = filtered
+	return params
+}
 
 // Responses calls the Responses API on the appropriate Bedrock endpoint.
 // Mantle models (openai.* prefix) are routed to the Bedrock Mantle endpoint.
@@ -22,7 +62,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantle:
-		resp, err := c.mantleClient.Responses.New(ctx, params)
+		resp, err := c.mantleClient.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
 		if err != nil {
 			c.logger.Error(ctx, "bedrock: responses error",
 				logging.Field{Key: "error", Value: err.Error()},
@@ -51,7 +91,7 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantle:
-		stream := c.mantleClient.Responses.NewStreaming(ctx, params)
+		stream := c.mantleClient.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
 		go func() {
 			defer close(ch)

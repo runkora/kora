@@ -295,7 +295,7 @@ func (b *Base) Do(
 	// server span as a child of this client span, forming a single end-to-end trace.
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
-	resp, err := b.httpClient.Do(req) //nolint:gosec // G107: URL is caller-supplied and validated upstream
+	resp, err := b.httpClient.Do(req) //nolint:gosec // G704: request URLs are built from config-sourced base URLs; user input is limited to path segments (IDs), not the host
 	if err != nil {
 		// RecordError captures the full error event (message + stack trace if
 		// available). SetStatus uses a static description so raw network error

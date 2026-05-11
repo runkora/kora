@@ -109,6 +109,16 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      - name: Install proto tools
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+          BUF_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          BUF_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
+          curl -sSfL --retry 3 \
+            "https://github.com/bufbuild/buf/releases/download/v1.55.1/buf-${BUF_OS}-${BUF_ARCH}" \
+            -o "$(go env GOPATH)/bin/buf" && chmod +x "$(go env GOPATH)/bin/buf"
+
       - name: Build backend
         run: make build-backend
 

@@ -78,6 +78,79 @@ target "backend-tenant-images" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-${item.service}:${IMAGE_TAG}"]
 }
 
+target "orbit-agents" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "orbit-agents"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "orbit-agents"
+    "org.opencontainers.image.description" = "Orbit agents service — agent type registry and run lifecycle management"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-agents:${IMAGE_TAG}"]
+}
+
+target "orbit-shell" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "orbit-shell"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "orbit-shell"
+    "org.opencontainers.image.description" = "Orbit shell proxy for agent sandbox environments"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-shell:${IMAGE_TAG}"]
+}
+
+target "orbit-runtime-mcp" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "orbit-runtime-mcp"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "orbit-runtime-mcp"
+    "org.opencontainers.image.description" = "Orbit MCP server for agent runtime tooling"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-runtime-mcp:${IMAGE_TAG}"]
+}
+
+target "orbit-session-manager" {
+  context    = "./backend"
+  dockerfile = "Dockerfile.session-manager"
+  pull       = true
+  labels = {
+    "org.opencontainers.image.title" = "orbit-session-manager"
+    "org.opencontainers.image.description" = "Orbit session-manager — Go binary + Node.js for Claude Code integration"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${IMAGE_TAG}"]
+}
+
+target "orbit-sandbox-exec" {
+  context    = "./backend"
+  dockerfile = "Dockerfile.sandbox-exec"
+  pull       = true
+  labels = {
+    "org.opencontainers.image.title" = "orbit-sandbox-exec"
+    "org.opencontainers.image.description" = "Orbit sandbox-exec — gRPC exec server for isolated agent run environments"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-exec:${IMAGE_TAG}"]
+}
+
 target "orbit-frontend" {
   context    = "./frontend"
   dockerfile = "Dockerfile"
@@ -107,4 +180,19 @@ target "orbit-operator" {
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-operator:${IMAGE_TAG}"]
+}
+
+// Default group — all images built by CI and `docker buildx bake`.
+// Adding a new image here automatically includes it in the CI matrix.
+group "default" {
+  targets = [
+    "backend-images",
+    "orbit-agents",
+    "orbit-shell",
+    "orbit-runtime-mcp",
+    "orbit-session-manager",
+    "orbit-sandbox-exec",
+    "orbit-frontend",
+    "orbit-operator",
+  ]
 }

@@ -216,6 +216,32 @@ networkPolicy:
   enabled: true
 
 # -- Policy Service configuration (PAP — Policy Administration Point).
+agents:
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-agents"
+    tag: ""
+    pullPolicy: ""
+
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  config:
+    postgresSSLMode: "require"
+    postgresCaptureQueryText: "false"
+    otlpInsecure: "false"
+    logFormat: "json"
+    sessionManagerPostgresSSLMode: "require"
+
+  existingSecret: "orbit-secrets"
+  existingConfigMap: "orbit-config"
+
 policyService:
   image:
     repository: "ghcr.io/orbit-sh/orbit-policy-service"

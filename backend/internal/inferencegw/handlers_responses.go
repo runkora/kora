@@ -92,12 +92,8 @@ func (c *Controller) handleResponsesStream(
 
 	flusher, canFlush := w.(http.Flusher)
 
-	writeSSE := func(payload any) error {
-		data, jsonErr := json.Marshal(payload)
-		if jsonErr != nil {
-			return fmt.Errorf("marshal sse frame: %w", jsonErr)
-		}
-		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
+	writeSSERaw := func(eventType string, data []byte) error {
+		if _, writeErr := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data); writeErr != nil {
 			return fmt.Errorf("write sse frame: %w", writeErr)
 		}
 		if canFlush {
@@ -106,13 +102,21 @@ func (c *Controller) handleResponsesStream(
 		return nil
 	}
 
+	writeSSEEvent := func(eventType string, payload any) error {
+		data, jsonErr := json.Marshal(payload)
+		if jsonErr != nil {
+			return fmt.Errorf("marshal sse frame: %w", jsonErr)
+		}
+		return writeSSERaw(eventType, data)
+	}
+
 	for result := range events {
 		if result.Err != nil {
 			c.logger.Error(ctx, "responses stream error",
 				logging.Field{Key: "error", Value: result.Err.Error()},
 			)
 			apiErr := inferenceErrorResponse(result.Err)
-			_ = writeSSE(map[string]any{
+			_ = writeSSEEvent("error", map[string]any{
 				"error": map[string]string{
 					"type":    apiErr.Code,
 					"message": apiErr.Message,
@@ -120,7 +124,16 @@ func (c *Controller) handleResponsesStream(
 			})
 			return
 		}
-		if err := writeSSE(result.Event); err != nil {
+		// Use the provider's original JSON when available (e.g. Mantle pass-through)
+		// to avoid re-serializing the SDK's union types which don't round-trip cleanly.
+		if raw := result.Event.RawJSON(); raw != "" {
+			if err := writeSSERaw(result.Event.Type, []byte(raw)); err != nil {
+				c.logger.Error(ctx, "sse write error",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				return
+			}
+		} else if err := writeSSEEvent(result.Event.Type, result.Event); err != nil {
 			c.logger.Error(ctx, "sse write error",
 				logging.Field{Key: "error", Value: err.Error()},
 			)

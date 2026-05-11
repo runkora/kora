@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package sandbox.exec.v1;
+
+option go_package = "github.com/clear-route/orbit/internal/agents/sandbox/proto";
+
+// ExecService runs shell commands inside a sandbox pod and streams output back.
+service ExecService {
+  rpc Execute(ExecuteRequest) returns (stream ExecuteResponse);
+}
+
+message ExecuteRequest {
+  string command     = 1; // shell command passed to bash -c
+  string working_dir = 2; // working directory for the command
+  repeated string env = 3; // additional env vars in KEY=VALUE form
+}
+
+message ExecuteResponse {
+  oneof output {
+    bytes stdout    = 1;
+    bytes stderr    = 2;
+    int32 exit_code = 3; // final message; stream closes after this
+  }
+}

@@ -1,0 +1,70 @@
+package agents
+
+import (
+	"encoding/json"
+	"sync"
+)
+
+// PushedEvent is the payload received at POST /internal/runs/{id}/events
+// from a session-manager pod.
+type PushedEvent struct {
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	SequenceNo int64           `json:"sequence_no,omitempty"` // non-zero for durable events; set by session-manager after DB write
+}
+
+// PubSub is the in-memory fan-out hub for live run events.
+// Session-managers push events here; SSE clients subscribe per run.
+// Ephemeral events (text_delta, thinking_delta) are dropped when no subscriber
+// is present — they are never persisted (ADR-0054).
+type PubSub struct {
+	mu   sync.RWMutex
+	subs map[string][]chan PushedEvent
+}
+
+// NewPubSub creates an empty hub.
+func NewPubSub() *PubSub {
+	return &PubSub{subs: make(map[string][]chan PushedEvent)}
+}
+
+// Subscribe registers a buffered channel for the given run.
+// The caller must drain the channel and call the returned cancel func to
+// deregister and close it when done (e.g. on SSE client disconnect).
+func (ps *PubSub) Subscribe(runID string) (<-chan PushedEvent, func()) {
+	ch := make(chan PushedEvent, 64)
+	ps.mu.Lock()
+	ps.subs[runID] = append(ps.subs[runID], ch)
+	ps.mu.Unlock()
+
+	cancel := func() {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		subs := ps.subs[runID]
+		for i, c := range subs {
+			if c == ch {
+				ps.subs[runID] = append(subs[:i], subs[i+1:]...)
+				break
+			}
+		}
+		if len(ps.subs[runID]) == 0 {
+			delete(ps.subs, runID)
+		}
+		close(ch)
+	}
+	return ch, cancel
+}
+
+// Publish fans an event out to all current subscribers for the run.
+// Drops the event for any subscriber whose buffer is full.
+// The read lock is held for the duration so cancel() cannot close a channel
+// while a send is in flight (which would panic even with a select).
+func (ps *PubSub) Publish(runID string, ev PushedEvent) {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	for _, ch := range ps.subs[runID] {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+}

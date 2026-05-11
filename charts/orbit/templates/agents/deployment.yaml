@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-agents
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.agents.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.agents.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.agents.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.agents.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.agents.labels" . | nindent 8 }}
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: orbit-agents
+        # Required for the identity-proxy EnvoyFilter to inject the platform
+        # token into outbound requests to other platform services.
+        orbit.io/identity-proxy: "enabled"
+      annotations:
+        inject.istio.io/templates: "sidecar,spire,identity-proxy"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        # Postgres is external to the mesh — bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+    spec:
+      serviceAccountName: orbit-agents
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      containers:
+        - name: orbit-agents
+          image: "{{ .Values.agents.image.repository }}:{{ include "orbit.agents.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.agents.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: ORBIT_POSTGRES_SSL_MODE
+              value: {{ .Values.agents.config.postgresSSLMode | quote }}
+            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
+              value: {{ .Values.agents.config.postgresCaptureQueryText | quote }}
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.agents.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.agents.config.logFormat | quote }}
+            - name: ORBIT_SESSION_MANAGER_POSTGRES_SSL_MODE
+              value: {{ .Values.agents.config.sessionManagerPostgresSSLMode | quote }}
+          {{- if or .Values.agents.existingConfigMap .Values.agents.existingSecret }}
+          envFrom:
+            {{- if .Values.agents.existingConfigMap }}
+            - configMapRef:
+                name: {{ .Values.agents.existingConfigMap }}
+            {{- end }}
+            {{- if .Values.agents.existingSecret }}
+            - secretRef:
+                name: {{ .Values.agents.existingSecret }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agents.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true

@@ -21,68 +21,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docker-bake-build:
-    name: Docker Bake Build
-    if: github.event_name == 'pull_request'
+  # Expands the bake file's default group into a list of individual target names.
+  # Adding a new image to docker-bake.hcl's default group is all that's needed —
+  # CI picks it up automatically on the next run.
+  list-targets:
+    name: List bake targets
     runs-on: ubuntu-latest
-    env:
-      IMAGE_REGISTRY: ghcr.io
-      IMAGE_NAMESPACE: ${{ github.repository_owner }}
-      REPOSITORY_URL: https://github.com/${{ github.repository }}
-
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Derive image metadata
-        shell: bash
+      - name: Expand default group to target list
+        id: list
         run: |
-          echo "IMAGE_VERSION=pr-${{ github.event.pull_request.number }}" >> "${GITHUB_ENV}"
-          echo "IMAGE_CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_ENV}"
+          TARGETS=$(docker buildx bake --print -f docker-bake.hcl 2>/dev/null \
+            | jq -c '[.target | keys[] | select(startswith("_") | not)]')
+          echo "targets=${TARGETS}" >> "${GITHUB_OUTPUT}"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build images
-        uses: docker/bake-action@v7
-        with:
-          source: .
-          files: |
-            docker-bake.hcl
-            docker-bake.ci.hcl
-          targets: |
-            backend-images
-            orbit-frontend
-            orbit-operator
-          load: true
-          set: |
-            *.platform=linux/amd64
-            *.labels.org.opencontainers.image.source=${{ env.REPOSITORY_URL }}
-            *.labels.org.opencontainers.image.url=${{ env.REPOSITORY_URL }}
-            *.labels.org.opencontainers.image.revision=${{ github.sha }}
-            *.labels.org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
-            *.labels.org.opencontainers.image.created=${{ env.IMAGE_CREATED }}
-
-  docker-bake-push:
-    name: Docker Bake Build And Push
-    if: github.event_name != 'pull_request'
+  build:
+    name: ${{ matrix.target }}
+    needs: list-targets
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE_REGISTRY: ghcr.io
-      IMAGE_NAMESPACE: ${{ github.repository_owner }}
-      REPOSITORY_URL: https://github.com/${{ github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.list-targets.outputs.targets) }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Derive image metadata
+      - name: Derive image tag
         shell: bash
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            IMAGE_TAG="pr-${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             IMAGE_TAG="${{ inputs.image_tag }}"
           elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             IMAGE_TAG="${GITHUB_REF_NAME}"
@@ -91,7 +68,6 @@ jobs:
           else
             IMAGE_TAG="latest"
           fi
-
           echo "IMAGE_TAG=${IMAGE_TAG}" >> "${GITHUB_ENV}"
           echo "IMAGE_VERSION=${IMAGE_TAG}" >> "${GITHUB_ENV}"
           echo "IMAGE_CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_ENV}"
@@ -100,28 +76,27 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push images
+      - name: Build (and push on non-PR)
         uses: docker/bake-action@v7
         with:
           source: .
-          files: |
-            docker-bake.hcl
-            docker-bake.ci.hcl
-          targets: |
-            backend-images
-            orbit-frontend
-            orbit-operator
-          push: true
+          files: docker-bake.hcl
+          targets: ${{ matrix.target }}
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           set: |
             *.platform=linux/amd64
-            *.labels.org.opencontainers.image.source=${{ env.REPOSITORY_URL }}
-            *.labels.org.opencontainers.image.url=${{ env.REPOSITORY_URL }}
+            *.cache-from=type=gha,scope=${{ matrix.target }}
+            *.cache-to=type=gha,scope=${{ matrix.target }},mode=max
+            *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            *.labels.org.opencontainers.image.url=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
             *.labels.org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
             *.labels.org.opencontainers.image.created=${{ env.IMAGE_CREATED }}

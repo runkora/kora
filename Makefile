@@ -31,6 +31,9 @@ GOOSE_VERSION=v3.24.1
 AIR_VERSION=v1.61.7
 NODE_VERSION=24
 PNPM_VERSION=10.32.1
+PROTOC_GEN_GO_VERSION=v1.36.11
+PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
+BUF_VERSION=v1.55.1
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
@@ -176,12 +179,25 @@ worktree-list: ## List all active worktrees
 	@git worktree list
 
 .PHONY: install-tools
-install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks)
+install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks, buf, protoc-gen-go)
 	@echo "$(COLOR_YELLOW)Installing development tools...$(COLOR_RESET)"
 	@echo "  Installing goose $(GOOSE_VERSION)..."
 	@$(GOCMD) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	@echo "  Installing air $(AIR_VERSION)..."
 	@$(GOCMD) install github.com/air-verse/air@$(AIR_VERSION)
+	@echo "  Installing protoc-gen-go $(PROTOC_GEN_GO_VERSION)..."
+	@$(GOCMD) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	@echo "  Installing protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION)..."
+	@$(GOCMD) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	@BUF_INSTALLED=$$(buf --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$BUF_INSTALLED" != "$(BUF_VERSION:v%=%)" ]; then \
+		echo "  Installing buf $(BUF_VERSION) (installed: $${BUF_INSTALLED:-none})..."; \
+		BUF_OS=$$(uname -s); BUF_ARCH=$$(uname -m); \
+		curl -sSfL --retry 3 "https://github.com/bufbuild/buf/releases/download/$(BUF_VERSION)/buf-$${BUF_OS}-$${BUF_ARCH}" \
+			-o "$$(go env GOPATH)/bin/buf" && chmod +x "$$(go env GOPATH)/bin/buf"; \
+	else \
+		echo "  buf $(BUF_VERSION) already installed"; \
+	fi
 	@LINT_INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$LINT_INSTALLED" != "$(GOLANGCI_LINT_VERSION)" ]; then \
 		echo "  Installing golangci-lint $(GOLANGCI_LINT_VERSION) (installed: $${LINT_INSTALLED:-none})..."; \
@@ -202,6 +218,12 @@ install-tools: ## Install development tools (goose, golangci-lint, air, gitleaks
 		echo "  gitleaks $(GITLEAKS_VERSION) already installed"; \
 	fi
 	@echo "$(COLOR_GREEN)✓ Tools installed$(COLOR_RESET)"
+
+.PHONY: proto-gen
+proto-gen: ## Generate Go code from proto files (requires buf — run make install-tools first)
+	@echo "$(COLOR_YELLOW)Generating proto files...$(COLOR_RESET)"
+	@cd backend && buf generate
+	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-tool-versions
 check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
@@ -449,6 +471,7 @@ docker-push-platform: ## Push platform service images to local registry
 		docker push localhost:5001/orbit-$$svc:latest; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-push-tenant
 docker-push-tenant: ## Push tenant workload images to local registry
@@ -458,6 +481,7 @@ docker-push-tenant: ## Push tenant workload images to local registry
 		docker push localhost:5001/orbit-$$svc:latest; \
 		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
 	done
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-operator
 docker-build-operator: ## Build the orbit-operator Docker image (uses Dockerfile.operator — bakes charts into image)
@@ -471,6 +495,7 @@ docker-push-operator: ## Push orbit-operator image to local registry
 	@docker tag orbit-operator:latest localhost:5001/orbit-operator:latest
 	@docker push localhost:5001/orbit-operator:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
 
 .PHONY: docker-build-frontend
 docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL into client bundle)
@@ -486,9 +511,73 @@ docker-push-frontend: docker-build-frontend ## Push the frontend image to the lo
 	@docker tag orbit-frontend:latest localhost:5001/orbit-frontend:latest
 	@docker push localhost:5001/orbit-frontend:latest
 	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
+
+.PHONY: docker-build-agents
+docker-build-agents: ## Build the orbit-agents image
+	@echo "$(COLOR_YELLOW)Building orbit-agents:latest...$(COLOR_RESET)"
+	@cd backend && docker build --build-arg SERVICE=orbit-agents -t orbit-agents:latest .
+	@echo "$(COLOR_GREEN)✓ orbit-agents:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-agents
+docker-push-agents: docker-build-agents ## Build and push orbit-agents image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-agents to local registry...$(COLOR_RESET)"
+	@docker tag orbit-agents:latest localhost:5001/orbit-agents:latest
+	@docker push localhost:5001/orbit-agents:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-agents:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
+
+.PHONY: docker-build-session-manager
+docker-build-session-manager: ## Build the session-manager image (includes orbit-shell and orbit-runtime-mcp)
+	@echo "$(COLOR_YELLOW)Building orbit-session-manager:latest...$(COLOR_RESET)"
+	@cd backend && docker build -t orbit-session-manager:latest -f Dockerfile.session-manager .
+	@echo "$(COLOR_GREEN)✓ orbit-session-manager:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-session-manager
+docker-push-session-manager: docker-build-session-manager ## Build and push session-manager image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-session-manager to local registry...$(COLOR_RESET)"
+	@docker tag orbit-session-manager:latest localhost:5001/orbit-session-manager:latest
+	@docker push localhost:5001/orbit-session-manager:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-session-manager:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
+
+.PHONY: docker-build-sandbox-exec
+docker-build-sandbox-exec: ## Build the sandbox-exec image (gRPC exec server for sandbox pods)
+	@echo "$(COLOR_YELLOW)Building orbit-sandbox-exec:latest...$(COLOR_RESET)"
+	@cd backend && docker build -t orbit-sandbox-exec:latest -f Dockerfile.sandbox-exec .
+	@echo "$(COLOR_GREEN)✓ orbit-sandbox-exec:latest$(COLOR_RESET)"
+
+.PHONY: docker-push-sandbox-exec
+docker-push-sandbox-exec: docker-build-sandbox-exec ## Build and push sandbox-exec image to local registry
+	@echo "$(COLOR_YELLOW)Pushing orbit-sandbox-exec to local registry...$(COLOR_RESET)"
+	@docker tag orbit-sandbox-exec:latest localhost:5001/orbit-sandbox-exec:latest
+	@docker push localhost:5001/orbit-sandbox-exec:latest
+	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-sandbox-exec:latest$(COLOR_RESET)"
+	@docker image prune -f > /dev/null
+
+# cluster-restore pushes every locally-built image to the registry.
+# Run this after 'colima start' to recover from a restart without rebuilding anything.
+# Only pushes images that already exist locally — skips ones that haven't been built yet.
+.PHONY: cluster-restore
+cluster-restore: ## Re-push locally-built images to the registry after a Colima/k3d restart
+	@echo "$(COLOR_YELLOW)Syncing locally-built images to local registry...$(COLOR_RESET)"
+	@for img in $(PLATFORM_SERVICES) $(TENANT_SERVICES) operator frontend agents session-manager sandbox-exec; do \
+		if docker image inspect orbit-$$img:latest > /dev/null 2>&1; then \
+			echo "  pushing orbit-$$img:latest"; \
+			docker tag orbit-$$img:latest localhost:5001/orbit-$$img:latest; \
+			docker push localhost:5001/orbit-$$img:latest > /dev/null; \
+		fi; \
+	done
+	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
+		echo "  pushing $(OPA_ENVOY_IMAGE)"; \
+		docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE); \
+		docker push localhost:5001/$(OPA_ENVOY_IMAGE) > /dev/null; \
+	fi
+	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend docker-pull-third-party docker-build-agents docker-push-agents docker-build-session-manager docker-push-session-manager docker-build-sandbox-exec docker-push-sandbox-exec ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
@@ -580,10 +669,19 @@ cluster-update-service: ## Build, push and restart a single service (usage: make
 	@echo "$(COLOR_YELLOW)Pushing orbit-$(SERVICE) to local registry...$(COLOR_RESET)"
 	@docker tag orbit-$(SERVICE):latest localhost:5001/orbit-$(SERVICE):latest
 	@docker push localhost:5001/orbit-$(SERVICE):latest
+	@docker image prune -f > /dev/null
 	@echo "$(COLOR_YELLOW)Restarting orbit-$(SERVICE)...$(COLOR_RESET)"
 	@kubectl rollout restart deployment/orbit-$(SERVICE) -n orbit-system
 	@kubectl rollout status deployment/orbit-$(SERVICE) -n orbit-system --timeout=120s
 	@echo "$(COLOR_GREEN)✓ orbit-$(SERVICE) updated$(COLOR_RESET)"
+
+.PHONY: prune
+prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
+	@echo "$(COLOR_YELLOW)Pruning dangling images...$(COLOR_RESET)"
+	@docker image prune -f
+	@echo "$(COLOR_YELLOW)Pruning BuildKit cache (keeping ≤5 GB)...$(COLOR_RESET)"
+	@docker buildx prune -f --keep-storage 5GB
+	@echo "$(COLOR_GREEN)✓ Pruned$(COLOR_RESET)"
 
 # ===========================================
 # Development Workflow
@@ -629,12 +727,17 @@ run-example: ## Run the example service
 		cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/example/main.go
 
 .PHONY: build-backend
-build-backend: ## Build all service binaries to .bin directory
+build-backend: proto-gen ## Build all service binaries to .bin directory (runs proto-gen first)
 	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-example ./cmd/example
-	@echo "$(COLOR_GREEN)✓ Binaries built: $(BINARY_DIR)/orbit-identity, $(BINARY_DIR)/orbit-example$(COLOR_RESET)"
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-agents ./cmd/orbit-agents
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
+	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
 
 # ===========================================
 # Testing & Quality

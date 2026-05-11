@@ -1,0 +1,28 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8080
+  basePath: ""
+  shutdownTimeoutSecs: 30
+
+observability:
+  serviceName: orbit-agents
+
+kubernetes:
+  inCluster: true
+  tenantNamespacePrefix: orbit-tenant-
+  systemNamespace: orbit-system
+
+platform:
+  trustDomain: "orbit.test"
+  identityServiceURL: "http://orbit-identity.orbit-system.svc"
+  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
+
+agents:
+  sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
+  sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest
+  sandboxGRPCPort: 50051
+  maxConcurrentRunsPerPod: 10
+  sessionManager:
+    postgresSSLMode: require
