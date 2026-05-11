@@ -100,7 +100,7 @@ func TestHandleCreateAgentType_MissingFields(t *testing.T) {
 	for _, body := range cases {
 		w := postJSON(t, c.handleCreateAgentType, body)
 		if w.Code != http.StatusBadRequest {
-			t.Errorf("body=%v: status = %d, want 422", body, w.Code)
+			t.Errorf("body=%v: status = %d, want 400", body, w.Code)
 		}
 	}
 }
@@ -150,7 +150,7 @@ func TestHandleListAgentTypes_MissingTenantID(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleListAgentTypes)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 422", w.Code)
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestHandleStartRun_MissingFields(t *testing.T) {
 	for _, body := range cases {
 		w := postJSON(t, c.handleStartRun, body)
 		if w.Code != http.StatusBadRequest {
-			t.Errorf("body=%v: status = %d, want 422", body, w.Code)
+			t.Errorf("body=%v: status = %d, want 400", body, w.Code)
 		}
 	}
 }
@@ -264,7 +264,7 @@ func TestHandleListRuns_MissingTenantID(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 	w := getRequest(t, c.handleListRuns)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 422", w.Code)
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestHandleSendMessage_EmptyContent(t *testing.T) {
 	c.handleSendMessage(w, req)
 
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 422", w.Code)
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

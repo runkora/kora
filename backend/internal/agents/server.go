@@ -289,9 +289,22 @@ func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Reque
 // On connect: subscribes to the in-memory PubSub first (to avoid a gap),
 // replays persisted events from run_events (honoring Last-Event-ID), then
 // streams live pushed events until the client disconnects.
+//
+//nolint:gocyclo // SSE handler with replay + dedup + live fanout; splitting into helpers would obscure the protocol flow
 func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+
+	if _, err := c.svc.GetRun(ctx, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

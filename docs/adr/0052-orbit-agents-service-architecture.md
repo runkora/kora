@@ -148,18 +148,22 @@ The selected `pod_ordinal` is written atomically to `runs.pod_ordinal` when the 
 
 | Method | Path | Caller | Description |
 |---|---|---|---|
-| POST | `/session/{run_id}/start` | orbit-agents | Notify session-manager to start CLI subprocess for run |
-| POST | `/session/{run_id}/messages` | orbit-agents | Relay user message to CLI subprocess stdin |
-| POST | `/session/{run_id}/stop` | orbit-agents | Signal session-manager to terminate the CLI subprocess |
+| POST | `/session` | orbit-agents | Start a Claude Code subprocess for the given run |
+| POST | `/session/{run_id}/messages` | orbit-agents | Relay user message to the CLI subprocess |
+| POST | `/session/{run_id}/tool-results` | orbit-agents | Inject a tool result for a pending `AskFollowupQuestion` |
+| DELETE | `/session/{run_id}` | orbit-agents | Terminate the CLI subprocess and clean up the session |
 | GET | `/health` | orbit-agents | Session-manager liveness check |
+| POST | `/internal/session/{run_id}/provision-sandbox` | orbit-runtime-mcp | Request sandbox pod provisioning from inside Claude |
 
 The session-manager calls back to orbit-agents to signal state changes:
 
 | Method | Path | Caller | Description |
 |---|---|---|---|
 | POST | `/internal/runs/{run_id}/state` | session-manager | Signal run state transition (e.g. `active`, `completing`, `failed`) |
+| POST | `/internal/runs/{run_id}/events` | session-manager | Push a durable or ephemeral event for SSE fan-out |
+| POST | `/internal/runs/{run_id}/provision-sandbox` | session-manager | Request K8s sandbox pod provisioning |
 
-These internal endpoints are not part of the public API surface and are not authenticated with platform JWTs. Istio `AuthorizationPolicy` restricts `/internal/*` to traffic from session-manager service accounts only, and `/session/*` to traffic from `orbit-agents`' service account only.
+These internal endpoints are not part of the public API surface and are not authenticated with platform JWTs. Istio `AuthorizationPolicy` restricts `/internal/*` to traffic from session-manager service accounts only, and `/session/*` and `/internal/session/*` to traffic from `orbit-agents`' service account only.
 
 ### Conventions
 

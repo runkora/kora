@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +16,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func main() {
 	srv := &mcpServer{
 		sessionManagerURL: requireEnv("ORBIT_SESSION_MANAGER_URL"),
 		runID:             requireEnv("ORBIT_RUN_ID"),
+		httpClient:        &http.Client{Timeout: 120 * time.Second},
 	}
 	if err := srv.serve(os.Stdin, os.Stdout); err != nil && !errors.Is(err, io.EOF) {
 		log.Fatalf("orbit-runtime-mcp: %v", err)
@@ -61,6 +64,7 @@ type rpcError struct {
 type mcpServer struct {
 	sessionManagerURL string
 	runID             string
+	httpClient        *http.Client
 }
 
 func (s *mcpServer) serve(r io.Reader, w io.Writer) error {
@@ -170,7 +174,12 @@ func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
 
 func (s *mcpServer) provisionSandbox() error {
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", s.sessionManagerURL, s.runID)
-	resp, err := http.Post(url, "application/json", bytes.NewReader([]byte("{}"))) //nolint:noctx,gosec
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -188,10 +197,4 @@ func errResponse(id any, code int, msg string) jsonRPCResponse {
 		ID:      id,
 		Error:   &rpcError{Code: code, Message: msg},
 	}
-}
-
-// provisionSandbox may block up to 120s (cold pod start). No client-side
-// timeout is set here; the session-manager enforces the deadline.
-func init() {
-	http.DefaultClient.Timeout = 0
 }

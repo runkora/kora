@@ -60,7 +60,6 @@ linters:
         - G302  # File permissions
         - G304  # File inclusion via variable
         - G703  # Path traversal via taint analysis — env-var config paths are trusted
-        - G704  # SSRF via taint analysis — base URLs come from config, not user input
 
     # gocritic is already enabled above. The ruleguard extension loads our
     # custom rules file, which enforces the following patterns:

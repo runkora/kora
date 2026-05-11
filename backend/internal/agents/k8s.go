@@ -668,6 +668,11 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	return ignoreAlreadyExists(err)
 }
 
+// ensureHPA creates an HPA targeting the agent StatefulSet.
+// Note: when the HPA scales the StatefulSet down, Kubernetes does NOT delete the
+// PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
+// accumulate silently. A cleanup controller or CronJob should prune PVCs whose
+// owning pod no longer exists. Track in the sandbox hardening story.
 func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string) error {
 	cpuTarget := int32(70)
 	memTarget := int32(80)

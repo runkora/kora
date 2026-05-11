@@ -84,18 +84,25 @@ Multiple runs on the same pod must not share or interfere with each other's file
 
 ### Volume Configuration
 
-Each agent StatefulSet pod mounts a volume for workspaces:
+Each agent StatefulSet pod mounts a workspace volume via a `VolumeClaimTemplate`, giving each pod its own persistent 10 Gi `ReadWriteOnce` PVC:
 
 ```yaml
-volumes:
-  - name: workspaces
-    emptyDir: {}
+volumeClaimTemplates:
+  - metadata:
+      name: workspaces
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 10Gi
 volumeMounts:
   - name: workspaces
     mountPath: /workspaces
 ```
 
-`emptyDir` is used in v1. For runs that require persistence beyond pod lifetime (e.g. large codebases), a PVC can be substituted per agent type configuration in a future iteration.
+A PVC (rather than `emptyDir`) was chosen so workspace data survives pod restarts within the same StatefulSet replica — important for long-running sessions that may span Envoy/sidecar restarts.
+
+**Operational note:** When the HPA scales the StatefulSet down, Kubernetes does not delete orphaned `workspaces-<slug>-<ordinal>` PVCs. A cleanup mechanism (controller or CronJob) is needed to reclaim storage from decommissioned replicas. This will be addressed in the sandbox hardening story.
 
 ### Workspace Lifecycle
 
