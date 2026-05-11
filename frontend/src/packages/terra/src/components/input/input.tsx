@@ -71,7 +71,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           // Layout & typography
           'flex h-9 w-full rounded-md px-3 py-1',
           mono ? 'text-sm text-foreground font-mono' : 'text-sm text-foreground font-normal',
-          'bg-surface-elevated border',
+          'bg-surface border',
           'placeholder:text-subtle',
           // Border colour — normal vs error
           hasError ? 'border-status-error' : 'border-border',

@@ -45,6 +45,13 @@ const buttonVariants = cva(
          */
         muted: 'bg-transparent text-subtle hover:text-foreground hover:bg-surface-elevated',
 
+        /** Accent outline — semi-transparent accent background with accent-coloured border and text. Use for active filter chips and selected toggles. */
+        'accent-outline': 'bg-accent/10 text-accent border border-accent hover:bg-accent/15',
+
+        /** Outline muted — transparent background with subtle-coloured border and text. Use for inactive filter chips. */
+        'outline-muted':
+          'bg-transparent text-subtle border border-subtle hover:bg-surface-elevated hover:text-foreground',
+
         /** Destructive — error intent */
         destructive: 'bg-status-error text-foreground hover:bg-status-error/80',
       },
@@ -146,10 +153,10 @@ export interface ButtonProps
 /**
  * Button
  *
- * The primary interactive element of the Terra design system. Supports six
+ * The primary interactive element of the Terra design system. Supports seven
  * visual variants (`default`, `secondary`, `outline`, `ghost`, `muted`,
- * `destructive`), six sizes (`xs`, `sm`, `md`, `lg`, `icon`, `icon-sm`),
- * and two shapes (`default`, `pill`).
+ * `destructive`, `accent-outline`), six sizes (`xs`, `sm`, `md`, `lg`, `icon`,
+ * `icon-sm`), and two shapes (`default`, `pill`).
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
  * a router link. Use `fullWidth` to stretch the button across its container

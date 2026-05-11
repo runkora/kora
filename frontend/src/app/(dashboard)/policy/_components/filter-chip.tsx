@@ -13,9 +13,14 @@ export interface FilterChipProps {
 
 export function FilterChip({ label, count, active, onClick }: FilterChipProps) {
   return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
+    <Button
+      variant={active ? 'accent-outline' : 'outline-muted'}
+      size="xs"
+      shape="pill"
+      onClick={onClick}
+    >
       {label}
-      <Text as="span" size="micro" color="muted">
+      <Text as="span" size="micro" color={active ? 'accent' : 'subtle'}>
         {count}
       </Text>
     </Button>
