@@ -101,6 +101,8 @@ const buttonVariants = cva(
          * ```
          */
         pill: 'rounded-full',
+        /** Square — no border-radius. Use for list-row buttons that sit inside a divided card. */
+        square: 'rounded-none',
       },
     },
 
@@ -148,6 +150,17 @@ export interface ButtonProps
    * ```
    */
   dim?: boolean;
+
+  /**
+   * When true, applies a semi-transparent accent background without changing
+   * the border or text colour. Use for list-row selection where only the fill
+   * should indicate the active item.
+   *
+   * ```tsx
+   * <Button variant="ghost" shape="square" selected={isSelected}>…</Button>
+   * ```
+   */
+  selected?: boolean;
 }
 
 /**
@@ -176,7 +189,17 @@ export interface ButtonProps
  */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { className, variant, size, shape, fullWidth = false, asChild = false, dim = false, ...props },
+    {
+      className,
+      variant,
+      size,
+      shape,
+      fullWidth = false,
+      asChild = false,
+      dim = false,
+      selected = false,
+      ...props
+    },
     ref,
   ) => {
     const Comp = asChild ? Slot : 'button';
@@ -187,6 +210,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           buttonVariants({ variant, size, shape }),
           fullWidth && 'w-full',
           dim && 'opacity-30 hover:opacity-100',
+          selected && 'bg-accent/10 hover:bg-accent/15',
           className,
         )}
         {...props}

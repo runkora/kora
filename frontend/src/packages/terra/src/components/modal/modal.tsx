@@ -148,7 +148,7 @@ const ModalHeader = ({
   title,
   description,
   showClose = true,
-  borderless = false,
+  borderless = true,
 }: ModalHeaderProps) => (
   <div
     data-slot="modal-header"
@@ -250,10 +250,10 @@ const ModalBody = React.forwardRef<HTMLDivElement, ModalBodyProps>(
       ref={ref}
       data-slot="modal-body"
       className={cn(
-        'flex flex-col overflow-y-auto',
+        'flex flex-col',
         flush ? 'p-0' : flushY ? 'px-5 py-0' : 'p-5',
         gapless ? 'gap-0' : 'gap-5',
-        constrained && 'max-h-[60vh]',
+        constrained && 'max-h-[60vh] overflow-y-auto',
         className,
       )}
       {...props}
@@ -295,12 +295,12 @@ const FOOTER_JUSTIFY: Record<Required<ModalFooterProps>['justify'], string> = {
  * ```
  */
 const ModalFooter = React.forwardRef<HTMLElement, ModalFooterProps>(
-  ({ className, justify = 'end', borderless = false, ...props }, ref) => (
+  ({ className, justify = 'end', borderless = true, ...props }, ref) => (
     <footer
       ref={ref}
       data-slot="modal-footer"
       className={cn(
-        'flex items-center gap-2.5 px-5 py-3',
+        'flex items-center gap-2.5 p-5',
         !borderless && 'border-t border-border',
         FOOTER_JUSTIFY[justify],
         className,

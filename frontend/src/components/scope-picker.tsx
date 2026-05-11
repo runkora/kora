@@ -9,7 +9,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Card, Checkbox, Icon, Input, Separator, Stack, Text } from '@orbit/terra';
+import { Button, Card, Checkbox, Icon, Input, Stack, Text } from '@orbit/terra';
 // Direct relative import — importing via @orbit/components barrel would be
 // circular (scope-picker is itself exported from that barrel).
 import { ScopeChip } from './scope-chip';
@@ -79,7 +79,7 @@ export function ScopePicker({
       />
 
       {/* Accordion */}
-      <Card maxHeight="scroll-md" overflowY="auto">
+      <Card maxHeight="scroll-md" overflowY="auto" subtle divide>
         {groups.length === 0 ? (
           <Stack paddingBlock="comfortable" paddingInline="snug" align="center">
             <Text size="caption" color="muted">
@@ -94,11 +94,12 @@ export function ScopePicker({
             const someSelected = selectedInGroup.length > 0 && !allSelected;
 
             return (
-              <Stack key={group.resourceType}>
+              <Stack key={group.resourceType} gap="none">
                 {/* Group header */}
                 <Button
                   type="button"
                   variant="ghost"
+                  size="sm"
                   fullWidth
                   onClick={() => toggleGroupOpen(group.resourceType)}
                 >
@@ -117,11 +118,10 @@ export function ScopePicker({
                     </Text>
                   </Stack>
                 </Button>
-                <Separator />
 
                 {/* Group body */}
                 {open && (
-                  <Stack>
+                  <Stack paddingBlock="snug" gap="none">
                     {/* Select all */}
                     {group.scopes.length > 1 && (
                       <Checkbox

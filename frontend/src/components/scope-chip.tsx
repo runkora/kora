@@ -15,7 +15,7 @@ export interface ScopeChipProps {
 export function ScopeChip({ scope }: ScopeChipProps) {
   const parts = scope.split(':');
   return (
-    <Badge variant="elevated" size="sm" mono>
+    <Badge variant="elevated" size="sm" shape="sharp" gap="none" mono>
       {parts.map((part, i) => {
         const isFirst = i === 0;
         const isLast = i === parts.length - 1;
@@ -24,13 +24,13 @@ export function ScopeChip({ scope }: ScopeChipProps) {
           // string and is never reordered or filtered.
           <Fragment key={i}>
             {i > 0 && (
-              <Text as="span" size="caption" color="subtle" mono>
+              <Text as="span" size="micro" color="subtle" mono>
                 :
               </Text>
             )}
             <Text
               as="span"
-              size="caption"
+              size="micro"
               color={isFirst ? 'accent' : isLast ? 'foreground' : 'muted'}
               mono
             >

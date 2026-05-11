@@ -24,7 +24,7 @@ import { cn } from '../../utils';
  */
 const badgeVariants = cva(
   [
-    'inline-flex items-center gap-1.5',
+    'inline-flex items-center',
     'leading-none',
     'whitespace-nowrap select-none',
     'transition-colors duration-150',
@@ -180,23 +180,33 @@ const badgeVariants = cva(
        * Shape — controls border-radius.
        *
        * - `default`: `rounded-md` — standard rectangular badge (default).
+       * - `sharp`: `rounded-sm` — tighter corners; use for code/scope chips.
        * - `pill`: `rounded-full` — fully rounded; use for status pills and role
        *    chips where a softer shape is appropriate.
        *
        * ```tsx
        * <Badge variant="healthy" shape="pill" dot>Enabled</Badge>
+       * <Badge variant="elevated" shape="sharp" size="sm" mono>inference:anthropic:use</Badge>
        * <Badge variant="elevated" shape="pill" size="lg" mono>tenant-admin</Badge>
        * ```
        */
       shape: {
         default: 'rounded-md',
+        sharp: 'rounded-sm',
         pill: 'rounded-full',
+      },
+
+      /** Gap between flex children. Use `none` for tightly packed token chips. */
+      gap: {
+        default: 'gap-1.5',
+        none: 'gap-0',
       },
     },
     defaultVariants: {
       variant: 'default',
       size: 'md',
       shape: 'default',
+      gap: 'default',
     },
   },
 );
@@ -259,11 +269,11 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
  * ```
  */
 const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ variant, size, shape, dot = false, mono = false, children, ...props }, ref) => {
+  ({ variant, size, shape, gap, dot = false, mono = false, children, ...props }, ref) => {
     return (
       <span
         ref={ref}
-        className={cn(badgeVariants({ variant, size, shape }), mono && 'font-mono')}
+        className={cn(badgeVariants({ variant, size, shape, gap }), mono && 'font-mono')}
         {...props}
       >
         {dot && (

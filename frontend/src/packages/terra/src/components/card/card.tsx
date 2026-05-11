@@ -146,6 +146,27 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * where you want a subtle visual distinction from the surrounding surface.
    */
   subtle?: boolean;
+
+  /**
+   * Border colour token.
+   * - `'subtle'` (default) — `border-border-subtle`, the standard card border.
+   * - `'default'` — `border-border`, matching the Input component border.
+   *   Use when the card sits adjacent to an Input and visual parity matters.
+   */
+  border?: 'subtle' | 'default';
+
+  /**
+   * When `true`, adds `divide-y divide-border-subtle` between direct children.
+   * Use for list-style card bodies where each child represents a row.
+   *
+   * ```tsx
+   * <Card divide>
+   *   <Row>…</Row>
+   *   <Row>…</Row>
+   * </Card>
+   * ```
+   */
+  divide?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
@@ -159,6 +180,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       toggleable = false,
       defaultOpen = false,
       subtle = false,
+      border = 'subtle',
+      divide = false,
       children,
       ...props
     },
@@ -171,9 +194,11 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         ref={ref}
         data-interactive={interactive ? 'true' : undefined}
         className={cn(
-          'rounded-lg border border-border-subtle text-foreground overflow-hidden',
+          'rounded-lg border text-foreground overflow-hidden',
+          border === 'default' ? 'border-border' : 'border-border-subtle',
           subtle ? 'bg-surface-elevated' : 'bg-surface',
           (column || toggleable) && 'flex flex-col',
+          divide && 'divide-y divide-border-subtle',
           interactive &&
             'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
           overflowY && OVERFLOW_Y[overflowY],
