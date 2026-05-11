@@ -29,11 +29,11 @@ const progressVariants = cva(
       },
       size: {
         /** Compact indicator — useful inside table cells or card footers. */
-        sm: 'h-1',
+        sm: 'h-1.5',
         /** Standard bar — default for dashboard metric cards. */
-        md: 'h-1.5',
+        md: 'h-2',
         /** Prominent bar — suitable for full-width resource panels. */
-        lg: 'h-2.5',
+        lg: 'h-3',
       },
     },
     defaultVariants: {
@@ -110,7 +110,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
           className={cn(
             'relative flex-1 overflow-hidden rounded-full bg-surface-overlay',
             // Track height mirrors fill height
-            size === 'sm' ? 'h-1' : size === 'lg' ? 'h-2.5' : 'h-1.5',
+            size === 'sm' ? 'h-1.5' : size === 'lg' ? 'h-3' : 'h-2',
           )}
         >
           <div className={cn(progressVariants({ variant, size }))} style={{ width: `${pct}%` }} />
