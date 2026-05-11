@@ -629,6 +629,13 @@ cluster-update-operator: docker-build-operator docker-push-operator ## Rebuild a
 	@kubectl rollout status deployment/orbit-operator -n orbit-operator --timeout=60s
 	@echo "$(COLOR_GREEN)✓ orbit-operator updated$(COLOR_RESET)"
 
+.PHONY: cluster-update-frontend
+cluster-update-frontend: docker-push-frontend ## Rebuild and redeploy the frontend (e.g. after UI changes)
+	@echo "$(COLOR_YELLOW)Restarting orbit-frontend...$(COLOR_RESET)"
+	@kubectl rollout restart deployment/orbit-frontend -n orbit-system
+	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=120s
+	@echo "$(COLOR_GREEN)✓ orbit-frontend updated$(COLOR_RESET)"
+
 .PHONY: cluster-deploy
 cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, register tenants, and deploy workloads
 	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
