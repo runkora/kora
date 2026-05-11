@@ -31,14 +31,14 @@ export function DashboardHeader() {
       <Stack
         direction="horizontal"
         align="center"
-        gap="tight"
+        gap="snug"
         role="navigation"
         aria-label="Breadcrumb"
       >
         <Text size="supporting" color="muted">
           Orbit
         </Text>
-        <Icon name="chevron-right" size="2xs" label="" />
+        <Icon name="chevron-right" size="2xs" color="muted" label="" />
         <Text size="supporting" weight="emphasis">
           {section}
         </Text>

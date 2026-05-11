@@ -38,18 +38,6 @@ function renderSidebar() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('DashboardSidebar', () => {
-  describe('branding', () => {
-    it('renders the Orbit logo text', () => {
-      renderSidebar();
-      expect(screen.getByText('Orbit')).toBeInTheDocument();
-    });
-
-    it('renders a semver version badge', () => {
-      renderSidebar();
-      expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
-    });
-  });
-
   describe('navigation groups', () => {
     it('renders Main, Security, Model Gateway, and System group labels by default', () => {
       renderSidebar();

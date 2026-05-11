@@ -18,11 +18,11 @@ export function SidebarUserFooter() {
         direction="horizontal"
         align="center"
         gap="snug"
-        paddingBlock="snug"
+        paddingBlock="comfortable"
         paddingInline="comfortable"
       >
-        <Icon name="user" size="xs" container containerVariant="surface" />
-        <Stack direction="vertical" grow minWidth="none">
+        <Icon name="user" size="sm" container containerVariant="muted" circle />
+        <Stack direction="vertical" grow minWidth="none" gap="none">
           <Text size="caption" weight="emphasis" truncate>
             {user?.email || 'Loading…'}
           </Text>

@@ -7,6 +7,14 @@ export interface PageLayoutProps {
   /** Fixed-width left sidebar (optional — omit for full-width layouts). */
   sidebar?: React.ReactNode;
   /**
+   * Optional content pinned to the top of the sidebar shell, rendered as a
+   * semantic `<header>`. Intended for branding, logo rows, and similar
+   * persistent sidebar header content.
+   *
+   * Has no effect when `sidebar` is not provided.
+   */
+  sidebarHeader?: React.ReactNode;
+  /**
    * Optional content pinned to the bottom of the sidebar shell, rendered as a
    * semantic `<footer>`. Intended for user identity rows, logout buttons, and
    * similar persistent sidebar footer content.
@@ -37,8 +45,9 @@ export interface PageLayoutProps {
  * canvas layouts; omit the header for minimal shells.
  *
  * ```tsx
- * // Full shell — sidebar + sidebar footer + header + scrollable main
+ * // Full shell — sidebar + sidebar header + sidebar footer + header + scrollable main
  * <PageLayout
+ *   sidebarHeader={<BrandRow />}
  *   sidebar={<SidebarNav />}
  *   sidebarFooter={<UserRow />}
  *   header={<Header />}
@@ -57,17 +66,27 @@ export interface PageLayoutProps {
  * </PageLayout>
  * ```
  */
-const PageLayout = ({ sidebar, sidebarFooter, header, children, className }: PageLayoutProps) => (
+const PageLayout = ({
+  sidebar,
+  sidebarHeader,
+  sidebarFooter,
+  header,
+  children,
+  className,
+}: PageLayoutProps) => (
   <div className={cn('flex h-screen w-full overflow-hidden bg-background', className)}>
     {sidebar && (
       <aside className="h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface">
+        {sidebarHeader && (
+          <header className="shrink-0 h-14 border-b border-border-subtle">{sidebarHeader}</header>
+        )}
         <div className="flex-1 overflow-y-auto">{sidebar}</div>
         {sidebarFooter && <footer className="shrink-0">{sidebarFooter}</footer>}
       </aside>
     )}
     <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
       {header && (
-        <header className="shrink-0 h-14 flex items-center border-b border-border-subtle bg-surface px-6">
+        <header className="shrink-0 h-14 flex items-center border-b border-border-subtle bg-surface pl-8 pr-6">
           {header}
         </header>
       )}
