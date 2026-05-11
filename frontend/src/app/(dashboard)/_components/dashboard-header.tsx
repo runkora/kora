@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Button, Icon, Indicator, Separator, Stack, Text } from '@orbit/terra';
+import { Breadcrumbs, Button, Icon, Indicator, Separator, Stack } from '@orbit/terra';
 
 const SECTION_LABELS: Record<string, string> = {
   agents: 'Agents',
@@ -28,21 +28,7 @@ export function DashboardHeader() {
       height="full"
       paddingInline="comfortable"
     >
-      <Stack
-        direction="horizontal"
-        align="center"
-        gap="snug"
-        role="navigation"
-        aria-label="Breadcrumb"
-      >
-        <Text size="supporting" color="muted">
-          Orbit
-        </Text>
-        <Icon name="chevron-right" size="2xs" color="muted" label="" />
-        <Text size="supporting" weight="emphasis">
-          {section}
-        </Text>
-      </Stack>
+      <Breadcrumbs items={[{ label: 'Orbit' }, { label: section }]} />
 
       <Stack direction="horizontal" align="center" gap="snug">
         <Button variant="ghost" size="icon" aria-label="Refresh">
