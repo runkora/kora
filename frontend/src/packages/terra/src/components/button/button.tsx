@@ -79,6 +79,12 @@ const buttonVariants = cva(
          * Always pair with an `aria-label`.
          */
         'icon-sm': 'h-7 w-7 p-0',
+        /**
+         * Tile — card-style option selector. Height expands with content;
+         * padding and layout are owned by the child Stack. Use with `fullWidth`
+         * and a `Stack grow` child for equal-height card grids.
+         */
+        tile: 'h-auto whitespace-normal p-0 justify-start items-start',
       },
 
       /**
