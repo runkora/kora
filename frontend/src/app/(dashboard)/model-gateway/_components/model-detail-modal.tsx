@@ -36,7 +36,7 @@ function CopyRow({ label, value, mono }: CopyRowProps) {
 
   return (
     <Button variant="ghost" size="sm" fullWidth onClick={handleCopy} aria-label={`Copy ${label}`}>
-      <Stack direction="horizontal" align="center" justify="between" grow>
+      <Stack direction="horizontal" align="center" justify="between" grow textAlign="start">
         <Stack gap="none">
           <Text size="caption" color="muted">
             {label}
@@ -70,7 +70,7 @@ function ChipRow({ label, values }: ChipRowProps) {
       align="center"
       gap="snug"
       paddingBlock="tight"
-      paddingInline="snug"
+      paddingInline="cozy"
     >
       <Text size="caption" color="muted">
         {label}
@@ -142,7 +142,7 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Capabilities */}
-            <Stack padding="snug">
+            <Stack padding="snug" gap="none">
               <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                 <Text size="caption" color="muted">
                   Capabilities
@@ -155,7 +155,7 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
             <Separator />
 
             {/* Modalities */}
-            <Stack padding="snug">
+            <Stack padding="snug" gap="none">
               <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
                 <Text size="caption" color="muted">
                   Modalities
