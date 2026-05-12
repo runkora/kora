@@ -77,6 +77,12 @@ export interface FormFieldProps {
   error?: string;
   /** Marks the field as required — visual asterisk and `aria-required` propagated. */
   required?: boolean;
+  /**
+   * Overrides the label font size.
+   * - `'sm'` (default) — `text-sm`, standard form label size.
+   * - `'xs'` — `text-xs`, compact label for dense cards or sidebars.
+   */
+  labelSize?: 'sm' | 'xs';
   children: React.ReactNode;
 }
 
@@ -122,6 +128,7 @@ const FormField = ({
   hint,
   error,
   required = false,
+  labelSize = 'sm',
   children,
 }: FormFieldProps) => {
   const generatedId = React.useId();
@@ -138,8 +145,15 @@ const FormField = ({
 
   return (
     <FormFieldContext.Provider value={contextValue}>
-      <Field>
-        <Label htmlFor={id}>{label}</Label>
+      <Field className={labelSize === 'xs' ? 'gap-1' : undefined}>
+        <Label htmlFor={id} className={labelSize === 'xs' ? 'text-xs' : undefined}>
+          {label}
+          {required && (
+            <span aria-hidden="true" className="ml-0.5 text-status-error">
+              *
+            </span>
+          )}
+        </Label>
         {children}
         {hint && !hasError && <FieldHint id={hintId}>{hint}</FieldHint>}
         {hasError && <FieldError id={errorId}>{error}</FieldError>}

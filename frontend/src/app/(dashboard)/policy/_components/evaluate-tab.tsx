@@ -10,7 +10,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  FormField,
   Heading,
   Input,
   Separator,
@@ -211,15 +210,18 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <Stack grow minWidth="form-field">
-                <FormField id="scope-lookup-id" label="Principal ID">
-                  <Input
-                    type="text"
-                    placeholder="e.g. agent-uuid or user@example.com"
-                    value={lookupId}
-                    onChange={(e) => setLookupId(e.target.value)}
-                  />
-                </FormField>
+              <Stack gap="tight" grow minWidth="form-field">
+                <Text size="caption" weight="emphasis">
+                  Principal ID
+                </Text>
+                <Input
+                  id="scope-lookup-id"
+                  type="text"
+                  placeholder="e.g. agent-uuid or user@example.com"
+                  value={lookupId}
+                  onChange={(e) => setLookupId(e.target.value)}
+                  compact
+                />
               </Stack>
               <Button size="sm" onClick={handleLookup} disabled={lookupLoading || !lookupId}>
                 {lookupLoading ? 'Looking up...' : 'Look up'}
@@ -255,8 +257,8 @@ export function EvaluateTab({
                       From roles
                     </Text>
                     {explain.from_roles.map((r) => (
-                      <Card key={r.role}>
-                        <CardContent padded>
+                      <Card key={r.role} subtle>
+                        <CardContent padded compact>
                           <Stack gap="snug">
                             <Stack direction="horizontal" align="center" gap="snug">
                               <Text size="caption" mono color="accent">
@@ -347,7 +349,7 @@ export function EvaluateTab({
             </Text>
 
             {/* Principal row */}
-            <Stack direction="horizontal" align="end" gap="snug" wrap>
+            <Stack direction="horizontal" align="start" gap="snug" wrap>
               <Stack gap="tight">
                 <Text size="caption" weight="emphasis">
                   Principal type
@@ -363,15 +365,18 @@ export function EvaluateTab({
                   <option value="SERVICE">SERVICE</option>
                 </select>
               </Stack>
-              <Stack grow minWidth="form-field-sm">
-                <FormField id="sim-principal-id" label="Principal ID">
-                  <Input
-                    type="text"
-                    placeholder="e.g. agent-uuid or user@example.com"
-                    value={simPrincipalId}
-                    onChange={(e) => setSimPrincipalId(e.target.value)}
-                  />
-                </FormField>
+              <Stack gap="tight" grow minWidth="form-field-sm">
+                <Text size="caption" weight="emphasis">
+                  Principal ID
+                </Text>
+                <Input
+                  id="sim-principal-id"
+                  type="text"
+                  placeholder="e.g. agent-uuid or user@example.com"
+                  value={simPrincipalId}
+                  onChange={(e) => setSimPrincipalId(e.target.value)}
+                  compact
+                />
               </Stack>
             </Stack>
 

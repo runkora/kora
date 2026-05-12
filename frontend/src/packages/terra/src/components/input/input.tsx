@@ -16,6 +16,12 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
    * ```
    */
   mono?: boolean;
+  /**
+   * When true, reduces height from `h-9` (36px) to `h-8` (32px).
+   * Use when the input sits adjacent to a compact control (e.g. a native
+   * `<select>` with `h-8`) and visual height parity is required.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -42,6 +48,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       className,
       hasError = false,
       mono = false,
+      compact = false,
       type = 'text',
       id,
       'aria-describedby': ariaDescribedby,
@@ -69,7 +76,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
           // Layout & typography
-          'flex h-9 w-full rounded-md px-3 py-1',
+          compact ? 'flex h-8 w-full rounded-md px-3' : 'flex h-9 w-full rounded-md px-3 py-1',
           mono ? 'text-sm text-foreground font-mono' : 'text-sm text-foreground font-normal',
           'bg-surface border',
           'placeholder:text-subtle',
