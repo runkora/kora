@@ -172,10 +172,11 @@ export interface ButtonProps
 /**
  * Button
  *
- * The primary interactive element of the Terra design system. Supports seven
- * visual variants (`default`, `secondary`, `outline`, `ghost`, `muted`,
- * `destructive`, `accent-outline`), six sizes (`xs`, `sm`, `md`, `lg`, `icon`,
- * `icon-sm`), and two shapes (`default`, `pill`).
+ * The primary interactive element of the Terra design system. Supports eight
+ * visual variants (`default`, `secondary`, `outline`, `outline-muted`, `ghost`,
+ * `muted`, `accent-outline`, `destructive`), seven sizes (`xs`, `sm`, `md`,
+ * `lg`, `icon`, `icon-sm`, `tile`), and three shapes (`default`, `pill`,
+ * `square`).
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
  * a router link. Use `fullWidth` to stretch the button across its container
