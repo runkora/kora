@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { Icon } from '../icon/icon';
 
 export interface BreadcrumbsItem {
   /** Text label for this segment. */
@@ -25,8 +25,8 @@ const Breadcrumbs = React.forwardRef<HTMLElement, BreadcrumbsProps>(
           return (
             <React.Fragment key={index}>
               {index > 0 && (
-                <li aria-hidden="true" className="flex items-center text-muted">
-                  <ChevronRight className="size-3.5 shrink-0" strokeWidth={2} />
+                <li aria-hidden="true" className="flex items-center">
+                  <Icon name="chevron-right" size="2xs" color="muted" shrink />
                 </li>
               )}
               <li className="flex items-center">
