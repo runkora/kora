@@ -50,7 +50,7 @@ NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
 DOCKER_BAKE_FILE ?= docker-bake.hcl
 IMAGE_REGISTRY ?= ghcr.io
-IMAGE_NAMESPACE ?= orbit-sh
+IMAGE_NAMESPACE ?= clear-route
 IMAGE_TAG ?= latest
 IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/orbit-
 BACKEND_IMAGE_GROUP ?= backend-images

@@ -10,7 +10,7 @@ variable "REGISTRY" {
 }
 
 variable "IMAGE_NAMESPACE" {
-  default = "orbit-sh"
+  default = "clear-route"
 }
 
 variable "IMAGE_TAG" {

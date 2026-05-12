@@ -16,6 +16,11 @@ on:
 permissions:
   contents: read
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  REPOSITORY_URL: https://github.com/${{ github.repository }}
+
 concurrency:
   group: publish-backend-images-${{ github.ref }}
   cancel-in-progress: true
