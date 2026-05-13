@@ -50,7 +50,7 @@ const buttonVariants = cva(
 
         /** Outline muted — transparent background with subtle-coloured border and text. Use for inactive filter chips. */
         'outline-muted':
-          'bg-transparent text-subtle border border-subtle hover:bg-surface-elevated hover:text-foreground',
+          'bg-transparent text-subtle border border-border-subtle hover:bg-surface-elevated hover:text-foreground',
 
         /** Destructive — error intent */
         destructive: 'bg-status-error text-foreground hover:bg-status-error/80',
