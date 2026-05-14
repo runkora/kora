@@ -11,6 +11,8 @@ import { createContext, useContext } from 'react';
 import { useAnalyticsMe, useAnalytics } from '../_hooks/use-analytics';
 import type { AnalyticsStateShape } from '../_hooks/use-analytics';
 import type { AnalyticsResponse } from '../_types';
+import { usePreferences } from '../../_preferences/preferences-context';
+import { toDays } from '../../_preferences/period';
 
 // ── Personal analytics context ────────────────────────────────────────────────
 
@@ -27,7 +29,9 @@ export function AnalyticsMeProvider({
   initialError,
   children,
 }: AnalyticsMeProviderProps) {
-  const state = useAnalyticsMe(initialData, initialError);
+  const { preferences } = usePreferences();
+  const initialDays = toDays(preferences.myUsage.defaultPeriod);
+  const state = useAnalyticsMe(initialData, initialError, initialDays);
   return <AnalyticsMeContext.Provider value={state}>{children}</AnalyticsMeContext.Provider>;
 }
 
@@ -48,7 +52,9 @@ interface AnalyticsProviderProps {
 }
 
 export function AnalyticsProvider({ initialData, initialError, children }: AnalyticsProviderProps) {
-  const state = useAnalytics(initialData, initialError);
+  const { preferences } = usePreferences();
+  const initialDays = toDays(preferences.analytics.defaultPeriod);
+  const state = useAnalytics(initialData, initialError, initialDays);
   return <AnalyticsContext.Provider value={state}>{children}</AnalyticsContext.Provider>;
 }
 

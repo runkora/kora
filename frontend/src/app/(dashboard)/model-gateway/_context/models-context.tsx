@@ -10,6 +10,7 @@ import { createContext, useContext } from 'react';
 import { useModels } from '../_hooks/use-models';
 import type { ModelsStateShape } from '../_hooks/use-models';
 import type { ModelRow } from '../_types';
+import { usePreferences } from '../../_preferences/preferences-context';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -24,7 +25,24 @@ interface ModelsProviderProps {
 }
 
 export function ModelsProvider({ initialData, initialError, children }: ModelsProviderProps) {
-  const state = useModels(initialData, initialError);
+  const { preferences, updatePreferences } = usePreferences();
+
+  function handleFavouritesChange(next: Set<string>) {
+    updatePreferences((prev) => ({
+      ...prev,
+      modelGateway: { favouriteModels: [...next] },
+    }));
+  }
+
+  // Pass preference-seeded favourites as the initial value. useModels only
+  // consumes this in useState() initialization, so re-renders of ModelsProvider
+  // won't overwrite the user's in-session toggles.
+  const state = useModels(
+    initialData,
+    initialError,
+    new Set(preferences.modelGateway.favouriteModels),
+    handleFavouritesChange,
+  );
   return <ModelsContext.Provider value={state}>{children}</ModelsContext.Provider>;
 }
 

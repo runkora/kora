@@ -48,6 +48,7 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
           error={error}
           days={days}
           granularity={granularity}
+          periodPrefKey="analytics.defaultPeriod"
           onSetDays={setDays}
           onSetGranularity={setGranularity}
           filterSlot={filterSlot}

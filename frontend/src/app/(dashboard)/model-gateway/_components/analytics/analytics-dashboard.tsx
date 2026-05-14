@@ -3,6 +3,7 @@
 import { Callout, Grid, Heading, Stack, Text } from '@orbit/terra';
 import type { AnalyticsDays, AnalyticsGranularity, AnalyticsResponse } from '../../_types';
 import type { AnalyticsLoadStatus } from '../../_hooks/use-analytics';
+import type { PeriodPrefKey } from '@orbit/components';
 import { AnalyticsKPICards } from './analytics-kpi-cards';
 import { AnalyticsSpendChart } from './analytics-spend-chart';
 import { AnalyticsTokensChart } from './analytics-tokens-chart';
@@ -22,6 +23,7 @@ export interface AnalyticsDashboardProps {
   error: string | null;
   days: AnalyticsDays;
   granularity: AnalyticsGranularity;
+  periodPrefKey: PeriodPrefKey;
   onSetDays: (d: AnalyticsDays) => void;
   onSetGranularity: (g: AnalyticsGranularity) => void;
   /** Optional filter controls rendered between the description and the period controls. */
@@ -38,6 +40,7 @@ export function AnalyticsDashboard({
   error,
   days,
   granularity,
+  periodPrefKey,
   onSetDays,
   onSetGranularity,
   filterSlot,
@@ -63,6 +66,7 @@ export function AnalyticsDashboard({
         <AnalyticsPeriodControls
           days={days}
           granularity={granularity}
+          periodPrefKey={periodPrefKey}
           onSetDays={onSetDays}
           onSetGranularity={onSetGranularity}
           loading={loading}

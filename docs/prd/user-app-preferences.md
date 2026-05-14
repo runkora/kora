@@ -18,7 +18,7 @@ Orbit users currently have no way to persist UI choices across sessions or devic
 
 ### Current State
 
-All UI state in Orbit is ephemeral. Column visibility choices, table page sizes, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use Orbit.
+All UI state in Orbit is ephemeral. Column visibility choices, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use Orbit.
 
 ### User Pain Points
 
@@ -72,17 +72,6 @@ All UI state in Orbit is ephemeral. Column visibility choices, table page sizes,
 - [ ] Resetting to defaults restores the original column set.
 - [ ] Preference is applied on initial render via the server-fetched preferences document.
 
----
-
-**As a** power user,  
-**I want to** configure the default page size for data tables,  
-**So that** I don't have to change it on every table every session.
-
-**Acceptance Criteria:**
-- [ ] Options: 10, 25, 50, 100 rows.
-- [ ] Preference applies to all paginated tables as the initial value.
-- [ ] Individual table overrides within a session still work.
-
 ### Secondary User Stories
 
 **As a** developer,  
@@ -118,7 +107,7 @@ All v1 preference keys are remembered state.
 
 #### Remembered State Controls
 
-For preferences that are remembered state (e.g. column visibility), controls remain entirely in-context — a column picker on the table toolbar, a page size selector in the pagination bar. The user interacts with these controls as they normally would; the system silently persists the state so it is restored on next visit from any device.
+For preferences that are remembered state (e.g. column visibility), controls remain entirely in-context — a column picker on the table toolbar. The user interacts with these controls as they normally would; the system silently persists the state so it is restored on next visit from any device.
 
 #### Write Strategy
 
@@ -148,13 +137,7 @@ When a user changes a preference, the frontend applies it to local context immed
 
 The following categories and keys are in scope for v1. Each key is tagged as either **explicit setting** or **remembered state** (persisted silently, configured inline).
 
-### 1. Tables — Global
-
-| Key | Mode | Type | Default | Description |
-|-----|------|------|---------|-------------|
-| `tables.defaultPageSize` | Remembered state | `10 \| 25 \| 50 \| 100` | `25` | Default rows-per-page applied to all paginated tables. |
-
-### 2. Tables — Per-Table Column Visibility
+### 1. Tables — Per-Table Column Visibility
 
 Each table gets its own key under `tables.columns.<tableId>` mapping column IDs to a boolean (visible/hidden). Unset columns default to visible.
 
@@ -165,27 +148,31 @@ Proposed `tableId` values for v1:
 | Table ID | View |
 |----------|------|
 | `inferenceLogs` | Model Gateway → Logs |
+| `gatewayModels` | Model Gateway → Models |
 | `analyticsRequests` | Model Gateway → Analytics → Requests |
 | `analyticsSpend` | Model Gateway → Analytics → Spend |
 | `analyticsTokens` | Model Gateway → Analytics → Tokens |
+| `analyticsPrincipals` | Model Gateway → Analytics → Users |
 | `usageRequests` | Model Gateway → My Usage → Requests |
 | `policyGrants` | Policy → Grants |
 | `policyRoles` | Policy → Roles |
 | `patTokens` | Model Gateway → Keys |
+| `catalogVirtualModels` | Model Gateway → Catalog → Virtual Models |
+| `catalogProviders` | Model Gateway → Catalog → Provider Models |
 
-### 3. Analytics & Dashboard
+### 2. Analytics & Dashboard
 
 | Key | Mode | Type | Default | Description |
 |-----|------|------|---------|-------------|
 | `analytics.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` | Default time window for model gateway analytics dashboards. |
 
-### 4. My Usage
+### 3. My Usage
 
 | Key | Mode | Type | Default | Description |
 |-----|------|------|---------|-------------|
 | `myUsage.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` | Default time window for the `/my-usage` page. |
 
-### 5. Model Gateway
+### 4. Model Gateway
 
 | Key | Mode | Type | Default | Description |
 |-----|------|------|---------|-------------|
@@ -234,7 +221,6 @@ Proposed `tableId` values for v1:
 - [ ] `DELETE /identity/preferences` resets all stored preferences; the frontend redirects to a fresh state.
 
 **Should Have (P1):**
-- [ ] `tables.defaultPageSize` applied to all paginated tables.
 - [ ] `analytics.defaultPeriod` applied as the initial window on model gateway analytics dashboards via the app-level `PeriodSelector` component.
 - [ ] `myUsage.defaultPeriod` applied as the initial window on the `/my-usage` page via the app-level `PeriodSelector` component.
 - [ ] `modelGateway.favouriteModels` wired to the `/model-gateway/models` page.
@@ -266,8 +252,6 @@ Proposed `tableId` values for v1:
 
 **Observability:**
 - Preference reads and writes emit structured log lines with `user_id`, `tenant_id`, and `latency_ms`.
-- A Prometheus counter tracks `preferences_put_total` labelled by `tenant_id` (for adoption tracking).
-- A Prometheus counter tracks `preferences_get_total` labelled by `tenant_id`. Combined with a query for rows with non-empty documents, this supports measurement of the "≥ 60 % of WAU have a non-default preference set" success metric.
 
 ---
 
@@ -356,16 +340,12 @@ Proposed `tableId` values for v1:
 - App-level `PeriodSelector` component accepting a `prefKey` prop, connected to `usePreferences`; wired to `analytics.defaultPeriod` on model gateway analytics pages and `myUsage.defaultPeriod` on the `/my-usage` page.
 - `modelGateway.favouriteModels` remembered state wired to the `/model-gateway/models` page.
 
-**Phase 3: Table Integration** (Target: 2026-06-19)
-- `tables.defaultPageSize` applied to all paginated tables.
-
 ### Key Milestones
 
 - [ ] PRD Approved
 - [ ] ADR created (storage approach)
 - [ ] Phase 1 complete + merged
 - [ ] Phase 2 complete + merged
-- [ ] Phase 3 complete + merged
 - [ ] Launch
 
 ---

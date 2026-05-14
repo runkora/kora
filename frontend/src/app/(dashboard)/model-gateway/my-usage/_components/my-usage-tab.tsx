@@ -127,6 +127,7 @@ export function MyUsageTab({ pats, initialBudget }: MyUsageTabProps) {
         error={error}
         days={days}
         granularity={granularity}
+        periodPrefKey="myUsage.defaultPeriod"
         onSetDays={setDays}
         onSetGranularity={setGranularity}
         filterSlot={filterSlot}

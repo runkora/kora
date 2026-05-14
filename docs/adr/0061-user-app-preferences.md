@@ -23,7 +23,7 @@ Users cannot persist UI customisations across sessions or devices. This affects 
 
 - Provide a server-backed store for typed user preferences scoped to `(user_id, tenant_id)`.
 - Synchronise preferences across all devices and browsers without user action.
-- Support both deliberate user settings and silently remembered interaction state (column visibility, page size, analytics window).
+- Support both deliberate user settings and silently remembered interaction state (column visibility, analytics window).
 
 ### Non-Goals
 
@@ -264,10 +264,9 @@ The full v1 schema:
 
 | Key | Mode | Type | Default |
 |-----|------|------|---------|
-| `tables.defaultPageSize` | Remembered state | `10 \| 25 \| 50 \| 100` | `25` |
 | `tables.columns.<tableId>` | Remembered state | `Record<columnId, boolean>` | `{}` (all visible) |
-| `analytics.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` |
-| `myUsage.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` |
+| `analytics.defaultPeriod` | Remembered state | `"7d" \| "30d" \| "90d"` | `"7d"` |
+| `myUsage.defaultPeriod` | Remembered state | `"7d" \| "30d" \| "90d"` | `"7d"` |
 | `modelGateway.favouriteModels` | Remembered state | `string[]` | `[]` |
 
 Unknown keys in the stored document are silently ignored on read. Missing keys fall back to hardcoded defaults. Renaming a key requires a one-off data migration; adding or removing a key does not.
@@ -289,7 +288,7 @@ All writes use an **optimistic update + debounced PUT** pattern:
 3. Multiple changes within the window are batched — `PreferencesContext` is serialised **sparsely** (only keys whose values differ from the hardcoded defaults in `preferences.schema.ts` are included) and sent as a single PUT.
 4. Failed writes are silently dropped. The user's local context retains the intended value for the session; the change is re-sent the next time the user adjusts a preference.
 
-On remembered-state controls (column pickers, page size selectors), persistence is invisible by design — no save confirmation is shown.
+On remembered-state controls (column pickers), persistence is invisible by design — no save confirmation is shown.
 
 #### BFF Proxy
 
@@ -355,10 +354,6 @@ This feature spans three sequential phases across backend and frontend. The phas
 5. App-level `PeriodSelector` component accepting a `prefKey` prop, connected to `usePreferences`; wired to `analytics.defaultPeriod` on model gateway analytics pages and `myUsage.defaultPeriod` on the `/my-usage` page.
 6. `modelGateway.favouriteModels` remembered state wired to the `/model-gateway/models` page — toggling the heart icon on a model card adds or removes the model ID from the stored array.
 
-### Phase 3: Remaining Preferences
-
-1. `tables.defaultPageSize` applied to all paginated tables.
-
 ---
 
 ## Validation
@@ -373,8 +368,6 @@ This feature spans three sequential phases across backend and frontend. The phas
 
 ### Monitoring
 
-- `preferences_get_total` Prometheus counter labelled by `tenant_id`.
-- `preferences_put_total` Prometheus counter labelled by `tenant_id`.
 - Structured log lines on each handler with `user_id`, `tenant_id`, and `latency_ms`.
 - The "≥ 60 % of WAU" metric is measured by querying `user_preferences` for rows with non-empty documents and joining against the WAU set from analytics.
 

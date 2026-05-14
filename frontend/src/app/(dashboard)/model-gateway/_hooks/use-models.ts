@@ -62,13 +62,17 @@ const DEFAULT_FAVOURITES = new Set<string>();
 export function useModels(
   initialData: ModelRow[],
   initialError: string | null = null,
+  initialFavourites?: Set<string>,
+  onFavouritesChange?: (favourites: Set<string>) => void,
 ): ModelsStateShape {
   const [models, setModels] = useState<ModelRow[]>(initialData);
   const [status, setStatus] = useState<LoadStatus>(
     initialError ? 'error' : initialData.length > 0 ? 'success' : 'idle',
   );
   const [error, setError] = useState<string | null>(initialError);
-  const [favourites, setFavourites] = useState<Set<string>>(DEFAULT_FAVOURITES);
+  const [favourites, setFavourites] = useState<Set<string>>(
+    initialFavourites ?? DEFAULT_FAVOURITES,
+  );
 
   const refresh = useCallback(async () => {
     setStatus('loading');
@@ -85,17 +89,21 @@ export function useModels(
     }
   }, []);
 
-  const toggleFavourite = useCallback((id: string) => {
-    setFavourites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
+  const toggleFavourite = useCallback(
+    (id: string) => {
+      setFavourites((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        onFavouritesChange?.(next);
+        return next;
+      });
+    },
+    [onFavouritesChange],
+  );
 
   return { models, status, error, favourites, refresh, toggleFavourite };
 }

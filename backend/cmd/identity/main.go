@@ -142,6 +142,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	clientRepo := identity.NewRedisClientRepository(redis.Client())
 	patRepo := identity.NewPostgresPATRepository(db.Pool())
 	profileRepo := identity.NewPostgresUserProfileRepository(db.Pool())
+	prefsRepo := identity.NewPostgresUserPreferencesRepository(db.Pool())
 
 	// Policy service integration for PAT grant management and scope validation.
 	policySvcURL := os.Getenv("ORBIT_POLICY_SERVICE_URL")
@@ -177,6 +178,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		clientRepo,
 		patRepo,
 		profileRepo,
+		prefsRepo,
 		policyClient,
 		policyEval,
 		extractor,
@@ -333,6 +335,9 @@ func identityRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/identity/tokens", Method: "PATCH", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "DELETE", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/preferences", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/preferences", Method: "PUT", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/preferences", Method: "DELETE", RequiredScope: ""},
 	}
 }
 

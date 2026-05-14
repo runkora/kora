@@ -43,3 +43,17 @@ export type {
   TriggerFormSource,
   TriggerFormAgent,
 } from './trigger-form-modal';
+
+/** Preference-backed DataTable. Requires PreferencesProvider (dashboard-scoped). */
+export { DataTable } from './data-table';
+export type {
+  DataTableProps,
+  DataTableColumn,
+  DataTableColumnFilter,
+  DataTableClientFilter,
+  DataTableServerFilter,
+} from './data-table';
+
+/** Preference-backed period selector (7d/30d/90d). Requires PreferencesProvider (dashboard-scoped). */
+export { PeriodSelector } from './period-selector';
+export type { PeriodSelectorProps, PeriodPrefKey } from './period-selector';

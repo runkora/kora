@@ -28,6 +28,7 @@ var _ RefreshTokenRepository = (*mockRefreshTokenRepository)(nil)
 var _ JTIBlocklistRepository = (*mockJTIBlocklistRepository)(nil)
 var _ PATRepository = (*mockPATRepository)(nil)
 var _ UserProfileRepository = (*mockUserProfileRepository)(nil)
+var _ UserPreferencesRepository = (*mockUserPreferencesRepository)(nil)
 
 // ── mockSessionRepository ─────────────────────────────────────────────────────
 
@@ -515,6 +516,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		newMockClientRepo(),
 		pats,
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -592,6 +594,7 @@ tenants:
 		newMockClientRepo(),
 		newMockPATRepo(),
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -660,6 +663,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		newMockAuthCodeRepo(),
 		newMockClientRepo(),
 		pats,
+		nil,
 		nil,
 		policy,
 		&mockPolicyEvaluator{},
@@ -1025,6 +1029,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		newMockClientRepo(),
 		pats,
 		profiles,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1086,6 +1091,7 @@ tenants:
 		newMockClientRepo(),
 		newMockPATRepo(),
 		nil,
+		nil,
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1095,4 +1101,98 @@ tenants:
 		t.Fatalf("newTestServiceWithDomains: %v", err)
 	}
 	return svc
+}
+
+// ── mockUserPreferencesRepository ─────────────────────────────────────────────
+
+type mockUserPreferencesRepository struct {
+	mu    sync.Mutex
+	store map[string]json.RawMessage // keyed by userID+":"+tenantID
+
+	getErr    error
+	upsertErr error
+	deleteErr error
+}
+
+func newMockPrefsRepo() *mockUserPreferencesRepository {
+	return &mockUserPreferencesRepository{store: make(map[string]json.RawMessage)}
+}
+
+func (m *mockUserPreferencesRepository) key(userID, tenantID string) string {
+	return userID + ":" + tenantID
+}
+
+func (m *mockUserPreferencesRepository) Get(_ context.Context, userID, tenantID string) (json.RawMessage, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	raw, ok := m.store[m.key(userID, tenantID)]
+	if !ok {
+		return nil, ErrUserPreferencesNotFound
+	}
+	return raw, nil
+}
+
+func (m *mockUserPreferencesRepository) Upsert(_ context.Context, userID, tenantID string, prefs json.RawMessage) error {
+	if m.upsertErr != nil {
+		return m.upsertErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make(json.RawMessage, len(prefs))
+	copy(cp, prefs)
+	m.store[m.key(userID, tenantID)] = cp
+	return nil
+}
+
+func (m *mockUserPreferencesRepository) Delete(_ context.Context, userID, tenantID string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.store, m.key(userID, tenantID))
+	return nil
+}
+
+// newTestControllerWithPrefs wires up a Controller with a preferences repo for
+// handler tests that exercise /preferences.
+func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferencesRepository) {
+	t.Helper()
+	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("ORBIT_TENANTS_CONFIG", "")
+	prefsRepo := newMockPrefsRepo()
+	cfg := &Config{
+		Token: TokenConfig{
+			AccessTokenTTLMinutes: 60,
+			RefreshTokenTTLDays:   30,
+			PATDefaultTTLDays:     90,
+			PATMaxTTLDays:         365,
+			Audience:              "orbit-platform",
+		},
+	}
+	svc, err := NewService(
+		context.Background(),
+		cfg,
+		newMockSessionRepo(),
+		newMockRefreshTokenRepo(),
+		newMockBlocklistRepo(),
+		newMockAuthCodeRepo(),
+		newMockClientRepo(),
+		newMockPATRepo(),
+		nil,
+		prefsRepo,
+		&mockPolicyClient{},
+		&mockPolicyEvaluator{},
+		&XFCCPrincipalExtractor{},
+		logging.NewLoggerWithOutput(io.Discard),
+	)
+	if err != nil {
+		t.Fatalf("newTestControllerWithPrefs: %v", err)
+	}
+	return NewController(svc, &mockPolicyEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard)), prefsRepo
 }

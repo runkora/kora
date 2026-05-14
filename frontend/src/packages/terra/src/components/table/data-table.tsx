@@ -201,6 +201,17 @@ export interface DataTableProps<TData> {
   /** Initial sort direction. Defaults to 'asc'. */
   defaultSortDir?: 'asc' | 'desc';
   /**
+   * Seed the initial column visibility state.
+   * Takes precedence over each column's `defaultVisible` when a matching id
+   * is present. Use to restore persisted visibility preferences.
+   */
+  initialColumnVisibility?: Record<string, boolean>;
+  /**
+   * Called when a column's visibility is toggled via the toolbar picker.
+   * Receives the column id and its new visibility state.
+   */
+  onColumnVisibilityChange?: (id: string, visible: boolean) => void;
+  /**
    * Error content rendered in place of the table rows.
    * When provided, the empty state and row list are both suppressed.
    */
@@ -247,6 +258,8 @@ export function DataTable<TData>({
   searchFn,
   defaultSortId,
   defaultSortDir = 'asc',
+  initialColumnVisibility,
+  onColumnVisibilityChange,
   error,
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
@@ -273,7 +286,11 @@ export function DataTable<TData>({
     columnDefs.forEach((col) => {
       // Locked columns are always visible — omit from visibility state.
       if (!col.locked) {
-        vis[col.id] = col.defaultVisible ?? true;
+        if (initialColumnVisibility && col.id in initialColumnVisibility) {
+          vis[col.id] = initialColumnVisibility[col.id];
+        } else {
+          vis[col.id] = col.defaultVisible ?? true;
+        }
       }
     });
     return vis;
@@ -455,7 +472,13 @@ export function DataTable<TData>({
           toolbarColumnItems.length > 0
             ? {
                 items: toolbarColumnItems,
-                onToggle: (id) => table.getColumn(id)?.toggleVisibility(),
+                onToggle: (id) => {
+                  const col = table.getColumn(id);
+                  if (!col) return;
+                  const newVisible = !col.getIsVisible();
+                  col.toggleVisibility();
+                  onColumnVisibilityChange?.(id, newVisible);
+                },
               }
             : undefined
         }

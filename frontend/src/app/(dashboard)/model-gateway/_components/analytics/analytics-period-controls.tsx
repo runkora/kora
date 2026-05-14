@@ -1,6 +1,8 @@
 'use client';
 
 import { Button, Stack, Text } from '@orbit/terra';
+import { PeriodSelector } from '@orbit/components';
+import type { PeriodPrefKey } from '@orbit/components';
 import type { AnalyticsDays, AnalyticsGranularity } from '../../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -8,18 +10,13 @@ import type { AnalyticsDays, AnalyticsGranularity } from '../../_types';
 interface AnalyticsPeriodControlsProps {
   days: AnalyticsDays;
   granularity: AnalyticsGranularity;
+  periodPrefKey: PeriodPrefKey;
   onSetDays: (d: AnalyticsDays) => void;
   onSetGranularity: (g: AnalyticsGranularity) => void;
   loading?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const DAYS_OPTIONS: { value: AnalyticsDays; label: string }[] = [
-  { value: 7, label: '7d' },
-  { value: 30, label: '30d' },
-  { value: 90, label: '90d' },
-];
 
 const GRANULARITY_OPTIONS: { value: AnalyticsGranularity; label: string }[] = [
   { value: 'daily', label: 'Daily' },
@@ -76,6 +73,7 @@ function ControlButton({
 export function AnalyticsPeriodControls({
   days,
   granularity,
+  periodPrefKey,
   onSetDays,
   onSetGranularity,
   loading = false,
@@ -85,18 +83,7 @@ export function AnalyticsPeriodControls({
       <Text size="caption" color="subtle">
         {computeDateRange(days)}
       </Text>
-      <Stack direction="horizontal" gap="tight">
-        {DAYS_OPTIONS.map(({ value, label }) => (
-          <ControlButton
-            key={value}
-            active={days === value}
-            disabled={loading}
-            onClick={() => onSetDays(value)}
-          >
-            {label}
-          </ControlButton>
-        ))}
-      </Stack>
+      <PeriodSelector prefKey={periodPrefKey} value={days} onChange={onSetDays} loading={loading} />
       <Stack direction="horizontal" gap="tight">
         {GRANULARITY_OPTIONS.map(({ value, label }) => (
           <ControlButton
