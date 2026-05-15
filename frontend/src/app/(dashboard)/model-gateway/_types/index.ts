@@ -26,6 +26,14 @@ export type InferenceUsageStatus =
   | 'routing_failed'
   | 'canceled';
 
+// Mirrors FailureDetails in backend/internal/inferencegw/models.go.
+// Populated only for provider_error and auth_error records.
+export interface FailureDetails {
+  provider_http_status?: number;
+  provider_error_type?: string;
+  provider_error_message?: string;
+}
+
 // Mirrors InferenceUsageRecord in backend/internal/inferencegw/models.go.
 // Field names are snake_case matching the Go json tags.
 export interface InferenceUsageRecord {
@@ -49,6 +57,7 @@ export interface InferenceUsageRecord {
   status: InferenceUsageStatus;
   retry_count: number;
   error_code: string | null;
+  failure_details: FailureDetails | null;
   latency_ms: number;
   created_at: string; // RFC3339
 }

@@ -216,6 +216,44 @@ export function InferenceLogDetailModal({
 
             <Separator />
 
+            {/* Failure details — only for provider_error / auth_error records */}
+            {record.failure_details && (
+              <>
+                <Stack padding="snug">
+                  <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
+                    <Text size="caption" color="muted">
+                      Failure details
+                    </Text>
+                  </Stack>
+                  {record.failure_details.provider_http_status !== undefined && (
+                    <DetailRow label="HTTP status">
+                      <Text size="supporting" mono>
+                        {record.failure_details.provider_http_status}
+                      </Text>
+                    </DetailRow>
+                  )}
+                  {record.failure_details.provider_error_type && (
+                    <DetailRow label="Error type">
+                      <Badge variant="error" size="sm">
+                        {record.failure_details.provider_error_type}
+                      </Badge>
+                    </DetailRow>
+                  )}
+                  {record.failure_details.provider_error_message && (
+                    <Stack paddingBlock="tight" paddingInline="snug" gap="tight">
+                      <Text size="caption" color="muted">
+                        Provider message
+                      </Text>
+                      <Text size="supporting" color="foreground" mono>
+                        {record.failure_details.provider_error_message}
+                      </Text>
+                    </Stack>
+                  )}
+                </Stack>
+                <Separator />
+              </>
+            )}
+
             {/* Tokens & cost */}
             <Stack padding="snug">
               <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
