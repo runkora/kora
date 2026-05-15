@@ -365,6 +365,33 @@ func TestRevokePAT_NotFound_ReturnsErrPATNotFound(t *testing.T) {
 	}
 }
 
+func TestRevokePAT_AlreadyRevoked_ReturnsErrPATNotFound(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+
+	now := time.Now().UTC()
+	revokedAt := now.Add(-time.Hour)
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{
+		ID:        "pat-1",
+		TenantID:  "t1",
+		UserID:    "user-1",
+		Name:      "my-pat",
+		JTI:       "jti-1",
+		ExpiresAt: now.Add(24 * time.Hour),
+		CreatedAt: now,
+		RevokedAt: &revokedAt,
+	}
+	pats.mu.Unlock()
+
+	err := svc.RevokePAT(context.Background(), "t1", "user-1", "pat-1")
+	if err == nil {
+		t.Fatal("expected error when revoking an already-revoked PAT")
+	}
+	if !errors.Is(err, ErrPATNotFound) {
+		t.Errorf("expected ErrPATNotFound, got: %v", err)
+	}
+}
+
 func TestRevokePAT_BlocklistFailure_IsNonFatal(t *testing.T) {
 	svc, _, _, blocklist, pats := newFullTestService(t)
 

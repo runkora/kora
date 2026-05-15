@@ -86,7 +86,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Edit permissions for ${pat.name}`}
-                disabled={revoked}
+                disabled={revoked || expired}
                 onClick={onEditScopes}
               >
                 <Icon name="edit" size="2xs" />

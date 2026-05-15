@@ -295,8 +295,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     },
   ];
 
-  const deletedKeySelected =
-    !!activeKeyId && pats.length > 0 && !patMap.has(activeKeyId);
+  const deletedKeySelected = !!activeKeyId && pats.length > 0 && !patMap.has(activeKeyId);
 
   return (
     <Stack gap="comfortable">
