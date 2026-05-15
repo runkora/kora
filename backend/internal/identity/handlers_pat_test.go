@@ -279,6 +279,43 @@ func TestHandleListPATs_ReturnsPATs(t *testing.T) {
 	}
 }
 
+func TestHandleListPATs_RevokedPATIncluded(t *testing.T) {
+	c, _, _, _, _, pats := newTestController(t)
+	claims := humanClaims("t1", "user-1")
+
+	now := time.Now().UTC()
+	revokedAt := now.Add(-time.Hour)
+	pats.mu.Lock()
+	pats.pats["pat-1"] = &PAT{ID: "pat-1", TenantID: "t1", UserID: "user-1", Name: "active", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now}
+	pats.pats["pat-2"] = &PAT{ID: "pat-2", TenantID: "t1", UserID: "user-1", Name: "revoked", ExpiresAt: now.Add(48 * time.Hour), CreatedAt: now, RevokedAt: &revokedAt}
+	pats.mu.Unlock()
+
+	w := getWithClaims(t, c.handleListPATs, claims)
+	if w.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)
+	}
+
+	var resp ListPATsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Tokens) != 2 {
+		t.Errorf("expected 2 tokens (active + revoked), got %d", len(resp.Tokens))
+	}
+	var foundRevoked bool
+	for _, tok := range resp.Tokens {
+		if tok.ID == "pat-2" {
+			foundRevoked = true
+			if tok.RevokedAt == nil {
+				t.Error("expected revoked_at to be populated for revoked PAT")
+			}
+		}
+	}
+	if !foundRevoked {
+		t.Error("revoked PAT was not present in list response")
+	}
+}
+
 // ── handleRevokePAT ───────────────────────────────────────────────────────────
 
 func TestHandleRevokePAT_NoAuth_Returns401(t *testing.T) {

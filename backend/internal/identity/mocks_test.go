@@ -239,7 +239,7 @@ func (m *mockPATRepository) ListByUser(_ context.Context, tenantID, userID strin
 	defer m.mu.Unlock()
 	var out []PAT
 	for _, p := range m.pats {
-		if p.TenantID == tenantID && p.UserID == userID && p.RevokedAt == nil {
+		if p.TenantID == tenantID && p.UserID == userID {
 			out = append(out, *p)
 		}
 	}

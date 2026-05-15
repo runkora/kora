@@ -70,7 +70,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
           <Stack direction="horizontal" align="center" justify="between">
             <Stack direction="horizontal" align="center" gap="snug">
               <Heading variant="label">{pat.name}</Heading>
-              <Badge variant={statusBadgeVariant} size="sm" dot={!revoked}>
+              <Badge variant={statusBadgeVariant} size="sm" dot={!revoked && !expired}>
                 {revoked ? 'Revoked' : expired ? 'Expired' : 'Active'}
               </Badge>
             </Stack>
@@ -86,6 +86,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Edit permissions for ${pat.name}`}
+                disabled={revoked}
                 onClick={onEditScopes}
               >
                 <Icon name="edit" size="2xs" />
@@ -94,7 +95,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Revoke key ${pat.name}`}
-                disabled={revoking}
+                disabled={revoking || revoked}
                 onClick={onRevoke}
               >
                 <Icon name="trash" size="2xs" />

@@ -161,6 +161,54 @@ func TestListPATs_ReturnsScopedTokens(t *testing.T) {
 	}
 }
 
+func TestListPATs_IncludesRevokedPATs(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+
+	now := time.Now().UTC()
+	revokedAt := now.Add(-time.Hour)
+	pats.mu.Lock()
+	pats.pats["p1"] = &PAT{ID: "p1", TenantID: "t1", UserID: "user-1", Name: "active", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now}
+	pats.pats["p2"] = &PAT{ID: "p2", TenantID: "t1", UserID: "user-1", Name: "revoked", ExpiresAt: now.Add(48 * time.Hour), CreatedAt: now, RevokedAt: &revokedAt}
+	pats.mu.Unlock()
+
+	resp, err := svc.ListPATs(context.Background(), "t1", "user-1")
+	if err != nil {
+		t.Fatalf("ListPATs: %v", err)
+	}
+	if len(resp.Tokens) != 2 {
+		t.Errorf("expected 2 tokens (active + revoked), got %d", len(resp.Tokens))
+	}
+}
+
+func TestListPATs_RevokedPATHasCorrectRevokedAt(t *testing.T) {
+	svc, _, _, _, pats := newFullTestService(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	revokedAt := now.Add(-2 * time.Hour)
+	pats.mu.Lock()
+	pats.pats["p1"] = &PAT{ID: "p1", TenantID: "t1", UserID: "user-1", Name: "revoked", ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now, RevokedAt: &revokedAt}
+	pats.mu.Unlock()
+
+	resp, err := svc.ListPATs(context.Background(), "t1", "user-1")
+	if err != nil {
+		t.Fatalf("ListPATs: %v", err)
+	}
+	if len(resp.Tokens) != 1 {
+		t.Fatalf("expected 1 token, got %d", len(resp.Tokens))
+	}
+	tok := resp.Tokens[0]
+	if tok.RevokedAt == nil {
+		t.Fatal("expected revoked_at to be non-nil")
+	}
+	parsed, err := time.Parse(time.RFC3339, *tok.RevokedAt)
+	if err != nil {
+		t.Fatalf("parse revoked_at: %v", err)
+	}
+	if !parsed.Equal(revokedAt) {
+		t.Errorf("revoked_at: got %v, want %v", parsed, revokedAt)
+	}
+}
+
 func TestListPATs_RepoError_ReturnsError(t *testing.T) {
 	svc, _, _, _, pats := newFullTestService(t)
 	pats.listErr = errors.New("db down")
