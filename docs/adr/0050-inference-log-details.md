@@ -1,6 +1,6 @@
 # 0050. Inference Log Detail Modal and Request Metadata Capture
 
-**Status:** Draft
+**Status:** Accepted
 **Date:** 2026-05-08
 **Deciders:** Platform Engineering
 **Technical Story:** [Inference Log Details PRD](../prd/inference-log-details.md) — surfacing per-request debugging information through a detail modal and structured request metadata capture.

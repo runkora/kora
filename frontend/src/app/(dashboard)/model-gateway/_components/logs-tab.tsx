@@ -8,6 +8,7 @@ import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
+import { InferenceLogDetailModal } from './inference-log-detail-modal';
 
 // ── Status filter options ─────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // `replaceState` doesn't trigger Next.js router updates, so we can't derive
   // this from searchParams; we own it here.
   const [activeKeyId, setActiveKeyId] = useState(selectedKeyId);
+  const [selectedRecord, setSelectedRecord] = useState<InferenceUsageRecord | null>(null);
 
   // Key filter changes update the URL for shareability (deep-links) and call
   // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
@@ -329,6 +331,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         defaultSortDir="desc"
         emptyMessage="No inference requests yet."
         filteredEmptyMessage="No logs match your filters."
+        onRowClick={setSelectedRecord}
         toolbarActions={
           <Button
             variant="outline"
@@ -351,6 +354,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
           </Button>
         </Stack>
       )}
+
+      <InferenceLogDetailModal
+        record={selectedRecord}
+        keyName={selectedRecord?.token_id ? patNameMap.get(selectedRecord.token_id) : undefined}
+        onClose={() => setSelectedRecord(null)}
+      />
     </Stack>
   );
 }

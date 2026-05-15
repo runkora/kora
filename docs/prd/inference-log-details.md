@@ -1,6 +1,6 @@
 # Inference Log Details — Product Requirements Document
 
-**Status:** Draft
+**Status:** Approved
 **Created:** 2026-05-08
 **Last Updated:** 2026-05-15
 **Stakeholders:** Platform Engineering, Tenant Admins, Individual API Consumers
@@ -323,8 +323,8 @@ The following corrections apply to [PRD: Inference Logs](inference-logs.md). Tha
 
 ### Key Milestones
 
-- [ ] PRD Approved
-- [ ] ADR-0050 Approved
+- [x] PRD Approved
+- [x] ADR-0050 Approved
 - [ ] Phase 1 Complete — detail modal in production
 - [ ] Phase 2 Complete — metadata capture and modal fields live
 
