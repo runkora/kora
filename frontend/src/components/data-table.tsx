@@ -43,19 +43,22 @@ export function DataTable<TData>({ tableId, ...rest }: DataTableProps<TData>) {
   const storedVisibility = preferences.tables.columns[tableId] ?? {};
 
   function handleColumnVisibilityChange(columnId: string, visible: boolean) {
-    updatePreferences((prev) => ({
-      ...prev,
-      tables: {
-        ...prev.tables,
-        columns: {
-          ...prev.tables.columns,
-          [tableId]: {
-            ...prev.tables.columns[tableId],
-            [columnId]: visible,
-          },
+    const defaultVisible = rest.columns.find((c) => c.id === columnId)?.defaultVisible ?? true;
+    updatePreferences((prev) => {
+      const tableMap = { ...prev.tables.columns[tableId] };
+      if (visible === defaultVisible) {
+        delete tableMap[columnId];
+      } else {
+        tableMap[columnId] = visible;
+      }
+      return {
+        ...prev,
+        tables: {
+          ...prev.tables,
+          columns: { ...prev.tables.columns, [tableId]: tableMap },
         },
-      },
-    }));
+      };
+    });
   }
 
   return (

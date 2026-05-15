@@ -26,7 +26,12 @@ export const GET = withAuth(async (_req, session) => {
     return NextResponse.json(EMPTY_PREFS, { status: 200 });
   }
 
-  const data: unknown = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    return NextResponse.json(EMPTY_PREFS, { status: 200 });
+  }
   return NextResponse.json(data);
 });
 

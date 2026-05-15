@@ -174,7 +174,7 @@ The frontend serialises `PreferencesContext` **sparsely** — only keys whose va
 
 Store user preferences as a JSONB document in a `user_preferences` table in the identity service database, with `GET /identity/preferences`, `PUT /identity/preferences`, and `DELETE /identity/preferences` endpoints scoped to the authenticated session's `(user_id, tenant_id)`.
 
-The backend is deliberately schema-agnostic: it stores, merges, and returns the document without knowledge of specific preference keys or their defaults. All schema concerns live on the frontend.
+The backend is deliberately schema-agnostic: it stores, replaces, and returns the document without knowledge of specific preference keys or their defaults. All schema concerns live on the frontend.
 
 ### Responsibilities
 
@@ -306,7 +306,7 @@ The `tables.columns` key in the preferences document is typed as `Record<string,
 
 #### Period Selector
 
-The `PeriodSelector` is an app-level component wrapping Terra's underlying select primitive. It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Terra has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
+The `PeriodSelector` is an app-level component wrapping Terra's period button controls (7d/30d/90d). It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Terra has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
 
 ---
 

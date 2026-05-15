@@ -129,7 +129,7 @@ When a user changes a preference, the frontend applies it to local context immed
 - **`PreferencesContext`** — React context + custom hook (`usePreferences`) for frontend reads/writes.
 - **`preferences.schema.ts`** — Centralised TypeScript file containing the canonical `UserPreferences` type and all hardcoded defaults. The sole source of truth for what constitutes a valid or complete preferences document; the backend returns the stored document as-is and has no knowledge of defaults.
 - **`DataTable` wrapper** — App-level component wrapping Terra's table primitive. `tableId` is a required prop; column visibility is managed internally via `usePreferences`. Terra has no awareness of preferences.
-- **`PeriodSelector`** — App-level component wrapping Terra's select primitive. Accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). Connects to `usePreferences` internally. Terra has no awareness of preferences.
+- **`PeriodSelector`** — App-level component wrapping Terra's period button controls (7d/30d/90d). Accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). Connects to `usePreferences` internally. Terra has no awareness of preferences.
 
 ---
 
@@ -164,13 +164,13 @@ Proposed `tableId` values for v1:
 
 | Key | Mode | Type | Default | Description |
 |-----|------|------|---------|-------------|
-| `analytics.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` | Default time window for model gateway analytics dashboards. |
+| `analytics.defaultPeriod` | Remembered state | `"7d" \| "30d" \| "90d"` | `"7d"` | Default time window for model gateway analytics dashboards. |
 
 ### 3. My Usage
 
 | Key | Mode | Type | Default | Description |
 |-----|------|------|---------|-------------|
-| `myUsage.defaultPeriod` | Remembered state | `"1d" \| "7d" \| "30d" \| "90d"` | `"7d"` | Default time window for the `/my-usage` page. |
+| `myUsage.defaultPeriod` | Remembered state | `"7d" \| "30d" \| "90d"` | `"7d"` | Default time window for the `/my-usage` page. |
 
 ### 4. Model Gateway
 
@@ -217,7 +217,7 @@ Proposed `tableId` values for v1:
 - [ ] Preferences are scoped to `(user_id, tenant_id)` — one user in two tenants has independent preference stores.
 - [ ] Frontend fetches preferences once at session initialisation and hydrates context.
 - [ ] Column visibility is built into the app-level `DataTable` wrapper — `tableId` is a required prop; the wrapper manages column visibility via `usePreferences` internally. Every table using the wrapper gets preference-backed column visibility with no additional wiring.
-- [ ] The eight tables listed in the Preference Categories section use the `DataTable` wrapper and are therefore wired at launch.
+- [ ] The twelve tables listed in the Preference Categories section use the `DataTable` wrapper and are therefore wired at launch.
 - [ ] `DELETE /identity/preferences` resets all stored preferences; the frontend redirects to a fresh state.
 
 **Should Have (P1):**

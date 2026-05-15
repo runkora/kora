@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import type { AnalyticsResponse, AnalyticsDays, AnalyticsGranularity } from '../_types';
 import { fetchAnalyticsMe, fetchAnalytics } from '../_services/analytics-api';
@@ -72,18 +72,6 @@ function makeUseAnalytics(fetchFn: FetchFn) {
       },
       [],
     );
-
-    // If the preference differs from what the SSR fetch used, reload on mount.
-    const didInitFetch = useRef(false);
-    useEffect(() => {
-      if (didInitFetch.current) return;
-      didInitFetch.current = true;
-      if (initialDays !== undefined && initialDays !== ssrDays) {
-        const initGranularity = (initialData?.granularity as AnalyticsGranularity) ?? 'daily';
-        void load(initialDays, initGranularity, null, null);
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // intentional: fire once on mount with initial values
 
     const setDays = useCallback(
       (d: AnalyticsDays) => {

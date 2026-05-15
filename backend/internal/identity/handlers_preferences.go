@@ -120,6 +120,7 @@ func (c *Controller) handleDeletePreferences(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	start := time.Now()
 	if err := c.svc.DeletePreferences(ctx, claims.Subject, claims.Orbit.TenantID); err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to delete preferences", nil), err)
@@ -129,6 +130,7 @@ func (c *Controller) handleDeletePreferences(w http.ResponseWriter, r *http.Requ
 	c.logger.Info(ctx, "preferences deleted",
 		logging.Field{Key: "user_id", Value: claims.Subject},
 		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "latency_ms", Value: time.Since(start).Milliseconds()},
 	)
 
 	w.WriteHeader(http.StatusNoContent)

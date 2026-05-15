@@ -1,5 +1,3 @@
-'use client';
-
 import { PageLayout } from '@orbit/terra';
 import {
   DashboardHeader,
@@ -11,29 +9,9 @@ import {
 } from './_components';
 import { SidebarStateProvider } from './_components/sidebar-state';
 import { PreferencesProvider } from './_preferences/preferences-context';
+import { getPreferences } from './_preferences/preferences-server';
 import { mergeWithDefaults } from './_preferences/preferences.schema';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
-
-async function fetchPreferences(accessToken: string) {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 500);
-    const res = await fetch(`${config.orbitApiUrl}/identity/preferences`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return mergeWithDefaults({});
-    const raw: unknown = await res.json();
-    return mergeWithDefaults(
-      typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {},
-    );
-  } catch {
-    return mergeWithDefaults({});
-  }
-}
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
@@ -55,7 +33,7 @@ async function fetchPreferences(accessToken: string) {
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const initialPreferences = isSessionValid(session)
-    ? await fetchPreferences(session.accessToken)
+    ? await getPreferences(session.accessToken)
     : mergeWithDefaults({});
 
   return (
