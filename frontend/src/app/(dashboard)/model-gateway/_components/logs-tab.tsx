@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Callout, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
@@ -67,7 +67,14 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // PAT ID → full PAT record lookup for the Key status column cell.
   const patMap = useMemo(() => new Map(pats.map((p) => [p.id, p])), [pats]);
 
-  const keyOptions = useMemo(() => pats.map((p) => ({ value: p.id, label: p.name })), [pats]);
+  const keyOptions = useMemo(
+    () =>
+      pats.map((p) => ({
+        value: p.id,
+        label: p.revoked_at ? `${p.name} (Revoked)` : p.name,
+      })),
+    [pats],
+  );
 
   const columns: DataTableColumn<InferenceUsageRecord>[] = [
     // Request ID — always visible, locked.
@@ -188,11 +195,13 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       header: 'Key status',
       cell: (row) => {
         const pat = row.token_id ? patMap.get(row.token_id) : undefined;
-        const keyStatus: 'active' | 'expired' | 'unknown' | null = row.token_id
+        const keyStatus: 'active' | 'revoked' | 'expired' | 'unknown' | null = row.token_id
           ? pat
-            ? isExpired(pat.expires_at)
-              ? 'expired'
-              : 'active'
+            ? pat.revoked_at
+              ? 'revoked'
+              : isExpired(pat.expires_at)
+                ? 'expired'
+                : 'active'
             : 'unknown'
           : null;
 
@@ -200,6 +209,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
           return (
             <Badge variant="secondary" size="sm">
               Unknown
+            </Badge>
+          );
+        if (keyStatus === 'revoked')
+          return (
+            <Badge variant="secondary" size="sm">
+              Revoked
             </Badge>
           );
         if (keyStatus === 'expired')
@@ -280,12 +295,24 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     },
   ];
 
+  const deletedKeySelected =
+    !!activeKeyId && pats.length > 0 && !patMap.has(activeKeyId);
+
   return (
     <Stack gap="comfortable">
       {error && (
         <Text size="supporting" color="status-error">
           {error}
         </Text>
+      )}
+
+      {deletedKeySelected && (
+        <Callout variant="warning">
+          <Text size="caption">
+            The selected API key was not found. It may have been deleted. Showing all logs for your
+            account — clear the key filter to remove this message.
+          </Text>
+        </Callout>
       )}
 
       <DataTable

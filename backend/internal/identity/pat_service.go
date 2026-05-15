@@ -131,7 +131,7 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 	}, nil
 }
 
-// ListPATs returns all active (non-revoked, non-expired) PATs for the given user.
+// ListPATs returns all non-expired PATs for the given user, including revoked ones.
 func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListPATsResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ListPATs",
 		trace.WithAttributes(
@@ -156,12 +156,18 @@ func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListP
 			// created before the migration may have a NULL scopes column.
 			scopes = []string{}
 		}
+		var revokedAt *string
+		if p.RevokedAt != nil {
+			s := p.RevokedAt.Format(time.RFC3339)
+			revokedAt = &s
+		}
 		summaries = append(summaries, PATSummary{
 			ID:        p.ID,
 			Name:      p.Name,
 			Scopes:    scopes,
 			ExpiresAt: p.ExpiresAt.Format(time.RFC3339),
 			CreatedAt: p.CreatedAt.Format(time.RFC3339),
+			RevokedAt: revokedAt,
 		})
 	}
 

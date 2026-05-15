@@ -214,6 +214,7 @@ type PATSummary struct {
 	Scopes    []string `json:"scopes"`
 	ExpiresAt string   `json:"expires_at"`
 	CreatedAt string   `json:"created_at"`
+	RevokedAt *string  `json:"revoked_at"`
 }
 
 // ListPATsResponse is returned by GET /identity/tokens.
