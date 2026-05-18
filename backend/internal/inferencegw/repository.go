@@ -89,11 +89,11 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 
 	var failureDetailsJSON []byte
 	if rec.FailureDetails != nil {
-		var err error
-		failureDetailsJSON, err = json.Marshal(rec.FailureDetails)
-		if err != nil {
-			return fmt.Errorf("marshal failure_details: %w", err)
+		if b, err := json.Marshal(rec.FailureDetails); err == nil {
+			failureDetailsJSON = b
 		}
+		// on marshal error: failureDetailsJSON stays nil → stored as SQL NULL
+		// so that a serialization failure never aborts the usage write
 	}
 
 	_, err := r.pool.Exec(ctx, q,

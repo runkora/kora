@@ -25,7 +25,7 @@ var tracer = otel.Tracer("inferencegw")
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
 // TokenID is only populated for PAT-authenticated requests (PrincipalType == "PAT");
-// it holds the PAT record UUID from claims.Orbit.SessionID. It is empty for all
+// it holds the PAT record UUID from claims.Orbit.PatID. It is empty for all
 // other principal types — those callers have no PAT record to reference.
 type principal struct {
 	TenantID       string
@@ -1330,6 +1330,7 @@ func (s *Service) AnthropicMessages(
 		TokenID:                  nullableText(p.TokenID),
 		APIDialect:               DialectAnthropic,
 		Provider:                 &usedTarget.Provider,
+		VirtualModelID:           nullableText(usedTarget.VirtualModelID),
 		ModelID:                  usedTarget.ModelID,
 		ModelFamily:              nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:          &strategy,

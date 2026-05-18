@@ -130,11 +130,17 @@ export function InferenceLogDetailModal({
                 </Text>
               </Stack>
               <CopyRow label="Request ID" value={record.id} mono />
-              {record.token_id && <CopyRow label="API key ID" value={record.token_id} mono />}
-              {keyName && <CopyRow label="API key name" value={keyName} />}
+              <CopyRow label="Principal ID" value={record.principal_id} mono />
               <DetailRow label="Principal type">
                 <Text size="supporting" mono>
                   {record.principal_type}
+                </Text>
+              </DetailRow>
+              {record.token_id && <CopyRow label="API key ID" value={record.token_id} mono />}
+              {keyName && <CopyRow label="API key name" value={keyName} />}
+              <DetailRow label="API dialect">
+                <Text size="supporting" mono>
+                  {record.api_dialect}
                 </Text>
               </DetailRow>
             </Stack>
@@ -170,19 +176,35 @@ export function InferenceLogDetailModal({
                   </Text>
                 </DetailRow>
               )}
-              <DetailRow label="API dialect">
-                <Text size="supporting" mono>
-                  {record.api_dialect}
-                </Text>
-              </DetailRow>
-              {record.routing_strategy && (
-                <DetailRow label="Routing strategy">
-                  <Text size="supporting" mono>
-                    {record.routing_strategy}
-                  </Text>
-                </DetailRow>
-              )}
             </Stack>
+
+            {/* Routing — omitted when neither field has a value */}
+            {(record.routing_strategy || record.retry_count > 0) && (
+              <>
+                <Separator />
+                <Stack padding="snug">
+                  <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
+                    <Text size="caption" color="muted">
+                      Routing
+                    </Text>
+                  </Stack>
+                  {record.routing_strategy && (
+                    <DetailRow label="Routing strategy">
+                      <Text size="supporting" mono>
+                        {record.routing_strategy}
+                      </Text>
+                    </DetailRow>
+                  )}
+                  {record.retry_count > 0 && (
+                    <DetailRow label="Retries">
+                      <Text size="supporting" mono>
+                        {record.retry_count}
+                      </Text>
+                    </DetailRow>
+                  )}
+                </Stack>
+              </>
+            )}
 
             <Separator />
 
@@ -198,69 +220,6 @@ export function InferenceLogDetailModal({
                   {record.latency_ms}ms
                 </Text>
               </DetailRow>
-              {record.retry_count > 0 && (
-                <DetailRow label="Retries">
-                  <Text size="supporting" mono>
-                    {record.retry_count}
-                  </Text>
-                </DetailRow>
-              )}
-              {record.error_code && (
-                <DetailRow label="Error code">
-                  <Badge variant="error" size="sm">
-                    {record.error_code}
-                  </Badge>
-                </DetailRow>
-              )}
-            </Stack>
-
-            <Separator />
-
-            {/* Failure details — only for provider_error / auth_error records */}
-            {record.failure_details && (
-              <>
-                <Stack padding="snug">
-                  <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
-                    <Text size="caption" color="muted">
-                      Failure details
-                    </Text>
-                  </Stack>
-                  {record.failure_details.provider_http_status !== undefined && (
-                    <DetailRow label="HTTP status">
-                      <Text size="supporting" mono>
-                        {record.failure_details.provider_http_status}
-                      </Text>
-                    </DetailRow>
-                  )}
-                  {record.failure_details.provider_error_type && (
-                    <DetailRow label="Error type">
-                      <Badge variant="error" size="sm">
-                        {record.failure_details.provider_error_type}
-                      </Badge>
-                    </DetailRow>
-                  )}
-                  {record.failure_details.provider_error_message && (
-                    <Stack paddingBlock="tight" paddingInline="snug" gap="tight">
-                      <Text size="caption" color="muted">
-                        Provider message
-                      </Text>
-                      <Text size="supporting" color="foreground" mono>
-                        {record.failure_details.provider_error_message}
-                      </Text>
-                    </Stack>
-                  )}
-                </Stack>
-                <Separator />
-              </>
-            )}
-
-            {/* Tokens & cost */}
-            <Stack padding="snug">
-              <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
-                <Text size="caption" color="muted">
-                  Tokens &amp; cost
-                </Text>
-              </Stack>
               <DetailRow label="Input tokens">
                 <Text size="supporting" mono>
                   {fmtNum(record.prompt_tokens)}
@@ -285,6 +244,13 @@ export function InferenceLogDetailModal({
                   </Text>
                 </DetailRow>
               )}
+              <DetailRow label="Cache hit rate">
+                <Text size="supporting" mono>
+                  {record.cache_read_input_tokens > 0
+                    ? `${((record.cache_read_input_tokens / (record.prompt_tokens + record.cache_read_input_tokens)) * 100).toFixed(1)}%`
+                    : '—'}
+                </Text>
+              </DetailRow>
               <DetailRow label="Total tokens">
                 <Text size="supporting" mono weight="emphasis">
                   {fmtNum(record.total_tokens)}
@@ -296,6 +262,60 @@ export function InferenceLogDetailModal({
                 </Text>
               </DetailRow>
             </Stack>
+
+            {/* Failure — shown for any non-success status */}
+            {record.status !== 'success' && (
+              <>
+                <Separator />
+                <Stack padding="snug">
+                  <Stack paddingTop="none" paddingInline="snug" paddingBottom="tight">
+                    <Text size="caption" color="muted">
+                      Failure
+                    </Text>
+                  </Stack>
+                  <DetailRow label="Status">
+                    <Badge variant={getInferenceStatusVariant(record.status)} size="sm">
+                      {fmtInferenceStatus(record.status)}
+                    </Badge>
+                  </DetailRow>
+                  {record.error_code && (
+                    <DetailRow label="Error code">
+                      <Badge variant="error" size="sm">
+                        {record.error_code}
+                      </Badge>
+                    </DetailRow>
+                  )}
+                  {record.failure_details && (
+                    <>
+                      {record.failure_details.provider_http_status !== undefined && (
+                        <DetailRow label="HTTP status">
+                          <Text size="supporting" mono>
+                            {record.failure_details.provider_http_status}
+                          </Text>
+                        </DetailRow>
+                      )}
+                      {record.failure_details.provider_error_type && (
+                        <DetailRow label="Error type">
+                          <Badge variant="error" size="sm">
+                            {record.failure_details.provider_error_type}
+                          </Badge>
+                        </DetailRow>
+                      )}
+                      {record.failure_details.provider_error_message && (
+                        <Stack paddingBlock="tight" paddingInline="snug" gap="tight">
+                          <Text size="caption" color="muted">
+                            Provider message
+                          </Text>
+                          <Text size="supporting" color="foreground" mono>
+                            {record.failure_details.provider_error_message}
+                          </Text>
+                        </Stack>
+                      )}
+                    </>
+                  )}
+                </Stack>
+              </>
+            )}
           </ModalBody>
 
           <ModalFooter justify="start">
