@@ -267,6 +267,11 @@ type ConnectorError struct {
 	// Anthropic {"error":{"message":"..."}}). Empty for unstructured errors.
 	// Safe to surface to API callers — contains no internal infrastructure detail.
 	ProviderMessage string
+
+	// HTTPStatus is the HTTP response status code returned by the provider.
+	// Zero if the error did not originate from an HTTP response (e.g. network
+	// failure, context cancellation, or internal routing errors).
+	HTTPStatus int
 }
 
 func (e ConnectorError) Error() string {

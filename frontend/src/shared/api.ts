@@ -78,6 +78,7 @@ export interface PAT {
   scopes: string[];
   expires_at: string;
   created_at: string;
+  revoked_at: string | null;
 }
 
 /** Request body for creating a new PAT. Mirrors Go: identity.CreatePATRequest */

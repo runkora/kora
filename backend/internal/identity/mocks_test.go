@@ -239,7 +239,7 @@ func (m *mockPATRepository) ListByUser(_ context.Context, tenantID, userID strin
 	defer m.mu.Unlock()
 	var out []PAT
 	for _, p := range m.pats {
-		if p.TenantID == tenantID && p.UserID == userID && p.RevokedAt == nil {
+		if p.TenantID == tenantID && p.UserID == userID {
 			out = append(out, *p)
 		}
 	}
@@ -264,7 +264,7 @@ func (m *mockPATRepository) UpdateScopes(_ context.Context, tenantID, userID, id
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.pats[id]
-	if !ok || p.TenantID != tenantID || p.UserID != userID {
+	if !ok || p.TenantID != tenantID || p.UserID != userID || p.RevokedAt != nil {
 		return ErrPATNotFound
 	}
 	p.Scopes = scopes
@@ -279,7 +279,7 @@ func (m *mockPATRepository) Revoke(_ context.Context, tenantID, userID, id strin
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.pats[id]
-	if !ok || p.TenantID != tenantID || p.UserID != userID {
+	if !ok || p.TenantID != tenantID || p.UserID != userID || p.RevokedAt != nil {
 		return ErrPATNotFound
 	}
 	p.RevokedAt = &revokedAt

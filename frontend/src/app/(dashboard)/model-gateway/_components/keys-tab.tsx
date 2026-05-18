@@ -55,8 +55,9 @@ interface KeyCardProps {
 }
 
 function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
-  const expired = isExpired(pat.expires_at);
-  const statusBadgeVariant = expired ? 'error' : 'healthy';
+  const revoked = !!pat.revoked_at;
+  const expired = !revoked && isExpired(pat.expires_at);
+  const statusBadgeVariant = revoked ? 'secondary' : expired ? 'error' : 'healthy';
 
   const hasSpend = pat.spend !== undefined && pat.spendLimit !== undefined && pat.spendLimit > 0;
   const spendPercent = hasSpend ? ((pat.spend ?? 0) / (pat.spendLimit ?? 1)) * 100 : 0;
@@ -69,8 +70,8 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
           <Stack direction="horizontal" align="center" justify="between">
             <Stack direction="horizontal" align="center" gap="snug">
               <Heading variant="label">{pat.name}</Heading>
-              <Badge variant={statusBadgeVariant} size="sm" dot>
-                {expired ? 'Expired' : 'Active'}
+              <Badge variant={statusBadgeVariant} size="sm" dot={!revoked && !expired}>
+                {revoked ? 'Revoked' : expired ? 'Expired' : 'Active'}
               </Badge>
             </Stack>
             <Stack direction="horizontal" align="center" gap="tight">
@@ -85,6 +86,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Edit permissions for ${pat.name}`}
+                disabled={revoked || expired}
                 onClick={onEditScopes}
               >
                 <Icon name="edit" size="2xs" />
@@ -93,7 +95,7 @@ function KeyCard({ pat, onRevoke, onEditScopes, revoking }: KeyCardProps) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Revoke key ${pat.name}`}
-                disabled={revoking}
+                disabled={revoking || revoked}
                 onClick={onRevoke}
               >
                 <Icon name="trash" size="2xs" />
