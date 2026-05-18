@@ -1,4 +1,4 @@
-# 0050. Inference Log Detail Modal and Request Metadata Capture
+# 0050. Inference Log Detail Modal and Failure Details Capture
 
 **Status:** Accepted
 **Date:** 2026-05-08
@@ -91,7 +91,7 @@ A panel that slides in from the right, leaving the table partially visible. Wide
 Same trade-off as Decision 2. Additionally: provider error shapes differ across connectors (Bedrock, VertexAI, Azure OpenAI each have distinct error envelopes). Normalising to individual columns would require either a lowest-common-denominator schema or a connector-specific table per provider, both of which are premature.
 
 #### Option A: `failure_details JSONB` column on `inference_usage`
-Nullable; populated only on non-success, non-canceled records. Stores provider HTTP status, error type, error message, and (for policy denials) the matching OPA rule identifier.
+Nullable; populated only on `provider_error` records. Stores provider HTTP status, error type, and error message.
 
 #### Option B: Separate `inference_failure_details` table
 Same cons as Option B above, compounded by the provider-specific shape problem.

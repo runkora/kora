@@ -114,9 +114,9 @@ type InferenceUsageRecord struct {
 }
 
 // FailureDetails holds structured provider error context for non-success
-// inference requests. Stored as JSONB; populated only for provider_error and
-// auth_error status records. All fields are optional — zero-value providers or
-// non-HTTP errors will leave some fields nil.
+// inference requests. Stored as JSONB; populated only for provider_error status
+// records. All fields are optional — zero-value providers or non-HTTP errors
+// will leave some fields nil.
 type FailureDetails struct {
 	ProviderHTTPStatus   *int    `json:"provider_http_status,omitempty"`
 	ProviderErrorType    *string `json:"provider_error_type,omitempty"`

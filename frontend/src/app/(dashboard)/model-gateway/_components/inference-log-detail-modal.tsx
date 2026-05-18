@@ -320,7 +320,7 @@ export function InferenceLogDetailModal({
 
           <ModalFooter justify="start">
             <Text size="caption" color="subtle">
-              Click any ID row to copy to clipboard.
+              Click any row with a copy icon to copy its value to clipboard.
             </Text>
           </ModalFooter>
         </>

@@ -40,13 +40,13 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 ### Primary Goals
 
 1. Expose all data already available in a usage record through a per-row detail modal — zero backend changes required.
-2. Capture structured provider failure context on every non-success request so that the detail modal tells the full debugging story.
+2. Capture structured provider failure context on every `provider_error` request so that the detail modal tells the full debugging story.
 3. Keep both layers additive and non-breaking: no existing column is removed or retyped, no existing API contract changes.
 
 ### Success Metrics
 
 - All 22 existing fields on `InferenceUsageRecord` are accessible via the detail modal within one click from the logs table.
-- `failure_details` is populated on 100% of `provider_error` and `auth_error` requests from feature launch.
+- `failure_details` is populated on 100% of `provider_error` requests from feature launch.
 - A developer can identify the likely cause of a `provider_error` without leaving the Orbit UI.
 
 ### Non-Goals
@@ -70,9 +70,9 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 **Acceptance Criteria:**
 - [ ] Clicking any row in the logs table opens a detail modal.
 - [ ] The modal title shows the request ID in monospace.
-- [ ] The modal is divided into labelled sections: Identity, Request, Routing, Performance, and (if non-success) Failure.
+- [ ] The modal is divided into labelled sections: Identity, Model, Routing, Performance, and (if non-success) Failure.
 - [ ] Identity section shows: principal ID, principal type, token ID (if present), PAT name (if resolvable from existing list), API dialect.
-- [ ] Request section shows: virtual model, provider model, API dialect.
+- [ ] Model section shows: virtual model, provider model, API dialect.
 - [ ] Routing section shows: routing strategy, retry count.
 - [ ] Performance section shows: latency, prompt tokens, completion tokens, cache read tokens, cache creation tokens, cache hit rate (computed), estimated cost.
 - [ ] Failure section (shown only when status is not `success`) shows: status badge, error code.
@@ -103,7 +103,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 - [ ] The Failure section of the detail modal shows `failure_details` content when present.
 - [ ] Shown fields: provider HTTP status, provider error type, provider error message.
 - [ ] For `routing_failed`, `policy_denied`, `timeout`, and `canceled` statuses: no `failure_details` section is shown (NULL for these statuses).
-- [ ] `failure_details` is only populated on `provider_error` and `auth_error` records.
+- [ ] `failure_details` is only populated on `provider_error` records.
 
 ---
 
@@ -214,7 +214,7 @@ No BFF route changes are needed — the inference gateway's `GET /v1/usage` alre
 - [ ] Goose migration adds `failure_details JSONB` (nullable) to `inference_usage`
 - [ ] `ConnectorError` extended with `HTTPStatus int`
 - [ ] Go struct and repository INSERT updated for the new column
-- [ ] `failure_details` populated on all `provider_error` and `auth_error` requests
+- [ ] `failure_details` populated on all `provider_error` requests
 - [ ] TypeScript interface updated with new optional field
 
 **Should Have (P1):**
@@ -233,7 +233,7 @@ No BFF route changes are needed — the inference gateway's `GET /v1/usage` alre
 **Security:**
 - `failure_details` must never contain prompt or completion text or any value derived from user-supplied message content.
 - `failure_details.provider_error_message` is truncated to 500 characters before storage to bound exposure in cases where a provider echoes request content in its error message.
-- Both the new JSONB column is scoped to the existing `tenant_id` row — no new access control surface is introduced.
+- The new JSONB column is scoped to the existing `tenant_id` row — no new access control surface is introduced.
 
 **Observability:**
 - No new metrics or spans are required for Layer 1.
@@ -344,7 +344,7 @@ The following corrections apply to [PRD: Inference Logs](inference-logs.md). Tha
 | Layer 1 | Frontend-only detail modal; surfaces existing fields; no backend changes |
 | Layer 2 | JSONB column `failure_details` added to `inference_usage` |
 | Layer 3 | Content logging (prompt/completion text); out of scope for this PRD |
-| `failure_details` | Nullable JSONB field capturing structured provider failure context for `provider_error` and `auth_error` records |
+| `failure_details` | Nullable JSONB field capturing structured provider failure context for `provider_error` records |
 | Cache hit rate | `cache_read_input_tokens / (prompt_tokens + cache_read_input_tokens)` — computed client-side |
 
 ---
@@ -357,4 +357,4 @@ The following corrections apply to [PRD: Inference Logs](inference-logs.md). Tha
 
 ---
 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-15

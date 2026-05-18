@@ -297,7 +297,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     },
   ];
 
-  const deletedKeySelected = !!activeKeyId && pats.length > 0 && !patMap.has(activeKeyId);
+  const deletedKeySelected = !!activeKeyId && status !== 'loading' && !patMap.has(activeKeyId);
 
   return (
     <Stack gap="comfortable">
@@ -310,8 +310,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       {deletedKeySelected && (
         <Callout variant="warning">
           <Text size="caption">
-            The selected API key was not found. It may have been deleted. Showing all logs for your
-            account — clear the key filter to remove this message.
+            The selected API key was not found — it may have been deleted. Logs are still filtered
+            to that key. Clear the key filter to see all logs.
           </Text>
         </Callout>
       )}
