@@ -211,6 +211,12 @@ export interface DataTableProps<TData> {
   filteredEmptyMessage?: string;
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
+  /**
+   * Accessible label for a clickable row. Announced by screen readers when
+   * a row receives focus. Only used when `onRowClick` is provided.
+   * Defaults to `"View details"`.
+   */
+  onRowClickLabel?: string;
   /** Extra content rendered in the toolbar after the search input. */
   toolbarActions?: React.ReactNode;
 }
@@ -239,6 +245,7 @@ export function DataTable<TData>({
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   onRowClick,
+  onRowClickLabel = 'View details',
   toolbarActions,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
@@ -499,6 +506,22 @@ export function DataTable<TData>({
                   key={getRowKey(row.original)}
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? 'button' : undefined}
+                  aria-label={onRowClick ? onRowClickLabel : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (
+                            (e.key === 'Enter' || e.key === ' ') &&
+                            e.target === e.currentTarget
+                          ) {
+                            e.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   {row.getVisibleCells().map((cell) => {
                     const cellColDef = colById.get(cell.column.id);
