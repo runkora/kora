@@ -592,3 +592,57 @@ func TestMapAnthropicError_AuthFailed(t *testing.T) {
 		t.Error("expected Retryable=false for 401")
 	}
 }
+
+// ─── HTTPStatus preservation ──────────────────────────────────────────────────
+
+func TestMapOpenAIError_HTTPStatusPreserved(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{"api 429", &openai.Error{StatusCode: 429}, 429},
+		{"api 400", &openai.Error{StatusCode: 400}, 400},
+		{"api 503", &openai.Error{StatusCode: 503}, 503},
+		{"api 404", &openai.Error{StatusCode: 404}, 404},
+		{"non-api error", errors.New("connection reset"), 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := convert.MapOpenAIError(inferencegw.ProviderBedrock, tc.err)
+			var connErr *inferencegw.ConnectorError
+			if !errors.As(got, &connErr) {
+				t.Fatalf("expected *ConnectorError, got %T", got)
+			}
+			if connErr.HTTPStatus != tc.wantStatus {
+				t.Errorf("HTTPStatus = %d, want %d", connErr.HTTPStatus, tc.wantStatus)
+			}
+		})
+	}
+}
+
+func TestMapAnthropicError_HTTPStatusPreserved(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		statusCode int
+	}{
+		{"429", 429},
+		{"401", 401},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := convert.MapAnthropicError(inferencegw.ProviderBedrock, newAnthropicAPIError(tc.statusCode))
+			var connErr *inferencegw.ConnectorError
+			if !errors.As(got, &connErr) {
+				t.Fatalf("expected *ConnectorError, got %T", got)
+			}
+			if connErr.HTTPStatus != tc.statusCode {
+				t.Errorf("HTTPStatus = %d, want %d", connErr.HTTPStatus, tc.statusCode)
+			}
+		})
+	}
+}
