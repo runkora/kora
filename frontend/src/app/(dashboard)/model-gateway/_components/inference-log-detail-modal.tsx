@@ -7,7 +7,6 @@ import {
   Icon,
   Modal,
   ModalBody,
-  ModalFooter,
   ModalHeader,
   Separator,
   Stack,
@@ -98,7 +97,7 @@ export function InferenceLogDetailModal({
     <Modal open={!!record} onClose={onClose} size="lg">
       {record && (
         <>
-          <ModalHeader title="Request detail" description={record.id} />
+          <ModalHeader title="Request detail" description="Click any field to copy" />
 
           {/* Status strip */}
           <Stack
@@ -317,12 +316,6 @@ export function InferenceLogDetailModal({
               </>
             )}
           </ModalBody>
-
-          <ModalFooter justify="start">
-            <Text size="caption" color="subtle">
-              Click any row with a copy icon to copy its value to clipboard.
-            </Text>
-          </ModalFooter>
         </>
       )}
     </Modal>

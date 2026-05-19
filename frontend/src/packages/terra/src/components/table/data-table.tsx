@@ -69,8 +69,7 @@
  * ```
  */
 
-import * as React from 'react';
-import {
+import * as React from 'react';import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
@@ -212,9 +211,8 @@ export interface DataTableProps<TData> {
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
   /**
-   * Accessible label for a clickable row. Announced by screen readers when
-   * a row receives focus. Only used when `onRowClick` is provided.
-   * Defaults to `"View details"`.
+   * Description announced by screen readers when a clickable row receives focus.
+   * Only used when `onRowClick` is provided. Defaults to `"View details"`.
    */
   onRowClickLabel?: string;
   /** Extra content rendered in the toolbar after the search input. */
@@ -249,6 +247,8 @@ export function DataTable<TData>({
   toolbarActions,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
+
+  const rowDescId = React.useId();
 
   const [searchQuery, setSearchQuery] = React.useState('');
 
@@ -413,6 +413,11 @@ export function DataTable<TData>({
 
   return (
     <TableContainer>
+      {onRowClick && (
+        <span id={rowDescId} className="sr-only">
+          {onRowClickLabel}
+        </span>
+      )}
       <TableToolbar
         search={toolbarSearch}
         count={toolbarCount}
@@ -507,8 +512,7 @@ export function DataTable<TData>({
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
-                  role={onRowClick ? 'button' : undefined}
-                  aria-label={onRowClick ? onRowClickLabel : undefined}
+                  aria-describedby={onRowClick ? rowDescId : undefined}
                   onKeyDown={
                     onRowClick
                       ? (e) => {

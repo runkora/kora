@@ -27,7 +27,7 @@ export type InferenceUsageStatus =
   | 'canceled';
 
 // Mirrors FailureDetails in backend/internal/inferencegw/models.go.
-// Populated only for provider_error and auth_error records.
+// Populated only for provider_error records.
 export interface FailureDetails {
   provider_http_status?: number;
   provider_error_type?: string;

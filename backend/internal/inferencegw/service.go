@@ -734,6 +734,9 @@ func extractFailureDetails(err error) *FailureDetails {
 	if connErr.ProviderMessage != "" {
 		msg := connErr.ProviderMessage
 		if len(msg) > maxProviderMessageLen {
+			// Truncate before storage. Providers (e.g. OpenAI on context-length
+			// violations) can echo request fragments in error messages; the cap
+			// bounds both storage growth and incidental content exposure.
 			msg = msg[:maxProviderMessageLen]
 		}
 		fd.ProviderErrorMessage = &msg
