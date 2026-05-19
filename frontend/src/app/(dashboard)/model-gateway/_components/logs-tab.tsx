@@ -310,8 +310,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       {deletedKeySelected && (
         <Callout variant="warning">
           <Text size="caption">
-            The selected API key was not found — it may have been deleted or expired. Logs are still filtered
-            to that key. Clear the key filter to see all logs.
+            The selected API key was not found — it may have been deleted or expired. Logs are still
+            filtered to that key. Clear the key filter to see all logs.
           </Text>
         </Callout>
       )}
