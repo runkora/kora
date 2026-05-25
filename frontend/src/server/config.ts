@@ -46,6 +46,13 @@ export const config = {
   policyServiceUrl: requireEnv('POLICY_SERVICE_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the orbit-agents service.
+   * Used by BFF routes for agent type and run CRUD + SSE proxy.
+   * Never sent to the browser.
+   */
+  orbitAgentsUrl: requireEnv('ORBIT_AGENTS_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

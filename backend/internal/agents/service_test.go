@@ -3,10 +3,25 @@ package agents
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 )
+
+// waitFor polls check every 5 ms until it returns true or the timeout elapses.
+func waitFor(t *testing.T, timeout time.Duration, check func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %v", timeout)
+}
 
 // ── CreateAgentType ───────────────────────────────────────────────────────────
 
@@ -22,19 +37,24 @@ func TestCreateAgentType_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if at.State != AgentTypeStateActive {
-		t.Errorf("state = %q, want %q", at.State, AgentTypeStateActive)
+	// CreateAgentType returns immediately with provisioning state.
+	if at.State != AgentTypeStateProvisioning {
+		t.Errorf("returned state = %q, want provisioning", at.State)
 	}
 	if at.ID == "" {
 		t.Error("ID must be set")
 	}
 
-	stored, _ := repo.GetAgentType(ctx, at.ID)
-	if stored.State != AgentTypeStateActive {
-		t.Errorf("stored state = %q, want active", stored.State)
-	}
-	if len(k8s.provisionedAgentTypes) != 1 {
-		t.Errorf("expected 1 k8s provision call, got %d", len(k8s.provisionedAgentTypes))
+	// Background goroutine transitions to active.
+	waitFor(t, time.Second, func() bool {
+		stored, _ := repo.GetAgentType(ctx, at.ID)
+		return stored != nil && stored.State == AgentTypeStateActive
+	})
+	k8s.mu.Lock()
+	provisioned := len(k8s.provisionedAgentTypes)
+	k8s.mu.Unlock()
+	if provisioned != 1 {
+		t.Errorf("expected 1 k8s provision call, got %d", provisioned)
 	}
 }
 
@@ -93,31 +113,46 @@ func TestCreateAgentType_SlugTaken(t *testing.T) {
 }
 
 func TestCreateAgentType_K8sFailure(t *testing.T) {
-	svc, _, k8s, _ := newTestService(t)
+	svc, repo, k8s, _ := newTestService(t)
 	k8s.provisionAgentTypeErr = errors.New("k8s unavailable")
 
-	_, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
+	ctx := context.Background()
+	at, err := svc.CreateAgentType(ctx, CreateAgentTypeRequest{
 		TenantID: "t-1", Name: "Bot", Slug: "bot",
 	})
-	if err == nil {
-		t.Fatal("expected error from k8s failure")
+	// Provisioning is async: CreateAgentType now succeeds immediately.
+	if err != nil {
+		t.Fatalf("unexpected error from CreateAgentType: %v", err)
 	}
+	// Background goroutine should delete the record on k8s failure.
+	waitFor(t, time.Second, func() bool {
+		_, err := repo.GetAgentType(ctx, at.ID)
+		return errors.Is(err, ErrNotFound)
+	})
 }
 
 func TestCreateAgentType_FiresHook(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
+	var mu sync.Mutex
 	called := 0
-	svc.SetAgentTypeHook(func() { called++ })
+	svc.SetAgentTypeHook(func() {
+		mu.Lock()
+		called++
+		mu.Unlock()
+	})
 
 	if _, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
 		TenantID: "t-1", Name: "Bot", Slug: "bot",
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if called != 1 {
-		t.Errorf("hook called %d times, want 1", called)
-	}
+	// Hook fires in the background goroutine.
+	waitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return called == 1
+	})
 }
 
 // ── DeleteAgentType ───────────────────────────────────────────────────────────

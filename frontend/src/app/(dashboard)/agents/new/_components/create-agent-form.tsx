@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents/new-scoped. Form to create a new agent type. */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -21,6 +21,8 @@ import {
 } from '@orbit/terra';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import type { ModelObject } from '@orbit/shared/api';
 import { createAgentType } from '../../_services/agents-api';
 
 // ── Framework options ─────────────────────────────────────────────────────────
@@ -31,6 +33,20 @@ const FRAMEWORK_OPTIONS = [
   { value: 'opencode', label: 'OpenCode' },
 ] as const;
 
+// ── Scope derivation ──────────────────────────────────────────────────────────
+
+// Always grant inference:invoke so the agent can reach the endpoint.
+// When a specific model is chosen also grant the per-model scope so OPA
+// allows that model but nothing else.
+function deriveGrantScopes(modelId: string): string[] {
+  const scopes: string[] = ['inference:invoke'];
+  const parts = modelId.split('/');
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
+  }
+  return scopes;
+}
+
 // ── Slug derivation ───────────────────────────────────────────────────────────
 
 function deriveSlug(name: string): string {
@@ -38,6 +54,25 @@ function deriveSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+// ── Model grouping ────────────────────────────────────────────────────────────
+
+interface ModelGroup {
+  family: string;
+  models: ModelObject[];
+}
+
+function groupModelsByFamily(models: ModelObject[]): ModelGroup[] {
+  const map = new Map<string, ModelObject[]>();
+  for (const m of models) {
+    const key = m.family || m.owned_by || 'other';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(m);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([family, ms]) => ({ family, models: ms }));
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -50,11 +85,34 @@ export function CreateAgentForm() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [description, setDescription] = useState('');
   const [framework, setFramework] = useState<'claude-code' | 'codex' | 'opencode'>('claude-code');
+  const [modelId, setModelId] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState('10');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
+
+  const [models, setModels] = useState<ModelObject[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(ApiRoute.models.GET(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ModelObject[] }) => {
+        const available = (body.data ?? []).filter((m) => m.status === 'available');
+        setModels(available);
+        if (available.length > 0) setModelId(available[0].id);
+      })
+      .catch(() => {
+        /* silently leave empty — user sees disabled select */
+      })
+      .finally(() => setModelsLoading(false));
+  }, []);
+
+  const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
+
+  // Derived grant scopes — recomputed whenever modelId changes.
+  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
 
   // Auto-derive slug from name unless user has manually edited it.
   const handleNameChange = useCallback(
@@ -78,13 +136,14 @@ export function CreateAgentForm() {
     if (!slug.trim()) errors.slug = 'Slug is required.';
     else if (!/^[a-z0-9-]+$/.test(slug))
       errors.slug = 'Slug may only contain lowercase letters, numbers, and hyphens.';
+    if (!modelId) errors.modelId = 'Select a model for this agent.';
     if (!systemPrompt.trim()) errors.systemPrompt = 'System prompt is required.';
     const maxRuns = parseInt(maxConcurrentRuns, 10);
     if (isNaN(maxRuns) || maxRuns < 1 || maxRuns > 50)
       errors.maxConcurrentRuns = 'Must be between 1 and 50.';
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [name, slug, systemPrompt, maxConcurrentRuns]);
+  }, [name, slug, modelId, systemPrompt, maxConcurrentRuns]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -99,9 +158,10 @@ export function CreateAgentForm() {
           slug: slug.trim(),
           description: description.trim(),
           framework,
+          model_id: modelId,
           system_prompt: systemPrompt.trim(),
           tool_scopes: [],
-          grant_scopes: [],
+          grant_scopes: grantScopes,
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
         });
         if (result.error) {
@@ -117,7 +177,18 @@ export function CreateAgentForm() {
         setSubmitting(false);
       }
     },
-    [validate, name, slug, description, framework, systemPrompt, maxConcurrentRuns, router],
+    [
+      validate,
+      name,
+      slug,
+      description,
+      framework,
+      modelId,
+      systemPrompt,
+      grantScopes,
+      maxConcurrentRuns,
+      router,
+    ],
   );
 
   return (
@@ -190,7 +261,7 @@ export function CreateAgentForm() {
         <CardHeader
           leadingIcon="settings"
           title="Behaviour"
-          description="Framework selection and system prompt."
+          description="Framework, model, and system prompt."
           divider
         />
         <CardContent padded>
@@ -208,6 +279,40 @@ export function CreateAgentForm() {
                 ))}
               </NativeSelect>
             </FormField>
+
+            <FormField
+              id="agent-model"
+              label="Model"
+              hint={
+                modelId
+                  ? `Grants: ${grantScopes.join(', ')}`
+                  : 'Select a model — access scopes are derived automatically.'
+              }
+              error={fieldErrors.modelId}
+            >
+              <NativeSelect
+                id="agent-model"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                disabled={modelsLoading || models.length === 0}
+              >
+                {modelsLoading && <option value="">Loading models…</option>}
+                {!modelsLoading && models.length === 0 && (
+                  <option value="">No models available</option>
+                )}
+                {!modelsLoading &&
+                  modelGroups.map((group) => (
+                    <optgroup key={group.family} label={group.family}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.display_name || m.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+              </NativeSelect>
+            </FormField>
+
             <FormField
               id="agent-system-prompt"
               label="System Prompt"

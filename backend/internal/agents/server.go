@@ -31,6 +31,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /api/v1/agent-types", c.handleCreateAgentType)
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)
 	mux.Handle("GET /api/v1/agent-types/{id}", c.handleGetAgentType)
+	mux.Handle("PATCH /api/v1/agent-types/{id}", c.handleUpdateAgentType)
 	mux.Handle("DELETE /api/v1/agent-types/{id}", c.handleDeleteAgentType)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
@@ -111,6 +112,31 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get agent type", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, at)
+}
+
+func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	var req UpdateAgentTypeRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	req.ID = id
+
+	at, err := c.svc.UpdateAgentType(ctx, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to update agent type", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}

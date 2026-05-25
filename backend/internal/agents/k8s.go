@@ -219,6 +219,21 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 	return int(*ss.Spec.Replicas), nil
 }
 
+// WaitForStatefulSetReady polls until the StatefulSet for the given slug has at
+// least one ready replica, or the context deadline is reached.
+func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error {
+	return wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+		}
+		return ss.Status.ReadyReplicas >= 1, nil
+	})
+}
+
 // ── Sandbox provisioning ──────────────────────────────────────────────────────
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to

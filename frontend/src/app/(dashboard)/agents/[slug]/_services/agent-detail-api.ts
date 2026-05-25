@@ -5,6 +5,29 @@ import type { AgentType, Run, UpdateAgentTypeRequest } from '@orbit/shared/api';
 import { toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
+// ── fetchAgentDetail ──────────────────────────────────────────────────────────
+
+export async function fetchAgentDetail(
+  id: string,
+): Promise<{ agentType: AgentTypeRow | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.detail(id), { cache: 'no-store' });
+  } catch {
+    return { agentType: null, error: 'Network error — could not reach the server.' };
+  }
+  if (res.status === 404) return { agentType: null, error: null };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      agentType: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const body = (await res.json()) as { data: AgentType };
+  return { agentType: toAgentTypeRow(body.data), error: null };
+}
+
 // ── deleteAgentType ───────────────────────────────────────────────────────────
 
 export async function deleteAgentType(id: string): Promise<{ error: string | null }> {

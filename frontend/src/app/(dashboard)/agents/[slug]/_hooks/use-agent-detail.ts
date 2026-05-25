@@ -4,8 +4,8 @@
 //
 // Owns all reactive state for the /agents/[slug] detail page.
 
-import { useState, useCallback } from 'react';
-import { fetchAgentRuns, deleteAgentType } from '../_services/agent-detail-api';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { fetchAgentRuns, fetchAgentDetail, deleteAgentType } from '../_services/agent-detail-api';
 import { fetchStartRun } from '../../_services/agents-api';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
@@ -30,10 +30,31 @@ export function useAgentDetail(
   initialError: string | null,
   initialStatus: DetailStatus,
 ): AgentDetailStateShape {
-  const [agent] = useState<AgentTypeRow | null>(initialAgent);
+  const [agent, setAgent] = useState<AgentTypeRow | null>(initialAgent);
   const [runs, setRuns] = useState<RunRow[]>(initialRuns);
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
+
+  // Poll for state transitions while the agent type is provisioning.
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const agentId = agent?.id;
+  const agentState = agent?.state;
+  useEffect(() => {
+    if (!agentId || agentState !== 'provisioning') return;
+
+    pollingRef.current = setInterval(() => {
+      void fetchAgentDetail(agentId).then((result) => {
+        if (result.agentType && result.agentType.state !== 'provisioning') {
+          setAgent(result.agentType);
+          if (pollingRef.current) clearInterval(pollingRef.current);
+        }
+      });
+    }, 3000);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [agentId, agentState]);
 
   const refresh = useCallback(async () => {
     if (!agent) return;

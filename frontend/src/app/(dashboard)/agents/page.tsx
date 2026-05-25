@@ -7,7 +7,9 @@ import { AgentsShell } from './_components/agents-shell';
 
 export default async function AgentsPage() {
   const session = await getSession();
-  const result = isSessionValid(session) ? await fetchAgentsFromBFF(session.accessToken) : null;
+  const result = isSessionValid(session)
+    ? await fetchAgentsFromBFF(session.accessToken, session.tenantId)
+    : null;
 
   const initialAgentTypes = result?.ok ? result.agentTypes : [];
   const initialRuns = result?.ok ? result.runs : [];

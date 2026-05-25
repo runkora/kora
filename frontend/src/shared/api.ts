@@ -187,6 +187,7 @@ export interface CreateAgentTypeRequest {
   tool_scopes?: string[];
   grant_scopes?: string[];
   max_concurrent_runs_per_pod?: number;
+  model_id?: string;
 }
 
 /** Request body for POST /api/agents/types/:typeId/runs. */
@@ -202,4 +203,5 @@ export interface UpdateAgentTypeRequest {
   framework?: AgentFramework;
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
+  model_id?: string;
 }

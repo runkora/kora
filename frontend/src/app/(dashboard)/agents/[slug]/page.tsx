@@ -12,7 +12,7 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
   const { slug } = await params;
   const session = await getSession();
   const result = isSessionValid(session)
-    ? await fetchAgentDetailFromBFF(slug, session.accessToken)
+    ? await fetchAgentDetailFromBFF(slug, session.accessToken, session.tenantId)
     : null;
 
   const initialAgent = result?.ok ? result.agent : null;

@@ -21,6 +21,7 @@ var agentsTracer = otel.Tracer("orbit.agents")
 type k8sProvisioner interface {
 	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
+	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error)
 	DeleteSandbox(ctx context.Context, runID, namespace string) error
@@ -92,6 +93,7 @@ func (s *Service) CreateAgentType(ctx context.Context, req CreateAgentTypeReques
 		ToolScopes:              req.ToolScopes,
 		GrantScopes:             req.GrantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
+		ModelID:                 req.ModelID,
 		State:                   AgentTypeStateProvisioning,
 	}
 
@@ -105,28 +107,68 @@ func (s *Service) CreateAgentType(ctx context.Context, req CreateAgentTypeReques
 	}
 	span.SetAttributes(attribute.String("agent_type_id", at.ID))
 
+	// Return immediately with state=provisioning; K8s resource creation runs in
+	// the background so the caller can redirect to the detail page and poll.
+	// Detach from the request context (it is canceled when the response is sent)
+	// but carry the trace span so the async work is correlated in traces.
+	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+	go s.provisionAgentTypeAsync(detachedCtx, at)
+
+	s.logger.Info(ctx, "Agent type created, provisioning in background",
+		logging.Field{Key: "agent_type_id", Value: at.ID},
+		logging.Field{Key: "tenant_id", Value: at.TenantID},
+		logging.Field{Key: "slug", Value: at.Slug},
+	)
+	return &at, nil
+}
+
+// provisionAgentTypeAsync runs in a goroutine after CreateAgentType returns.
+// On success it transitions the agent type from provisioning → active.
+// On failure it deletes the record so the slug is freed for a retry.
+func (s *Service) provisionAgentTypeAsync(detachedCtx context.Context, at AgentType) {
+	ctx, span := agentsTracer.Start(detachedCtx, "agents.provisionAgentTypeAsync",
+		trace.WithAttributes(
+			attribute.String("agent_type_id", at.ID),
+			attribute.String("tenant_id", at.TenantID),
+			attribute.String("slug", at.Slug),
+		),
+	)
+	defer span.End()
+
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	if err := s.k8s.ProvisionAgentType(ctx, at, namespace); err != nil {
+		if delErr := s.repo.DeleteAgentType(ctx, at.ID); delErr != nil {
+			s.logger.Warn(ctx, "rollback delete failed after async provisioning error",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision k8s resources")
-		return nil, fmt.Errorf("provision agent type k8s resources: %w", err)
+		return
+	}
+	if err := s.k8s.WaitForStatefulSetReady(ctx, at.Slug, namespace); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "wait for statefulset ready")
+		s.logger.Warn(ctx, "StatefulSet did not become ready within timeout; agent type left in provisioning state",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "slug", Value: at.Slug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
 	}
 	if err := s.repo.SetAgentTypeState(ctx, at.ID, AgentTypeStateProvisioning, AgentTypeStateActive); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "set agent type active")
-		return nil, fmt.Errorf("set agent type active: %w", err)
+		return
 	}
-	at.State = AgentTypeStateActive
-
-	s.logger.Info(ctx, "Agent type created",
+	s.logger.Info(ctx, "Agent type provisioned and active",
 		logging.Field{Key: "agent_type_id", Value: at.ID},
-		logging.Field{Key: "tenant_id", Value: at.TenantID},
 		logging.Field{Key: "slug", Value: at.Slug},
 	)
 	if s.agentTypeHook != nil {
 		s.agentTypeHook()
 	}
-	return &at, nil
 }
 
 func (s *Service) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
@@ -171,8 +213,13 @@ func (s *Service) DeleteAgentType(ctx context.Context, id string) error {
 	span.SetAttributes(attribute.String("slug", at.Slug))
 
 	// Allow retrying a stuck deletion; skip state transition if already deleting.
+	// Also accept provisioning state — partially-created agent types must be deletable.
 	if at.State != AgentTypeStateDeleting {
-		if err := s.repo.SetAgentTypeState(ctx, id, AgentTypeStateActive, AgentTypeStateDeleting); err != nil {
+		fromState := AgentTypeStateActive
+		if at.State == AgentTypeStateProvisioning {
+			fromState = AgentTypeStateProvisioning
+		}
+		if err := s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "set agent type deleting")
 			return fmt.Errorf("set agent type deleting: %w", err)
@@ -186,6 +233,13 @@ func (s *Service) DeleteAgentType(ctx context.Context, id string) error {
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}
 
+	// Runs must be removed before the agent type row to satisfy the FK constraint.
+	if err := s.repo.DeleteRunsByAgentType(ctx, id); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "delete runs for agent type")
+		return fmt.Errorf("delete runs for agent type: %w", err)
+	}
+
 	if err := s.repo.DeleteAgentType(ctx, id); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "delete agent type")
@@ -195,6 +249,50 @@ func (s *Service) DeleteAgentType(ctx context.Context, id string) error {
 		s.agentTypeHook()
 	}
 	return nil
+}
+
+// UpdateAgentType applies partial updates to an existing agent type.
+func (s *Service) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.UpdateAgentType",
+		trace.WithAttributes(attribute.String("agent_type_id", req.ID)),
+	)
+	defer span.End()
+
+	at, err := s.repo.GetAgentType(ctx, req.ID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return nil, fmt.Errorf("get agent type: %w", err)
+	}
+
+	if req.Name != nil {
+		at.Name = *req.Name
+	}
+	if req.Description != nil {
+		at.Description = *req.Description
+	}
+	if req.SystemPrompt != nil {
+		at.SystemPrompt = *req.SystemPrompt
+	}
+	if req.Framework != nil {
+		at.Framework = *req.Framework
+	}
+	if req.MaxConcurrentRunsPerPod != nil {
+		at.MaxConcurrentRunsPerPod = *req.MaxConcurrentRunsPerPod
+	}
+	if req.ModelID != nil {
+		at.ModelID = req.ModelID
+	}
+
+	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "update agent type")
+		return nil, fmt.Errorf("update agent type: %w", err)
+	}
+	return at, nil
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -565,6 +663,17 @@ type CreateAgentTypeRequest struct {
 	ToolScopes              []string       `json:"tool_scopes"`
 	GrantScopes             []string       `json:"grant_scopes"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
+	ModelID                 *string        `json:"model_id"`
+}
+
+type UpdateAgentTypeRequest struct {
+	ID                      string          `json:"-"`
+	Name                    *string         `json:"name"`
+	Description             *string         `json:"description"`
+	SystemPrompt            *string         `json:"system_prompt"`
+	Framework               *AgentFramework `json:"framework"`
+	MaxConcurrentRunsPerPod *int            `json:"max_concurrent_runs_per_pod"`
+	ModelID                 *string         `json:"model_id"`
 }
 
 type StartRunRequest struct {

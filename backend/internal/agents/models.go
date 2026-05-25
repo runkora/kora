@@ -27,19 +27,20 @@ const (
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
-	ID                      string
-	TenantID                string
-	Name                    string
-	Slug                    string         // URL-safe identifier, unique per tenant
-	Description             string         // human-readable summary shown in the portal
-	SystemPrompt            string         // injected as the agent's initial system context
-	Framework               AgentFramework // CLI framework running in the pod
-	ToolScopes              []string       // Claude Code built-in tools allowed (e.g. ["shell", "filesystem"])
-	GrantScopes             []string       // inference gateway scopes granted via OPA (e.g. ["inference:invoke"])
-	MaxConcurrentRunsPerPod int            // cap per StatefulSet pod
-	State                   AgentTypeState
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                      string         `json:"id"`
+	TenantID                string         `json:"tenant_id"`
+	Name                    string         `json:"name"`
+	Slug                    string         `json:"slug"`
+	Description             string         `json:"description"`
+	SystemPrompt            string         `json:"system_prompt"`
+	Framework               AgentFramework `json:"framework"`
+	ToolScopes              []string       `json:"tool_scopes"`
+	GrantScopes             []string       `json:"grant_scopes"`
+	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
+	State                   AgentTypeState `json:"state"`
+	CreatedAt               time.Time      `json:"created_at"`
+	UpdatedAt               time.Time      `json:"updated_at"`
+	ModelID                 *string        `json:"model_id,omitempty"`
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -58,16 +59,16 @@ const (
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {
-	ID          string
-	TenantID    string
-	AgentTypeID string
-	State       RunState
-	PodOrdinal  int    // which StatefulSet replica owns this run
-	CreatedBy   string // principal_id of the initiating user
-	StartedAt   *time.Time
-	CompletedAt *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string     `json:"id"`
+	TenantID    string     `json:"tenant_id"`
+	AgentTypeID string     `json:"agent_type_id"`
+	State       RunState   `json:"state"`
+	PodOrdinal  int        `json:"pod_ordinal"`
+	CreatedBy   string     `json:"created_by"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────

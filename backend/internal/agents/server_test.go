@@ -117,14 +117,16 @@ func TestHandleCreateAgentType_SlugConflict(t *testing.T) {
 }
 
 func TestHandleCreateAgentType_K8sError(t *testing.T) {
+	// Provisioning is async: the HTTP handler returns 201 immediately even if
+	// K8s provisioning will fail in the background goroutine.
 	c, _, k8s, _ := newTestController(t)
 	k8s.provisionAgentTypeErr = errors.New("k8s down")
 
 	w := postJSON(t, c.handleCreateAgentType, map[string]any{
 		"tenant_id": "t-1", "name": "Bot", "slug": "bot",
 	})
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", w.Code)
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", w.Code)
 	}
 }
 

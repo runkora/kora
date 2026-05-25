@@ -1,14 +1,26 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
-import { MOCK_AGENT_TYPES } from '../_mock/data';
+import { agentsClient } from '@orbit/server/agents-client';
+import { ApiError } from '@orbit/server/client';
 import type { CreateAgentTypeRequest } from '@orbit/shared/api';
 
-export const GET = withAuth(async () => {
-  return NextResponse.json({ data: MOCK_AGENT_TYPES });
+export const GET = withAuth(async (_req, session) => {
+  try {
+    const client = agentsClient(session.accessToken);
+    const upstream = await client.get<{ agent_types: unknown[] }>(
+      `/api/v1/agent-types?tenant_id=${encodeURIComponent(session.tenantId)}`,
+    );
+    return NextResponse.json({ data: upstream?.agent_types ?? [] });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });
+    }
+    throw err;
+  }
 });
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, session) => {
   const body = (await req.json()) as CreateAgentTypeRequest;
   if (!body.name || !body.slug) {
     return NextResponse.json(
@@ -16,20 +28,17 @@ export const POST = withAuth(async (req: NextRequest) => {
       { status: 400 },
     );
   }
-  const created = {
-    ...MOCK_AGENT_TYPES[0],
-    id: `at_${Date.now()}`,
-    name: body.name,
-    slug: body.slug,
-    description: body.description ?? '',
-    system_prompt: body.system_prompt ?? '',
-    framework: body.framework ?? ('claude-code' as const),
-    tool_scopes: body.tool_scopes ?? [],
-    grant_scopes: body.grant_scopes ?? [],
-    max_concurrent_runs_per_pod: body.max_concurrent_runs_per_pod ?? 10,
-    state: 'provisioning' as const,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  return NextResponse.json({ data: created }, { status: 201 });
+  try {
+    const client = agentsClient(session.accessToken);
+    const created = await client.post<unknown>('/api/v1/agent-types', {
+      ...body,
+      tenant_id: session.tenantId,
+    });
+    return NextResponse.json({ data: created }, { status: 201 });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });
+    }
+    throw err;
+  }
 });

@@ -252,6 +252,17 @@ func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, r := range m.runs {
+		if r.AgentTypeID == agentTypeID {
+			delete(m.runs, id)
+		}
+	}
+	return nil
+}
+
 func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
 	if m.activeRunsErr != nil {
 		return nil, m.activeRunsErr
@@ -373,6 +384,10 @@ func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
 	m.mu.Lock()
 	m.deletedSandboxes = append(m.deletedSandboxes, runID)
 	m.mu.Unlock()
+	return nil
+}
+
+func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {
 	return nil
 }
 
