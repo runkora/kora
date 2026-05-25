@@ -31,7 +31,12 @@ export const APP_ROUTES = {
   authCallback: '/auth/callback',
 
   // ── Control Plane ────────────────────────────────────────────────────────
-  agents: '/agents',
+  agents: {
+    list: '/agents' as const,
+    new: '/agents/new' as const,
+    detail: (slug: string) => `/agents/${slug}` as const,
+    run: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}` as const,
+  },
   events: '/events',
   credentials: '/credentials',
 

@@ -19,7 +19,7 @@ export type NavGroup = { label: string; items: NavEntry[] };
 
 const MAIN_NAV: NavEntry[] = [
   { label: 'Dashboard', href: APP_ROUTES.home, icon: 'layout-dashboard' },
-  { label: 'Agents', href: APP_ROUTES.agents, icon: 'bot', badge: 12, wip: true },
+  { label: 'Agents', href: APP_ROUTES.agents.list, icon: 'bot' },
   { label: 'Event Spine', href: APP_ROUTES.events, icon: 'activity', wip: true },
   { label: 'Credentials', href: APP_ROUTES.credentials, icon: 'key', wip: true },
 ];

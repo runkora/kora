@@ -139,14 +139,7 @@ const FormField = ({
   return (
     <FormFieldContext.Provider value={contextValue}>
       <Field>
-        <Label htmlFor={id}>
-          {label}
-          {required && (
-            <span aria-hidden="true" className="ml-0.5 text-status-error">
-              *
-            </span>
-          )}
-        </Label>
+        <Label htmlFor={id}>{label}</Label>
         {children}
         {hint && !hasError && <FieldHint id={hintId}>{hint}</FieldHint>}
         {hasError && <FieldError id={errorId}>{error}</FieldError>}

@@ -112,3 +112,94 @@ export interface UpdatePATScopesRequest {
 export interface ListPATsResponse {
   tokens: PAT[];
 }
+
+// ── Agents — /api/agents ──────────────────────────────────────────────────────
+
+/** Execution framework the agent type targets. Mirrors Go: agents.Framework */
+export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
+
+/** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
+export type AgentTypeState = 'provisioning' | 'active' | 'deleting';
+
+/** Lifecycle state of a single Run. Mirrors Go: agents.RunState */
+export type RunState = 'pending' | 'starting' | 'active' | 'completing' | 'completed' | 'failed';
+
+/**
+ * An AgentType defines the configuration template for a class of agents.
+ * Mirrors Go: agents.AgentType
+ */
+export interface AgentType {
+  id: string;
+  tenant_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  system_prompt: string;
+  framework: AgentFramework;
+  tool_scopes: string[];
+  grant_scopes: string[];
+  max_concurrent_runs_per_pod: number;
+  state: AgentTypeState;
+  created_at: string;
+  updated_at: string;
+  /** Optional model identifier, e.g. "anthropic/claude-sonnet-4-6". */
+  model_id?: string;
+}
+
+/**
+ * A single execution of an AgentType.
+ * Mirrors Go: agents.Run
+ */
+export interface Run {
+  id: string;
+  tenant_id: string;
+  agent_type_id: string;
+  state: RunState;
+  pod_ordinal: number;
+  created_by: string;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Total tokens consumed by this run, if available. */
+  tokens_used?: number;
+  /** Number of tool calls made during this run, if available. */
+  tool_calls?: number;
+}
+
+/** Top-level response from GET /agents/types. */
+export interface AgentTypesListResponse {
+  data: AgentType[];
+}
+
+/** Top-level response from GET /agents/runs. */
+export interface RunsListResponse {
+  data: Run[];
+}
+
+/** Request body for POST /api/agents/types. */
+export interface CreateAgentTypeRequest {
+  name: string;
+  slug: string;
+  description?: string;
+  system_prompt?: string;
+  framework?: AgentFramework;
+  tool_scopes?: string[];
+  grant_scopes?: string[];
+  max_concurrent_runs_per_pod?: number;
+}
+
+/** Request body for POST /api/agents/types/:typeId/runs. */
+export interface StartRunRequest {
+  task?: string;
+  provision_sandbox?: boolean;
+}
+
+/** Request body for PATCH /api/agents/types/:id. */
+export interface UpdateAgentTypeRequest {
+  name?: string;
+  description?: string;
+  framework?: AgentFramework;
+  system_prompt?: string;
+  max_concurrent_runs_per_pod?: number;
+}

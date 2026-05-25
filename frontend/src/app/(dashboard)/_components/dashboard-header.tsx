@@ -1,14 +1,25 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
 import { Button, Icon, Indicator, Separator, Stack, Text } from '@orbit/terra';
 
-/**
- * Top header bar for the dashboard shell.
- *
- * Contains breadcrumb navigation, quick actions (refresh, notifications),
- * and the primary "Deploy Agent" CTA.
- *
- * Rendered as a server component — no client-side state required.
- */
+const SECTION_LABELS: Record<string, string> = {
+  agents: 'Agents',
+  policy: 'Policy',
+  identity: 'Identity',
+  'model-gateway': 'Model Gateway',
+  chat: 'Chat',
+};
+
+function useSectionLabel(): string {
+  const pathname = usePathname();
+  const segment = pathname.split('/').filter(Boolean)[0] ?? '';
+  return SECTION_LABELS[segment] ?? 'Dashboard';
+}
+
 export function DashboardHeader() {
+  const section = useSectionLabel();
+
   return (
     <Stack
       direction="horizontal"
@@ -17,7 +28,6 @@ export function DashboardHeader() {
       height="full"
       paddingInline="comfortable"
     >
-      {/* TODO: Replace with Terra Breadcrumbs component when available */}
       <Stack
         direction="horizontal"
         align="center"
@@ -30,16 +40,14 @@ export function DashboardHeader() {
         </Text>
         <Icon name="chevron-right" size="2xs" label="" />
         <Text size="supporting" weight="emphasis">
-          Dashboard
+          {section}
         </Text>
       </Stack>
 
-      {/* Actions */}
       <Stack direction="horizontal" align="center" gap="snug">
         <Button variant="ghost" size="icon" aria-label="Refresh">
           <Icon name="refresh-cw" />
         </Button>
-        {/* Positioning context for the notification dot */}
         <Indicator status="error">
           <Button variant="ghost" size="icon" aria-label="Notifications">
             <Icon name="bell" />

@@ -1,0 +1,1063 @@
+'use client';
+
+/** @tier 3 — agents/[slug]-scoped. Settings — flat section card layout. */
+
+import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  Form,
+  FormField,
+  Grid,
+  Icon,
+  Input,
+  NativeSelect,
+  Stack,
+  Text,
+  Textarea,
+  Toggle,
+  ToggleRow,
+} from '@orbit/terra';
+import { ConfirmDialog } from '@orbit/components';
+import { APP_ROUTES } from '@orbit/lib/routing';
+import { updateAgentType } from '../_services/agent-detail-api';
+import { useAgentDetailContext } from '../_context/agent-detail-context';
+
+type ToolPerm = 'allow' | 'approve' | 'block';
+
+// ── Data ───────────────────────────────────────────────────────────────────────
+
+const FRAMEWORK_OPTIONS = [
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'opencode', label: 'OpenCode' },
+] as const;
+
+const MODEL_TIERS = [
+  {
+    name: 'Haiku',
+    desc: 'Fast · low cost',
+    icon: 'zap' as const,
+    models: [
+      {
+        id: 'anthropic/claude-haiku-4-5',
+        short: 'haiku-4-5',
+        gen: '4',
+        badge: 'Latest',
+        ctx: '100k',
+      },
+      {
+        id: 'anthropic/claude-haiku-3-7',
+        short: 'haiku-3-7',
+        gen: '3.7',
+        badge: 'Stable',
+        ctx: '200k',
+      },
+      {
+        id: 'anthropic/claude-haiku-3-5-20241022',
+        short: 'haiku-3-5',
+        gen: '3.5',
+        badge: null,
+        ctx: '200k',
+      },
+    ],
+  },
+  {
+    name: 'Sonnet',
+    desc: 'Balanced',
+    icon: 'cpu' as const,
+    models: [
+      {
+        id: 'anthropic/claude-sonnet-4-6',
+        short: 'sonnet-4-6',
+        gen: '4',
+        badge: 'Latest',
+        ctx: '200k',
+      },
+      {
+        id: 'anthropic/claude-sonnet-3-7',
+        short: 'sonnet-3-7',
+        gen: '3.7',
+        badge: 'Stable',
+        ctx: '200k',
+      },
+      {
+        id: 'anthropic/claude-sonnet-3-5-20241022',
+        short: 'sonnet-3-5',
+        gen: '3.5',
+        badge: null,
+        ctx: '200k',
+      },
+    ],
+  },
+  {
+    name: 'Opus',
+    desc: 'Most capable',
+    icon: 'sparkles' as const,
+    models: [
+      {
+        id: 'anthropic/claude-opus-4-7',
+        short: 'opus-4-7',
+        gen: '4',
+        badge: 'Latest',
+        ctx: '200k',
+      },
+    ],
+  },
+] as const;
+
+const TOOL_LIST = [
+  {
+    emoji: '📄',
+    name: 'read_file',
+    desc: 'Read files from the workspace',
+    defaultPerm: 'allow' as ToolPerm,
+  },
+  {
+    emoji: '✏️',
+    name: 'write_file',
+    desc: 'Create or modify files',
+    defaultPerm: 'allow' as ToolPerm,
+  },
+  { emoji: '⚡', name: 'bash', desc: 'Execute shell commands', defaultPerm: 'approve' as ToolPerm },
+  {
+    emoji: '🔍',
+    name: 'search_files',
+    desc: 'Grep / search across the workspace',
+    defaultPerm: 'allow' as ToolPerm,
+  },
+  {
+    emoji: '🔧',
+    name: 'git',
+    desc: 'Run git commands (status, diff, commit)',
+    defaultPerm: 'approve' as ToolPerm,
+  },
+  {
+    emoji: '🌐',
+    name: 'web_fetch',
+    desc: 'Fetch content from external URLs',
+    defaultPerm: 'block' as ToolPerm,
+  },
+  {
+    emoji: '🔌',
+    name: 'mcp_tools',
+    desc: 'All tools from connected MCP servers',
+    defaultPerm: 'approve' as ToolPerm,
+  },
+];
+
+// ── Style constants ───────────────────────────────────────────────────────────
+
+const PERM_ACTIVE_STYLE: Record<ToolPerm, React.CSSProperties> = {
+  allow: { background: 'oklch(22% 0.08 140 / 0.4)', color: 'oklch(70% 0.12 140)' },
+  approve: { background: 'oklch(22% 0.07 80 / 0.35)', color: 'oklch(80% 0.15 80)' },
+  block: { background: 'oklch(22% 0.1 25 / 0.35)', color: 'oklch(65% 0.2 25)' },
+};
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function PermControl({ value, onChange }: { value: ToolPerm; onChange: (v: ToolPerm) => void }) {
+  const opts: { v: ToolPerm; label: string }[] = [
+    { v: 'allow', label: 'Allow' },
+    { v: 'approve', label: 'Approve' },
+    { v: 'block', label: 'Block' },
+  ];
+  return (
+    <Stack
+      direction="horizontal"
+      gap="none"
+      style={{
+        border: '1px solid oklch(var(--color-border) / 1)',
+        borderRadius: '5px',
+        overflow: 'hidden',
+        flexShrink: 0,
+      }}
+    >
+      {opts.map((opt, i) => (
+        <Stack
+          key={opt.v}
+          role="button"
+          tabIndex={0}
+          onClick={() => onChange(opt.v)}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') onChange(opt.v);
+          }}
+          style={{
+            padding: '4px 10px',
+            cursor: 'pointer',
+            userSelect: 'none' as const,
+            fontSize: '11px',
+            fontWeight: 500,
+            borderRight: i < 2 ? '1px solid oklch(var(--color-border) / 1)' : undefined,
+            transition: 'all 0.12s',
+            ...(value === opt.v
+              ? PERM_ACTIVE_STYLE[opt.v]
+              : { color: 'oklch(var(--color-foreground-subtle) / 1)' }),
+          }}
+        >
+          <Text
+            size="supporting"
+            style={{ color: 'inherit', fontSize: 'inherit', fontWeight: 'inherit' }}
+          >
+            {opt.label}
+          </Text>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+function DangerActionRow({
+  label,
+  description,
+  children,
+  highlight,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+  highlight?: boolean;
+}) {
+  return (
+    <Stack
+      direction="horizontal"
+      align="center"
+      gap="comfortable"
+      style={{
+        padding: '12px 14px',
+        border: `1px solid ${highlight ? 'oklch(38% 0.12 25 / 0.5)' : 'oklch(var(--color-border) / 1)'}`,
+        borderRadius: '6px',
+        background: highlight ? 'oklch(18% 0.06 25 / 0.12)' : undefined,
+      }}
+    >
+      <Stack gap="tight" style={{ flex: 1 }}>
+        <Text
+          size="supporting"
+          weight="emphasis"
+          style={highlight ? { color: 'oklch(var(--color-error) / 1)' } : undefined}
+        >
+          {label}
+        </Text>
+        <Text size="supporting" color="muted">
+          {description}
+        </Text>
+      </Stack>
+      {children}
+    </Stack>
+  );
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function AgentSettingsTab() {
+  const { agent, deleteAgent } = useAgentDetailContext();
+  const router = useRouter();
+
+  // ── Form state ──────────────────────────────────────────────────────────────
+  const [name, setName] = useState(agent?.name ?? '');
+  const [description, setDescription] = useState(agent?.description ?? '');
+  const [framework, setFramework] = useState(agent?.frameworkKey ?? 'claude-code');
+  const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? '');
+  const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(
+    String(agent?.maxConcurrentRunsPerPod ?? 10),
+  );
+  const [modelId, setModelId] = useState(agent?.modelId ?? 'anthropic/claude-sonnet-4-6');
+
+  // ── Behaviour toggles (UI-only until backend supports) ─────────────────────
+  const [requireApproval, setRequireApproval] = useState(true);
+  const [persistMemory, setPersistMemory] = useState(false);
+  const [includeClaude, setIncludeClaude] = useState(true);
+  const [extendedThinking, setExtendedThinking] = useState(false);
+
+  // ── Tool permissions (UI-only) ─────────────────────────────────────────────
+  const [toolPerms, setToolPerms] = useState<Record<string, ToolPerm>>(
+    Object.fromEntries(TOOL_LIST.map((t) => [t.name, t.defaultPerm])),
+  );
+
+  // ── Webhook URLs (UI-only) ─────────────────────────────────────────────────
+  const [webhookComplete, setWebhookComplete] = useState('');
+  const [webhookError, setWebhookError] = useState('');
+
+  // ── Save / dirty ────────────────────────────────────────────────────────────
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const isDirty =
+    name !== (agent?.name ?? '') ||
+    description !== (agent?.description ?? '') ||
+    framework !== (agent?.frameworkKey ?? 'claude-code') ||
+    systemPrompt !== (agent?.systemPrompt ?? '') ||
+    maxConcurrentRuns !== String(agent?.maxConcurrentRunsPerPod ?? 10);
+
+  // ── Delete ──────────────────────────────────────────────────────────────────
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+
+  const handleSave = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!agent) return;
+      setSaving(true);
+      setSaveError(null);
+      setSaveSuccess(false);
+      const result = await updateAgentType(agent.id, {
+        name: name.trim(),
+        description: description.trim(),
+        framework: framework as 'claude-code' | 'codex' | 'opencode',
+        system_prompt: systemPrompt.trim(),
+        max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
+      });
+      setSaving(false);
+      if (result.error) {
+        setSaveError(result.error);
+      } else {
+        setSaveSuccess(true);
+      }
+    },
+    [agent, name, description, framework, systemPrompt, maxConcurrentRuns],
+  );
+
+  const handleDiscard = useCallback(() => {
+    if (!agent) return;
+    setName(agent.name);
+    setDescription(agent.description ?? '');
+    setFramework(agent.frameworkKey);
+    setSystemPrompt(agent.systemPrompt);
+    setMaxConcurrentRuns(String(agent.maxConcurrentRunsPerPod));
+    setSaveError(null);
+    setSaveSuccess(false);
+  }, [agent]);
+
+  const handleDelete = useCallback(async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    const ok = await deleteAgent();
+    setDeleting(false);
+    if (!ok) {
+      setDeleteError('Failed to delete agent. Please try again.');
+      return;
+    }
+    setDeleteOpen(false);
+    router.push(APP_ROUTES.agents.list);
+  }, [deleteAgent, router]);
+
+  if (!agent) return null;
+
+  const estimatedTokens = Math.round(systemPrompt.split(/\s+/).filter(Boolean).length * 1.33);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <Stack gap="comfortable" paddingBlock="comfortable">
+      <Form id="settings-form" onSubmit={(e) => void handleSave(e)} noValidate gap="comfortable">
+        {/* ── Identity ──────────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            leadingIcon="user"
+            title="Identity"
+            description="How this agent appears in the dashboard and to your team."
+            divider
+          />
+          <CardContent padded>
+            <Stack gap="comfortable">
+              <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
+                <FormField id="settings-name" label="Name">
+                  <Input
+                    id="settings-name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setSaveSuccess(false);
+                    }}
+                  />
+                </FormField>
+                <FormField id="settings-slug" label="Slug" hint="Cannot be changed after creation.">
+                  <Input id="settings-slug" value={agent.slug} disabled mono />
+                </FormField>
+              </Grid>
+              <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
+                <FormField id="settings-description" label="Description">
+                  <Textarea
+                    id="settings-description"
+                    value={description}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      setSaveSuccess(false);
+                    }}
+                    rows={2}
+                    placeholder="What does this agent do?"
+                  />
+                </FormField>
+                <FormField id="settings-framework" label="Framework">
+                  <NativeSelect
+                    id="settings-framework"
+                    value={framework}
+                    onChange={(e) => {
+                      setFramework(e.target.value);
+                      setSaveSuccess(false);
+                    }}
+                  >
+                    {FRAMEWORK_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormField>
+              </Grid>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {/* ── Model ─────────────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            leadingIcon="cpu"
+            title="Model"
+            description="The AI model powering this agent."
+            divider
+          />
+          <CardContent padded>
+            <Grid cols={3} gap="snug">
+              {MODEL_TIERS.map((tier) => (
+                <Stack key={tier.name} gap="snug">
+                  <Stack direction="horizontal" align="center" gap="tight">
+                    <Stack
+                      style={{ color: 'oklch(var(--color-foreground-subtle) / 1)', flexShrink: 0 }}
+                    >
+                      <Icon name={tier.icon} size="xs" />
+                    </Stack>
+                    <Stack gap="none">
+                      <Text size="supporting" weight="emphasis">
+                        {tier.name}
+                      </Text>
+                      <Text size="caption" color="muted">
+                        {tier.desc}
+                      </Text>
+                    </Stack>
+                  </Stack>
+                  {tier.models.map((model) => {
+                    const selected = modelId === model.id;
+                    return (
+                      <Stack
+                        key={model.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setModelId(model.id);
+                          setSaveSuccess(false);
+                        }}
+                        onKeyDown={(e: React.KeyboardEvent) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            setModelId(model.id);
+                            setSaveSuccess(false);
+                          }
+                        }}
+                        gap="tight"
+                        style={{
+                          padding: '8px 10px',
+                          border: `1px solid ${selected ? 'oklch(var(--color-accent) / 0.4)' : 'oklch(var(--color-border) / 1)'}`,
+                          borderRadius: '6px',
+                          background: selected ? 'oklch(var(--color-accent) / 0.07)' : undefined,
+                          cursor: 'pointer',
+                          userSelect: 'none' as const,
+                          transition: 'all 0.1s',
+                        }}
+                      >
+                        <Stack direction="horizontal" align="center" justify="between">
+                          <Text
+                            mono
+                            size="supporting"
+                            style={{
+                              color: selected
+                                ? 'oklch(var(--color-accent) / 1)'
+                                : 'oklch(var(--color-foreground-muted) / 1)',
+                            }}
+                          >
+                            {model.short}
+                          </Text>
+                          <Text mono size="caption" color="muted">
+                            {model.ctx}
+                          </Text>
+                        </Stack>
+                        {model.badge && (
+                          <Text size="caption" color={selected ? 'muted' : 'subtle'}>
+                            {model.badge}
+                          </Text>
+                        )}
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* ── System Prompt ─────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            leadingIcon="file-text"
+            title="System Prompt"
+            description="Instructions given at the start of every session."
+            action={
+              estimatedTokens > 0 ? (
+                <Text mono size="supporting" color="muted">
+                  ~{estimatedTokens.toLocaleString()} tok
+                </Text>
+              ) : undefined
+            }
+            divider
+          />
+          <CardContent padded>
+            <Textarea
+              id="settings-system-prompt"
+              value={systemPrompt}
+              onChange={(e) => {
+                setSystemPrompt(e.target.value);
+                setSaveSuccess(false);
+              }}
+              rows={12}
+            />
+          </CardContent>
+        </Card>
+
+        {/* ── Tools ─────────────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            leadingIcon="wrench"
+            title="Tools"
+            description="Control which tools the agent can use. Approve = agent must ask before running."
+            divider
+          />
+          <CardContent padded>
+            <Grid cols={{ base: 1, lg: 2 }} gap="snug">
+              {TOOL_LIST.map((tool) => (
+                <Stack
+                  key={tool.name}
+                  direction="horizontal"
+                  align="center"
+                  gap="snug"
+                  style={{
+                    padding: '9px 12px',
+                    border: '1px solid oklch(var(--color-border) / 1)',
+                    borderRadius: '6px',
+                  }}
+                >
+                  <Text
+                    size="supporting"
+                    style={{ width: '22px', textAlign: 'center' as const, flexShrink: 0 }}
+                  >
+                    {tool.emoji}
+                  </Text>
+                  <Stack gap="none" style={{ flex: 1, minWidth: 0 }}>
+                    <Text mono size="supporting" color="muted">
+                      {tool.name}
+                    </Text>
+                    <Text
+                      size="supporting"
+                      color="subtle"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap' as const,
+                      }}
+                    >
+                      {tool.desc}
+                    </Text>
+                  </Stack>
+                  <PermControl
+                    value={toolPerms[tool.name] ?? 'allow'}
+                    onChange={(v) => setToolPerms((prev) => ({ ...prev, [tool.name]: v }))}
+                  />
+                </Stack>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* ── Context & Memory + Behaviour ──────────────────────────────────── */}
+        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+          <Card>
+            <CardHeader
+              leadingIcon="hard-drive"
+              title="Context & Memory"
+              description="Knowledge retention and session context."
+              divider
+            />
+            <CardContent padded>
+              <Stack gap="comfortable">
+                <ToggleRow
+                  htmlFor="session-memory"
+                  label="Session memory"
+                  description="Store a summary of each session and make it available to future sessions."
+                  control={
+                    <Toggle
+                      id="session-memory"
+                      checked={persistMemory}
+                      onChange={setPersistMemory}
+                    />
+                  }
+                />
+                <ToggleRow
+                  htmlFor="include-claude-md"
+                  label="Include CLAUDE.md automatically"
+                  description="Inject CLAUDE.md from the repo root into the system prompt at session start."
+                  control={
+                    <Toggle
+                      id="include-claude-md"
+                      checked={includeClaude}
+                      onChange={setIncludeClaude}
+                    />
+                  }
+                />
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader
+              leadingIcon="settings"
+              title="Behaviour"
+              description="Guardrails and operational limits."
+              divider
+            />
+            <CardContent padded>
+              <Stack gap="comfortable">
+                <FormField
+                  id="settings-max-concurrent"
+                  label="Max concurrent runs per pod"
+                  hint="1–50 · Agent instances scheduled per pod."
+                >
+                  <Input
+                    id="settings-max-concurrent"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={maxConcurrentRuns}
+                    onChange={(e) => {
+                      setMaxConcurrentRuns(e.target.value);
+                      setSaveSuccess(false);
+                    }}
+                    style={{ maxWidth: '8rem' }}
+                  />
+                </FormField>
+                <ToggleRow
+                  htmlFor="require-approval"
+                  label="Require approval for shell commands"
+                  description="Agent pauses and shows an approval prompt before running any shell command."
+                  control={
+                    <Toggle
+                      id="require-approval"
+                      checked={requireApproval}
+                      onChange={setRequireApproval}
+                    />
+                  }
+                />
+                <ToggleRow
+                  htmlFor="extended-thinking"
+                  label="Extended thinking"
+                  description="Model reasons step-by-step before responding. Consumes additional tokens."
+                  control={
+                    <Toggle
+                      id="extended-thinking"
+                      checked={extendedThinking}
+                      onChange={setExtendedThinking}
+                    />
+                  }
+                />
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {saveError && <Alert variant="error">{saveError}</Alert>}
+        {saveSuccess && <Alert variant="info">Changes saved.</Alert>}
+      </Form>
+
+      {/* ── MCP Servers + API & Webhooks ────────────────────────────────────── */}
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+        <Card>
+          <CardHeader
+            leadingIcon="server"
+            title="MCP Servers"
+            description="Tool servers this agent can connect to."
+            action={
+              <Button variant="ghost" size="sm">
+                Manage →
+              </Button>
+            }
+            divider
+          />
+          <CardContent padded>
+            <Stack gap="snug">
+              {[
+                {
+                  name: 'filesystem',
+                  desc: 'Local file system access · 5 tools',
+                  connected: true,
+                  enabled: true,
+                },
+                {
+                  name: 'github',
+                  desc: 'GitHub PRs, issues, and repo management · 12 tools',
+                  connected: true,
+                  enabled: false,
+                },
+                {
+                  name: 'linear',
+                  desc: 'Linear issue management · 8 tools',
+                  connected: true,
+                  enabled: false,
+                },
+              ].map((server) => (
+                <Stack
+                  key={server.name}
+                  direction="horizontal"
+                  align="center"
+                  gap="comfortable"
+                  style={{
+                    padding: '10px 12px',
+                    border: '1px solid oklch(var(--color-border) / 1)',
+                    borderRadius: '6px',
+                  }}
+                >
+                  <Stack
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: server.connected
+                        ? 'oklch(70% 0.12 140)'
+                        : 'oklch(var(--color-border) / 1)',
+                      boxShadow: server.connected ? '0 0 6px oklch(70% 0.2 140 / 0.5)' : undefined,
+                    }}
+                  />
+                  <Stack gap="none" style={{ flex: 1 }}>
+                    <Text mono size="supporting" color="muted">
+                      {server.name}
+                    </Text>
+                    <Text size="supporting" color="subtle">
+                      {server.desc}
+                    </Text>
+                  </Stack>
+                  <Toggle checked={server.enabled} onChange={() => {}} />
+                </Stack>
+              ))}
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader
+            leadingIcon="code-2"
+            title="API & Webhooks"
+            description="Trigger runs programmatically or receive completion events."
+            divider
+          />
+          <CardContent padded>
+            <Stack gap="comfortable">
+              <Stack gap="snug">
+                <Text size="supporting" weight="emphasis">
+                  Agent endpoint
+                </Text>
+                <Card style={{ background: 'oklch(var(--color-background) / 1)' }}>
+                  <CardContent padded>
+                    <Text
+                      mono
+                      preserveWhitespace
+                      size="supporting"
+                      color="muted"
+                      style={{ fontSize: '12px', lineHeight: '1.65' }}
+                    >
+                      {`POST /api/v1/agents/${agent.slug}/runs\nAuthorization: Bearer YOUR_API_KEY\n\n{ "message": "Your task here" }`}
+                    </Text>
+                  </CardContent>
+                </Card>
+              </Stack>
+              <FormField id="webhook-complete" label="On session complete">
+                <Input
+                  id="webhook-complete"
+                  value={webhookComplete}
+                  onChange={(e) => setWebhookComplete(e.target.value)}
+                  placeholder="https://your-app.com/webhooks/orbit"
+                  mono
+                />
+              </FormField>
+              <FormField id="webhook-error" label="On session error">
+                <Input
+                  id="webhook-error"
+                  value={webhookError}
+                  onChange={(e) => setWebhookError(e.target.value)}
+                  placeholder="https://your-app.com/webhooks/orbit-errors"
+                  mono
+                />
+              </FormField>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* ── Access Control ────────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader
+          leadingIcon="users"
+          title="Access Control"
+          description="Who in your team can start sessions with this agent."
+          divider
+        />
+        <CardContent padded>
+          <Stack gap="comfortable">
+            <Stack gap="snug">
+              <Text size="supporting" weight="emphasis">
+                Visibility
+              </Text>
+              <Grid cols={{ base: 1, sm: 3 }} gap="snug">
+                {[
+                  {
+                    label: 'Team',
+                    desc: 'All workspace members can see and use this agent',
+                    active: true,
+                  },
+                  {
+                    label: 'Specific members',
+                    desc: 'Only listed members can access this agent',
+                    active: false,
+                  },
+                  { label: 'Only me', desc: 'Private to your account', active: false },
+                ].map((opt) => (
+                  <Stack
+                    key={opt.label}
+                    gap="tight"
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      padding: '10px 12px',
+                      border: `1px solid ${opt.active ? 'oklch(var(--color-accent) / 0.3)' : 'oklch(var(--color-border) / 1)'}`,
+                      borderRadius: '6px',
+                      background: opt.active ? 'oklch(var(--color-accent) / 0.08)' : undefined,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Text
+                      size="supporting"
+                      weight="emphasis"
+                      style={opt.active ? { color: 'oklch(var(--color-accent) / 1)' } : undefined}
+                    >
+                      {opt.label}
+                    </Text>
+                    <Text size="supporting" color="muted">
+                      {opt.desc}
+                    </Text>
+                  </Stack>
+                ))}
+              </Grid>
+            </Stack>
+            <Stack gap="snug">
+              <Text size="supporting" weight="emphasis">
+                Members with access
+              </Text>
+              {[
+                {
+                  initials: 'JW',
+                  name: agent.name ? 'Justin Wilkin' : 'You',
+                  role: 'Owner',
+                  you: true,
+                },
+              ].map((member) => (
+                <Stack
+                  key={member.initials}
+                  direction="horizontal"
+                  align="center"
+                  gap="comfortable"
+                  style={{
+                    padding: '7px 10px',
+                    border: '1px solid oklch(var(--color-border) / 1)',
+                    borderRadius: '5px',
+                  }}
+                >
+                  <Stack
+                    align="center"
+                    justify="center"
+                    style={{
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '50%',
+                      background: 'oklch(var(--color-accent) / 0.1)',
+                      border: '1.5px solid oklch(var(--color-accent) / 0.3)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Text
+                      size="supporting"
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: 'oklch(var(--color-accent) / 1)',
+                      }}
+                    >
+                      {member.initials}
+                    </Text>
+                  </Stack>
+                  <Stack gap="none" style={{ flex: 1 }}>
+                    <Stack direction="horizontal" align="center" gap="tight">
+                      <Text size="supporting">{member.name}</Text>
+                      {member.you && (
+                        <Text
+                          size="supporting"
+                          style={{ fontSize: '11px', color: 'oklch(var(--color-accent) / 1)' }}
+                        >
+                          you
+                        </Text>
+                      )}
+                    </Stack>
+                  </Stack>
+                  <Text size="supporting" color="muted">
+                    {member.role}
+                  </Text>
+                </Stack>
+              ))}
+              <Button variant="ghost" size="sm" style={{ alignSelf: 'flex-start' }}>
+                <Icon name="plus" size="xs" />
+                Add member
+              </Button>
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* ── Danger Zone ───────────────────────────────────────────────────────── */}
+      <Card style={{ borderColor: 'oklch(38% 0.12 25 / 0.5)' }}>
+        <CardHeader divider>
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Stack style={{ color: 'oklch(var(--color-error) / 1)', flexShrink: 0 }}>
+              <Icon name="triangle-alert" size="xs" />
+            </Stack>
+            <Stack gap="none">
+              <Text
+                size="supporting"
+                weight="emphasis"
+                style={{ color: 'oklch(var(--color-error) / 1)' }}
+              >
+                Danger Zone
+              </Text>
+              <CardDescription>
+                These actions are permanent and may affect running sessions.
+              </CardDescription>
+            </Stack>
+          </Stack>
+        </CardHeader>
+        <CardContent padded>
+          <Grid cols={{ base: 1, lg: 2 }} gap="snug">
+            <DangerActionRow
+              label="Duplicate agent"
+              description="Create an identical copy of this agent with all settings preserved."
+            >
+              <Button variant="ghost" size="sm">
+                <Icon name="copy" size="xs" />
+                Duplicate
+              </Button>
+            </DangerActionRow>
+            <DangerActionRow
+              label="Reset to defaults"
+              description="Clear all configuration and return to factory defaults. Sessions and logs are preserved."
+            >
+              <Button variant="ghost" size="sm">
+                <Icon name="refresh" size="xs" />
+                Reset
+              </Button>
+            </DangerActionRow>
+            <DangerActionRow
+              label="Archive agent"
+              description="Remove from the active dashboard. Sessions and history are preserved and can be restored."
+              highlight
+            >
+              <Button variant="ghost" size="sm">
+                <Icon name="layers" size="xs" />
+                Archive
+              </Button>
+            </DangerActionRow>
+            <DangerActionRow
+              label="Delete agent permanently"
+              description="Deletes the agent, all configuration, and the complete session history. Cannot be undone."
+              highlight
+            >
+              <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
+                <Icon name="trash" size="xs" />
+                Delete agent
+              </Button>
+            </DangerActionRow>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* ── Floating save bar ─────────────────────────────────────────────────── */}
+      {isDirty && (
+        <Stack
+          direction="horizontal"
+          align="center"
+          gap="comfortable"
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'oklch(var(--color-surface) / 1)',
+            border: '1px solid oklch(var(--color-border) / 1)',
+            borderRadius: '8px',
+            padding: '10px 16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            zIndex: 100,
+            whiteSpace: 'nowrap' as const,
+          }}
+        >
+          <Stack direction="horizontal" align="center" gap="snug">
+            <Stack style={{ color: 'oklch(80% 0.15 80)' }}>
+              <Icon name="info" size="xs" />
+            </Stack>
+            <Text size="supporting">You have unsaved changes</Text>
+          </Stack>
+          <Stack direction="horizontal" gap="snug">
+            <Button variant="ghost" size="sm" onClick={handleDiscard}>
+              Discard
+            </Button>
+            <Button
+              type="submit"
+              form="settings-form"
+              variant="default"
+              size="sm"
+              disabled={saving}
+            >
+              <Icon name="check" size="xs" />
+              {saving ? 'Saving…' : 'Save changes'}
+            </Button>
+          </Stack>
+        </Stack>
+      )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+        title="Delete agent"
+        description={`Permanently delete "${agent.name}"? All associated runs will be terminated. This cannot be undone.`}
+        confirmLabel="Delete agent"
+        onConfirm={() => void handleDelete()}
+        confirming={deleting}
+        error={deleteError}
+      />
+    </Stack>
+  );
+}

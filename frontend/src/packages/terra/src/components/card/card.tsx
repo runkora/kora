@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 import { Heading, Text } from '../typography/typography';
+import { Icon } from '../icon/icon';
+import type { IconName } from '../icon/registry';
 import { MAX_H, OVERFLOW_Y } from '../layout/sizing';
 import type { MaxHeight, OverflowValue } from '../layout/sizing';
 
@@ -112,11 +114,9 @@ Card.displayName = 'Card';
 
 // ─── CardHeader ───────────────────────────────────────────────────────────────
 
-interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   /**
-   * When true, reduces the bottom padding from `pb-6` to `pb-2`. Use in
-   * stat cards and compact contexts where the header sits immediately above
-   * a metric value and the default gap feels too wide.
+   * When true, reduces vertical padding for stat cards and KPI widgets.
    *
    * ```tsx
    * <CardHeader compact>
@@ -127,53 +127,157 @@ interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   compact?: boolean;
 
   /**
-   * Optional icon anchored to the top-right of the header. Renders in a
-   * small elevated box inset from the card corner. Use a single Lucide icon
-   * (size-4) to represent the card's subject at a glance.
+   * Optional icon anchored to the top-right corner of the header. Renders in
+   * a small elevated box — useful for KPI cards and stat widgets.
+   *
+   * For section-style cards with a left-leading icon use `leadingIcon` instead.
    *
    * ```tsx
-   * <CardHeader compact icon={<DollarSign className="size-4" />}>
+   * <CardHeader compact icon={<Icon name="dollar-sign" size="sm" />}>
    *   <CardTitle>Costs</CardTitle>
-   *   <CardDescription>Current billing period</CardDescription>
    * </CardHeader>
    * ```
    */
   icon?: React.ReactNode;
+
+  /**
+   * Left-leading icon rendered inline before the title. Use for section cards
+   * and content cards where the icon contextualises the subject.
+   *
+   * ```tsx
+   * <CardHeader leadingIcon="user" title="Identity" description="Agent identity settings" />
+   * ```
+   */
+  leadingIcon?: IconName;
+
+  /**
+   * Shorthand title — renders a `CardTitle` inside the header. Can be combined
+   * with `leadingIcon`, `description`, and `action`.
+   */
+  title?: string;
+
+  /**
+   * Shorthand subtitle — renders a `CardDescription` (muted, supporting size)
+   * below the title. Pass a string for default styling or a ReactNode for
+   * custom formatting (e.g. a mono slug).
+   */
+  description?: React.ReactNode;
+
+  /**
+   * Right-side slot for a button, badge, or other action. Pinned to the
+   * trailing edge of the header row.
+   */
+  action?: React.ReactNode;
+
+  /**
+   * When true, renders a `border-b border-border-subtle` divider between the
+   * header and the card body. Use for section cards with rich content below.
+   *
+   * ```tsx
+   * <CardHeader leadingIcon="settings" title="Behaviour" divider />
+   * ```
+   */
+  divider?: boolean;
 }
 
 /**
  * CardHeader
  *
- * Top section of a card. Provides consistent horizontal padding and vertical
- * rhythm between a title/description group and the card body.
+ * Top section of a card. Two usage modes:
  *
- * Pass `compact` to reduce bottom padding for stat cards and KPI widgets
- * where the standard gap between header and content feels excessive.
+ * **Section card anatomy** — pass `leadingIcon`, `title`, `description`, and
+ * optionally `action`. The header composes its own internal layout and renders
+ * a divider when `divider` is set.
  *
- * Pass `icon` to anchor a small icon box to the top-right corner of the
- * header — useful for KPI cards and stat widgets.
+ * ```tsx
+ * <CardHeader
+ *   leadingIcon="user"
+ *   title="Identity"
+ *   description="Configure agent identity and display name"
+ *   action={<Button size="sm" variant="ghost">Edit</Button>}
+ *   divider
+ * />
+ * ```
+ *
+ * **Legacy children mode** — pass `CardTitle` / `CardDescription` as children.
+ * Optionally pass `icon` for the KPI corner icon and `compact` to tighten padding.
+ *
+ * ```tsx
+ * <CardHeader compact icon={<Icon name="activity" size="sm" />}>
+ *   <CardTitle>Total Requests</CardTitle>
+ *   <CardDescription>Last billing period</CardDescription>
+ * </CardHeader>
+ * ```
  */
 const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
-  ({ className, compact = false, icon, children, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn('flex flex-col gap-1.5 p-6', compact && 'pb-2', className)}
-      {...props}
-    >
-      {icon ? (
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1.5" style={{ marginTop: '-6px' }}>
+  (
+    {
+      className,
+      compact = false,
+      icon,
+      leadingIcon,
+      title,
+      description,
+      action,
+      divider = false,
+      children,
+      ...props
+    },
+    ref,
+  ) => {
+    const hasNewAnatomy =
+      leadingIcon !== undefined ||
+      title !== undefined ||
+      description !== undefined ||
+      action !== undefined;
+
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          'flex flex-col gap-1.5 px-4',
+          compact ? 'py-2.5' : 'py-3.5',
+          divider && 'border-b border-border-subtle',
+          className,
+        )}
+        {...props}
+      >
+        {hasNewAnatomy ? (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {leadingIcon && (
+                  <span className="shrink-0 text-muted-foreground">
+                    <Icon name={leadingIcon} size="sm" />
+                  </span>
+                )}
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  {title !== undefined && <CardTitle>{title}</CardTitle>}
+                  {description !== undefined &&
+                    (typeof description === 'string' ? (
+                      <CardDescription>{description}</CardDescription>
+                    ) : (
+                      description
+                    ))}
+                </div>
+              </div>
+              {action !== undefined && <div className="shrink-0">{action}</div>}
+            </div>
             {children}
+          </>
+        ) : icon ? (
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-1.5 min-w-0">{children}</div>
+            <div className="shrink-0 flex size-9 items-center justify-center rounded-lg bg-surface-elevated border border-border-subtle text-muted-foreground">
+              {icon}
+            </div>
           </div>
-          <div className="-mt-3 -mr-3 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-elevated border border-border-subtle text-muted-foreground">
-            {icon}
-          </div>
-        </div>
-      ) : (
-        children
-      )}
-    </div>
-  ),
+        ) : (
+          children
+        )}
+      </div>
+    );
+  },
 );
 CardHeader.displayName = 'CardHeader';
 
@@ -307,7 +411,7 @@ const CardContent = React.forwardRef<HTMLDivElement, CardContentProps>(
     <div
       ref={ref}
       className={cn(
-        flush ? 'p-0' : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
+        flush ? 'p-0' : cn('px-4 pb-4', padded ? 'pt-4' : 'pt-0'),
         grow && 'flex-1',
         className,
       )}
@@ -388,8 +492,8 @@ const CardFooter = React.forwardRef<HTMLDivElement, CardFooterProps>(
     <div
       ref={ref}
       className={cn(
-        'flex flex-wrap items-center gap-3 px-6 border-t border-border-subtle mt-auto',
-        compact ? 'py-3' : 'pb-6 pt-0',
+        'flex flex-wrap items-center gap-3 px-4 border-t border-border-subtle mt-auto',
+        compact ? 'py-3' : 'py-4',
         FOOTER_JUSTIFY[justify],
         className,
       )}
@@ -402,4 +506,4 @@ CardFooter.displayName = 'CardFooter';
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };
-export type { CardProps, CardHeaderProps, CardContentProps, CardFooterProps };
+export type { CardProps, CardContentProps, CardFooterProps };

@@ -48,9 +48,13 @@ import {
   Heart,
   Info,
   KeyRound,
+  Play,
+  PlayCircle,
+  SearchX,
   Layers,
   LayoutDashboard,
   LayoutGrid,
+  LayoutList,
   Library,
   LineChart,
   List,
@@ -142,6 +146,7 @@ export type IconName =
   | 'layers'
   | 'layout-dashboard'
   | 'layout-grid'
+  | 'layout-list'
   | 'library'
   | 'line-chart'
   | 'list'
@@ -154,6 +159,8 @@ export type IconName =
   | 'more-vertical'
   | 'network'
   | 'panel-left'
+  | 'play'
+  | 'play-circle'
   | 'plus'
   | 'refresh'
   | 'refresh-cw'
@@ -161,6 +168,7 @@ export type IconName =
   | 'route'
   | 'scroll-text'
   | 'search'
+  | 'search-x'
   | 'send'
   | 'settings'
   | 'shield'
@@ -229,6 +237,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   layers: Layers,
   'layout-dashboard': LayoutDashboard,
   'layout-grid': LayoutGrid,
+  'layout-list': LayoutList,
   library: Library,
   'line-chart': LineChart,
   list: List,
@@ -241,6 +250,8 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'more-vertical': MoreVertical,
   network: Network,
   'panel-left': PanelLeft,
+  play: Play,
+  'play-circle': PlayCircle,
   plus: Plus,
   refresh: RotateCcw,
   'refresh-cw': RefreshCw,
@@ -248,6 +259,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   route: Route,
   'scroll-text': ScrollText,
   search: Search,
+  'search-x': SearchX,
   send: Send,
   settings: Settings,
   shield: Shield,
