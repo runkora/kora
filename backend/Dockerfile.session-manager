@@ -73,8 +73,10 @@ RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then MUSL_ARCH="x86_64"; \
     elif [ "$ARCH" = "aarch64" ]; then MUSL_ARCH="aarch64"; \
     else echo "Unsupported architecture: $ARCH" >&2 && exit 1; fi && \
-    curl -fsSL -o /usr/local/bin/codex \
-        "https://github.com/openai/codex/releases/download/v${CODEX_VERSION}/codex-${MUSL_ARCH}-unknown-linux-musl" && \
+    curl -fsSL \
+        "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${MUSL_ARCH}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin && \
+    mv /usr/local/bin/codex-${MUSL_ARCH}-unknown-linux-musl /usr/local/bin/codex && \
     chmod +x /usr/local/bin/codex
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
