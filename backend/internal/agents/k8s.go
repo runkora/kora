@@ -450,16 +450,17 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 	principalID := p.agentSpiffeID(at, namespace)
+	grantTenantID := at.TenantID
 
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.EnsureAgentGrant",
 		trace.WithAttributes(
 			attribute.String("principal_id", principalID),
-			attribute.String("tenant_id", at.TenantID),
+			attribute.String("tenant_id", grantTenantID),
 		),
 	)
 	defer span.End()
 
-	existing, err := p.policyClient.ListGrants(ctx, at.TenantID, "AGENT", principalID)
+	existing, err := p.policyClient.ListGrants(ctx, grantTenantID, "AGENT", principalID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list agent grants")
@@ -494,14 +495,14 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 
-	if _, err := p.policyClient.CreateGrant(ctx, at.TenantID, "AGENT", principalID, at.GrantScopes); err != nil {
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
 	}
 	p.logger.Info(ctx, "agent grant created",
 		logging.Field{Key: "principal_id", Value: principalID},
-		logging.Field{Key: "tenant_id", Value: at.TenantID},
+		logging.Field{Key: "tenant_id", Value: grantTenantID},
 	)
 	return nil
 }

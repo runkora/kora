@@ -128,6 +128,11 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("claude stdout pipe: %w", err)
 	}
 
+	stderr, err := r.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("claude stderr pipe: %w", err)
+	}
+
 	if err := r.cmd.Start(); err != nil {
 		return fmt.Errorf("claude start: %w", err)
 	}
@@ -140,6 +145,7 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		logging.Field{Key: "tool_count", Value: len(r.cfg.AllowedTools)},
 	)
 
+	go r.logStderr(ctx, stderr)
 	go r.transform(ctx, stdout)
 	return nil
 }
@@ -228,6 +234,21 @@ func (r *ClaudeRunner) Close() error {
 	return firstErr
 }
 
+// logStderr reads Claude's stderr and logs each line as an error.
+func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		r.cfg.Logger.Error(ctx, "Claude subprocess stderr",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "line", Value: line},
+		)
+	}
+}
+
 // transform reads Claude Code's stream-json stdout and emits Orbit events.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
 func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
@@ -248,6 +269,13 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 		r.dispatch(ctx, wrapper)
 	}
 
+	if err := scanner.Err(); err != nil {
+		r.cfg.Logger.Error(ctx, "Claude stdout scan error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+
 	r.cfg.Logger.Info(ctx, "Claude subprocess exited",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
 	)
@@ -265,13 +293,39 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 		r.handleAssistant(ctx, w.Message)
 	case "user":
 		r.handleUser(w.Message)
+	case "system":
+		// Carries startup messages and tool initialisation info from Claude Code.
+		r.cfg.Logger.Info(ctx, "Claude system event",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "subtype", Value: w.Subtype},
+		)
 	case "result":
-		if w.Subtype == "success" && w.StopReason == "end_turn" {
+		if w.Subtype == "success" {
+			textLen := r.textBuf.Len()
 			r.cfg.Logger.Info(ctx, "Claude turn complete",
 				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "text_len", Value: r.textBuf.Len()},
+				logging.Field{Key: "stop_reason", Value: w.StopReason},
+				logging.Field{Key: "text_len", Value: textLen},
 				logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
 			)
+			// An empty turn with a non-standard stop reason signals a silent failure
+			// (e.g. inference gateway returning 5xx after exhausted retries).
+			if textLen == 0 && w.StopReason != "end_turn" {
+				msg := w.Result
+				if msg == "" {
+					msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
+				}
+				r.cfg.Logger.Error(ctx, "Claude empty turn — possible inference error",
+					logging.Field{Key: "run_id", Value: r.cfg.RunID},
+					logging.Field{Key: "stop_reason", Value: w.StopReason},
+					logging.Field{Key: "result", Value: msg},
+				)
+				r.emit(EventTypeRunError, RunErrorPayload{
+					Code:    "empty_response",
+					Message: msg,
+				})
+				return
+			}
 			r.emit(EventTypeMessageComplete, MessageCompletePayload{
 				Text:     r.textBuf.String(),
 				Thinking: r.thinkingBuf.String(),
@@ -279,6 +333,29 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			r.textBuf.Reset()
 			r.thinkingBuf.Reset()
 			r.emit(EventTypeMessageStop, nil)
+		} else {
+			msg := w.Result
+			if msg == "" {
+				msg = fmt.Sprintf("Claude exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
+			}
+			r.cfg.Logger.Error(ctx, "Claude error result",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "subtype", Value: w.Subtype},
+				logging.Field{Key: "stop_reason", Value: w.StopReason},
+				logging.Field{Key: "result", Value: msg},
+			)
+			r.emit(EventTypeRunError, RunErrorPayload{
+				Code:    "claude_error",
+				Message: msg,
+			})
+		}
+	default:
+		if w.Type != "" {
+			r.cfg.Logger.Info(ctx, "Unhandled Claude output type",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "type", Value: w.Type},
+				logging.Field{Key: "subtype", Value: w.Subtype},
+			)
 		}
 	}
 }
@@ -354,27 +431,34 @@ func isExitKilled(err error) bool {
 
 // scopesToClaudeTools converts Orbit tool scope names to Claude Code built-in
 // tool names for the --tools flag. Unrecognized scopes are ignored.
-// An empty result produces "--tools default" (all built-in tools allowed).
+// lsp, monitoring, scheduling, and meta tools are always included regardless
+// of the configured scopes. An empty selectable result still gets these auto tools.
+// AskUserQuestion is intentionally excluded: Claude Code auto-rejects it in
+// headless stream-json mode; use a custom MCP tool for human-in-the-loop instead.
 func scopesToClaudeTools(scopes []string) string {
-	// Orbit scope → Claude Code built-in tool names.
-	// AskUserQuestion is intentionally excluded: Claude Code auto-rejects it in
-	// headless stream-json mode; use a custom MCP tool for human-in-the-loop instead.
 	scopeMap := map[string][]string{
+		// Selectable scopes — operator configures these per agent type.
 		"shell":      {"Bash"},
 		"filesystem": {"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"},
 		"web":        {"WebFetch", "WebSearch"},
-		"notebook":   {"NotebookEdit"},
 		"agents":     {"Agent", "SendMessage"},
 		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "TodoWrite"},
 		"mcp":        {"ListMcpResourcesTool", "ReadMcpResourceTool"},
+		// Auto scopes — always injected, not shown in the UI.
 		"lsp":        {"LSP"},
 		"monitoring": {"Monitor"},
 		"scheduling": {"CronCreate", "CronDelete", "CronList"},
 		"meta":       {"ToolSearch", "Skill"},
 	}
+	// Always include auto scopes so the full scope list is selectable + auto.
+	autoScopes := []string{"lsp", "monitoring", "scheduling", "meta"}
+	all := make([]string, len(scopes)+len(autoScopes))
+	copy(all, scopes)
+	copy(all[len(scopes):], autoScopes)
+
 	seen := map[string]bool{}
 	var tools []string
-	for _, scope := range scopes {
+	for _, scope := range all {
 		for _, t := range scopeMap[scope] {
 			if !seen[t] {
 				seen[t] = true
@@ -412,6 +496,7 @@ type claudeOutputWrapper struct {
 	Type       string          `json:"type"`
 	Subtype    string          `json:"subtype"`
 	StopReason string          `json:"stop_reason"`
+	Result     string          `json:"result"`  // error message when Subtype == "error"
 	Event      json.RawMessage `json:"event"`   // when Type == "stream_event"
 	Message    *claudeMessage  `json:"message"` // when Type == "assistant" | "user"
 }

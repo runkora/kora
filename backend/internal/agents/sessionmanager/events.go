@@ -10,6 +10,7 @@ const (
 	EventTypeMessageComplete EventType = "message_complete"
 	EventTypeToolUse         EventType = "tool_use"
 	EventTypeToolResult      EventType = "tool_result"
+	EventTypeRunError        EventType = "run_error"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
 	// Not written to run_events (ADR-0054); consumed by orbit-agents SSE subscribers.
@@ -45,6 +46,13 @@ type ToolResultPayload struct {
 	ToolUseID string `json:"tool_use_id"`
 	Content   string `json:"content"`
 	IsError   bool   `json:"is_error"`
+}
+
+// RunErrorPayload carries a fatal error that terminated or prevented a run.
+// Persisted to run_events so it survives reconnection and page reload.
+type RunErrorPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // TextDeltaPayload carries one chunk of streamed assistant text.

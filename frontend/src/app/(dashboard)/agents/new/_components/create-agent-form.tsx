@@ -19,10 +19,11 @@ import {
   Stack,
   Textarea,
 } from '@orbit/terra';
+import { ScopePicker } from '@orbit/components';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { ModelObject } from '@orbit/shared/api';
+import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
 import { createAgentType } from '../../_services/agents-api';
 
 // ── Framework options ─────────────────────────────────────────────────────────
@@ -94,6 +95,9 @@ export function CreateAgentForm() {
 
   const [models, setModels] = useState<ModelObject[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [toolScopes, setToolScopes] = useState<string[]>([]);
+  const [toolScopesSearch, setToolScopesSearch] = useState('');
+  const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
 
   useEffect(() => {
     fetch(ApiRoute.models.GET(), { cache: 'no-store' })
@@ -107,6 +111,15 @@ export function CreateAgentForm() {
         /* silently leave empty — user sees disabled select */
       })
       .finally(() => setModelsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.toolScopes(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ToolScopeDefinition[] }) => {
+        setAvailableToolScopes(body.data ?? []);
+      })
+      .catch(() => undefined);
   }, []);
 
   const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
@@ -160,7 +173,7 @@ export function CreateAgentForm() {
           framework,
           model_id: modelId,
           system_prompt: systemPrompt.trim(),
-          tool_scopes: [],
+          tool_scopes: toolScopes,
           grant_scopes: grantScopes,
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
         });
@@ -186,6 +199,7 @@ export function CreateAgentForm() {
       modelId,
       systemPrompt,
       grantScopes,
+      toolScopes,
       maxConcurrentRuns,
       router,
     ],
@@ -328,6 +342,35 @@ export function CreateAgentForm() {
               />
             </FormField>
           </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Tools section */}
+      <Card>
+        <CardHeader
+          leadingIcon="wrench"
+          title="Tools"
+          description="Select which tool capabilities this agent is allowed to use."
+          divider
+        />
+        <CardContent padded>
+          <ScopePicker
+            availableScopes={availableToolScopes.map((s) => s.scope)}
+            selectedScopes={toolScopes}
+            onToggle={(scope, checked) =>
+              setToolScopes((prev) =>
+                checked ? [...prev, scope] : prev.filter((s) => s !== scope),
+              )
+            }
+            onToggleGroup={(scopes, checked) =>
+              setToolScopes((prev) => {
+                const without = prev.filter((s) => !scopes.includes(s));
+                return checked ? [...without, ...scopes] : without;
+              })
+            }
+            search={toolScopesSearch}
+            onSearchChange={setToolScopesSearch}
+          />
         </CardContent>
       </Card>
 

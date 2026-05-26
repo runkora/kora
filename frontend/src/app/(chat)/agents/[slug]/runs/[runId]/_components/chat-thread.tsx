@@ -10,6 +10,31 @@ import { Stack, Text } from '@orbit/terra';
 import { useRunContext } from '../_context/run-context';
 import { HumanTurnItem } from './human-turn';
 import { AgentTurnItem } from './agent-turn';
+import type { ErrorTurn } from '../_types';
+
+function ErrorTurnItem({ turn }: { turn: ErrorTurn }) {
+  return (
+    <Stack
+      direction="horizontal"
+      align="center"
+      style={{
+        gap: 8,
+        margin: '4px 20px',
+        padding: '10px 14px',
+        borderRadius: 8,
+        background: 'color-mix(in srgb, var(--color-destructive) 12%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent)',
+      }}
+    >
+      <Text style={{ fontSize: 12, color: 'var(--color-destructive)', lineHeight: 1.5, flex: 1 }}>
+        {turn.message}
+      </Text>
+      <Text as="span" style={{ fontSize: 10, color: 'var(--chat-bds)', flexShrink: 0 }}>
+        {turn.timestamp}
+      </Text>
+    </Stack>
+  );
+}
 
 export function ChatThread() {
   const { turns } = useRunContext();
@@ -73,13 +98,11 @@ export function ChatThread() {
       </Stack>
 
       {/* Turn list */}
-      {turns.map((turn) =>
-        turn.type === 'human' ? (
-          <HumanTurnItem key={turn.id} turn={turn} />
-        ) : (
-          <AgentTurnItem key={turn.id} turn={turn} />
-        ),
-      )}
+      {turns.map((turn) => {
+        if (turn.type === 'human') return <HumanTurnItem key={turn.id} turn={turn} />;
+        if (turn.type === 'error') return <ErrorTurnItem key={turn.id} turn={turn} />;
+        return <AgentTurnItem key={turn.id} turn={turn} />;
+      })}
     </Stack>
   );
 }

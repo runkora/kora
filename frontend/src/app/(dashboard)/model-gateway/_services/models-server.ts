@@ -17,11 +17,17 @@ import type { ModelRow } from '../_types';
 //
 // Never call this from client-side code — use the BFF route instead.
 
-export type GatewayModelsResult =
-  | { ok: true; models: ModelRow[] }
-  | { ok: false; status: number; message: string };
+type GatewayFetchError = { ok: false; status: number; message: string };
 
-export async function fetchModelsFromGateway(accessToken: string): Promise<GatewayModelsResult> {
+export type GatewayModelsResult = { ok: true; models: ModelRow[] } | GatewayFetchError;
+
+export type GatewayRawModelsResult =
+  | { ok: true; models: ModelsListResponse['data'] }
+  | GatewayFetchError;
+
+async function fetchFromGateway(
+  accessToken: string,
+): Promise<{ ok: true; body: ModelsListResponse } | GatewayFetchError> {
   let res: Response;
   try {
     res = await fetch(`${config.inferenceGatewayUrl}/models`, {
@@ -45,12 +51,27 @@ export async function fetchModelsFromGateway(accessToken: string): Promise<Gatew
     return { ok: false, status: res.status, message: body || res.statusText };
   }
 
-  let body: ModelsListResponse;
   try {
-    body = (await res.json()) as ModelsListResponse;
+    const body = (await res.json()) as ModelsListResponse;
+    return { ok: true, body };
   } catch {
     console.error('[fetchModelsFromGateway] failed to parse gateway response as JSON');
     return { ok: false, status: 502, message: 'Invalid response from inference gateway' };
   }
-  return { ok: true, models: (body.data ?? []).map(toModelRow) };
+}
+
+// Returns models transformed into ModelRow display objects (for model-gateway UI).
+export async function fetchModelsFromGateway(accessToken: string): Promise<GatewayModelsResult> {
+  const result = await fetchFromGateway(accessToken);
+  if (!result.ok) return result;
+  return { ok: true, models: (result.body.data ?? []).map(toModelRow) };
+}
+
+// Returns raw ModelObject[] as returned by the inference gateway (for BFF routes).
+export async function fetchRawModelsFromGateway(
+  accessToken: string,
+): Promise<GatewayRawModelsResult> {
+  const result = await fetchFromGateway(accessToken);
+  if (!result.ok) return result;
+  return { ok: true, models: result.body.data ?? [] };
 }

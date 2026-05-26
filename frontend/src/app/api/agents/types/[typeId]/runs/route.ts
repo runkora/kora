@@ -51,9 +51,10 @@ export const GET = withAuth(
 );
 
 export const POST = withAuth(
-  async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
+  async (req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { typeId } = await (context?.params ?? Promise.resolve({ typeId: '' }));
     try {
+      const body = (await req.json().catch(() => ({}))) as { task?: string };
       const agentTypeId = await resolveAgentTypeId(session.accessToken, session.tenantId, typeId);
       if (!agentTypeId) {
         return NextResponse.json(
@@ -66,6 +67,7 @@ export const POST = withAuth(
         tenant_id: session.tenantId,
         agent_type_id: agentTypeId,
         created_by: session.user.sub,
+        initial_message: body.task ?? '',
       });
       return NextResponse.json({ data: run }, { status: 201 });
     } catch (err) {

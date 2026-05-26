@@ -13,10 +13,10 @@ interface InProgress {
 // ── Event payload shapes ──────────────────────────────────────────────────────
 
 interface TextDeltaPayload {
-  content: string;
+  delta: string;
 }
 interface ThinkingDeltaPayload {
-  content: string;
+  delta: string;
 }
 interface ToolUsePayload {
   id: string;
@@ -30,6 +30,10 @@ interface ToolResultPayload {
 }
 interface RunStatePayload {
   state: RunState;
+}
+interface RunErrorPayload {
+  code: string;
+  message: string;
 }
 
 // ── Hook return type ──────────────────────────────────────────────────────────
@@ -123,9 +127,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         const elements = [...turn.elements];
         const last = elements[elements.length - 1];
         if (last?.kind === 'text') {
-          elements[elements.length - 1] = { kind: 'text', content: last.content + payload.content };
+          elements[elements.length - 1] = { kind: 'text', content: last.content + payload.delta };
         } else {
-          elements.push({ kind: 'text', content: payload.content });
+          elements.push({ kind: 'text', content: payload.delta });
         }
         return { ...turn, elements };
       });
@@ -135,7 +139,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       const payload = safeParse<ThinkingDeltaPayload>(e.data);
       if (!payload) return;
       ensureInProgress();
-      const newContent = (inProgressRef.current?.thinkingContent ?? '') + payload.content;
+      const newContent = (inProgressRef.current?.thinkingContent ?? '') + payload.delta;
       if (inProgressRef.current) inProgressRef.current.thinkingContent = newContent;
       updateInProgress((turn) => ({
         ...turn,
@@ -201,6 +205,23 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     es.addEventListener('run_state', (e: MessageEvent) => {
       const payload = safeParse<RunStatePayload>(e.data);
       if (payload?.state) setRunState(payload.state);
+    });
+
+    es.addEventListener('run_error', (e: MessageEvent) => {
+      const payload = safeParse<RunErrorPayload>(e.data);
+      if (!payload) return;
+      flushInProgress();
+      setCommittedTurns((prev) => [
+        ...prev,
+        {
+          type: 'error' as const,
+          id: `err-${Date.now()}`,
+          timestamp: new Date().toTimeString().slice(0, 8),
+          code: payload.code,
+          message: payload.message,
+        },
+      ]);
+      setRunState('failed');
     });
 
     return () => {

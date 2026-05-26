@@ -28,6 +28,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
 	mux.Handle("GET /health", c.handleHealth)
+	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
 	mux.Handle("POST /api/v1/agent-types", c.handleCreateAgentType)
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)
 	mux.Handle("GET /api/v1/agent-types/{id}", c.handleGetAgentType)
@@ -53,6 +54,11 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
+
+func (c *Controller) handleListToolScopes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": SelectableToolScopes})
+}
 
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

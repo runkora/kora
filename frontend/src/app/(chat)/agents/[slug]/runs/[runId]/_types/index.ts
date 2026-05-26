@@ -41,12 +41,20 @@ export interface AgentTurn {
   elements: AgentElement[];
 }
 
+export interface ErrorTurn {
+  type: 'error';
+  id: string;
+  timestamp: string;
+  code: string;
+  message: string;
+}
+
 export type AgentElement =
   | { kind: 'text'; content: string }
   | { kind: 'tool'; tool: ToolCall }
   | { kind: 'approval'; id: string; title: string; description: string; command: string };
 
-export type Turn = HumanTurn | AgentTurn;
+export type Turn = HumanTurn | AgentTurn | ErrorTurn;
 
 // ── Canvas types ──────────────────────────────────────────────────────────────
 

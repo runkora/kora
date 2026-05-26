@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents/[slug]-scoped. Settings — flat section card layout. */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -23,12 +23,12 @@ import {
   Toggle,
   ToggleRow,
 } from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
+import { ConfirmDialog, ScopePicker } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
 import { updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-
-type ToolPerm = 'allow' | 'approve' | 'block';
 
 // ── Data ───────────────────────────────────────────────────────────────────────
 
@@ -38,178 +38,32 @@ const FRAMEWORK_OPTIONS = [
   { value: 'opencode', label: 'OpenCode' },
 ] as const;
 
-const MODEL_TIERS = [
-  {
-    name: 'Haiku',
-    desc: 'Fast · low cost',
-    icon: 'zap' as const,
-    models: [
-      {
-        id: 'anthropic/claude-haiku-4-5',
-        short: 'haiku-4-5',
-        gen: '4',
-        badge: 'Latest',
-        ctx: '100k',
-      },
-      {
-        id: 'anthropic/claude-haiku-3-7',
-        short: 'haiku-3-7',
-        gen: '3.7',
-        badge: 'Stable',
-        ctx: '200k',
-      },
-      {
-        id: 'anthropic/claude-haiku-3-5-20241022',
-        short: 'haiku-3-5',
-        gen: '3.5',
-        badge: null,
-        ctx: '200k',
-      },
-    ],
-  },
-  {
-    name: 'Sonnet',
-    desc: 'Balanced',
-    icon: 'cpu' as const,
-    models: [
-      {
-        id: 'anthropic/claude-sonnet-4-6',
-        short: 'sonnet-4-6',
-        gen: '4',
-        badge: 'Latest',
-        ctx: '200k',
-      },
-      {
-        id: 'anthropic/claude-sonnet-3-7',
-        short: 'sonnet-3-7',
-        gen: '3.7',
-        badge: 'Stable',
-        ctx: '200k',
-      },
-      {
-        id: 'anthropic/claude-sonnet-3-5-20241022',
-        short: 'sonnet-3-5',
-        gen: '3.5',
-        badge: null,
-        ctx: '200k',
-      },
-    ],
-  },
-  {
-    name: 'Opus',
-    desc: 'Most capable',
-    icon: 'sparkles' as const,
-    models: [
-      {
-        id: 'anthropic/claude-opus-4-7',
-        short: 'opus-4-7',
-        gen: '4',
-        badge: 'Latest',
-        ctx: '200k',
-      },
-    ],
-  },
-] as const;
+// ── Model grouping ────────────────────────────────────────────────────────────
 
-const TOOL_LIST = [
-  {
-    emoji: '📄',
-    name: 'read_file',
-    desc: 'Read files from the workspace',
-    defaultPerm: 'allow' as ToolPerm,
-  },
-  {
-    emoji: '✏️',
-    name: 'write_file',
-    desc: 'Create or modify files',
-    defaultPerm: 'allow' as ToolPerm,
-  },
-  { emoji: '⚡', name: 'bash', desc: 'Execute shell commands', defaultPerm: 'approve' as ToolPerm },
-  {
-    emoji: '🔍',
-    name: 'search_files',
-    desc: 'Grep / search across the workspace',
-    defaultPerm: 'allow' as ToolPerm,
-  },
-  {
-    emoji: '🔧',
-    name: 'git',
-    desc: 'Run git commands (status, diff, commit)',
-    defaultPerm: 'approve' as ToolPerm,
-  },
-  {
-    emoji: '🌐',
-    name: 'web_fetch',
-    desc: 'Fetch content from external URLs',
-    defaultPerm: 'block' as ToolPerm,
-  },
-  {
-    emoji: '🔌',
-    name: 'mcp_tools',
-    desc: 'All tools from connected MCP servers',
-    defaultPerm: 'approve' as ToolPerm,
-  },
-];
+interface ModelGroup {
+  family: string;
+  models: ModelObject[];
+}
 
-// ── Style constants ───────────────────────────────────────────────────────────
+function groupModelsByFamily(models: ModelObject[]): ModelGroup[] {
+  const map = new Map<string, ModelObject[]>();
+  for (const m of models) {
+    const key = m.family || m.owned_by || 'other';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(m);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([family, ms]) => ({ family, models: ms }));
+}
 
-const PERM_ACTIVE_STYLE: Record<ToolPerm, React.CSSProperties> = {
-  allow: { background: 'oklch(22% 0.08 140 / 0.4)', color: 'oklch(70% 0.12 140)' },
-  approve: { background: 'oklch(22% 0.07 80 / 0.35)', color: 'oklch(80% 0.15 80)' },
-  block: { background: 'oklch(22% 0.1 25 / 0.35)', color: 'oklch(65% 0.2 25)' },
-};
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function PermControl({ value, onChange }: { value: ToolPerm; onChange: (v: ToolPerm) => void }) {
-  const opts: { v: ToolPerm; label: string }[] = [
-    { v: 'allow', label: 'Allow' },
-    { v: 'approve', label: 'Approve' },
-    { v: 'block', label: 'Block' },
-  ];
-  return (
-    <Stack
-      direction="horizontal"
-      gap="none"
-      style={{
-        border: '1px solid oklch(var(--color-border) / 1)',
-        borderRadius: '5px',
-        overflow: 'hidden',
-        flexShrink: 0,
-      }}
-    >
-      {opts.map((opt, i) => (
-        <Stack
-          key={opt.v}
-          role="button"
-          tabIndex={0}
-          onClick={() => onChange(opt.v)}
-          onKeyDown={(e: React.KeyboardEvent) => {
-            if (e.key === 'Enter' || e.key === ' ') onChange(opt.v);
-          }}
-          style={{
-            padding: '4px 10px',
-            cursor: 'pointer',
-            userSelect: 'none' as const,
-            fontSize: '11px',
-            fontWeight: 500,
-            borderRight: i < 2 ? '1px solid oklch(var(--color-border) / 1)' : undefined,
-            transition: 'all 0.12s',
-            ...(value === opt.v
-              ? PERM_ACTIVE_STYLE[opt.v]
-              : { color: 'oklch(var(--color-foreground-subtle) / 1)' }),
-          }}
-        >
-          <Text
-            size="supporting"
-            style={{ color: 'inherit', fontSize: 'inherit', fontWeight: 'inherit' }}
-          >
-            {opt.label}
-          </Text>
-        </Stack>
-      ))}
-    </Stack>
-  );
+function deriveGrantScopes(modelId: string): string[] {
+  const scopes: string[] = ['inference:invoke'];
+  const parts = modelId.split('/');
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
+  }
+  return scopes;
 }
 
 function DangerActionRow({
@@ -267,17 +121,43 @@ export function AgentSettingsTab() {
     String(agent?.maxConcurrentRunsPerPod ?? 10),
   );
   const [modelId, setModelId] = useState(agent?.modelId ?? 'anthropic/claude-sonnet-4-6');
+  const [toolScopes, setToolScopes] = useState<string[]>(agent?.toolScopes ?? []);
+  const [toolScopesSearch, setToolScopesSearch] = useState('');
+
+  // ── Model fetch ─────────────────────────────────────────────────────────────
+  const [models, setModels] = useState<ModelObject[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(ApiRoute.models.GET(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ModelObject[] }) => {
+        setModels((body.data ?? []).filter((m) => m.status === 'available'));
+      })
+      .catch(() => undefined)
+      .finally(() => setModelsLoading(false));
+  }, []);
+
+  const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
+  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
+
+  // ── Tool scope fetch ────────────────────────────────────────────────────────
+  const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
+
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.toolScopes(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ToolScopeDefinition[] }) => {
+        setAvailableToolScopes(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
 
   // ── Behaviour toggles (UI-only until backend supports) ─────────────────────
   const [requireApproval, setRequireApproval] = useState(true);
   const [persistMemory, setPersistMemory] = useState(false);
   const [includeClaude, setIncludeClaude] = useState(true);
   const [extendedThinking, setExtendedThinking] = useState(false);
-
-  // ── Tool permissions (UI-only) ─────────────────────────────────────────────
-  const [toolPerms, setToolPerms] = useState<Record<string, ToolPerm>>(
-    Object.fromEntries(TOOL_LIST.map((t) => [t.name, t.defaultPerm])),
-  );
 
   // ── Webhook URLs (UI-only) ─────────────────────────────────────────────────
   const [webhookComplete, setWebhookComplete] = useState('');
@@ -293,7 +173,10 @@ export function AgentSettingsTab() {
     description !== (agent?.description ?? '') ||
     framework !== (agent?.frameworkKey ?? 'claude-code') ||
     systemPrompt !== (agent?.systemPrompt ?? '') ||
-    maxConcurrentRuns !== String(agent?.maxConcurrentRunsPerPod ?? 10);
+    maxConcurrentRuns !== String(agent?.maxConcurrentRunsPerPod ?? 10) ||
+    modelId !== (agent?.modelId ?? 'anthropic/claude-sonnet-4-6') ||
+    JSON.stringify(toolScopes.slice().sort()) !==
+      JSON.stringify((agent?.toolScopes ?? []).slice().sort());
 
   // ── Delete ──────────────────────────────────────────────────────────────────
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -315,6 +198,9 @@ export function AgentSettingsTab() {
         framework: framework as 'claude-code' | 'codex' | 'opencode',
         system_prompt: systemPrompt.trim(),
         max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
+        model_id: modelId,
+        grant_scopes: grantScopes,
+        tool_scopes: toolScopes,
       });
       setSaving(false);
       if (result.error) {
@@ -323,7 +209,17 @@ export function AgentSettingsTab() {
         setSaveSuccess(true);
       }
     },
-    [agent, name, description, framework, systemPrompt, maxConcurrentRuns],
+    [
+      agent,
+      name,
+      description,
+      framework,
+      systemPrompt,
+      maxConcurrentRuns,
+      modelId,
+      grantScopes,
+      toolScopes,
+    ],
   );
 
   const handleDiscard = useCallback(() => {
@@ -333,6 +229,8 @@ export function AgentSettingsTab() {
     setFramework(agent.frameworkKey);
     setSystemPrompt(agent.systemPrompt);
     setMaxConcurrentRuns(String(agent.maxConcurrentRunsPerPod));
+    setModelId(agent.modelId);
+    setToolScopes(agent.toolScopes);
     setSaveError(null);
     setSaveSuccess(false);
   }, [agent]);
@@ -427,79 +325,36 @@ export function AgentSettingsTab() {
             divider
           />
           <CardContent padded>
-            <Grid cols={3} gap="snug">
-              {MODEL_TIERS.map((tier) => (
-                <Stack key={tier.name} gap="snug">
-                  <Stack direction="horizontal" align="center" gap="tight">
-                    <Stack
-                      style={{ color: 'oklch(var(--color-foreground-subtle) / 1)', flexShrink: 0 }}
-                    >
-                      <Icon name={tier.icon} size="xs" />
-                    </Stack>
-                    <Stack gap="none">
-                      <Text size="supporting" weight="emphasis">
-                        {tier.name}
-                      </Text>
-                      <Text size="caption" color="muted">
-                        {tier.desc}
-                      </Text>
-                    </Stack>
-                  </Stack>
-                  {tier.models.map((model) => {
-                    const selected = modelId === model.id;
-                    return (
-                      <Stack
-                        key={model.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => {
-                          setModelId(model.id);
-                          setSaveSuccess(false);
-                        }}
-                        onKeyDown={(e: React.KeyboardEvent) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            setModelId(model.id);
-                            setSaveSuccess(false);
-                          }
-                        }}
-                        gap="tight"
-                        style={{
-                          padding: '8px 10px',
-                          border: `1px solid ${selected ? 'oklch(var(--color-accent) / 0.4)' : 'oklch(var(--color-border) / 1)'}`,
-                          borderRadius: '6px',
-                          background: selected ? 'oklch(var(--color-accent) / 0.07)' : undefined,
-                          cursor: 'pointer',
-                          userSelect: 'none' as const,
-                          transition: 'all 0.1s',
-                        }}
-                      >
-                        <Stack direction="horizontal" align="center" justify="between">
-                          <Text
-                            mono
-                            size="supporting"
-                            style={{
-                              color: selected
-                                ? 'oklch(var(--color-accent) / 1)'
-                                : 'oklch(var(--color-foreground-muted) / 1)',
-                            }}
-                          >
-                            {model.short}
-                          </Text>
-                          <Text mono size="caption" color="muted">
-                            {model.ctx}
-                          </Text>
-                        </Stack>
-                        {model.badge && (
-                          <Text size="caption" color={selected ? 'muted' : 'subtle'}>
-                            {model.badge}
-                          </Text>
-                        )}
-                      </Stack>
-                    );
-                  })}
-                </Stack>
-              ))}
-            </Grid>
+            <FormField
+              id="settings-model"
+              label="Model"
+              hint={modelId ? `Grants: ${grantScopes.join(', ')}` : undefined}
+            >
+              <NativeSelect
+                id="settings-model"
+                value={modelId}
+                onChange={(e) => {
+                  setModelId(e.target.value);
+                  setSaveSuccess(false);
+                }}
+                disabled={modelsLoading || models.length === 0}
+              >
+                {modelsLoading && <option value="">Loading models…</option>}
+                {!modelsLoading && models.length === 0 && (
+                  <option value="">No models available</option>
+                )}
+                {!modelsLoading &&
+                  modelGroups.map((group) => (
+                    <optgroup key={group.family} label={group.family}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.display_name || m.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+              </NativeSelect>
+            </FormField>
           </CardContent>
         </Card>
 
@@ -536,52 +391,29 @@ export function AgentSettingsTab() {
           <CardHeader
             leadingIcon="wrench"
             title="Tools"
-            description="Control which tools the agent can use. Approve = agent must ask before running."
+            description="Select which tool capabilities this agent is allowed to use."
             divider
           />
           <CardContent padded>
-            <Grid cols={{ base: 1, lg: 2 }} gap="snug">
-              {TOOL_LIST.map((tool) => (
-                <Stack
-                  key={tool.name}
-                  direction="horizontal"
-                  align="center"
-                  gap="snug"
-                  style={{
-                    padding: '9px 12px',
-                    border: '1px solid oklch(var(--color-border) / 1)',
-                    borderRadius: '6px',
-                  }}
-                >
-                  <Text
-                    size="supporting"
-                    style={{ width: '22px', textAlign: 'center' as const, flexShrink: 0 }}
-                  >
-                    {tool.emoji}
-                  </Text>
-                  <Stack gap="none" style={{ flex: 1, minWidth: 0 }}>
-                    <Text mono size="supporting" color="muted">
-                      {tool.name}
-                    </Text>
-                    <Text
-                      size="supporting"
-                      color="subtle"
-                      style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap' as const,
-                      }}
-                    >
-                      {tool.desc}
-                    </Text>
-                  </Stack>
-                  <PermControl
-                    value={toolPerms[tool.name] ?? 'allow'}
-                    onChange={(v) => setToolPerms((prev) => ({ ...prev, [tool.name]: v }))}
-                  />
-                </Stack>
-              ))}
-            </Grid>
+            <ScopePicker
+              availableScopes={availableToolScopes.map((s) => s.scope)}
+              selectedScopes={toolScopes}
+              onToggle={(scope, checked) => {
+                setToolScopes((prev) =>
+                  checked ? [...prev, scope] : prev.filter((s) => s !== scope),
+                );
+                setSaveSuccess(false);
+              }}
+              onToggleGroup={(scopes, checked) => {
+                setToolScopes((prev) => {
+                  const without = prev.filter((s) => !scopes.includes(s));
+                  return checked ? [...without, ...scopes] : without;
+                });
+                setSaveSuccess(false);
+              }}
+              search={toolScopesSearch}
+              onSearchChange={setToolScopesSearch}
+            />
           </CardContent>
         </Card>
 

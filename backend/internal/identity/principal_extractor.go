@@ -123,7 +123,9 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		// System principals have no tenant
 	case len(segments) >= 4 && segments[0] == "tenant":
 		// Tenant-scoped principals: /tenant/{id}/agent|service/{name}
-		tenantID = segments[1]
+		// K8s namespaces are prefixed with "orbit-tenant-" (e.g. "orbit-tenant-example").
+		// Strip the prefix so the tenantID matches the logical tenant (e.g. "example").
+		tenantID = strings.TrimPrefix(segments[1], "orbit-tenant-")
 		displayName = segments[3]
 
 		switch segments[2] {

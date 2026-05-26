@@ -207,6 +207,9 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			logging.Field{Key: "run_id", Value: cfg.RunID},
 			logging.Field{Key: "failed", Value: failed},
 		)
+		if failed {
+			reg.emitRunError(bgCtx, cfg.RunID, "subprocess_exit", "Agent process exited unexpectedly")
+		}
 		if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, failed); err != nil {
 			reg.logger.Warn(bgCtx, "Failed to notify run completion",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -293,10 +296,33 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	}
 }
 
+// emitRunError persists a run_error event to the DB and pushes it to orbit-agents.
+func (reg *Registry) emitRunError(ctx context.Context, runID, code, message string) {
+	ev, err := newEvent(EventTypeRunError, RunErrorPayload{Code: code, Message: message})
+	if err != nil {
+		return
+	}
+	seqNo, dbErr := newEventRepository(reg.pool).Write(ctx, runID, string(EventTypeRunError), ev.Payload)
+	if dbErr != nil {
+		reg.logger.Error(ctx, "Failed to persist run_error event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: dbErr.Error()},
+		)
+	} else {
+		ev.SequenceNo = seqNo
+	}
+	if notifyErr := reg.notifier.Notify(ctx, runID, ev); notifyErr != nil {
+		reg.logger.Warn(ctx, "Failed to push run_error event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: notifyErr.Error()},
+		)
+	}
+}
+
 // isDurableEvent returns true for events that must be persisted to run_events.
 func isDurableEvent(t EventType) bool {
 	switch t {
-	case EventTypeMessageComplete, EventTypeToolUse, EventTypeToolResult:
+	case EventTypeMessageComplete, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:
 		return true
 	}
 	return false

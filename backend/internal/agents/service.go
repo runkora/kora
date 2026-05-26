@@ -364,6 +364,9 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 		AllowedTools: at.ToolScopes,
 		SystemPrompt: at.SystemPrompt,
 	}
+	if at.ModelID != nil {
+		smReq.Model = *at.ModelID
+	}
 	if err := s.sm.CreateSession(ctx, podURL, smReq); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create session")
@@ -375,6 +378,16 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 		return nil, fmt.Errorf("set run active: %w", err)
 	}
 	run.State = RunStateActive
+
+	if req.InitialMessage != "" {
+		if err := s.sm.SendMessage(ctx, podURL, run.ID, req.InitialMessage); err != nil {
+			// Non-fatal: run is active, user can resend from the chat.
+			s.logger.Warn(ctx, "failed to send initial message",
+				logging.Field{Key: "run_id", Value: run.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}
 
 	s.logger.Info(ctx, "Run started",
 		logging.Field{Key: "run_id", Value: run.ID},
@@ -677,7 +690,8 @@ type UpdateAgentTypeRequest struct {
 }
 
 type StartRunRequest struct {
-	TenantID    string `json:"tenant_id"`
-	AgentTypeID string `json:"agent_type_id"`
-	CreatedBy   string `json:"created_by"`
+	TenantID       string `json:"tenant_id"`
+	AgentTypeID    string `json:"agent_type_id"`
+	CreatedBy      string `json:"created_by"`
+	InitialMessage string `json:"initial_message"`
 }

@@ -41,6 +41,13 @@ export type ModelCapability =
   | 'rerank' // POST /v1/rerank (handler not yet active)
   | 'audio'; // TTS / live audio (no standard endpoint yet)
 
+/** A tool scope definition returned by GET /api/agents/tool-scopes. */
+export interface ToolScopeDefinition {
+  scope: string;
+  description: string;
+  tools: string[];
+}
+
 /** Raw model object returned by the inference gateway. */
 export interface ModelObject {
   id: string;
@@ -204,4 +211,6 @@ export interface UpdateAgentTypeRequest {
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
+  tool_scopes?: string[];
+  grant_scopes?: string[];
 }

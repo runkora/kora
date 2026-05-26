@@ -272,6 +272,7 @@ export const ApiRoute = {
       `${API_BASE}/agents/types/${id}`,
     delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
       `${API_BASE}/agents/types/${id}`,
+    toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
   },
 
   runs: {
