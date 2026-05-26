@@ -21,5 +21,16 @@ claude:
   defaultModel: "anthropic/claude-sonnet-4-6"
   bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
 
+codex:
+  binaryPath: codex
+  defaultModel: "anthropic/claude-sonnet-4-6"
+
+opencode:
+  binaryPath: opencode
+  defaultModel: "anthropic/claude-sonnet-4-6"
+
+inferenceGateway:
+  url: "http://inference-gateway.orbit-system.svc.cluster.local"
+
 session:
   idleTimeoutSecs: 1200 # 20 minutes

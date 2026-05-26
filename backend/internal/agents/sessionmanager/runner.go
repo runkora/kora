@@ -1,6 +1,14 @@
 package sessionmanager
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotSupported is returned by SendToolResult for runners that handle tool
+// execution internally (Codex, OpenCode). The session-manager will not call
+// SendToolResult for these frameworks — HITL is out of scope.
+var ErrNotSupported = errors.New("operation not supported by this runner")
 
 // Runner manages a single long-lived CLI subprocess for one session.
 // Each framework (Claude Code, Codex, OpenCode) provides its own implementation.
