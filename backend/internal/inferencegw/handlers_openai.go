@@ -128,11 +128,20 @@ func (c *Controller) handleChatCompletionsStream(
 			})
 			return
 		}
-		if err := writeSSE(result.Chunk); err != nil {
-			c.logger.Error(ctx, "sse write error",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			return
+		if result.Chunk != nil {
+			raw, marshalErr := marshalStreamChunk(result.Chunk)
+			if marshalErr != nil {
+				c.logger.Error(ctx, "sse marshal error",
+					logging.Field{Key: "error", Value: marshalErr.Error()},
+				)
+				return
+			}
+			if err := writeSSE(json.RawMessage(raw)); err != nil {
+				c.logger.Error(ctx, "sse write error",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				return
+			}
 		}
 	}
 
@@ -322,4 +331,105 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   data,
 	})
+}
+
+// ─── SSE serialization ────────────────────────────────────────────────────────
+//
+// The openai-go response types have no omitempty on their struct fields, so
+// encoding/json emits every zero value (e.g. "role":"", "tool_calls":null).
+// Strict client validators — notably the Zod schemas in the openai npm package
+// used by OpenCode and Codex CLI — reject those values. The private types below
+// carry omitempty on all optional fields; marshalStreamChunk uses them to
+// produce clean outbound SSE frames regardless of which provider emitted the
+// chunk.
+
+type sseChunk struct {
+	ID      string      `json:"id"`
+	Object  string      `json:"object"`
+	Created int64       `json:"created"`
+	Model   string      `json:"model"`
+	Choices []sseChoice `json:"choices"`
+	Usage   *sseUsage   `json:"usage,omitempty"`
+}
+
+type sseChoice struct {
+	Index        int64    `json:"index"`
+	Delta        sseDelta `json:"delta"`
+	FinishReason string   `json:"finish_reason,omitempty"`
+}
+
+type sseDelta struct {
+	Role      string        `json:"role,omitempty"`
+	Content   string        `json:"content,omitempty"`
+	ToolCalls []sseToolCall `json:"tool_calls,omitempty"`
+}
+
+type sseToolCall struct {
+	Index    int64               `json:"index"`
+	ID       string              `json:"id,omitempty"`
+	Type     string              `json:"type,omitempty"`
+	Function sseToolCallFunction `json:"function"`
+}
+
+type sseToolCallFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+type sseUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64 `json:"completion_tokens,omitempty"`
+	TotalTokens      int64 `json:"total_tokens,omitempty"`
+}
+
+func marshalStreamChunk(c *openai.ChatCompletionChunk) ([]byte, error) {
+	obj := string(c.Object)
+	if obj == "" {
+		obj = "chat.completion.chunk"
+	}
+	created := c.Created
+	if created == 0 {
+		created = time.Now().Unix()
+	}
+	out := sseChunk{
+		ID:      c.ID,
+		Object:  obj,
+		Created: created,
+		Model:   c.Model,
+		Choices: []sseChoice{},
+	}
+
+	for _, ch := range c.Choices {
+		choice := sseChoice{
+			Index:        ch.Index,
+			FinishReason: ch.FinishReason,
+			Delta: sseDelta{
+				Role:    ch.Delta.Role,
+				Content: ch.Delta.Content,
+			},
+		}
+		for _, tc := range ch.Delta.ToolCalls {
+			choice.Delta.ToolCalls = append(choice.Delta.ToolCalls, sseToolCall{
+				Index: tc.Index,
+				ID:    tc.ID,
+				Type:  tc.Type,
+				Function: sseToolCallFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		out.Choices = append(out.Choices, choice)
+	}
+
+	u := c.Usage
+	if u.PromptTokens != 0 || u.CompletionTokens != 0 {
+		out.Usage = &sseUsage{
+			PromptTokens:     u.PromptTokens,
+			CompletionTokens: u.CompletionTokens,
+			TotalTokens:      u.TotalTokens,
+		}
+	}
+
+	return json.Marshal(out)
 }

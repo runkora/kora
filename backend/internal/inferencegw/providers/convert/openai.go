@@ -345,8 +345,10 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 	}
 
 	message := openai.ChatCompletionMessage{
-		Role:    "assistant",
-		Content: textContent.String(),
+		Role: "assistant",
+	}
+	if text := textContent.String(); text != "" {
+		message.Content = text
 	}
 	if len(toolCalls) > 0 {
 		message.ToolCalls = toolCalls
@@ -354,6 +356,7 @@ func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.C
 
 	return &openai.ChatCompletion{
 		ID:      msg.ID,
+		Object:  "chat.completion",
 		Model:   msg.Model,
 		Created: createdAt,
 		Choices: []openai.ChatCompletionChoice{
@@ -401,8 +404,10 @@ func AnthropicEventToOpenAIChunk(event anthropic.MessageStreamEventUnion, s *Ant
 		s.MessageID = event.Message.ID
 		s.Model = event.Message.Model
 		return &openai.ChatCompletionChunk{
-			ID:    s.MessageID,
-			Model: s.Model,
+			ID:      s.MessageID,
+			Object:  "chat.completion.chunk",
+			Model:   s.Model,
+			Choices: []openai.ChatCompletionChunkChoice{},
 			Usage: openai.CompletionUsage{
 				PromptTokens: event.Message.Usage.InputTokens,
 			},

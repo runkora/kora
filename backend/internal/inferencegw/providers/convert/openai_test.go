@@ -123,6 +123,39 @@ func TestAnthropicMessageToOpenAI_MultipleTextBlocks(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessageToOpenAI_ObjectField(t *testing.T) {
+	t.Parallel()
+	msg := &anthropic.Message{
+		ID:         "msg_obj",
+		Model:      "claude-sonnet-4-6",
+		Content:    []anthropic.ContentBlockUnion{{Type: "text", Text: "hi"}},
+		StopReason: anthropic.StopReasonEndTurn,
+	}
+	got := convert.AnthropicMessageToOpenAI(msg, time.Now().Unix())
+	if string(got.Object) != "chat.completion" {
+		t.Errorf("Object = %q, want \"chat.completion\"", got.Object)
+	}
+}
+
+func TestAnthropicMessageToOpenAI_ToolOnlyContentIsEmpty(t *testing.T) {
+	t.Parallel()
+	// When the response contains only a tool call, Content should be "" (not set),
+	// not the empty-string sentinel that fails strict validators.
+	inputJSON, _ := json.Marshal(map[string]string{"q": "weather"})
+	msg := &anthropic.Message{
+		ID:    "msg_tool_only",
+		Model: "claude-sonnet-4-6",
+		Content: []anthropic.ContentBlockUnion{
+			{Type: "tool_use", ID: "call_1", Name: "search", Input: json.RawMessage(inputJSON)},
+		},
+		StopReason: anthropic.StopReasonToolUse,
+	}
+	got := convert.AnthropicMessageToOpenAI(msg, time.Now().Unix())
+	if got.Choices[0].Message.Content != "" {
+		t.Errorf("Content = %q, want empty string for tool-only response", got.Choices[0].Message.Content)
+	}
+}
+
 func TestAnthropicMessageToOpenAI_CreatedAtIsPreserved(t *testing.T) {
 	t.Parallel()
 	// createdAt should reflect when the API call was made, not time.Now() at conversion.
@@ -189,6 +222,19 @@ func TestAnthropicEventToOpenAIChunk_MessageStart(t *testing.T) {
 	}
 	if s.Model != "claude-sonnet-4-6" {
 		t.Errorf("state.Model = %q, want claude-sonnet-4-6", s.Model)
+	}
+	// OpenAI spec requires choices to be an array, never null — strict validators
+	// (e.g. the openai npm package's Zod schemas) reject null on this field.
+	raw, err := json.Marshal(chunk)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if string(m["choices"]) != "[]" {
+		t.Errorf("choices JSON = %s, want []", m["choices"])
 	}
 }
 
