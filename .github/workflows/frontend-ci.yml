@@ -92,8 +92,23 @@ jobs:
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(cd frontend && npx playwright --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright system dependencies
+        run: cd frontend && npx playwright install-deps chromium
+
       - name: Install Playwright browsers
-        run: cd frontend && npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd frontend && npx playwright install chromium
 
       - name: Run E2E tests
         run: make frontend-test-e2e
