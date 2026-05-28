@@ -278,6 +278,11 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrRunNotAcceptingMessages) {
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not accepting messages", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

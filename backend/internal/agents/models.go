@@ -50,10 +50,11 @@ type RunState string
 const (
 	RunStatePending    RunState = "pending"    // created, pod not yet assigned
 	RunStateStarting   RunState = "starting"   // pod assigned, subprocess starting
-	RunStateActive     RunState = "active"     // CLI subprocess running and responsive
+	RunStateActive     RunState = "active"     // agent is actively processing a turn
+	RunStateIdle       RunState = "idle"       // agent completed its turn; waiting for next user message
 	RunStateCompleting RunState = "completing" // subprocess exited cleanly; snapshot in progress
 	RunStateCompleted  RunState = "completed"  // snapshot done; resources released
-	RunStateFailed     RunState = "failed"     // subprocess exited with error
+	RunStateFailed     RunState = "failed"     // unrecoverable error; subprocess crashed or failed to start
 )
 
 // Run is the durable unit of work. It outlives browser connections and persists

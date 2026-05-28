@@ -10,6 +10,9 @@ type ToolScopeDefinition struct {
 
 // SelectableToolScopes are the scopes shown in the UI — the operator chooses
 // which of these to grant to an agent type.
+//
+// Excluded: web (WebFetch, WebSearch) — these are Anthropic server-side tools
+// that are not available when routing through a non-Anthropic inference gateway.
 var SelectableToolScopes = []ToolScopeDefinition{
 	{
 		Scope:       "shell",
@@ -19,12 +22,7 @@ var SelectableToolScopes = []ToolScopeDefinition{
 	{
 		Scope:       "filesystem",
 		Description: "Read and write files",
-		Tools:       []string{"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"},
-	},
-	{
-		Scope:       "web",
-		Description: "Fetch content from URLs and search the web",
-		Tools:       []string{"WebFetch", "WebSearch"},
+		Tools:       []string{"Read", "Write", "Edit", "Glob", "Grep"},
 	},
 	{
 		Scope:       "agents",
@@ -34,7 +32,7 @@ var SelectableToolScopes = []ToolScopeDefinition{
 	{
 		Scope:       "tasks",
 		Description: "Create and manage tasks",
-		Tools:       []string{"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "TodoWrite"},
+		Tools:       []string{"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate"},
 	},
 	{
 		Scope:       "mcp",

@@ -2,16 +2,98 @@
 
 /**
  * @tier 3 — run-chat-scoped.
- * Fixed bottom input area: slash command chips + auto-resize textarea + send button.
+ * Floating input: context pills + textarea + accent send button + hint row.
  */
 
-import { useRef, useState, useCallback } from 'react';
-import { Stack, Text, Button, Code } from '@orbit/terra';
+import { useState, useCallback } from 'react';
+import { Stack, Text, Button, InputSurface, Textarea } from '@orbit/terra';
 import { useRunContext } from '../_context/run-context';
 
-const SLASH_COMMANDS = ['/continue', '/approve', '/reject', '/checkpoint', '/explain'] as const;
+// Context tools — toggleable pills that annotate the message with context sources
+const CONTEXT_TOOLS = [
+  {
+    id: 'sandbox' as const,
+    label: 'Sandbox',
+    icon: (
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden
+      >
+        <polyline points="4 17 10 11 4 5" />
+        <line x1="12" y1="19" x2="20" y2="19" />
+      </svg>
+    ),
+  },
+  {
+    id: 'files' as const,
+    label: 'Files',
+    icon: (
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden
+      >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+      </svg>
+    ),
+  },
+  {
+    id: 'memory' as const,
+    label: 'Memory',
+    icon: (
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden
+      >
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+      </svg>
+    ),
+  },
+] as const;
 
-// Send arrow icon
+type ContextToolId = (typeof CONTEXT_TOOLS)[number]['id'];
+
+// Small bordered keyboard hint chip
+function KbdChip({ children }: { children: React.ReactNode }) {
+  return (
+    <Text
+      as="span"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px solid var(--color-border)',
+        borderRadius: 3,
+        padding: '0 4px',
+        minWidth: 18,
+        lineHeight: '16px',
+        fontSize: 10,
+        fontFamily: 'var(--font-mono)',
+        color: 'var(--color-subtle)',
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
 function SendIcon() {
   return (
     <svg
@@ -21,35 +103,40 @@ function SendIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden
     >
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
     </svg>
   );
 }
 
 export function InputArea() {
-  const { addHumanMessage } = useRunContext();
+  const { agentName, runState, isBusy, addHumanMessage } = useRunContext();
   const [value, setValue] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [active, setActive] = useState<Set<ContextToolId>>(new Set());
+  const isEnded = runState === 'completed' || runState === 'failed';
+  const isDisabled = isEnded || isBusy;
+  const canSend = !!value.trim() && !isDisabled;
 
-  const handleInput = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
-  }, []);
+  function toggle(id: ContextToolId) {
+    if (isDisabled) return;
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const handleSend = useCallback(() => {
     const content = value.trim();
-    if (!content) return;
+    if (!content || isDisabled) return;
     addHumanMessage(content);
     setValue('');
-    // Reset textarea height
-    const el = textareaRef.current;
-    if (el) el.style.height = 'auto';
-  }, [value, addHumanMessage]);
+  }, [value, addHumanMessage, isDisabled]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -62,174 +149,118 @@ export function InputArea() {
   );
 
   return (
-    <Stack
-      style={{
-        borderTop: '1px solid var(--chat-bds)',
-        background: 'var(--chat-surf)',
-        flexShrink: 0,
-        padding: '10px 16px 12px',
-      }}
-    >
-      {/* Slash command chips */}
-      <Stack
-        direction="horizontal"
+    <Stack style={{ flexShrink: 0, padding: '0 16px 10px', gap: 0 }}>
+      <InputSurface
+        data-floating=""
         style={{
-          gap: 5,
-          marginBottom: 8,
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
+          background: 'var(--color-surface-elevated)',
+          boxShadow:
+            '0 8px 28px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.22), inset 0 0 0 1px rgb(255 255 255 / 0.16)',
         }}
       >
-        {SLASH_COMMANDS.map((cmd) => (
-          <Button
-            key={cmd}
-            type="button"
-            onClick={() => setValue(cmd + ' ')}
-            style={{
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-              fontSize: 11,
-              padding: '2px 8px',
-              background: 'var(--chat-surf2)',
-              border: '1px solid var(--chat-bds)',
-              borderRadius: 20,
-              color: 'var(--chat-subtle)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {cmd}
-          </Button>
-        ))}
-      </Stack>
+        <Stack style={{ padding: '12px 14px 10px', gap: 0 }}>
+          <Textarea
+            variant="bare"
+            autoResize
+            maxRows={6}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isEnded
+                ? `${agentName} run has ended`
+                : isBusy
+                  ? `${agentName} is thinking…`
+                  : `Reply to ${agentName}…`
+            }
+            disabled={isDisabled}
+            rows={2}
+            style={{ fontSize: 14, lineHeight: 1.6, width: '100%', marginBottom: 12 }}
+          />
 
-      {/* Textarea wrapper */}
+          {/* Toolbar: context pills left · send right */}
+          <Stack direction="horizontal" align="center" justify="between" style={{ gap: 8 }}>
+            <Stack direction="horizontal" align="center" style={{ gap: 5 }}>
+              {CONTEXT_TOOLS.map((tool) => {
+                const isActive = active.has(tool.id);
+                return (
+                  <Button
+                    key={tool.id}
+                    type="button"
+                    size="sm"
+                    shape="pill"
+                    variant="outline"
+                    disabled={isDisabled}
+                    onClick={() => toggle(tool.id)}
+                    data-context-pill=""
+                    data-active={isActive ? '' : undefined}
+                  >
+                    {tool.icon}
+                    {tool.label}
+                  </Button>
+                );
+              })}
+            </Stack>
+
+            {/* Accent rounded-square send button */}
+            <Button
+              type="button"
+              disabled={!canSend}
+              onClick={handleSend}
+              aria-label="Send message"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 9,
+                flexShrink: 0,
+                background: canSend ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
+                border: `1px solid ${canSend ? 'transparent' : 'var(--color-border-subtle)'}`,
+                color: canSend ? 'white' : 'var(--color-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              <SendIcon />
+            </Button>
+          </Stack>
+        </Stack>
+      </InputSurface>
+
+      {/* Hint row */}
       <Stack
         direction="horizontal"
-        align="end"
-        style={{
-          gap: 8,
-          background: 'var(--chat-surf2)',
-          border: '1px solid var(--chat-bds)',
-          borderRadius: 8,
-          padding: '9px 10px',
-        }}
+        align="center"
+        style={{ marginTop: 8, gap: 12, paddingLeft: 2 }}
       >
-        {/* Auto-resize textarea */}
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          placeholder="Message Orbit AI…"
-          rows={1}
-          style={{
-            flex: 1,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            resize: 'none',
-            fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
-            fontSize: 13.5,
-            color: 'var(--chat-fg)',
-            lineHeight: 1.5,
-            minHeight: 20,
-            maxHeight: 110,
-            overflowY: 'auto',
-          }}
-        />
-
-        {/* @ file button */}
-        <Button
-          type="button"
-          style={{
-            fontSize: 11,
-            padding: '3px 7px',
-            background: 'transparent',
-            border: '1px solid var(--chat-bds)',
-            borderRadius: 4,
-            color: 'var(--chat-subtle)',
-            fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
-        >
-          @ file
-        </Button>
-
-        {/* Send button */}
-        <Button
-          type="button"
-          onClick={handleSend}
-          disabled={!value.trim()}
-          style={{
-            width: 29,
-            height: 29,
-            background: value.trim() ? 'var(--chat-acc)' : 'var(--chat-surf3)',
-            border: 'none',
-            borderRadius: 4,
-            cursor: value.trim() ? 'pointer' : 'not-allowed',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'oklch(9% 0.005 248)',
-            flexShrink: 0,
-            transition: 'background 0.15s',
-          }}
-          aria-label="Send message"
-        >
-          <SendIcon />
-        </Button>
-      </Stack>
-
-      {/* Footer hints */}
-      <Stack
-        direction="horizontal"
-        justify="between"
-        style={{
-          marginTop: 7,
-          fontSize: 11,
-          color: 'var(--chat-bds)',
-        }}
-      >
-        <Text as="span">
-          <Code
-            style={{
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-              fontSize: 10,
-              padding: '1px 4px',
-              background: 'var(--chat-surf3)',
-              border: '1px solid var(--chat-bds)',
-              borderRadius: 3,
-              color: 'var(--chat-subtle)',
-            }}
+        <Stack direction="horizontal" align="center" style={{ gap: 4 }}>
+          <KbdChip>↵</KbdChip>
+          <Text
+            as="span"
+            style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
           >
-            ↵
-          </Code>{' '}
-          send ·{' '}
-          <Code
-            style={{
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-              fontSize: 10,
-              padding: '1px 4px',
-              background: 'var(--chat-surf3)',
-              border: '1px solid var(--chat-bds)',
-              borderRadius: 3,
-              color: 'var(--chat-subtle)',
-            }}
+            send
+          </Text>
+        </Stack>
+        <Stack direction="horizontal" align="center" style={{ gap: 4 }}>
+          <KbdChip>⇧↵</KbdChip>
+          <Text
+            as="span"
+            style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
           >
-            ⇧↵
-          </Code>{' '}
-          newline · / commands
-        </Text>
-        <Text
-          as="span"
-          style={{
-            fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-          }}
-        >
-          42,187 tokens
-        </Text>
+            newline
+          </Text>
+        </Stack>
+        <Stack direction="horizontal" align="center" style={{ gap: 4 }}>
+          <KbdChip>/</KbdChip>
+          <Text
+            as="span"
+            style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
+          >
+            commands
+          </Text>
+        </Stack>
       </Stack>
     </Stack>
   );

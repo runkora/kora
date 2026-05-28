@@ -5,7 +5,12 @@
 // Owns all reactive state for the /agents/[slug] detail page.
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fetchAgentRuns, fetchAgentDetail, deleteAgentType } from '../_services/agent-detail-api';
+import {
+  fetchAgentRuns,
+  fetchAgentDetail,
+  deleteAgentType,
+  deleteRun as apiDeleteRun,
+} from '../_services/agent-detail-api';
 import { fetchStartRun } from '../../_services/agents-api';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
@@ -18,6 +23,7 @@ export interface AgentDetailStateShape {
   error: string | null;
   refresh: () => Promise<void>;
   deleteAgent: () => Promise<boolean>;
+  deleteRun: (runId: string) => Promise<{ error: string | null }>;
   startRun: (
     task: string,
     provisionSandbox: boolean,
@@ -77,6 +83,14 @@ export function useAgentDetail(
     return result.error === null;
   }, [agent]);
 
+  const deleteRun = useCallback(async (runId: string): Promise<{ error: string | null }> => {
+    const result = await apiDeleteRun(runId);
+    if (!result.error) {
+      setRuns((prev) => prev.filter((r) => r.id !== runId));
+    }
+    return result;
+  }, []);
+
   const startRun = useCallback(
     async (
       task: string,
@@ -90,5 +104,5 @@ export function useAgentDetail(
     [agent],
   );
 
-  return { agent, runs, status, error, refresh, deleteAgent, startRun };
+  return { agent, runs, status, error, refresh, deleteAgent, deleteRun, startRun };
 }

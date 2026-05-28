@@ -2,11 +2,11 @@
 
 /** @tier 3 — agents/[slug]-scoped. Runs table tab for the agent detail page. */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { EmptyState, StatusBadge } from '@orbit/components';
+import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
@@ -27,6 +27,7 @@ function runStatusBadge(row: RunRow) {
     pending: 'idle',
     starting: 'degraded',
     active: 'healthy',
+    idle: 'degraded',
     completing: 'degraded',
     completed: 'idle',
     failed: 'error',
@@ -35,6 +36,7 @@ function runStatusBadge(row: RunRow) {
     pending: 'Pending',
     starting: 'Starting',
     active: 'Active',
+    idle: 'Waiting',
     completing: 'Completing',
     completed: 'Completed',
     failed: 'Failed',
@@ -54,8 +56,25 @@ interface AgentRunsTabProps {
 }
 
 export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
-  const { agent, runs, status, error, refresh } = useAgentDetailContext();
+  const { agent, runs, status, error, refresh, deleteRun } = useAgentDetailContext();
   const router = useRouter();
+
+  const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    const result = await deleteRun(deleteTarget.id);
+    setIsDeleting(false);
+    if (result.error) {
+      setDeleteError(result.error);
+    } else {
+      setDeleteTarget(null);
+    }
+  };
 
   const columns = useMemo<DataTableColumn<RunRow>[]>(
     () => [
@@ -121,20 +140,33 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         id: 'actions',
         header: '',
         locked: true,
-        width: '5rem',
+        width: '8rem',
         cell: (row) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (agent) {
-                router.push(APP_ROUTES.agents.run(agent.slug, row.id));
-              }
-            }}
-          >
-            Open
-          </Button>
+          <Stack direction="horizontal" gap="snug">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (agent) {
+                  router.push(APP_ROUTES.agents.run(agent.slug, row.id));
+                }
+              }}
+            >
+              Open
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteError(null);
+                setDeleteTarget(row);
+              }}
+            >
+              Delete
+            </Button>
+          </Stack>
         ),
       },
     ],
@@ -184,6 +216,20 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete run"
+        description={`Delete run ${deleteTarget?.id.slice(0, 8) ?? ''}? This will remove all events and messages and cannot be undone.`}
+        confirmLabel="Delete"
+        confirming={isDeleting}
+        error={deleteError}
+        onConfirm={() => void handleDelete()}
+        onClose={() => {
+          setDeleteTarget(null);
+          setDeleteError(null);
+        }}
+      />
     </Stack>
   );
 }

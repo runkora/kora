@@ -65,13 +65,14 @@ type ClaudeRunnerConfig struct {
 // event is emitted per turn containing the full accumulated text. tool_use and
 // tool_result events are emitted as they arrive.
 type ClaudeRunner struct {
-	cfg         ClaudeRunnerConfig
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	events      chan Event
-	once        sync.Once
-	textBuf     strings.Builder // accumulates text_delta chunks; reset per turn
-	thinkingBuf strings.Builder // accumulates thinking_delta chunks; reset per turn
+	cfg              ClaudeRunnerConfig
+	cmd              *exec.Cmd
+	stdin            io.WriteCloser
+	events           chan Event
+	once             sync.Once
+	textBuf          strings.Builder // accumulates text_delta chunks; reset per turn
+	thinkingBuf      strings.Builder // accumulates thinking_delta chunks; reset per turn
+	textBlockEmitted bool            // true if ≥1 text_block was emitted this turn
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -310,7 +311,9 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			)
 			// An empty turn with a non-standard stop reason signals a silent failure
 			// (e.g. inference gateway returning 5xx after exhausted retries).
-			if textLen == 0 && w.StopReason != "end_turn" {
+			// textBlockEmitted=true means text was already flushed before tool calls,
+			// so the turn has content even if textBuf is now empty.
+			if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
 				msg := w.Result
 				if msg == "" {
 					msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
@@ -332,6 +335,7 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			})
 			r.textBuf.Reset()
 			r.thinkingBuf.Reset()
+			r.textBlockEmitted = false
 			r.emit(EventTypeMessageStop, nil)
 		} else {
 			msg := w.Result
@@ -378,10 +382,37 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 }
 
 // handleAssistant emits tool_use events from a completed assistant message.
+// With --include-partial-messages Claude emits many snapshots of the same message;
+// partial snapshots contain only text (no complete tool blocks yet), so we skip
+// them. The final snapshot is detected by the presence of a tool_use block.
+//
+// Before the first tool_use, any accumulated text in textBuf is flushed as a
+// durable text_block event. This preserves the original interleaved order during
+// replay without re-streaming individual character deltas.
 func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) {
 	if msg == nil {
 		return
 	}
+
+	// Skip partial snapshots that carry only text — they have no complete tool blocks.
+	hasTools := false
+	for _, block := range msg.Content {
+		if block.Type == "tool_use" {
+			hasTools = true
+			break
+		}
+	}
+	if !hasTools {
+		return
+	}
+
+	// Flush the text accumulated before these tool calls as a text_block event.
+	if r.textBuf.Len() > 0 {
+		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+		r.textBuf.Reset()
+		r.textBlockEmitted = true
+	}
+
 	for _, block := range msg.Content {
 		if block.Type == "tool_use" {
 			r.cfg.Logger.Info(ctx, "Tool call",
@@ -439,10 +470,9 @@ func scopesToClaudeTools(scopes []string) string {
 	scopeMap := map[string][]string{
 		// Selectable scopes — operator configures these per agent type.
 		"shell":      {"Bash"},
-		"filesystem": {"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"},
-		"web":        {"WebFetch", "WebSearch"},
+		"filesystem": {"Read", "Write", "Edit", "Glob", "Grep"},
 		"agents":     {"Agent", "SendMessage"},
-		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "TodoWrite"},
+		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate"},
 		"mcp":        {"ListMcpResourcesTool", "ReadMcpResourceTool"},
 		// Auto scopes — always injected, not shown in the UI.
 		"lsp":        {"LSP"},

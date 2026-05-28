@@ -20,6 +20,9 @@ var ErrConflict = errors.New("conflict")
 // ErrSlugTaken is returned when a slug is already in use within a tenant.
 var ErrSlugTaken = errors.New("slug already taken")
 
+// ErrRunNotAcceptingMessages is returned when a message is sent to a run that is not in a state that accepts messages.
+var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
+
 // PostgresRepository implements Repository against a pgxpool.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
@@ -281,6 +284,34 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 		out[ord] = count
 	}
 	return out, rows.Err()
+}
+
+// ReapStaleRuns marks runs stuck in active or starting state for longer than
+// staleDuration as failed. Returns the IDs of reaped runs.
+func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]string, error) {
+	cutoff := time.Now().UTC().Add(-staleDuration)
+	rows, err := r.pool.Query(ctx, `
+		UPDATE runs
+		SET state='failed', completed_at=$1, updated_at=$1
+		WHERE state IN ('active','starting')
+		  AND updated_at < $2
+		RETURNING id`,
+		time.Now().UTC(), cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reap stale runs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────

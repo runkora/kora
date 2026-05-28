@@ -8,6 +8,7 @@ type EventType string
 const (
 	// Persistence events — written to run_events by the session-manager.
 	EventTypeMessageComplete EventType = "message_complete"
+	EventTypeTextBlock       EventType = "text_block"
 	EventTypeToolUse         EventType = "tool_use"
 	EventTypeToolResult      EventType = "tool_result"
 	EventTypeRunError        EventType = "run_error"
@@ -26,12 +27,21 @@ type Event struct {
 	SequenceNo int64           `json:"sequence_no,omitempty"` // set for durable events after DB write
 }
 
-// MessageCompletePayload carries the full accumulated text and thinking for one
-// completed assistant turn. Written once per turn, replacing the N text_delta
-// and thinking_delta events that would otherwise be stored individually.
+// MessageCompletePayload carries the trailing text and thinking for one completed
+// assistant turn. Text before tool calls is stored in text_block events; this
+// payload carries only the text segment that followed the last tool call (or the
+// full text when no tools were used). Also serves as the turn-commit signal.
 type MessageCompletePayload struct {
 	Text     string `json:"text"`
 	Thinking string `json:"thinking,omitempty"`
+}
+
+// TextBlockPayload carries a segment of assistant text that preceded a tool call.
+// Persisted to run_events so replay can reconstruct the original interleaved order
+// of text and tool events. Not pushed to live SSE subscribers — live clients
+// already receive the same content incrementally via text_delta events.
+type TextBlockPayload struct {
+	Content string `json:"content"`
 }
 
 // ToolUsePayload carries a completed tool call (id, name, and full input).

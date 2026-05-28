@@ -2,52 +2,66 @@
 
 /**
  * @tier 3 — run-chat-scoped.
- * Core tool call row: icon + name + arg + status badge + pop-out button.
- * Left border colour reflects tool status; pop-out button opens the canvas view.
+ * Tool call card: emoji badge + name + arg + status dot + expandable result + canvas pop-out.
  */
 
-import { useState } from 'react';
-import { Stack, Text, Button } from '@orbit/terra';
+import { memo, useState } from 'react';
+import { Stack, Text, Button, StatusDot, Icon } from '@orbit/terra';
 import { useRunContext } from '../_context/run-context';
-import type { ToolCall } from '../_types';
+import type { ToolCall, ToolIconName } from '../_types';
 
-// Border colours by status
-const BORDER_COLORS = {
-  running: 'oklch(50% 0.1 80 / 0.6)',
-  done: 'oklch(45% 0.1 140 / 0.5)',
-  error: 'oklch(45% 0.15 25 / 0.5)',
-} as const;
+const TOOL_ICON_STYLES: Record<ToolIconName, { color: string; background: string }> = {
+  'square-terminal': {
+    color: 'var(--color-status-healthy)',
+    background: 'color-mix(in oklch, var(--color-status-healthy) 14%, transparent)',
+  },
+  'file-text': {
+    color: '#f472b6',
+    background: 'color-mix(in oklch, #f472b6 14%, transparent)',
+  },
+  edit: {
+    color: '#60a5fa',
+    background: 'color-mix(in oklch, #60a5fa 14%, transparent)',
+  },
+  search: {
+    color: '#a78bfa',
+    background: 'color-mix(in oklch, #a78bfa 14%, transparent)',
+  },
+  database: {
+    color: '#fbbf24',
+    background: 'color-mix(in oklch, #fbbf24 14%, transparent)',
+  },
+  'external-link': {
+    color: '#22d3ee',
+    background: 'color-mix(in oklch, #22d3ee 14%, transparent)',
+  },
+  wrench: {
+    color: 'var(--color-subtle)',
+    background: 'var(--color-surface-overlay)',
+  },
+};
 
-// Inline orbital spinner keyframes — injected once per page
-// Uses data-spin attribute selector to avoid className on Terra components
-export const TOOL_SPIN_CSS = `
-[data-spin] {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; position: relative; flex-shrink: 0;
-  vertical-align: middle;
+function ChevronRightIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      aria-hidden
+      style={{
+        transform: open ? 'rotate(90deg)' : 'none',
+        transition: 'transform 0.18s',
+        flexShrink: 0,
+      }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
 }
-[data-spin]::before {
-  content: '';
-  position: absolute; width: 10px; height: 10px;
-  border-radius: 50%;
-  border: 1px solid oklch(72% 0.17 8 / 0.25);
-}
-[data-spin]::after {
-  content: '';
-  position: absolute; width: 4px; height: 4px;
-  border-radius: 50%;
-  background: var(--chat-degraded);
-  top: 50%; left: 50%; margin: -2px 0 0 -2px;
-  animation: tool-orb 1.4s linear infinite;
-  transform-origin: 0 0;
-}
-@keyframes tool-orb {
-  from { transform: rotate(0deg) translateX(5px); }
-  to   { transform: rotate(360deg) translateX(5px); }
-}
-`;
 
-// Pop-out icon SVG
 function PopoutIcon() {
   return (
     <svg
@@ -67,16 +81,24 @@ function PopoutIcon() {
   );
 }
 
-export function ToolRow({ tool }: { tool: ToolCall }) {
+export const ToolRow = memo(function ToolRow({
+  tool,
+  isCommitted = false,
+}: {
+  tool: ToolCall;
+  isCommitted?: boolean;
+}) {
   const { canvasState, openCanvas } = useRunContext();
-  const [hovered, setHovered] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
+  // When a turn is committed but tool_result hasn't updated status (e.g. live race),
+  // treat the tool as done so "running" never shows on a finished turn.
+  const effectiveStatus = isCommitted && tool.status === 'running' ? 'done' : tool.status;
+  const canExpand = effectiveStatus !== 'running' && !!tool.result;
+  const dotStatus =
+    effectiveStatus === 'running' ? 'pending' : effectiveStatus === 'done' ? 'healthy' : 'error';
   const isCanvasActive =
     tool.canvasViewId !== undefined && canvasState.activeTabId === tool.canvasViewId;
-
-  const borderColor = isCanvasActive
-    ? 'var(--chat-acc)'
-    : (BORDER_COLORS[tool.status] ?? 'var(--chat-bds)');
 
   function handlePopout(e: React.MouseEvent) {
     e.stopPropagation();
@@ -85,90 +107,111 @@ export function ToolRow({ tool }: { tool: ToolCall }) {
 
   return (
     <Stack
-      direction="horizontal"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       style={{
-        margin: '3px 0',
-        borderLeft: `2px solid ${borderColor}`,
-        transition: 'border-color 0.15s',
-        position: 'relative',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 8,
+        background: 'var(--color-surface-elevated)',
+        overflow: 'hidden',
       }}
     >
-      {/* Inner content */}
-      <Stack grow style={{ paddingLeft: 10, minWidth: 0 }}>
+      {/* Header row */}
+      <Stack
+        direction="horizontal"
+        align="center"
+        style={{ padding: '8px 12px', gap: 10, minWidth: 0 }}
+      >
+        {/* Icon badge */}
         <Stack
-          direction="horizontal"
           align="center"
+          justify="center"
           style={{
-            gap: 7,
-            padding: '3px 0',
-            userSelect: 'none',
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            flexShrink: 0,
+            background: TOOL_ICON_STYLES[tool.icon].background,
+            color: TOOL_ICON_STYLES[tool.icon].color,
           }}
         >
-          {/* Emoji icon */}
-          <Text as="span" style={{ fontSize: 12, opacity: 0.8, flexShrink: 0 }}>
-            {tool.icon}
-          </Text>
+          <Icon name={tool.icon} size="xs" />
+        </Stack>
 
-          {/* Tool name */}
+        {/* Name + arg — single truncated mono line */}
+        <Text
+          as="span"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontFamily: 'var(--font-mono)',
+            lineHeight: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           <Text
             as="span"
             style={{
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
               fontSize: 12,
-              color: 'var(--chat-muted)',
-              flexShrink: 0,
+              lineHeight: 1,
+              fontWeight: 500,
+              color: 'var(--color-foreground)',
             }}
           >
             {tool.name}
           </Text>
+          {tool.arg && (
+            <>
+              {' '}
+              <Text as="span" style={{ fontSize: 12, lineHeight: 1, color: 'var(--color-muted)' }}>
+                {tool.arg}
+              </Text>
+            </>
+          )}
+        </Text>
 
-          {/* Argument (truncated) */}
-          <Text
-            as="span"
-            style={{
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-              fontSize: 11.5,
-              color: 'var(--chat-subtle)',
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 0,
-            }}
-          >
-            {tool.arg}
-          </Text>
+        {/* Right: status dot + status text + expand + canvas pop-out */}
+        <Stack
+          direction="horizontal"
+          align="center"
+          style={{ gap: 8, flexShrink: 0, marginLeft: 24 }}
+        >
+          <Stack direction="horizontal" align="center" style={{ gap: 4 }}>
+            <StatusDot status={dotStatus} size="sm" glow={effectiveStatus === 'running'} />
+            <Text
+              as="span"
+              style={{
+                fontSize: 12,
+                lineHeight: 1,
+                fontFamily: 'var(--font-mono)',
+                color:
+                  effectiveStatus === 'done'
+                    ? 'var(--color-status-healthy)'
+                    : effectiveStatus === 'error'
+                      ? 'var(--color-status-error)'
+                      : 'var(--color-subtle)',
+              }}
+            >
+              {effectiveStatus}
+            </Text>
+          </Stack>
 
-          {/* Status badge */}
-          <Text
-            as="span"
-            style={{
-              fontSize: 11,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 3,
-              flexShrink: 0,
-              color:
-                tool.status === 'running'
-                  ? 'var(--chat-degraded)'
-                  : tool.status === 'done'
-                    ? 'var(--chat-healthy)'
-                    : 'var(--chat-error)',
-            }}
-          >
-            {tool.status === 'running' ? (
-              <>
-                <Text as="span" data-spin="" aria-label="Running" />
-                running
-              </>
-            ) : (
-              tool.result
-            )}
-          </Text>
+          {canExpand ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Collapse' : 'Expand'}
+              style={{ width: 22, height: 22 }}
+            >
+              <ChevronRightIcon open={expanded} />
+            </Button>
+          ) : (
+            <Stack style={{ width: 22 }} />
+          )}
 
-          {/* Pop-out button (⤢) */}
           {tool.canvasViewId && (
             <Button
               type="button"
@@ -177,16 +220,16 @@ export function ToolRow({ tool }: { tool: ToolCall }) {
                 width: 22,
                 height: 22,
                 flexShrink: 0,
-                background: isCanvasActive ? 'var(--chat-acc-dim)' : 'transparent',
-                border: `1px solid ${isCanvasActive ? 'var(--chat-acc-bdr)' : 'transparent'}`,
+                background: isCanvasActive
+                  ? 'color-mix(in oklch, var(--color-accent) 12%, transparent)'
+                  : 'transparent',
+                border: `1px solid ${isCanvasActive ? 'color-mix(in oklch, var(--color-accent) 35%, transparent)' : 'transparent'}`,
                 borderRadius: 3,
-                color: isCanvasActive ? 'var(--chat-acc)' : 'var(--chat-bds)',
+                color: isCanvasActive ? 'var(--color-accent)' : 'var(--color-border)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: isCanvasActive || hovered ? 1 : 0,
-                transition: 'opacity 0.15s',
               }}
               title="Open in canvas"
               aria-label={`Open ${tool.name} result in canvas`}
@@ -196,6 +239,22 @@ export function ToolRow({ tool }: { tool: ToolCall }) {
           )}
         </Stack>
       </Stack>
+
+      {/* Expanded result */}
+      {expanded && tool.result && (
+        <Stack
+          style={{
+            borderTop: '1px solid var(--color-border-subtle)',
+            padding: '8px 12px 8px 46px',
+            fontSize: 12,
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--color-muted)',
+            lineHeight: 1.6,
+          }}
+        >
+          {tool.result}
+        </Stack>
+      )}
     </Stack>
   );
-}
+});

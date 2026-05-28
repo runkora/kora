@@ -2,7 +2,23 @@
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
-export type RunState = 'pending' | 'starting' | 'active' | 'completing' | 'completed' | 'failed';
+export type RunState =
+  | 'pending'
+  | 'starting'
+  | 'active'
+  | 'idle'
+  | 'completing'
+  | 'completed'
+  | 'failed';
+
+export type ToolIconName =
+  | 'square-terminal'
+  | 'file-text'
+  | 'edit'
+  | 'search'
+  | 'database'
+  | 'external-link'
+  | 'wrench';
 
 // ── Turn types ────────────────────────────────────────────────────────────────
 
@@ -15,8 +31,7 @@ export interface HumanTurn {
 
 export interface ToolCall {
   id: string;
-  /** Emoji icon: '📄' | '✏️' | '⚡' | '🔍' */
-  icon: string;
+  icon: ToolIconName;
   name: string;
   /** Truncated display argument (path, command snippet, etc.) */
   arg: string;

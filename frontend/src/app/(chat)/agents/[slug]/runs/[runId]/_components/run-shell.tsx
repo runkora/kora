@@ -12,12 +12,51 @@ import { ContextStrip } from './context-strip';
 import { ChatThread } from './chat-thread';
 import { CanvasPanel } from './canvas-panel';
 import { InputArea } from './input-area';
-import { TOOL_SPIN_CSS } from './tool-row';
+
+// Global keyframes and data-attribute CSS for the run chat.
+// Injected once at the shell level so all child components can rely on them.
+const RUN_CSS = `
+[data-reasoning-pulse] {
+  animation: reasoning-pulse 1.6s ease-in-out infinite;
+}
+@keyframes reasoning-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+[data-floating] {
+  border-color: transparent;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+[data-floating]:focus-within {
+  border-color: var(--color-accent);
+}
+button[data-context-pill] {
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+button[data-context-pill]:not([data-active]):not(:disabled):hover {
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+  border-color: color-mix(in oklch, var(--color-accent) 25%, transparent);
+  color: var(--color-accent);
+}
+button[data-context-pill][data-active] {
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+  border-color: color-mix(in oklch, var(--color-accent) 35%, transparent);
+  color: var(--color-accent);
+}
+button[data-context-pill][data-active]:hover {
+  background: color-mix(in oklch, var(--color-accent) 20%, transparent);
+  border-color: color-mix(in oklch, var(--color-accent) 50%, transparent);
+}
+@keyframes topbar-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+[data-md-ol] { counter-reset: md-ol; }
+[data-md-ol] > * { counter-increment: md-ol; }
+[data-md-ol-num]::before { content: counter(md-ol) "."; }
+`;
 
 function RunPageLayout() {
   return (
     <>
-      <style>{TOOL_SPIN_CSS}</style>
+      <style>{RUN_CSS}</style>
       <RunTopbar />
       <ContextStrip />
       {/* Layout body: chat + canvas side by side */}

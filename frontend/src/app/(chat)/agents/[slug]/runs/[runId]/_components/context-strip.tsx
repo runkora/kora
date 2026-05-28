@@ -26,7 +26,6 @@ export function ContextStrip() {
   const { contextFiles, views, openCanvas } = useRunContext();
 
   function handleFileClick(filePath: string) {
-    // Find a view matching this path
     const filename = getFilename(filePath);
     const matchingView = Object.values(views).find(
       (v) => v.title === filename || (v.subtitle && filePath.startsWith(v.subtitle)),
@@ -43,27 +42,26 @@ export function ContextStrip() {
       style={{
         gap: 7,
         padding: '5px 16px',
-        background: 'var(--chat-surf)',
-        borderBottom: '1px solid var(--chat-bds)',
+        background: 'var(--color-surface)',
+        borderBottom: '1px solid var(--color-border-subtle)',
         flexShrink: 0,
         overflowX: 'auto',
       }}
     >
-      {/* "Context" label */}
       <Text
         as="span"
         style={{
-          fontSize: 10.5,
-          color: 'var(--chat-subtle)',
+          fontSize: 12,
+          color: 'var(--color-subtle)',
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
           flexShrink: 0,
+          fontFamily: 'var(--font-mono)',
         }}
       >
         Context
       </Text>
 
-      {/* File chips */}
       {contextFiles.map((filePath) => {
         const ext = getExt(filePath);
         const filename = getFilename(filePath);
@@ -79,44 +77,48 @@ export function ContextStrip() {
               alignItems: 'center',
               gap: 4,
               padding: '2px 8px',
-              background: 'var(--chat-surf2)',
-              border: '1px solid var(--chat-bds)',
+              background: 'var(--color-surface-elevated)',
+              border: '1px solid var(--color-border-subtle)',
               borderRadius: 20,
-              fontSize: 11.5,
-              fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-              color: 'var(--chat-muted)',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--color-muted)',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
             }}
             title={filePath}
           >
             {ext && (
-              <Text as="span" style={{ color: 'var(--chat-acc)', opacity: 0.75 }}>
+              <Text as="span" style={{ fontSize: 12, color: 'var(--color-accent)', opacity: 0.75 }}>
                 {ext}
               </Text>
             )}
             {dir && (
-              <Text as="span" style={{ color: 'var(--chat-subtle)' }}>
+              <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
                 {dir}/
               </Text>
             )}
-            <Text as="span" weight="heavy" style={{ color: 'var(--chat-fg)' }}>
+            <Text
+              as="span"
+              weight="heavy"
+              style={{ fontSize: 12, color: 'var(--color-foreground)' }}
+            >
               {filename}
             </Text>
           </Button>
         );
       })}
 
-      {/* Add chip */}
       <Button
         type="button"
         style={{
           padding: '2px 8px',
           background: 'transparent',
-          border: '1px dashed var(--chat-bds)',
+          border: '1px dashed var(--color-border-subtle)',
           borderRadius: 20,
-          fontSize: 11.5,
-          color: 'var(--chat-subtle)',
+          fontSize: 12,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--color-subtle)',
           cursor: 'pointer',
           whiteSpace: 'nowrap',
         }}

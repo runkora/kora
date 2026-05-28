@@ -65,7 +65,7 @@ func TestHTTPNotifier_CompleteRun_2xxSucceeds(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL)
-	if err := n.CompleteRun(context.Background(), "run-1", false); err != nil {
+	if err := n.CompleteRun(context.Background(), "run-1", "active", false); err != nil {
 		t.Errorf("unexpected error for 204: %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestHTTPNotifier_CompleteRun_Non2xxReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL)
-	err := n.CompleteRun(context.Background(), "run-1", false)
+	err := n.CompleteRun(context.Background(), "run-1", "active", false)
 	if err == nil {
 		t.Fatal("expected error for 409 response, got nil")
 	}

@@ -99,7 +99,10 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     cookieOptions: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
-      sameSite: 'strict' as const,
+      // lax (not strict) so the cookie is sent after the cross-origin OIDC
+      // redirect back from the IdP (strict blocks that first same-site navigation
+      // in Safari / browsers that enforce the cross-site-context rule).
+      sameSite: 'lax' as const,
       maxAge,
     },
   };

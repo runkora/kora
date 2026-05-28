@@ -281,6 +281,10 @@ func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string)
 	return counts, nil
 }
 
+func (m *mockRepository) ReapStaleRuns(_ context.Context, _ time.Duration) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockRepository) AppendRunEvent(_ context.Context, e RunEvent) (int64, error) {
 	if m.appendRunEventErr != nil {
 		return 0, m.appendRunEventErr

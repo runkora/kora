@@ -72,7 +72,7 @@ func TestScopesToClaudeTools_KnownScopes(t *testing.T) {
 	// Expect selectable tools plus all auto tools.
 	wantTools := map[string]bool{
 		"Bash": true, "Read": true, "Write": true, "Edit": true,
-		"MultiEdit": true, "Glob": true, "Grep": true, "LS": true,
+		"Glob": true, "Grep": true,
 	}
 	maps.Copy(wantTools, autoTools)
 	for _, tool := range tools {

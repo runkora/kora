@@ -135,21 +135,25 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const refreshed = await tryRefresh(session.refreshToken, session.tenantId);
 
     if (!refreshed) {
-      // Refresh failed — destroy the stale session and redirect to login.
-      // iron-session writes the cookie-clearing Set-Cookie header onto the
-      // `response` object it was bound to. We copy those cookies onto the
-      // redirect so the browser actually receives the delete instruction
-      // and the stale cookie is cleared (preventing a redirect loop).
-      await session.destroy();
-      const loginUrl = new URL(APP_ROUTES.login, request.url);
-      if (isSafeRedirectPath(pathname)) {
-        loginUrl.searchParams.set('next', pathname);
+      // Only destroy the session if the token is truly expired. When the
+      // backend is transiently unavailable within the 5-minute warning window,
+      // the token is still valid — fall through and let the request proceed
+      // rather than logging the user out for a transient failure.
+      if (secondsUntilExpiry <= 0) {
+        await session.destroy();
+        const loginUrl = new URL(APP_ROUTES.login, request.url);
+        if (isSafeRedirectPath(pathname)) {
+          loginUrl.searchParams.set('next', pathname);
+        }
+        const loginRedirect = NextResponse.redirect(loginUrl);
+        for (const cookie of response.cookies.getAll()) {
+          loginRedirect.cookies.set(cookie);
+        }
+        return loginRedirect;
       }
-      const loginRedirect = NextResponse.redirect(loginUrl);
-      for (const cookie of response.cookies.getAll()) {
-        loginRedirect.cookies.set(cookie);
-      }
-      return loginRedirect;
+      // Token still valid — pass through with stale data; refresh will be
+      // retried on the next request.
+      return response;
     }
 
     // Re-bind iron-session with options derived from the refreshed token TTL so
@@ -177,11 +181,22 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     await refreshedSession.save();
 
     // Forward the refreshed session cookie to downstream Server Components and
-    // Route Handlers. Middleware writes to response.cookies (→ Set-Cookie for
+    // Route Handlers. Middleware writes to response.headers (→ Set-Cookie for
     // the browser) but cookies() from next/headers reads from the *request*
     // side. Without this, Server Components in the same render cycle still see
-    // the expired token and render with empty/error data.
-    const refreshedCookieValue = response.cookies.get(SESSION_COOKIE_NAME)?.value;
+    // the expired token.
+    //
+    // iron-session writes via response.headers.append("set-cookie", ...) which
+    // does NOT update response.cookies internal state — parse the raw header.
+    let refreshedCookieValue: string | undefined;
+    const setCookieHeader = response.headers.get('set-cookie') ?? '';
+    const cookieMatch = setCookieHeader.match(
+      new RegExp(`(?:^|,\\s*)${SESSION_COOKIE_NAME}=([^;,]+)`),
+    );
+    if (cookieMatch) {
+      refreshedCookieValue = cookieMatch[1];
+    }
+
     if (refreshedCookieValue) {
       const existingCookieHeader = request.headers.get('cookie') ?? '';
       const updatedCookieHeader = [
@@ -196,14 +211,13 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       requestHeaders.set('cookie', updatedCookieHeader);
 
       const forwardedResponse = NextResponse.next({ request: { headers: requestHeaders } });
-      for (const cookie of response.cookies.getAll()) {
-        forwardedResponse.cookies.set(cookie);
+      // Copy the Set-Cookie from the original response so the browser also
+      // receives the refreshed cookie.
+      const responseSetCookie = response.headers.get('set-cookie');
+      if (responseSetCookie) {
+        forwardedResponse.headers.set('set-cookie', responseSetCookie);
       }
       return forwardedResponse;
-    } else {
-      console.warn(
-        '[proxy] Token refresh succeeded but sealed cookie was absent from response — falling back to unfixed response. Server Components may see the expired token.',
-      );
     }
   }
 

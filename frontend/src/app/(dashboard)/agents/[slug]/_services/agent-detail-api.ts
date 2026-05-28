@@ -67,6 +67,22 @@ export async function fetchAgentRuns(
   return { data: (body.data ?? []).map((r) => toRunRow(r, [agentTypeRow])), error: null };
 }
 
+// ── deleteRun ─────────────────────────────────────────────────────────────────
+
+export async function deleteRun(runId: string): Promise<{ error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.runs.detail(runId), { method: 'DELETE' });
+  } catch {
+    return { error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return { error: (body as { message?: string }).message ?? `Request failed (${res.status})` };
+  }
+  return { error: null };
+}
+
 // ── updateAgentType ───────────────────────────────────────────────────────────
 
 export async function updateAgentType(

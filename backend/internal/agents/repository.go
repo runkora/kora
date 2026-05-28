@@ -1,6 +1,9 @@
 package agents
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Repository is the persistence interface for orbit-agents.
 // All methods are tenant-scoped; callers must supply tenantID where relevant.
@@ -34,6 +37,9 @@ type Repository interface {
 	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) error
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// ReapStaleRuns marks runs that have been stuck in active or starting state
+	// for longer than staleDuration as failed. Returns the IDs of reaped runs.
+	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]string, error)
 
 	// ── Events ────────────────────────────────────────────────────────────────
 

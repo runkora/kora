@@ -56,6 +56,7 @@ func realMain() error {
 	}
 
 	initScopeRegistration(ctx, logger, repo, svc)
+	go svc.StartReaper(ctx)
 	run(ctx, logger, server)
 	return nil
 }

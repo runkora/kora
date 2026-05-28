@@ -28,21 +28,27 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
         align="center"
         style={{
           margin: '10px 0',
-          border: '1px solid var(--chat-bds)',
+          border: '1px solid var(--color-border-subtle)',
           borderRadius: 8,
           padding: '8px 12px',
-          fontSize: 12,
-          color: 'var(--chat-subtle)',
           gap: 8,
         }}
       >
         <Text
           as="span"
-          style={{ color: resolution === 'approved' ? 'var(--chat-healthy)' : 'var(--chat-error)' }}
+          style={{
+            fontSize: 12,
+            color:
+              resolution === 'approved'
+                ? 'var(--color-status-healthy)'
+                : 'var(--color-status-error)',
+          }}
         >
           {resolution === 'approved' ? '✓' : '✗'}
         </Text>
-        {resolution === 'approved' ? 'Approved' : 'Rejected'}: {title}
+        <Text as="span" style={{ fontSize: 14, color: 'var(--color-subtle)' }}>
+          {resolution === 'approved' ? 'Approved' : 'Rejected'}: {title}
+        </Text>
       </Stack>
     );
   }
@@ -51,9 +57,9 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
     <Stack
       style={{
         margin: '10px 0',
-        border: '1px solid var(--chat-acc-bdr)',
+        border: '1px solid color-mix(in oklch, var(--color-accent) 35%, transparent)',
         borderRadius: 8,
-        background: 'var(--chat-acc-dim)',
+        background: 'color-mix(in oklch, var(--color-accent) 12%, transparent)',
         overflow: 'hidden',
       }}
     >
@@ -64,28 +70,32 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
         style={{
           gap: 8,
           padding: '8px 12px',
-          borderBottom: '1px solid var(--chat-acc-bdr)',
-          fontSize: 12.5,
-          fontWeight: 500,
+          borderBottom: '1px solid color-mix(in oklch, var(--color-accent) 35%, transparent)',
         }}
       >
-        <Text as="span" style={{ color: 'var(--chat-acc)' }}>
+        <Text as="span" style={{ fontSize: 12, color: 'var(--color-accent)' }}>
           ◈
         </Text>
-        {title}
+        <Text as="span" style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-foreground)' }}>
+          {title}
+        </Text>
       </Stack>
 
       {/* Body */}
-      <Stack style={{ padding: '9px 12px', fontSize: 12, color: 'var(--chat-muted)' }}>
-        <Text style={{ marginBottom: 8 }}>{description}</Text>
+      <Stack style={{ padding: '9px 12px' }}>
+        <Text
+          style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--color-muted)', marginBottom: 8 }}
+        >
+          {description}
+        </Text>
         <Code
           style={{
             display: 'block',
-            fontFamily: "'Cascadia Code', 'Fira Code', ui-monospace, monospace",
-            fontSize: 11.5,
-            color: 'var(--chat-fg)',
-            background: 'var(--chat-deep)',
-            border: '1px solid var(--chat-bds)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            color: 'var(--color-foreground)',
+            background: 'var(--color-background)',
+            border: '1px solid var(--color-border-subtle)',
             borderRadius: 4,
             padding: '6px 10px',
             whiteSpace: 'pre-wrap',
@@ -102,10 +112,9 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
         style={{
           gap: 7,
           padding: '9px 12px',
-          borderTop: '1px solid var(--chat-acc-bdr)',
+          borderTop: '1px solid color-mix(in oklch, var(--color-accent) 35%, transparent)',
         }}
       >
-        {/* Approve */}
         <Button
           type="button"
           onClick={() => setResolution('approved')}
@@ -115,15 +124,13 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
             fontSize: 12,
             cursor: 'pointer',
             fontWeight: 500,
-            background: 'var(--chat-acc)',
-            border: '1px solid var(--chat-acc)',
-            color: 'oklch(9% 0.005 248)',
+            background: 'var(--color-accent)',
+            border: '1px solid transparent',
+            color: 'white',
           }}
         >
           Approve
         </Button>
-
-        {/* Edit (stub — no action in mock) */}
         <Button
           type="button"
           style={{
@@ -133,14 +140,12 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
             cursor: 'pointer',
             fontWeight: 500,
             background: 'transparent',
-            border: '1px solid var(--chat-bds)',
-            color: 'var(--chat-muted)',
+            border: '1px solid var(--color-border-subtle)',
+            color: 'var(--color-muted)',
           }}
         >
           Edit
         </Button>
-
-        {/* Reject */}
         <Button
           type="button"
           onClick={() => setResolution('rejected')}
@@ -151,8 +156,8 @@ export function ApprovalPrompt({ title, description, command }: ApprovalPromptPr
             cursor: 'pointer',
             fontWeight: 500,
             background: 'transparent',
-            border: '1px solid oklch(38% 0.15 25)',
-            color: 'var(--chat-error)',
+            border: '1px solid var(--color-status-error)',
+            color: 'var(--color-status-error)',
           }}
         >
           Reject

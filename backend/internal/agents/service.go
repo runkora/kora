@@ -2,8 +2,10 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -54,6 +56,9 @@ func (s *Service) SetAgentTypeHook(fn func()) { s.agentTypeHook = fn }
 type ServiceConfig struct {
 	MaxConcurrentRunsPerPod int
 	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
+	// StaleRunTimeout is how long a run may stay in active/starting without a state update
+	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
+	StaleRunTimeout time.Duration
 }
 
 // NewService creates a Service with the given dependencies.
@@ -386,6 +391,8 @@ func (s *Service) StartRun(ctx context.Context, req StartRunRequest) (*Run, erro
 				logging.Field{Key: "run_id", Value: run.ID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+		} else {
+			s.emitHumanMessage(ctx, run.ID, req.InitialMessage)
 		}
 	}
 
@@ -556,8 +563,8 @@ func (s *Service) SendMessage(ctx context.Context, runID, content string) error 
 		span.SetStatus(codes.Error, "get run")
 		return err
 	}
-	if run.State != RunStateActive {
-		return fmt.Errorf("run is not active (state: %s)", run.State)
+	if run.State != RunStateActive && run.State != RunStateIdle {
+		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 
 	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content}); err != nil {
@@ -580,7 +587,32 @@ func (s *Service) SendMessage(ctx context.Context, runID, content string) error 
 		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
 	}
 
+	s.emitHumanMessage(ctx, runID, content)
 	return nil
+}
+
+// emitHumanMessage persists a human message to run_events and fans it out via
+// PubSub so live SSE subscribers and future replays both see it. Non-fatal —
+// the message was already delivered to Claude; a persistence failure only
+// affects the replay view.
+func (s *Service) emitHumanMessage(ctx context.Context, runID, content string) {
+	payload, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return
+	}
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{
+		RunID:     runID,
+		EventType: "human_message",
+		Payload:   payload,
+	})
+	if err != nil {
+		s.logger.Warn(ctx, "Failed to persist human_message event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo})
 }
 
 // ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
@@ -662,6 +694,40 @@ func (s *Service) selectPod(ctx context.Context, at *AgentType) (int, error) {
 		logging.Field{Key: "max_runs_per_pod", Value: at.MaxConcurrentRunsPerPod},
 	)
 	return best, nil
+}
+
+// ── Stale run reaper ──────────────────────────────────────────────────────────
+
+// StartReaper runs a background goroutine that periodically marks runs stuck in
+// active or starting state as failed. It exits when ctx is canceled.
+func (s *Service) StartReaper(ctx context.Context) {
+	staleDuration := s.cfg.StaleRunTimeout
+	if staleDuration <= 0 {
+		staleDuration = 30 * time.Minute
+	}
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ids, err := s.repo.ReapStaleRuns(ctx, staleDuration)
+			if err != nil {
+				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})
+				continue
+			}
+			if len(ids) > 0 {
+				s.logger.Info(ctx, "reaped stale runs",
+					logging.Field{Key: "count", Value: len(ids)},
+					logging.Field{Key: "run_ids", Value: ids},
+				)
+				for _, id := range ids {
+					s.pubsub.Publish(id, PushedEvent{Type: "run_failed", Payload: []byte(`{}`)})
+				}
+			}
+		}
+	}
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
