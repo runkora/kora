@@ -412,14 +412,14 @@ Text.displayName = 'Text';
  *   bare       — inside a component that already provides container styling
  *   highlight  — a named identifier that deserves deliberate visual emphasis
  */
-const codeVariants = cva('font-mono rounded-sm px-1 py-0.5 text-sm', {
+const codeVariants = cva('font-mono text-sm', {
   variants: {
     variant: {
       /**
        * Inline — subtle surface background distinguishes the span from prose.
        * Use inside sentences and paragraphs.
        */
-      inline: 'bg-surface-elevated text-foreground',
+      inline: 'rounded-sm bg-surface-elevated px-1 py-0.5 text-foreground',
       /**
        * Bare — monospace font only, no background. Use inside tables, badges,
        * or other components that already provide a visual container.
@@ -429,7 +429,7 @@ const codeVariants = cva('font-mono rounded-sm px-1 py-0.5 text-sm', {
        * Highlight — draws attention to a specific identifier (e.g., a key
        * token name, an active agent ID, a critical env variable).
        */
-      highlight: 'text-accent',
+      highlight: 'rounded-sm px-1 py-0.5 text-accent',
     },
   },
   defaultVariants: {

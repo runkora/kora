@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '../../utils';
+import { Icon } from '../icon';
 import { Heading, Text } from '../typography/typography';
 import { MAX_H, OVERFLOW_Y } from '../layout/sizing';
 import type { MaxHeight, OverflowValue } from '../layout/sizing';
@@ -16,6 +17,10 @@ import type { MaxHeight, OverflowValue } from '../layout/sizing';
  *
  * Pass `column` when the card needs to be a flex column — required for
  * `CardFooter`'s `mt-auto` to push the footer to the card's bottom edge.
+ *
+ * Pass `toggleable` to make `CardContent` collapsible. The card manages its
+ * own open/closed state and renders a `CardCollapseBar` at the bottom
+ * automatically. Use `defaultOpen` to set the initial state (default: false).
  *
  * ```tsx
  * <Card>
@@ -37,11 +42,31 @@ import type { MaxHeight, OverflowValue } from '../layout/sizing';
  *   <CardFooter>...</CardFooter>
  * </Card>
  * ```
+ *
+ * Collapsible card — CardContent is hidden until the user expands it:
+ *
+ * ```tsx
+ * <Card column toggleable>
+ *   <CardHeader>
+ *     <CardTitle>Setup</CardTitle>
+ *     <CardDescription>Follow these steps to get started.</CardDescription>
+ *   </CardHeader>
+ *   <CardContent>...</CardContent>
+ * </Card>
+ * ```
  */
+
+// ─── CardContext ──────────────────────────────────────────────────────────────
+
+interface CardContextValue {
+  open: boolean;
+}
+
+const CardContext = React.createContext<CardContextValue | null>(null);
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   /**
    * When true, makes the card a flex column container. Required when you need
    * `CardFooter` to stick to the bottom via `mt-auto`, or when `CardContent`
@@ -77,36 +102,85 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * target interactive cards explicitly.
    */
   interactive?: boolean;
+
   /**
    * `overflow-y` CSS property. Use `'auto'` to make the card contents
    * vertically scrollable within a fixed height or `maxHeight` constraint.
    * Card already applies `overflow-hidden` — `overflowY` adds a scroll layer.
    */
   overflowY?: OverflowValue;
+
   /**
    * Maximum height constraint. Use with `overflowY="auto"` for scrollable
    * card containers (e.g. picker dropdowns, bounded user lists).
    */
   maxHeight?: MaxHeight;
+
+  /**
+   * When true, the card manages its own expand/collapse state and renders a
+   * `CardCollapseBar` at the bottom. `CardContent` inside the card is hidden
+   * when collapsed — all other children (`CardHeader`, `CardFooter`) remain
+   * visible at all times.
+   *
+   * Implies `column`. Use `defaultOpen` to set the initial state.
+   *
+   * ```tsx
+   * <Card column toggleable>
+   *   <CardHeader><CardTitle>Setup</CardTitle></CardHeader>
+   *   <CardContent>…</CardContent>
+   * </Card>
+   * ```
+   */
+  toggleable?: boolean;
+
+  /**
+   * Initial open state when `toggleable` is true. Defaults to `false`
+   * (collapsed). Has no effect on non-toggleable cards.
+   */
+  defaultOpen?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, column = false, interactive = false, overflowY, maxHeight, ...props }, ref) => (
-    <div
-      ref={ref}
-      data-interactive={interactive ? 'true' : undefined}
-      className={cn(
-        'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
-        column && 'flex flex-col',
-        interactive &&
-          'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
-        overflowY && OVERFLOW_Y[overflowY],
-        maxHeight && MAX_H.base[maxHeight],
-        className,
-      )}
-      {...props}
-    />
-  ),
+  (
+    {
+      className,
+      column = false,
+      interactive = false,
+      overflowY,
+      maxHeight,
+      toggleable = false,
+      defaultOpen = false,
+      children,
+      ...props
+    },
+    ref,
+  ) => {
+    const [open, setOpen] = React.useState(defaultOpen);
+
+    const el = (
+      <div
+        ref={ref}
+        data-interactive={interactive ? 'true' : undefined}
+        className={cn(
+          'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
+          (column || toggleable) && 'flex flex-col',
+          interactive &&
+            'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
+          overflowY && OVERFLOW_Y[overflowY],
+          maxHeight && MAX_H.base[maxHeight],
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {toggleable && <CardCollapseBar open={open} onClick={() => setOpen((o) => !o)} />}
+      </div>
+    );
+
+    if (!toggleable) return el;
+
+    return <CardContext.Provider value={{ open }}>{el}</CardContext.Provider>;
+  },
 );
 Card.displayName = 'Card';
 
@@ -231,7 +305,7 @@ CardDescription.displayName = 'CardDescription';
 
 // ─── CardContent ──────────────────────────────────────────────────────────────
 
-interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
   /**
    * When `true`, adds top padding equal to the card's standard spacing grid
    * (`pt-6`). Use this when `CardContent` is the first (or only) child of a
@@ -301,19 +375,26 @@ interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
  * header, pass `padded` to restore the top spacing. Pass `flush` for
  * edge-to-edge content (tables, full-bleed images). Pass `grow` inside a
  * `<Card column>` to fill remaining height.
+ *
+ * When rendered inside a `<Card toggleable>`, `CardContent` is hidden
+ * automatically while the card is collapsed.
  */
 const CardContent = React.forwardRef<HTMLDivElement, CardContentProps>(
-  ({ className, padded = false, flush = false, grow = false, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn(
-        flush ? 'p-0' : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
-        grow && 'flex-1',
-        className,
-      )}
-      {...props}
-    />
-  ),
+  ({ className, padded = false, flush = false, grow = false, ...props }, ref) => {
+    const ctx = React.useContext(CardContext);
+    if (ctx && !ctx.open) return null;
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          flush ? 'p-0' : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
+          grow && 'flex-1',
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
 );
 CardContent.displayName = 'CardContent';
 
@@ -399,7 +480,46 @@ const CardFooter = React.forwardRef<HTMLDivElement, CardFooterProps>(
 );
 CardFooter.displayName = 'CardFooter';
 
+// ─── CardCollapseBar ──────────────────────────────────────────────────────────
+
+interface CardCollapseBarProps {
+  /** Whether the associated card content is currently expanded. */
+  open: boolean;
+  /** Callback fired when the bar is clicked or activated via keyboard. */
+  onClick: () => void;
+  /** Accessible label for the toggle. Defaults to "Expand section" / "Collapse section". */
+  'aria-label'?: string;
+}
+
+/**
+ * CardCollapseBar
+ *
+ * A full-width accent-coloured button strip placed as the last child of a
+ * `<Card column>`. The card's `overflow-hidden` clips the bar to the card's
+ * bottom rounded corners automatically.
+ *
+ * Rendered automatically by `<Card toggleable>`. Internal to Terra — not part
+ * of the public API.
+ */
+const CardCollapseBar = React.forwardRef<HTMLButtonElement, CardCollapseBarProps>(
+  ({ open, onClick, 'aria-label': ariaLabel }, ref) => (
+    <button
+      ref={ref}
+      type="button"
+      data-slot="card-collapse-bar"
+      data-open={open ? 'true' : 'false'}
+      aria-expanded={open}
+      aria-label={ariaLabel ?? (open ? 'Collapse section' : 'Expand section')}
+      onClick={onClick}
+      className="flex w-full items-center justify-center py-2 bg-accent hover:brightness-110 active:brightness-90 transition-[filter] duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent-fg mt-auto"
+    >
+      <Icon name={open ? 'chevron-up' : 'chevron-down'} size="sm" color="default" />
+    </button>
+  ),
+);
+CardCollapseBar.displayName = 'CardCollapseBar';
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };
-export type { CardProps, CardHeaderProps, CardContentProps, CardFooterProps };
+export type { CardHeaderProps, CardFooterProps };

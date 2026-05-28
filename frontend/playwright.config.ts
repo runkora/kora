@@ -53,9 +53,11 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {
-      // Provide a dummy session secret so the Next.js app boots without a
-      // real .env file.  Tests mock all auth responses via page.route().
-      BFF_SESSION_SECRET: process.env.BFF_SESSION_SECRET ?? 'playwright-test-session-secret-32ch',
+      // Always use the fixed test secret so that injectSessionCookie() in
+      // fixtures.ts produces a cookie the dev server can unseal, regardless
+      // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
+      // when invoked via `make` which exports the root .env).
+      BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
       ORBIT_API_URL: process.env.ORBIT_API_URL ?? 'http://localhost:8080',
     },
   },
