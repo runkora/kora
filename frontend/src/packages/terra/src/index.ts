@@ -62,7 +62,14 @@ export {
   CardContent,
   CardFooter,
 } from './components/card';
-export type { CardProps } from './components/card';
+export type {
+  CardProps,
+  CardHeaderProps,
+  CardTitleProps,
+  CardDescriptionProps,
+  CardContentProps,
+  CardFooterProps,
+} from './components/card';
 
 export { Input } from './components/input';
 export type { InputProps } from './components/input';
@@ -102,6 +109,9 @@ export {
   codeVariants,
 } from './components/typography';
 export type { HeadingProps, TextProps, CodeProps } from './components/typography';
+
+export { CodeBlock } from './components/code-block';
+export type { CodeBlockProps } from './components/code-block';
 
 // ─── Molecules ───────────────────────────────────────────────────────────────
 

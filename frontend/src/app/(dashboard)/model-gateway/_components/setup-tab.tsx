@@ -2,81 +2,56 @@
 
 // ── SetupTab ────────────────────────────────────────────────────────────────
 //
-// Guides users through configuring their local machine to route LLM traffic
-// through the Orbit Model Gateway. Step-by-step instructions with copyable
-// code blocks.
+// Guides users through configuring a local LLM coding agent to route traffic
+// through the Orbit Model Gateway.
 //
-// API key management and usage/limits live in their own dedicated tabs
-// (Keys and Overview respectively) — this tab is focused purely on the
-// getting-started workflow.
+// Structure:
+//   1. Shared intro — how to self-service provision an API key
+//   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode
 
-import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import {
-  Callout,
-  Button,
+  Anchor,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
   Code,
+  CodeBlock,
   Heading,
-  Separator,
-  Icon,
   Stack,
   StepDot,
   StepConnector,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
   Text,
+  Callout,
 } from '@orbit/terra';
-
-// ── CodeBlock ────────────────────────────────────────────────────────────────
-
-function CodeBlock({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [code]);
-
-  return (
-    <Stack asChild>
-      <figure className="group relative m-0">
-        <pre className="overflow-x-auto rounded-lg bg-surface-elevated border border-border px-4 py-3 leading-relaxed">
-          <Code variant="bare">{code}</Code>
-        </pre>
-        <Button variant="ghost" size="icon-sm" onClick={handleCopy} aria-label="Copy code">
-          {copied ? (
-            <Icon name="check" size="2xs" color="status-healthy" />
-          ) : (
-            <Icon name="copy" size="2xs" />
-          )}
-        </Button>
-      </figure>
-    </Stack>
-  );
-}
+import { ScopeChip } from '@orbit/components';
 
 // ── Step ─────────────────────────────────────────────────────────────────────
 
 function Step({
   number,
   title,
+  isLast,
   children,
 }: {
   number: number;
   title: string;
+  isLast?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Stack direction="horizontal" gap="comfortable">
       <Stack align="center" gap="none">
         <StepDot>{number}</StepDot>
-        <StepConnector />
+        {!isLast && <StepConnector />}
       </Stack>
-      <Stack grow paddingBottom="spacious">
+      <Stack grow paddingBottom={isLast ? 'none' : 'spacious'}>
         <Stack marginBottom="tight">
           <Text size="supporting" weight="emphasis">
             {title}
@@ -88,93 +63,262 @@ function Step({
   );
 }
 
+// ── Agent tab content ─────────────────────────────────────────────────────────
+
+function ClaudeCodeGuide() {
+  return (
+    <Stack gap="none">
+      <Step number={1} title="Set the gateway endpoint">
+        <Text size="supporting" color="muted">
+          Claude Code reads <Code>ANTHROPIC_BASE_URL</Code> to override the default API endpoint.
+          Add the following to your shell profile alongside the key you exported above.
+        </Text>
+        <CodeBlock
+          text={`export ANTHROPIC_BASE_URL="https://api.orbit.dev.clearroute.io"
+export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
+          filename="~/.zshrc"
+        />
+      </Step>
+
+      <Step number={2} title="Map model aliases to your virtual models" isLast>
+        <Text size="supporting" color="muted">
+          Claude Code uses <Code>ANTHROPIC_DEFAULT_*_MODEL</Code> environment variables to select
+          models by tier. Set each to the virtual model ID provisioned for you in Orbit.
+        </Text>
+        <CodeBlock
+          text={`export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=anthropic/claude-haiku-4-5
+export ANTHROPIC_DEFAULT_OPUS_MODEL=anthropic/claude-opus-4-7`}
+          filename="~/.zshrc"
+        />
+        <Text size="caption" color="subtle">
+          Then reload: <Code>source ~/.zshrc</Code>
+        </Text>
+      </Step>
+    </Stack>
+  );
+}
+
+function CodexGuide() {
+  return (
+    <Stack gap="none">
+      <Step number={1} title="Set the active provider and model">
+        <Text size="supporting" color="muted">
+          Tell Codex to use Orbit and select your default virtual model by adding the following to
+          your Codex config file.
+        </Text>
+        <CodeBlock
+          text={`model_provider = "orbit"
+model = "anthropic/claude-sonnet-4-6"`}
+          filename="~/.codex/config.toml"
+        />
+      </Step>
+
+      <Step number={2} title="Register the Orbit provider" isLast>
+        <Text size="supporting" color="muted">
+          Add the provider definition that Codex will look up when{' '}
+          <Code>model_provider = &quot;orbit&quot;</Code> is set.
+        </Text>
+        <CodeBlock
+          text={`[model_providers.orbit]
+name     = "Orbit"
+base_url = "https://api.orbit.dev.clearroute.io/v1"
+env_key  = "ORBIT_API_KEY"
+wire_api = "responses"`}
+          filename="~/.codex/config.toml"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">
+              <Code>env_key</Code> is the name of an environment variable
+            </Heading>
+            <Text size="caption" color="muted">
+              Codex reads the bearer token from the environment variable named by{' '}
+              <Code>env_key</Code>. Export your Orbit API key as <Code>ORBIT_API_KEY</Code> in your
+              shell profile.
+            </Text>
+          </Stack>
+        </Callout>
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">
+              <Code>base_url</Code> must include the <Code>/v1</Code> suffix
+            </Heading>
+            <Text size="caption" color="muted">
+              Omitting <Code>/v1</Code> causes all requests to return 403. Codex does not append it
+              automatically.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+    </Stack>
+  );
+}
+
+function OpenCodeGuide() {
+  return (
+    <Stack gap="none">
+      <Step number={1} title="Add Orbit as a provider" isLast>
+        <Text size="supporting" color="muted">
+          OpenCode supports custom OpenAI-compatible providers via its config file. Add the
+          following to register Orbit and expose your virtual models.
+        </Text>
+        <CodeBlock
+          text={`{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "orbit": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Orbit",
+      "options": {
+        "baseURL": "https://api.orbit.dev.clearroute.io/v1",
+        "apiKey": "{env:ORBIT_API_KEY}"
+      },
+      "models": {
+        "anthropic/claude-sonnet-4-6": {
+          "name": "Claude Sonnet 4.6"
+        },
+        "anthropic/claude-opus-4-7": {
+          "name": "Claude Opus 4.7"
+        },
+        "anthropic/claude-haiku-4-5": {
+          "name": "Claude Haiku 4.5"
+        }
+      }
+    }
+  }
+}`}
+          filename="~/.config/opencode/opencode.jsonc"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">
+              <Code>{'{env:ORBIT_API_KEY}'}</Code> reads from your environment
+            </Heading>
+            <Text size="caption" color="muted">
+              OpenCode resolves <Code>{'{env:VAR_NAME}'}</Code> at runtime from the named
+              environment variable. Export <Code>ORBIT_API_KEY</Code> in your shell profile — no{' '}
+              <Code>/connect</Code> command is needed when the key is supplied this way.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+    </Stack>
+  );
+}
+
 // ── SetupTab (exported) ──────────────────────────────────────────────────────
 
 export function SetupTab() {
   return (
     <Stack gap="spacious">
-      <Card column>
+      {/* ── Shared: provision an API key ─────────────────────────────────── */}
+      <Card column toggleable defaultOpen={false}>
         <CardHeader>
-          <CardTitle>Getting started</CardTitle>
+          <CardTitle>Provision an API key</CardTitle>
           <CardDescription>
-            Configure your local coding agent to route requests through the Orbit Model Gateway in
-            three steps.
+            All agents authenticate to the Orbit Model Gateway using a personal API key. Create one
+            now and export it to your environment before continuing.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Stack>
-            <Step number={1} title="Create an API key">
+            <Step number={1} title="Open the API Keys tab">
               <Text size="supporting" color="muted">
-                Head to the{' '}
+                Open the{' '}
+                <Anchor asChild>
+                  <Link href="/model-gateway/keys">API Keys</Link>
+                </Anchor>{' '}
+                tab and click{' '}
                 <Text as="span" size="supporting" color="foreground" weight="emphasis">
-                  API Keys
-                </Text>{' '}
-                tab to create a key, then store it in your environment — never hard-code it in
-                source files.
+                  Create key
+                </Text>
+                . Give it a descriptive name — for example the machine or agent it will be used on.
+              </Text>
+            </Step>
+
+            <Step number={2} title="Select scopes">
+              <Text size="supporting" color="muted">
+                Scopes control what the key is permitted to do. Select the scopes your agent needs:
+              </Text>
+              <Stack gap="snug">
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <ScopeChip scope="inference:invoke" />
+                  <Text size="caption" color="muted">
+                    Send inference requests to the gateway.
+                  </Text>
+                </Stack>
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <ScopeChip scope="inference:list" />
+                  <Text size="caption" color="muted">
+                    List available models.
+                  </Text>
+                </Stack>
+                <Stack direction="horizontal" gap="snug" align="center">
+                  <ScopeChip scope="inference:anthropic:use" />
+                  <Text size="caption" color="muted">
+                    Route requests to Anthropic models specifically.
+                  </Text>
+                </Stack>
+              </Stack>
+              <Text size="caption" color="subtle">
+                You can only grant scopes that have been assigned to your account. Contact your
+                administrator if a required scope is unavailable.
+              </Text>
+            </Step>
+
+            <Step number={3} title="Copy your key">
+              <Text size="supporting" color="muted">
+                After creation, copy the key immediately — it will only be shown once.
+              </Text>
+            </Step>
+
+            <Step number={4} title="Export the key to your environment" isLast>
+              <Text size="supporting" color="muted">
+                Store the key in your shell profile. Never hard-code it in source files or commit it
+                to version control.
               </Text>
               <CodeBlock
-                code={`# ~/.zshrc or ~/.bashrc
-export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">
                 Then reload your shell: <Code>source ~/.zshrc</Code>
               </Text>
             </Step>
-
-            <Step number={2} title="Point your agent at the gateway">
-              <Text size="supporting" color="muted">
-                Set the base URL to the Orbit Model Gateway endpoint. Most OpenAI-compatible clients
-                accept a <Code>base_url</Code> or <Code>OPENAI_BASE_URL</Code> environment variable.
-              </Text>
-              <CodeBlock
-                code={`export OPENAI_BASE_URL="https://gateway.orbit.dev/v1"
-export OPENAI_API_KEY="$ORBIT_API_KEY"`}
-              />
-            </Step>
-
-            <Step number={3} title="Verify the connection">
-              <Text size="supporting" color="muted">
-                Send a quick test request to confirm everything is wired up correctly.
-              </Text>
-              <CodeBlock
-                code={`curl "$OPENAI_BASE_URL/models" \\
-  -H "Authorization: Bearer $ORBIT_API_KEY" | jq '.data[].id'`}
-              />
-              <Text size="supporting" color="muted">
-                Or with the Python SDK:
-              </Text>
-              <CodeBlock
-                code={`import openai, os
-
-client = openai.OpenAI(
-    api_key=os.environ["ORBIT_API_KEY"],
-    base_url=os.environ["OPENAI_BASE_URL"],
-)
-
-response = client.chat.completions.create(
-    model="claude-3-5-sonnet-20241022",
-    messages=[{"role": "user", "content": "Hello from Orbit!"}],
-)
-print(response.choices[0].message.content)`}
-              />
-            </Step>
           </Stack>
+        </CardContent>
+      </Card>
 
-          <Stack asChild>
-            <figure className="m-0 my-4">
-              <Separator span="full" />
-            </figure>
-          </Stack>
+      {/* ── Agent-specific configuration ─────────────────────────────────── */}
+      <Card column>
+        <CardHeader>
+          <CardTitle>Configure your agent</CardTitle>
+          <CardDescription>
+            Select your LLM coding agent below and follow the steps to point it at the Orbit Model
+            Gateway.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="claude-code">
+            <TabsList>
+              <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+              <TabsTrigger value="codex">Codex CLI</TabsTrigger>
+              <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+            </TabsList>
 
-          <Callout>
-            <Stack gap="snug">
-              <Heading variant="label">Compatible clients</Heading>
-              <Text size="caption" color="muted">
-                Any OpenAI-compatible client works with the Orbit gateway — including Cursor, Aider,
-                Continue, Cline, and custom scripts using the OpenAI Python or Node.js SDKs.
-              </Text>
-            </Stack>
-          </Callout>
+            <TabsContent value="claude-code">
+              <ClaudeCodeGuide />
+            </TabsContent>
+
+            <TabsContent value="codex">
+              <CodexGuide />
+            </TabsContent>
+
+            <TabsContent value="opencode">
+              <OpenCodeGuide />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </Stack>
