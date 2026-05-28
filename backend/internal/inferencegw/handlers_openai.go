@@ -365,9 +365,14 @@ type sseDelta struct {
 }
 
 type sseToolCall struct {
-	Index    int64               `json:"index"`
-	ID       string              `json:"id,omitempty"`
-	Type     string              `json:"type,omitempty"`
+	Index int64  `json:"index"`
+	ID    string `json:"id,omitempty"`
+	Type  string `json:"type,omitempty"`
+	// Function is intentionally not omitempty. The OpenAI streaming protocol
+	// requires the "function" key to be present on every tool_call delta,
+	// including input_json_delta chunks where only Arguments is populated and
+	// Name is an empty string. Strict client validators (e.g. the openai npm
+	// package's Zod schemas) reject tool_call deltas that are missing the key.
 	Function sseToolCallFunction `json:"function"`
 }
 

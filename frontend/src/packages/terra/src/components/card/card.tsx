@@ -498,15 +498,8 @@ interface CardCollapseBarProps {
  * `<Card column>`. The card's `overflow-hidden` clips the bar to the card's
  * bottom rounded corners automatically.
  *
- * Rendered automatically by `<Card toggleable>`. Use directly only when you
- * need manual control over the open state outside of a toggleable card.
- *
- * ```tsx
- * <Card column toggleable>
- *   <CardHeader>…</CardHeader>
- *   <CardContent>…</CardContent>
- * </Card>
- * ```
+ * Rendered automatically by `<Card toggleable>`. Internal to Terra — not part
+ * of the public API.
  */
 const CardCollapseBar = React.forwardRef<HTMLButtonElement, CardCollapseBarProps>(
   ({ open, onClick, 'aria-label': ariaLabel }, ref) => (
