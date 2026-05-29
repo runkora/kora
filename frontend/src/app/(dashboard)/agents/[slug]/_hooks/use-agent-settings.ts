@@ -66,7 +66,7 @@ export function useAgentSettings() {
     systemPrompt: agent?.systemPrompt ?? '',
     maxConcurrentRuns: String(agent?.maxConcurrentRunsPerPod ?? 10),
     modelId: agent?.modelId ?? 'anthropic/claude-sonnet-4-6',
-    toolScopes: agent?.toolScopes ?? [] as string[],
+    toolScopes: agent?.toolScopes ?? ([] as string[]),
   });
 
   // ── Model data ──────────────────────────────────────────────────────────────
@@ -140,7 +140,15 @@ export function useAgentSettings() {
         setSaveError(result.error);
       } else {
         // Update the baseline so isDirty immediately resets to false.
-        setSavedBaseline({ name: trimmedName, description: trimmedDescription, framework, systemPrompt: trimmedSystemPrompt, maxConcurrentRuns, modelId, toolScopes });
+        setSavedBaseline({
+          name: trimmedName,
+          description: trimmedDescription,
+          framework,
+          systemPrompt: trimmedSystemPrompt,
+          maxConcurrentRuns,
+          modelId,
+          toolScopes,
+        });
         setSaveSuccess(true);
         if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
         saveSuccessTimerRef.current = setTimeout(() => setSaveSuccess(false), 2000);

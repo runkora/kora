@@ -19,7 +19,8 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-session-runner ./cmd/orbit-session-runner/
 
 RUN find /app -path "*/config/*.yaml" | while read f; do \
         rel="${f#/app/}"; \
@@ -52,6 +53,7 @@ COPY --from=builder /configs/ ./
 COPY --from=builder /orbit ./orbit
 COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
 COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
+COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
 
 # Workspaces directory (matches config/base.yaml workspaces.basePath)
 RUN mkdir -p /workspaces && chown orbit:orbit /workspaces /app

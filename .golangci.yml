@@ -402,3 +402,12 @@ linters:
         linters:
           - gocritic
         text: "noDirectWriteHeader"
+
+      # orbit-session-runner is a thin exec() wrapper: its entire purpose is to
+      # exec the binary supplied as argv[3] after applying Landlock restrictions.
+      # The binary path comes from operator configuration (ClaudeRunnerConfig),
+      # not from user input — G702 (command injection via taint) is a false positive.
+      - path: "cmd/orbit-session-runner/"
+        linters:
+          - gosec
+        text: "G702"

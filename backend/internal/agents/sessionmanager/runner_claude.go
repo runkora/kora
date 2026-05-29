@@ -21,6 +21,12 @@ type ClaudeRunnerConfig struct {
 	// BinaryPath is the path to the claude binary. Defaults to "claude".
 	BinaryPath string
 
+	// WrapperPath is the path to orbit-session-runner. When set, the subprocess
+	// is invoked as: WrapperPath <workDir> <BinaryPath> [args...]
+	// which applies Landlock filesystem restrictions before exec'ing claude.
+	// When empty, BinaryPath is invoked directly (no filesystem restriction).
+	WrapperPath string
+
 	// Model overrides the default model (e.g. "claude-sonnet-4-6").
 	// Empty means use Claude Code's default.
 	Model string
@@ -95,7 +101,9 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 }
 
 // Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
-func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
+// buildFlags returns the Claude Code CLI flags for this runner configuration.
+// Extracted to keep Start() cyclomatic complexity within bounds.
+func (r *ClaudeRunner) buildFlags() []string {
 	args := []string{
 		"--print",
 		"--output-format", "stream-json",
@@ -117,6 +125,50 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	if r.cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", r.cfg.SystemPrompt)
 	}
+	return args
+}
+
+// buildExecCommand returns the command and arguments to use when starting the
+// subprocess. When WrapperPath is set the wrapper is invoked as:
+//
+//	orbit-session-runner <workDir> <claude> [claude-args...]
+//
+// so it can apply Landlock before exec'ing claude. Without a wrapper, claude
+// is invoked directly (used in tests and local macOS dev).
+func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd string, cmdArgs []string) {
+	claudeBinary := r.cfg.BinaryPath
+	if claudeBinary == "" {
+		claudeBinary = "claude"
+	}
+	if r.cfg.WrapperPath != "" {
+		return r.cfg.WrapperPath, append([]string{workDir, claudeBinary}, args...)
+	}
+	return claudeBinary, args
+}
+
+// buildRunEnv constructs the subprocess environment from the inherited base env
+// plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
+// by the per-run isolation values. Stripping is necessary because on Linux
+// getenv() returns the first match — any pre-existing HOME= or TMPDIR= would
+// shadow our values if they appeared earlier in the slice. See ADR-0062.
+func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
+	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
+	for _, e := range baseEnv {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
+			env = append(env, e)
+		}
+	}
+	for _, e := range r.cfg.ExtraEnv {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
+			env = append(env, e)
+		}
+	}
+	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
+}
+
+// Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
+func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
+	args := r.buildFlags()
 
 	mcpConfigPath, mcpErr := r.writeMCPConfig(workDir)
 	if mcpErr != nil {
@@ -124,9 +176,24 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	}
 	args = append(args, "--mcp-config", mcpConfigPath)
 
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, args...)
+	// Per-run home: isolates ~/.claude/ (session transcripts, memories) from
+	// sibling runs on the same pod. See ADR-0062.
+	runHome := filepath.Join(workDir, ".runhome")
+	if err := os.MkdirAll(runHome, 0o700); err != nil {
+		return fmt.Errorf("create run home: %w", err)
+	}
+
+	// Per-run tmp directory lives inside the workspace so it is covered by the
+	// same Landlock rule as the rest of the run's files. See ADR-0062.
+	tmpDir := filepath.Join(workDir, ".tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return fmt.Errorf("create run tmpdir: %w", err)
+	}
+
+	cmd, cmdArgs := r.buildExecCommand(workDir, args)
+	r.cmd = exec.CommandContext(ctx, cmd, cmdArgs...)
 	r.cmd.Dir = workDir
-	r.cmd.Env = append(r.cmd.Environ(), r.cfg.ExtraEnv...)
+	r.cmd.Env = r.buildRunEnv(r.cmd.Environ(), runHome, tmpDir)
 
 	var err error
 	r.stdin, err = r.cmd.StdinPipe()

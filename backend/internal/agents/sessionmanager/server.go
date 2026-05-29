@@ -15,6 +15,9 @@ import (
 type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
+	// ClaudeWrapperPath is the path to orbit-session-runner. When set, it wraps
+	// the claude subprocess to apply Landlock filesystem restrictions (ADR-0062).
+	ClaudeWrapperPath string
 	// ClaudeDefaultModel is used when the session request omits a model.
 	ClaudeDefaultModel string
 	// ClaudeBare enables --bare mode (required in containers).
@@ -98,6 +101,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	}
 	runner := NewClaudeRunner(ClaudeRunnerConfig{
 		BinaryPath:        c.cfg.ClaudeBinaryPath,
+		WrapperPath:       c.cfg.ClaudeWrapperPath,
 		Model:             model,
 		AllowedTools:      req.AllowedTools,
 		SystemPrompt:      req.SystemPrompt,
