@@ -12,7 +12,8 @@ import (
 )
 
 // Compile-time interface checks.
-var _ Repository = (*mockRepository)(nil)
+var _ AgentTypeRepository = (*mockRepository)(nil)
+var _ RunRepository = (*mockRepository)(nil)
 var _ k8sProvisioner = (*mockK8s)(nil)
 var _ smClient = (*mockSMClient)(nil)
 
@@ -281,8 +282,25 @@ func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string)
 	return counts, nil
 }
 
-func (m *mockRepository) ReapStaleRuns(_ context.Context, _ time.Duration) ([]string, error) {
-	return nil, nil
+func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) ([]string, error) {
+	cutoff := time.Now().Add(-staleDuration)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var ids []string
+	for _, r := range m.runs {
+		if r.UpdatedAt.IsZero() || r.UpdatedAt.After(cutoff) {
+			continue
+		}
+		switch r.State {
+		case RunStateActive, RunStateStarting:
+			r.State = RunStateFailed
+			ids = append(ids, r.ID)
+		case RunStateIdle:
+			r.State = RunStateCompleted
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids, nil
 }
 
 func (m *mockRepository) AppendRunEvent(_ context.Context, e RunEvent) (int64, error) {
@@ -398,14 +416,16 @@ func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error 
 // ── mockSMClient ──────────────────────────────────────────────────────────────
 
 type mockSMClient struct {
-	mu             sync.Mutex
-	sessions       []sessionmanager.CreateSessionRequest
-	sentMessages   []string
-	closedSessions []string
+	mu              sync.Mutex
+	sessions        []sessionmanager.CreateSessionRequest
+	sentMessages    []string
+	closedSessions  []string
+	interruptedRuns []string
 
-	createSessionErr error
-	sendMessageErr   error
-	closeSessionErr  error
+	createSessionErr    error
+	sendMessageErr      error
+	interruptSessionErr error
+	closeSessionErr     error
 }
 
 func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionmanager.CreateSessionRequest) error {
@@ -428,6 +448,16 @@ func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string) erro
 	return nil
 }
 
+func (m *mockSMClient) InterruptSession(_ context.Context, _, runID string) error {
+	if m.interruptSessionErr != nil {
+		return m.interruptSessionErr
+	}
+	m.mu.Lock()
+	m.interruptedRuns = append(m.interruptedRuns, runID)
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 	if m.closeSessionErr != nil {
 		return m.closeSessionErr
@@ -440,20 +470,110 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 
 // ── test wiring helpers ───────────────────────────────────────────────────────
 
-func newTestService(t *testing.T) (*Service, *mockRepository, *mockK8s, *mockSMClient) {
+func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
 	repo := newMockRepository()
 	k8s := &mockK8s{}
 	sm := &mockSMClient{}
-	svc := NewService(
-		repo, k8s, sm, NewPubSub(),
-		logging.NewLoggerWithOutput(io.Discard),
-		ServiceConfig{
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	atSvc := NewAgentTypeService(
+		repo, repo, k8s,
+		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 		},
+		logger,
 	)
-	return svc, repo, k8s, sm
+	runSvc := NewRunService(
+		repo, repo, sm, k8s, NewPubSub(),
+		RunServiceConfig{
+			MaxConcurrentRunsPerPod: 5,
+			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+		},
+		logger,
+	)
+	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
+}
+
+// testServiceFacade wraps AgentTypeService + RunService to expose the same method set
+// as the former god-object Service, so existing service_test.go tests need no changes.
+type testServiceFacade struct {
+	at  *AgentTypeService
+	run *RunService
+}
+
+// ── AgentType delegation ──────────────────────────────────────────────────────
+
+func (f *testServiceFacade) SetAgentTypeHook(fn func()) { f.at.SetAgentTypeHook(fn) }
+
+func (f *testServiceFacade) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
+	return f.at.CreateAgentType(ctx, req)
+}
+
+func (f *testServiceFacade) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
+	return f.at.GetAgentType(ctx, id)
+}
+
+func (f *testServiceFacade) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
+	return f.at.ListAgentTypes(ctx, tenantID)
+}
+
+func (f *testServiceFacade) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
+	return f.at.UpdateAgentType(ctx, req)
+}
+
+func (f *testServiceFacade) DeleteAgentType(ctx context.Context, id string) error {
+	return f.at.DeleteAgentType(ctx, id)
+}
+
+// ── Run delegation ────────────────────────────────────────────────────────────
+
+func (f *testServiceFacade) StartRun(ctx context.Context, req StartRunRequest) (*Run, error) {
+	return f.run.StartRun(ctx, req)
+}
+
+func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error) {
+	return f.run.GetRun(ctx, id)
+}
+
+func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
+	return f.run.ListRuns(ctx, tenantID, agentTypeID)
+}
+
+func (f *testServiceFacade) TerminateRun(ctx context.Context, id string) error {
+	return f.run.TerminateRun(ctx, id)
+}
+
+func (f *testServiceFacade) TransitionRunState(ctx context.Context, runID string, from, to RunState) error {
+	return f.run.TransitionRunState(ctx, runID, from, to)
+}
+
+func (f *testServiceFacade) SendMessage(ctx context.Context, runID, content string) error {
+	return f.run.SendMessage(ctx, runID, content)
+}
+
+func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) error {
+	return f.run.InterruptRun(ctx, runID)
+}
+
+func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
+	return f.run.ProvisionSandbox(ctx, runID)
+}
+
+func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) {
+	f.run.PublishEvent(ctx, runID, ev)
+}
+
+func (f *testServiceFacade) ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error) {
+	return f.run.ListRunEvents(ctx, runID, afterSeqNo)
+}
+
+func (f *testServiceFacade) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
+	return f.run.SubscribeRun(runID)
+}
+
+func (f *testServiceFacade) StartReaper(ctx context.Context) {
+	f.run.StartReaper(ctx)
 }
 
 // seedAgentType inserts an active AgentType directly into the mock repo.
@@ -467,6 +587,9 @@ func seedAgentType(_ *testing.T, repo *mockRepository, at AgentType) AgentType {
 
 // seedRun inserts a Run directly into the mock repo.
 func seedRun(_ *testing.T, repo *mockRepository, r Run) Run {
+	if r.UpdatedAt.IsZero() {
+		r.UpdatedAt = time.Now()
+	}
 	cp := r
 	repo.runs[r.ID] = &cp
 	return r

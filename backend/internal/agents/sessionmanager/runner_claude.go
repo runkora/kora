@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -48,6 +49,10 @@ type ClaudeRunnerConfig struct {
 	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
 	RunID string
 
+	// ResumeSessionID, when non-empty, passes --resume <id> to Claude Code so
+	// it continues from a previous session rather than starting fresh.
+	ResumeSessionID string
+
 	// Logger is used to emit structured log events from the subprocess lifecycle.
 	Logger logging.Logger
 }
@@ -58,21 +63,24 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       --no-session-persistence --bare [--model M] [--tools T,...]
+//	       [--resume ID] [--bare] [--model M] [--tools T,...]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
 // event is emitted per turn containing the full accumulated text. tool_use and
 // tool_result events are emitted as they arrive.
 type ClaudeRunner struct {
-	cfg              ClaudeRunnerConfig
-	cmd              *exec.Cmd
-	stdin            io.WriteCloser
-	events           chan Event
-	once             sync.Once
-	textBuf          strings.Builder // accumulates text_delta chunks; reset per turn
-	thinkingBuf      strings.Builder // accumulates thinking_delta chunks; reset per turn
-	textBlockEmitted bool            // true if ≥1 text_block was emitted this turn
+	cfg               ClaudeRunnerConfig
+	cmd               *exec.Cmd
+	stdin             io.WriteCloser
+	events            chan Event
+	once              sync.Once
+	textBuf           strings.Builder // accumulates text_delta chunks; reset per turn
+	thinkingBuf       strings.Builder // accumulates thinking_delta chunks; reset per turn
+	textBlockEmitted  bool            // true if ≥1 text_block was emitted this turn
+	capturedSessionID string          // set once from the system/init event
+	sessionIDMu       sync.Mutex      // protects capturedSessionID
+	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -95,7 +103,9 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
-		"--no-session-persistence",
+	}
+	if r.cfg.ResumeSessionID != "" {
+		args = append(args, "--resume", r.cfg.ResumeSessionID)
 	}
 	if r.cfg.Bare {
 		args = append(args, "--bare")
@@ -219,6 +229,36 @@ func (r *ClaudeRunner) Events() <-chan Event {
 	return r.events
 }
 
+// Interrupt sends SIGINT to the Claude subprocess, interrupting the current
+// in-progress turn. Claude Code handles SIGINT by stopping the active inference
+// and returning to its input loop, leaving the subprocess alive for the next message.
+func (r *ClaudeRunner) Interrupt() error {
+	if r.cmd == nil || r.cmd.Process == nil {
+		return nil
+	}
+	r.interrupted.Store(true)
+	return r.cmd.Process.Signal(os.Interrupt)
+}
+
+// SessionID returns the Claude session ID captured from the system/init event.
+func (r *ClaudeRunner) SessionID() string {
+	r.sessionIDMu.Lock()
+	defer r.sessionIDMu.Unlock()
+	return r.capturedSessionID
+}
+
+// NewResumeRunner returns a new runner configured to resume this session.
+// Returns nil if no session ID has been captured yet.
+func (r *ClaudeRunner) NewResumeRunner() Runner {
+	id := r.SessionID()
+	if id == "" {
+		return nil
+	}
+	cfg := r.cfg
+	cfg.ResumeSessionID = id
+	return NewClaudeRunner(cfg)
+}
+
 // Close sends EOF to stdin and waits for the subprocess to exit.
 func (r *ClaudeRunner) Close() error {
 	var firstErr error
@@ -295,64 +335,18 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 	case "user":
 		r.handleUser(w.Message)
 	case "system":
-		// Carries startup messages and tool initialisation info from Claude Code.
+		if w.Subtype == "init" && w.SessionID != "" {
+			r.sessionIDMu.Lock()
+			r.capturedSessionID = w.SessionID
+			r.sessionIDMu.Unlock()
+		}
 		r.cfg.Logger.Info(ctx, "Claude system event",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
 			logging.Field{Key: "subtype", Value: w.Subtype},
+			logging.Field{Key: "session_id", Value: w.SessionID},
 		)
 	case "result":
-		if w.Subtype == "success" {
-			textLen := r.textBuf.Len()
-			r.cfg.Logger.Info(ctx, "Claude turn complete",
-				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "stop_reason", Value: w.StopReason},
-				logging.Field{Key: "text_len", Value: textLen},
-				logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
-			)
-			// An empty turn with a non-standard stop reason signals a silent failure
-			// (e.g. inference gateway returning 5xx after exhausted retries).
-			// textBlockEmitted=true means text was already flushed before tool calls,
-			// so the turn has content even if textBuf is now empty.
-			if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
-				msg := w.Result
-				if msg == "" {
-					msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
-				}
-				r.cfg.Logger.Error(ctx, "Claude empty turn — possible inference error",
-					logging.Field{Key: "run_id", Value: r.cfg.RunID},
-					logging.Field{Key: "stop_reason", Value: w.StopReason},
-					logging.Field{Key: "result", Value: msg},
-				)
-				r.emit(EventTypeRunError, RunErrorPayload{
-					Code:    "empty_response",
-					Message: msg,
-				})
-				return
-			}
-			r.emit(EventTypeMessageComplete, MessageCompletePayload{
-				Text:     r.textBuf.String(),
-				Thinking: r.thinkingBuf.String(),
-			})
-			r.textBuf.Reset()
-			r.thinkingBuf.Reset()
-			r.textBlockEmitted = false
-			r.emit(EventTypeMessageStop, nil)
-		} else {
-			msg := w.Result
-			if msg == "" {
-				msg = fmt.Sprintf("Claude exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
-			}
-			r.cfg.Logger.Error(ctx, "Claude error result",
-				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "subtype", Value: w.Subtype},
-				logging.Field{Key: "stop_reason", Value: w.StopReason},
-				logging.Field{Key: "result", Value: msg},
-			)
-			r.emit(EventTypeRunError, RunErrorPayload{
-				Code:    "claude_error",
-				Message: msg,
-			})
-		}
+		r.handleResult(ctx, w)
 	default:
 		if w.Type != "" {
 			r.cfg.Logger.Info(ctx, "Unhandled Claude output type",
@@ -362,6 +356,66 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			)
 		}
 	}
+}
+
+// handleResult processes a "result" wrapper (the final event Claude emits per turn).
+// A success result flushes accumulated text as message_complete + message_stop.
+// A non-success result emits run_error unless the runner was explicitly interrupted,
+// in which case the error is suppressed because the runner will restart via --resume.
+func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) {
+	if w.Subtype != "success" {
+		if r.interrupted.Load() {
+			return // SIGINT caused the non-success exit — runner will restart via --resume
+		}
+		msg := w.Result
+		if msg == "" {
+			msg = fmt.Sprintf("Claude exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
+		}
+		r.cfg.Logger.Error(ctx, "Claude error result",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "subtype", Value: w.Subtype},
+			logging.Field{Key: "stop_reason", Value: w.StopReason},
+			logging.Field{Key: "result", Value: msg},
+		)
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "claude_error", Message: msg})
+		return
+	}
+
+	textLen := r.textBuf.Len()
+	r.cfg.Logger.Info(ctx, "Claude turn complete",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "stop_reason", Value: w.StopReason},
+		logging.Field{Key: "text_len", Value: textLen},
+		logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
+	)
+	// An empty turn with a non-standard stop reason signals a silent failure
+	// (e.g. inference gateway returning 5xx after exhausted retries).
+	// textBlockEmitted=true means text was already flushed before tool calls,
+	// so the turn has content even if textBuf is now empty.
+	if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
+		if r.interrupted.Load() {
+			return // SIGINT caused the empty turn — runner will restart via --resume
+		}
+		msg := w.Result
+		if msg == "" {
+			msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
+		}
+		r.cfg.Logger.Error(ctx, "Claude empty turn — possible inference error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "stop_reason", Value: w.StopReason},
+			logging.Field{Key: "result", Value: msg},
+		)
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: msg})
+		return
+	}
+	r.emit(EventTypeMessageComplete, MessageCompletePayload{
+		Text:     r.textBuf.String(),
+		Thinking: r.thinkingBuf.String(),
+	})
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+	r.textBlockEmitted = false
+	r.emit(EventTypeMessageStop, nil)
 }
 
 // handleStreamEvent accumulates text and thinking deltas for message_complete
@@ -526,9 +580,10 @@ type claudeOutputWrapper struct {
 	Type       string          `json:"type"`
 	Subtype    string          `json:"subtype"`
 	StopReason string          `json:"stop_reason"`
-	Result     string          `json:"result"`  // error message when Subtype == "error"
-	Event      json.RawMessage `json:"event"`   // when Type == "stream_event"
-	Message    *claudeMessage  `json:"message"` // when Type == "assistant" | "user"
+	Result     string          `json:"result"`     // error message when Subtype == "error"
+	SessionID  string          `json:"session_id"` // present on system/init
+	Event      json.RawMessage `json:"event"`      // when Type == "stream_event"
+	Message    *claudeMessage  `json:"message"`    // when Type == "assistant" | "user"
 }
 
 // claudeStreamEvent is the inner event inside a "stream_event" wrapper.

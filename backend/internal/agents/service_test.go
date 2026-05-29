@@ -3,11 +3,13 @@ package agents
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
+	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // waitFor polls check every 5 ms until it returns true or the timeout elapses.
@@ -629,5 +631,331 @@ func TestProvisionSandbox_RunNotFound(t *testing.T) {
 	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for missing run")
+	}
+}
+
+// ── UpdateAgentType ───────────────────────────────────────────────────────────
+
+func TestUpdateAgentType_PartialFields(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{
+		ID:           "at-1",
+		TenantID:     "t-1",
+		Slug:         "bot",
+		Name:         "Original Name",
+		Description:  "Original Desc",
+		SystemPrompt: "Original Prompt",
+	})
+
+	newName := "Updated Name"
+	updated, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
+		ID:   "at-1",
+		Name: &newName,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Name != "Updated Name" {
+		t.Errorf("name = %q, want Updated Name", updated.Name)
+	}
+	// Unset fields must be preserved.
+	if updated.Description != "Original Desc" {
+		t.Errorf("description changed unexpectedly: %q", updated.Description)
+	}
+	if updated.SystemPrompt != "Original Prompt" {
+		t.Errorf("system_prompt changed unexpectedly: %q", updated.SystemPrompt)
+	}
+}
+
+func TestUpdateAgentType_AllFields(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+
+	newName := "New Name"
+	newDesc := "New Desc"
+	newPrompt := "New Prompt"
+	newMax := 10
+	updated, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
+		ID:                      "at-1",
+		Name:                    &newName,
+		Description:             &newDesc,
+		SystemPrompt:            &newPrompt,
+		MaxConcurrentRunsPerPod: &newMax,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Name != newName || updated.Description != newDesc ||
+		updated.SystemPrompt != newPrompt || updated.MaxConcurrentRunsPerPod != newMax {
+		t.Errorf("unexpected update result: %+v", updated)
+	}
+}
+
+func TestUpdateAgentType_NotFound(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	newName := "x"
+	err := func() error {
+		_, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{ID: "missing", Name: &newName})
+		return err
+	}()
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// ── SendMessage (idle state) ──────────────────────────────────────────────────
+
+func TestSendMessage_IdleRun(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+
+	if err := svc.SendMessage(context.Background(), "run-1", "follow up"); err != nil {
+		t.Fatalf("idle run must accept messages, got: %v", err)
+	}
+
+	sm.mu.Lock()
+	forwarded := len(sm.sentMessages) == 1 && sm.sentMessages[0] == "follow up"
+	sm.mu.Unlock()
+	if !forwarded {
+		t.Error("message not forwarded to session-manager for idle run")
+	}
+}
+
+func TestSendMessage_RejectsTerminalStates(t *testing.T) {
+	for _, state := range []RunState{RunStateCompleted, RunStateFailed, RunStatePending} {
+		t.Run(string(state), func(t *testing.T) {
+			svc, repo, _, _ := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: state})
+
+			err := svc.SendMessage(context.Background(), "run-1", "hello")
+			if err == nil {
+				t.Fatalf("state %s: expected rejection, got nil", state)
+			}
+			if !errors.Is(err, ErrRunNotAcceptingMessages) {
+				t.Errorf("state %s: want ErrRunNotAcceptingMessages, got %v", state, err)
+			}
+		})
+	}
+}
+
+// ── InterruptRun ──────────────────────────────────────────────────────────────
+
+func TestInterruptRun_HappyPath(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	if err := svc.InterruptRun(context.Background(), "run-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sm.mu.Lock()
+	interrupted := len(sm.interruptedRuns) == 1 && sm.interruptedRuns[0] == "run-1"
+	sm.mu.Unlock()
+	if !interrupted {
+		t.Error("interrupt not forwarded to session-manager")
+	}
+}
+
+func TestInterruptRun_RejectsNonActive(t *testing.T) {
+	for _, state := range []RunState{RunStateIdle, RunStateCompleted, RunStateFailed, RunStatePending} {
+		t.Run(string(state), func(t *testing.T) {
+			svc, repo, _, _ := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: state})
+
+			err := svc.InterruptRun(context.Background(), "run-1")
+			if err == nil {
+				t.Fatalf("state %s: expected rejection, got nil", state)
+			}
+		})
+	}
+}
+
+func TestInterruptRun_RunNotFound(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	err := svc.InterruptRun(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing run")
+	}
+}
+
+// ── ListRunEvents ─────────────────────────────────────────────────────────────
+
+func TestListRunEvents_ReturnsEventsAfterSeqNo(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	ctx := context.Background()
+	repo.AppendRunEvent(ctx, RunEvent{RunID: "run-1", EventType: "text_delta"})   //nolint:errcheck
+	repo.AppendRunEvent(ctx, RunEvent{RunID: "run-1", EventType: "tool_use"})     //nolint:errcheck
+	repo.AppendRunEvent(ctx, RunEvent{RunID: "run-1", EventType: "message_stop"}) //nolint:errcheck
+
+	evs, err := svc.ListRunEvents(ctx, "run-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(evs) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(evs))
+	}
+
+	evs2, err := svc.ListRunEvents(ctx, "run-1", evs[1].SequenceNo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(evs2) != 1 || evs2[0].EventType != "message_stop" {
+		t.Errorf("expected 1 event after seqNo %d, got %+v", evs[1].SequenceNo, evs2)
+	}
+}
+
+func TestListRunEvents_EmptyResult(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	evs, err := svc.ListRunEvents(context.Background(), "run-1", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(evs) != 0 {
+		t.Errorf("expected no events, got %d", len(evs))
+	}
+}
+
+// ── StartReaper ───────────────────────────────────────────────────────────────
+
+func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
+	t.Helper()
+	repo := newMockRepository()
+	k8s := &mockK8s{}
+	sm := &mockSMClient{}
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	atSvc := NewAgentTypeService(
+		repo, repo, k8s,
+		AgentTypeServiceConfig{
+			MaxConcurrentRunsPerPod: 5,
+			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+		},
+		logger,
+	)
+	runSvc := NewRunService(
+		repo, repo, sm, k8s, NewPubSub(),
+		RunServiceConfig{
+			MaxConcurrentRunsPerPod: 5,
+			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			StaleRunTimeout:         time.Minute, // shorter than UpdatedAt back-dating in tests
+			ReaperInterval:          20 * time.Millisecond,
+		},
+		logger,
+	)
+	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
+}
+
+func TestStartReaper_MarksStaleActiveRunFailed(t *testing.T) {
+	svc, repo, k8s, _ := newTestServiceWithReaper(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	r := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	// Back-date updated_at so the run appears stale.
+	repo.mu.Lock()
+	repo.runs[r.ID].UpdatedAt = time.Now().Add(-2 * time.Hour)
+	repo.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go svc.StartReaper(ctx)
+
+	waitFor(t, time.Second, func() bool {
+		repo.mu.Lock()
+		defer repo.mu.Unlock()
+		return repo.runs[r.ID].State == RunStateFailed
+	})
+
+	k8s.mu.Lock()
+	sandboxCleaned := len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
+	k8s.mu.Unlock()
+	if !sandboxCleaned {
+		t.Error("reaper must deprovision sandbox for failed run")
+	}
+}
+
+func TestStartReaper_MarksStaleIdleRunCompleted(t *testing.T) {
+	svc, repo, k8s, _ := newTestServiceWithReaper(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	r := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+
+	repo.mu.Lock()
+	repo.runs[r.ID].UpdatedAt = time.Now().Add(-2 * time.Hour)
+	repo.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go svc.StartReaper(ctx)
+
+	waitFor(t, time.Second, func() bool {
+		repo.mu.Lock()
+		defer repo.mu.Unlock()
+		return repo.runs[r.ID].State == RunStateCompleted
+	})
+
+	k8s.mu.Lock()
+	sandboxCleaned := len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
+	k8s.mu.Unlock()
+	if !sandboxCleaned {
+		t.Error("reaper must deprovision sandbox for completed idle run")
+	}
+}
+
+func TestStartReaper_DoesNotReapFreshRuns(t *testing.T) {
+	svc, repo, k8s, _ := newTestServiceWithReaper(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	r := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	// updated_at is time.Now() (fresh) — must not be reaped.
+	_ = r
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	go svc.StartReaper(ctx)
+	<-ctx.Done()
+
+	repo.mu.Lock()
+	state := repo.runs["run-1"].State
+	repo.mu.Unlock()
+	if state != RunStateActive {
+		t.Errorf("fresh run must not be reaped, state = %s", state)
+	}
+
+	k8s.mu.Lock()
+	cleaned := len(k8s.deletedSandboxes)
+	k8s.mu.Unlock()
+	if cleaned != 0 {
+		t.Errorf("no sandbox should be deleted for fresh run, got %d deletions", cleaned)
+	}
+}
+
+func TestStartReaper_PublishesPubSubEventOnReap(t *testing.T) {
+	svc, repo, _, _ := newTestServiceWithReaper(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	r := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	repo.mu.Lock()
+	repo.runs[r.ID].UpdatedAt = time.Now().Add(-2 * time.Hour)
+	repo.mu.Unlock()
+
+	ch, cancel := svc.SubscribeRun("run-1")
+	defer cancel()
+
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelCtx()
+	go svc.StartReaper(ctx)
+
+	select {
+	case ev := <-ch:
+		if ev.Type != "run_failed" {
+			t.Errorf("event type = %q, want run_failed", ev.Type)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for run_failed event from reaper")
 	}
 }

@@ -113,13 +113,24 @@ function SendIcon() {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+    </svg>
+  );
+}
+
 export function InputArea() {
-  const { agentName, runState, isBusy, addHumanMessage } = useRunContext();
+  const { agentName, runState, isBusy, isPending, addHumanMessage, interruptRun } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded = runState === 'completed' || runState === 'failed';
   const isDisabled = isEnded || isBusy;
   const canSend = !!value.trim() && !isDisabled;
+  // Show stop button as soon as message is sent — covers the gap between send
+  // and the first SSE event that transitions runState to active (isBusy).
+  const showStop = isBusy || isPending;
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;
@@ -202,28 +213,53 @@ export function InputArea() {
               })}
             </Stack>
 
-            {/* Accent rounded-square send button */}
-            <Button
-              type="button"
-              disabled={!canSend}
-              onClick={handleSend}
-              aria-label="Send message"
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 9,
-                flexShrink: 0,
-                background: canSend ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
-                border: `1px solid ${canSend ? 'transparent' : 'var(--color-border-subtle)'}`,
-                color: canSend ? 'white' : 'var(--color-subtle)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.15s, color 0.15s',
-              }}
-            >
-              <SendIcon />
-            </Button>
+            {showStop ? (
+              /* Stop button — interrupts the active turn */
+              <Button
+                type="button"
+                onClick={interruptRun}
+                aria-label="Stop agent"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 9,
+                  flexShrink: 0,
+                  background: 'var(--color-surface-overlay)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-foreground)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s, color 0.15s',
+                  cursor: 'pointer',
+                }}
+              >
+                <StopIcon />
+              </Button>
+            ) : (
+              /* Accent rounded-square send button */
+              <Button
+                type="button"
+                disabled={!canSend}
+                onClick={handleSend}
+                aria-label="Send message"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 9,
+                  flexShrink: 0,
+                  background: canSend ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
+                  border: `1px solid ${canSend ? 'transparent' : 'var(--color-border-subtle)'}`,
+                  color: canSend ? 'white' : 'var(--color-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                <SendIcon />
+              </Button>
+            )}
           </Stack>
         </Stack>
       </InputSurface>

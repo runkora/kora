@@ -286,17 +286,27 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	return out, rows.Err()
 }
 
-// ReapStaleRuns marks runs stuck in active or starting state for longer than
-// staleDuration as failed. Returns the IDs of reaped runs.
+// ReapStaleRuns marks runs that have been stuck in transient states for longer
+// than staleDuration. Returns the IDs of reaped runs.
+//
+//   - active / starting → failed (session-manager died mid-turn)
+//   - idle → completed  (session-manager died after a clean turn; idle timeout
+//     never fired because the pod restarted)
 func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]string, error) {
-	cutoff := time.Now().UTC().Add(-staleDuration)
+	now := time.Now().UTC()
+	cutoff := now.Add(-staleDuration)
 	rows, err := r.pool.Query(ctx, `
 		UPDATE runs
-		SET state='failed', completed_at=$1, updated_at=$1
-		WHERE state IN ('active','starting')
+		SET state = CASE
+			WHEN state IN ('active','starting') THEN 'failed'
+			ELSE 'completed'
+		END,
+		completed_at = $1,
+		updated_at   = $1
+		WHERE state IN ('active','starting','idle')
 		  AND updated_at < $2
 		RETURNING id`,
-		time.Now().UTC(), cutoff,
+		now, cutoff,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("reap stale runs: %w", err)

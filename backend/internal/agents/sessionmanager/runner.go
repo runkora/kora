@@ -24,7 +24,22 @@ type Runner interface {
 	// or Close is called.
 	Events() <-chan Event
 
+	// Interrupt sends an interrupt signal (SIGINT) to the CLI subprocess,
+	// stopping the current in-progress turn without killing the process.
+	// The subprocess should remain alive and ready for the next message.
+	// Safe to call when no turn is active; the signal is best-effort.
+	Interrupt() error
+
 	// Close sends EOF to stdin and waits for the subprocess to exit.
 	// Safe to call more than once; subsequent calls are no-ops.
 	Close() error
+
+	// SessionID returns the Claude session ID captured from the system/init event.
+	// Returns empty string if the process has not yet emitted the init event.
+	SessionID() string
+
+	// NewResumeRunner creates a new Runner configured to resume this session via
+	// --resume. The returned runner has not yet been started. Returns nil if no
+	// session ID has been captured (e.g. interrupted before the init event arrived).
+	NewResumeRunner() Runner
 }

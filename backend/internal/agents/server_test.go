@@ -25,8 +25,8 @@ func (fr *flushRecorder) Flush() {}
 
 func newTestController(t *testing.T) (*Controller, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
-	svc, repo, k8s, sm := newTestService(t)
-	c := NewController(svc, logging.NewLoggerWithOutput(io.Discard))
+	facade, repo, k8s, sm := newTestService(t)
+	c := NewController(facade.at, facade.run, logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
 }
 
@@ -475,7 +475,6 @@ func TestHandleStreamEvents_ReplaysPersisted(t *testing.T) {
 
 func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	svc := c.svc
 	seedRun(t, repo, Run{ID: "run-2", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -484,7 +483,7 @@ func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 	// Publish an event shortly after the handler connects.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		svc.PublishEvent(context.Background(), "run-2", PushedEvent{
+		c.runs.PublishEvent(context.Background(), "run-2", PushedEvent{
 			Type:    "text_delta",
 			Payload: []byte(`{"delta":"hi"}`),
 		})
@@ -506,7 +505,6 @@ func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 // DB replay is in progress must not be emitted a second time.
 func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	svc := c.svc
 	seedRun(t, repo, Run{ID: "run-dedup", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
 	// Append a durable event — the mock assigns it SequenceNo=1.
@@ -524,7 +522,7 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 	// Without the dedup guard this would write message_complete twice to the SSE stream.
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		svc.PublishEvent(context.Background(), "run-dedup", PushedEvent{
+		c.runs.PublishEvent(context.Background(), "run-dedup", PushedEvent{
 			Type:       "message_complete",
 			SequenceNo: 1, // same seqNo that the DB replay will emit
 			Payload:    []byte(`{"text":"hello"}`),

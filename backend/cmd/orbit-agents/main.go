@@ -50,13 +50,13 @@ func realMain() error {
 	}
 	defer db.Close()
 
-	server, repo, svc, err := initServer(ctx, logger, db)
+	server, repo, atSvc, runSvc, err := initServer(ctx, logger, db)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
-	initScopeRegistration(ctx, logger, repo, svc)
-	go svc.StartReaper(ctx)
+	initScopeRegistration(ctx, logger, repo, atSvc)
+	go runSvc.StartReaper(ctx)
 	run(ctx, logger, server)
 	return nil
 }
@@ -100,7 +100,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, agents.Repository, *agents.Service, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -125,17 +125,24 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*ht
 		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
 	}, pc)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	repo := agents.NewPostgresRepository(db.Pool())
 	sm := smclient.NewClient(logger)
 	pubsub := agents.NewPubSub()
-	svc := agents.NewService(repo, k8s, sm, pubsub, logger, agents.ServiceConfig{
+
+	atSvc := agents.NewAgentTypeService(repo, repo, k8s, agents.AgentTypeServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
-	})
-	controller := agents.NewController(svc, logger)
+	}, logger)
+
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, agents.RunServiceConfig{
+		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
+		TenantNamespaceFn:       cfg.TenantNamespace,
+	}, logger)
+
+	controller := agents.NewController(atSvc, runSvc, logger)
 
 	server := apiServer.Server(
 		ctx,
@@ -147,13 +154,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*ht
 		),
 		controller,
 	)
-	return server, repo, svc, nil
+	return server, repo, atSvc, runSvc, nil
 }
 
 // initScopeRegistration wires the policy-service scope vocabulary for orbit-agents.
 // It registers static route→scope bindings and per-agent-type vocabulary entries,
 // re-registering whenever an agent type is created or deleted.
-func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.Repository, svc *agents.Service) {
+func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agents.AgentTypeRepository, atSvc *agents.AgentTypeService) {
 	if agentsConfig.Current.Platform.PolicyServiceURL == "" {
 		return
 	}
@@ -174,7 +181,7 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 		}
 	}
 
-	svc.SetAgentTypeHook(func() { go register() })
+	atSvc.SetAgentTypeHook(func() { go register() })
 	go register()
 }
 

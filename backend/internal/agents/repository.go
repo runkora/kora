@@ -5,11 +5,8 @@ import (
 	"time"
 )
 
-// Repository is the persistence interface for orbit-agents.
-// All methods are tenant-scoped; callers must supply tenantID where relevant.
-type Repository interface {
-	// ── Agent Types ──────────────────────────────────────────────────────────
-
+// AgentTypeRepository is the persistence interface for agent type operations.
+type AgentTypeRepository interface {
 	CreateAgentType(ctx context.Context, at AgentType) error
 	GetAgentType(ctx context.Context, id string) (*AgentType, error)
 	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
@@ -21,9 +18,10 @@ type Repository interface {
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
 	SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error
 	DeleteAgentType(ctx context.Context, id string) error
+}
 
-	// ── Runs ─────────────────────────────────────────────────────────────────
-
+// RunRepository is the persistence interface for run operations, events, and messages.
+type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
 	ListRuns(ctx context.Context, tenantID string, agentTypeID string) ([]Run, error)
@@ -49,4 +47,12 @@ type Repository interface {
 	// ── Messages ──────────────────────────────────────────────────────────────
 
 	AppendRunMessage(ctx context.Context, m RunMessage) error
+}
+
+// Repository is the combined persistence interface for orbit-agents.
+// It is retained for backward-compatibility; most new code should depend on
+// AgentTypeRepository or RunRepository directly.
+type Repository interface {
+	AgentTypeRepository
+	RunRepository
 }

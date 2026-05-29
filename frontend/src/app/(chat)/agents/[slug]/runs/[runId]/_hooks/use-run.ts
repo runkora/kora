@@ -66,6 +66,7 @@ export interface UseRunReturn extends RunChatState {
   closeCanvas: () => void;
   switchTab: (tabId: string) => void;
   addHumanMessage: (content: string) => void;
+  interruptRun: () => void;
 }
 
 // ── useRun ────────────────────────────────────────────────────────────────────
@@ -310,7 +311,14 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
     es.addEventListener('run_state', (e: MessageEvent) => {
       const payload = safeParse<RunStatePayload>(e.data);
-      if (payload?.state) setRunState(payload.state);
+      if (!payload?.state) return;
+      // Flush any in-progress turn when the run goes idle (e.g. after an interrupt).
+      // This ensures the interrupted turn is committed before any follow-up human
+      // message is appended, and clears the streaming/busy indicators.
+      if (payload.state === 'idle' || payload.state === 'completed' || payload.state === 'failed') {
+        flushInProgress();
+      }
+      setRunState(payload.state);
     });
 
     es.addEventListener('human_message', (e: MessageEvent) => {
@@ -389,6 +397,10 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     }).catch(() => undefined);
   }
 
+  function interruptRun(): void {
+    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' }).catch(() => undefined);
+  }
+
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;
 
   return {
@@ -408,6 +420,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     closeCanvas,
     switchTab,
     addHumanMessage,
+    interruptRun,
   };
 }
 

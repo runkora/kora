@@ -13,13 +13,14 @@ import (
 
 // Controller implements the orbit-agents HTTP API.
 type Controller struct {
-	svc    *Service
-	logger logging.Logger
+	agentTypes *AgentTypeService
+	runs       *RunService
+	logger     logging.Logger
 }
 
 // NewController creates an orbit-agents HTTP controller.
-func NewController(svc *Service, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, logger: logger}
+func NewController(agentTypes *AgentTypeService, runs *RunService, logger logging.Logger) *Controller {
+	return &Controller{agentTypes: agentTypes, runs: runs, logger: logger}
 }
 
 func (c *Controller) GroupedBy() string                { return "" }
@@ -39,6 +40,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
+	mux.Handle("POST /api/v1/runs/{id}/interrupt", c.handleInterruptRun)
 	mux.Handle("GET /api/v1/runs/{id}/events", c.handleStreamEvents)
 
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
@@ -72,7 +74,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	at, err := c.svc.CreateAgentType(ctx, req)
+	at, err := c.agentTypes.CreateAgentType(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrSlugTaken) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "slug already taken for this tenant", nil)
@@ -96,7 +98,7 @@ func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	types, err := c.svc.ListAgentTypes(ctx, tenantID)
+	types, err := c.agentTypes.ListAgentTypes(ctx, tenantID)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -110,7 +112,7 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	at, err := c.svc.GetAgentType(ctx, id)
+	at, err := c.agentTypes.GetAgentType(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -135,7 +137,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 	}
 	req.ID = id
 
-	at, err := c.svc.UpdateAgentType(ctx, req)
+	at, err := c.agentTypes.UpdateAgentType(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -154,7 +156,7 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if err := c.svc.DeleteAgentType(ctx, id); err != nil {
+	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -182,7 +184,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run, err := c.svc.StartRun(ctx, req)
+	run, err := c.runs.StartRun(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -207,7 +209,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	agentTypeID := r.URL.Query().Get("agent_type_id")
 
-	runs, err := c.svc.ListRuns(ctx, tenantID, agentTypeID)
+	runs, err := c.runs.ListRuns(ctx, tenantID, agentTypeID)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -221,7 +223,7 @@ func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	run, err := c.svc.GetRun(ctx, id)
+	run, err := c.runs.GetRun(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
@@ -240,7 +242,7 @@ func (c *Controller) handleTerminateRun(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if err := c.svc.TerminateRun(ctx, id); err != nil {
+	if err := c.runs.TerminateRun(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -272,7 +274,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.svc.SendMessage(ctx, id, req.Content); err != nil {
+	if err := c.runs.SendMessage(ctx, id, req.Content); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -284,6 +286,29 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	if err := c.runs.InterruptRun(ctx, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrRunNotAcceptingMessages) {
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not active", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to interrupt run", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
@@ -307,7 +332,7 @@ func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := c.svc.TransitionRunState(ctx, id, req.From, req.To); err != nil {
+	if err := c.runs.TransitionRunState(ctx, id, req.From, req.To); err != nil {
 		if errors.Is(err, ErrConflict) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "state transition conflict", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -332,7 +357,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if _, err := c.svc.GetRun(ctx, id); err != nil {
+	if _, err := c.runs.GetRun(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -358,7 +383,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 
 	// Register subscriber BEFORE replaying from DB — events pushed during replay
 	// are buffered in the channel and will be emitted after the replay loop.
-	ch, cancel := c.svc.SubscribeRun(id)
+	ch, cancel := c.runs.SubscribeRun(id)
 	defer cancel()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -367,7 +392,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Replay persisted events from DB.
-	events, err := c.svc.ListRunEvents(ctx, id, afterSeqNo)
+	events, err := c.runs.ListRunEvents(ctx, id, afterSeqNo)
 	if err != nil {
 		c.logger.Error(ctx, "Failed to list run events for SSE replay",
 			logging.Field{Key: "run_id", Value: id},
@@ -425,7 +450,7 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.svc.PublishEvent(ctx, id, ev)
+	c.runs.PublishEvent(ctx, id, ev)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -433,7 +458,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	endpoint, err := c.svc.ProvisionSandbox(ctx, id)
+	endpoint, err := c.runs.ProvisionSandbox(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)

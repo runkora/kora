@@ -135,6 +135,32 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string)
 	}
 }
 
+// InterruptSession sends SIGINT to the Claude subprocess on the target pod,
+// stopping the current in-progress turn without killing the session.
+// Returns ErrSessionNotFound if no session exists for the given run ID.
+func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, podURL+"/session/"+runID+"/interrupt", http.NoBody)
+	if err != nil {
+		return fmt.Errorf("build interrupt session request: %w", err)
+	}
+
+	_, span, resp, err := c.Do(ctx, "sessionmanager.Client.InterruptSession", httpReq)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return nil
+	case http.StatusNotFound:
+		return c.HandleErrorResponse(span, resp, ErrSessionNotFound)
+	default:
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
 // CloseSession terminates the session and stops the Claude subprocess on the target pod.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
 func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {

@@ -421,6 +421,50 @@ func TestTransform_MalformedLinesSkipped(t *testing.T) {
 	}
 }
 
+// ── SessionID capture ─────────────────────────────────────────────────────────
+
+func TestTransform_SystemInitCapturesSessionID(t *testing.T) {
+	r := newTestRunner()
+
+	fixture := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"test-session-abc"}`,
+		`{"type":"result","subtype":"success","stop_reason":"end_turn"}`,
+	}, "\n") + "\n"
+
+	go r.transform(context.Background(), strings.NewReader(fixture))
+	collectEvents(r.events)
+
+	if got := r.SessionID(); got != "test-session-abc" {
+		t.Errorf("SessionID() = %q, want test-session-abc", got)
+	}
+}
+
+func TestNewResumeRunner_ReturnedRunnerHasResumeID(t *testing.T) {
+	r := newTestRunner()
+	r.sessionIDMu.Lock()
+	r.capturedSessionID = "resume-id-xyz"
+	r.sessionIDMu.Unlock()
+
+	resumed := r.NewResumeRunner()
+	if resumed == nil {
+		t.Fatal("NewResumeRunner() returned nil with a captured session ID")
+	}
+	cr, ok := resumed.(*ClaudeRunner)
+	if !ok {
+		t.Fatal("NewResumeRunner() did not return a *ClaudeRunner")
+	}
+	if cr.cfg.ResumeSessionID != "resume-id-xyz" {
+		t.Errorf("ResumeSessionID = %q, want resume-id-xyz", cr.cfg.ResumeSessionID)
+	}
+}
+
+func TestNewResumeRunner_NoSessionIDReturnsNil(t *testing.T) {
+	r := newTestRunner()
+	if r.NewResumeRunner() != nil {
+		t.Error("NewResumeRunner() should return nil when no session ID captured")
+	}
+}
+
 // ── writeMCPConfig ────────────────────────────────────────────────────────────
 
 func TestWriteMCPConfig(t *testing.T) {

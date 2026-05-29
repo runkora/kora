@@ -54,6 +54,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session", c.handleCreateSession)
 	mux.Handle("POST /session/{runID}/messages", c.handleSendMessage)
 	mux.Handle("POST /session/{runID}/tool-results", c.handleSendToolResult)
+	mux.Handle("POST /session/{runID}/interrupt", c.handleInterruptSession)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
 }
@@ -191,6 +192,26 @@ func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request
 			return
 		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send tool result", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleInterruptSession sends SIGINT to the subprocess, stopping the current
+// in-progress turn. The session and subprocess remain alive.
+func (c *Controller) handleInterruptSession(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+
+	if err := c.registry.Interrupt(ctx, runID); err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to interrupt session", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}

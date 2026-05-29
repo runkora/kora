@@ -167,7 +167,13 @@ export function ChatThread() {
             const isLast = i === turns.length - 1;
             if (turn.type === 'human') return <HumanTurnItem key={turn.id} turn={turn} />;
             if (turn.type === 'error') return <ErrorTurnItem key={turn.id} turn={turn} />;
-            return <AgentTurnItem key={turn.id} turn={turn} isGenerating={isLast && isStreaming} />;
+            return (
+              <AgentTurnItem
+                key={turn.id}
+                turn={turn}
+                isGenerating={isLast && isStreaming && isBusy}
+              />
+            );
           })}
 
           {/* Pending/busy indicator: shown while waiting for the agent to start responding */}

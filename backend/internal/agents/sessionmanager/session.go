@@ -34,6 +34,7 @@ type session struct {
 	cancel           context.CancelFunc
 	done             chan struct{}
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
+	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 }
 
@@ -121,6 +122,30 @@ func (reg *Registry) SendToolResult(ctx context.Context, runID, toolUseID, conte
 		return ErrSessionNotFound
 	}
 	return s.runner.SendToolResult(ctx, toolUseID, content)
+}
+
+// Interrupt signals the CLI subprocess to stop its current in-progress turn
+// without killing the session. The subprocess is expected to remain alive and
+// return to its input loop, at which point the drain loop arms the idle timer.
+//
+// If the subprocess exits despite the signal, completeDrain treats it as an
+// intentional idle transition rather than a failure.
+func (reg *Registry) Interrupt(ctx context.Context, runID string) error {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotFound
+	}
+	s.interruptClose.Store(true)
+	if err := s.runner.Interrupt(); err != nil {
+		s.interruptClose.Store(false)
+		return fmt.Errorf("interrupt runner: %w", err)
+	}
+	reg.logger.Info(ctx, "Session interrupted",
+		logging.Field{Key: "run_id", Value: runID},
+	)
+	return nil
 }
 
 // Close terminates a session and cleans up its resources.
@@ -281,8 +306,50 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	}
 	reg.mu.Unlock()
 
-	failed := !s.intentionalClose.Load()
 	bgCtx := context.Background()
+
+	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
+	// so the next message can be delivered to a warm process. Run transitions to idle.
+	if s.interruptClose.Load() {
+		sessionID := s.runner.SessionID()
+		if sessionID == "" {
+			reg.logger.Info(bgCtx, "Session interrupted before init — falling back to idle",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+			)
+		} else {
+			newRunner := s.runner.NewResumeRunner()
+			newCtx, newCancel := context.WithCancel(context.Background())
+			workDir := filepath.Join(reg.workspaces, s.runID)
+			if startErr := newRunner.Start(newCtx, workDir); startErr != nil {
+				newCancel()
+				reg.logger.Error(bgCtx, "Failed to restart session after interrupt — falling back to idle",
+					logging.Field{Key: "run_id", Value: cfg.RunID},
+					logging.Field{Key: "error", Value: startErr.Error()},
+				)
+			} else {
+				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{})}
+				newS.isIdle.Store(true)
+				reg.mu.Lock()
+				reg.sessions[s.runID] = newS
+				reg.mu.Unlock()
+				go reg.drain(newCtx, newS, cfg)
+				reg.logger.Info(bgCtx, "Session restarted after interrupt — now idle",
+					logging.Field{Key: "run_id", Value: cfg.RunID},
+					logging.Field{Key: "session_id", Value: sessionID},
+				)
+			}
+		}
+		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
+			reg.logger.Warn(bgCtx, "Failed to idle run after interrupt",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+		close(s.done)
+		return
+	}
+
+	failed := !s.intentionalClose.Load()
 	reg.logger.Info(bgCtx, "Session drain complete",
 		logging.Field{Key: "run_id", Value: cfg.RunID},
 		logging.Field{Key: "failed", Value: failed},
