@@ -13,6 +13,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
 )
 
@@ -36,6 +37,7 @@ type RunService struct {
 	sm     smClient
 	k8s    k8sProvisioner
 	pubsub *PubSub
+	authz  *Authz
 	cfg    RunServiceConfig
 	logger logging.Logger
 }
@@ -47,6 +49,7 @@ func NewRunService(
 	sm smClient,
 	k8s k8sProvisioner,
 	pubsub *PubSub,
+	authz *Authz,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
@@ -56,20 +59,29 @@ func NewRunService(
 		sm:     sm,
 		k8s:    k8s,
 		pubsub: pubsub,
+		authz:  authz,
 		cfg:    cfg,
 		logger: logger,
 	}
 }
 
-// StartRun creates a new run and assigns it to a pod.
+// StartRun creates a new run and assigns it to a pod. Tenant and created_by are
+// derived from the verified platform claims in ctx; request-body values are
+// ignored. Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
+// scope; the handler maps this to 404 to avoid leaking existence.
 func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, error) {
+	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",
 		trace.WithAttributes(
-			attribute.String("tenant_id", req.TenantID),
+			attribute.String("tenant_id", tenantID),
 			attribute.String("agent_type_id", req.AgentTypeID),
 		),
 	)
 	defer span.End()
+	req.TenantID = tenantID
+	if claims, ok := token.ClaimsFromContext(ctx); ok && req.CreatedBy == "" {
+		req.CreatedBy = claims.Subject
+	}
 
 	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
 	if err != nil {
@@ -77,8 +89,11 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		span.SetStatus(codes.Error, "get agent type")
 		return nil, fmt.Errorf("get agent type: %w", err)
 	}
-	if at.TenantID != req.TenantID {
+	if at.TenantID != tenantID {
 		return nil, ErrNotFound
+	}
+	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
+		return nil, err
 	}
 
 	// Ensure k8s resources exist — idempotent, fast no-op if already present.
@@ -163,22 +178,45 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 	return &run, nil
 }
 
-// GetRun retrieves a run by ID.
+// GetRun retrieves a run by ID. Enforces tenant scoping against ctx claims and
+// runs an authz check; returns ErrNotFound when the run belongs to another
+// tenant (avoiding existence leak) and the same on authz deny.
 func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetRun",
 		trace.WithAttributes(attribute.String("run_id", id)),
 	)
 	defer span.End()
 	run, err := s.repo.GetRun(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "get run")
+		}
+		return nil, err
 	}
-	return run, err
+	if run.TenantID != tenantFromContext(ctx) {
+		return nil, ErrNotFound
+	}
+	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type for authz")
+		return nil, fmt.Errorf("get agent type: %w", err)
+	}
+	if err := s.authz.checkRun(ctx, *at, "read"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return run, nil
 }
 
-// ListRuns returns all runs for the given tenant, optionally filtered by agent type.
-func (s *RunService) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
+// ListRuns returns all runs the principal in ctx may read, optionally filtered
+// by agent type. Tenant is derived from ctx claims (never from a query string),
+// and the result is filtered by per-agent-type grants via authz.filterRuns.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, error) {
+	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
@@ -190,11 +228,29 @@ func (s *RunService) ListRuns(ctx context.Context, tenantID, agentTypeID string)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
+		return nil, err
 	}
-	return runs, err
+	// Build a slug resolver scoped to this list — at most one lookup per distinct
+	// agent type, regardless of how many runs share it. Misses fail closed in
+	// filterRuns, so a deleted agent type does not leak runs.
+	slugCache := make(map[string]string)
+	resolveSlug := func(agentTypeID string) (string, bool) {
+		if slug, ok := slugCache[agentTypeID]; ok {
+			return slug, slug != ""
+		}
+		at, err := s.atRepo.GetAgentType(ctx, agentTypeID)
+		if err != nil || at == nil {
+			slugCache[agentTypeID] = ""
+			return "", false
+		}
+		slugCache[agentTypeID] = at.Slug
+		return at.Slug, true
+	}
+	return s.authz.filterRuns(ctx, runs, resolveSlug)
 }
 
 // TerminateRun signals the session-manager to stop the subprocess and cleans up.
+// Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.TerminateRun",
 		trace.WithAttributes(attribute.String("run_id", id)),
@@ -207,15 +263,25 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		span.SetStatus(codes.Error, "get run")
 		return err
 	}
+	if run.TenantID != tenantFromContext(ctx) {
+		return ErrNotFound
+	}
 	span.SetAttributes(attribute.String("run_state", string(run.State)))
 
-	if run.State == RunStateActive || run.State == RunStateStarting {
-		at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get agent type")
-			return fmt.Errorf("get agent type: %w", err)
+	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return fmt.Errorf("get agent type: %w", err)
+	}
+	if err := s.authz.checkRun(ctx, *at, "write"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return ErrNotFound
 		}
+		return err
+	}
+
+	if run.State == RunStateActive || run.State == RunStateStarting {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 		podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
 		if err := s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
@@ -317,6 +383,7 @@ func (s *RunService) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
 }
 
 // SendMessage relays a user message to the active session-manager for this run.
+// Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) SendMessage(ctx context.Context, runID, content string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.SendMessage",
 		trace.WithAttributes(attribute.String("run_id", runID)),
@@ -327,6 +394,21 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get run")
+		return err
+	}
+	if run.TenantID != tenantFromContext(ctx) {
+		return ErrNotFound
+	}
+	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return fmt.Errorf("get agent type: %w", err)
+	}
+	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return ErrNotFound
+		}
 		return err
 	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
@@ -352,12 +434,6 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 		}
 	}
 
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return fmt.Errorf("get agent type: %w", err)
-	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
 	if err := s.sm.SendMessage(ctx, podURL, runID, content); err != nil {
@@ -393,6 +469,7 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string
 }
 
 // InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
+// Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.InterruptRun",
 		trace.WithAttributes(attribute.String("run_id", runID)),
@@ -405,15 +482,23 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 		span.SetStatus(codes.Error, "get run")
 		return err
 	}
-	if run.State != RunStateActive {
-		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	if run.TenantID != tenantFromContext(ctx) {
+		return ErrNotFound
 	}
-
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
 		return fmt.Errorf("get agent type: %w", err)
+	}
+	if err := s.authz.checkRun(ctx, *at, "write"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if run.State != RunStateActive {
+		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)

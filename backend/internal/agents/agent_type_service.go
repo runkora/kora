@@ -25,6 +25,7 @@ type AgentTypeService struct {
 	repo    AgentTypeRepository
 	runRepo RunRepository
 	k8s     k8sProvisioner
+	authz   *Authz
 	cfg     AgentTypeServiceConfig
 	logger  logging.Logger
 	hook    func() // called after agent type create/delete; nil if unset
@@ -35,6 +36,7 @@ func NewAgentTypeService(
 	repo AgentTypeRepository,
 	runRepo RunRepository,
 	k8s k8sProvisioner,
+	authz *Authz,
 	cfg AgentTypeServiceConfig,
 	logger logging.Logger,
 ) *AgentTypeService {
@@ -42,6 +44,7 @@ func NewAgentTypeService(
 		repo:    repo,
 		runRepo: runRepo,
 		k8s:     k8s,
+		authz:   authz,
 		cfg:     cfg,
 		logger:  logger,
 	}
@@ -53,7 +56,12 @@ func NewAgentTypeService(
 func (s *AgentTypeService) SetAgentTypeHook(fn func()) { s.hook = fn }
 
 // CreateAgentType registers a new agent type and initiates k8s provisioning.
+// Tenant is derived from the verified claims in ctx; the request-body field is
+// ignored. Coarse-level authorization (agents:types:write) is enforced by
+// ScopeEnforcementMiddleware before this method is called (ADR-0064); no
+// per-resource authz check is needed here since the resource does not yet exist.
 func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
+	req.TenantID = tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.CreateAgentType",
 		trace.WithAttributes(
 			attribute.String("tenant_id", req.TenantID),
@@ -165,22 +173,40 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 	}
 }
 
-// GetAgentType retrieves an agent type by ID.
+// GetAgentType retrieves an agent type by ID. Enforces tenant scoping against
+// ctx claims and runs an authz read check; returns ErrNotFound on tenant
+// mismatch or scope deny (existence is itself information).
 func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetAgentType",
 		trace.WithAttributes(attribute.String("agent_type_id", id)),
 	)
 	defer span.End()
 	at, err := s.repo.GetAgentType(ctx, id)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "get agent type")
+		}
+		return nil, err
 	}
-	return at, err
+	if at.TenantID != tenantFromContext(ctx) {
+		return nil, ErrNotFound
+	}
+	if err := s.authz.checkAgentType(ctx, *at, "read"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return at, nil
 }
 
-// ListAgentTypes returns all agent types for the given tenant.
-func (s *AgentTypeService) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
+// ListAgentTypes returns all agent types the principal in ctx may read.
+// Tenant is derived from ctx claims; per-slug filtering is applied via
+// authz.filterAgentTypes so principals with narrower grants see only the
+// agent types their scopes cover.
+func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, error) {
+	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes",
 		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
 	)
@@ -189,51 +215,25 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context, tenantID string) 
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list agent types")
+		return nil, err
 	}
-	return types, err
+	return s.authz.filterAgentTypes(ctx, types)
 }
 
-// UpdateAgentType applies partial updates to an existing agent type.
+// UpdateAgentType applies partial updates to an existing agent type. Enforces
+// tenant scoping against ctx claims and runs an authz write check; tenant
+// mismatch returns ErrNotFound to avoid existence leak.
 func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateAgentType",
 		trace.WithAttributes(attribute.String("agent_type_id", req.ID)),
 	)
 	defer span.End()
 
-	at, err := s.repo.GetAgentType(ctx, req.ID)
+	at, err := s.loadAgentTypeForWrite(ctx, req.ID, span)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil, ErrNotFound
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return nil, fmt.Errorf("get agent type: %w", err)
+		return nil, err
 	}
-
-	if req.Name != nil {
-		at.Name = *req.Name
-	}
-	if req.Description != nil {
-		at.Description = *req.Description
-	}
-	if req.SystemPrompt != nil {
-		at.SystemPrompt = *req.SystemPrompt
-	}
-	if req.Framework != nil {
-		at.Framework = *req.Framework
-	}
-	if req.MaxConcurrentRunsPerPod != nil {
-		at.MaxConcurrentRunsPerPod = *req.MaxConcurrentRunsPerPod
-	}
-	if req.ModelID != nil {
-		at.ModelID = req.ModelID
-	}
-	if req.ToolScopes != nil {
-		at.ToolScopes = req.ToolScopes
-	}
-	if req.GrantScopes != nil {
-		at.GrantScopes = req.GrantScopes
-	}
+	applyAgentTypeUpdates(at, req)
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
 		span.RecordError(err)
@@ -259,7 +259,61 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	return at, nil
 }
 
-// DeleteAgentType initiates teardown of a managed agent type.
+// loadAgentTypeForWrite loads an agent type by ID and enforces tenant scoping
+// + authz write. Returns ErrNotFound on tenant mismatch or scope deny.
+func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string, span trace.Span) (*AgentType, error) {
+	at, err := s.repo.GetAgentType(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return nil, fmt.Errorf("get agent type: %w", err)
+	}
+	if at.TenantID != tenantFromContext(ctx) {
+		return nil, ErrNotFound
+	}
+	if err := s.authz.checkAgentType(ctx, *at, "write"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return at, nil
+}
+
+// applyAgentTypeUpdates copies non-nil fields from req onto at.
+func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
+	if req.Name != nil {
+		at.Name = *req.Name
+	}
+	if req.Description != nil {
+		at.Description = *req.Description
+	}
+	if req.SystemPrompt != nil {
+		at.SystemPrompt = *req.SystemPrompt
+	}
+	if req.Framework != nil {
+		at.Framework = *req.Framework
+	}
+	if req.MaxConcurrentRunsPerPod != nil {
+		at.MaxConcurrentRunsPerPod = *req.MaxConcurrentRunsPerPod
+	}
+	if req.ModelID != nil {
+		at.ModelID = req.ModelID
+	}
+	if req.ToolScopes != nil {
+		at.ToolScopes = req.ToolScopes
+	}
+	if req.GrantScopes != nil {
+		at.GrantScopes = req.GrantScopes
+	}
+}
+
+// DeleteAgentType initiates teardown of a managed agent type. Enforces tenant
+// scoping against ctx claims and runs an authz write check; tenant mismatch
+// or scope deny returns ErrNotFound (existence is itself information).
 func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteAgentType",
 		trace.WithAttributes(attribute.String("agent_type_id", id)),
@@ -271,6 +325,15 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get agent type")
 		return fmt.Errorf("get agent type: %w", err)
+	}
+	if at.TenantID != tenantFromContext(ctx) {
+		return ErrNotFound
+	}
+	if err := s.authz.checkAgentType(ctx, *at, "write"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return ErrNotFound
+		}
+		return err
 	}
 	span.SetAttributes(attribute.String("slug", at.Slug))
 

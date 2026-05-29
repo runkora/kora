@@ -831,8 +831,9 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 	k8s := &mockK8s{}
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
+	authz := NewAuthz(&allowAllEvaluator{})
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s,
+		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
@@ -840,7 +841,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(),
+		repo, repo, sm, k8s, NewPubSub(), authz,
 		RunServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },

@@ -9,6 +9,8 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // Compile-time interface checks.
@@ -480,8 +482,9 @@ func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s
 	k8s := &mockK8s{}
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
+	authz := NewAuthz(&allowAllEvaluator{})
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s,
+		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
@@ -489,7 +492,7 @@ func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(),
+		repo, repo, sm, k8s, NewPubSub(), authz,
 		RunServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
@@ -499,6 +502,44 @@ func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }
 
+// withTenantCtx attaches a minimal PlatformClaims to ctx so that
+// tenantFromContext returns the given tenant ID. Used by the test facade to
+// preserve the pre-auth method shapes (which took tenantID as a parameter)
+// without requiring every test to construct PlatformClaims manually.
+func withTenantCtx(ctx context.Context, tenantID string) context.Context {
+	return token.WithClaims(ctx, &token.PlatformClaims{
+		Orbit: token.OrbitClaims{TenantID: tenantID},
+	})
+}
+
+// allowAllEvaluator is a permissive stub policy.Evaluator used in tests that
+// are not exercising authorization logic. Service-level authz tests should use
+// stubEvaluator (defined in authz_test.go) which lets each test configure
+// allow/deny per scope.
+type allowAllEvaluator struct{}
+
+func (allowAllEvaluator) Check(context.Context, policy.CheckInput) (policy.Result, error) {
+	return policy.Result{Allow: true, Reason: "allow-all"}, nil
+}
+
+func (allowAllEvaluator) Query(_ context.Context, in policy.QueryInput) ([]string, error) {
+	out := make([]string, 0, len(in.Candidates))
+	for _, c := range in.Candidates {
+		out = append(out, c.ID)
+	}
+	return out, nil
+}
+
+func (allowAllEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return nil, nil
+}
+
+func (allowAllEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*policy.ScopesExplainResult, error) {
+	return &policy.ScopesExplainResult{}, nil
+}
+
+func (allowAllEvaluator) Start(context.Context) {}
+
 // testServiceFacade wraps AgentTypeService + RunService to expose the same method set
 // as the former god-object Service, so existing service_test.go tests need no changes.
 type testServiceFacade struct {
@@ -507,45 +548,69 @@ type testServiceFacade struct {
 }
 
 // ── AgentType delegation ──────────────────────────────────────────────────────
+//
+// Facade methods auto-inject claims into ctx so existing tests do not need to
+// construct PlatformClaims manually. For methods taking a request struct with
+// TenantID, the request value is used; for methods taking a resource ID, the
+// resource's stored tenant is read from the repository and injected.
 
 func (f *testServiceFacade) SetAgentTypeHook(fn func()) { f.at.SetAgentTypeHook(fn) }
 
 func (f *testServiceFacade) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
-	return f.at.CreateAgentType(ctx, req)
+	return f.at.CreateAgentType(withTenantCtx(ctx, req.TenantID), req)
 }
 
 func (f *testServiceFacade) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
-	return f.at.GetAgentType(ctx, id)
+	return f.at.GetAgentType(f.withAgentTypeTenant(ctx, id), id)
 }
 
 func (f *testServiceFacade) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
-	return f.at.ListAgentTypes(ctx, tenantID)
+	return f.at.ListAgentTypes(withTenantCtx(ctx, tenantID))
 }
 
 func (f *testServiceFacade) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
-	return f.at.UpdateAgentType(ctx, req)
+	return f.at.UpdateAgentType(f.withAgentTypeTenant(ctx, req.ID), req)
 }
 
 func (f *testServiceFacade) DeleteAgentType(ctx context.Context, id string) error {
-	return f.at.DeleteAgentType(ctx, id)
+	return f.at.DeleteAgentType(f.withAgentTypeTenant(ctx, id), id)
 }
 
 // ── Run delegation ────────────────────────────────────────────────────────────
 
 func (f *testServiceFacade) StartRun(ctx context.Context, req StartRunRequest) (*Run, error) {
-	return f.run.StartRun(ctx, req)
+	return f.run.StartRun(withTenantCtx(ctx, req.TenantID), req)
 }
 
 func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error) {
-	return f.run.GetRun(ctx, id)
+	return f.run.GetRun(f.withRunTenant(ctx, id), id)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	return f.run.ListRuns(ctx, tenantID, agentTypeID)
+	return f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID)
 }
 
 func (f *testServiceFacade) TerminateRun(ctx context.Context, id string) error {
-	return f.run.TerminateRun(ctx, id)
+	return f.run.TerminateRun(f.withRunTenant(ctx, id), id)
+}
+
+// withAgentTypeTenant returns ctx with claims for the agent type's stored
+// tenant. Falls through with no claims if the agent type is missing — the
+// service-layer call will then return ErrNotFound as expected by existing tests.
+func (f *testServiceFacade) withAgentTypeTenant(ctx context.Context, id string) context.Context {
+	at, err := f.at.repo.GetAgentType(ctx, id)
+	if err != nil || at == nil {
+		return ctx
+	}
+	return withTenantCtx(ctx, at.TenantID)
+}
+
+func (f *testServiceFacade) withRunTenant(ctx context.Context, id string) context.Context {
+	run, err := f.run.repo.GetRun(ctx, id)
+	if err != nil || run == nil {
+		return ctx
+	}
+	return withTenantCtx(ctx, run.TenantID)
 }
 
 func (f *testServiceFacade) TransitionRunState(ctx context.Context, runID string, from, to RunState) error {
@@ -553,11 +618,11 @@ func (f *testServiceFacade) TransitionRunState(ctx context.Context, runID string
 }
 
 func (f *testServiceFacade) SendMessage(ctx context.Context, runID, content string) error {
-	return f.run.SendMessage(ctx, runID, content)
+	return f.run.SendMessage(f.withRunTenant(ctx, runID), runID, content)
 }
 
 func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) error {
-	return f.run.InterruptRun(ctx, runID)
+	return f.run.InterruptRun(f.withRunTenant(ctx, runID), runID)
 }
 
 func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
@@ -589,10 +654,20 @@ func seedAgentType(_ *testing.T, repo *mockRepository, at AgentType) AgentType {
 	return at
 }
 
-// seedRun inserts a Run directly into the mock repo.
-func seedRun(_ *testing.T, repo *mockRepository, r Run) Run {
+// seedRun inserts a Run directly into the mock repo. If the run's AgentTypeID
+// does not yet have a corresponding AgentType in the repo, a minimal stub is
+// auto-seeded so the authz layer's slug lookup succeeds. Tests that need a
+// specific AgentType configuration should call seedAgentType first.
+func seedRun(t *testing.T, repo *mockRepository, r Run) Run {
 	if r.UpdatedAt.IsZero() {
 		r.UpdatedAt = time.Now()
+	}
+	if _, ok := repo.agentTypes[r.AgentTypeID]; !ok && r.AgentTypeID != "" {
+		seedAgentType(t, repo, AgentType{
+			ID:       r.AgentTypeID,
+			TenantID: r.TenantID,
+			Slug:     "stub-" + r.AgentTypeID,
+		})
 	}
 	cp := r
 	repo.runs[r.ID] = &cp

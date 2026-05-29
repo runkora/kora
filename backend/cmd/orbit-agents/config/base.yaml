@@ -19,6 +19,10 @@ platform:
   identityServiceURL: "http://orbit-identity.orbit-system.svc"
   policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
 
+policy:
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+
 agents:
   sessionManagerImage: orbit-registry:5001/orbit-session-manager:latest
   sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest

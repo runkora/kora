@@ -19,7 +19,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 func main() {
@@ -50,7 +52,9 @@ func realMain() error {
 	}
 	defer db.Close()
 
-	server, repo, atSvc, runSvc, err := initServer(ctx, logger, db)
+	eval := initPolicyEvaluator(ctx, logger)
+
+	server, repo, atSvc, runSvc, err := initServer(ctx, logger, db, eval)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -59,6 +63,16 @@ func realMain() error {
 	go runSvc.StartReaper(ctx)
 	run(ctx, logger, server)
 	return nil
+}
+
+// initPolicyEvaluator constructs an in-process OPA evaluator and starts the
+// background bundle poll. The evaluator is consulted by the agents authz layer
+// on every public request — zero network hops on the eval hot path. See ADR-0063.
+func initPolicyEvaluator(ctx context.Context, logger logging.Logger) policy.Evaluator {
+	cfg := agentsConfig.Current
+	eval := policy.NewEvaluator(cfg.Policy.BundleEndpoint, cfg.Policy.BundlePollInterval(), logger)
+	eval.Start(ctx)
+	return eval
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -100,7 +114,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -132,17 +146,20 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*ht
 	sm := smclient.NewClient(logger)
 	pubsub := agents.NewPubSub()
 
-	atSvc := agents.NewAgentTypeService(repo, repo, k8s, agents.AgentTypeServiceConfig{
+	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
+	authz := agents.NewAuthz(eval)
+
+	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, agents.AgentTypeServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, agents.RunServiceConfig{
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, agents.RunServiceConfig{
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	controller := agents.NewController(atSvc, runSvc, logger)
+	controller := agents.NewController(atSvc, runSvc, verifier, eval, agentRoutes(), logger)
 
 	server := apiServer.Server(
 		ctx,
@@ -186,11 +203,18 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 }
 
 // agentRoutes returns the static route→scope bindings for orbit-agents.
+//
+// Registered with policy-service at startup (ADR-0060) and also consumed at
+// request time by ScopeEnforcementMiddleware (ADR-0064). Order matters:
+// resolveRequiredScope iterates this slice and prefers exact-method matches,
+// so methods that are subsets of broader prefixes (e.g. PATCH on /agent-types/)
+// must have their own explicit entry.
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
+		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: "agents:types:write"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "DELETE", RequiredScope: "agents:types:write"},
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},

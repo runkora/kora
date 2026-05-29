@@ -5,26 +5,73 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // Controller implements the orbit-agents HTTP API.
 type Controller struct {
 	agentTypes *AgentTypeService
 	runs       *RunService
+	verifier   *token.Verifier
+	eval       policy.Evaluator
+	routes     []routescopes.RouteScope
 	logger     logging.Logger
 }
 
 // NewController creates an orbit-agents HTTP controller.
-func NewController(agentTypes *AgentTypeService, runs *RunService, logger logging.Logger) *Controller {
-	return &Controller{agentTypes: agentTypes, runs: runs, logger: logger}
+//
+// routes is the same RouteScope slice that is registered with policy-service
+// at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
+// request time by ScopeEnforcementMiddleware to enforce route → required-scope
+// bindings in-process. See ADR-0064.
+func NewController(
+	agentTypes *AgentTypeService,
+	runs *RunService,
+	verifier *token.Verifier,
+	eval policy.Evaluator,
+	routes []routescopes.RouteScope,
+	logger logging.Logger,
+) *Controller {
+	return &Controller{
+		agentTypes: agentTypes,
+		runs:       runs,
+		verifier:   verifier,
+		eval:       eval,
+		routes:     routes,
+		logger:     logger,
+	}
 }
 
-func (c *Controller) GroupedBy() string                { return "" }
-func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
+func (c *Controller) GroupedBy() string { return "" }
+
+// Middleware applies JWT auth and scope enforcement to public routes but
+// bypasses internal callback endpoints, which are protected by Istio
+// AuthorizationPolicy at the mTLS layer (session-manager pod's SPIFFE
+// identity), and the unauthenticated /health probe. See ADR-0063 + ADR-0064.
+func (c *Controller) Middleware() mw.MiddlewareHandler {
+	authChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.logger),
+	)
+	return func(next http.Handler) http.Handler {
+		authed := authChain(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/internal/") || r.URL.Path == "/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authed.ServeHTTP(w, r)
+		})
+	}
+}
 
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
@@ -68,8 +115,10 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.TenantID == "" || req.Name == "" || req.Slug == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id, name, and slug are required", nil)
+	// Tenant is derived from the verified platform claims by the service layer;
+	// any request-body tenant_id is ignored. See ADR-0063.
+	if req.Name == "" || req.Slug == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "name and slug are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -91,14 +140,8 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 
 func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
-	if tenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id query parameter is required", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
-	types, err := c.agentTypes.ListAgentTypes(ctx, tenantID)
+	// Tenant is derived from the verified platform claims; query-string is ignored.
+	types, err := c.agentTypes.ListAgentTypes(ctx)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -178,8 +221,10 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.TenantID == "" || req.AgentTypeID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id and agent_type_id are required", nil)
+	// Tenant and created_by are derived from the verified platform claims;
+	// request-body values for tenant_id are ignored.
+	if req.AgentTypeID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "agent_type_id is required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -201,15 +246,10 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
-	if tenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id query parameter is required", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
+	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
 
-	runs, err := c.runs.ListRuns(ctx, tenantID, agentTypeID)
+	runs, err := c.runs.ListRuns(ctx, agentTypeID)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)

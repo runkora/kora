@@ -75,7 +75,7 @@ type CheckInput struct {
 	PathSegments []string
 	// Action is the operation being performed, e.g. "invoke".
 	Action string
-	// Attributes are optional resource metadata passed to OPA.
+	// Attributes are optional resource metadata passed to OPA for ABAC decisions.
 	Attributes map[string]string
 }
 
