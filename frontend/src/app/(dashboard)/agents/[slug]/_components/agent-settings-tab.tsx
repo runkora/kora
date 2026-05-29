@@ -2,8 +2,7 @@
 
 /** @tier 3 — agents/[slug]-scoped. Settings — flat section card layout. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import {
   Alert,
   Button,
@@ -24,11 +23,7 @@ import {
   ToggleRow,
 } from '@orbit/terra';
 import { ConfirmDialog, ScopePicker } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
-import { updateAgentType } from '../_services/agent-detail-api';
-import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { useAgentSettings } from '../_hooks/use-agent-settings';
 
 // ── Data ───────────────────────────────────────────────────────────────────────
 
@@ -37,34 +32,6 @@ const FRAMEWORK_OPTIONS = [
   { value: 'codex', label: 'Codex' },
   { value: 'opencode', label: 'OpenCode' },
 ] as const;
-
-// ── Model grouping ────────────────────────────────────────────────────────────
-
-interface ModelGroup {
-  family: string;
-  models: ModelObject[];
-}
-
-function groupModelsByFamily(models: ModelObject[]): ModelGroup[] {
-  const map = new Map<string, ModelObject[]>();
-  for (const m of models) {
-    const key = m.family || m.owned_by || 'other';
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(m);
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([family, ms]) => ({ family, models: ms }));
-}
-
-function deriveGrantScopes(modelId: string): string[] {
-  const scopes: string[] = ['inference:invoke'];
-  const parts = modelId.split('/');
-  if (parts.length === 2 && parts[0] && parts[1]) {
-    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
-  }
-  return scopes;
-}
 
 function DangerActionRow({
   label,
@@ -109,144 +76,48 @@ function DangerActionRow({
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AgentSettingsTab() {
-  const { agent, deleteAgent } = useAgentDetailContext();
-  const router = useRouter();
-
-  // ── Form state ──────────────────────────────────────────────────────────────
-  const [name, setName] = useState(agent?.name ?? '');
-  const [description, setDescription] = useState(agent?.description ?? '');
-  const [framework, setFramework] = useState(agent?.frameworkKey ?? 'claude-code');
-  const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? '');
-  const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(
-    String(agent?.maxConcurrentRunsPerPod ?? 10),
-  );
-  const [modelId, setModelId] = useState(agent?.modelId ?? 'anthropic/claude-sonnet-4-6');
-  const [toolScopes, setToolScopes] = useState<string[]>(agent?.toolScopes ?? []);
-  const [toolScopesSearch, setToolScopesSearch] = useState('');
-
-  // ── Model fetch ─────────────────────────────────────────────────────────────
-  const [models, setModels] = useState<ModelObject[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
-
-  useEffect(() => {
-    fetch(ApiRoute.models.GET(), { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((body: { data?: ModelObject[] }) => {
-        setModels((body.data ?? []).filter((m) => m.status === 'available'));
-      })
-      .catch(() => undefined)
-      .finally(() => setModelsLoading(false));
-  }, []);
-
-  const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
-  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
-
-  // ── Tool scope fetch ────────────────────────────────────────────────────────
-  const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
-
-  useEffect(() => {
-    fetch(ApiRoute.agentTypes.toolScopes(), { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((body: { data?: ToolScopeDefinition[] }) => {
-        setAvailableToolScopes(body.data ?? []);
-      })
-      .catch(() => undefined);
-  }, []);
-
-  // ── Behaviour toggles (UI-only until backend supports) ─────────────────────
-  const [requireApproval, setRequireApproval] = useState(true);
-  const [persistMemory, setPersistMemory] = useState(false);
-  const [includeClaude, setIncludeClaude] = useState(true);
-  const [extendedThinking, setExtendedThinking] = useState(false);
+  const {
+    agent,
+    name,
+    setName,
+    description,
+    setDescription,
+    framework,
+    setFramework,
+    systemPrompt,
+    setSystemPrompt,
+    maxConcurrentRuns,
+    setMaxConcurrentRuns,
+    modelId,
+    setModelId,
+    toolScopes,
+    setToolScopes,
+    toolScopesSearch,
+    setToolScopesSearch,
+    persistMemory,
+    setPersistMemory,
+    models,
+    modelsLoading,
+    modelGroups,
+    availableToolScopes,
+    grantScopes,
+    isDirty,
+    saving,
+    saveError,
+    saveSuccess,
+    setSaveSuccess,
+    handleSave,
+    handleDiscard,
+    deleteOpen,
+    setDeleteOpen,
+    deleting,
+    deleteError,
+    handleDelete,
+  } = useAgentSettings();
 
   // ── Webhook URLs (UI-only) ─────────────────────────────────────────────────
   const [webhookComplete, setWebhookComplete] = useState('');
   const [webhookError, setWebhookError] = useState('');
-
-  // ── Save / dirty ────────────────────────────────────────────────────────────
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  const isDirty =
-    name !== (agent?.name ?? '') ||
-    description !== (agent?.description ?? '') ||
-    framework !== (agent?.frameworkKey ?? 'claude-code') ||
-    systemPrompt !== (agent?.systemPrompt ?? '') ||
-    maxConcurrentRuns !== String(agent?.maxConcurrentRunsPerPod ?? 10) ||
-    modelId !== (agent?.modelId ?? 'anthropic/claude-sonnet-4-6') ||
-    JSON.stringify(toolScopes.slice().sort()) !==
-      JSON.stringify((agent?.toolScopes ?? []).slice().sort());
-
-  // ── Delete ──────────────────────────────────────────────────────────────────
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  // ── Handlers ────────────────────────────────────────────────────────────────
-
-  const handleSave = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!agent) return;
-      setSaving(true);
-      setSaveError(null);
-      setSaveSuccess(false);
-      const result = await updateAgentType(agent.id, {
-        name: name.trim(),
-        description: description.trim(),
-        framework: framework as 'claude-code' | 'codex' | 'opencode',
-        system_prompt: systemPrompt.trim(),
-        max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
-        model_id: modelId,
-        grant_scopes: grantScopes,
-        tool_scopes: toolScopes,
-      });
-      setSaving(false);
-      if (result.error) {
-        setSaveError(result.error);
-      } else {
-        setSaveSuccess(true);
-      }
-    },
-    [
-      agent,
-      name,
-      description,
-      framework,
-      systemPrompt,
-      maxConcurrentRuns,
-      modelId,
-      grantScopes,
-      toolScopes,
-    ],
-  );
-
-  const handleDiscard = useCallback(() => {
-    if (!agent) return;
-    setName(agent.name);
-    setDescription(agent.description ?? '');
-    setFramework(agent.frameworkKey);
-    setSystemPrompt(agent.systemPrompt);
-    setMaxConcurrentRuns(String(agent.maxConcurrentRunsPerPod));
-    setModelId(agent.modelId);
-    setToolScopes(agent.toolScopes);
-    setSaveError(null);
-    setSaveSuccess(false);
-  }, [agent]);
-
-  const handleDelete = useCallback(async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    const ok = await deleteAgent();
-    setDeleting(false);
-    if (!ok) {
-      setDeleteError('Failed to delete agent. Please try again.');
-      return;
-    }
-    setDeleteOpen(false);
-    router.push(APP_ROUTES.agents.list);
-  }, [deleteAgent, router]);
 
   if (!agent) return null;
 
@@ -427,32 +298,14 @@ export function AgentSettingsTab() {
               divider
             />
             <CardContent padded>
-              <Stack gap="comfortable">
-                <ToggleRow
-                  htmlFor="session-memory"
-                  label="Session memory"
-                  description="Store a summary of each session and make it available to future sessions."
-                  control={
-                    <Toggle
-                      id="session-memory"
-                      checked={persistMemory}
-                      onChange={setPersistMemory}
-                    />
-                  }
-                />
-                <ToggleRow
-                  htmlFor="include-claude-md"
-                  label="Include CLAUDE.md automatically"
-                  description="Inject CLAUDE.md from the repo root into the system prompt at session start."
-                  control={
-                    <Toggle
-                      id="include-claude-md"
-                      checked={includeClaude}
-                      onChange={setIncludeClaude}
-                    />
-                  }
-                />
-              </Stack>
+              <ToggleRow
+                htmlFor="session-memory"
+                label="Session memory"
+                description="Store a summary of each session and make it available to future sessions."
+                control={
+                  <Toggle id="session-memory" checked={persistMemory} onChange={setPersistMemory} />
+                }
+              />
             </CardContent>
           </Card>
 
@@ -464,56 +317,29 @@ export function AgentSettingsTab() {
               divider
             />
             <CardContent padded>
-              <Stack gap="comfortable">
-                <FormField
+              <FormField
+                id="settings-max-concurrent"
+                label="Max concurrent runs per pod"
+                hint="1–50 · Agent instances scheduled per pod."
+              >
+                <Input
                   id="settings-max-concurrent"
-                  label="Max concurrent runs per pod"
-                  hint="1–50 · Agent instances scheduled per pod."
-                >
-                  <Input
-                    id="settings-max-concurrent"
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={maxConcurrentRuns}
-                    onChange={(e) => {
-                      setMaxConcurrentRuns(e.target.value);
-                      setSaveSuccess(false);
-                    }}
-                    style={{ maxWidth: '8rem' }}
-                  />
-                </FormField>
-                <ToggleRow
-                  htmlFor="require-approval"
-                  label="Require approval for shell commands"
-                  description="Agent pauses and shows an approval prompt before running any shell command."
-                  control={
-                    <Toggle
-                      id="require-approval"
-                      checked={requireApproval}
-                      onChange={setRequireApproval}
-                    />
-                  }
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConcurrentRuns}
+                  onChange={(e) => {
+                    setMaxConcurrentRuns(e.target.value);
+                    setSaveSuccess(false);
+                  }}
+                  style={{ maxWidth: '8rem' }}
                 />
-                <ToggleRow
-                  htmlFor="extended-thinking"
-                  label="Extended thinking"
-                  description="Model reasons step-by-step before responding. Consumes additional tokens."
-                  control={
-                    <Toggle
-                      id="extended-thinking"
-                      checked={extendedThinking}
-                      onChange={setExtendedThinking}
-                    />
-                  }
-                />
-              </Stack>
+              </FormField>
             </CardContent>
           </Card>
         </Grid>
 
         {saveError && <Alert variant="error">{saveError}</Alert>}
-        {saveSuccess && <Alert variant="info">Changes saved.</Alert>}
       </Form>
 
       {/* ── MCP Servers + API & Webhooks ────────────────────────────────────── */}
@@ -834,7 +660,7 @@ export function AgentSettingsTab() {
       </Card>
 
       {/* ── Floating save bar ─────────────────────────────────────────────────── */}
-      {isDirty && (
+      {(isDirty || saveSuccess) && (
         <Stack
           direction="horizontal"
           align="center"
@@ -844,45 +670,56 @@ export function AgentSettingsTab() {
             bottom: '20px',
             left: '50%',
             transform: 'translateX(-50%)',
-            background: 'oklch(var(--color-surface) / 1)',
-            border: '1px solid oklch(var(--color-border) / 1)',
+            background: saveSuccess ? 'oklch(25% 0.06 145)' : 'oklch(18% 0 0)',
+            border: `1px solid ${saveSuccess ? 'oklch(50% 0.14 145 / 0.6)' : 'oklch(var(--color-border) / 1)'}`,
             borderRadius: '8px',
             padding: '10px 16px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
             zIndex: 100,
             whiteSpace: 'nowrap' as const,
+            transition: 'border-color 0.2s',
           }}
         >
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Stack style={{ color: 'oklch(80% 0.15 80)' }}>
-              <Icon name="info" size="xs" />
+          {saveSuccess ? (
+            <Stack direction="horizontal" align="center" gap="snug">
+              <Stack style={{ color: 'oklch(65% 0.16 145)' }}>
+                <Icon name="check-circle" size="xs" />
+              </Stack>
+              <Text size="supporting" style={{ color: 'oklch(65% 0.16 145)' }}>
+                Changes saved
+              </Text>
             </Stack>
-            <Text size="supporting">You have unsaved changes</Text>
-          </Stack>
-          <Stack direction="horizontal" gap="snug">
-            <Button variant="ghost" size="sm" onClick={handleDiscard}>
-              Discard
-            </Button>
-            <Button
-              type="submit"
-              form="settings-form"
-              variant="default"
-              size="sm"
-              disabled={saving}
-            >
-              <Icon name="check" size="xs" />
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          </Stack>
+          ) : (
+            <>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Stack style={{ color: 'oklch(80% 0.15 80)' }}>
+                  <Icon name="info" size="xs" />
+                </Stack>
+                <Text size="supporting">You have unsaved changes</Text>
+              </Stack>
+              <Stack direction="horizontal" gap="snug">
+                <Button variant="ghost" size="sm" onClick={handleDiscard}>
+                  Discard
+                </Button>
+                <Button
+                  type="submit"
+                  form="settings-form"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                >
+                  <Icon name="check" size="xs" />
+                  {saving ? 'Saving…' : 'Save changes'}
+                </Button>
+              </Stack>
+            </>
+          )}
         </Stack>
       )}
 
       <ConfirmDialog
         open={deleteOpen}
-        onClose={() => {
-          setDeleteOpen(false);
-          setDeleteError(null);
-        }}
+        onClose={() => setDeleteOpen(false)}
         title="Delete agent"
         description={`Permanently delete "${agent.name}"? All associated runs will be terminated. This cannot be undone.`}
         confirmLabel="Delete agent"

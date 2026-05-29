@@ -409,6 +409,10 @@ func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
 	return nil
 }
 
+func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) error {
+	return nil
+}
+
 func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {
 	return nil
 }

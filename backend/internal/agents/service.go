@@ -16,6 +16,7 @@ var agentsTracer = otel.Tracer("orbit.agents")
 type k8sProvisioner interface {
 	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
+	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error)
@@ -65,6 +66,8 @@ type UpdateAgentTypeRequest struct {
 	Framework               *AgentFramework `json:"framework"`
 	MaxConcurrentRunsPerPod *int            `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string         `json:"model_id"`
+	ToolScopes              []string        `json:"tool_scopes"`
+	GrantScopes             []string        `json:"grant_scopes"`
 }
 
 type StartRunRequest struct {

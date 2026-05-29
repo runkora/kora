@@ -434,6 +434,12 @@ func (p *K8sProvisioner) agentSpiffeID(at AgentType, namespace string) string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", p.cfg.TrustDomain, namespace, at.Slug)
 }
 
+// EnsureAgentGrant reconciles the policy-service grant for the agent type.
+// Called on update when model/grant scopes change.
+func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error {
+	return p.ensureAgentGrant(ctx, at, namespace)
+}
+
 // ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
 // principal toward exactly one grant containing at.GrantScopes.
 //

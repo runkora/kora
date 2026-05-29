@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -70,6 +71,11 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		framework = AgentFrameworkClaudeCode
 	}
 
+	toolScopes := req.ToolScopes
+	if !slices.Contains(toolScopes, "mcp") {
+		toolScopes = append(toolScopes, "mcp")
+	}
+
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -78,7 +84,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Description:             req.Description,
 		SystemPrompt:            req.SystemPrompt,
 		Framework:               framework,
-		ToolScopes:              req.ToolScopes,
+		ToolScopes:              toolScopes,
 		GrantScopes:             req.GrantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
@@ -222,12 +228,34 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if req.ModelID != nil {
 		at.ModelID = req.ModelID
 	}
+	if req.ToolScopes != nil {
+		at.ToolScopes = req.ToolScopes
+	}
+	if req.GrantScopes != nil {
+		at.GrantScopes = req.GrantScopes
+	}
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update agent type")
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
+
+	// Re-reconcile the policy-service grant when grant scopes change (e.g. model update).
+	// Run in background so the update response is not delayed by a policy-service round-trip.
+	if req.GrantScopes != nil {
+		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+		go func() {
+			if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
+				s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
+					logging.Field{Key: "agent_type_id", Value: at.ID},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+			}
+		}()
+	}
+
 	return at, nil
 }
 
