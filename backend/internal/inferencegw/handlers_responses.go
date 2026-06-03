@@ -37,7 +37,35 @@ func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ─── POST /responses ─────────────────────────────────────────────────────────
+// marshalResponsesEvent produces wire-compatible JSON for a synthesized
+// ResponseStreamEventUnion (one without RawJSON). The openai-go SDK stores
+// the Delta field as a union struct whose json tag uses ",inline" — a custom
+// apijson convention that encoding/json ignores, causing Delta to serialize as
+// an object {"OfString":"..."} instead of a plain string. Strict SSE parsers
+// (e.g. Codex CLI, which deserializes delta as Option<String>) reject the
+// object and fail to parse the entire event, including response.completed.
+// This function fixes Delta to its correct scalar wire representation by
+// re-serializing it after the first marshal/unmarshal pass.
+func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error) {
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	// Use JSON.OfString.Valid() rather than checking OfString != "" to correctly
+	// handle an empty-string delta without deleting a legitimately present field.
+	if ev.Delta.JSON.OfString.Valid() {
+		if b, jsonErr := json.Marshal(ev.Delta.OfString); jsonErr == nil {
+			m["delta"] = b
+		}
+	} else {
+		delete(m, "delta")
+	}
+	return json.Marshal(m)
+}
 
 func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -133,11 +161,20 @@ func (c *Controller) handleResponsesStream(
 				)
 				return
 			}
-		} else if err := writeSSEEvent(result.Event.Type, result.Event); err != nil {
-			c.logger.Error(ctx, "sse write error",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			return
+		} else {
+			raw, marshalErr := marshalResponsesEvent(result.Event)
+			if marshalErr != nil {
+				c.logger.Error(ctx, "sse marshal error",
+					logging.Field{Key: "error", Value: marshalErr.Error()},
+				)
+				return
+			}
+			if err := writeSSERaw(result.Event.Type, raw); err != nil {
+				c.logger.Error(ctx, "sse write error",
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				return
+			}
 		}
 	}
 

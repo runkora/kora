@@ -15,8 +15,8 @@ import type { BrowserContext } from '@playwright/test';
 
 const TEST_SESSION_SECRET = 'playwright-test-session-secret-32ch';
 const SESSION_COOKIE_NAME = 'orbit_session';
-// Match the server's default maxAge (30 days) so iron-session's age check passes.
-const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Match the server's default maxAge (30 days). sealData takes ttl in seconds, not ms.
+const TTL_S = 30 * 24 * 60 * 60;
 
 const TEST_SESSION_PAYLOAD = {
   user: { sub: 'user-e2e', email: 'e2e@orbit.local', name: 'E2E User' },
@@ -34,7 +34,7 @@ const TEST_SESSION_PAYLOAD = {
 export async function injectSessionCookie(context: BrowserContext): Promise<void> {
   const sealedSession = await sealData(TEST_SESSION_PAYLOAD, {
     password: TEST_SESSION_SECRET,
-    ttl: TTL_MS,
+    ttl: TTL_S,
   });
 
   await context.addCookies([
