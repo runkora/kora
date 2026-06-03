@@ -326,7 +326,22 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "to", Value: string(to)},
 	)
 	payload := []byte(`{"state":"` + string(to) + `"}`)
-	seqNo, _ := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	if err != nil {
+		// Log and continue — publishing as an ephemeral (seqNo=0) event so live
+		// subscribers still see the transition. The DB write failure is durable
+		// state loss that we surface in traces; if we returned early here the
+		// caller would believe the transition didn't happen, even though
+		// SetRunState above already committed it.
+		span.RecordError(err)
+		s.logger.Error(ctx, "failed to persist run_state event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "from", Value: string(from)},
+			logging.Field{Key: "to", Value: string(to)},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		seqNo = 0
+	}
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
 
 	if to == RunStateCompleted || to == RunStateFailed {
@@ -605,28 +620,41 @@ func (s *RunService) StartReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			ids, err := s.repo.ReapStaleRuns(ctx, staleDuration)
+			failedIDs, completedIDs, err := s.repo.ReapStaleRuns(ctx, staleDuration)
 			if err != nil {
 				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})
 				continue
 			}
-			if len(ids) > 0 {
-				s.logger.Info(ctx, "reaped stale runs",
-					logging.Field{Key: "count", Value: len(ids)},
-					logging.Field{Key: "run_ids", Value: ids},
-				)
-				for _, id := range ids {
-					s.pubsub.Publish(id, PushedEvent{Type: "run_failed", Payload: []byte(`{}`)})
-					run, err := s.repo.GetRun(ctx, id)
-					if err != nil {
-						s.logger.Warn(ctx, "reaper: get run for sandbox cleanup failed",
-							logging.Field{Key: "run_id", Value: id},
-							logging.Field{Key: "error", Value: err.Error()},
-						)
-						continue
-					}
-					s.deprovisionSandbox(ctx, run)
+			total := len(failedIDs) + len(completedIDs)
+			if total == 0 {
+				continue
+			}
+			s.logger.Info(ctx, "reaped stale runs",
+				logging.Field{Key: "failed_count", Value: len(failedIDs)},
+				logging.Field{Key: "completed_count", Value: len(completedIDs)},
+				logging.Field{Key: "failed_ids", Value: failedIDs},
+				logging.Field{Key: "completed_ids", Value: completedIDs},
+			)
+			// Emit run_failed for active/starting → failed transitions, run_state
+			// "completed" for idle → completed transitions. The reaper bypasses
+			// Transition() because the DB write already happened atomically in
+			// ReapStaleRuns; we only need to notify subscribers and clean up.
+			for _, id := range failedIDs {
+				s.pubsub.Publish(id, PushedEvent{Type: "run_failed", Payload: []byte(`{}`)})
+			}
+			for _, id := range completedIDs {
+				s.pubsub.Publish(id, PushedEvent{Type: "run_state", Payload: []byte(`{"state":"completed"}`)})
+			}
+			for _, id := range append(append([]string{}, failedIDs...), completedIDs...) {
+				run, err := s.repo.GetRun(ctx, id)
+				if err != nil {
+					s.logger.Warn(ctx, "reaper: get run for sandbox cleanup failed",
+						logging.Field{Key: "run_id", Value: id},
+						logging.Field{Key: "error", Value: err.Error()},
+					)
+					continue
 				}
+				s.deprovisionSandbox(ctx, run)
 			}
 		}
 	}

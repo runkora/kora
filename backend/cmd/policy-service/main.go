@@ -7,13 +7,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	psc "github.com/clear-route/orbit/cmd/policy-service/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/policyservice/api"
@@ -104,11 +107,53 @@ func realMain() error {
 		logger.Error(ctx, "policy-service self-registration failed", logging.Field{Key: "error", Value: err.Error()})
 	}
 
-	controller := api.NewController(svc, logger, verifier)
+	// In-process policy evaluator for scope enforcement. The bundle endpoint is
+	// served by this same process; the evaluator polls it via loopback HTTP.
+	// Slightly wasteful but keeps ScopeEnforcementMiddleware (ADR-0064) uniform
+	// across services with no special-cased in-process bundle wiring.
+	bundleEndpoint := fmt.Sprintf("http://localhost:%d/api/v1/policy/bundles", psc.Current.Server.Port)
+	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
+	policyEval.Start(ctx)
+
+	controller := api.NewController(svc, logger, verifier, policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
 	server := initServer(ctx, logger, controller)
 
 	run(ctx, logger, server)
 	return nil
+}
+
+// policyServiceRoutes returns the route → required-scope table consumed by
+// ScopeEnforcementMiddleware (ADR-0064). Mirrors the table self-registered
+// with the policy-service routestore above, plus entries for routes the
+// service hosts but does not currently register (effective-scopes, routes,
+// stats, vocabulary GETs). The /policy/bundles/ prefix is bypassed inside
+// Controller.Middleware() and so is intentionally omitted.
+//
+// Entries marked RequiredScope: "" require authentication only and pass
+// through after AuthMiddleware. Entries with a non-empty scope go through
+// policy.Evaluator.Check against the principal's grants.
+func policyServiceRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/policy/stats", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
+		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
+		// /effective-scopes returns the caller's own effective scopes — open to
+		// any authenticated principal so they can inspect what they hold.
+		{PathPrefix: "/api/v1/policy/effective-scopes", Method: "GET", RequiredScope: ""},
+		// /routes is the route registry — readable by anyone authenticated.
+		{PathPrefix: "/api/v1/policy/routes", Method: "GET", RequiredScope: ""},
+		// /routes/register is called by other platform services at startup with
+		// a SYSTEM/SERVICE SPIFFE-derived token; gated by platform:routes:write
+		// in the future. For now allow any authenticated SYSTEM caller — Istio
+		// AuthorizationPolicy already restricts this path to in-mesh callers.
+		{PathPrefix: "/api/v1/policy/routes/register", Method: "POST", RequiredScope: ""},
+	}
 }
 
 func initObservability(ctx context.Context) (func(), error) {

@@ -2,7 +2,6 @@ import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { config } from '@orbit/server/config';
-import { ApiError } from '@orbit/server/client';
 
 type Params = { runId: string };
 
@@ -35,10 +34,16 @@ export const GET = withAuth(
         code?: string;
         message?: string;
       };
-      throw new ApiError(
-        upstream.status,
-        errJson.code ?? 'UNKNOWN',
-        errJson.message ?? upstream.statusText,
+      // Return the upstream's status + envelope directly. Throwing here would
+      // propagate to Next.js's default 500 handler because withAuth does not
+      // catch exceptions — the client would see an opaque 500 instead of the
+      // 401/404/etc. the backend actually returned.
+      return NextResponse.json(
+        {
+          code: errJson.code ?? 'UNKNOWN',
+          message: errJson.message ?? upstream.statusText,
+        },
+        { status: upstream.status },
       );
     }
 

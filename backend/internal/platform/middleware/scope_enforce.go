@@ -19,28 +19,64 @@ import (
 //  2. Prefer a matching route whose Method equals the request method exactly.
 //  3. Otherwise fall through to a matching route whose Method is "*".
 //  4. If no route matches, deny — mirrors OPA's `deny:no_route_match`.
-//  5. If a route matches, call policy.Evaluator.Check with the resolved scope
-//     and deny on a non-allow result.
+//  5. If a route matches with a non-empty RequiredScope, call
+//     policy.Evaluator.Check with the resolved scope and deny on a non-allow
+//     result.
+//  6. If a route matches with an empty RequiredScope, pass through —
+//     authentication is sufficient; no scope check is needed. Use this for
+//     "any authenticated caller" routes (e.g. personal data endpoints).
+//
+// basePath is the server's base path (e.g. "/v1"). The middleware prepends it
+// to r.URL.Path before route lookup so the route table can declare absolute
+// paths consistent with what is registered with policy-service for Layer 1
+// OPA enforcement. Pass "" for services that mount controllers at the root.
 //
 // This middleware MUST run after AuthMiddleware (which puts the verified
 // platform claims in context) and DelegationMiddleware (which puts parsed
 // delegation claims in context). See ADR-0064 for the design rationale.
-func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.RouteScope, logger logging.Logger) Middleware {
+func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			requiredScope, ok := resolveRequiredScope(routes, r.Method, r.URL.Path)
+			// http.StripPrefix has already removed basePath from r.URL.Path by
+			// the time this middleware runs (it is wrapped inside controllerMux,
+			// which sits behind StripPrefix in platform/api.Server). Prepend
+			// basePath so the route table can use the same absolute paths that
+			// are registered with policy-service for Layer 1 enforcement.
+			fullPath := basePath + r.URL.Path
+
+			requiredScope, ok := resolveRequiredScope(routes, r.Method, fullPath)
 			if !ok {
 				logger.Warn(ctx, "scope enforcement: no route match — deny",
 					logging.Field{Key: "method", Value: r.Method},
-					logging.Field{Key: "path", Value: r.URL.Path},
+					logging.Field{Key: "path", Value: fullPath},
 				)
 				writeForbidden(w, "no route match")
 				return
 			}
+			if requiredScope == "" {
+				// Route matched but is open to any authenticated caller.
+				// AuthMiddleware has already run; no further check needed.
+				next.ServeHTTP(w, r)
+				return
+			}
 
 			claims, _ := token.ClaimsFromContext(ctx)
+
+			// SYSTEM principals are platform services (orbit-agents, identity,
+			// etc.) authenticated by SPIFFE/mTLS at the Istio layer. Their
+			// platform tokens carry empty tenant_id since they are infrastructure
+			// rather than tenant-scoped actors, so the per-tenant policy bundle
+			// lookup would deny every request with "no policy configured for
+			// tenant". The Istio AuthorizationPolicy + mTLS already restrict
+			// which SPIFFE identities can reach each endpoint; in-process scope
+			// enforcement is for human/agent/PAT principals, not platform infra.
+			if claims != nil && claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			resourceType, pathSegments, action := splitScope(requiredScope)
 			result, err := eval.Check(ctx, policy.CheckInput{
 				Claims:       claims,

@@ -129,7 +129,14 @@ export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
 export type AgentTypeState = 'provisioning' | 'active' | 'deleting';
 
 /** Lifecycle state of a single Run. Mirrors Go: agents.RunState */
-export type RunState = 'pending' | 'starting' | 'active' | 'completing' | 'completed' | 'failed';
+export type RunState =
+  | 'pending'
+  | 'starting'
+  | 'active'
+  | 'idle'
+  | 'completing'
+  | 'completed'
+  | 'failed';
 
 /**
  * An AgentType defines the configuration template for a class of agents.

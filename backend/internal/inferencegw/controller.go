@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -20,15 +22,23 @@ import (
 type Controller struct {
 	svc      *Service
 	verifier *token.Verifier
+	eval     policy.Evaluator
+	routes   []routescopes.RouteScope
+	basePath string
 	logger   logging.Logger
 }
 
 // NewController constructs a ready-to-boot inference gateway Controller.
 // JWT verification config is loaded from the environment via token.LoadConfig —
 // callers do not need to construct or inject a Verifier.
-func NewController(ctx context.Context, svc *Service, logger logging.Logger) *Controller {
+//
+// routes and eval are passed to ScopeEnforcementMiddleware for in-process
+// route → scope enforcement (ADR-0064). basePath must match the server's
+// BasePath so the middleware can reconstruct absolute paths after
+// http.StripPrefix removes the prefix.
+func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return &Controller{svc: svc, verifier: verifier, logger: logger}
+	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 // GroupedBy returns the route prefix. The inference gateway mounts directly
@@ -52,6 +62,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 		orbCredentialMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
 		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 }
 

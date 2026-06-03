@@ -159,7 +159,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	controller := agents.NewController(atSvc, runSvc, verifier, eval, agentRoutes(), logger)
+	controller := agents.NewController(atSvc, runSvc, verifier, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
 	server := apiServer.Server(
 		ctx,

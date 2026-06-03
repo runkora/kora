@@ -288,15 +288,6 @@ export function InputArea() {
             newline
           </Text>
         </Stack>
-        <Stack direction="horizontal" align="center" style={{ gap: 4 }}>
-          <KbdChip>/</KbdChip>
-          <Text
-            as="span"
-            style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
-          >
-            commands
-          </Text>
-        </Stack>
       </Stack>
     </Stack>
   );

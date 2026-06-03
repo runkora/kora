@@ -23,7 +23,6 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import { AgentRunsTab } from './agent-runs-tab';
-import { AgentLogsTab } from './agent-logs-tab';
 import { AgentSettingsTab } from './agent-settings-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
@@ -178,7 +177,6 @@ export function AgentDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Runs</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
@@ -186,9 +184,6 @@ export function AgentDetailPage() {
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
-        </TabsContent>
-        <TabsContent value="logs">
-          <AgentLogsTab />
         </TabsContent>
         <TabsContent value="settings">
           <AgentSettingsTab />

@@ -287,12 +287,13 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 }
 
 // ReapStaleRuns marks runs that have been stuck in transient states for longer
-// than staleDuration. Returns the IDs of reaped runs.
+// than staleDuration. Returns the IDs partitioned by the terminal state each
+// row was moved to, so the caller can emit the correct event type per group.
 //
 //   - active / starting → failed (session-manager died mid-turn)
 //   - idle → completed  (session-manager died after a clean turn; idle timeout
 //     never fired because the pod restarted)
-func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]string, error) {
+func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
 	now := time.Now().UTC()
 	cutoff := now.Add(-staleDuration)
 	rows, err := r.pool.Query(ctx, `
@@ -305,23 +306,30 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 		updated_at   = $1
 		WHERE state IN ('active','starting','idle')
 		  AND updated_at < $2
-		RETURNING id`,
+		RETURNING id, state`,
 		now, cutoff,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("reap stale runs: %w", err)
+		return nil, nil, fmt.Errorf("reap stale runs: %w", err)
 	}
 	defer rows.Close()
 
-	var ids []string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+		var (
+			id    string
+			state string
+		)
+		if scanErr := rows.Scan(&id, &state); scanErr != nil {
+			return nil, nil, scanErr
 		}
-		ids = append(ids, id)
+		switch state {
+		case string(RunStateFailed):
+			failed = append(failed, id)
+		case string(RunStateCompleted):
+			completed = append(completed, id)
+		}
 	}
-	return ids, rows.Err()
+	return failed, completed, rows.Err()
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────

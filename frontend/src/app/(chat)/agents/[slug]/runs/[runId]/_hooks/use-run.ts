@@ -55,6 +55,17 @@ interface RunErrorPayload {
 
 // ── Hook return type ──────────────────────────────────────────────────────────
 
+/**
+ * Live status of the SSE connection to the run's event stream.
+ *
+ * - 'connecting'   — initial state and during EventSource auto-reconnect attempts.
+ * - 'open'         — connection established; events flowing.
+ * - 'reconnecting' — connection dropped at least once; browser is retrying.
+ * - 'closed'       — terminal failure (auth rejected, run not found, network down
+ *                    long enough that the browser gave up). User intervention needed.
+ */
+export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
+
 export interface UseRunReturn extends RunChatState {
   /** True while the current agent turn is still streaming (inProgressTurn is non-null). */
   isStreaming: boolean;
@@ -62,11 +73,15 @@ export interface UseRunReturn extends RunChatState {
   isPending: boolean;
   /** True when runState is starting or active — covers initial navigation and mid-turn reconnects. */
   isBusy: boolean;
+  /** SSE connection lifecycle status — surfaced in the UI as a banner when not 'open'. */
+  connectionStatus: ConnectionStatus;
   openCanvas: (viewId: string) => void;
   closeCanvas: () => void;
   switchTab: (tabId: string) => void;
   addHumanMessage: (content: string) => void;
   interruptRun: () => void;
+  /** Manually re-open the SSE stream after a terminal failure. */
+  reconnect: () => void;
 }
 
 // ── useRun ────────────────────────────────────────────────────────────────────
@@ -78,6 +93,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  // Bumped to force the SSE effect to re-run on manual reconnect.
+  const [reconnectKey, setReconnectKey] = useState(0);
   const [canvasState, setCanvasState] = useState<CanvasState>({
     isOpen: false,
     tabs: [],
@@ -116,7 +134,33 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   useEffect(() => {
     if (!runId) return;
 
+    // The initial state is 'connecting'; reconnect() resets it before bumping
+    // reconnectKey, so we don't need to setConnectionStatus here.
     const es = new EventSource(`/api/agents/runs/${runId}/events`);
+
+    // EventSource auto-reconnects on transient drops using the Last-Event-ID
+    // protocol. `onopen` fires both on first connect and on a successful
+    // reconnect; `onerror` fires whenever the connection drops or fails to
+    // open. Distinguish "trying to reconnect" from "terminally closed" by
+    // inspecting es.readyState:
+    //   - CONNECTING (0) → still trying; surface as 'reconnecting' after first open
+    //   - CLOSED (2)     → browser gave up (4xx/5xx response on reconnect or
+    //                       cors/network failure); user must manually retry.
+    es.onopen = () => {
+      setConnectionStatus('open');
+    };
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setConnectionStatus('closed');
+        // Flush any in-progress turn so the chat doesn't appear stuck in
+        // mid-response state when the stream is permanently lost.
+        flushInProgress();
+      } else {
+        // CONNECTING: the browser is auto-retrying. Reflect that in the UI
+        // so the user knows the stream is degraded, without nuking state.
+        setConnectionStatus('reconnecting');
+      }
+    };
 
     // Cancel any pending RAF and synchronously flush ref state to React.
     // Call this before any structural change (tool events, completion, flush).
@@ -365,7 +409,14 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         rafHandleRef.current = null;
       }
     };
-  }, [runId]);
+    // reconnectKey is in the dep array so calling reconnect() (which bumps it)
+    // tears down the current EventSource and opens a fresh one.
+  }, [runId, reconnectKey]);
+
+  function reconnect(): void {
+    setConnectionStatus('connecting');
+    setReconnectKey((k) => k + 1);
+  }
 
   function openCanvas(): void {
     // Canvas views are not yet populated from SSE — deferred to canvas feature.
@@ -413,6 +464,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     isStreaming: inProgressTurn !== null,
     isPending,
     isBusy: runState === 'starting' || runState === 'active',
+    connectionStatus,
     contextFiles: [],
     canvasState,
     views: {},
@@ -421,6 +473,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     switchTab,
     addHumanMessage,
     interruptRun,
+    reconnect,
   };
 }
 

@@ -957,7 +957,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 	if err != nil {
 		t.Fatalf("newTestControllerWithProfiles: %v", err)
 	}
-	c = NewController(svc, logging.NewLoggerWithOutput(io.Discard))
+	c = NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return
 }
 

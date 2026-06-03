@@ -133,6 +133,37 @@ func TestCreateAgentType_K8sFailure(t *testing.T) {
 	})
 }
 
+// TestCreateAgentType_K8sFailure_DeprovisionCalled asserts that an async
+// provisioning failure triggers DeprovisionAgentType so partial k8s state
+// (StatefulSet, Service, HPA, …) is cleaned up, not just the DB row. This
+// prevents the orphan-resource bug we hit with sales-agent in dev.
+func TestCreateAgentType_K8sFailure_DeprovisionCalled(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	k8s.provisionAgentTypeErr = errors.New("late-step failure (e.g. agent grant)")
+
+	ctx := context.Background()
+	at, err := svc.CreateAgentType(ctx, CreateAgentTypeRequest{
+		TenantID: "t-1", Name: "Bot", Slug: "bot",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error from CreateAgentType: %v", err)
+	}
+
+	// Wait for the background goroutine to run the rollback path.
+	waitFor(t, time.Second, func() bool {
+		_, err := repo.GetAgentType(ctx, at.ID)
+		return errors.Is(err, ErrNotFound)
+	})
+
+	// DeprovisionAgentType must have been invoked on the same agent type.
+	k8s.mu.Lock()
+	deprovisioned := append([]string(nil), k8s.deprovisionedAgentTypes...)
+	k8s.mu.Unlock()
+	if len(deprovisioned) != 1 || deprovisioned[0] != at.ID {
+		t.Errorf("expected DeprovisionAgentType to be called once for %s, got %v", at.ID, deprovisioned)
+	}
+}
+
 func TestCreateAgentType_FiresHook(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 

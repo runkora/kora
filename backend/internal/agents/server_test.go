@@ -30,7 +30,7 @@ func newTestController(t *testing.T) (*Controller, *mockRepository, *mockK8s, *m
 	// directly without going through Middleware(), so JWT verification and
 	// scope enforcement are never reached. Tests that exercise tenant scoping
 	// inject claims into the request context manually.
-	c := NewController(facade.at, facade.run, nil, &allowAllEvaluator{}, nil, logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(facade.at, facade.run, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
 }
 

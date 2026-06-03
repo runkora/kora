@@ -22,6 +22,7 @@ type Controller struct {
 	verifier   *token.Verifier
 	eval       policy.Evaluator
 	routes     []routescopes.RouteScope
+	basePath   string
 	logger     logging.Logger
 }
 
@@ -30,13 +31,15 @@ type Controller struct {
 // routes is the same RouteScope slice that is registered with policy-service
 // at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
-// bindings in-process. See ADR-0064.
+// bindings in-process. basePath must match the server's BasePath so the
+// middleware can reconstruct full paths after http.StripPrefix. See ADR-0064.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
 	routes []routescopes.RouteScope,
+	basePath string,
 	logger logging.Logger,
 ) *Controller {
 	return &Controller{
@@ -45,6 +48,7 @@ func NewController(
 		verifier:   verifier,
 		eval:       eval,
 		routes:     routes,
+		basePath:   basePath,
 		logger:     logger,
 	}
 }
@@ -59,7 +63,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 	authChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
 		mw.DelegationMiddleware(c.logger, c.verifier),
-		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 	return func(next http.Handler) http.Handler {
 		authed := authChain(next)

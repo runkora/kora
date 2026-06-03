@@ -84,6 +84,14 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		toolScopes = append(toolScopes, "mcp")
 	}
 
+	// grant_scopes is NOT NULL in the database; default a missing slice to an
+	// empty one so a request that omits the field still creates cleanly. An
+	// empty list is the correct semantics — the agent has no policy grants.
+	grantScopes := req.GrantScopes
+	if grantScopes == nil {
+		grantScopes = []string{}
+	}
+
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -93,7 +101,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		SystemPrompt:            req.SystemPrompt,
 		Framework:               framework,
 		ToolScopes:              toolScopes,
-		GrantScopes:             req.GrantScopes,
+		GrantScopes:             grantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		State:                   AgentTypeStateProvisioning,
@@ -139,6 +147,27 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	if err := s.k8s.ProvisionAgentType(ctx, at, namespace); err != nil {
+		// Log the underlying error so operators are not blind — `span.RecordError`
+		// alone is invisible until someone opens the trace UI.
+		s.logger.Error(ctx, "async provisioning failed",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "slug", Value: at.Slug},
+			logging.Field{Key: "tenant_id", Value: at.TenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		// Clean up any k8s resources that were partially created before the
+		// failure. ProvisionAgentType is non-atomic — it creates ServiceAccount,
+		// StatefulSet, Service, HPA, PDB, AgentGrant, and DestinationRule in
+		// sequence, so a failure in step N leaves steps 1..N-1 in the cluster.
+		// Without this, a DB row deletion below would strand those resources
+		// (the original sales-agent bug). DeprovisionAgentType is idempotent
+		// over missing resources.
+		if depErr := s.k8s.DeprovisionAgentType(ctx, at, namespace); depErr != nil {
+			s.logger.Warn(ctx, "rollback deprovision failed after async provisioning error",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "error", Value: depErr.Error()},
+			)
+		}
 		if delErr := s.repo.DeleteAgentType(ctx, at.ID); delErr != nil {
 			s.logger.Warn(ctx, "rollback delete failed after async provisioning error",
 				logging.Field{Key: "agent_type_id", Value: at.ID},

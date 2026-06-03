@@ -284,11 +284,10 @@ func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string)
 	return counts, nil
 }
 
-func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) ([]string, error) {
+func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
 	cutoff := time.Now().Add(-staleDuration)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var ids []string
 	for _, r := range m.runs {
 		if r.UpdatedAt.IsZero() || r.UpdatedAt.After(cutoff) {
 			continue
@@ -296,13 +295,13 @@ func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Dur
 		switch r.State {
 		case RunStateActive, RunStateStarting:
 			r.State = RunStateFailed
-			ids = append(ids, r.ID)
+			failed = append(failed, r.ID)
 		case RunStateIdle:
 			r.State = RunStateCompleted
-			ids = append(ids, r.ID)
+			completed = append(completed, r.ID)
 		}
 	}
-	return ids, nil
+	return failed, completed, nil
 }
 
 func (m *mockRepository) AppendRunEvent(_ context.Context, e RunEvent) (int64, error) {

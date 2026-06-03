@@ -35,9 +35,12 @@ type RunRepository interface {
 	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) error
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
-	// ReapStaleRuns marks runs that have been stuck in active or starting state
-	// for longer than staleDuration as failed. Returns the IDs of reaped runs.
-	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]string, error)
+	// ReapStaleRuns marks runs stuck in transient states for longer than
+	// staleDuration. Returns the IDs partitioned by terminal state:
+	//   - failed:    runs transitioned active|starting → failed
+	//   - completed: runs transitioned idle → completed (idle timeout missed
+	//                due to a session-manager restart)
+	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error)
 
 	// ── Events ────────────────────────────────────────────────────────────────
 
