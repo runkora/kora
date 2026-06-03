@@ -103,3 +103,5 @@ infrastructure/overlays/*/charts
 
 # Git
 **/.envrc
+# Claude Code per-user settings (project-level settings live in .claude/settings.json)
+.claude/settings.local.json
