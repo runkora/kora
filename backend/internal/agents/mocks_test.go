@@ -511,6 +511,21 @@ func withTenantCtx(ctx context.Context, tenantID string) context.Context {
 	})
 }
 
+// withAgentCtx injects AGENT platform claims mirroring what AuthMiddleware
+// stores for an identity-proxy-issued agent token: principal type AGENT, the
+// logical tenant, and the agent slug (surfaced both as DisplayName and as the
+// final segment of the SPIFFE path). Used by internal-callback handler tests.
+func withAgentCtx(ctx context.Context, tenantID, slug string) context.Context {
+	return token.WithClaims(ctx, &token.PlatformClaims{
+		Orbit: token.OrbitClaims{
+			PrincipalType: token.PrincipalTypeAgent,
+			TenantID:      tenantID,
+			DisplayName:   slug,
+			Claims:        map[string]string{"spiffe_path": "/tenant/orbit-tenant-" + tenantID + "/agent/" + slug},
+		},
+	})
+}
+
 // allowAllEvaluator is a permissive stub policy.Evaluator used in tests that
 // are not exercising authorization logic. Service-level authz tests should use
 // stubEvaluator (defined in authz_test.go) which lets each test configure

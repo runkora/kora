@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -193,4 +194,24 @@ func stringSet(in []string) map[string]struct{} {
 		out[s] = struct{}{}
 	}
 	return out
+}
+
+// agentSlugFromClaims extracts the agent-type slug from an agent principal's
+// signed platform claims. The agent's SPIFFE identity is
+// spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>; the identity service
+// records the full path as claims["spiffe_path"] and surfaces the final segment
+// as DisplayName. Both are signed and therefore trustworthy; we prefer the
+// explicit path segment and fall back to DisplayName. Returns "" if neither is
+// present (e.g. a non-agent principal), which callers treat as a deny.
+func agentSlugFromClaims(claims *token.PlatformClaims) string {
+	if claims == nil {
+		return ""
+	}
+	if sp := claims.Orbit.Claims["spiffe_path"]; sp != "" {
+		segs := strings.Split(strings.Trim(sp, "/"), "/")
+		if n := len(segs); n >= 2 && segs[n-2] == "agent" {
+			return segs[n-1]
+		}
+	}
+	return claims.Orbit.DisplayName
 }

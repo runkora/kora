@@ -525,6 +525,43 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	return nil
 }
 
+// AuthorizeAgentCallback verifies that the agent principal in ctx owns the
+// given run before an internal callback (state transition, event push, sandbox
+// provisioning) is allowed to act on it.
+//
+// Internal endpoints are authenticated by the agent's platform JWT, which the
+// identity-proxy ext_proc sidecar injects on every outbound request from the
+// agent pod (ADR-0063). That token alone proves "an agent in this mesh", not
+// "the agent that owns this run" — so this method binds the verified identity
+// to the specific run: the caller must be an AGENT principal whose tenant
+// matches the run's tenant and whose agent-type slug matches the run's agent
+// type. Without this, any agent pod could drive another agent's runs or cross
+// tenant boundaries via the otherwise-unauthenticated callback surface.
+//
+// Returns ErrNotFound if the run does not exist (existence is not leaked) and
+// ErrForbidden on any identity mismatch.
+func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) error {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || claims.Orbit.PrincipalType != token.PrincipalTypeAgent {
+		return ErrForbidden
+	}
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if run.TenantID != claims.Orbit.TenantID {
+		return ErrForbidden
+	}
+	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		return fmt.Errorf("get agent type for callback authz: %w", err)
+	}
+	if agentSlugFromClaims(claims) != at.Slug {
+		return ErrForbidden
+	}
+	return nil
+}
+
 // ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port").
 func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string, error) {

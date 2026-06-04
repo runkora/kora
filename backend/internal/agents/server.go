@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,24 +56,41 @@ func NewController(
 
 func (c *Controller) GroupedBy() string { return "" }
 
-// Middleware applies JWT auth and scope enforcement to public routes but
-// bypasses internal callback endpoints, which are protected by Istio
-// AuthorizationPolicy at the mTLS layer (session-manager pod's SPIFFE
-// identity), and the unauthenticated /health probe. See ADR-0063 + ADR-0064.
+// Middleware applies authentication to every route except the unauthenticated
+// /health probe.
+//
+//   - Public /api/v1 routes get the full chain: JWT auth, delegation parsing,
+//     and route→scope enforcement.
+//   - Internal callback routes get JWT auth ONLY. The agent's platform token is
+//     injected on every outbound request by the identity-proxy ext_proc sidecar
+//     on the agent pod (see cmd/orbit-agents k8s.go: "actual auth is the
+//     identity-proxy-issued JWT"). ScopeEnforcementMiddleware is intentionally
+//     omitted: the route→scope table (agentRoutes) only covers the public
+//     surface, and agent principals hold no route scopes — running it would
+//     deny every callback with "no route match". Per-run authorization (binding
+//     the calling agent's tenant + slug to the target run) is enforced in each
+//     internal handler via runs.AuthorizeAgentCallback. See ADR-0063 + ADR-0064.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
-	authChain := mw.MiddlewareChain(
+	publicChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
 		mw.DelegationMiddleware(c.logger, c.verifier),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
+	internalChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+	)
 	return func(next http.Handler) http.Handler {
-		authed := authChain(next)
+		public := publicChain(next)
+		internal := internalChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/internal/") || r.URL.Path == "/health" {
+			switch {
+			case r.URL.Path == "/health":
 				next.ServeHTTP(w, r)
-				return
+			case strings.HasPrefix(r.URL.Path, "/internal/"):
+				internal.ServeHTTP(w, r)
+			default:
+				public.ServeHTTP(w, r)
 			}
-			authed.ServeHTTP(w, r)
 		})
 	}
 }
@@ -367,9 +385,33 @@ type runStateCallbackRequest struct {
 	To   RunState `json:"to"`
 }
 
+// authorizeCallback binds the agent principal carried by the (already
+// JWT-authenticated) internal request to the target run before the handler
+// proceeds. It writes the appropriate error response and returns false on deny.
+// See RunService.AuthorizeAgentCallback and ADR-0063.
+func (c *Controller) authorizeCallback(ctx context.Context, w http.ResponseWriter, id string) bool {
+	switch err := c.runs.AuthorizeAgentCallback(ctx, id); {
+	case err == nil:
+		return true
+	case errors.Is(err, ErrNotFound):
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	case errors.Is(err, ErrForbidden):
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized for this run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	default:
+		apiErr := api.InternalError(api.ErrCodeInternalError, "callback authorization failed", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	}
+	return false
+}
+
 func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
 	var req runStateCallbackRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -488,6 +530,9 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
 	var ev PushedEvent
 	if !api.DecodeJSON(ctx, r, w, c.logger, &ev) {
@@ -501,6 +546,9 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
 	endpoint, err := c.runs.ProvisionSandbox(ctx, id)
 	if err != nil {

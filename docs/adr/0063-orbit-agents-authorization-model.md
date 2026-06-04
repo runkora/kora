@@ -7,6 +7,57 @@
 
 ---
 
+## Update — 2026-06-03: Internal callback endpoints must be authenticated in-process
+
+> This addendum corrects the security posture for the `/internal/runs/*` callback
+> endpoints (state transition, event push, sandbox provisioning). The original
+> sections below state these are "authenticated by SPIFFE/mTLS at the Envoy
+> layer", "gated by Istio AuthorizationPolicy", and "bypassed in Rego". A
+> post-merge review of PR #61 found that claim to be both **unimplemented and
+> insufficient**, and was empirically validated in the `k3d-orbit-local` cluster.
+
+**Findings:**
+
+1. **No mesh control existed.** `Controller.Middleware` skipped the entire auth
+   chain for any `/internal/` path. No Istio `AuthorizationPolicy` and no
+   `PeerAuthentication` selected orbit-agents (only a policy-service
+   AuthorizationPolicy and an orbit-agents client-side `DestinationRule` ship).
+   With no ALLOW policy selecting the workload, Istio allows all traffic, and the
+   `allow-tenant-mesh-ingress` NetworkPolicy lets any tenant-namespace pod reach
+   orbit-agents on :8080. Reproduced: an unrelated tenant pod, with no token,
+   POSTed `/internal/runs/{id}/events` (204), `/state` (409 — CAS executed), and
+   `/provision-sandbox` (404) — all unauthenticated.
+
+2. **A mesh policy alone is insufficient anyway.** The legitimate caller (the
+   session-manager) shares the agent pod's SPIFFE identity
+   `spiffe://<td>/tenant/<ns>/agent/<slug>`, which is indistinguishable in shape
+   from every other agent pod. An AuthorizationPolicy restricting `/internal/*`
+   to `…/agent/*` principals would not stop one agent pod from forging callbacks
+   for another agent's (or tenant's) runs.
+
+**Decision:** authenticate `/internal/*` with the agent's platform JWT — already
+injected on every agent-pod outbound request by the identity-proxy ext_proc
+sidecar (`cmd/orbit-agents` k8s.go: *"actual auth is the identity-proxy-issued
+JWT"*) — and bind the verified identity to the target run in-process:
+
+- Run `AuthMiddleware` on `/internal/*` (verify + populate claims). Do **not** run
+  `ScopeEnforcementMiddleware` there: the route→scope table only covers the
+  public `/api/v1` surface and agent principals hold no route scopes.
+- Each internal handler calls `RunService.AuthorizeAgentCallback`, which requires
+  `PrincipalType == AGENT`, `claims.tenant_id == run.TenantID`, and the agent
+  slug (from `display_name` / the SPIFFE path in claims) `== run's agent-type
+  slug`. Deny → 403; unknown run → 404 (no existence leak).
+
+This makes the JWT the authoritative control and needs no SPIFFE/XFCC parsing. A
+mesh `AuthorizationPolicy` + `PeerAuthentication` STRICT remain worthwhile as
+defense-in-depth but are no longer load-bearing and are tracked separately.
+
+**Validated in-cluster (2026-06-03):** no-token `/internal/*` → 401 (was 204);
+authenticated-but-unowned run → 404; public route unchanged at 403. Cross-tenant
+and cross-slug denial (403) covered by unit tests in `internal/agents`.
+
+---
+
 ## Context
 
 ### Background

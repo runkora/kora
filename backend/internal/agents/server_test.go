@@ -405,16 +405,28 @@ func TestHandleSendMessage_RunNotFound(t *testing.T) {
 
 // ── Internal callbacks ────────────────────────────────────────────────────────
 
+// seedCallbackRun seeds an agent type (slug "bot") and a run owned by it, then
+// returns a request decorated with matching AGENT claims for tenant "t-1".
+// Mirrors a legitimate session-manager callback for its own run.
+func callbackReq(method, target, body string) *http.Request {
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, target, http.NoBody)
+	} else {
+		req = httptest.NewRequest(method, target, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.SetPathValue("id", "run-1")
+	return req.WithContext(withAgentCtx(req.Context(), "t-1", "bot"))
+}
+
 func TestHandleRunStateCallback_NoContent(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateStarting})
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
-		bytes.NewBufferString(`{"from":"starting","to":"active"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handleRunStateCallback(w, req)
+	c.handleRunStateCallback(w, callbackReq(http.MethodPost, "/internal/runs/run-1/state", `{"from":"starting","to":"active"}`))
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
@@ -423,15 +435,12 @@ func TestHandleRunStateCallback_NoContent(t *testing.T) {
 
 func TestHandleRunStateCallback_Conflict(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
 	// Wrong `from` state — triggers CAS conflict.
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
-		bytes.NewBufferString(`{"from":"pending","to":"active"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handleRunStateCallback(w, req)
+	c.handleRunStateCallback(w, callbackReq(http.MethodPost, "/internal/runs/run-1/state", `{"from":"pending","to":"active"}`))
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", w.Code)
@@ -439,30 +448,26 @@ func TestHandleRunStateCallback_Conflict(t *testing.T) {
 }
 
 func TestHandlePushEvent_NoContent(t *testing.T) {
-	c, _, _, _ := newTestController(t)
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events",
-		bytes.NewBufferString(`{"type":"text_delta","payload":{"delta":"hi"}}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handlePushEvent(w, req)
+	c.handlePushEvent(w, callbackReq(http.MethodPost, "/internal/runs/run-1/events", `{"type":"text_delta","payload":{"delta":"hi"}}`))
 
 	if w.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", w.Code)
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestHandleProvisionSandbox_OK(t *testing.T) {
 	c, repo, k8s, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/provision-sandbox", http.NoBody)
-	req.SetPathValue("id", run.ID)
 	w := httptest.NewRecorder()
-	c.handleProvisionSandbox(w, req)
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", ""))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -475,13 +480,51 @@ func TestHandleProvisionSandbox_OK(t *testing.T) {
 func TestHandleProvisionSandbox_NotFound(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
+	// Valid agent claims, but the run does not exist → 404 (existence not leaked).
 	req := httptest.NewRequest(http.MethodPost, "/internal/runs/missing/provision-sandbox", http.NoBody)
 	req.SetPathValue("id", "missing")
+	req = req.WithContext(withAgentCtx(req.Context(), "t-1", "bot"))
 	w := httptest.NewRecorder()
 	c.handleProvisionSandbox(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ── Internal callback authorization (ADR-0063) ─────────────────────────────────
+
+// internalCallbackDenied asserts every internal callback handler rejects the
+// given request context with 403. ctxFn decorates the request context with the
+// (mis-matched or missing) claims under test.
+func TestInternalCallbacks_RejectUnauthorizedAgents(t *testing.T) {
+	cases := []struct {
+		name  string
+		ctxFn func(ctx context.Context) context.Context
+	}{
+		{"no claims", func(ctx context.Context) context.Context { return ctx }},
+		{"non-agent principal", func(ctx context.Context) context.Context { return withTenantCtx(ctx, "t-1") }},
+		{"wrong tenant", func(ctx context.Context) context.Context { return withAgentCtx(ctx, "t-2", "bot") }},
+		{"wrong agent slug", func(ctx context.Context) context.Context { return withAgentCtx(ctx, "t-1", "other") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+			req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events",
+				bytes.NewBufferString(`{"type":"text_delta","payload":{"delta":"x"}}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("id", "run-1")
+			req = req.WithContext(tc.ctxFn(req.Context()))
+			w := httptest.NewRecorder()
+			c.handlePushEvent(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("push event: status = %d, want 403; body: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
