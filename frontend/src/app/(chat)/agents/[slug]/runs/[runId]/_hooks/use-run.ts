@@ -89,7 +89,9 @@ export interface UseRunReturn extends RunChatState {
 export function useRun(runId: string, slug: string): UseRunReturn {
   const [runState, setRunState] = useState<RunState>('pending');
   const [agentName, setAgentName] = useState('Agent');
-  const [model, setModel] = useState('anthropic/claude-sonnet-4-6');
+  // Empty until the run's agent type metadata resolves — the model is injected
+  // from the created agent (agent_type.model_id), never hardcoded here.
+  const [model, setModel] = useState('');
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -123,7 +125,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           }
           if (body.agent_type) {
             setAgentName(body.agent_type.name ?? 'Agent');
-            setModel(body.agent_type.model_id ?? 'anthropic/claude-sonnet-4-6');
+            setModel(body.agent_type.model_id ?? '');
           }
         },
       )
@@ -414,6 +416,22 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   }, [runId, reconnectKey]);
 
   function reconnect(): void {
+    // Clear accumulated turns before opening a fresh EventSource. The new
+    // connection carries no Last-Event-ID, so the backend replays the full
+    // event log from seq 0; without resetting first, that replay would append
+    // the entire history on top of the existing turns and duplicate every turn.
+    // Wiping here lets the replay deterministically rebuild the transcript.
+    // (The browser's own auto-reconnect on transient drops resumes via
+    // Last-Event-ID and never calls this, so it is unaffected.)
+    if (rafHandleRef.current !== null) {
+      cancelAnimationFrame(rafHandleRef.current);
+      rafHandleRef.current = null;
+    }
+    inProgressRef.current = null;
+    pendingHumanMessages.current = [];
+    setCommittedTurns([]);
+    setInProgressTurn(null);
+    setIsPending(false);
     setConnectionStatus('connecting');
     setReconnectKey((k) => k + 1);
   }

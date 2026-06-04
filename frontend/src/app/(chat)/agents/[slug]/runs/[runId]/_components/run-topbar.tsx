@@ -136,9 +136,11 @@ export function RunTopbar() {
       {/* Live status + model + run ID */}
       <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
         <StatusDot status={dotStatus} size="sm" glow={isLive} aria-label={runState} />
-        <Badge variant="dim" size="sm" mono>
-          {model}
-        </Badge>
+        {model && (
+          <Badge variant="dim" size="sm" mono>
+            {model}
+          </Badge>
+        )}
         <Badge variant="dim" size="sm" mono>
           {displayRunId}
         </Badge>

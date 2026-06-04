@@ -91,20 +91,22 @@ export const AgentTurnItem = memo(function AgentTurnItem({
         <Text as="span" style={{ fontWeight: 500, fontSize: 14, color: 'var(--color-foreground)' }}>
           {agentName}
         </Text>
-        <Text
-          as="span"
-          style={{
-            fontSize: 10,
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--color-subtle)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 3,
-            padding: '0 5px',
-            lineHeight: '16px',
-          }}
-        >
-          {model}
-        </Text>
+        {model && (
+          <Text
+            as="span"
+            style={{
+              fontSize: 10,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--color-subtle)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 3,
+              padding: '0 5px',
+              lineHeight: '16px',
+            }}
+          >
+            {model}
+          </Text>
+        )}
         <Text
           as="span"
           style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
