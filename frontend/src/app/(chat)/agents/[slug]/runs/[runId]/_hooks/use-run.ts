@@ -297,23 +297,28 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         typeof payload.content === 'string'
           ? payload.content
           : JSON.stringify(payload.content ?? {});
-      updateInProgress(
-        (turn) => ({
-          ...turn,
-          elements: turn.elements.map((el) => {
-            if (el.kind !== 'tool' || el.tool.id !== payload.tool_use_id) return el;
-            return {
-              ...el,
-              tool: {
-                ...el.tool,
-                status: payload.is_error ? ('error' as const) : ('done' as const),
-                result: resultStr.slice(0, 120),
-              },
-            };
-          }),
+      const patch = (turn: AgentTurn): AgentTurn => ({
+        ...turn,
+        elements: turn.elements.map((el) => {
+          if (el.kind !== 'tool' || el.tool.id !== payload.tool_use_id) return el;
+          return {
+            ...el,
+            tool: {
+              ...el.tool,
+              status: payload.is_error ? ('error' as const) : ('done' as const),
+              result: resultStr.slice(0, 120),
+            },
+          };
         }),
-        true,
-      );
+      });
+      if (inProgressRef.current) {
+        updateInProgress(patch, true);
+      } else {
+        // The turn was already flushed (replay, or message_stop raced a trailing
+        // tool_result). updateInProgress would no-op here, leaving the tool stuck
+        // on "running" — instead patch the committed turn that holds the tool.
+        setCommittedTurns((prev) => prev.map((t) => (t.type === 'agent' ? patch(t) : t)));
+      }
     });
 
     es.addEventListener('message_complete', (e: MessageEvent) => {

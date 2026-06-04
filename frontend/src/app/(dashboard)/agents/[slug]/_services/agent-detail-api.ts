@@ -2,7 +2,7 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type { AgentType, Run, UpdateAgentTypeRequest } from '@orbit/shared/api';
-import { toAgentTypeRow, toRunRow } from '../../_types';
+import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
 // ── fetchAgentDetail ──────────────────────────────────────────────────────────
@@ -64,7 +64,8 @@ export async function fetchAgentRuns(
     };
   }
   const body = (await res.json()) as { data: Run[] };
-  return { data: (body.data ?? []).map((r) => toRunRow(r, [agentTypeRow])), error: null };
+  const byId = indexAgentTypes([agentTypeRow]);
+  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
 }
 
 // ── deleteRun ─────────────────────────────────────────────────────────────────

@@ -72,8 +72,14 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
   };
 }
 
-export function toRunRow(r: Run, agentTypes: AgentTypeRow[]): RunRow {
-  const agent = agentTypes.find((a) => a.id === r.agent_type_id);
+// indexAgentTypes builds an id→row lookup so toRunRow is O(1) per run instead of
+// scanning the full agent-type list (O(runs × types)) on every render/refresh.
+export function indexAgentTypes(agentTypes: AgentTypeRow[]): Map<string, AgentTypeRow> {
+  return new Map(agentTypes.map((a) => [a.id, a]));
+}
+
+export function toRunRow(r: Run, agentTypeById: Map<string, AgentTypeRow>): RunRow {
+  const agent = agentTypeById.get(r.agent_type_id);
   const startedMs = r.started_at ? new Date(r.started_at).getTime() : null;
   const endMs = r.completed_at ? new Date(r.completed_at).getTime() : null;
   const durationMs = startedMs !== null ? (endMs ?? Date.now()) - startedMs : null;

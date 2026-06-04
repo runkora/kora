@@ -33,9 +33,10 @@ const nsChildEnvKey = "ORBIT_RUNNER_NS_CHILD"
 // namespace created by runInPIDNamespace below.
 //
 // Execution order (inside the namespace):
-//  1. Remount /proc — creates a new procfs scoped to this PID namespace so the
-//     agent cannot enumerate sibling processes. Must happen before Landlock so
-//     the whitelist targets the new mount's inodes, not the host proc's.
+//  1. Make mounts private+recursive, then remount /proc — creates a new procfs
+//     scoped to this PID namespace so the agent cannot enumerate sibling processes.
+//     Must happen before Landlock so the whitelist targets the new mount's inodes,
+//     not the host proc's.
 //  2. Apply Landlock — restricts filesystem access before handing control to claude.
 //  3. Exec claude — replace this process with the target binary.
 func nsChildExec(args []string) {
@@ -46,6 +47,14 @@ func nsChildExec(args []string) {
 	workDir := args[1]
 	binary := args[2]
 	argv := args[2:]
+
+	// Make all mounts in this namespace private+recursive first. On hosts where /
+	// has shared mount propagation (the systemd default), unmounting/remounting
+	// /proc would otherwise fail with EINVAL or propagate back to peer namespaces,
+	// silently leaving the host procfs in place. Non-fatal: log and continue.
+	if err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "orbit-session-runner: make mounts private: %v (proc isolation may be degraded)\n", err)
+	}
 
 	// Remount /proc for this PID namespace. The MNT_DETACH first lazily unmounts
 	// the inherited host proc; the fresh mount is scoped to our namespace only.

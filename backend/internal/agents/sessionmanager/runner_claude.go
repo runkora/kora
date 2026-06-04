@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -581,42 +582,11 @@ func isExitKilled(err error) bool {
 		strings.Contains(s, "context canceled")
 }
 
-// scopesToClaudeTools converts Orbit tool scope names to Claude Code built-in
-// tool names for the --tools flag. Unrecognized scopes are ignored.
-// lsp, monitoring, scheduling, and meta tools are always included regardless
-// of the configured scopes. An empty selectable result still gets these auto tools.
-// AskUserQuestion is intentionally excluded: Claude Code auto-rejects it in
-// headless stream-json mode; use a custom MCP tool for human-in-the-loop instead.
+// scopesToClaudeTools converts Orbit tool scope names to the Claude Code --tools
+// flag value. The scope→tool mapping (and the always-on auto scopes) live in the
+// shared toolscopes package so this and the agents API stay in lockstep.
 func scopesToClaudeTools(scopes []string) string {
-	scopeMap := map[string][]string{
-		// Selectable scopes — operator configures these per agent type.
-		"shell":      {"Bash"},
-		"filesystem": {"Read", "Write", "Edit", "Glob", "Grep"},
-		"agents":     {"Agent", "SendMessage"},
-		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate"},
-		"mcp":        {"ListMcpResourcesTool", "ReadMcpResourceTool"},
-		// Auto scopes — always injected, not shown in the UI.
-		"lsp":        {"LSP"},
-		"monitoring": {"Monitor"},
-		"scheduling": {"CronCreate", "CronDelete", "CronList"},
-		"meta":       {"ToolSearch", "Skill"},
-	}
-	// Always include auto scopes so the full scope list is selectable + auto.
-	autoScopes := []string{"lsp", "monitoring", "scheduling", "meta"}
-	all := make([]string, len(scopes)+len(autoScopes))
-	copy(all, scopes)
-	copy(all[len(scopes):], autoScopes)
-
-	seen := map[string]bool{}
-	var tools []string
-	for _, scope := range all {
-		for _, t := range scopeMap[scope] {
-			if !seen[t] {
-				seen[t] = true
-				tools = append(tools, t)
-			}
-		}
-	}
+	tools := toolscopes.ClaudeTools(scopes)
 	if len(tools) == 0 {
 		return "default"
 	}

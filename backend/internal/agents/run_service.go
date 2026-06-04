@@ -185,6 +185,40 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 	return &run, nil
 }
 
+// loadRunForAction loads a run together with its agent type, enforcing tenant
+// scoping and an authz check for the given action ("read" or "write"). It returns
+// ErrNotFound when the run is missing, belongs to another tenant, or the principal
+// is forbidden (forbidden is mapped to not-found to avoid leaking existence). This
+// is the single guard shared by GetRun/SendMessage/InterruptRun/TerminateRun;
+// errors are recorded on the caller's active span.
+func (s *RunService) loadRunForAction(ctx context.Context, runID, action string) (*Run, *AgentType, error) {
+	span := trace.SpanFromContext(ctx)
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "get run")
+		}
+		return nil, nil, err
+	}
+	if run.TenantID != tenantFromContext(ctx) {
+		return nil, nil, ErrNotFound
+	}
+	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "get agent type")
+		return nil, nil, fmt.Errorf("get agent type: %w", err)
+	}
+	if err := s.authz.checkRun(ctx, *at, action); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, err
+	}
+	return run, at, nil
+}
+
 // GetRun retrieves a run by ID. Enforces tenant scoping against ctx claims and
 // runs an authz check; returns ErrNotFound when the run belongs to another
 // tenant (avoiding existence leak) and the same on authz deny.
@@ -193,27 +227,8 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 		trace.WithAttributes(attribute.String("run_id", id)),
 	)
 	defer span.End()
-	run, err := s.repo.GetRun(ctx, id)
+	run, _, err := s.loadRunForAction(ctx, id, "read")
 	if err != nil {
-		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get run")
-		}
-		return nil, err
-	}
-	if run.TenantID != tenantFromContext(ctx) {
-		return nil, ErrNotFound
-	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type for authz")
-		return nil, fmt.Errorf("get agent type: %w", err)
-	}
-	if err := s.authz.checkRun(ctx, *at, "read"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return nil, ErrNotFound
-		}
 		return nil, err
 	}
 	return run, nil
@@ -264,29 +279,11 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, id)
+	run, at, err := s.loadRunForAction(ctx, id, "write")
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
 		return err
-	}
-	if run.TenantID != tenantFromContext(ctx) {
-		return ErrNotFound
 	}
 	span.SetAttributes(attribute.String("run_state", string(run.State)))
-
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return fmt.Errorf("get agent type: %w", err)
-	}
-	if err := s.authz.checkRun(ctx, *at, "write"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return ErrNotFound
-		}
-		return err
-	}
 
 	if run.State == RunStateActive || run.State == RunStateStarting {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -412,25 +409,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, runID)
+	run, at, err := s.loadRunForAction(ctx, runID, "write")
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
-		return err
-	}
-	if run.TenantID != tenantFromContext(ctx) {
-		return ErrNotFound
-	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return fmt.Errorf("get agent type: %w", err)
-	}
-	if err = s.authz.checkRun(ctx, *at, "write"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return ErrNotFound
-		}
 		return err
 	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
@@ -498,25 +478,8 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, runID)
+	run, at, err := s.loadRunForAction(ctx, runID, "write")
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
-		return err
-	}
-	if run.TenantID != tenantFromContext(ctx) {
-		return ErrNotFound
-	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return fmt.Errorf("get agent type: %w", err)
-	}
-	if err := s.authz.checkRun(ctx, *at, "write"); err != nil {
-		if errors.Is(err, ErrForbidden) {
-			return ErrNotFound
-		}
 		return err
 	}
 	if run.State != RunStateActive {

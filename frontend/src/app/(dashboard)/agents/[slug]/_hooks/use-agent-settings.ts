@@ -119,6 +119,15 @@ export function useAgentSettings() {
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!agent) return;
+      // Validate before submit (matches the create form's bounds). Without this,
+      // an empty/non-numeric field becomes NaN → null on the wire → the backend
+      // treats it as "no change" and the edit is silently lost.
+      const maxRuns = parseInt(maxConcurrentRuns, 10);
+      if (isNaN(maxRuns) || maxRuns < 1 || maxRuns > 50) {
+        setSaveSuccess(false);
+        setSaveError('Max concurrent runs must be between 1 and 50.');
+        return;
+      }
       setSaving(true);
       setSaveError(null);
       setSaveSuccess(false);
@@ -130,7 +139,7 @@ export function useAgentSettings() {
         description: trimmedDescription,
         framework: framework as 'claude-code' | 'codex' | 'opencode',
         system_prompt: trimmedSystemPrompt,
-        max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
+        max_concurrent_runs_per_pod: maxRuns,
         model_id: modelId,
         grant_scopes: grantScopes,
         tool_scopes: toolScopes,

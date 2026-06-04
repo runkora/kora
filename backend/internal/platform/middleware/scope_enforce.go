@@ -130,27 +130,49 @@ func splitScope(scope string) (resourceType string, pathSegments []string, actio
 	}
 }
 
+// pathMatchesPrefix reports whether path is covered by prefix, anchored to a path
+// segment boundary. A bare strings.HasPrefix would let "/api/v1/runs" match an
+// unrelated sibling like "/api/v1/runs-export"; requiring an exact match, a
+// trailing-slash prefix, or a '/' at the boundary prevents that.
+func pathMatchesPrefix(path, prefix string) bool {
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	if len(path) == len(prefix) || strings.HasSuffix(prefix, "/") {
+		return true
+	}
+	return path[len(prefix)] == '/'
+}
+
 // resolveRequiredScope mirrors authz.rego's _required_scope derivation.
-// Exact-method matches beat wildcard ("*") matches. Returns the matched scope
-// and true; returns "", false if no route matches the request.
+// Exact-method matches beat wildcard ("*") matches, and among matches of the same
+// kind the longest (most specific) PathPrefix wins — so resolution does not depend
+// on route-table ordering. Returns the matched scope and true; returns "", false
+// if no route matches the request.
 func resolveRequiredScope(routes []routescopes.RouteScope, method, path string) (string, bool) {
 	var (
-		wildcardScope   string
-		wildcardMatched bool
+		bestScope   string
+		bestLen     = -1
+		bestMatched bool
+		wildScope   string
+		wildLen     = -1
+		wildMatched bool
 	)
 	for _, r := range routes {
-		if !strings.HasPrefix(path, r.PathPrefix) {
+		if !pathMatchesPrefix(path, r.PathPrefix) {
 			continue
 		}
-		if r.Method == method {
-			return r.RequiredScope, true
-		}
-		if r.Method == "*" && !wildcardMatched {
-			wildcardScope = r.RequiredScope
-			wildcardMatched = true
+		switch {
+		case r.Method == method && len(r.PathPrefix) > bestLen:
+			bestScope, bestLen, bestMatched = r.RequiredScope, len(r.PathPrefix), true
+		case r.Method == "*" && len(r.PathPrefix) > wildLen:
+			wildScope, wildLen, wildMatched = r.RequiredScope, len(r.PathPrefix), true
 		}
 	}
-	return wildcardScope, wildcardMatched
+	if bestMatched {
+		return bestScope, true
+	}
+	return wildScope, wildMatched
 }
 
 // writeForbidden writes a minimal JSON 403 response. Does not import

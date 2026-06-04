@@ -300,17 +300,17 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 // completeDrain removes the session from the registry, notifies orbit-agents of
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
-	reg.mu.Lock()
-	if reg.sessions[s.runID] == s {
-		delete(reg.sessions, s.runID)
-	}
-	reg.mu.Unlock()
-
 	bgCtx := context.Background()
 
 	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
 	// so the next message can be delivered to a warm process. Run transitions to idle.
+	//
+	// s stays registered until the resumed session is swapped in (or we give up), so
+	// a concurrent Close() always finds a session to claim. Otherwise Close could land
+	// in the gap between removing s and re-registering newS, return ErrSessionNotFound,
+	// and leave the freshly-started runner untracked and never terminated.
 	if s.interruptClose.Load() {
+		resumed := false
 		sessionID := s.runner.SessionID()
 		if sessionID == "" {
 			reg.logger.Info(bgCtx, "Session interrupted before init — falling back to idle",
@@ -329,15 +329,37 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 			} else {
 				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{})}
 				newS.isIdle.Store(true)
+				// Swap only if s is still the registered session. If a concurrent
+				// Close() already claimed it, abandon the new runner so it is not
+				// leaked as an untracked process.
 				reg.mu.Lock()
-				reg.sessions[s.runID] = newS
-				reg.mu.Unlock()
-				go reg.drain(newCtx, newS, cfg)
-				reg.logger.Info(bgCtx, "Session restarted after interrupt — now idle",
-					logging.Field{Key: "run_id", Value: cfg.RunID},
-					logging.Field{Key: "session_id", Value: sessionID},
-				)
+				if reg.sessions[s.runID] == s {
+					reg.sessions[s.runID] = newS
+					reg.mu.Unlock()
+					go reg.drain(newCtx, newS, cfg)
+					resumed = true
+					reg.logger.Info(bgCtx, "Session restarted after interrupt — now idle",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+						logging.Field{Key: "session_id", Value: sessionID},
+					)
+				} else {
+					reg.mu.Unlock()
+					newCancel()
+					_ = newRunner.Close()
+					reg.logger.Info(bgCtx, "Resume abandoned — session closed concurrently",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+					)
+				}
 			}
+		}
+		// If we did not hand off to a resumed session, remove s ourselves (no-op if a
+		// concurrent Close already removed it).
+		if !resumed {
+			reg.mu.Lock()
+			if reg.sessions[s.runID] == s {
+				delete(reg.sessions, s.runID)
+			}
+			reg.mu.Unlock()
 		}
 		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
 			reg.logger.Warn(bgCtx, "Failed to idle run after interrupt",
@@ -348,6 +370,13 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 		close(s.done)
 		return
 	}
+
+	// Normal/failed teardown: remove s from the registry before notifying.
+	reg.mu.Lock()
+	if reg.sessions[s.runID] == s {
+		delete(reg.sessions, s.runID)
+	}
+	reg.mu.Unlock()
 
 	failed := !s.intentionalClose.Load()
 	reg.logger.Info(bgCtx, "Session drain complete",

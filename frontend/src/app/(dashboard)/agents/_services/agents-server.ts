@@ -3,7 +3,7 @@ import 'server-only';
 import type { AgentType, Run } from '@orbit/shared/api';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
-import { toAgentTypeRow, toRunRow } from '../_types';
+import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 export type AgentsResult =
@@ -24,7 +24,8 @@ export async function fetchAgentsFromBFF(
     ]);
 
     const agentTypes = (typesUpstream?.agent_types ?? []).map(toAgentTypeRow);
-    const runs = (runsUpstream?.runs ?? []).map((r) => toRunRow(r, agentTypes));
+    const byId = indexAgentTypes(agentTypes);
+    const runs = (runsUpstream?.runs ?? []).map((r) => toRunRow(r, byId));
     return { ok: true, agentTypes, runs };
   } catch (err) {
     if (err instanceof ApiError) {

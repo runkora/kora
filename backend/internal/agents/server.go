@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -128,7 +129,7 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleListToolScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": SelectableToolScopes})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": toolscopes.Selectable})
 }
 
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {

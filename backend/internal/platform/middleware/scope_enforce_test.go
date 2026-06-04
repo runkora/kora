@@ -87,3 +87,36 @@ func TestResolveRequiredScope_PrefixMatch(t *testing.T) {
 		t.Errorf("got (%q, %v), want (agents:types:write, true)", got, ok)
 	}
 }
+
+// A sibling path that merely shares a string prefix (no segment boundary) must not
+// inherit a route's scope — "/api/v1/runs" must not match "/api/v1/runs-export".
+func TestResolveRequiredScope_PrefixIsSegmentAnchored(t *testing.T) {
+	routes := []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
+	}
+	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs-export"); ok {
+		t.Errorf("got (%q, %v) for sibling path, want no match", got, ok)
+	}
+	// The exact path and a sub-resource still match.
+	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs"); !ok || got != "agents:runs:read" {
+		t.Errorf("exact path: got (%q, %v), want (agents:runs:read, true)", got, ok)
+	}
+	if got, ok := resolveRequiredScope(routes, "GET", "/api/v1/runs/abc/events"); !ok || got != "agents:runs:read" {
+		t.Errorf("sub-resource: got (%q, %v), want (agents:runs:read, true)", got, ok)
+	}
+}
+
+// The most specific (longest) matching prefix wins, independent of table order.
+func TestResolveRequiredScope_LongestMatchOrderIndependent(t *testing.T) {
+	general := routescopes.RouteScope{PathPrefix: "/api/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"}
+	specific := routescopes.RouteScope{PathPrefix: "/api/v1/analytics/me", Method: "GET", RequiredScope: ""}
+	for _, routes := range [][]routescopes.RouteScope{
+		{general, specific},
+		{specific, general},
+	} {
+		got, ok := resolveRequiredScope(routes, "GET", "/api/v1/analytics/me")
+		if !ok || got != "" {
+			t.Errorf("got (%q, %v), want (\"\", true) — longest prefix should win", got, ok)
+		}
+	}
+}
