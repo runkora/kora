@@ -92,6 +92,8 @@ frontend:
     policyGatewayUrl: "http://orbit-policy-gateway.orbit-system/v1"
     # In-cluster policy service (PAP) — server-side BFF only, never sent to the browser.
     policyServiceUrl: "http://orbit-policy-service.orbit-system/api/v1"
+    # In-cluster agents service — server-side BFF only, never sent to the browser.
+    orbitAgentsUrl: "http://orbit-agents.orbit-system"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
     nextPublicAppUrl: "https://orbit.local.clearroute.io:8443"

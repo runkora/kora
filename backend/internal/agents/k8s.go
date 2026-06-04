@@ -219,6 +219,21 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 	return int(*ss.Spec.Replicas), nil
 }
 
+// WaitForStatefulSetReady polls until the StatefulSet for the given slug has at
+// least one ready replica, or the context deadline is reached.
+func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error {
+	return wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+		}
+		return ss.Status.ReadyReplicas >= 1, nil
+	})
+}
+
 // ── Sandbox provisioning ──────────────────────────────────────────────────────
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
@@ -419,6 +434,12 @@ func (p *K8sProvisioner) agentSpiffeID(at AgentType, namespace string) string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", p.cfg.TrustDomain, namespace, at.Slug)
 }
 
+// EnsureAgentGrant reconciles the policy-service grant for the agent type.
+// Called on update when model/grant scopes change.
+func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error {
+	return p.ensureAgentGrant(ctx, at, namespace)
+}
+
 // ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
 // principal toward exactly one grant containing at.GrantScopes.
 //
@@ -435,16 +456,17 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 	principalID := p.agentSpiffeID(at, namespace)
+	grantTenantID := at.TenantID
 
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.EnsureAgentGrant",
 		trace.WithAttributes(
 			attribute.String("principal_id", principalID),
-			attribute.String("tenant_id", at.TenantID),
+			attribute.String("tenant_id", grantTenantID),
 		),
 	)
 	defer span.End()
 
-	existing, err := p.policyClient.ListGrants(ctx, at.TenantID, "AGENT", principalID)
+	existing, err := p.policyClient.ListGrants(ctx, grantTenantID, "AGENT", principalID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list agent grants")
@@ -479,14 +501,14 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 
-	if _, err := p.policyClient.CreateGrant(ctx, at.TenantID, "AGENT", principalID, at.GrantScopes); err != nil {
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
 	}
 	p.logger.Info(ctx, "agent grant created",
 		logging.Field{Key: "principal_id", Value: principalID},
-		logging.Field{Key: "tenant_id", Value: at.TenantID},
+		logging.Field{Key: "tenant_id", Value: grantTenantID},
 	)
 	return nil
 }

@@ -17,8 +17,9 @@ orbitAgents:
 
 claude:
   binaryPath: claude
+  wrapperPath: orbit-session-runner  # applies Landlock filesystem restrictions; see ADR-0062
   defaultModel: "anthropic/claude-sonnet-4-6"
-  bare: true # containers use ANTHROPIC_API_KEY; local dev overrides to false
+  bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
 
 session:
   idleTimeoutSecs: 1200 # 20 minutes

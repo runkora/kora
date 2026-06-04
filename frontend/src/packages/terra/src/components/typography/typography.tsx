@@ -334,6 +334,9 @@ export interface TextProps extends VariantProps<typeof textVariants> {
   'aria-live'?: 'off' | 'assertive' | 'polite';
   'aria-atomic'?: boolean | 'true' | 'false';
   'aria-relevant'?: string;
+  'data-spin'?: string;
+  /** Inline style — use for CSS custom property overrides and one-off layout adjustments. */
+  style?: React.CSSProperties;
 }
 
 /**

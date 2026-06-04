@@ -25,9 +25,24 @@ func (fr *flushRecorder) Flush() {}
 
 func newTestController(t *testing.T) (*Controller, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
-	svc, repo, k8s, sm := newTestService(t)
-	c := NewController(svc, logging.NewLoggerWithOutput(io.Discard))
+	facade, repo, k8s, sm := newTestService(t)
+	// Verifier is nil and routes is empty: handler tests invoke handlers
+	// directly without going through Middleware(), so JWT verification and
+	// scope enforcement are never reached. Tests that exercise tenant scoping
+	// inject claims into the request context manually.
+	c := NewController(facade.at, facade.run, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
+}
+
+// defaultTestTenant is the tenant ID injected into every test request's
+// claims unless a test overrides it via withRequestTenant. The handler tests
+// were written before the auth middleware existed and use "t-1" everywhere.
+const defaultTestTenant = "t-1"
+
+// withTenantRequest decorates a request with verified PlatformClaims for the
+// given tenant, mirroring what AuthMiddleware would store in a live request.
+func withTenantRequest(req *http.Request, tenantID string) *http.Request {
+	return req.WithContext(withTenantCtx(req.Context(), tenantID))
 }
 
 func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
@@ -38,6 +53,7 @@ func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.Respon
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	handler(w, req)
 	return w
@@ -50,6 +66,7 @@ func getRequest(t *testing.T, handler http.HandlerFunc, queryParams ...string) *
 		url += "?" + queryParams[0]
 	}
 	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	handler(w, req)
 	return w
@@ -59,6 +76,7 @@ func deleteRequest(t *testing.T, handler http.HandlerFunc, id string) *httptest.
 	t.Helper()
 	req := httptest.NewRequest(http.MethodDelete, "/"+id, nil)
 	req.SetPathValue("id", id)
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	handler(w, req)
 	return w
@@ -92,10 +110,11 @@ func TestHandleCreateAgentType_Created(t *testing.T) {
 func TestHandleCreateAgentType_MissingFields(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
+	// tenant_id is no longer accepted from the request body — it comes from the
+	// verified platform claims. Only name and slug remain required fields.
 	cases := []map[string]any{
-		{"name": "Bot", "slug": "bot"},      // missing tenant_id
-		{"tenant_id": "t-1", "slug": "bot"}, // missing name
-		{"tenant_id": "t-1", "name": "Bot"}, // missing slug
+		{"slug": "bot"}, // missing name
+		{"name": "Bot"}, // missing slug
 	}
 	for _, body := range cases {
 		w := postJSON(t, c.handleCreateAgentType, body)
@@ -117,14 +136,16 @@ func TestHandleCreateAgentType_SlugConflict(t *testing.T) {
 }
 
 func TestHandleCreateAgentType_K8sError(t *testing.T) {
+	// Provisioning is async: the HTTP handler returns 201 immediately even if
+	// K8s provisioning will fail in the background goroutine.
 	c, _, k8s, _ := newTestController(t)
 	k8s.provisionAgentTypeErr = errors.New("k8s down")
 
 	w := postJSON(t, c.handleCreateAgentType, map[string]any{
 		"tenant_id": "t-1", "name": "Bot", "slug": "bot",
 	})
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", w.Code)
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", w.Code)
 	}
 }
 
@@ -146,11 +167,18 @@ func TestHandleListAgentTypes_OK(t *testing.T) {
 	}
 }
 
-func TestHandleListAgentTypes_MissingTenantID(t *testing.T) {
+func TestHandleListAgentTypes_NoClaims_Returns200WithEmptyList(t *testing.T) {
+	// tenant_id is no longer read from the query string — the handler derives it
+	// from verified claims. Without claims, tenantFromContext returns "" and the
+	// repo finds no matching agent types. The handler returns 200 with [].
+	// Live traffic cannot reach this path: AuthMiddleware rejects requests
+	// lacking a valid token with 401 before the handler executes.
 	c, _, _, _ := newTestController(t)
-	w := getRequest(t, c.handleListAgentTypes)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	c.handleListAgentTypes(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
 	}
 }
 
@@ -160,6 +188,7 @@ func TestHandleGetAgentType_Found(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-types/at-1", nil)
 	req.SetPathValue("id", at.ID)
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleGetAgentType(w, req)
 
@@ -173,6 +202,7 @@ func TestHandleGetAgentType_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent-types/missing", nil)
 	req.SetPathValue("id", "missing")
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleGetAgentType(w, req)
 
@@ -217,9 +247,10 @@ func TestHandleStartRun_Created(t *testing.T) {
 func TestHandleStartRun_MissingFields(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
+	// tenant_id no longer comes from the request body — only agent_type_id is
+	// a client-controlled required field.
 	cases := []map[string]any{
-		{"agent_type_id": "at-1"}, // missing tenant_id
-		{"tenant_id": "t-1"},      // missing agent_type_id
+		{}, // missing agent_type_id
 	}
 	for _, body := range cases {
 		w := postJSON(t, c.handleStartRun, body)
@@ -260,11 +291,17 @@ func TestHandleListRuns_OK(t *testing.T) {
 	}
 }
 
-func TestHandleListRuns_MissingTenantID(t *testing.T) {
+func TestHandleListRuns_NoClaims_Returns200WithEmptyList(t *testing.T) {
+	// Same shape as TestHandleListAgentTypes_NoClaims_Returns200WithEmptyList:
+	// without verified claims tenantFromContext returns "" and the repo
+	// matches nothing. AuthMiddleware ensures unauthenticated traffic never
+	// reaches this handler.
 	c, _, _, _ := newTestController(t)
-	w := getRequest(t, c.handleListRuns)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	c.handleListRuns(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
 	}
 }
 
@@ -274,6 +311,7 @@ func TestHandleGetRun_Found(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1", nil)
 	req.SetPathValue("id", run.ID)
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleGetRun(w, req)
 
@@ -287,6 +325,7 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/missing", nil)
 	req.SetPathValue("id", "missing")
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleGetRun(w, req)
 
@@ -323,6 +362,7 @@ func TestHandleSendMessage_Accepted(t *testing.T) {
 		bytes.NewBufferString(`{"content":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", run.ID)
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
@@ -338,6 +378,7 @@ func TestHandleSendMessage_EmptyContent(t *testing.T) {
 		bytes.NewBufferString(`{"content":""}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "run-1")
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
@@ -353,6 +394,7 @@ func TestHandleSendMessage_RunNotFound(t *testing.T) {
 		bytes.NewBufferString(`{"content":"hi"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "missing")
+	req = withTenantRequest(req, defaultTestTenant)
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
@@ -363,16 +405,28 @@ func TestHandleSendMessage_RunNotFound(t *testing.T) {
 
 // ── Internal callbacks ────────────────────────────────────────────────────────
 
+// seedCallbackRun seeds an agent type (slug "bot") and a run owned by it, then
+// returns a request decorated with matching AGENT claims for tenant "t-1".
+// Mirrors a legitimate session-manager callback for its own run.
+func callbackReq(method, target, body string) *http.Request {
+	var req *http.Request
+	if body == "" {
+		req = httptest.NewRequest(method, target, http.NoBody)
+	} else {
+		req = httptest.NewRequest(method, target, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.SetPathValue("id", "run-1")
+	return req.WithContext(withAgentCtx(req.Context(), "t-1", "bot"))
+}
+
 func TestHandleRunStateCallback_NoContent(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateStarting})
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
-		bytes.NewBufferString(`{"from":"starting","to":"active"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handleRunStateCallback(w, req)
+	c.handleRunStateCallback(w, callbackReq(http.MethodPost, "/internal/runs/run-1/state", `{"from":"starting","to":"active"}`))
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
@@ -381,15 +435,12 @@ func TestHandleRunStateCallback_NoContent(t *testing.T) {
 
 func TestHandleRunStateCallback_Conflict(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
 	// Wrong `from` state — triggers CAS conflict.
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/state",
-		bytes.NewBufferString(`{"from":"pending","to":"active"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handleRunStateCallback(w, req)
+	c.handleRunStateCallback(w, callbackReq(http.MethodPost, "/internal/runs/run-1/state", `{"from":"pending","to":"active"}`))
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409", w.Code)
@@ -397,30 +448,26 @@ func TestHandleRunStateCallback_Conflict(t *testing.T) {
 }
 
 func TestHandlePushEvent_NoContent(t *testing.T) {
-	c, _, _, _ := newTestController(t)
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events",
-		bytes.NewBufferString(`{"type":"text_delta","payload":{"delta":"hi"}}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
-	c.handlePushEvent(w, req)
+	c.handlePushEvent(w, callbackReq(http.MethodPost, "/internal/runs/run-1/events", `{"type":"text_delta","payload":{"delta":"hi"}}`))
 
 	if w.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", w.Code)
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestHandleProvisionSandbox_OK(t *testing.T) {
 	c, repo, k8s, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/provision-sandbox", http.NoBody)
-	req.SetPathValue("id", run.ID)
 	w := httptest.NewRecorder()
-	c.handleProvisionSandbox(w, req)
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", ""))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -433,13 +480,51 @@ func TestHandleProvisionSandbox_OK(t *testing.T) {
 func TestHandleProvisionSandbox_NotFound(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 
+	// Valid agent claims, but the run does not exist → 404 (existence not leaked).
 	req := httptest.NewRequest(http.MethodPost, "/internal/runs/missing/provision-sandbox", http.NoBody)
 	req.SetPathValue("id", "missing")
+	req = req.WithContext(withAgentCtx(req.Context(), "t-1", "bot"))
 	w := httptest.NewRecorder()
 	c.handleProvisionSandbox(w, req)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// ── Internal callback authorization (ADR-0063) ─────────────────────────────────
+
+// internalCallbackDenied asserts every internal callback handler rejects the
+// given request context with 403. ctxFn decorates the request context with the
+// (mis-matched or missing) claims under test.
+func TestInternalCallbacks_RejectUnauthorizedAgents(t *testing.T) {
+	cases := []struct {
+		name  string
+		ctxFn func(ctx context.Context) context.Context
+	}{
+		{"no claims", func(ctx context.Context) context.Context { return ctx }},
+		{"non-agent principal", func(ctx context.Context) context.Context { return withTenantCtx(ctx, "t-1") }},
+		{"wrong tenant", func(ctx context.Context) context.Context { return withAgentCtx(ctx, "t-2", "bot") }},
+		{"wrong agent slug", func(ctx context.Context) context.Context { return withAgentCtx(ctx, "t-1", "other") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+			req := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events",
+				bytes.NewBufferString(`{"type":"text_delta","payload":{"delta":"x"}}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("id", "run-1")
+			req = req.WithContext(tc.ctxFn(req.Context()))
+			w := httptest.NewRecorder()
+			c.handlePushEvent(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Errorf("push event: status = %d, want 403; body: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -454,7 +539,7 @@ func TestHandleStreamEvents_ReplaysPersisted(t *testing.T) {
 		Payload:   []byte(`{"text":"hello world"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(withTenantCtx(context.Background(), defaultTestTenant), 100*time.Millisecond)
 	defer cancel()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-1/events", nil).WithContext(ctx)
@@ -473,16 +558,15 @@ func TestHandleStreamEvents_ReplaysPersisted(t *testing.T) {
 
 func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	svc := c.svc
 	seedRun(t, repo, Run{ID: "run-2", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(withTenantCtx(context.Background(), defaultTestTenant), 200*time.Millisecond)
 	defer cancel()
 
 	// Publish an event shortly after the handler connects.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		svc.PublishEvent(context.Background(), "run-2", PushedEvent{
+		c.runs.PublishEvent(context.Background(), "run-2", PushedEvent{
 			Type:    "text_delta",
 			Payload: []byte(`{"delta":"hi"}`),
 		})
@@ -504,7 +588,6 @@ func TestHandleStreamEvents_DeliversPushedEvent(t *testing.T) {
 // DB replay is in progress must not be emitted a second time.
 func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	svc := c.svc
 	seedRun(t, repo, Run{ID: "run-dedup", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
 	// Append a durable event — the mock assigns it SequenceNo=1.
@@ -514,7 +597,7 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 		Payload:   []byte(`{"text":"hello"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(withTenantCtx(context.Background(), defaultTestTenant), 200*time.Millisecond)
 	defer cancel()
 
 	// Simulate the race: the session-manager pod also calls POST /internal/runs/{id}/events
@@ -522,7 +605,7 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 	// Without the dedup guard this would write message_complete twice to the SSE stream.
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		svc.PublishEvent(context.Background(), "run-dedup", PushedEvent{
+		c.runs.PublishEvent(context.Background(), "run-dedup", PushedEvent{
 			Type:       "message_complete",
 			SequenceNo: 1, // same seqNo that the DB replay will emit
 			Payload:    []byte(`{"text":"hello"}`),

@@ -186,6 +186,10 @@ frontend:
     # Used by the BFF to proxy grant/role/vocabulary admin endpoints.
     # Server-side only — never sent to the browser.
     policyServiceUrl: ""
+    # URL of the orbit-agents service, reachable from inside the cluster.
+    # Used by the BFF to proxy agent type and run CRUD + SSE endpoints.
+    # Server-side only — never sent to the browser.
+    orbitAgentsUrl: ""
     # Public base URL of the frontend, reachable from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.

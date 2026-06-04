@@ -27,11 +27,13 @@ import { type SessionPayload } from '@orbit/server/auth-config';
 /**
  * A BFF handler that has already been authenticated. The validated session is
  * passed as the second argument — `session.accessToken` is guaranteed to be
- * present and non-expired.
+ * present and non-expired. The optional third argument forwards Next.js dynamic
+ * segment params for routes like `[id]` and `[runId]`.
  */
-export type AuthedHandler = (
+export type AuthedHandler<TParams = Record<string, string>> = (
   req: NextRequest,
   session: IronSession<SessionPayload>,
+  context?: { params: Promise<TParams> },
 ) => Promise<NextResponse>;
 
 // ── withAuth ──────────────────────────────────────────────────────────────────
@@ -40,14 +42,16 @@ export type AuthedHandler = (
  * Wraps a BFF Route Handler with a session validity check.
  *
  * - Returns `401 { code: "unauthorized" }` if no valid session exists.
- * - Otherwise calls `handler(req, session)` with the validated session.
+ * - Otherwise calls `handler(req, session, context)` with the validated session.
  *
  * The proxy (src/proxy.ts) already redirects unauthenticated *page* requests
  * to /login. This guard covers the case where a BFF API route is called
  * directly (e.g., client-side re-fetch) and the session has since expired.
  */
-export function withAuth(handler: AuthedHandler): (req: NextRequest) => Promise<NextResponse> {
-  return async (req: NextRequest) => {
+export function withAuth<TParams = Record<string, string>>(
+  handler: AuthedHandler<TParams>,
+): (req: NextRequest, context?: { params: Promise<TParams> }) => Promise<NextResponse> {
+  return async (req: NextRequest, context?: { params: Promise<TParams> }) => {
     const session = await getSession();
 
     if (!isSessionValid(session)) {
@@ -57,6 +61,6 @@ export function withAuth(handler: AuthedHandler): (req: NextRequest) => Promise<
       );
     }
 
-    return handler(req, session);
+    return handler(req, session, context);
   };
 }

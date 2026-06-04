@@ -49,6 +49,9 @@ export { StepDot, StepConnector } from './components/step-dot';
 export { Indicator } from './components/indicator';
 export type { IndicatorProps } from './components/indicator';
 
+export { OrbitalLoader } from './components/orbital-loader';
+export type { OrbitalLoaderProps } from './components/orbital-loader';
+
 export { InputSurface, TypingIndicator, StreamingCursor } from './components/chat';
 
 export { DragCard } from './components/drag-card';
@@ -79,6 +82,9 @@ export type { NativeSelectProps } from './components/native-select';
 
 export { Toggle } from './components/toggle';
 export type { ToggleProps } from './components/toggle';
+
+export { ToggleRow } from './components/toggle-row';
+export type { ToggleRowProps } from './components/toggle-row';
 
 export { Field, FieldHint, FieldError } from './components/field';
 export type { FieldProps, FieldHintProps, FieldErrorProps } from './components/field';

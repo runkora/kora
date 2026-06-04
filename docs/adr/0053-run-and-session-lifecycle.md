@@ -1,8 +1,9 @@
 # 53. Run & Session Lifecycle
 
-**Status:** Proposed  
-**Date:** 2026-05-08  
-**Deciders:** Platform Engineering  
+**Status:** Accepted
+**Date:** 2026-05-08
+**Updated:** 2026-05-28
+**Deciders:** Platform Engineering
 **Technical Story:** Agent interactions need a durable execution model that survives browser disconnects, enables context replay on reconnect, and provides a clean basis for future resume and orchestration features.
 
 ---
@@ -42,141 +43,170 @@ Without a durable run model, every browser refresh or network blip loses the age
 
 ---
 
-## Considered Options
+## Decision
 
-### Option A: Session = Run (single entity, tied to browser)
+**Run as durable entity, Session as transient in-memory connection**
 
-**Description:** A session is created when the browser connects and torn down when it disconnects. The CLI subprocess and workspace are tied to the browser connection.
+**Run** — the unit of work. A server-side entity created when a user initiates an agent task. Tied to a specific pod ordinal and worktree. Persists in the DB until explicitly deleted. A run can have zero active sessions (unobserved) or one (user connected via SSE).
 
-**Pros:**
-- Simple — one entity, no split model
-- Easy to reason about cleanup
-
-**Cons:**
-- Work is lost on every browser disconnect
-- Cannot support headless agents (no browser connection = no session = no run)
-- Cannot replay history to a reconnecting user (session is gone)
-
-### Option B: Run as durable entity, Session as transient connection
-
-**Description:** A run is a server-side entity tied to a pod and worktree. It persists independently. A session is a browser connection to a run — transient, created on connect, destroyed on disconnect. A run can have zero or one active sessions.
-
-**Pros:**
-- Work survives disconnects
-- Headless runs are observable without a browser connection
-- Full event history replayable to any session connecting to the run
-- Clean basis for future resume: run persists as failed/completed, resume creates a new session
-
-**Cons:**
-- Two entities to manage (run + session)
-- Cleanup requires checking run state, not just connection state
-
-### Option C: Run as durable entity with persistent subprocess
-
-**Description:** Same as Option B, but the CLI subprocess also persists between sessions (no subprocess restart on reconnect).
-
-**Pros:**
-- Seamless reconnect — subprocess retains full in-memory state
-
-**Cons:**
-- Subprocess persistence across pod rescheduling is not possible without shared state
-- Subprocess crash loses all in-memory state regardless
-- Resume must handle subprocess restart anyway — in-memory state is not reliable
+**Session** — a live subprocess connection managed by the session-manager pod. Created when a run is assigned to a pod. Destroyed when the subprocess exits or the idle timer fires. Does not have its own DB row — run state captures everything.
 
 ---
 
-## Decision
-
-**Chosen Option: B — Run as durable entity, Session as transient connection**
-
-### Definitions
-
-**Run** — the unit of work. A server-side entity created when a user initiates an agent task. Tied to a specific pod ordinal and worktree. Persists until completed, failed, or explicitly deleted. A run can have zero active sessions (unobserved) or one (user connected).
-
-**Session** — a browser connection to a run. Created when a user opens the chat or observation UI for a run. Destroyed on disconnect. Does not affect the run.
-
-### Run State Machine
+## Run State Machine
 
 ```
 pending
-  → starting    (pod assigned, worktree provisioned, subprocess starting)
-  → active      (CLI subprocess running and responsive)
-  → completing  (CLI subprocess has exited cleanly; snapshot in progress)
-  → completed   (snapshot done; resources released)
-  → failed      (CLI subprocess exited with error; snapshot attempted)
+  ↓  (pod assigned)
+starting
+  ↓  (subprocess ready, first message sent)
+active  ←─────────────────────┐
+  ↓  (message_stop received)   │
+idle  ──────────────────────────┘  (new user message arrives)
+  ↓  (idle timer fires OR explicit terminate)
+completed
+
+active ──→ failed   (subprocess crashes, inference unrecoverable)
+starting ──→ failed  (reaper: stuck at boot too long)
+active ──→ failed   (reaper: stuck mid-turn too long)
 ```
 
-**Transitions:**
+### States
 
-| From | To | Trigger |
-|---|---|---|
-| pending | starting | Pod available; `orbit-agents` assigns pod ordinal |
-| starting | active | session-manager signals subprocess is ready |
-| active | completing | CLI subprocess exits with code 0 |
-| active | failed | CLI subprocess exits with non-zero code or signal |
-| completing | completed | Workspace snapshot written to object storage |
-| completing | failed | Snapshot fails after retry exhaustion |
+| State | Meaning |
+|---|---|
+| `pending` | Run created in DB; waiting for orbit-agents to assign a pod ordinal |
+| `starting` | Pod assigned; session-manager creating the subprocess |
+| `active` | Agent is actively processing — between receiving a message and emitting `message_stop` |
+| `idle` | Agent completed its turn and is waiting for the next user message; idle timer is running |
+| `completing` | Reserved for future snapshot support; not currently reached in normal flow |
+| `completed` | Session ended cleanly — idle timer expired with no new message, or user terminated the run |
+| `failed` | Unrecoverable error — subprocess crashed, failed to start, or inference gateway returned a fatal error |
 
-**There is no timeout transition.** A run in `active` state is never timed out or cleaned up. The only trigger for leaving `active` is the CLI subprocess exiting.
+### Transition Table
 
-**User disconnect does not change run state.** The session is destroyed; the run continues.
+| From | To | Who | Condition |
+|---|---|---|---|
+| `pending` | `starting` | orbit-agents | Pod ordinal selected; `AssignPod` called |
+| `starting` | `active` | session-manager | Subprocess started; initial message delivered to Claude |
+| `active` | `idle` | session-manager | `message_stop` event received — agent turn complete |
+| `idle` | `active` | session-manager | First event from Claude runner on new turn (agent responding) |
+| `idle` | `completed` | session-manager | Idle timer fires (20 min of no new message) → `CompleteRun(from="idle", failed=false)` |
+| `active` | `completed` | session-manager | Subprocess exited cleanly (`intentionalClose=true`) → `CompleteRun(from="active", failed=false)` |
+| `active` | `failed` | session-manager | Subprocess exited unexpectedly (`intentionalClose=false`) → `CompleteRun(from="active", failed=true)` |
+| `idle` | `failed` | session-manager | Subprocess exited unexpectedly while idle → `CompleteRun(from="idle", failed=true)` |
+| `starting` | `failed` | **reaper** | Stuck in `starting` for longer than `StaleRunTimeout` (default 30 min) |
+| `active` | `failed` | **reaper** | Stuck in `active` for longer than `StaleRunTimeout` — agent turn never completed |
 
-### Session State Machine
+### Why `idle` is not `failed`
+
+A run transitions to `idle` when the agent has **successfully** completed a turn and is parked waiting for the user's next message. This is normal, healthy behaviour. Marking it `failed` would be wrong — there is no error. The run will eventually transition to `completed` when the idle timer fires.
+
+`failed` is reserved exclusively for unrecoverable errors: subprocess crashes, startup failures, and inference gateway errors that the agent cannot recover from.
+
+### Why the reaper does not touch `idle`
+
+The reaper exists to clean up runs where the session-manager pod died mid-flight (crash, OOM, node eviction) before it could call `CompleteRun`. In that scenario, the run stays in `starting` or `active` indefinitely with no process backing it.
+
+`idle` runs are **not** stuck — they have a backing process and an active idle timer. They will transition to `completed` on their own. Reaping them would destroy healthy conversations.
+
+### Why the reaper targets `starting` and `active` but not `completing`
+
+`completing` is reserved for a future snapshot flow and is not currently reached. Once snapshot support is added, `completing` runs will also need reaper coverage with an appropriate timeout.
+
+---
+
+## Session-Manager Signalling
+
+All run state transitions flow through `orbit-agents` via an internal HTTP callback:
 
 ```
-connecting → active → disconnected
+POST /internal/runs/{id}/state
+Body: {"from": "<current_state>", "to": "<next_state>"}
 ```
 
-Sessions are lightweight records. No timeout on active sessions — they are destroyed on disconnect only.
+This is an intra-cluster call over mTLS. No platform JWT required.
 
-### Run Cleanup Policy
+On receiving a state signal, orbit-agents:
+1. Validates and applies the transition (compare-and-swap on `runs.state` — rejects if `from` doesn't match)
+2. Broadcasts the state change to any active SSE subscribers via PubSub
 
-- **Active run**: never cleaned up. Pod resources held.
-- **Completing**: workspace being snapshotted. Pod resources held until `completed`.
-- **Completed / Failed**: workspace archived. Pod resources released (pod returned to available pool for next run). `run_events` retained.
+The session-manager uses three lifecycle methods on the `Notifier` interface:
 
-### Run Data Model
+| Method | Transition |
+|---|---|
+| `IdleRun(runID)` | `active → idle` — called when `message_stop` fires |
+| `ActivateRun(runID)` | `idle → active` — called when the agent starts responding to a new message |
+| `CompleteRun(runID, fromState, failed)` | `active/idle → completed/failed` — called when the subprocess exits |
+
+`IdleRun` and `ActivateRun` use the `lifecycleClient` (15s timeout) since they are state writes that must not be silently dropped.
+
+---
+
+## Stale Run Reaper
+
+`Service.StartReaper` runs as a background goroutine in orbit-agents. It ticks every 5 minutes and calls `ReapStaleRuns(staleDuration)`, which issues:
+
+```sql
+UPDATE runs
+SET state='failed', completed_at=$1, updated_at=$1
+WHERE state IN ('active', 'starting')
+  AND updated_at < $2
+RETURNING id
+```
+
+The default `staleDuration` is 30 minutes (configurable via `ServiceConfig.StaleRunTimeout`). After reaping, orbit-agents publishes a `run_failed` PubSub event for each reaped run ID so connected SSE clients update immediately.
+
+The reaper is the **only** backstop for runs whose session-manager pod died without calling `CompleteRun`. In normal operation all transitions are handled by the session-manager itself.
+
+---
+
+## Run Data Model
 
 ```
 runs
 ├── id                uuid, primary key
 ├── tenant_id         text, non-nullable
 ├── agent_type_id     uuid, references agent_types
-├── state             text — enum: pending | starting | active | completing | completed | failed
-├── pod_ordinal       int — assigned pod in the StatefulSet
+├── state             text — pending | starting | active | idle | completing | completed | failed
+├── pod_ordinal       int — assigned pod in the StatefulSet (-1 until assigned)
 ├── created_by        text — principal_id of the initiating user
 ├── started_at        timestamptz — when state became active
-├── completed_at      timestamptz
+├── completed_at      timestamptz — when state became completed or failed
 ├── created_at        timestamptz
-└── updated_at        timestamptz
-
-sessions
-├── id                uuid, primary key
-├── run_id            uuid, references runs
-├── principal_id      text — the user who connected
-├── connected_at      timestamptz
-└── disconnected_at   timestamptz — null while connected
+└── updated_at        timestamptz — updated on every state change; used by the reaper
 ```
 
-### Event Log
+---
+
+## Event Log
 
 All events emitted by the transform layer are written to `run_events` as they occur. This is the source of truth for run history and the basis for event replay on reconnect.
 
 ```
 run_events
-├── id                uuid, primary key
+├── sequence_no       bigint — monotonically increasing per run (primary key)
 ├── run_id            uuid, references runs
-├── sequence_no       bigint — monotonically increasing per run
-├── event_type        text — text_delta | thinking_delta | tool_use | tool_result | message_stop
+├── event_type        text — text_delta | text_block | thinking_delta | tool_use | tool_result | message_complete | message_stop | run_error
 ├── payload           jsonb — event-type-specific fields
 └── created_at        timestamptz
 ```
 
-Writes to `run_events` are durable. An event is not emitted to SSE without first being written to the database.
+Durable events (`message_complete`, `text_block`, `tool_use`, `tool_result`, `run_error`) are written to `run_events` before being pushed to SSE. Ephemeral events (`text_delta`, `thinking_delta`, `message_stop`) are push-only and not persisted.
 
-### Future Resume (Not v1)
+### User Messages
 
-The `run_events` table is the source of truth for resume. When a run is in `failed` state and a user wants to continue: `orbit-agents` starts a new run (`state: starting`), loads the `run_events` from the previous run to reconstruct conversation context, passes that context to the transform layer at subprocess startup, and transitions to `active`. No separate conversation storage is required.
+User messages sent via `POST /api/v1/runs/{id}/messages` are stored in `run_messages`, not `run_events`. This keeps the event log strictly limited to agent output.
+
+```
+run_messages
+├── id            uuid, primary key
+├── run_id        uuid, references runs
+├── content       text
+└── created_at    timestamptz
+```
+
+On future resume, both `run_events` and `run_messages` are interleaved by timestamp to reconstruct the full conversation context for the new subprocess.
 
 ---
 
@@ -186,62 +216,17 @@ The `run_events` table is the source of truth for resume. When a run is in `fail
 
 - Work survives browser disconnects — no lost runs due to network issues
 - Full history always available — users see complete context on reconnect
-- Headless runs observable without browser connection
-- Clean basis for resume — `run_events` is all the context needed
+- `idle` correctly distinguishes "healthy, waiting" from "broken" — users see "Waiting" not "Failed" for normal between-turn pauses
+- Reaper provides a safety net for pod crashes without falsely failing healthy conversations
 
 ### Negative
 
-- Two entities (run + session) are slightly more complex than a single session model
-- Active runs occupy pod resources indefinitely — there is no backstop for stuck runs (to be addressed with a future admin override or stall detection feature)
+- State machine has more states than the simplest model — implementors must understand the `active`/`idle` distinction
+- The reaper fires every 5 minutes — this is a periodic DB write even when nothing is stale
 
 ### Neutral
 
 - `run_events` grows over time — retention and archival policy needed for long-running agents
-
----
-
-## Implementation
-
-### State Transitions
-
-State transitions are written to the `runs` table atomically. `orbit-agents` uses optimistic locking (compare-and-swap on `state`) to prevent concurrent conflicting transitions.
-
-### Session-Manager Signalling
-
-The session-manager signals run state changes to `orbit-agents` via an internal HTTP callback: `POST /internal/runs/{id}/state` with the new state. This is an intra-cluster call over mTLS; no platform JWT required.
-
-On receiving a state signal, `orbit-agents`:
-1. Validates and applies the state transition (compare-and-swap on `runs.state`)
-2. Writes a `run_state` event to `run_events` — this is the only place `run_state` events originate
-3. Issues a Postgres `NOTIFY run:{run_id}` so active SSE connections receive the state change in the browser event feed
-
-`run_state` events are never written by the session-manager directly; all event log writes for state transitions go through `orbit-agents`.
-
-### User Message Storage
-
-User messages sent via `POST /api/v1/runs/{id}/messages` are stored in a separate `run_messages` table — they are NOT written to `run_events`. This separation keeps the event log strictly limited to agent output (what to render in the chat UI), while `run_messages` captures the full input side of the conversation for future resume.
-
-```
-run_messages
-├── id            uuid, primary key
-├── run_id        uuid, references runs
-├── sequence_no   bigint — monotonically increasing per run
-├── content       text
-├── created_at    timestamptz
-```
-
-On future resume, both `run_events` and `run_messages` are interleaved by `sequence_no` to reconstruct the full conversation context for the new CLI subprocess invocation.
-
----
-
-## Validation
-
-### Success Metrics
-
-- Browser disconnect does not change run state
-- Full event history replayed correctly on reconnect with no missing events
-- Run transitions to `completed` within 30 seconds of CLI subprocess exit
-- Workspace snapshot succeeds for 99%+ of completed runs
 
 ---
 
@@ -254,4 +239,4 @@ On future resume, both `run_events` and `run_messages` are interleaved by `seque
 
 ---
 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-28

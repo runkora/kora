@@ -1,42 +1,116 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // Controller implements the orbit-agents HTTP API.
 type Controller struct {
-	svc    *Service
-	logger logging.Logger
+	agentTypes *AgentTypeService
+	runs       *RunService
+	verifier   *token.Verifier
+	eval       policy.Evaluator
+	routes     []routescopes.RouteScope
+	basePath   string
+	logger     logging.Logger
 }
 
 // NewController creates an orbit-agents HTTP controller.
-func NewController(svc *Service, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, logger: logger}
+//
+// routes is the same RouteScope slice that is registered with policy-service
+// at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
+// request time by ScopeEnforcementMiddleware to enforce route → required-scope
+// bindings in-process. basePath must match the server's BasePath so the
+// middleware can reconstruct full paths after http.StripPrefix. See ADR-0064.
+func NewController(
+	agentTypes *AgentTypeService,
+	runs *RunService,
+	verifier *token.Verifier,
+	eval policy.Evaluator,
+	routes []routescopes.RouteScope,
+	basePath string,
+	logger logging.Logger,
+) *Controller {
+	return &Controller{
+		agentTypes: agentTypes,
+		runs:       runs,
+		verifier:   verifier,
+		eval:       eval,
+		routes:     routes,
+		basePath:   basePath,
+		logger:     logger,
+	}
 }
 
-func (c *Controller) GroupedBy() string                { return "" }
-func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
+func (c *Controller) GroupedBy() string { return "" }
+
+// Middleware applies authentication to every route except the unauthenticated
+// /health probe.
+//
+//   - Public /api/v1 routes get the full chain: JWT auth, delegation parsing,
+//     and route→scope enforcement.
+//   - Internal callback routes get JWT auth ONLY. The agent's platform token is
+//     injected on every outbound request by the identity-proxy ext_proc sidecar
+//     on the agent pod (see cmd/orbit-agents k8s.go: "actual auth is the
+//     identity-proxy-issued JWT"). ScopeEnforcementMiddleware is intentionally
+//     omitted: the route→scope table (agentRoutes) only covers the public
+//     surface, and agent principals hold no route scopes — running it would
+//     deny every callback with "no route match". Per-run authorization (binding
+//     the calling agent's tenant + slug to the target run) is enforced in each
+//     internal handler via runs.AuthorizeAgentCallback. See ADR-0063 + ADR-0064.
+func (c *Controller) Middleware() mw.MiddlewareHandler {
+	publicChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
+	internalChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+	)
+	return func(next http.Handler) http.Handler {
+		public := publicChain(next)
+		internal := internalChain(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/health":
+				next.ServeHTTP(w, r)
+			case strings.HasPrefix(r.URL.Path, "/internal/"):
+				internal.ServeHTTP(w, r)
+			default:
+				public.ServeHTTP(w, r)
+			}
+		})
+	}
+}
 
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
 	mux.Handle("GET /health", c.handleHealth)
+	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
 	mux.Handle("POST /api/v1/agent-types", c.handleCreateAgentType)
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)
 	mux.Handle("GET /api/v1/agent-types/{id}", c.handleGetAgentType)
+	mux.Handle("PATCH /api/v1/agent-types/{id}", c.handleUpdateAgentType)
 	mux.Handle("DELETE /api/v1/agent-types/{id}", c.handleDeleteAgentType)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
+	mux.Handle("POST /api/v1/runs/{id}/interrupt", c.handleInterruptRun)
 	mux.Handle("GET /api/v1/runs/{id}/events", c.handleStreamEvents)
 
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
@@ -53,19 +127,26 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
 
+func (c *Controller) handleListToolScopes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": toolscopes.Selectable})
+}
+
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req CreateAgentTypeRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.TenantID == "" || req.Name == "" || req.Slug == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id, name, and slug are required", nil)
+	// Tenant is derived from the verified platform claims by the service layer;
+	// any request-body tenant_id is ignored. See ADR-0063.
+	if req.Name == "" || req.Slug == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "name and slug are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	at, err := c.svc.CreateAgentType(ctx, req)
+	at, err := c.agentTypes.CreateAgentType(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrSlugTaken) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "slug already taken for this tenant", nil)
@@ -82,14 +163,8 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 
 func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
-	if tenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id query parameter is required", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-
-	types, err := c.svc.ListAgentTypes(ctx, tenantID)
+	// Tenant is derived from the verified platform claims; query-string is ignored.
+	types, err := c.agentTypes.ListAgentTypes(ctx)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -103,7 +178,7 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	at, err := c.svc.GetAgentType(ctx, id)
+	at, err := c.agentTypes.GetAgentType(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -118,11 +193,36 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusOK, at)
 }
 
+func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	var req UpdateAgentTypeRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	req.ID = id
+
+	at, err := c.agentTypes.UpdateAgentType(ctx, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to update agent type", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, at)
+}
+
 func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if err := c.svc.DeleteAgentType(ctx, id); err != nil {
+	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -144,13 +244,15 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.TenantID == "" || req.AgentTypeID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id and agent_type_id are required", nil)
+	// Tenant and created_by are derived from the verified platform claims;
+	// request-body values for tenant_id are ignored.
+	if req.AgentTypeID == "" {
+		apiErr := api.ValidationError(api.ErrCodeMissingField, "agent_type_id is required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	run, err := c.svc.StartRun(ctx, req)
+	run, err := c.runs.StartRun(ctx, req)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -167,15 +269,10 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID := r.URL.Query().Get("tenant_id")
-	if tenantID == "" {
-		apiErr := api.ValidationError(api.ErrCodeMissingField, "tenant_id query parameter is required", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
+	// Tenant is derived from the verified platform claims; query-string is ignored.
 	agentTypeID := r.URL.Query().Get("agent_type_id")
 
-	runs, err := c.svc.ListRuns(ctx, tenantID, agentTypeID)
+	runs, err := c.runs.ListRuns(ctx, agentTypeID)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -189,7 +286,7 @@ func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	run, err := c.svc.GetRun(ctx, id)
+	run, err := c.runs.GetRun(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
@@ -208,7 +305,7 @@ func (c *Controller) handleTerminateRun(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if err := c.svc.TerminateRun(ctx, id); err != nil {
+	if err := c.runs.TerminateRun(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -240,13 +337,41 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.svc.SendMessage(ctx, id, req.Content); err != nil {
+	if err := c.runs.SendMessage(ctx, id, req.Content); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrRunNotAcceptingMessages) {
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not accepting messages", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (c *Controller) handleInterruptRun(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	if err := c.runs.InterruptRun(ctx, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrRunNotAcceptingMessages) {
+			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not active", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to interrupt run", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
@@ -261,16 +386,40 @@ type runStateCallbackRequest struct {
 	To   RunState `json:"to"`
 }
 
+// authorizeCallback binds the agent principal carried by the (already
+// JWT-authenticated) internal request to the target run before the handler
+// proceeds. It writes the appropriate error response and returns false on deny.
+// See RunService.AuthorizeAgentCallback and ADR-0063.
+func (c *Controller) authorizeCallback(ctx context.Context, w http.ResponseWriter, id string) bool {
+	switch err := c.runs.AuthorizeAgentCallback(ctx, id); {
+	case err == nil:
+		return true
+	case errors.Is(err, ErrNotFound):
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	case errors.Is(err, ErrForbidden):
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized for this run", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	default:
+		apiErr := api.InternalError(api.ErrCodeInternalError, "callback authorization failed", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	}
+	return false
+}
+
 func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
 	var req runStateCallbackRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 
-	if err := c.svc.TransitionRunState(ctx, id, req.From, req.To); err != nil {
+	if err := c.runs.TransitionRunState(ctx, id, req.From, req.To); err != nil {
 		if errors.Is(err, ErrConflict) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "state transition conflict", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -295,7 +444,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	if _, err := c.svc.GetRun(ctx, id); err != nil {
+	if _, err := c.runs.GetRun(ctx, id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -321,7 +470,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 
 	// Register subscriber BEFORE replaying from DB — events pushed during replay
 	// are buffered in the channel and will be emitted after the replay loop.
-	ch, cancel := c.svc.SubscribeRun(id)
+	ch, cancel := c.runs.SubscribeRun(id)
 	defer cancel()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -330,7 +479,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Replay persisted events from DB.
-	events, err := c.svc.ListRunEvents(ctx, id, afterSeqNo)
+	events, err := c.runs.ListRunEvents(ctx, id, afterSeqNo)
 	if err != nil {
 		c.logger.Error(ctx, "Failed to list run events for SSE replay",
 			logging.Field{Key: "run_id", Value: id},
@@ -382,21 +531,27 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
 	var ev PushedEvent
 	if !api.DecodeJSON(ctx, r, w, c.logger, &ev) {
 		return
 	}
 
-	c.svc.PublishEvent(ctx, id, ev)
+	c.runs.PublishEvent(ctx, id, ev)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
 
-	endpoint, err := c.svc.ProvisionSandbox(ctx, id)
+	endpoint, err := c.runs.ProvisionSandbox(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)

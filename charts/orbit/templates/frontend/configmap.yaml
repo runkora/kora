@@ -26,6 +26,11 @@ data:
   # Never sent to the browser.
   POLICY_SERVICE_URL: {{ required "frontend.config.policyServiceUrl must be set" .Values.frontend.config.policyServiceUrl | quote }}
 
+  # URL of the orbit-agents service as seen from inside the cluster.
+  # Used by the Next.js BFF to proxy agent type and run CRUD + SSE endpoints.
+  # Never sent to the browser.
+  ORBIT_AGENTS_URL: {{ required "frontend.config.orbitAgentsUrl must be set" .Values.frontend.config.orbitAgentsUrl | quote }}
+
   # Public base URL of this frontend, as seen from the browser.
   # Also available at runtime for server-side code that reads process.env.NEXT_PUBLIC_APP_URL.
   # Note: Next.js inlines NEXT_PUBLIC_* values into client bundles at build time —

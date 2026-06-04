@@ -5,20 +5,33 @@ import (
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // Controller wires the identity service to HTTP routes.
 type Controller struct {
-	svc    *Service
-	logger logging.Logger
+	svc      *Service
+	eval     policy.Evaluator
+	routes   []routescopes.RouteScope
+	basePath string
+	logger   logging.Logger
 }
 
 // NewController creates a ready-to-boot identity Controller.
-func NewController(svc *Service, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, logger: logger}
+//
+// eval and routes are passed to ScopeEnforcementMiddleware (ADR-0064). Identity
+// has unauthenticated routes (device, session, exchange, jwks, etc.) that the
+// middleware never sees because they are registered with mux.Handle directly
+// rather than mux.HandleWithMiddleware. Only the PAT and user routes — which
+// use the per-route auth chain — go through the scope middleware. basePath
+// must match the server's BasePath so the middleware can reconstruct absolute
+// paths after http.StripPrefix.
+func NewController(svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
+	return &Controller{svc: svc, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 // GroupedBy returns the route prefix shared by all identity endpoints.
@@ -57,7 +70,13 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the
 	// token is not itself a PAT — PATs are scoped exclusively to the inference
 	// gateway and must not be used to manage identity resources.
-	auth := mw.MiddlewareChain(c.svc.AuthMiddleware(c.logger), rejectPATMiddleware(c.logger))
+	// ScopeEnforcementMiddleware (ADR-0064) then checks the route's required
+	// scope against the principal's grants.
+	auth := mw.MiddlewareChain(
+		c.svc.AuthMiddleware(c.logger),
+		rejectPATMiddleware(c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
 	mux.HandleWithMiddleware("POST /tokens", auth, c.handleCreatePAT)
 	mux.HandleWithMiddleware("GET /tokens", auth, c.handleListPATs)
 	// /tokens/attribution must be registered before /tokens/{id} so the literal

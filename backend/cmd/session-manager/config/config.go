@@ -46,6 +46,12 @@ type Config struct {
 		// Defaults to "claude" (resolved via $PATH).
 		BinaryPath string `yaml:"binaryPath"`
 
+		// WrapperPath is the path to orbit-session-runner. When set, it is
+		// invoked as: WrapperPath <workDir> <BinaryPath> [args...]
+		// to apply Landlock filesystem restrictions before exec'ing claude.
+		// Empty disables the wrapper (used in local dev on macOS).
+		WrapperPath string `yaml:"wrapperPath"`
+
 		// DefaultModel is the model passed to Claude Code when the session
 		// creation request does not specify one. For the Orbit inference
 		// gateway, use the virtual model name (e.g. "anthropic/claude-sonnet-4-6").

@@ -51,6 +51,8 @@ type Config struct {
 		PolicyServiceURL string `yaml:"policyServiceURL"`
 	} `yaml:"platform"`
 
+	Policy PolicyConfig `yaml:"policy"`
+
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
@@ -67,6 +69,22 @@ type Config struct {
 			PostgresSSLMode string `yaml:"postgresSSLMode"`
 		} `yaml:"sessionManager"`
 	} `yaml:"agents"`
+}
+
+// PolicyConfig configures the in-process OPA policy evaluator.
+type PolicyConfig struct {
+	// BundleEndpoint is the base URL for the policy-service bundle API.
+	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	BundleEndpoint         string `yaml:"bundleEndpoint"`
+	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
+}
+
+// BundlePollInterval returns the configured poll interval, defaulting to 30s.
+func (c *PolicyConfig) BundlePollInterval() time.Duration {
+	if c.BundlePollIntervalSecs <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.BundlePollIntervalSecs) * time.Second
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

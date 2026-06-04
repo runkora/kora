@@ -264,6 +264,32 @@ export const ApiRoute = {
       return q ? `${API_BASE}/analytics/principals?${q}` : `${API_BASE}/analytics/principals`;
     },
   },
+
+  agentTypes: {
+    list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
+    create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
+    detail: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
+      `${API_BASE}/agents/types/${id}`,
+    delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
+      `${API_BASE}/agents/types/${id}`,
+    toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
+  },
+
+  runs: {
+    list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
+    listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
+      `${API_BASE}/agents/types/${typeId}/runs`,
+    start: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
+      `${API_BASE}/agents/types/${typeId}/runs`,
+    detail: (runId: string): `${typeof API_BASE}/agents/runs/${string}` =>
+      `${API_BASE}/agents/runs/${runId}`,
+    terminate: (runId: string): `${typeof API_BASE}/agents/runs/${string}` =>
+      `${API_BASE}/agents/runs/${runId}`,
+    messages: (runId: string): `${typeof API_BASE}/agents/runs/${string}/messages` =>
+      `${API_BASE}/agents/runs/${runId}/messages`,
+    events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
+      `${API_BASE}/agents/runs/${runId}/events`,
+  },
 } as const;
 
 /**
@@ -293,4 +319,15 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['list']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['create']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['detail']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['delete']>
+  | ReturnType<(typeof ApiRoute)['runs']['list']>
+  | ReturnType<(typeof ApiRoute)['runs']['listForType']>
+  | ReturnType<(typeof ApiRoute)['runs']['start']>
+  | ReturnType<(typeof ApiRoute)['runs']['detail']>
+  | ReturnType<(typeof ApiRoute)['runs']['terminate']>
+  | ReturnType<(typeof ApiRoute)['runs']['messages']>
+  | ReturnType<(typeof ApiRoute)['runs']['events']>
   | string; // analyticsMe and analytics routes include dynamic query strings

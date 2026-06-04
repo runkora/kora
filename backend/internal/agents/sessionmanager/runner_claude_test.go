@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,20 +46,35 @@ func drainN(t *testing.T, ch <-chan Event, n int) []Event {
 
 // ── scopesToClaudeTools ───────────────────────────────────────────────────────
 
+// autoTools are always injected regardless of configured scopes.
+var autoTools = map[string]bool{
+	"LSP": true, "Monitor": true,
+	"CronCreate": true, "CronDelete": true, "CronList": true,
+	"ToolSearch": true, "Skill": true,
+}
+
 func TestScopesToClaudeTools_Empty(t *testing.T) {
 	got := scopesToClaudeTools(nil)
-	if got != "default" {
-		t.Errorf("empty scopes = %q, want default", got)
+	// Auto-scopes are always injected; empty selectable scopes still produce output.
+	if got == "default" {
+		t.Errorf("empty scopes = %q, want auto-scope tools (not default)", got)
+	}
+	for tool := range autoTools {
+		if !strings.Contains(got, tool) {
+			t.Errorf("auto tool %q missing from result %q", tool, got)
+		}
 	}
 }
 
 func TestScopesToClaudeTools_KnownScopes(t *testing.T) {
 	got := scopesToClaudeTools([]string{"shell", "filesystem"})
 	tools := strings.Split(got, ",")
+	// Expect selectable tools plus all auto tools.
 	wantTools := map[string]bool{
 		"Bash": true, "Read": true, "Write": true, "Edit": true,
-		"MultiEdit": true, "Glob": true, "Grep": true, "LS": true,
+		"Glob": true, "Grep": true,
 	}
+	maps.Copy(wantTools, autoTools)
 	for _, tool := range tools {
 		if !wantTools[tool] {
 			t.Errorf("unexpected tool %q in result %q", tool, got)
@@ -72,8 +88,14 @@ func TestScopesToClaudeTools_KnownScopes(t *testing.T) {
 
 func TestScopesToClaudeTools_UnknownScopesIgnored(t *testing.T) {
 	got := scopesToClaudeTools([]string{"unknown-scope"})
-	if got != "default" {
-		t.Errorf("unknown scope = %q, want default", got)
+	// Unknown selectable scopes produce no extra tools; auto tools still present.
+	if got == "default" {
+		t.Errorf("unknown scope = %q, want auto-scope tools (not default)", got)
+	}
+	for tool := range autoTools {
+		if !strings.Contains(got, tool) {
+			t.Errorf("auto tool %q missing from result %q", tool, got)
+		}
 	}
 }
 
@@ -272,19 +294,52 @@ func TestDispatch_Result_EmitsMessageCompleteAndStop(t *testing.T) {
 	}
 }
 
-func TestDispatch_Result_NonSuccess_NoEvent(t *testing.T) {
+func TestDispatch_Result_EmptySuccessEmitsRunError(t *testing.T) {
+	r := newTestRunner()
+	// textBuf is empty — simulates Claude returning no text after inference errors.
+
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:       "result",
+		Subtype:    "success",
+		StopReason: "stop_sequence",
+	})
+
+	evs := drainN(t, r.events, 1)
+	if evs[0].Type != EventTypeRunError {
+		t.Errorf("event type = %q, want run_error", evs[0].Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "empty_response" {
+		t.Errorf("code = %q, want empty_response", payload.Code)
+	}
+}
+
+func TestDispatch_Result_NonSuccess_EmitsRunError(t *testing.T) {
 	r := newTestRunner()
 
 	r.dispatch(context.Background(), claudeOutputWrapper{
 		Type:       "result",
 		Subtype:    "error",
 		StopReason: "end_turn",
+		Result:     "API error: 401 unauthorized",
 	})
 
-	select {
-	case <-r.events:
-		t.Error("non-success result should not emit events")
-	default:
+	evs := drainN(t, r.events, 1)
+	if evs[0].Type != EventTypeRunError {
+		t.Errorf("event type = %q, want run_error", evs[0].Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "claude_error" {
+		t.Errorf("code = %q, want claude_error", payload.Code)
+	}
+	if payload.Message != "API error: 401 unauthorized" {
+		t.Errorf("message = %q, want 'API error: 401 unauthorized'", payload.Message)
 	}
 }
 
@@ -363,6 +418,50 @@ func TestTransform_MalformedLinesSkipped(t *testing.T) {
 		if ev.Type != EventTypeMessageComplete && ev.Type != EventTypeMessageStop {
 			t.Errorf("unexpected event %q from malformed fixture", ev.Type)
 		}
+	}
+}
+
+// ── SessionID capture ─────────────────────────────────────────────────────────
+
+func TestTransform_SystemInitCapturesSessionID(t *testing.T) {
+	r := newTestRunner()
+
+	fixture := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"test-session-abc"}`,
+		`{"type":"result","subtype":"success","stop_reason":"end_turn"}`,
+	}, "\n") + "\n"
+
+	go r.transform(context.Background(), strings.NewReader(fixture))
+	collectEvents(r.events)
+
+	if got := r.SessionID(); got != "test-session-abc" {
+		t.Errorf("SessionID() = %q, want test-session-abc", got)
+	}
+}
+
+func TestNewResumeRunner_ReturnedRunnerHasResumeID(t *testing.T) {
+	r := newTestRunner()
+	r.sessionIDMu.Lock()
+	r.capturedSessionID = "resume-id-xyz"
+	r.sessionIDMu.Unlock()
+
+	resumed := r.NewResumeRunner()
+	if resumed == nil {
+		t.Fatal("NewResumeRunner() returned nil with a captured session ID")
+	}
+	cr, ok := resumed.(*ClaudeRunner)
+	if !ok {
+		t.Fatal("NewResumeRunner() did not return a *ClaudeRunner")
+	}
+	if cr.cfg.ResumeSessionID != "resume-id-xyz" {
+		t.Errorf("ResumeSessionID = %q, want resume-id-xyz", cr.cfg.ResumeSessionID)
+	}
+}
+
+func TestNewResumeRunner_NoSessionIDReturnsNil(t *testing.T) {
+	r := newTestRunner()
+	if r.NewResumeRunner() != nil {
+		t.Error("NewResumeRunner() should return nil when no session ID captured")
 	}
 }
 

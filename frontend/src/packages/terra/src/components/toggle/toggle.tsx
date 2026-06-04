@@ -6,6 +6,8 @@ export interface ToggleProps {
   checked: boolean;
   /** Called with the new state when the user clicks the toggle. */
   onChange: (checked: boolean) => void;
+  /** Associates the toggle with an external label element. */
+  id?: string;
   /** Accessible name for screen readers. Required when there is no adjacent visible label. */
   'aria-label'?: string;
   /** Associates the toggle with a visible label element by ID. */
@@ -26,10 +28,11 @@ export interface ToggleProps {
  * ```
  */
 const Toggle = React.forwardRef<HTMLButtonElement, ToggleProps>(
-  ({ checked, onChange, disabled = false, className, ...ariaProps }, ref) => {
+  ({ checked, onChange, id, disabled = false, className, ...ariaProps }, ref) => {
     return (
       <button
         ref={ref}
+        id={id}
         type="button"
         role="switch"
         aria-checked={checked}

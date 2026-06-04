@@ -165,8 +165,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
-		inferencegw.NewController(ctx, svc, logger),
-		inferencegw.NewCatalogController(catalog, verifier, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 
@@ -180,7 +180,12 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 
 	register := func(catalogScopes []inferencegw.CatalogScope) {
 		scopeDecls := inferenceScopes(catalogScopes)
-		if err := client.Register(ctx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {
+		// Drop routes whose RequiredScope is empty — those are
+		// "authenticated-only" and enforced locally by ScopeEnforcementMiddleware,
+		// not by OPA. Registering them with empty scopes would deny everyone
+		// when Layer 1 sidecar enforcement is enabled in the future.
+		scopedRoutes := filterScopedRoutes(inferenceRoutes())
+		if err := client.Register(ctx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
 			logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
@@ -189,7 +194,30 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, router *i
 	go register(router.CatalogScopes())
 }
 
+// filterScopedRoutes returns the subset of routes that require a non-empty
+// scope. Used to exclude "authenticated-only" routes from policy-service
+// registration; those are enforced by the local ScopeEnforcementMiddleware.
+func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
+	out := make([]routescopes.RouteScope, 0, len(in))
+	for _, r := range in {
+		if r.RequiredScope != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // inferenceRoutes returns the static route→scope bindings for the inference gateway.
+//
+// Used at startup for policy-service route registration (ADR-0036) and at
+// request time by ScopeEnforcementMiddleware (ADR-0064). Entries with empty
+// RequiredScope require authentication but no specific scope; the middleware
+// passes them through after AuthMiddleware. They are filtered out by the
+// policy registration in registerRoutes.
+//
+// Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
+// the more-specific (sub-path) entry over the broader prefix for the same
+// method, so list narrower paths before broader ones.
 func inferenceRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
@@ -201,9 +229,12 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "PUT", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"},
-		// GET /v1/analytics is tenant-wide and scope-gated.
-		// GET /v1/analytics/me is personal and omitted here — open to any authenticated caller.
+		// GET /v1/analytics/me is personal — any authenticated caller may read
+		// their own analytics. Listed before /v1/analytics so the more-specific
+		// path wins for the analytics/me request.
+		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
+		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 	}
 }
 

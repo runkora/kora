@@ -409,10 +409,14 @@ export function DataTable<TData>({
       <TableToolbar
         search={toolbarSearch}
         count={toolbarCount}
-        columns={{
-          items: toolbarColumnItems,
-          onToggle: (id) => table.getColumn(id)?.toggleVisibility(),
-        }}
+        columns={
+          toolbarColumnItems.length > 0
+            ? {
+                items: toolbarColumnItems,
+                onToggle: (id) => table.getColumn(id)?.toggleVisibility(),
+              }
+            : undefined
+        }
         actions={toolbarActions}
       />
 

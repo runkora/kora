@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
+	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -19,6 +21,12 @@ import (
 type ClaudeRunnerConfig struct {
 	// BinaryPath is the path to the claude binary. Defaults to "claude".
 	BinaryPath string
+
+	// WrapperPath is the path to orbit-session-runner. When set, the subprocess
+	// is invoked as: WrapperPath <workDir> <BinaryPath> [args...]
+	// which applies Landlock filesystem restrictions before exec'ing claude.
+	// When empty, BinaryPath is invoked directly (no filesystem restriction).
+	WrapperPath string
 
 	// Model overrides the default model (e.g. "claude-sonnet-4-6").
 	// Empty means use Claude Code's default.
@@ -48,6 +56,10 @@ type ClaudeRunnerConfig struct {
 	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
 	RunID string
 
+	// ResumeSessionID, when non-empty, passes --resume <id> to Claude Code so
+	// it continues from a previous session rather than starting fresh.
+	ResumeSessionID string
+
 	// Logger is used to emit structured log events from the subprocess lifecycle.
 	Logger logging.Logger
 }
@@ -58,20 +70,24 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       --no-session-persistence --bare [--model M] [--tools T,...]
+//	       [--resume ID] [--bare] [--model M] [--tools T,...]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
 // event is emitted per turn containing the full accumulated text. tool_use and
 // tool_result events are emitted as they arrive.
 type ClaudeRunner struct {
-	cfg         ClaudeRunnerConfig
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	events      chan Event
-	once        sync.Once
-	textBuf     strings.Builder // accumulates text_delta chunks; reset per turn
-	thinkingBuf strings.Builder // accumulates thinking_delta chunks; reset per turn
+	cfg               ClaudeRunnerConfig
+	cmd               *exec.Cmd
+	stdin             io.WriteCloser
+	events            chan Event
+	once              sync.Once
+	textBuf           strings.Builder // accumulates text_delta chunks; reset per turn
+	thinkingBuf       strings.Builder // accumulates thinking_delta chunks; reset per turn
+	textBlockEmitted  bool            // true if ≥1 text_block was emitted this turn
+	capturedSessionID string          // set once from the system/init event
+	sessionIDMu       sync.Mutex      // protects capturedSessionID
+	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -86,7 +102,9 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 }
 
 // Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
-func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
+// buildFlags returns the Claude Code CLI flags for this runner configuration.
+// Extracted to keep Start() cyclomatic complexity within bounds.
+func (r *ClaudeRunner) buildFlags() []string {
 	args := []string{
 		"--print",
 		"--output-format", "stream-json",
@@ -94,7 +112,9 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
-		"--no-session-persistence",
+	}
+	if r.cfg.ResumeSessionID != "" {
+		args = append(args, "--resume", r.cfg.ResumeSessionID)
 	}
 	if r.cfg.Bare {
 		args = append(args, "--bare")
@@ -106,6 +126,50 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	if r.cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", r.cfg.SystemPrompt)
 	}
+	return args
+}
+
+// buildExecCommand returns the command and arguments to use when starting the
+// subprocess. When WrapperPath is set the wrapper is invoked as:
+//
+//	orbit-session-runner <workDir> <claude> [claude-args...]
+//
+// so it can apply Landlock before exec'ing claude. Without a wrapper, claude
+// is invoked directly (used in tests and local macOS dev).
+func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd string, cmdArgs []string) {
+	claudeBinary := r.cfg.BinaryPath
+	if claudeBinary == "" {
+		claudeBinary = "claude"
+	}
+	if r.cfg.WrapperPath != "" {
+		return r.cfg.WrapperPath, append([]string{workDir, claudeBinary}, args...)
+	}
+	return claudeBinary, args
+}
+
+// buildRunEnv constructs the subprocess environment from the inherited base env
+// plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
+// by the per-run isolation values. Stripping is necessary because on Linux
+// getenv() returns the first match — any pre-existing HOME= or TMPDIR= would
+// shadow our values if they appeared earlier in the slice. See ADR-0062.
+func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
+	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
+	for _, e := range baseEnv {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
+			env = append(env, e)
+		}
+	}
+	for _, e := range r.cfg.ExtraEnv {
+		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
+			env = append(env, e)
+		}
+	}
+	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
+}
+
+// Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
+func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
+	args := r.buildFlags()
 
 	mcpConfigPath, mcpErr := r.writeMCPConfig(workDir)
 	if mcpErr != nil {
@@ -113,9 +177,24 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	}
 	args = append(args, "--mcp-config", mcpConfigPath)
 
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, args...)
+	// Per-run home: isolates ~/.claude/ (session transcripts, memories) from
+	// sibling runs on the same pod. See ADR-0062.
+	runHome := filepath.Join(workDir, ".runhome")
+	if err := os.MkdirAll(runHome, 0o700); err != nil {
+		return fmt.Errorf("create run home: %w", err)
+	}
+
+	// Per-run tmp directory lives inside the workspace so it is covered by the
+	// same Landlock rule as the rest of the run's files. See ADR-0062.
+	tmpDir := filepath.Join(workDir, ".tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return fmt.Errorf("create run tmpdir: %w", err)
+	}
+
+	cmd, cmdArgs := r.buildExecCommand(workDir, args)
+	r.cmd = exec.CommandContext(ctx, cmd, cmdArgs...)
 	r.cmd.Dir = workDir
-	r.cmd.Env = append(r.cmd.Environ(), r.cfg.ExtraEnv...)
+	r.cmd.Env = r.buildRunEnv(r.cmd.Environ(), runHome, tmpDir)
 
 	var err error
 	r.stdin, err = r.cmd.StdinPipe()
@@ -126,6 +205,11 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	stdout, err := r.cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("claude stdout pipe: %w", err)
+	}
+
+	stderr, err := r.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("claude stderr pipe: %w", err)
 	}
 
 	if err := r.cmd.Start(); err != nil {
@@ -140,6 +224,7 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		logging.Field{Key: "tool_count", Value: len(r.cfg.AllowedTools)},
 	)
 
+	go r.logStderr(ctx, stderr)
 	go r.transform(ctx, stdout)
 	return nil
 }
@@ -212,6 +297,36 @@ func (r *ClaudeRunner) Events() <-chan Event {
 	return r.events
 }
 
+// Interrupt sends SIGINT to the Claude subprocess, interrupting the current
+// in-progress turn. Claude Code handles SIGINT by stopping the active inference
+// and returning to its input loop, leaving the subprocess alive for the next message.
+func (r *ClaudeRunner) Interrupt() error {
+	if r.cmd == nil || r.cmd.Process == nil {
+		return nil
+	}
+	r.interrupted.Store(true)
+	return r.cmd.Process.Signal(os.Interrupt)
+}
+
+// SessionID returns the Claude session ID captured from the system/init event.
+func (r *ClaudeRunner) SessionID() string {
+	r.sessionIDMu.Lock()
+	defer r.sessionIDMu.Unlock()
+	return r.capturedSessionID
+}
+
+// NewResumeRunner returns a new runner configured to resume this session.
+// Returns nil if no session ID has been captured yet.
+func (r *ClaudeRunner) NewResumeRunner() Runner {
+	id := r.SessionID()
+	if id == "" {
+		return nil
+	}
+	cfg := r.cfg
+	cfg.ResumeSessionID = id
+	return NewClaudeRunner(cfg)
+}
+
 // Close sends EOF to stdin and waits for the subprocess to exit.
 func (r *ClaudeRunner) Close() error {
 	var firstErr error
@@ -226,6 +341,21 @@ func (r *ClaudeRunner) Close() error {
 		}
 	})
 	return firstErr
+}
+
+// logStderr reads Claude's stderr and logs each line as an error.
+func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		r.cfg.Logger.Error(ctx, "Claude subprocess stderr",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "line", Value: line},
+		)
+	}
 }
 
 // transform reads Claude Code's stream-json stdout and emits Orbit events.
@@ -248,6 +378,13 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 		r.dispatch(ctx, wrapper)
 	}
 
+	if err := scanner.Err(); err != nil {
+		r.cfg.Logger.Error(ctx, "Claude stdout scan error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+
 	r.cfg.Logger.Info(ctx, "Claude subprocess exited",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
 	)
@@ -265,22 +402,88 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 		r.handleAssistant(ctx, w.Message)
 	case "user":
 		r.handleUser(w.Message)
+	case "system":
+		if w.Subtype == "init" && w.SessionID != "" {
+			r.sessionIDMu.Lock()
+			r.capturedSessionID = w.SessionID
+			r.sessionIDMu.Unlock()
+		}
+		r.cfg.Logger.Info(ctx, "Claude system event",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "subtype", Value: w.Subtype},
+			logging.Field{Key: "session_id", Value: w.SessionID},
+		)
 	case "result":
-		if w.Subtype == "success" && w.StopReason == "end_turn" {
-			r.cfg.Logger.Info(ctx, "Claude turn complete",
+		r.handleResult(ctx, w)
+	default:
+		if w.Type != "" {
+			r.cfg.Logger.Info(ctx, "Unhandled Claude output type",
 				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "text_len", Value: r.textBuf.Len()},
-				logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
+				logging.Field{Key: "type", Value: w.Type},
+				logging.Field{Key: "subtype", Value: w.Subtype},
 			)
-			r.emit(EventTypeMessageComplete, MessageCompletePayload{
-				Text:     r.textBuf.String(),
-				Thinking: r.thinkingBuf.String(),
-			})
-			r.textBuf.Reset()
-			r.thinkingBuf.Reset()
-			r.emit(EventTypeMessageStop, nil)
 		}
 	}
+}
+
+// handleResult processes a "result" wrapper (the final event Claude emits per turn).
+// A success result flushes accumulated text as message_complete + message_stop.
+// A non-success result emits run_error unless the runner was explicitly interrupted,
+// in which case the error is suppressed because the runner will restart via --resume.
+func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) {
+	if w.Subtype != "success" {
+		if r.interrupted.Load() {
+			return // SIGINT caused the non-success exit — runner will restart via --resume
+		}
+		msg := w.Result
+		if msg == "" {
+			msg = fmt.Sprintf("Claude exited with subtype=%q stop_reason=%q", w.Subtype, w.StopReason)
+		}
+		r.cfg.Logger.Error(ctx, "Claude error result",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "subtype", Value: w.Subtype},
+			logging.Field{Key: "stop_reason", Value: w.StopReason},
+			logging.Field{Key: "result", Value: msg},
+		)
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "claude_error", Message: msg})
+		return
+	}
+
+	textLen := r.textBuf.Len()
+	r.cfg.Logger.Info(ctx, "Claude turn complete",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "stop_reason", Value: w.StopReason},
+		logging.Field{Key: "text_len", Value: textLen},
+		logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
+	)
+	// An empty turn with a non-standard stop reason signals a silent failure
+	// (e.g. inference gateway returning 5xx after exhausted retries).
+	// textBlockEmitted=true means text was already flushed before tool calls,
+	// so the turn has content even if textBuf is now empty.
+	if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
+		if r.interrupted.Load() {
+			return // SIGINT caused the empty turn — runner will restart via --resume
+		}
+		msg := w.Result
+		if msg == "" {
+			msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
+		}
+		r.cfg.Logger.Error(ctx, "Claude empty turn — possible inference error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "stop_reason", Value: w.StopReason},
+			logging.Field{Key: "result", Value: msg},
+		)
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: msg})
+		return
+	}
+	r.emit(EventTypeMessageComplete, MessageCompletePayload{
+		Text:     r.textBuf.String(),
+		Thinking: r.thinkingBuf.String(),
+	})
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+	r.textBlockEmitted = false
+	r.emit(EventTypeMessageStop, nil)
 }
 
 // handleStreamEvent accumulates text and thinking deltas for message_complete
@@ -301,10 +504,37 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 }
 
 // handleAssistant emits tool_use events from a completed assistant message.
+// With --include-partial-messages Claude emits many snapshots of the same message;
+// partial snapshots contain only text (no complete tool blocks yet), so we skip
+// them. The final snapshot is detected by the presence of a tool_use block.
+//
+// Before the first tool_use, any accumulated text in textBuf is flushed as a
+// durable text_block event. This preserves the original interleaved order during
+// replay without re-streaming individual character deltas.
 func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) {
 	if msg == nil {
 		return
 	}
+
+	// Skip partial snapshots that carry only text — they have no complete tool blocks.
+	hasTools := false
+	for _, block := range msg.Content {
+		if block.Type == "tool_use" {
+			hasTools = true
+			break
+		}
+	}
+	if !hasTools {
+		return
+	}
+
+	// Flush the text accumulated before these tool calls as a text_block event.
+	if r.textBuf.Len() > 0 {
+		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+		r.textBuf.Reset()
+		r.textBlockEmitted = true
+	}
+
 	for _, block := range msg.Content {
 		if block.Type == "tool_use" {
 			r.cfg.Logger.Info(ctx, "Tool call",
@@ -352,36 +582,11 @@ func isExitKilled(err error) bool {
 		strings.Contains(s, "context canceled")
 }
 
-// scopesToClaudeTools converts Orbit tool scope names to Claude Code built-in
-// tool names for the --tools flag. Unrecognized scopes are ignored.
-// An empty result produces "--tools default" (all built-in tools allowed).
+// scopesToClaudeTools converts Orbit tool scope names to the Claude Code --tools
+// flag value. The scope→tool mapping (and the always-on auto scopes) live in the
+// shared toolscopes package so this and the agents API stay in lockstep.
 func scopesToClaudeTools(scopes []string) string {
-	// Orbit scope → Claude Code built-in tool names.
-	// AskUserQuestion is intentionally excluded: Claude Code auto-rejects it in
-	// headless stream-json mode; use a custom MCP tool for human-in-the-loop instead.
-	scopeMap := map[string][]string{
-		"shell":      {"Bash"},
-		"filesystem": {"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS"},
-		"web":        {"WebFetch", "WebSearch"},
-		"notebook":   {"NotebookEdit"},
-		"agents":     {"Agent", "SendMessage"},
-		"tasks":      {"TaskCreate", "TaskGet", "TaskList", "TaskStop", "TaskUpdate", "TodoWrite"},
-		"mcp":        {"ListMcpResourcesTool", "ReadMcpResourceTool"},
-		"lsp":        {"LSP"},
-		"monitoring": {"Monitor"},
-		"scheduling": {"CronCreate", "CronDelete", "CronList"},
-		"meta":       {"ToolSearch", "Skill"},
-	}
-	seen := map[string]bool{}
-	var tools []string
-	for _, scope := range scopes {
-		for _, t := range scopeMap[scope] {
-			if !seen[t] {
-				seen[t] = true
-				tools = append(tools, t)
-			}
-		}
-	}
+	tools := toolscopes.ClaudeTools(scopes)
 	if len(tools) == 0 {
 		return "default"
 	}
@@ -412,8 +617,10 @@ type claudeOutputWrapper struct {
 	Type       string          `json:"type"`
 	Subtype    string          `json:"subtype"`
 	StopReason string          `json:"stop_reason"`
-	Event      json.RawMessage `json:"event"`   // when Type == "stream_event"
-	Message    *claudeMessage  `json:"message"` // when Type == "assistant" | "user"
+	Result     string          `json:"result"`     // error message when Subtype == "error"
+	SessionID  string          `json:"session_id"` // present on system/init
+	Event      json.RawMessage `json:"event"`      // when Type == "stream_event"
+	Message    *claudeMessage  `json:"message"`    // when Type == "assistant" | "user"
 }
 
 // claudeStreamEvent is the inner event inside a "stream_event" wrapper.

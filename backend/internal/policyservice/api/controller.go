@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -37,16 +39,28 @@ type Controller struct {
 	svc      *Service
 	logger   logging.Logger
 	verifier *token.Verifier
+	eval     policy.Evaluator
+	routes   []routescopes.RouteScope
+	basePath string
 }
 
 // NewController creates a ready-to-boot policy Controller.
-func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier) *Controller {
-	return &Controller{svc: svc, logger: logger, verifier: verifier}
+//
+// eval and routes are passed to ScopeEnforcementMiddleware (ADR-0064). The
+// route table should cover every authenticated route registered in Boot.
+// Routes intentionally omitted from the table (e.g. POST /effective-scopes,
+// POST /routes/register) fail-closed at the middleware with 403. basePath
+// must match the server's BasePath so the middleware can reconstruct absolute
+// paths after http.StripPrefix.
+func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string) *Controller {
+	return &Controller{svc: svc, logger: logger, verifier: verifier, eval: eval, routes: routes, basePath: basePath}
 }
 
 func (c *Controller) GroupedBy() string { return "/policy" }
 
-// Middleware applies JWT auth to all policy routes except bundle polling endpoints.
+// Middleware applies JWT auth and scope enforcement to all policy routes
+// except bundle polling endpoints.
+//
 // GET /bundles/{tenant_id} — polled by per-tenant OPA sidecars in tenant namespaces.
 // GET /bundles/gateway     — polled by the OPA gateway pod in orbit-system only;
 //
@@ -54,7 +68,10 @@ func (c *Controller) GroupedBy() string { return "/policy" }
 //	access from outside orbit-system, since the gateway bundle contains all tenants'
 //	grants, roles, and routes.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
-	authChain := mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
+	authChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
 	return func(next http.Handler) http.Handler {
 		authed := authChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

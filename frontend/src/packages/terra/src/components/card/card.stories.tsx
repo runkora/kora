@@ -116,6 +116,122 @@ export const ElevatedSurface: Story = {
 };
 
 /**
+ * Section card anatomy — `leadingIcon`, `title`, `description`, `action`, and
+ * `divider` all provided to `CardHeader`. This is the pattern used for settings
+ * sections, configuration panels, and any card where the header identifies a
+ * named configuration area.
+ */
+export const SectionCardAnatomy: Story = {
+  render: () => (
+    <Stack direction="vertical" gap="comfortable" className="w-[480px]">
+      {/* With description and action */}
+      <Card>
+        <CardHeader
+          leadingIcon="user"
+          title="Identity"
+          description="Display name, slug, and framework selection."
+          action={
+            <Button variant="ghost" size="sm">
+              Edit
+            </Button>
+          }
+          divider
+        />
+        <CardContent padded>
+          <Text size="supporting" color="muted">
+            Name, slug, description, and framework fields go here.
+          </Text>
+        </CardContent>
+      </Card>
+
+      {/* With description, no action */}
+      <Card>
+        <CardHeader
+          leadingIcon="cpu"
+          title="Model"
+          description="Choose the language model powering this agent."
+          divider
+        />
+        <CardContent padded>
+          <Text size="supporting" color="muted">
+            Model picker goes here.
+          </Text>
+        </CardContent>
+      </Card>
+
+      {/* No description */}
+      <Card>
+        <CardHeader leadingIcon="wrench" title="Tools" divider />
+        <CardContent padded>
+          <Text size="supporting" color="muted">
+            Tool permission rows go here.
+          </Text>
+        </CardContent>
+      </Card>
+
+      {/* Danger variant — no leading icon, action only */}
+      <Card>
+        <CardHeader
+          title="Danger Zone"
+          action={
+            <Badge variant="destructive" size="sm">
+              Irreversible
+            </Badge>
+          }
+          divider
+        />
+        <CardContent padded>
+          <Text size="supporting" color="muted">
+            Destructive actions go here.
+          </Text>
+        </CardContent>
+      </Card>
+    </Stack>
+  ),
+};
+
+/**
+ * Multiple section cards stacked — shows the full page density and how the
+ * divider + tighter padding compose across a real settings layout.
+ */
+export const SectionCardStack: Story = {
+  render: () => (
+    <Stack direction="vertical" gap="snug" className="w-[520px]">
+      {(['user', 'cpu', 'file-text', 'hard-drive', 'wrench', 'settings'] as const).map(
+        (icon, i) => {
+          const titles = [
+            'Identity',
+            'Model',
+            'System Prompt',
+            'Context & Memory',
+            'Tools',
+            'Behaviour',
+          ];
+          const descs = [
+            'Agent display name, slug, and framework.',
+            'Language model powering this agent.',
+            'Instructions prepended to every conversation.',
+            'Persistence and context window configuration.',
+            'Tool permission levels for each capability.',
+            'Retry, streaming, and safety settings.',
+          ];
+          return (
+            <Card key={icon}>
+              <CardHeader leadingIcon={icon} title={titles[i]} description={descs[i]} divider />
+              <CardContent padded>
+                <Text size="supporting" color="muted">
+                  Section content
+                </Text>
+              </CardContent>
+            </Card>
+          );
+        },
+      )}
+    </Stack>
+  ),
+};
+
+/**
  * The `interactive` prop adds a `focus-within:border-accent` ring so the card
  * responds visually when a focusable descendant (an input, textarea, or button)
  * receives keyboard focus. Use for input cards, chat boxes, and search surfaces
@@ -126,7 +242,7 @@ export const ElevatedSurface: Story = {
 export const Interactive: Story = {
   render: () => (
     <Card interactive className="w-96">
-      <CardContent>
+      <CardContent padded>
         <Stack direction="vertical" gap="snug">
           <Text size="caption" color="subtle" weight="strong" transform="uppercase">
             Ask Orbit AI

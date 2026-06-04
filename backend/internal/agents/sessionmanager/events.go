@@ -8,8 +8,10 @@ type EventType string
 const (
 	// Persistence events — written to run_events by the session-manager.
 	EventTypeMessageComplete EventType = "message_complete"
+	EventTypeTextBlock       EventType = "text_block"
 	EventTypeToolUse         EventType = "tool_use"
 	EventTypeToolResult      EventType = "tool_result"
+	EventTypeRunError        EventType = "run_error"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
 	// Not written to run_events (ADR-0054); consumed by orbit-agents SSE subscribers.
@@ -25,12 +27,21 @@ type Event struct {
 	SequenceNo int64           `json:"sequence_no,omitempty"` // set for durable events after DB write
 }
 
-// MessageCompletePayload carries the full accumulated text and thinking for one
-// completed assistant turn. Written once per turn, replacing the N text_delta
-// and thinking_delta events that would otherwise be stored individually.
+// MessageCompletePayload carries the trailing text and thinking for one completed
+// assistant turn. Text before tool calls is stored in text_block events; this
+// payload carries only the text segment that followed the last tool call (or the
+// full text when no tools were used). Also serves as the turn-commit signal.
 type MessageCompletePayload struct {
 	Text     string `json:"text"`
 	Thinking string `json:"thinking,omitempty"`
+}
+
+// TextBlockPayload carries a segment of assistant text that preceded a tool call.
+// Persisted to run_events so replay can reconstruct the original interleaved order
+// of text and tool events. Not pushed to live SSE subscribers — live clients
+// already receive the same content incrementally via text_delta events.
+type TextBlockPayload struct {
+	Content string `json:"content"`
 }
 
 // ToolUsePayload carries a completed tool call (id, name, and full input).
@@ -45,6 +56,13 @@ type ToolResultPayload struct {
 	ToolUseID string `json:"tool_use_id"`
 	Content   string `json:"content"`
 	IsError   bool   `json:"is_error"`
+}
+
+// RunErrorPayload carries a fatal error that terminated or prevented a run.
+// Persisted to run_events so it survives reconnection and page reload.
+type RunErrorPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // TextDeltaPayload carries one chunk of streamed assistant text.

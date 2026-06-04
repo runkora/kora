@@ -34,6 +34,8 @@ type session struct {
 	cancel           context.CancelFunc
 	done             chan struct{}
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
+	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
+	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -122,6 +124,30 @@ func (reg *Registry) SendToolResult(ctx context.Context, runID, toolUseID, conte
 	return s.runner.SendToolResult(ctx, toolUseID, content)
 }
 
+// Interrupt signals the CLI subprocess to stop its current in-progress turn
+// without killing the session. The subprocess is expected to remain alive and
+// return to its input loop, at which point the drain loop arms the idle timer.
+//
+// If the subprocess exits despite the signal, completeDrain treats it as an
+// intentional idle transition rather than a failure.
+func (reg *Registry) Interrupt(ctx context.Context, runID string) error {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotFound
+	}
+	s.interruptClose.Store(true)
+	if err := s.runner.Interrupt(); err != nil {
+		s.interruptClose.Store(false)
+		return fmt.Errorf("interrupt runner: %w", err)
+	}
+	reg.logger.Info(ctx, "Session interrupted",
+		logging.Field{Key: "run_id", Value: runID},
+	)
+	return nil
+}
+
 // Close terminates a session and cleans up its resources.
 func (reg *Registry) Close(ctx context.Context, runID string) error {
 	reg.mu.Lock()
@@ -195,27 +221,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 // Runs in its own goroutine; ctx is the session-scoped context.
 func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	defer func() {
-		reg.mu.Lock()
-		if reg.sessions[s.runID] == s {
-			delete(reg.sessions, s.runID)
-		}
-		reg.mu.Unlock()
-
-		failed := !s.intentionalClose.Load()
-		bgCtx := context.Background()
-		reg.logger.Info(bgCtx, "Session drain complete",
-			logging.Field{Key: "run_id", Value: cfg.RunID},
-			logging.Field{Key: "failed", Value: failed},
-		)
-		if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, failed); err != nil {
-			reg.logger.Warn(bgCtx, "Failed to notify run completion",
-				logging.Field{Key: "run_id", Value: cfg.RunID},
-				logging.Field{Key: "failed", Value: failed},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-
-		close(s.done)
+		reg.completeDrain(s, cfg)
 	}()
 
 	eventRepo := newEventRepository(reg.pool)
@@ -229,6 +235,13 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 		}
 		idleTimer = time.NewTimer(reg.idleTimeout)
 		idleTimerC = idleTimer.C
+		s.isIdle.Store(true)
+		if err := reg.notifier.IdleRun(ctx, cfg.RunID); err != nil {
+			reg.logger.Warn(ctx, "Failed to transition run to idle",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 		reg.logger.Info(ctx, "Session idle timer armed",
 			logging.Field{Key: "run_id", Value: cfg.RunID},
 			logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
@@ -240,6 +253,15 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			idleTimer.Stop()
 			idleTimer = nil
 			idleTimerC = nil
+			if s.isIdle.Load() {
+				s.isIdle.Store(false)
+				if err := reg.notifier.ActivateRun(ctx, cfg.RunID); err != nil {
+					reg.logger.Warn(ctx, "Failed to transition run to active",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+						logging.Field{Key: "error", Value: err.Error()},
+					)
+				}
+			}
 			reg.logger.Info(ctx, "Session new turn started",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
 			)
@@ -260,25 +282,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 				disarmIdle()
 			}
 
-			if isDurableEvent(ev.Type) {
-				seqNo, err := eventRepo.Write(ctx, cfg.RunID, string(ev.Type), ev.Payload)
-				if err != nil {
-					reg.logger.Error(ctx, "Failed to write run event",
-						logging.Field{Key: "run_id", Value: cfg.RunID},
-						logging.Field{Key: "event_type", Value: string(ev.Type)},
-						logging.Field{Key: "error", Value: err.Error()},
-					)
-				} else {
-					ev.SequenceNo = seqNo
-				}
-			}
-			if err := reg.notifier.Notify(ctx, cfg.RunID, ev); err != nil {
-				reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
-					logging.Field{Key: "run_id", Value: cfg.RunID},
-					logging.Field{Key: "event_type", Value: string(ev.Type)},
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-			}
+			reg.persistAndPush(ctx, cfg.RunID, ev, eventRepo)
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
@@ -293,11 +297,174 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 	}
 }
 
+// completeDrain removes the session from the registry, notifies orbit-agents of
+// the final run state, and closes the done channel. Called from the drain defer.
+func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
+	bgCtx := context.Background()
+
+	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
+	// so the next message can be delivered to a warm process. Run transitions to idle.
+	//
+	// s stays registered until the resumed session is swapped in (or we give up), so
+	// a concurrent Close() always finds a session to claim. Otherwise Close could land
+	// in the gap between removing s and re-registering newS, return ErrSessionNotFound,
+	// and leave the freshly-started runner untracked and never terminated.
+	if s.interruptClose.Load() {
+		resumed := false
+		sessionID := s.runner.SessionID()
+		if sessionID == "" {
+			reg.logger.Info(bgCtx, "Session interrupted before init — falling back to idle",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+			)
+		} else {
+			newRunner := s.runner.NewResumeRunner()
+			newCtx, newCancel := context.WithCancel(context.Background())
+			workDir := filepath.Join(reg.workspaces, s.runID)
+			if startErr := newRunner.Start(newCtx, workDir); startErr != nil {
+				newCancel()
+				reg.logger.Error(bgCtx, "Failed to restart session after interrupt — falling back to idle",
+					logging.Field{Key: "run_id", Value: cfg.RunID},
+					logging.Field{Key: "error", Value: startErr.Error()},
+				)
+			} else {
+				newS := &session{runID: s.runID, runner: newRunner, cancel: newCancel, done: make(chan struct{})}
+				newS.isIdle.Store(true)
+				// Swap only if s is still the registered session. If a concurrent
+				// Close() already claimed it, abandon the new runner so it is not
+				// leaked as an untracked process.
+				reg.mu.Lock()
+				if reg.sessions[s.runID] == s {
+					reg.sessions[s.runID] = newS
+					reg.mu.Unlock()
+					go reg.drain(newCtx, newS, cfg)
+					resumed = true
+					reg.logger.Info(bgCtx, "Session restarted after interrupt — now idle",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+						logging.Field{Key: "session_id", Value: sessionID},
+					)
+				} else {
+					reg.mu.Unlock()
+					newCancel()
+					_ = newRunner.Close()
+					reg.logger.Info(bgCtx, "Resume abandoned — session closed concurrently",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+					)
+				}
+			}
+		}
+		// If we did not hand off to a resumed session, remove s ourselves (no-op if a
+		// concurrent Close already removed it).
+		if !resumed {
+			reg.mu.Lock()
+			if reg.sessions[s.runID] == s {
+				delete(reg.sessions, s.runID)
+			}
+			reg.mu.Unlock()
+		}
+		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
+			reg.logger.Warn(bgCtx, "Failed to idle run after interrupt",
+				logging.Field{Key: "run_id", Value: cfg.RunID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+		close(s.done)
+		return
+	}
+
+	// Normal/failed teardown: remove s from the registry before notifying.
+	reg.mu.Lock()
+	if reg.sessions[s.runID] == s {
+		delete(reg.sessions, s.runID)
+	}
+	reg.mu.Unlock()
+
+	failed := !s.intentionalClose.Load()
+	reg.logger.Info(bgCtx, "Session drain complete",
+		logging.Field{Key: "run_id", Value: cfg.RunID},
+		logging.Field{Key: "failed", Value: failed},
+	)
+	if failed {
+		reg.emitRunError(bgCtx, cfg.RunID, "subprocess_exit", "Agent process exited unexpectedly")
+	}
+	fromState := "active"
+	if s.isIdle.Load() {
+		fromState = "idle"
+	}
+	if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, fromState, failed); err != nil {
+		reg.logger.Warn(bgCtx, "Failed to notify run completion",
+			logging.Field{Key: "run_id", Value: cfg.RunID},
+			logging.Field{Key: "failed", Value: failed},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	close(s.done)
+}
+
+// persistAndPush writes durable events to run_events and fans out to orbit-agents
+// via the notifier. Ephemeral events (text_delta, thinking_delta, message_stop)
+// are pushed only, never persisted.
+func (reg *Registry) persistAndPush(ctx context.Context, runID string, ev Event, eventRepo *eventRepository) {
+	if isDurableEvent(ev.Type) {
+		seqNo, err := eventRepo.Write(ctx, runID, string(ev.Type), ev.Payload)
+		if err != nil {
+			reg.logger.Error(ctx, "Failed to write run event",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "event_type", Value: string(ev.Type)},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		} else {
+			ev.SequenceNo = seqNo
+		}
+	}
+	// text_block is persisted for replay but not pushed live — live clients
+	// already receive the same content via text_delta streaming events.
+	if !isReplayOnlyEvent(ev.Type) {
+		if err := reg.notifier.Notify(ctx, runID, ev); err != nil {
+			reg.logger.Warn(ctx, "Failed to push event to orbit-agents",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "event_type", Value: string(ev.Type)},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}
+}
+
+// emitRunError persists a run_error event to the DB and pushes it to orbit-agents.
+func (reg *Registry) emitRunError(ctx context.Context, runID, code, message string) {
+	ev, err := newEvent(EventTypeRunError, RunErrorPayload{Code: code, Message: message})
+	if err != nil {
+		return
+	}
+	seqNo, dbErr := newEventRepository(reg.pool).Write(ctx, runID, string(EventTypeRunError), ev.Payload)
+	if dbErr != nil {
+		reg.logger.Error(ctx, "Failed to persist run_error event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: dbErr.Error()},
+		)
+	} else {
+		ev.SequenceNo = seqNo
+	}
+	if notifyErr := reg.notifier.Notify(ctx, runID, ev); notifyErr != nil {
+		reg.logger.Warn(ctx, "Failed to push run_error event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: notifyErr.Error()},
+		)
+	}
+}
+
 // isDurableEvent returns true for events that must be persisted to run_events.
 func isDurableEvent(t EventType) bool {
 	switch t {
-	case EventTypeMessageComplete, EventTypeToolUse, EventTypeToolResult:
+	case EventTypeMessageComplete, EventTypeTextBlock, EventTypeToolUse, EventTypeToolResult, EventTypeRunError:
 		return true
 	}
 	return false
+}
+
+// isReplayOnlyEvent returns true for durable events that should not be pushed to
+// live SSE subscribers. These events are written to run_events for ordered replay
+// but are redundant during live streaming (clients receive equivalent content via
+// ephemeral delta events).
+func isReplayOnlyEvent(t EventType) bool {
+	return t == EventTypeTextBlock
 }

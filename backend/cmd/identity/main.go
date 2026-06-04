@@ -13,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -176,8 +177,28 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	}
 
 	return []api.Controller{
-		identity.NewController(svc, logger),
+		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 	}, nil
+}
+
+// identityRoutes returns the static route → required-scope bindings for the
+// identity service. The map covers ONLY the authenticated routes (PAT
+// management, user profile resolution) — the unauthenticated routes (device,
+// session, exchange, JWKS, tenant discovery) are registered directly with
+// mux.Handle in handlers.go Boot and never reach ScopeEnforcementMiddleware.
+//
+// Today every entry is RequiredScope: "" — meaning "any authenticated non-PAT
+// caller is allowed". This preserves current behavior. Follow-up PRs can
+// tighten scopes (e.g. platform:users:read for admin-only user listing,
+// platform:pats:write for cross-user PAT management).
+func identityRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/identity/tokens", Method: "POST", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/tokens", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/tokens", Method: "PATCH", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/tokens", Method: "DELETE", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: ""},
+	}
 }
 
 // initServer creates and configures the HTTP server with middleware and controllers.

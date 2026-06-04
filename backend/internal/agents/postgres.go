@@ -20,6 +20,9 @@ var ErrConflict = errors.New("conflict")
 // ErrSlugTaken is returned when a slug is already in use within a tenant.
 var ErrSlugTaken = errors.New("slug already taken")
 
+// ErrRunNotAcceptingMessages is returned when a message is sent to a run that is not in a state that accepts messages.
+var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
+
 // PostgresRepository implements Repository against a pgxpool.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
@@ -39,10 +42,10 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	now := time.Now().UTC()
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), now, now,
+		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -55,21 +58,21 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
 		FROM agent_types WHERE id = $1`, id)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
 		FROM agent_types WHERE tenant_id = $1 AND slug = $2`, tenantID, slug)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
 		FROM agent_types WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types: %w", err)
@@ -90,9 +93,9 @@ func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string
 func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, updated_at=$9
-		WHERE id=$10`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, time.Now().UTC(), at.ID,
+		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10
+		WHERE id=$11`,
+		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), at.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update agent_type: %w", err)
@@ -254,6 +257,24 @@ func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *PostgresRepository) DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `DELETE FROM runs WHERE agent_type_id=$1 RETURNING id`, agentTypeID)
+	if err != nil {
+		return nil, fmt.Errorf("delete runs for agent type: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deleted run id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT pod_ordinal, COUNT(*) FROM runs
@@ -273,6 +294,60 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 		out[ord] = count
 	}
 	return out, rows.Err()
+}
+
+// ReapStaleRuns marks runs that have been stuck in transient states for longer
+// than staleDuration. A run is only reaped when neither runs.updated_at NOR its
+// most recent run_events row is newer than the cutoff — events act as a liveness
+// heartbeat, so a long-but-active turn (which streams events continuously) is not
+// reaped, while a run whose pod died (no events, no state changes) is. Returns the
+// IDs partitioned by the terminal state each row was moved to, so the caller can
+// emit the correct event type per group.
+//
+//   - active / starting → failed (session-manager died mid-turn)
+//   - idle → completed  (session-manager died after a clean turn; idle timeout
+//     never fired because the pod restarted)
+func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
+	now := time.Now().UTC()
+	cutoff := now.Add(-staleDuration)
+	rows, err := r.pool.Query(ctx, `
+		UPDATE runs
+		SET state = CASE
+			WHEN state IN ('active','starting') THEN 'failed'
+			ELSE 'completed'
+		END,
+		completed_at = $1,
+		updated_at   = $1
+		WHERE state IN ('active','starting','idle')
+		  AND updated_at < $2
+		  AND NOT EXISTS (
+		      SELECT 1 FROM run_events e
+		      WHERE e.run_id = runs.id AND e.created_at >= $2
+		  )
+		RETURNING id, state`,
+		now, cutoff,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reap stale runs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			id    string
+			state string
+		)
+		if scanErr := rows.Scan(&id, &state); scanErr != nil {
+			return nil, nil, scanErr
+		}
+		switch state {
+		case string(RunStateFailed):
+			failed = append(failed, id)
+		case string(RunStateCompleted):
+			completed = append(completed, id)
+		}
+	}
+	return failed, completed, rows.Err()
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -340,7 +415,7 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var state, framework string
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.CreatedAt, &at.UpdatedAt,
+		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

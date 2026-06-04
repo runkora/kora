@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
 )
@@ -29,12 +31,22 @@ import (
 type CatalogController struct {
 	store    *CatalogStore
 	verifier *token.Verifier
+	eval     policy.Evaluator
+	routes   []routescopes.RouteScope
+	basePath string
 	logger   logging.Logger
 }
 
 // NewCatalogController constructs a CatalogController.
-func NewCatalogController(store *CatalogStore, verifier *token.Verifier, logger logging.Logger) *CatalogController {
-	return &CatalogController{store: store, verifier: verifier, logger: logger}
+//
+// routes and eval are passed to ScopeEnforcementMiddleware for in-process
+// route → scope enforcement (ADR-0064). Pass the same inferenceRoutes() slice
+// the main controller uses; the catalog routes are matched by the /v1/catalog
+// prefix entries in that table. basePath must match the server's BasePath
+// (e.g. "/v1") so the middleware can reconstruct absolute paths after
+// http.StripPrefix.
+func NewCatalogController(store *CatalogStore, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
+	return &CatalogController{store: store, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 func (c *CatalogController) GroupedBy() string { return "/catalog" }
@@ -42,6 +54,7 @@ func (c *CatalogController) GroupedBy() string { return "/catalog" }
 func (c *CatalogController) Middleware() mw.MiddlewareHandler {
 	return mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 }
 

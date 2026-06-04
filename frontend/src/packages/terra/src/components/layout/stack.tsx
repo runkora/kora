@@ -342,6 +342,9 @@ export interface StackProps {
   'aria-live'?: 'off' | 'assertive' | 'polite';
   'data-slot'?: string;
   'data-state'?: string;
+  'data-spin'?: string;
+  /** Inline style — use for CSS custom property overrides and one-off layout adjustments. */
+  style?: React.CSSProperties;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

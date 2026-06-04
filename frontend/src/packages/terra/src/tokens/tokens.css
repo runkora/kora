@@ -175,3 +175,62 @@
   --radius-md: 0.5rem; /* 8px  */
   --radius-lg: 0.75rem; /* 12px */
 }
+
+/* ─── OrbitalLoader keyframes ────────────────────────────────────────────── */
+
+@keyframes orbital-core-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes orbital-dot-sm1 {
+  from {
+    transform: rotate(0deg) translateX(8px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(8px) rotate(-360deg);
+  }
+}
+
+@keyframes orbital-dot-sm2 {
+  from {
+    transform: rotate(80deg) translateX(13px) rotate(-80deg);
+  }
+  to {
+    transform: rotate(440deg) translateX(13px) rotate(-440deg);
+  }
+}
+
+@keyframes orbital-dot-md1 {
+  from {
+    transform: rotate(0deg) translateX(10px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(10px) rotate(-360deg);
+  }
+}
+
+@keyframes orbital-dot-md2 {
+  from {
+    transform: rotate(80deg) translateX(16px) rotate(-80deg);
+  }
+  to {
+    transform: rotate(440deg) translateX(16px) rotate(-440deg);
+  }
+}
+
+@keyframes orbital-dot-md3 {
+  from {
+    transform: rotate(200deg) translateX(22px) rotate(-200deg);
+  }
+  to {
+    transform: rotate(560deg) translateX(22px) rotate(-560deg);
+  }
+}

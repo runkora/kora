@@ -78,7 +78,6 @@ describe('DashboardSidebar', () => {
       renderSidebar();
       const linkTexts = screen.getAllByRole('link').map((l) => l.textContent?.trim());
       // Main wip
-      expect(linkTexts).not.toContain('Agents');
       expect(linkTexts).not.toContain('Event Spine');
       expect(linkTexts).not.toContain('Credentials');
       // Security — entirely wip
@@ -103,6 +102,14 @@ describe('DashboardSidebar', () => {
       expect(screen.getByRole('link', { name: /models/i })).toHaveAttribute(
         'href',
         APP_ROUTES.modelGateway.models,
+      );
+    });
+
+    it('Agents link points to APP_ROUTES.agents.list', () => {
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /agents/i })).toHaveAttribute(
+        'href',
+        APP_ROUTES.agents.list,
       );
     });
 
@@ -141,7 +148,7 @@ describe('DashboardSidebar', () => {
       vi.mocked(usePathname).mockReturnValue(APP_ROUTES.home);
       renderSidebar();
       const linkTexts = screen.getAllByRole('link').map((l) => l.textContent?.trim());
-      expect(linkTexts).not.toContain('Agents');
+      expect(linkTexts).not.toContain('Event Spine');
     });
   });
 });

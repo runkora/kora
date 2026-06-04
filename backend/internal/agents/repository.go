@@ -1,12 +1,12 @@
 package agents
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
-// Repository is the persistence interface for orbit-agents.
-// All methods are tenant-scoped; callers must supply tenantID where relevant.
-type Repository interface {
-	// ── Agent Types ──────────────────────────────────────────────────────────
-
+// AgentTypeRepository is the persistence interface for agent type operations.
+type AgentTypeRepository interface {
 	CreateAgentType(ctx context.Context, at AgentType) error
 	GetAgentType(ctx context.Context, id string) (*AgentType, error)
 	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
@@ -18,9 +18,10 @@ type Repository interface {
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
 	SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error
 	DeleteAgentType(ctx context.Context, id string) error
+}
 
-	// ── Runs ─────────────────────────────────────────────────────────────────
-
+// RunRepository is the persistence interface for run operations, events, and messages.
+type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
 	ListRuns(ctx context.Context, tenantID string, agentTypeID string) ([]Run, error)
@@ -29,8 +30,19 @@ type Repository interface {
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
 	AssignPod(ctx context.Context, runID string, podOrdinal int) error
 	DeleteRun(ctx context.Context, id string) error
+	// DeleteRunsByAgentType force-deletes all runs for the given agent type and returns
+	// their IDs. Used during agent type deletion to clear the FK reference before the
+	// agent type row is removed; the returned IDs let the caller clean up each run's
+	// sandbox pod (named sandbox-{runID}), which is not covered by DeprovisionAgentType.
+	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]string, error)
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// ReapStaleRuns marks runs stuck in transient states for longer than
+	// staleDuration. Returns the IDs partitioned by terminal state:
+	//   - failed:    runs transitioned active|starting → failed
+	//   - completed: runs transitioned idle → completed (idle timeout missed
+	//                due to a session-manager restart)
+	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error)
 
 	// ── Events ────────────────────────────────────────────────────────────────
 
@@ -40,4 +52,12 @@ type Repository interface {
 	// ── Messages ──────────────────────────────────────────────────────────────
 
 	AppendRunMessage(ctx context.Context, m RunMessage) error
+}
+
+// Repository is the combined persistence interface for orbit-agents.
+// It is retained for backward-compatibility; most new code should depend on
+// AgentTypeRepository or RunRepository directly.
+type Repository interface {
+	AgentTypeRepository
+	RunRepository
 }
