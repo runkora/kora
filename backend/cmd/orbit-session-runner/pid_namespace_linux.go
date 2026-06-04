@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -100,8 +101,9 @@ func runInPIDNamespace(_ string, _ []string) error {
 	}
 
 	// Re-invoke ourselves with the same arguments. The child detects nsChildEnvKey
-	// and takes the setup-then-exec path rather than normal startup.
-	cmd := exec.Command(self, os.Args[1:]...)
+	// and takes the setup-then-exec path rather than normal startup. The wrapper has
+	// no cancellable lifecycle of its own, so context.Background() is correct here.
+	cmd := exec.CommandContext(context.Background(), self, os.Args[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -109,7 +111,7 @@ func runInPIDNamespace(_ string, _ []string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
 		// Identity UID/GID mapping: the process has the same UID inside and outside
-		// the namespace, avoiding root-detection behaviour in Node.js / claude.
+		// the namespace, avoiding root-detection behavior in Node.js / claude.
 		UidMappings: []syscall.SysProcIDMap{
 			{ContainerID: os.Getuid(), HostID: os.Getuid(), Size: 1},
 		},

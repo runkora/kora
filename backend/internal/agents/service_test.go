@@ -898,17 +898,19 @@ func TestStartReaper_MarksStaleActiveRunFailed(t *testing.T) {
 	defer cancel()
 	go svc.StartReaper(ctx)
 
+	// Wait for the sandbox deprovision — the reaper's last step, after the state
+	// transition and event publish — so the assertion does not race the reaper.
 	waitFor(t, time.Second, func() bool {
-		repo.mu.Lock()
-		defer repo.mu.Unlock()
-		return repo.runs[r.ID].State == RunStateFailed
+		k8s.mu.Lock()
+		defer k8s.mu.Unlock()
+		return len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
 	})
 
-	k8s.mu.Lock()
-	sandboxCleaned := len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
-	k8s.mu.Unlock()
-	if !sandboxCleaned {
-		t.Error("reaper must deprovision sandbox for failed run")
+	repo.mu.Lock()
+	state := repo.runs[r.ID].State
+	repo.mu.Unlock()
+	if state != RunStateFailed {
+		t.Errorf("run state = %q, want failed", state)
 	}
 }
 
@@ -925,17 +927,19 @@ func TestStartReaper_MarksStaleIdleRunCompleted(t *testing.T) {
 	defer cancel()
 	go svc.StartReaper(ctx)
 
+	// Wait for the sandbox deprovision — the reaper's last step, after the state
+	// transition and event publish — so the assertion does not race the reaper.
 	waitFor(t, time.Second, func() bool {
-		repo.mu.Lock()
-		defer repo.mu.Unlock()
-		return repo.runs[r.ID].State == RunStateCompleted
+		k8s.mu.Lock()
+		defer k8s.mu.Unlock()
+		return len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
 	})
 
-	k8s.mu.Lock()
-	sandboxCleaned := len(k8s.deletedSandboxes) == 1 && k8s.deletedSandboxes[0] == r.ID
-	k8s.mu.Unlock()
-	if !sandboxCleaned {
-		t.Error("reaper must deprovision sandbox for completed idle run")
+	repo.mu.Lock()
+	state := repo.runs[r.ID].State
+	repo.mu.Unlock()
+	if state != RunStateCompleted {
+		t.Errorf("run state = %q, want completed", state)
 	}
 }
 
