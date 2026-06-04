@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -361,7 +362,6 @@ func TestStartRun_HappyPath(t *testing.T) {
 	run, err := svc.StartRun(context.Background(), StartRunRequest{
 		TenantID:    "t-1",
 		AgentTypeID: at.ID,
-		CreatedBy:   "user-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -984,10 +984,46 @@ func TestStartReaper_PublishesPubSubEventOnReap(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev.Type != "run_failed" {
-			t.Errorf("event type = %q, want run_failed", ev.Type)
+		if ev.Type != "run_state" {
+			t.Errorf("event type = %q, want run_state", ev.Type)
+		}
+		if !strings.Contains(string(ev.Payload), `"failed"`) {
+			t.Errorf("event payload = %q, want state failed", string(ev.Payload))
 		}
 	case <-ctx.Done():
-		t.Fatal("timed out waiting for run_failed event from reaper")
+		t.Fatal("timed out waiting for run_state event from reaper")
+	}
+}
+
+func TestStartReaper_DoesNotReapRunWithRecentEvents(t *testing.T) {
+	svc, repo, k8s, _ := newTestServiceWithReaper(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	r := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+	// Stale updated_at (no state transition for a long active turn)...
+	repo.mu.Lock()
+	repo.runs[r.ID].UpdatedAt = time.Now().Add(-2 * time.Hour)
+	repo.mu.Unlock()
+	// ...but the run is still streaming events, so it must NOT be reaped.
+	if _, err := repo.AppendRunEvent(context.Background(), RunEvent{RunID: r.ID, EventType: "text_delta", Payload: []byte(`{}`)}); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	go svc.StartReaper(ctx)
+	<-ctx.Done()
+
+	repo.mu.Lock()
+	state := repo.runs[r.ID].State
+	repo.mu.Unlock()
+	if state != RunStateActive {
+		t.Errorf("active run with recent events must not be reaped, state = %s", state)
+	}
+	k8s.mu.Lock()
+	cleaned := len(k8s.deletedSandboxes)
+	k8s.mu.Unlock()
+	if cleaned != 0 {
+		t.Errorf("no sandbox should be deleted for live run, got %d deletions", cleaned)
 	}
 }

@@ -30,9 +30,11 @@ type RunRepository interface {
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
 	AssignPod(ctx context.Context, runID string, podOrdinal int) error
 	DeleteRun(ctx context.Context, id string) error
-	// DeleteRunsByAgentType force-deletes all runs for the given agent type. Used during
-	// agent type deletion to clear the FK reference before the agent type row is removed.
-	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) error
+	// DeleteRunsByAgentType force-deletes all runs for the given agent type and returns
+	// their IDs. Used during agent type deletion to clear the FK reference before the
+	// agent type row is removed; the returned IDs let the caller clean up each run's
+	// sandbox pod (named sandbox-{runID}), which is not covered by DeprovisionAgentType.
+	DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]string, error)
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 	// ReapStaleRuns marks runs stuck in transient states for longer than

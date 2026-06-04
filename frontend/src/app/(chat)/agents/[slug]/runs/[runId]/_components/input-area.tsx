@@ -122,15 +122,16 @@ function StopIcon() {
 }
 
 export function InputArea() {
-  const { agentName, runState, isBusy, isPending, addHumanMessage, interruptRun } = useRunContext();
+  const { agentName, runState, isBusy, addHumanMessage, interruptRun } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded = runState === 'completed' || runState === 'failed';
   const isDisabled = isEnded || isBusy;
   const canSend = !!value.trim() && !isDisabled;
-  // Show stop button as soon as message is sent — covers the gap between send
-  // and the first SSE event that transitions runState to active (isBusy).
-  const showStop = isBusy || isPending;
+  // Only show Stop when the run is actually interruptible. The backend rejects an
+  // interrupt unless the run is 'active' (and interruptRun swallows that error), so
+  // showing Stop during 'starting'/pending made the button a silent no-op.
+  const showStop = runState === 'active';
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;

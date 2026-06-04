@@ -388,10 +388,23 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	}
 
 	// Runs must be removed before the agent type row to satisfy the FK constraint.
-	if err := s.runRepo.DeleteRunsByAgentType(ctx, id); err != nil {
-		span.RecordError(err)
+	deletedRunIDs, delRunsErr := s.runRepo.DeleteRunsByAgentType(ctx, id)
+	if delRunsErr != nil {
+		span.RecordError(delRunsErr)
 		span.SetStatus(codes.Error, "delete runs for agent type")
-		return fmt.Errorf("delete runs for agent type: %w", err)
+		return fmt.Errorf("delete runs for agent type: %w", delRunsErr)
+	}
+
+	// DeprovisionAgentType only removes StatefulSet-scoped resources; per-run sandbox
+	// pods (sandbox-{runID}) outlive it. Delete them best-effort so they are not
+	// orphaned — the run rows are gone, so the reaper can no longer reclaim them.
+	for _, runID := range deletedRunIDs {
+		if delErr := s.k8s.DeleteSandbox(ctx, runID, namespace); delErr != nil {
+			s.logger.Warn(ctx, "failed to delete sandbox for deleted run",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+		}
 	}
 
 	if err := s.repo.DeleteAgentType(ctx, id); err != nil {

@@ -257,12 +257,22 @@ func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *PostgresRepository) DeleteRunsByAgentType(ctx context.Context, agentTypeID string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE agent_type_id=$1`, agentTypeID)
+func (r *PostgresRepository) DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `DELETE FROM runs WHERE agent_type_id=$1 RETURNING id`, agentTypeID)
 	if err != nil {
-		return fmt.Errorf("delete runs for agent type: %w", err)
+		return nil, fmt.Errorf("delete runs for agent type: %w", err)
 	}
-	return nil
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deleted run id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
@@ -287,8 +297,12 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 }
 
 // ReapStaleRuns marks runs that have been stuck in transient states for longer
-// than staleDuration. Returns the IDs partitioned by the terminal state each
-// row was moved to, so the caller can emit the correct event type per group.
+// than staleDuration. A run is only reaped when neither runs.updated_at NOR its
+// most recent run_events row is newer than the cutoff — events act as a liveness
+// heartbeat, so a long-but-active turn (which streams events continuously) is not
+// reaped, while a run whose pod died (no events, no state changes) is. Returns the
+// IDs partitioned by the terminal state each row was moved to, so the caller can
+// emit the correct event type per group.
 //
 //   - active / starting → failed (session-manager died mid-turn)
 //   - idle → completed  (session-manager died after a clean turn; idle timeout
@@ -306,6 +320,10 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 		updated_at   = $1
 		WHERE state IN ('active','starting','idle')
 		  AND updated_at < $2
+		  AND NOT EXISTS (
+		      SELECT 1 FROM run_events e
+		      WHERE e.run_id = runs.id AND e.created_at >= $2
+		  )
 		RETURNING id, state`,
 		now, cutoff,
 	)

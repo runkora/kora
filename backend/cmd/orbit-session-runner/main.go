@@ -75,13 +75,32 @@ func main() {
 // Called either by the namespace child (after /proc remount) or in the fallback
 // path (before direct exec). BestEffort() silently no-ops on kernels < 5.13.
 func applyLandlock(workDir string) {
-	err := landlock.V3.BestEffort().RestrictPaths(
-		landlock.RWDirs(workDir),
-		landlock.RWDirs("/dev", "/tmp"),
-		landlock.RODirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run"),
-	)
-	if err != nil {
+	// Only restrict paths that actually exist. Landlock's RestrictPaths returns
+	// ENOENT for a missing whitelisted path (BestEffort only downgrades the ABI
+	// version, it does not tolerate missing paths), which would turn a benign "this
+	// image lacks /sbin or /run" into a fatal os.Exit and kill the run with no
+	// fallback — the opposite of the best-effort contract. Filtering keeps
+	// enforcement intact for the paths that do exist.
+	rules := []landlock.Rule{landlock.RWDirs(workDir)}
+	if rw := existingDirs("/dev", "/tmp"); len(rw) > 0 {
+		rules = append(rules, landlock.RWDirs(rw...))
+	}
+	if ro := existingDirs("/usr", "/bin", "/sbin", "/lib", "/etc", "/proc", "/run"); len(ro) > 0 {
+		rules = append(rules, landlock.RODirs(ro...))
+	}
+	if err := landlock.V3.BestEffort().RestrictPaths(rules...); err != nil {
 		fmt.Fprintf(os.Stderr, "orbit-session-runner: landlock restriction failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// existingDirs returns the subset of paths that exist and are directories.
+func existingDirs(paths ...string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			out = append(out, p)
+		}
+	}
+	return out
 }

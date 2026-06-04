@@ -54,7 +54,10 @@ export const POST = withAuth(
   async (req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { typeId } = await (context?.params ?? Promise.resolve({ typeId: '' }));
     try {
-      const body = (await req.json().catch(() => ({}))) as { task?: string };
+      const body = (await req.json().catch(() => ({}))) as {
+        task?: string;
+        provision_sandbox?: boolean;
+      };
       const agentTypeId = await resolveAgentTypeId(session.accessToken, session.tenantId, typeId);
       if (!agentTypeId) {
         return NextResponse.json(
@@ -63,11 +66,13 @@ export const POST = withAuth(
         );
       }
       const client = agentsClient(session.accessToken);
+      // created_by is intentionally not sent — the backend derives the run creator
+      // from the verified platform token, never from the request body.
       const run = await client.post<unknown>('/api/v1/runs', {
         tenant_id: session.tenantId,
         agent_type_id: agentTypeId,
-        created_by: session.user.sub,
         initial_message: body.task ?? '',
+        provision_sandbox: body.provision_sandbox ?? false,
       });
       return NextResponse.json({ data: run }, { status: 201 });
     } catch (err) {

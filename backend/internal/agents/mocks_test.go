@@ -255,15 +255,17 @@ func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) error {
+func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var ids []string
 	for id, r := range m.runs {
 		if r.AgentTypeID == agentTypeID {
+			ids = append(ids, id)
 			delete(m.runs, id)
 		}
 	}
-	return nil
+	return ids, nil
 }
 
 func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
@@ -290,6 +292,18 @@ func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Dur
 	defer m.mu.Unlock()
 	for _, r := range m.runs {
 		if r.UpdatedAt.IsZero() || r.UpdatedAt.After(cutoff) {
+			continue
+		}
+		// Recent events act as a liveness heartbeat (mirrors the NOT EXISTS clause in
+		// PostgresRepository.ReapStaleRuns): an actively-streaming run is not reaped.
+		recentEvent := false
+		for _, e := range m.events[r.ID] {
+			if e.CreatedAt.After(cutoff) {
+				recentEvent = true
+				break
+			}
+		}
+		if recentEvent {
 			continue
 		}
 		switch r.State {

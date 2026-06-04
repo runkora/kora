@@ -79,8 +79,11 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 	)
 	defer span.End()
 	req.TenantID = tenantID
-	if claims, ok := token.ClaimsFromContext(ctx); ok && req.CreatedBy == "" {
-		req.CreatedBy = claims.Subject
+	// created_by is always the verified token subject — the request body cannot set
+	// it (prevents attribution spoofing).
+	createdBy := ""
+	if claims, ok := token.ClaimsFromContext(ctx); ok {
+		createdBy = claims.Subject
 	}
 
 	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
@@ -118,7 +121,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		TenantID:    req.TenantID,
 		AgentTypeID: req.AgentTypeID,
 		State:       RunStatePending,
-		CreatedBy:   req.CreatedBy,
+		CreatedBy:   createdBy,
 	}
 	span.SetAttributes(attribute.String("run_id", run.ID))
 
@@ -157,6 +160,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		return nil, fmt.Errorf("set run active: %w", err)
 	}
 	run.State = RunStateActive
+
+	// Optional pre-provisioning: warm the sandbox pod so the first tool call avoids
+	// cold-start latency. Runs in the background (see maybeWarmSandbox).
+	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace)
 
 	if req.InitialMessage != "" {
 		if err := s.sm.SendMessage(ctx, podURL, run.ID, req.InitialMessage); err != nil {
@@ -672,15 +679,17 @@ func (s *RunService) StartReaper(ctx context.Context) {
 				logging.Field{Key: "failed_ids", Value: failedIDs},
 				logging.Field{Key: "completed_ids", Value: completedIDs},
 			)
-			// Emit run_failed for active/starting → failed transitions, run_state
-			// "completed" for idle → completed transitions. The reaper bypasses
-			// Transition() because the DB write already happened atomically in
-			// ReapStaleRuns; we only need to notify subscribers and clean up.
+			// Emit a run_state event for each terminal transition (failed for
+			// active/starting, completed for idle). The reaper bypasses Transition()
+			// because ReapStaleRuns already committed the DB state atomically, but it
+			// still persists+publishes the event so both live subscribers and SSE
+			// replay observe the terminal state. (A bespoke "run_failed" type was not
+			// handled by the frontend, leaving reaped runs stuck "busy".)
 			for _, id := range failedIDs {
-				s.pubsub.Publish(id, PushedEvent{Type: "run_failed", Payload: []byte(`{}`)})
+				s.publishReapedState(ctx, id, RunStateFailed)
 			}
 			for _, id := range completedIDs {
-				s.pubsub.Publish(id, PushedEvent{Type: "run_state", Payload: []byte(`{"state":"completed"}`)})
+				s.publishReapedState(ctx, id, RunStateCompleted)
 			}
 			for _, id := range append(append([]string{}, failedIDs...), completedIDs...) {
 				run, err := s.repo.GetRun(ctx, id)
@@ -695,4 +704,43 @@ func (s *RunService) StartReaper(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// maybeWarmSandbox eagerly provisions the run's sandbox pod in the background when
+// enabled, so the first tool call avoids cold-start latency. Best-effort and
+// idempotent — the session-manager's later on-demand ProvisionSandbox reuses the
+// warmed pod. The request ctx ends when StartRun returns, so we detach from its
+// cancellation (keeping its trace via WithoutCancel) and cap the warm-up so a stuck
+// pod cannot leak the goroutine.
+func (s *RunService) maybeWarmSandbox(ctx context.Context, enabled bool, run Run, slug, namespace string) {
+	if !enabled {
+		return
+	}
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
+		defer cancel()
+		if _, err := s.k8s.ProvisionSandbox(bgCtx, run, slug, namespace); err != nil {
+			s.logger.Warn(bgCtx, "pre-provision sandbox failed",
+				logging.Field{Key: "run_id", Value: run.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}()
+}
+
+// publishReapedState persists and publishes a run_state event for a reaper-driven
+// terminal transition. ReapStaleRuns already committed the runs.state column, so
+// this only records the event (for SSE replay) and notifies live subscribers.
+func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
+	payload := []byte(`{"state":"` + string(state) + `"}`)
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	if err != nil {
+		s.logger.Error(ctx, "reaper: failed to persist run_state event",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "state", Value: string(state)},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		seqNo = 0
+	}
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
 }
