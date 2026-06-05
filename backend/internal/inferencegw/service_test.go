@@ -230,3 +230,75 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 		t.Errorf("expected ErrPolicyDenied when all targets filtered, got: %v", err)
 	}
 }
+
+// ─── extractFailureDetails ────────────────────────────────────────────────────
+
+func TestExtractFailureDetails_NilError(t *testing.T) {
+	t.Parallel()
+	if got := extractFailureDetails(nil); got != nil {
+		t.Errorf("expected nil for nil error, got %+v", got)
+	}
+}
+
+func TestExtractFailureDetails_NonConnectorError(t *testing.T) {
+	t.Parallel()
+	if got := extractFailureDetails(errors.New("generic error")); got != nil {
+		t.Errorf("expected nil for non-ConnectorError, got %+v", got)
+	}
+}
+
+func TestExtractFailureDetails_AllFieldsPopulated(t *testing.T) {
+	t.Parallel()
+	err := &ConnectorError{
+		Provider:        ProviderBedrock,
+		Code:            "THROTTLED",
+		HTTPStatus:      429,
+		ProviderMessage: "Rate exceeded",
+	}
+	got := extractFailureDetails(err)
+	if got == nil {
+		t.Fatal("expected non-nil FailureDetails")
+	}
+	if got.ProviderHTTPStatus == nil || *got.ProviderHTTPStatus != 429 {
+		t.Errorf("ProviderHTTPStatus = %v, want 429", got.ProviderHTTPStatus)
+	}
+	if got.ProviderErrorType == nil || *got.ProviderErrorType != "THROTTLED" {
+		t.Errorf("ProviderErrorType = %v, want THROTTLED", got.ProviderErrorType)
+	}
+	if got.ProviderErrorMessage == nil || *got.ProviderErrorMessage != "Rate exceeded" {
+		t.Errorf("ProviderErrorMessage = %v, want 'Rate exceeded'", got.ProviderErrorMessage)
+	}
+}
+
+func TestExtractFailureDetails_ZeroHTTPStatus(t *testing.T) {
+	t.Parallel()
+	err := &ConnectorError{Code: "NETWORK_ERROR", HTTPStatus: 0}
+	got := extractFailureDetails(err)
+	if got == nil {
+		t.Fatal("expected non-nil FailureDetails")
+	}
+	if got.ProviderHTTPStatus != nil {
+		t.Errorf("expected nil ProviderHTTPStatus for HTTPStatus=0, got %d", *got.ProviderHTTPStatus)
+	}
+}
+
+func TestExtractFailureDetails_MessageTruncatedAt500(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 600)
+	err := &ConnectorError{Code: "CONTEXT_WINDOW_EXCEEDED", ProviderMessage: long}
+	got := extractFailureDetails(err)
+	if got == nil || got.ProviderErrorMessage == nil {
+		t.Fatal("expected non-nil FailureDetails with message")
+	}
+	if len(*got.ProviderErrorMessage) != 500 {
+		t.Errorf("message length = %d, want 500", len(*got.ProviderErrorMessage))
+	}
+}
+
+func TestExtractFailureDetails_EmptyConnectorError(t *testing.T) {
+	t.Parallel()
+	err := &ConnectorError{Provider: ProviderBedrock}
+	if got := extractFailureDetails(err); got != nil {
+		t.Errorf("expected nil when all fields empty, got %+v", got)
+	}
+}

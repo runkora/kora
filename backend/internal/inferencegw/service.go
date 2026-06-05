@@ -25,7 +25,7 @@ var tracer = otel.Tracer("inferencegw")
 // principal carries the extracted identity context for a single request.
 // Populated from the verified PlatformClaims stored in context by AuthMiddleware.
 // TokenID is only populated for PAT-authenticated requests (PrincipalType == "PAT");
-// it holds the PAT record UUID from claims.Orbit.SessionID. It is empty for all
+// it holds the PAT record UUID from claims.Orbit.PatID. It is empty for all
 // other principal types — those callers have no PAT record to reference.
 type principal struct {
 	TenantID       string
@@ -174,7 +174,7 @@ func (s *Service) ChatCompletion(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -183,7 +183,7 @@ func (s *Service) ChatCompletion(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -193,7 +193,7 @@ func (s *Service) ChatCompletion(
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
 	}
@@ -207,7 +207,7 @@ func (s *Service) ChatCompletion(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -301,7 +301,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -311,7 +311,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -322,7 +322,7 @@ func (s *Service) ChatCompletionStream(
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 			span.End()
-			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
 	}
@@ -345,7 +345,7 @@ func (s *Service) ChatCompletionStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -373,12 +373,12 @@ func (s *Service) ChatCompletionStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectOpenAI, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 
@@ -678,6 +678,7 @@ func (s *Service) writeFailedUsage(
 	strategy *RoutingStrategy,
 	status UsageStatus,
 	errorCode string,
+	failureDetails *FailureDetails,
 	latencyMS int,
 ) {
 	var errCodePtr *string
@@ -699,6 +700,7 @@ func (s *Service) writeFailedUsage(
 		RoutingStrategy: strategy,
 		Status:          status,
 		ErrorCode:       errCodePtr,
+		FailureDetails:  failureDetails,
 		LatencyMS:       latencyMS,
 		CreatedAt:       time.Now().UTC(),
 	}
@@ -708,6 +710,41 @@ func (s *Service) writeFailedUsage(
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+}
+
+const maxProviderMessageLen = 500
+
+func extractFailureDetails(err error) *FailureDetails {
+	if err == nil {
+		return nil
+	}
+	var connErr *ConnectorError
+	if !errors.As(err, &connErr) {
+		return nil
+	}
+	fd := &FailureDetails{}
+	if connErr.HTTPStatus != 0 {
+		status := connErr.HTTPStatus
+		fd.ProviderHTTPStatus = &status
+	}
+	if connErr.Code != "" {
+		code := connErr.Code
+		fd.ProviderErrorType = &code
+	}
+	if connErr.ProviderMessage != "" {
+		msg := connErr.ProviderMessage
+		if len(msg) > maxProviderMessageLen {
+			// Truncate before storage. Providers (e.g. OpenAI on context-length
+			// violations) can echo request fragments in error messages; the cap
+			// bounds both storage growth and incidental content exposure.
+			msg = msg[:maxProviderMessageLen]
+		}
+		fd.ProviderErrorMessage = &msg
+	}
+	if fd.ProviderHTTPStatus == nil && fd.ProviderErrorType == nil && fd.ProviderErrorMessage == nil {
+		return nil
+	}
+	return fd
 }
 
 func extractErrorCode(err error) string {
@@ -834,7 +871,7 @@ func (s *Service) Embeddings(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -842,7 +879,7 @@ func (s *Service) Embeddings(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -859,7 +896,7 @@ func (s *Service) Embeddings(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -934,7 +971,7 @@ func (s *Service) Responses(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -942,7 +979,7 @@ func (s *Service) Responses(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -959,7 +996,7 @@ func (s *Service) Responses(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		errCode := extractErrorCode(callErr)
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -1043,7 +1080,7 @@ func (s *Service) ResponsesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -1052,7 +1089,7 @@ func (s *Service) ResponsesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -1067,7 +1104,7 @@ func (s *Service) ResponsesStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -1087,12 +1124,12 @@ func (s *Service) ResponsesStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectResponses, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 
@@ -1242,7 +1279,7 @@ func (s *Service) AnthropicMessages(
 	if err = s.checkModelPolicy(ctx, params.Model); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -1250,7 +1287,7 @@ func (s *Service) AnthropicMessages(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -1260,7 +1297,7 @@ func (s *Service) AnthropicMessages(
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
-			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
 	}
@@ -1277,7 +1314,7 @@ func (s *Service) AnthropicMessages(
 	if callErr != nil || usedTarget == nil {
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), latencyMS)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), latencyMS)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -1296,6 +1333,7 @@ func (s *Service) AnthropicMessages(
 		TokenID:                  nullableText(p.TokenID),
 		APIDialect:               DialectAnthropic,
 		Provider:                 &usedTarget.Provider,
+		VirtualModelID:           nullableText(usedTarget.VirtualModelID),
 		ModelID:                  usedTarget.ModelID,
 		ModelFamily:              nullableText(usedTarget.ModelFamily),
 		RoutingStrategy:          &strategy,
@@ -1359,7 +1397,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 		return nil, err
 	}
 
@@ -1368,7 +1406,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
@@ -1379,7 +1417,7 @@ func (s *Service) AnthropicMessagesStream(
 			span.RecordError(err)
 			span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 			span.End()
-			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", 0)
+			s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nthModelFamily(targets), &strategy, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
 			return nil, err
 		}
 	}
@@ -1395,7 +1433,7 @@ func (s *Service) AnthropicMessagesStream(
 		span.RecordError(callErr)
 		span.SetStatus(codes.Error, ErrProviderError.Error())
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, extractErrorCode(callErr), extractFailureDetails(callErr), 0)
 		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
 	}
 
@@ -1415,12 +1453,12 @@ func (s *Service) AnthropicMessagesStream(
 		if streamErr != nil {
 			if errors.Is(streamErr, errClientDisconnected) {
 				span.SetStatus(codes.Ok, "client disconnected")
-				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", latencyMS)
+				s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusCanceled, "CLIENT_DISCONNECTED", nil, latencyMS)
 				return
 			}
 			span.RecordError(streamErr)
 			span.SetStatus(codes.Error, ErrProviderError.Error())
-			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), latencyMS)
+			s.writeFailedUsage(writeCtx, p, routeReq, DialectAnthropic, &capturedTarget.Provider, nullableText(capturedTarget.ModelFamily), &capturedStrategy, UsageStatusProviderError, extractErrorCode(streamErr), extractFailureDetails(streamErr), latencyMS)
 			return
 		}
 

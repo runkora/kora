@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -64,14 +65,14 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			prompt_tokens, completion_tokens, total_tokens,
 			cache_read_input_tokens, cache_creation_input_tokens,
 			estimated_cost_usd,
-			status, retry_count, error_code, latency_ms, created_at
+			status, retry_count, error_code, failure_details, latency_ms, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
 			$11, $12, $13, $14,
 			$15, $16,
 			$17,
-			$18, $19, $20, $21, $22
+			$18, $19, $20, $21, $22, $23
 		)`
 
 	var provider *string
@@ -86,13 +87,22 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		strategy = &s
 	}
 
+	var failureDetailsJSON []byte
+	if rec.FailureDetails != nil {
+		if b, err := json.Marshal(rec.FailureDetails); err == nil {
+			failureDetailsJSON = b
+		}
+		// on marshal error: failureDetailsJSON stays nil → stored as SQL NULL
+		// so that a serialization failure never aborts the usage write
+	}
+
 	_, err := r.pool.Exec(ctx, q,
 		rec.ID, rec.TenantID, rec.PrincipalID, rec.PrincipalType, rec.TokenID, string(rec.APIDialect),
 		provider, rec.VirtualModelID, rec.ModelID, rec.ModelFamily, strategy,
 		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens,
 		rec.CacheReadInputTokens, rec.CacheCreationInputTokens,
 		rec.EstimatedCostUSD,
-		string(rec.Status), rec.RetryCount, rec.ErrorCode, rec.LatencyMS, rec.CreatedAt,
+		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -108,7 +118,7 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id
 		       prompt_tokens, completion_tokens, total_tokens,
 		       cache_read_input_tokens, cache_creation_input_tokens,
 		       estimated_cost_usd,
-		       status, retry_count, error_code, latency_ms, created_at
+		       status, retry_count, error_code, failure_details, latency_ms, created_at
 		FROM inference_usage
 		WHERE id = $1 AND tenant_id = $2`
 
@@ -154,7 +164,7 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		       prompt_tokens, completion_tokens, total_tokens,
 		       cache_read_input_tokens, cache_creation_input_tokens,
 		       estimated_cost_usd,
-		       status, retry_count, error_code, latency_ms, created_at
+		       status, retry_count, error_code, failure_details, latency_ms, created_at
 		FROM inference_usage
 		%s
 		ORDER BY created_at DESC, id DESC
@@ -615,13 +625,14 @@ type scannable interface {
 }
 
 // scanUsageRecord scans a single row into an InferenceUsageRecord.
-// Used by both Get and List (22 columns).
+// Used by both Get and List (23 columns).
 func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	var rec InferenceUsageRecord
 	var provider *string
 	var strategy *string
 	var dialect string
 	var status string
+	var failureDetailsRaw []byte
 
 	err := row.Scan(
 		&rec.ID, &rec.TenantID, &rec.PrincipalID, &rec.PrincipalType, &rec.TokenID, &dialect,
@@ -629,7 +640,7 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 		&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens,
 		&rec.CacheReadInputTokens, &rec.CacheCreationInputTokens,
 		&rec.EstimatedCostUSD,
-		&status, &rec.RetryCount, &rec.ErrorCode, &rec.LatencyMS, &rec.CreatedAt,
+		&status, &rec.RetryCount, &rec.ErrorCode, &failureDetailsRaw, &rec.LatencyMS, &rec.CreatedAt,
 	)
 	if err != nil {
 		return InferenceUsageRecord{}, err
@@ -645,6 +656,13 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 	if strategy != nil {
 		s := RoutingStrategy(*strategy)
 		rec.RoutingStrategy = &s
+	}
+	if failureDetailsRaw != nil {
+		var fd FailureDetails
+		if err := json.Unmarshal(failureDetailsRaw, &fd); err != nil {
+			return InferenceUsageRecord{}, fmt.Errorf("unmarshal failure_details: %w", err)
+		}
+		rec.FailureDetails = &fd
 	}
 	return rec, nil
 }

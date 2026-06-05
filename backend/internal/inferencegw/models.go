@@ -108,8 +108,19 @@ type InferenceUsageRecord struct {
 	Status                   UsageStatus      `json:"status"`
 	RetryCount               int              `json:"retry_count"`
 	ErrorCode                *string          `json:"error_code"`
+	FailureDetails           *FailureDetails  `json:"failure_details"`
 	LatencyMS                int              `json:"latency_ms"`
 	CreatedAt                time.Time        `json:"created_at"`
+}
+
+// FailureDetails holds structured provider error context for non-success
+// inference requests. Stored as JSONB; populated only for provider_error status
+// records. All fields are optional — zero-value providers or non-HTTP errors
+// will leave some fields nil.
+type FailureDetails struct {
+	ProviderHTTPStatus   *int    `json:"provider_http_status,omitempty"`
+	ProviderErrorType    *string `json:"provider_error_type,omitempty"`
+	ProviderErrorMessage *string `json:"provider_error_message,omitempty"`
 }
 
 // InferenceUsageFilter is used to query usage records.

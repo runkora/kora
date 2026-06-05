@@ -2,12 +2,13 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, DataTable, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Callout, DataTable, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
+import { InferenceLogDetailModal } from './inference-log-detail-modal';
 
 // ── Status filter options ─────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // `replaceState` doesn't trigger Next.js router updates, so we can't derive
   // this from searchParams; we own it here.
   const [activeKeyId, setActiveKeyId] = useState(selectedKeyId);
+  const [selectedRecord, setSelectedRecord] = useState<InferenceUsageRecord | null>(null);
 
   // Key filter changes update the URL for shareability (deep-links) and call
   // refresh() to re-fetch client-side via the BFF — no RSC navigation, no
@@ -67,7 +69,14 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
   // PAT ID → full PAT record lookup for the Key status column cell.
   const patMap = useMemo(() => new Map(pats.map((p) => [p.id, p])), [pats]);
 
-  const keyOptions = useMemo(() => pats.map((p) => ({ value: p.id, label: p.name })), [pats]);
+  const keyOptions = useMemo(
+    () =>
+      pats.map((p) => ({
+        value: p.id,
+        label: p.revoked_at ? `${p.name} (Revoked)` : p.name,
+      })),
+    [pats],
+  );
 
   const columns: DataTableColumn<InferenceUsageRecord>[] = [
     // Request ID — always visible, locked.
@@ -188,11 +197,13 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
       header: 'Key status',
       cell: (row) => {
         const pat = row.token_id ? patMap.get(row.token_id) : undefined;
-        const keyStatus: 'active' | 'expired' | 'unknown' | null = row.token_id
+        const keyStatus: 'active' | 'revoked' | 'expired' | 'unknown' | null = row.token_id
           ? pat
-            ? isExpired(pat.expires_at)
-              ? 'expired'
-              : 'active'
+            ? pat.revoked_at
+              ? 'revoked'
+              : isExpired(pat.expires_at)
+                ? 'expired'
+                : 'active'
             : 'unknown'
           : null;
 
@@ -200,6 +211,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
           return (
             <Badge variant="secondary" size="sm">
               Unknown
+            </Badge>
+          );
+        if (keyStatus === 'revoked')
+          return (
+            <Badge variant="secondary" size="sm">
+              Revoked
             </Badge>
           );
         if (keyStatus === 'expired')
@@ -280,12 +297,23 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     },
   ];
 
+  const deletedKeySelected = !!activeKeyId && status !== 'loading' && !patMap.has(activeKeyId);
+
   return (
     <Stack gap="comfortable">
       {error && (
         <Text size="supporting" color="status-error">
           {error}
         </Text>
+      )}
+
+      {deletedKeySelected && (
+        <Callout variant="warning">
+          <Text size="caption">
+            The selected API key was not found — it may have been deleted or expired. Logs are still
+            filtered to that key. Clear the key filter to see all logs.
+          </Text>
+        </Callout>
       )}
 
       <DataTable
@@ -303,6 +331,7 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
         defaultSortDir="desc"
         emptyMessage="No inference requests yet."
         filteredEmptyMessage="No logs match your filters."
+        onRowClick={setSelectedRecord}
         toolbarActions={
           <Button
             variant="outline"
@@ -325,6 +354,12 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
           </Button>
         </Stack>
       )}
+
+      <InferenceLogDetailModal
+        record={selectedRecord}
+        keyName={selectedRecord?.token_id ? patNameMap.get(selectedRecord.token_id) : undefined}
+        onClose={() => setSelectedRecord(null)}
+      />
     </Stack>
   );
 }

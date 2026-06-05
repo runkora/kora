@@ -19,7 +19,7 @@ type PATRepository interface {
 	// raw JWT; it is stored as a security property and is never queried for auth.
 	CreatePAT(ctx context.Context, pat *PAT, tokenHash string) error
 
-	// ListByUser returns all active (non-revoked, non-expired) PATs for a user.
+	// ListByUser returns all non-expired PATs for a user, including revoked ones.
 	ListByUser(ctx context.Context, tenantID, userID string) ([]PAT, error)
 
 	// GetByID retrieves a PAT by its primary ID, scoped to the owning user.
@@ -83,7 +83,6 @@ func (r *postgresPATRepository) ListByUser(ctx context.Context, tenantID, userID
 		FROM   user_pat_tokens
 		WHERE  tenant_id  = $1
 		  AND  user_id    = $2
-		  AND  revoked_at IS NULL
 		  AND  expires_at > now()
 		ORDER BY created_at DESC
 	`, tenantID, userID)

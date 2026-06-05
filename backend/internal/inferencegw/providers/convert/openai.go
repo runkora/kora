@@ -533,6 +533,7 @@ func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
 			ProviderMessage: apiErr.Message,
 		}
@@ -582,6 +583,7 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
 			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
 		}

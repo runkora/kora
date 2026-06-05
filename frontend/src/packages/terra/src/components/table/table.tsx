@@ -146,6 +146,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
         'border-b border-border-subtle transition-colors duration-100',
         'hover:bg-surface-elevated/60',
         'data-[selected=true]:bg-accent/10',
+        'focus-visible:outline-2 focus-visible:outline-offset-[-1px] focus-visible:outline-accent',
         className,
       )}
       {...props}
