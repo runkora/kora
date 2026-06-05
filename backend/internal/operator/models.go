@@ -375,7 +375,7 @@ type TenantOIDCSpec struct {
 
 	// EmailDomains lists the email address domains routed to this tenant by the
 	// Home Realm Discovery endpoint (e.g. ["acme.com", "acme.io"]).
-	// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+	// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 	// +optional
 	EmailDomains []string `json:"emailDomains,omitempty"`
 }

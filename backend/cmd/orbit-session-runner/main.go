@@ -17,7 +17,7 @@
 // When namespace creation fails (CLONE_NEWUSER blocked by seccomp / sysctl),
 // falls back to direct exec with Landlock applied in the parent process.
 //
-// See ADR-0062 for the full isolation policy.
+// See docs/adr/2026-06-04-per-session-home-isolation.md for the full isolation policy.
 package main
 
 import (
@@ -57,7 +57,7 @@ func main() {
 	// Try to run claude in a new PID+mount namespace. The child (self-reinvoked)
 	// remounts /proc and applies Landlock before exec'ing claude. runInPIDNamespace
 	// calls os.Exit on success and only returns an error if the namespace could not
-	// be created (CLONE_NEWUSER blocked). See ADR-0062 Phase 3.
+	// be created (CLONE_NEWUSER blocked). See docs/adr/2026-06-04-per-session-home-isolation.md Phase 3.
 	if err = runInPIDNamespace(resolved, argv); err == nil {
 		return
 	}

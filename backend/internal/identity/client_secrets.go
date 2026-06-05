@@ -22,7 +22,7 @@ import (
 // loadClientSecrets returns an empty map and no client_secret parameter is
 // sent in token requests.
 //
-// See docs/adr/0029-oidc-client-secret-projection-for-confidential-tenants.md
+// See docs/adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md
 const clientSecretsEnvVar = "ORBIT_TENANT_SECRETS_CONFIG"
 
 // clientSecretsPath returns the path to the aggregated client secrets file

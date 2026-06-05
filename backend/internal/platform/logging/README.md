@@ -137,4 +137,4 @@ This enables querying logs by trace ID in your observability backend to see all 
 
 ## Architecture Decision
 
-See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../../../docs/adr/0004-dependency-injected-logging.md) for design rationale and trade-offs.
+See [dependency-injected-logging](../../../../docs/adr/2026-02-17-dependency-injected-logging.md) for design rationale and trade-offs.

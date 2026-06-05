@@ -341,10 +341,10 @@ Spans are batched before export:
 ❌ Create deeply nested span hierarchies (>10 levels)
 ❌ Forget to call `span.End()` (use defer)
 ❌ Sample 100% in production (too expensive)
-❌ Use `err.Error()` or `ctx.Err().Error()` inside `span.SetStatus(codes.Error, ...)` — use a package-level sentinel string (ADR-0022, enforced by `spanSetStatusLocalErr` lint rule)
-❌ Use `err.Error()` inside `attribute.String(...)` — use `span.RecordError(err)` for dynamic error context instead (ADR-0022, enforced by `spanAttrStringLocalErr` lint rule)
-❌ Manually call `otel.GetTextMapPropagator().Inject(...)` on outbound requests — use `httpclient.Base.Do()` (ADR-0020)
-❌ Import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` in typed service clients — the base client owns that lifecycle (ADR-0022, enforced by `no-otel-span-mgmt-in-service-clients`)
+❌ Use `err.Error()` or `ctx.Err().Error()` inside `span.SetStatus(codes.Error, ...)` — use a package-level sentinel string ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanSetStatusLocalErr` lint rule)
+❌ Use `err.Error()` inside `attribute.String(...)` — use `span.RecordError(err)` for dynamic error context instead ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `spanAttrStringLocalErr` lint rule)
+❌ Manually call `otel.GetTextMapPropagator().Inject(...)` on outbound requests — use `httpclient.Base.Do()` ([multi-service-backend-deployment-structure](../adr/2026-03-19-multi-service-backend-deployment-structure.md))
+❌ Import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` in typed service clients — the base client owns that lifecycle ([opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md), enforced by `no-otel-span-mgmt-in-service-clients`)
 
 ## Related Documentation
 

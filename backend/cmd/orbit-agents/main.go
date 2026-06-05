@@ -67,7 +67,7 @@ func realMain() error {
 
 // initPolicyEvaluator constructs an in-process OPA evaluator and starts the
 // background bundle poll. The evaluator is consulted by the agents authz layer
-// on every public request — zero network hops on the eval hot path. See ADR-0063.
+// on every public request — zero network hops on the eval hot path. See docs/adr/2026-06-04-orbit-agents-authorization-model.md.
 func initPolicyEvaluator(ctx context.Context, logger logging.Logger) policy.Evaluator {
 	cfg := agentsConfig.Current
 	eval := policy.NewEvaluator(cfg.Policy.BundleEndpoint, cfg.Policy.BundlePollInterval(), logger)
@@ -204,8 +204,8 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 
 // agentRoutes returns the static route→scope bindings for orbit-agents.
 //
-// Registered with policy-service at startup (ADR-0060) and also consumed at
-// request time by ScopeEnforcementMiddleware (ADR-0064). Order matters:
+// Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
+// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Order matters:
 // resolveRequiredScope iterates this slice and prefers exact-method matches,
 // so methods that are subsets of broader prefixes (e.g. PATCH on /agent-types/)
 // must have their own explicit entry.

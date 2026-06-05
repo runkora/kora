@@ -2,7 +2,7 @@
 // gRPC server that injects a platform Bearer token into every request's
 // Authorization header before it reaches the identity service.
 //
-// Architecture (ADR-0021):
+// Architecture (docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md):
 //
 //	Agent → Envoy sidecar ─gRPC ext_proc─► identity-proxy (this package)
 //	                                              │
@@ -47,7 +47,7 @@ const authorizationHeader = "authorization"
 // Sentinel error descriptions used as static span status strings.
 // These are intentionally non-dynamic so that raw network strings, internal
 // hostnames, or context messages never appear in telemetry status fields
-// (see ADR-0007). Full error detail is captured via span.RecordError.
+// (see docs/adr/2026-03-03-database-infrastructure-layer.md). Full error detail is captured via span.RecordError.
 var (
 	errBuildRequest        = errors.New("failed to build request")
 	errEnvoyReadyTimeout   = errors.New("timed out waiting for Envoy to become ready")

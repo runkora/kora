@@ -1,6 +1,6 @@
 # Frontend Testing Guide
 
-This guide covers how to run tests, how the test tiers work, and how to write new tests that fit the established patterns. See [ADR-0049](../adr/0049-frontend-test-strategy-and-toolchain.md) for the full rationale behind these decisions.
+This guide covers how to run tests, how the test tiers work, and how to write new tests that fit the established patterns. See [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) for the full rationale behind these decisions.
 
 ---
 
@@ -193,7 +193,7 @@ Every file in `frontend/e2e/` must satisfy:
 - **No database or Redis** — no infrastructure dependencies whatsoever
 - **No real OIDC IdP** — mock OIDC discovery and authorization endpoints with `page.route()`
 
-If a test needs the real backend, it is a **system-level** concern and does not belong in `frontend/e2e/`. It requires a separate test harness with Docker Compose (see ADR-0049 Category B).
+If a test needs the real backend, it is a **system-level** concern and does not belong in `frontend/e2e/`. It requires a separate test harness with Docker Compose (see [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) Category B).
 
 This boundary keeps `make check` infrastructure-free and executable on every PR.
 

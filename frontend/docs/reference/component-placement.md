@@ -2,7 +2,7 @@
 
 **Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the Orbit frontend.
 **Last updated:** 2026-04-28
-**Authoritative ADR:** [`docs/adr/0045-frontend-component-consolidation.md`](../../docs/adr/0045-frontend-component-consolidation.md)
+**Authoritative ADR:** [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md)
 
 > For the placement decision tree and `@tier` annotation rules, see `AGENTS.md` → **Frontend Development**.
 
@@ -12,11 +12,11 @@
 
 All UI components belong to exactly one of three tiers. The tier determines the filesystem location, import path, authoring requirements, and Storybook story convention.
 
-| Tier  | Name             | Filesystem path                                       | Import path                        | Storybook title prefix                                                  |
-| ----- | ---------------- | ----------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Terra            | `frontend/src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'` | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
-| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@/components'` | `App/Shared/`                                                           |
-| **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                    | none required                                                           |
+| Tier  | Name             | Filesystem path                                       | Import path                             | Storybook title prefix                                                  |
+| ----- | ---------------- | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| **1** | Terra            | `frontend/src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'`      | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
+| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Shared/`                                                           |
+| **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
 > **`App/Shared/` is a Storybook `title` field value — a sidebar path, not a filesystem directory.** Setting `title: 'App/Shared/MetricCard'` in a story file's meta places it under `App → Shared → MetricCard` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
 
@@ -38,7 +38,7 @@ The `title` field in a story's `meta` object sets its position in the Storybook 
 
 ## Terra Authoring Conventions (Tier 1)
 
-New Tier 1 components must follow these patterns (per ADR-0021):
+New Tier 1 components must follow these patterns (per [terra-frontend-design-system](../../../docs/adr/2026-03-25-terra-frontend-design-system.md)):
 
 - `React.forwardRef` with `React.ComponentPropsWithoutRef<'div'>` (not `React.HTMLAttributes`)
 - `data-slot="component-name"` on every rendered element
@@ -172,10 +172,10 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 
 ## Related Documents
 
-| Document                                                                                                       | What it covers                                                                           |
-| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                   | Full Terra component usage guide — props, examples, every lint rule explained            |
-| [`frontend/docs/reference/app-components.md`](./app-components.md)                                             | Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
-| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)            | State management patterns (server actions, URL state, local state)                       |
-| [`docs/adr/0045-frontend-component-consolidation.md`](../../docs/adr/0045-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                            |
-| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                            | Full Terra export list — source of truth for available component names                   |
+| Document                                                                                                                      | What it covers                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide — props, examples, every lint rule explained            |
+| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
+| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)                       |
+| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                            |
+| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list — source of truth for available component names                   |

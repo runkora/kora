@@ -1,6 +1,6 @@
 # Embeddings and Responses API Endpoints — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Implemented  
 **Created:** 2026-05-01  
 **Last Updated:** 2026-05-01  
 **Owner:** Orbit Core Team  
@@ -305,10 +305,10 @@ Track Responses API calls distinctly from Chat Completions calls in usage logs.
 ### Related Documents
 
 - [Inference Gateway PRD](inference-gateway.md) — parent gateway PRD
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) — inference gateway architecture
-- [ADR-0032](../adr/0032-model-capability-taxonomy.md) — three-layer endpoint taxonomy
-- [ADR-0039](../adr/0039-virtual-model-catalog-and-platform-routing.md) — virtual model catalog and routing
-- [ADR-0045](../adr/0045-embeddings-and-responses-api-endpoints.md) — implementation ADR
+- [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — inference gateway architecture
+- [model-capability-taxonomy](../adr/2026-04-01-model-capability-taxonomy.md) — three-layer endpoint taxonomy
+- [virtual-model-catalog-and-platform-routing](../adr/2026-04-17-virtual-model-catalog-and-platform-routing.md) — virtual model catalog and routing
+- [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) — implementation ADR
 
 ### References
 

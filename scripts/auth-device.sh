@@ -50,7 +50,7 @@
 #
 # ─── Environment variables ────────────────────────────────────────────────────
 #
-#   ORBIT_API_BASE    — Orbit API base URL  (default: http://localhost:6069/api/v1)
+#   ORBIT_API_BASE    — Orbit API base URL  (default: http://localhost:8080/api/v1)
 #   ORBIT_TENANT_ID   — Orbit tenant ID     (overridden by --tenant-id flag)
 #
 # Prerequisites: curl, jq
@@ -84,7 +84,7 @@ done
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 
 TENANT_ID="${ORBIT_TENANT_ID:-}"
-API_BASE="${ORBIT_API_BASE:-http://localhost:6069/api/v1}"
+API_BASE="${ORBIT_API_BASE:-http://localhost:8080/api/v1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

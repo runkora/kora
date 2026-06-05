@@ -1,7 +1,7 @@
 /**
  * GET /api/auth/discover?email=user@example.com
  *
- * Home Realm Discovery BFF proxy (ADR-0031).
+ * Home Realm Discovery BFF proxy (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md).
  *
  * Forwards the email query parameter to the identity service's tenant
  * discovery endpoint and returns the public OIDC config for the matching

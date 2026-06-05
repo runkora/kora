@@ -134,7 +134,7 @@ type SessionResponse struct {
 // TenantDiscovery is the response body for GET /identity/tenants/discover.
 // It contains the minimum OIDC configuration the browser needs to construct a
 // UserManager and initiate PKCE — deliberately excludes the client secret.
-// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 type TenantDiscovery struct {
 	TenantID  string   `json:"tenant_id"`
 	IssuerURL string   `json:"issuer_url"`

@@ -109,7 +109,7 @@ func realMain() error {
 
 	// In-process policy evaluator for scope enforcement. The bundle endpoint is
 	// served by this same process; the evaluator polls it via loopback HTTP.
-	// Slightly wasteful but keeps ScopeEnforcementMiddleware (ADR-0064) uniform
+	// Slightly wasteful but keeps ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md) uniform
 	// across services with no special-cased in-process bundle wiring.
 	bundleEndpoint := fmt.Sprintf("http://localhost:%d/api/v1/policy/bundles", psc.Current.Server.Port)
 	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
@@ -123,7 +123,7 @@ func realMain() error {
 }
 
 // policyServiceRoutes returns the route → required-scope table consumed by
-// ScopeEnforcementMiddleware (ADR-0064). Mirrors the table self-registered
+// ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Mirrors the table self-registered
 // with the policy-service routestore above, plus entries for routes the
 // service hosts but does not currently register (effective-scopes, routes,
 // stats, vocabulary GETs). The /policy/bundles/ prefix is bypassed inside

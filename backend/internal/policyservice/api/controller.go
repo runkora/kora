@@ -46,7 +46,7 @@ type Controller struct {
 
 // NewController creates a ready-to-boot policy Controller.
 //
-// eval and routes are passed to ScopeEnforcementMiddleware (ADR-0064). The
+// eval and routes are passed to ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). The
 // route table should cover every authenticated route registered in Boot.
 // Routes intentionally omitted from the table (e.g. POST /effective-scopes,
 // POST /routes/register) fail-closed at the middleware with 403. basePath

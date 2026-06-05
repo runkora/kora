@@ -1,6 +1,6 @@
 # Policy Gateway — Product Requirements Document
 
-**Status:** Approved  
+**Status:** Implemented  
 **Created:** 2026-04-02  
 **Last Updated:** 2026-04-02  
 **Owner:** Orbit Core Team  
@@ -21,7 +21,7 @@ The Policy Gateway is Orbit's universal authorisation layer. It governs all prin
 Orbit's identity layer is operational. Principals can authenticate and carry verified tokens. However there is no enforcement layer: any authenticated principal can reach any resource on the platform. The absence of policy enforcement means:
 
 - An agent token grants access to every inference model, every MCP server, every platform API, and every external service the platform can reach
-- The delegation model (ADR-0009) is structurally defined but not enforced — delegation tokens carry scope claims that are never evaluated against any access control
+- The delegation model ([agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md)) is structurally defined but not enforced — delegation tokens carry scope claims that are never evaluated against any access control
 - Services have no mechanism to restrict which other services may call them
 - There is no self-service mechanism for tenant administrators to configure what their agents are allowed to do
 
@@ -59,7 +59,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 
 2. **Runtime configurability:** Tenant administrators configure permissions through an API without triggering deployments. Policy changes propagate to all enforcement points within a polling interval. Operational policy changes — granting or revoking an agent's access to a resource — require no code change, no deployment, and no operator involvement.
 
-3. **Delegation integrity:** The delegation scope intersection model from ADR-0009 is enforced as a platform invariant. An agent acting under a delegation token can never exceed the intersection of the delegation grant, the delegator's own permissions, and the agent's configured ceiling. This is not configurable — it is always enforced.
+3. **Delegation integrity:** The delegation scope intersection model from [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) is enforced as a platform invariant. An agent acting under a delegation token can never exceed the intersection of the delegation grant, the delegator's own permissions, and the agent's configured ceiling. This is not configurable — it is always enforced.
 
 4. **Developer transparency:** Services expose filtered views of their resources based on the calling principal's permissions. Agents never receive resource lists (model lists, tool lists, service catalogs) containing entries they cannot actually invoke.
 
@@ -234,7 +234,7 @@ Cross-tenancy is architecturally disallowed. Bundles are served **per tenant** �
 - Audit event spine publication (structured logs only)
 - JTI blocklist in `AuthMiddleware` / ext_authz token validation (future hardening)
 - Platform-level plan-based policy (SaaS concern)
-- Credential-aware outbound gateway policy (ADR-0012 — separate feature)
+- Credential-aware outbound gateway policy ([credential-aware-outbound-gateway](../adr/2026-03-05-credential-aware-outbound-gateway.md) — separate feature)
 
 ### Future Considerations
 
@@ -300,10 +300,10 @@ Cross-tenancy is architecturally disallowed. Bundles are served **per tenant** �
 
 ### Internal Dependencies
 
-- **Identity Service (ADR-0008):** Provides the JWKS endpoint for `token.Verifier`. Must be reachable from ext_authz at startup for initial key fetching.
+- **Identity Service ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)):** Provides the JWKS endpoint for `token.Verifier`. Must be reachable from ext_authz at startup for initial key fetching.
 - **`internal/platform/token`:** `token.Verifier` and `PlatformClaims` used directly by ext_authz for token validation and principal context extraction. No other identity service dependency on the request path.
-- **Inference Gateway (ADR-0023):** Integrates with the ext_authz HTTP API for model listing and pre-flight checks. The integration point is already designed into the gateway architecture.
-- **MCP servers (ADR-0013, ADR-0014):** Integrate with the ext_authz HTTP API for tool listing and pre-invocation checks.
+- **Inference Gateway ([inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md)):** Integrates with the ext_authz HTTP API for model listing and pre-flight checks. The integration point is already designed into the gateway architecture.
+- **MCP servers ([mcp-server-registration-deployment-and-governance](../adr/2026-03-05-mcp-server-registration-deployment-and-governance.md), [scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md)):** Integrate with the ext_authz HTTP API for tool listing and pre-invocation checks.
 - **Redis:** JTI blocklist infrastructure exists and is used by the identity service for revocation writes. Wiring the read side into ext_authz is deferred.
 
 ### External Dependencies
@@ -330,7 +330,7 @@ All product and architecture decisions are resolved. The following implementatio
 
 1. **Scope hierarchy resolution in Rego vs pre-computation:** Should `scope_covers` be evaluated entirely in Rego using the `scope_vocabulary` data document, or should the ext_authz service pre-compute the set of covered scopes before calling OPA? Rego approach keeps all policy logic in the bundle; pre-computation reduces Rego complexity.
 
-2. **ADR-0009 alignment:** The delegation token `scope` claim format must be updated in ADR-0009 to specify the Orbit OAuth scope vocabulary format. This is a cross-ADR dependency that must be resolved before the delegation intersection is implemented.
+2. **[agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) alignment:** The delegation token `scope` claim format must be updated in [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) to specify the Orbit OAuth scope vocabulary format. This is a cross-ADR dependency that must be resolved before the delegation intersection is implemented.
 
 ---
 
@@ -338,14 +338,14 @@ All product and architecture decisions are resolved. The following implementatio
 
 ### Related Documents
 
-- [ADR-0008](../adr/0008-unified-identity-model.md) — Unified principal model and platform session token
-- [ADR-0009](../adr/0009-agent-execution-flow-patterns-and-delegation.md) — Delegation tokens and execution context
-- [ADR-0011](../adr/0011-universal-gateway-policy-enforcement.md) — Universal gateway policy enforcement
-- [ADR-0013](../adr/0013-mcp-server-registration-deployment-and-governance.md) — MCP server registration and governance
-- [ADR-0014](../adr/0014-scope-gated-tool-exposure-via-mcp.md) — Scope-gated tool exposure via MCP
-- [ADR-0021](../adr/0021-envoy-ext-proc-sidecar-token-injection.md) — Identity proxy ext_proc sidecar
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) — Inference gateway architecture
-- [ADR-0024](../adr/0024-provider-model-catalog-and-alias-routing.md) — Model catalog and alias routing
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified principal model and platform session token
+- [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) — Delegation tokens and execution context
+- [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) — Universal gateway policy enforcement
+- [mcp-server-registration-deployment-and-governance](../adr/2026-03-05-mcp-server-registration-deployment-and-governance.md) — MCP server registration and governance
+- [scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md) — Scope-gated tool exposure via MCP
+- [envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — Identity proxy ext_proc sidecar
+- [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference gateway architecture
+- [provider-model-catalog-and-alias-routing](../adr/2026-04-01-provider-model-catalog-and-alias-routing.md) — Model catalog and alias routing
 
 ### Glossary
 

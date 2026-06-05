@@ -1,6 +1,6 @@
 # Personal Access Tokens (PATs) - Product Requirements Document
 
-**Status:** Approved  
+**Status:** Implemented  
 **Created:** 2026-04-01  
 **Last Updated:** 2026-04-01  
 **Owner:** Platform Team  
@@ -57,7 +57,7 @@ Neither type is practical for a developer running a coding agent locally and poi
 
 ### Non-Goals
 
-- Fine-grained scope selection at PAT creation time (e.g., restricting to specific providers or models). This will be addressed when the OPA policy engine is fully integrated (ADR-0011).
+- Fine-grained scope selection at PAT creation time (e.g., restricting to specific providers or models). This will be addressed when the OPA policy engine is fully integrated ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)).
 - PAT rotation/re-roll endpoint. Deferred to a follow-on iteration.
 - `last_used_at` tracking. Deferred to a follow-on iteration.
 - UI for PAT management. This PRD covers the API layer only.
@@ -207,7 +207,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 ### Out of Scope
 
 - PAT management UI (deferred — API-first)
-- Fine-grained scope selection at creation time (deferred to OPA integration, ADR-0011)
+- Fine-grained scope selection at creation time (deferred to OPA integration, [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md))
 - `last_used_at` tracking (deferred to follow-on iteration)
 - PAT rotation / re-roll endpoint (deferred to follow-on iteration)
 - Admin-level PAT management (listing/revoking other users' PATs)
@@ -216,7 +216,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 
 ### Future Considerations
 
-- **Scope selection at creation** — Once OPA policy is integrated (ADR-0011), users will be able to declare which providers or model families a PAT is permitted to call.
+- **Scope selection at creation** — Once OPA policy is integrated ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)), users will be able to declare which providers or model families a PAT is permitted to call.
 - **`last_used_at` tracking** — Update a `last_used_at` timestamp on the PAT row on each successful inference request.
 - **Rotate / re-roll** — `POST /api/v1/identity/tokens/{id}/rotate` — atomically revoke the old PAT and issue a new one with the same name and TTL.
 - **Admin visibility** — Tenant admins listing and revoking PATs across their tenant.
@@ -358,7 +358,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - Rotate / re-roll endpoint
 - Admin visibility (tenant-scoped PAT listing)
 
-**Phase 3: Scope integration** (future — depends on ADR-0011 OPA integration)
+**Phase 3: Scope integration** (future — depends on [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) OPA integration)
 - Fine-grained scope selection at PAT creation
 - Per-PAT model/provider allow-lists enforced by OPA
 
@@ -376,10 +376,10 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 
 ### Related Documents
 
-- [ADR-0008](../adr/0008-unified-identity-model.md) - Unified identity model (PrincipalType foundations)
-- [ADR-0011](../adr/0011-universal-gateway-policy-enforcement.md) - OPA policy enforcement (future scope integration)
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) - Inference gateway architecture
-- [ADR-0033](../adr/0033-personal-access-tokens.md) - PAT technical architecture decision
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) - Unified identity model (PrincipalType foundations)
+- [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) - OPA policy enforcement (future scope integration)
+- [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) - Inference gateway architecture
+- [personal-access-tokens](../adr/2026-04-02-personal-access-tokens.md) - PAT technical architecture decision
 
 ### Glossary
 

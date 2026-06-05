@@ -208,7 +208,7 @@ func inferVertexModalities(publisher, modelID string) (input, output []inference
 }
 
 // inferVertexCapabilities returns the endpoint families supported for a Vertex AI model.
-// Rules follow ADR-0026: output modality drives capability, with text → chat,
+// Rules follow docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md: output modality drives capability, with text → chat,
 // embedding → embedding, image → image_generation.
 func inferVertexCapabilities(modelID string, outputMods []inferencegw.Modality) []inferencegw.ModelCapability {
 	lower := strings.ToLower(modelID)

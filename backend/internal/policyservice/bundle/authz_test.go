@@ -285,7 +285,7 @@ func scopeSetContains(scopes []string, expected string) bool {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Scope projection (principal_all_scopes rule — ADR-0037)
+// Scope projection (principal_all_scopes rule — docs/adr/2026-04-14-frontend-policy-projection.md)
 // ═══════════════════════════════════════════════════════════════════════════
 
 func TestScopes_AgentWithGrants(t *testing.T) {

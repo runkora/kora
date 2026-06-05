@@ -209,8 +209,8 @@ func filterScopedRoutes(in []routescopes.RouteScope) []routescopes.RouteScope {
 
 // inferenceRoutes returns the static route→scope bindings for the inference gateway.
 //
-// Used at startup for policy-service route registration (ADR-0036) and at
-// request time by ScopeEnforcementMiddleware (ADR-0064). Entries with empty
+// Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
+// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
 // passes them through after AuthMiddleware. They are filtered out by the
 // policy registration in registerRoutes.

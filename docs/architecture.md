@@ -1,306 +1,169 @@
 # Orbit Architecture
 
-For detailed code organization and project structure, see [code-organization.md](code-organization.md).
+Orbit is the **control plane for AI agents** — the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is **not** an agent framework, a model router, or a wrapper around LLM APIs.
 
-## Overview
+This document describes the system as it exists today. For the code layout see [code-organization.md](code-organization.md); for the catalogue of decisions see the [ADR index](adr/README.md).
 
-**Orbit: The Nervous System for Scalable AI Agents**
+## The three questions
 
-Orbit provides the coordination, identity, and control infrastructure required to safely scale autonomous agents inside real systems. Just as a biological nervous system coordinates complex organisms, Orbit coordinates autonomous agents — ensuring every decision is contextual, every action is authorized, every interaction is observable, and every agent is accountable.
+Putting an agent into production raises three questions, and the architecture is organised around them.
 
-**Orbit is not a framework. It is not a model router. It is not a wrapper around LLM APIs.**
+### Who is this agent?
 
-Orbit is the control plane for agents.
+Every agent gets a machine-verifiable identity at deploy time, with no human managing secrets or provisioning credentials. Humans and agents share one identity model, so a person can delegate to an agent with defined scope and full accountability — and the agent can never access more than the delegator.
 
-## Core Problem
+| Implemented by | What it does |
+|----------------|--------------|
+| `identity` service ([Identity, Auth & Tokens ADRs](adr/README.md#identity-auth--tokens)) | OIDC federation, sessions, PATs, multi-tenant registry, JWT issuance/revocation |
+| `identity-proxy` Envoy `ext_proc` sidecar | Exchanges each pod's SPIFFE SVID for an Orbit platform token at runtime |
+| SPIFFE/SPIRE | Workload attestation in the mesh |
+| Frontend BFF | Browser sessions federated to OIDC and exchanged for an Orbit session |
 
-Agents don't fail because they're unintelligent.  
-They fail because they lack **coordination, identity, and control**.
+### What can it access?
 
-Agents can think. They can act. They can decide.  
-But without coordination, they are isolated reflexes.
+Every action is checked against policy *before* it executes. Admins define exactly what each agent can do, down to the individual tool, and anything outside that list is rejected and logged. Enforcement happens at the edge inside each pod — not by trusting the agent to behave.
 
-- Without **identity**, they are unsafe
-- Without **policy**, they are unpredictable  
-- Without **signaling**, they are blind
+| Implemented by | What it does |
+|----------------|--------------|
+| `policy-service` (PDP/PAP) | Owns grants, roles, and the route-scope vocabulary; compiles & serves OPA bundles |
+| `policy-gateway` (PEP) | Answers `check`/`query`/`explain`/`simulate` for owned services |
+| Gateway-level OPA | Authorises external traffic at the edge ([gateway-level-opa-enforcement-for-external-traffic](adr/2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md)) |
+| Platform middleware | Enforces route scopes inside every service ([platform-scope-enforcement-middleware](adr/2026-06-04-platform-scope-enforcement-middleware.md)) |
+| Policy admin dashboard (frontend) | Manages grants, roles, and policy simulation |
 
-Most systems today:
-- Proxy LLM calls
-- Stitch together tools
-- Log outputs
+### How does it connect?
 
-They do **not**:
-- Enforce identity
-- Govern autonomy
-- Control tool permissions
-- Integrate with enterprise IAM
-- Track decisions at runtime
-- Provide agent lifecycle management
+Agents never handle credentials. The platform intercepts outbound calls and injects the right credentials just-in-time, deferring to the upstream system as the authority on what a user can access. A Claude Code or Codex instance drops in without modifying its auth handling.
 
-**Orbit does.**
+| Implemented by | What it does |
+|----------------|--------------|
+| `inference-gateway` ([Inference Gateway ADRs](adr/README.md#inference-gateway)) | OpenAI/Anthropic-compatible interface across Bedrock / Vertex / Azure / OpenAI; model catalog, alias routing, embeddings, Responses, usage logs, analytics |
+| `identity-proxy` sidecar | Injects platform tokens on outbound calls; agents never see credentials |
+| `orbit-agents` + `session-manager` + sandbox stack | Runs and isolates agent workloads (Claude Code today; CLI-agnostic) |
+| Operator + Helm/GitOps | Reconciles tenants, mesh, and Orbit services |
 
-## The Nervous System Metaphor
+> **Designed but not yet built.** Three pieces are in design and have ADRs but their feature packages are still empty stubs: a **general credential broker** (beyond the Orbit-platform-token broker that the `identity-proxy` already provides), a **governed MCP/tool gateway** (the existing `orbit-runtime-mcp` is single-purpose for sandbox provisioning), and a **platform-wide event spine** (agent run events stream inside `orbit-agents` today). See [`internal/credentials/`, `internal/toolgateway/`, `internal/events/`](code-organization.md#feature-packages-backendinternal).
 
-Orbit is architected as a nervous system for autonomous agents:
+## The technical posture
 
-| Component | Nervous System Function | Purpose |
-|-----------|------------------------|---------|
-| **Identity & Auth** | Sensory input | Who is acting? What context? |
-| **Policy Enforcement** | Reflex control | What's allowed? What requires approval? |
-| **Credential Broker** | Motor function | How is action executed? With what permissions? |
-| **Event Spine** | Neural signaling | Awareness, feedback, learning |
-| **Autonomy Levels** | Brain stem vs cortex | Which decisions are automatic vs deliberate? |
-| **Observability** | Feedback loop | Learning and adjustment from outcomes |
+Orbit is established platform engineering applied to a new domain. The hard problems aren't new — the workloads are. We use industry-standard tools rather than invented primitives:
 
-This metaphor guides our architectural decisions: coordination over computation, signaling over storage, governance over control.
+- **Identity** — OIDC for humans (any standards-compliant provider), SPIFFE/SPIRE for workloads, JWT-based platform tokens.
+- **Policy** — Open Policy Agent (OPA) with bundles distributed by `policy-service`; PDP/PAP/PEP split.
+- **Mesh & edge** — Istio + Envoy sidecars; the `identity-proxy` plugs in via Envoy `ext_proc`.
+- **Deployment** — Kubernetes-native, reconciled by an operator; Helm charts under GitOps.
+- **Observability** — OpenTelemetry traces and metrics across every service.
 
-## What Orbit Actually Is
+Every agent action traces back to the human who initiated it and the policy that authorised it. The "how do we know the agent isn't going rogue?" question gets a concrete answer.
 
-Orbit is a runtime platform that:
-- Authenticates humans and agents
-- Enforces policy before actions execute
-- Brokers credentials securely
-- Orchestrates agent runs
-- Routes model and tool calls
-- Emits structured events
-- Tracks cost, autonomy, and risk
-- Integrates with enterprise identity (Entra, SSO, etc.)
-- Provides a programmable control plane
+## Runtime topology
 
-### Positioning
+The backend is a **multi-service control plane** ([multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md)) — 13 binaries sharing one platform layer, deployed to Kubernetes by the Orbit operator. Two planes:
 
-Think of Orbit as:
-- **Kubernetes** — but for agent execution
-- **Temporal** — but for agent cognition
-- **Envoy** — but identity-aware
-
-Orbit becomes the layer agents run **on**, not just **through**.
-
-Scaling intelligence requires coordination. Orbit makes coordination possible.
-
-## Core Components
-
-### 1. Identity & Authentication Layer
-
-**Purpose**: Establish identity for both humans and agents
-
-**Capabilities**:
-- Human authentication via any OIDC-compliant provider (Entra, Okta, Google Workspace, Keycloak, etc.)
-- Headless operator authentication via the OAuth 2.0 Device Authorization Grant (RFC 8628) — no frontend required
-- Agent workload identity via SPIFFE SVIDs exchanged for Orbit platform tokens
-- Session management with JWT issuance, refresh, and revocation (JTI blocklist via Redis)
-- Provider-agnostic implementation — switching identity providers requires only environment variable changes
-
-**Key Concepts**:
-- Every actor (human or agent) has a verified identity
-- Agents are first-class identity principals
-- Identity flows through the entire execution chain
-- Human sessions are federated from an external OIDC provider; machine sessions are attested via SPIFFE/SPIRE
-- The local development environment runs [Dex](https://dexidp.io/) as a real, standards-compliant OIDC provider — no cloud credentials required
-
-### 2. Policy Enforcement Layer
-
-**Purpose**: Govern what agents can do before they do it
-
-**Capabilities**:
-- Pre-execution policy evaluation
-- OPA-compatible policy engine
-- RBAC (Role-Based Access Control)
-- PBAC (Policy-Based Access Control)
-- Autonomy level enforcement
-- Approval workflow integration
-- Dynamic policy updates
-
-**Key Concepts**:
-- Policies are evaluated **before** actions execute
-- Policies can deny, allow, or require human approval
-- Policies are tenant-aware and context-sensitive
-
-### 3. Credential Broker
-
-**Purpose**: Securely provide agents with credentials without direct access
-
-**Capabilities**:
-- Just-in-time credential provisioning
-- Scoped credential access
-- Credential rotation
-- Secrets management integration (Vault, cloud KMS)
-- Audit trail of credential usage
-
-**Key Concepts**:
-- Agents never see raw secrets
-- Credentials are scoped to specific operations
-- All credential access is logged and auditable
-
-### 4. Agent Run Control Plane
-
-**Purpose**: Manage the lifecycle of agent execution
-
-**Capabilities**:
-- Agent run orchestration
-- Multi-agent workflow coordination
-- Execution state management
-- Run scheduling and queueing
-- Resource allocation
-- Cost tracking per run
-
-**Key Concepts**:
-- Agents are deployed as workloads
-- Runs are scheduled and managed centrally
-- Each run has complete audit trail
-
-### 5. Model Gateway
-
-**Purpose**: Route and manage model inference calls
-
-**Capabilities**:
-- Model routing (pluggable providers)
-- Request/response transformation
-- Rate limiting and quotas
-- Cost attribution
-- Model fallback and retry
-- Caching layer
-
-**Key Concepts**:
-- Model calls go through Orbit
-- All inference is tracked and attributed
-- Policies can control model access
-
-### 6. Tool/MCP Gateway
-
-**Purpose**: Broker tool and external system access
-
-**Capabilities**:
-- Tool registration and discovery
-- MCP (Model Context Protocol) integration
-- Tool permission enforcement
-- Request validation
-- Response sanitization
-- Tool usage tracking
-
-**Key Concepts**:
-- Tools are policy-controlled resources
-- Agents request tool access, Orbit enforces
-- All tool invocations are auditable
-
-### 7. Event Spine
-
-**Purpose**: Emit structured events for observability and audit
-
-**Capabilities**:
-- Structured event emission
-- Event filtering and routing
-- Integration with observability platforms
-- Audit log generation
-- Real-time event streaming
-- Event replay for debugging
-
-**Key Concepts**:
-- Every decision is an event
-- Events are structured and queryable
-- Complete audit trail of agent behavior
-
-## Architecture Diagram
+- **Control plane (platform namespace):** the always-on Orbit services — `identity`, `inference-gateway`, `policy-service`, `policy-gateway`, `orbit-agents`, and the `operator`. Backed by PostgreSQL and Redis.
+- **Tenant data plane (per-tenant namespaces):** agent workloads and their `session-manager`, each pod fronted by an Istio Envoy sidecar plus the Orbit `identity-proxy` sidecar that injects platform tokens. SPIRE attests workloads; the operator reconciles each tenant namespace.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         Orbit Control Plane                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────────┐      ┌──────────────┐   ┌──────────────┐ │
-│  │   Identity   │      │    Policy    │   │  Credential  │ │
-│  │     & Auth   │◄────►│ Enforcement  │◄─►│    Broker    │ │
-│  └──────────────┘      └──────────────┘   └──────────────┘ │
-│         │                      │                    │        │
-│         ▼                      ▼                    ▼        │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │           Agent Run Control Plane                      │ │
-│  │  • Run Orchestration  • State Management  • Scheduling │ │
-│  └────────────────────────────────────────────────────────┘ │
-│         │                      │                    │        │
-│         ▼                      ▼                    ▼        │
-│  ┌──────────────┐      ┌──────────────┐   ┌──────────────┐ │
-│  │    Model     │      │  Tool/MCP    │   │    Event     │ │
-│  │   Gateway    │      │   Gateway    │   │    Spine     │ │
-│  └──────────────┘      └──────────────┘   └──────────────┘ │
-│         │                      │                    │        │
-└─────────┼──────────────────────┼────────────────────┼────────┘
-          │                      │                    │
-          ▼                      ▼                    ▼
-    ┌─────────┐          ┌─────────────┐      ┌──────────────┐
-    │  Model  │          │   Tools &   │      │ Observability│
-    │Providers│          │   Systems   │      │  Platforms   │
-    └─────────┘          └─────────────┘      └──────────────┘
+   Humans                                    Agent workloads (tenant namespaces)
+     │                                                   │
+     ▼                                                   ▼
+ ┌─────────┐  BFF/session                       ┌──────────────────┐
+ │ Frontend │ ───────────────┐                  │  Agent pod        │
+ │ (Next.js)│                │                  │  ┌─────────────┐  │
+ └─────────┘                 ▼                  │  │ identity-proxy│ ext_proc: SVID→platform token
+                       ┌────────────┐           │  └─────┬───────┘  │
+                       │  identity  │◄──────────┼────────┘ injects Bearer token on egress
+                       │  :8080 API │  sessions │  ┌─────────────┐  │
+                       └─────┬──────┘  PATs     │  │session-manager│ runs Claude Code
+        ┌────────────────────┼───────────┐     │  └─────┬───────┘  │
+        ▼                    ▼            ▼     └────────┼──────────┘
+ ┌──────────────┐   ┌──────────────┐ ┌──────────┐       │ provision_sandbox (MCP) / shell-proxy
+ │ inference-   │   │ policy-      │ │ orbit-   │◄───────┘
+ │ gateway :8081│   │ gateway :8084│ │ agents   │        ┌──────────────┐
+ └──────┬───────┘   └──────┬───────┘ │ :8080    │        │ sandbox pod  │
+        │ providers        │ PEP     └────┬─────┘        │ sandbox-exec │
+        ▼                  ▼ PDP/bundles  │              │ :50051 gRPC  │
+  Model providers   ┌──────────────┐      ▼              └──────────────┘
+  (Bedrock/Vertex/  │policy-service│  Postgres / Redis
+   Azure/OpenAI)    │ :8083 + OPA  │
+                    └──────────────┘
+        operator (reconciles tenant/platform CRDs) · SPIRE (SVIDs) · Istio (mTLS mesh)
 ```
 
-## What Orbit Enables
+### How requests flow
 
-With Orbit, organizations can:
-- Deploy agents as first-class system workloads
-- Define autonomy levels (fully autonomous, human-in-loop, approval-only)
-- Attach approval workflows to sensitive operations
-- Enforce RBAC and PBAC dynamically
-- Run multi-agent workflows safely
-- Attribute cost and usage per tenant or agent
-- Maintain complete audit trails for every decision
-- Integrate agents with existing enterprise systems securely
+- **A human** signs in through the frontend, which runs a Backend-for-Frontend (BFF) that federates to an OIDC provider (Dex locally) and exchanges the result for an Orbit session against the `identity` service ([browser-auth-flow-and-bff-session-architecture](adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md)).
+- **An agent** in a tenant pod makes an outbound call; its Istio sidecar routes it through the Orbit `identity-proxy`, which exchanges the pod's SPIFFE SVID for an Orbit platform token and injects it as a `Bearer` header ([envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). The agent never handles credentials.
+- **An inference call** hits the `inference-gateway`, which authenticates the platform token, checks policy, resolves the model alias, routes to the right provider, and records usage ([inference-gateway-architecture](adr/2026-04-01-inference-gateway-architecture.md)).
+- **Authorization** is enforced before action: services call the `policy-gateway` (PEP) which evaluates against OPA bundles compiled and served by `policy-service` (PDP/PAP) ([policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md)).
+- **An agent run** is orchestrated by `orbit-agents`, which manages run/session lifecycle and drives `session-manager` to run Claude Code in an isolated workspace; the agent provisions a sandbox via `orbit-runtime-mcp` and runs shell commands through `orbit-shell` into a `sandbox-exec` pod ([run-and-session-lifecycle](adr/2026-05-11-run-and-session-lifecycle.md), [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md)).
 
-## Design Principles
+## Capabilities in detail
 
-1. **Security First**: Every component designed with security as primary concern
-2. **Identity-Driven**: All actions tied to verified identities
-3. **Policy-Governed**: Policies enforced before execution, not after
-4. **Observable**: Complete visibility into agent behavior
-5. **Extensible**: Pluggable integrations for models, tools, identity providers
-6. **Production-Grade**: Built for enterprise reliability and scale
-7. **Open Standards**: OPA for policy, OIDC/SAML for identity, MCP for tools
+### Identity & Authentication — ✅ built
+Establishes verified identity for humans and agents. Human auth via any OIDC provider (Entra, Okta, Google Workspace, Keycloak; Dex locally) including the Device Authorization Grant for headless CLIs; agent workload identity via SPIFFE SVIDs exchanged for Orbit platform tokens; sessions with JWT issuance, refresh, and revocation (Redis JTI blocklist); PATs for programmatic access; a multi-tenant registry binding tenants to OIDC providers. See the [Identity, Auth & Tokens ADRs](adr/README.md#identity-auth--tokens).
 
-## Technical Stack
+### Policy Enforcement — ✅ built
+Governs what principals can do **before** they act. A PDP/PAP (`policy-service`) owns grants, roles, and a route-scope vocabulary, and compiles OPA bundles; a PEP (`policy-gateway`) answers `check`/`query`/`explain`/`simulate` for owned services; gateway-level OPA enforces external traffic ([gateway-level-opa-enforcement-for-external-traffic](adr/2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md)); platform middleware enforces route scopes ([platform-scope-enforcement-middleware](adr/2026-06-04-platform-scope-enforcement-middleware.md)). A policy administration dashboard ships in the frontend.
 
-| Component | Technology | Status |
-|---|---|---|
-| **Language** | Go 1.26 | Implemented |
-| **HTTP layer** | Custom controller-based router (`internal/platform/api`) — ADR-0005 | Implemented |
-| **Identity / Auth** | `go-oidc/v3` + `golang.org/x/oauth2` — provider-agnostic OIDC | Implemented |
-| **Workload identity** | SPIFFE/SPIRE SVIDs exchanged for Orbit platform tokens via `/api/v1/identity/exchange` | Implemented (ADR-0010) |
-| **Token injection sidecar** | Envoy ext_proc gRPC sidecar (`cmd/identity-proxy`) — injects Bearer token into outbound agent requests | Implemented (ADR-0021) |
-| **Service-to-service clients** | Typed HTTP clients in `internal/platform/clients/` with OTel trace propagation built in | Implemented (ADR-0020) |
-| **Policy Engine** | Open Policy Agent (OPA) | Designed (ADR-0011) |
-| **Primary storage** | PostgreSQL via `pgx/v5` (no ORM) — ADR-0007 | Implemented |
-| **Session cache / revocation** | Redis via `go-redis/v9` | Implemented |
-| **Service mesh** | Istio + Envoy sidecars | Designed (ADR-0015) |
-| **Network enforcement** | Cilium (CI/staging) + Kubernetes NetworkPolicy (local) | Designed (ADR-0015) |
-| **Observability** | OpenTelemetry (traces + metrics) with OTel HTTP semantic conventions — ADR-0022 | Implemented |
-| **Logging** | Structured, dependency-injected logger (`internal/platform/logging`) — ADR-0004 | Implemented |
-| **Configuration** | Environment-aware YAML via `config.Load[T]()`, secrets via `os.Getenv` only — ADR-0006 | Implemented |
-| **Static analysis** | `golangci-lint` with custom `ruleguard` + `depguard` rules enforcing all ADRs | Implemented |
-| **Local dev cluster** | k3d | Designed (ADR-0016) |
-| **Local identity provider** | Dex (Docker Compose, port 5556) | Implemented |
-| **Events** | Structured event spine | Planned |
-| **Deployment** | Kubernetes-native | Planned |
+### Inference Gateway — ✅ built
+An OpenAI/Anthropic-compatible interface between agents and model providers (AWS Bedrock, Google Vertex, Azure, OpenAI) under a bring-your-own-provider model. Provides a model catalog with capability taxonomy and alias/virtual-model routing, an Anthropic zero-translation path, embeddings and Responses endpoints, plus usage logging and analytics. See the [Inference Gateway ADRs](adr/README.md#inference-gateway).
 
-## Development Status
+### Agent Run Control — ✅ built
+`orbit-agents` is the control plane for agent types, runs, and sessions, with event streaming, BYOC discovery, and per-tenant Kubernetes orchestration. `session-manager` runs the agent (Claude Code) per session in an isolated workspace with per-session home isolation; the sandbox stack (`orbit-runtime-mcp`, `orbit-shell`, `sandbox-exec`, `orbit-session-runner`) provides provisioned, Landlock/namespace-isolated command execution. See the [Agents Control Plane ADRs](adr/README.md#agents-control-plane--execution).
 
-Orbit is in **active early development**.
+### Observability — ✅ built
+OpenTelemetry traces and metrics across every service, W3C trace propagation through the typed platform HTTP clients, and log–trace correlation via the injected structured logger ([opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md)). See [docs/observability/](observability/README.md).
 
-**Fully implemented:**
-- Identity layer — human OIDC federation (Device Authorization Grant), SPIFFE SVID exchange, session management, JWT issuance and revocation
-- Envoy ext_proc token injection sidecar (`cmd/identity-proxy`) — transparent Bearer token injection for outbound agent calls
-- Platform infrastructure — HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL (`pgx/v5`), Redis (`go-redis/v9`), YAML config system
-- Service-to-service typed HTTP clients with W3C trace propagation baked in
-- Custom static analysis rules enforcing every architectural ADR at lint time
-- Local development environment — Dex OIDC provider, signing key generation, `make auth-device` CLI flow
+### Credential Broker — ⛔ designed, not yet built
+Scoped, just-in-time credential provisioning so agents never see raw secrets. Designed in [credential-aware-outbound-gateway](adr/2026-03-05-credential-aware-outbound-gateway.md); `internal/credentials` is an empty stub. Today the `identity-proxy` brokers Orbit *platform* tokens for service-to-service calls, but general external-credential brokering is future work.
 
-**Designed (ADR exists, implementation pending):**
-- Policy engine — OPA integration, RBAC/PBAC enforcement (ADR-0011)
-- Agent execution — agent identity registration, run orchestration, execution state management (ADR planned)
-- Credential broker — scoped just-in-time credential provisioning, Vault integration (ADR planned)
-- Event spine — structured event emission and routing (ADR planned)
+### Tool / MCP Gateway — ⛔ designed, not yet built
+A governed broker for tool and MCP access with permission enforcement. Designed in [mcp-server-registration-deployment-and-governance](adr/2026-03-05-mcp-server-registration-deployment-and-governance.md) and [scope-gated-tool-exposure-via-mcp](adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md); `internal/toolgateway` is an empty stub. `orbit-runtime-mcp` exists but is a single-purpose MCP server for sandbox provisioning, not the governed gateway.
 
-## Contributing
+### Event Spine — ⛔ designed, not yet built
+A platform-wide structured event bus for awareness and audit. `internal/events` is an empty stub. Agent run events are currently emitted and streamed within `orbit-agents` ([agent-event-streaming-protocol](adr/2026-05-11-agent-event-streaming-protocol.md)); a general spine is future work.
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines on contributing to Orbit's architecture and implementation.
+## Technical stack
+
+| Concern | Technology | Status |
+|---------|-----------|--------|
+| Language | Go 1.26 (backend), TypeScript / Next.js (frontend) | ✅ |
+| HTTP layer | Custom controller-based router (`internal/platform/api`) — [controller-based-http-routing](adr/2026-02-17-controller-based-http-routing.md) | ✅ |
+| Identity / Auth | `go-oidc/v3` + `golang.org/x/oauth2`, provider-agnostic OIDC | ✅ |
+| Workload identity | SPIFFE/SPIRE SVIDs exchanged for platform tokens — [spiffe-spire-workload-attestation](adr/2026-03-05-spiffe-spire-workload-attestation.md) | ✅ |
+| Token injection sidecar | Envoy `ext_proc` gRPC sidecar (`cmd/identity-proxy`) — [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md) | ✅ |
+| Service-to-service | Typed HTTP clients (`internal/platform/clients`) with OTel trace propagation | ✅ |
+| Policy engine | Open Policy Agent (OPA) — PDP/PAP + PEP split | ✅ |
+| Inference | Multi-provider gateway (Bedrock / Vertex / Azure / OpenAI) | ✅ |
+| Agent execution | `orbit-agents` + `session-manager` + sandbox stack on Kubernetes | ✅ |
+| Primary storage | PostgreSQL via `pgx/v5` (no ORM) — [database-infrastructure-layer](adr/2026-03-03-database-infrastructure-layer.md) | ✅ |
+| Cache / revocation | Redis via `go-redis/v9` | ✅ |
+| Service mesh | Istio + Envoy sidecars — [service-mesh-and-network-enforcement-infrastructure](adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) | ✅ |
+| Deployment | Kubernetes operator + Helm/GitOps — [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md), [helm-chart-distribution-and-gitops-repository-structure](adr/2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | ✅ |
+| Observability | OpenTelemetry (traces + metrics), OTel HTTP semantic conventions | ✅ |
+| Configuration | Per-service YAML via `config.LoadService[T]` + `base.yaml`; secrets via `os.Getenv` — [yaml-file-based-configuration](adr/2026-02-18-yaml-file-based-configuration.md) | ✅ |
+| Static analysis | `golangci-lint` with custom `ruleguard` + `depguard` rules enforcing ADRs | ✅ |
+| Local dev | Docker Compose (Postgres/Redis/Dex/glauth) + optional k3d cluster (Istio + SPIRE) | ✅ |
+| Credential broker / tool gateway / event spine | — | ⛔ designed, not built |
+
+## Design principles
+
+1. **Security first** — every component designed with security as the primary concern.
+2. **Identity-driven** — all actions tied to a verified identity.
+3. **Policy-governed** — policy enforced *before* execution, not after.
+4. **Observable** — distributed tracing, structured logging, log–trace correlation throughout.
+5. **Extensible** — pluggable model providers, tools, and identity providers.
+6. **Production-grade** — built for enterprise reliability and scale.
+7. **Open standards** — OPA for policy, OIDC/SPIFFE for identity, MCP for tools, OpenTelemetry for observability.
+
+## Where to go next
+
+- [code-organization.md](code-organization.md) — the directory layout, binaries, and feature packages
+- [adr/README.md](adr/README.md) — every architectural decision, by subsystem
+- [guides/local-development.md](guides/local-development.md) — run it locally
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — how to contribute
 
 ## License
 
-Orbit is licensed under the Apache License 2.0. See [LICENSE](../LICENSE) for details.
+Orbit is licensed under the Apache License 2.0. See [LICENSE](../LICENSE).

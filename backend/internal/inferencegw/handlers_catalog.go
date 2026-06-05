@@ -40,7 +40,7 @@ type CatalogController struct {
 // NewCatalogController constructs a CatalogController.
 //
 // routes and eval are passed to ScopeEnforcementMiddleware for in-process
-// route → scope enforcement (ADR-0064). Pass the same inferenceRoutes() slice
+// route → scope enforcement (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Pass the same inferenceRoutes() slice
 // the main controller uses; the catalog routes are matched by the /v1/catalog
 // prefix entries in that table. basePath must match the server's BasePath
 // (e.g. "/v1") so the middleware can reconstruct absolute paths after

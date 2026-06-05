@@ -2,16 +2,19 @@
 
 ## Project Overview
 
-Orbit is the **control plane for AI agents** — not a framework, not a model router, not an LLM wrapper. It provides the coordination, identity, and control infrastructure required to safely scale autonomous agents inside real systems.
+Orbit is **the control plane for AI agents** — the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is *not* an agent framework, a model router, or an LLM wrapper.
 
-**Core Metaphor**: Orbit is architected as a **nervous system** for autonomous agents. This metaphor guides all architectural decisions:
-- **Identity & Auth** = Sensory input (who is acting?)
-- **Policy Enforcement** = Reflex control (what's allowed?)
-- **Credential Broker** = Motor function (how action is executed)
-- **Event Spine** = Neural signaling (awareness & feedback)
-- **Autonomy Levels** = Brain stem vs cortex (decision hierarchy)
+The platform answers three questions for every agent that goes into production, and the architecture is organised around them:
 
-**Development Status**: Active early development. The identity layer, platform infrastructure, local development environment, and identity-proxy sidecar are fully implemented. See `docs/` for ADRs covering all major architectural decisions.
+- **Who is this agent?** Every agent gets a machine-verifiable identity at deploy time. Humans and agents share one identity model; a person can delegate to an agent with defined scope and full accountability, and the agent can never access more than the delegator.
+- **What can it access?** Every action is checked against policy *before* it executes. Admins define what each agent can do down to the individual tool; everything outside that list is rejected and logged. Enforcement happens at the edge inside each pod — the agent is never trusted to behave.
+- **How does it connect?** Agents never handle credentials. The platform intercepts outbound calls and injects credentials just-in-time, deferring to the upstream system as the authority on what a user can access. A Claude Code or Codex instance drops in without modifying its auth handling.
+
+Underneath, Orbit is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native and standards-based. Every agent action traces back to the human who initiated it and the policy that authorised it.
+
+**These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
+
+**Development Status**: Active development — Orbit runs a multi-service control plane (13 binaries). Built and running: identity/auth, the identity-proxy sidecar, policy enforcement (OPA PDP/PAP + PEP), the inference gateway, the agent run control plane (runs/sessions/sandboxing), the Kubernetes operator, and the platform foundation. Designed but **not yet built**: the general credential broker, the governed MCP/tool gateway, and a platform-wide event spine (`internal/{credentials,toolgateway,events}` are empty stubs). See [docs/architecture.md](docs/architecture.md) and the [ADR index](docs/adr/README.md).
 
 ## Product Development Workflow
 
@@ -36,7 +39,7 @@ Only after PRD and ADR approval:
 - Reference the ADR and PRD in commit messages and PR descriptions
 - Update documentation as needed
 
-**The nervous system metaphor is central to Orbit's design.** All architectural decisions should align with this principle: coordination over computation, signaling over storage, governance over control.
+**The three questions are the spine of every architectural decision.** Be explicit about which one a change touches — *Who is this agent? What can it access? How does it connect?* — and how it preserves the others.
 
 ## Development Setup
 
@@ -87,8 +90,13 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -X POST \
 **Service ports (local dev):**
 | Service | Port |
 |---------|------|
-| Main API (`orbit`) | `8080` |
+| Main API (`identity`) | `8080` |
 | Inference Gateway | `8081` |
+| Policy Service | `8083` |
+| Policy Gateway | `8084` |
+| Session Manager | `8090` |
+
+(`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
 **If you get `{"code":"unauthorized","message":"invalid or expired platform token"}` (token expired after ~1 hour):**
 
@@ -117,7 +125,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Data & Storage
 - **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
 - **No `database/sql`**: Use `pgx/v5` exclusively. `errors.Is(err, pgx.ErrNoRows)` for not-found checks.
-- **No hand-written migrations**: Generate with `make migrate-create name=X` (Goose format)
+- **No hand-written migrations**: Generate with `make migrate-create service=X name=Y` (Goose format); migrations live per-binary under `backend/cmd/{service}/migrations/`
 
 ### HTTP & Routing
 - **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`. No gin, chi, echo, or gorilla/mux.
@@ -131,7 +139,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 
 ### Configuration
 - **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields.
-- **Config uses `config.Load[T any]`**: Environment-specific YAML loaded by `APP_ENV` value. No raw viper, no raw yaml library imports outside `platform/config/`.
+- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
 
 ### Errors & Observability
 - **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)` — never `%s` for error wrapping.
@@ -178,8 +186,8 @@ See `rules/README.md` for full rationale and exception policy.
 Orbit follows a **feature-based architecture** with the repository pattern for data access and a multi-binary deployment model. See the following documents for complete details:
 
 - **[docs/code-organization.md](docs/code-organization.md)** - Complete directory structure and package organization
-- **[docs/adr/0003-repository-pattern-and-code-organization.md](docs/adr/0003-repository-pattern-and-code-organization.md)** - Repository pattern and feature structure
-- **[docs/adr/0020-multi-service-backend-deployment-structure.md](docs/adr/0020-multi-service-backend-deployment-structure.md)** - Multi-binary deployment model
+- **[docs/adr/2026-02-17-repository-pattern-and-code-organization.md](docs/adr/2026-02-17-repository-pattern-and-code-organization.md)** - Repository pattern and feature structure
+- **[docs/adr/2026-03-19-multi-service-backend-deployment-structure.md](docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)** - Multi-binary deployment model
 
 ### Key Principles
 
@@ -187,10 +195,18 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 
 | Binary | Path | Purpose |
 |--------|------|---------|
-| `orbit` | `cmd/orbit/` | Main API server — identity, sessions, future features |
-| `identity` | `cmd/identity/` | Standalone identity service |
+| `identity` | `cmd/identity/` | **Main control-plane API** — identity, sessions, PATs, tenant registry (port 8080) |
+| `inference-gateway` | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081) |
+| `policy-service` | `cmd/policy-service/` | Authz data plane (PDP/PAP) — grants, roles, OPA bundles (port 8083) |
+| `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
+| `orbit-agents` | `cmd/orbit-agents/` | Agent control plane — runs, sessions, event streaming, k8s orchestration |
+| `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
+| `operator` | `cmd/operator/` | Kubernetes operator — reconciles Tenant/Platform CRDs, injects sidecars |
 | `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar — injects platform tokens into agent outbound calls |
+| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner` | `cmd/*/` | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper) |
 | `example` | `cmd/example/` | Reference implementation (not production) |
+
+> There is **no `cmd/orbit`** binary — the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
 
 **Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
 - Repository interface (storage contract)
@@ -287,7 +303,7 @@ When implementing Orbit components:
 - **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
 
-See [ADR-0003](docs/adr/0003-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
+See [repository-pattern-and-code-organization](docs/adr/2026-02-17-repository-pattern-and-code-organization.md) for detailed architectural patterns and the rationale behind our code organization approach.
 
 ## Frontend Development
 
@@ -375,4 +391,4 @@ Orbit is licensed under Apache License 2.0. All contributions must be compatible
 
 ---
 
-**Remember**: Orbit is not just infrastructure — it's the nervous system that coordinates autonomous agents. Every component should reflect this: coordination over computation, signaling over storage, governance over control.
+**Remember**: Orbit is the control plane underneath production agentic systems. Every change should answer one or more of: *Who is this agent? What can it access? How does it connect?* — and never weaken the others.

@@ -15,7 +15,7 @@
  * parameter so the callback page can restore them after the round-trip without
  * any server round-trip.
  *
- * See ADR-0031 for the full design rationale.
+ * See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md for the full design rationale.
  */
 'use client';
 

@@ -1,7 +1,7 @@
 // Package token provides shared JWT claim types for Orbit platform tokens.
 // These types are defined here — rather than in internal/identity — so that
 // any service binary can import and parse platform tokens without creating a
-// cross-feature dependency that violates ADR-0003.
+// cross-feature dependency that violates docs/adr/2026-02-17-repository-pattern-and-code-organization.md.
 package token
 
 import (

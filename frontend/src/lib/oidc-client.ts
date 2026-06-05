@@ -3,7 +3,7 @@
  *
  * Replaces the previous env-var singleton with a per-tenant factory function.
  * Tenant OIDC configuration (issuer URL, client ID, scopes) is resolved at
- * runtime via the Home Realm Discovery endpoint (ADR-0031) and handed to this
+ * runtime via the Home Realm Discovery endpoint (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) and handed to this
  * factory by the login page before initiating the PKCE redirect.
  *
  * The factory is safe to import from Client Components and callback pages.

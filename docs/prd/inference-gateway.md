@@ -1,6 +1,6 @@
 # Inference Gateway — Product Requirements Document
 
-**Status:** In Review  
+**Status:** Implemented  
 **Created:** 2025-01-26  
 **Last Updated:** 2025-07-14  
 **Supersedes:** `docs/prd/model-gateway.md` (Model Gateway PRD — retired)  
@@ -13,7 +13,7 @@
 
 The Inference Gateway is Orbit's unified interface layer between agents and AI model providers. It exposes an OpenAI-compatible API that routes requests to provider-specific backends — AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct — using a "Bring Your Own Provider" (BYOP) model where operators supply their own cloud credentials at deployment time.
 
-Authentication uses Orbit's existing platform token system (ADR-0008) from day one — there is no separate credential layer. Any principal with a valid Orbit platform token (agent, human, or service) can call the inference API. Cost and token usage are attributed at full principal resolution: per-tenant, per-principal, and per-principal-type.
+Authentication uses Orbit's existing platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one — there is no separate credential layer. Any principal with a valid Orbit platform token (agent, human, or service) can call the inference API. Cost and token usage are attributed at full principal resolution: per-tenant, per-principal, and per-principal-type.
 
 The Policy Engine integration point is designed into the architecture from launch. Until the Policy Engine (OPA) ships, all models are available to all authenticated principals. Once OPA is operational, model access will be governed by policy without any gateway changes.
 
@@ -25,7 +25,7 @@ MVP delivers production reliability (streaming, retries, failover, connection po
 
 ### Current State
 
-Orbit is the control plane for AI agents. The nervous system architecture (identity, policy, credentials, events) is being established. There is currently no standardised inference interface. Each agent developer must implement provider-specific integrations from scratch, handle reliability patterns manually, and solve credential distribution in isolation.
+Orbit is the control plane for AI agents. The platform layers (identity, policy, credentials, events) are still being established. There is currently no standardised inference interface. Each agent developer must implement provider-specific integrations from scratch, handle reliability patterns manually, and solve credential distribution in isolation.
 
 ### User Pain Points
 
@@ -60,7 +60,7 @@ Orbit is the control plane for AI agents. The nervous system architecture (ident
 ### Primary Goals
 
 1. **Unified Provider Interface:** A single OpenAI-compatible API endpoint that routes to AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct through a BYOP model — operators supply their own cloud credentials or API keys at deployment time.
-2. **Platform Identity Integration:** Authentication uses Orbit's platform token system (ADR-0008) from day one. Any authenticated Orbit principal — agent, human, or service — can call the gateway without a separate credential.
+2. **Platform Identity Integration:** Authentication uses Orbit's platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one. Any authenticated Orbit principal — agent, human, or service — can call the gateway without a separate credential.
 3. **Policy-Ready Architecture:** The Policy Engine integration point is built into the gateway from launch. Model access control will activate automatically when the OPA-based Policy Engine ships — no gateway changes required.
 4. **Production Reliability:** Streaming support, automatic retries with exponential backoff, failover chains, and connection pooling built in from day one.
 5. **Intelligent Routing:** Lowest-cost routing and explicit failover chains as the two primary routing strategies.
@@ -116,7 +116,7 @@ Orbit is the control plane for AI agents. The nervous system architecture (ident
 
 **Acceptance Criteria:**
 - [ ] Requests authenticated via Orbit platform JWT (`Authorization: Bearer <platform-token>`)
-- [ ] Token validated against Orbit's JWKS endpoint (signature, expiry, JTI blocklist via ADR-0008)
+- [ ] Token validated against Orbit's JWKS endpoint (signature, expiry, JTI blocklist via [unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
 - [ ] Principal context (`tenant_id`, `principal_id`, `principal_type`) extracted from token claims
 - [ ] Requests without a valid platform token receive `401 Unauthorized`
 - [ ] Token validation is performed at the gateway layer — application handlers receive pre-validated principal context
@@ -315,7 +315,7 @@ Agent / Human / Service Principal
 ┌─────────────────────────────────────────────────┐
 │              Orbit Gateway (Edge Envoy)          │
 │  - Platform token validation (sig, exp, JTI)    │
-│  - Layer 1 policy enforcement (ADR-0011)        │
+│  - Layer 1 policy enforcement ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md))        │
 │  - Principal context injected into headers      │
 └──────────────────────┬──────────────────────────┘
                        │
@@ -365,7 +365,7 @@ Agent / Human / Service Principal
 ### Key Design Decisions
 
 **Platform Token Authentication:**  
-The Inference Gateway accepts Orbit platform JWTs only. No separate token system is built or maintained. Token validation occurs at the Orbit Gateway (Envoy, Layer 1 per ADR-0011) before the request reaches the Inference Gateway service. The service extracts principal context from headers injected by Envoy after validation. This keeps the Inference Gateway's authentication concern minimal and consistent with all other Orbit services.
+The Inference Gateway accepts Orbit platform JWTs only. No separate token system is built or maintained. Token validation occurs at the Orbit Gateway (Envoy, Layer 1 per [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) before the request reaches the Inference Gateway service. The service extracts principal context from headers injected by Envoy after validation. This keeps the Inference Gateway's authentication concern minimal and consistent with all other Orbit services.
 
 **Principal-Level Attribution:**  
 Every inference request is attributed to its full principal context — `tenant_id`, `principal_id`, `principal_type`. For agents, this maps to the attested SPIFFE identity. For humans, to the federated OIDC identity. For service principals, to the platform service identity. This enables genuinely granular cost and usage analysis that was not possible with the previous per-gateway-token attribution model.
@@ -597,7 +597,7 @@ inference_usage
 - TLS required for all outbound provider connections
 - Request body logging disabled by default (opt-in per deployment)
 - All `401`/`403` responses contain no information beyond the error code
-- Platform token validation follows the JTI blocklist pattern from ADR-0008
+- Platform token validation follows the JTI blocklist pattern from [unified-identity-model](../adr/2026-03-05-unified-identity-model.md)
 
 **Reliability:**
 - 99.9% successful routing rate with failover across configured providers
@@ -623,8 +623,8 @@ inference_usage
 
 | Dependency | Status | Requirement | Impact |
 |---|---|---|---|
-| Orbit Platform Token (ADR-0008) | **Implemented** | Identity and principal extraction | Required — authentication from day one |
-| Orbit Gateway / Envoy (ADR-0011) | **Designed** | Layer 1 token validation + principal context injection | Required — gateway enforces before service sees request |
+| Orbit Platform Token ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) | **Implemented** | Identity and principal extraction | Required — authentication from day one |
+| Orbit Gateway / Envoy ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) | **Designed** | Layer 1 token validation + principal context injection | Required — gateway enforces before service sees request |
 | PostgreSQL | **Implemented** | Usage record persistence | Required |
 | Policy Engine (OPA) | Planned | Model access control | Deferred — interface stubbed; enforcement activates when OPA ships |
 | Orbit Event Spine | Planned | Structured event emission | Deferred — Post-MVP |
@@ -666,7 +666,7 @@ inference_usage
 **Description:** Issue gateway-specific tokens (user-scoped and app-scoped) stored in PostgreSQL, independent of Orbit's identity system.
 
 **Why not chosen:**
-- Creates a second identity surface to manage, maintain, and secure — directly contradicting Orbit's unified identity model (ADR-0008)
+- Creates a second identity surface to manage, maintain, and secure — directly contradicting Orbit's unified identity model ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
 - Agents already carry platform tokens via the SPIFFE/SPIRE + Envoy sidecar flow — requiring a second credential is unnecessary friction
 - Attribution is coarser (per-gateway-token, not per-principal) — loses `tenant_id`, `principal_type`, and all the richness of the platform token
 - Was an explicitly temporary design in the previous PRD, pending identity integration that is now complete
@@ -679,7 +679,7 @@ inference_usage
 - Deep integration with Orbit identity and policy evaluation requires gateway internals access
 - Would require maintaining a fork or relying on a plugin system not designed for Orbit's architecture
 - LiteLLM's 100+ provider model is broader than Orbit's BYOP requirement
-- Does not align with Orbit's nervous system architecture — just a router, not part of the control plane
+- Does not align with Orbit's posture — a standalone router, not part of an integrated control plane
 
 ### Alternative 3: Use Portkey
 
@@ -711,14 +711,14 @@ inference_usage
 | 1 | Streaming support timeline | **Resolved** | Streaming is P0; ships with MVP |
 | 2 | Routing strategies for MVP | **Resolved** | Lowest-cost and failover chains are P0 |
 | 3 | Provider set for launch | **Resolved** | AWS Bedrock, Google Vertex AI, Azure AI, OpenAI direct |
-| 4 | Auth approach | **Resolved** | Orbit platform tokens (ADR-0008) from day one; no standalone token system |
+| 4 | Auth approach | **Resolved** | Orbit platform tokens ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one; no standalone token system |
 | 5 | Policy evaluation at gateway | **Resolved** | Interface designed and stubbed from day one; enforcement activates when OPA ships |
 | 6 | Multimodal support | **Resolved** | Supported via provider pass-through; no normalisation in MVP |
 | 7 | Cost table maintenance | **Resolved** | AWS Bedrock and Vertex AI polled from pricing APIs (configurable TTL, default 1h). Azure AI and OpenAI manually configured in config. On pricing API failure, last cached prices used with staleness warning logged. |
 | 8 | Rate limiting | **Resolved** | Moved to P1 — Post-MVP |
 | 9 | Attribution granularity | **Resolved** | Per-tenant, per-principal, per-principal-type on every request |
 | 10 | Anthropic direct API | **Resolved** | Not in MVP scope as a separate provider — Claude models covered via AWS Bedrock |
-| 12 | Anthropic Messages API wire format (Claude Code) | **Resolved** | P1 — adds `POST /v1/messages` dialect; edge Envoy handles `x-api-key` → `Authorization: Bearer` header promotion; agent sidecars already inject `Authorization: Bearer` transparently via ext_proc (ADR-0021); routing/connectors unchanged |
+| 12 | Anthropic Messages API wire format (Claude Code) | **Resolved** | P1 — adds `POST /v1/messages` dialect; edge Envoy handles `x-api-key` → `Authorization: Bearer` header promotion; agent sidecars already inject `Authorization: Bearer` transparently via ext_proc ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)); routing/connectors unchanged |
 | 11 | Credential provisioning mechanism | **Resolved** | Credentials are environment variables; Helm chart mechanism deferred to infrastructure ADR |
 
 ---
@@ -819,10 +819,10 @@ inference_usage
 
 ### Related Documents
 
-- [ADR-0008](../adr/0008-unified-identity-model.md) — Unified Principal model and platform token
-- [ADR-0011](../adr/0011-universal-gateway-policy-enforcement.md) — Gateway and sidecar enforcement topology
-- [ADR-0012](../adr/0012-credential-aware-outbound-gateway.md) — Credential broker (Post-MVP integration)
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) — Inference Gateway architecture decision record
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified Principal model and platform token
+- [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) — Gateway and sidecar enforcement topology
+- [credential-aware-outbound-gateway](../adr/2026-03-05-credential-aware-outbound-gateway.md) — Credential broker (Post-MVP integration)
+- [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture decision record
 - [Orbit Architecture](../architecture.md) — Overall system design
 - [Platform Overview Diagram](../architecture/platform-overview.excalidraw)
 
@@ -840,7 +840,7 @@ inference_usage
 | Term | Definition |
 |---|---|
 | BYOP | Bring Your Own Provider — operators supply cloud credentials/API keys; Orbit does not custody them |
-| Platform Token | Orbit-issued JWT carrying a normalised Principal — the single credential accepted by all Orbit services (ADR-0008) |
+| Platform Token | Orbit-issued JWT carrying a normalised Principal — the single credential accepted by all Orbit services ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) |
 | Principal | The unified identity abstraction for any Orbit actor: HUMAN, AGENT, or SERVICE |
 | Failover Chain | An ordered list of (provider, model) pairs; the gateway advances to the next on failure |
 | Lowest-Cost Routing | Routing strategy that selects the provider/model combination with the lowest per-token price |
@@ -849,7 +849,6 @@ inference_usage
 | SSE | Server-Sent Events — the streaming protocol used by OpenAI and supported by the gateway |
 | PolicyEvaluator | The interface between the Inference Gateway and the Orbit Policy Engine; stubbed as allow-all until OPA ships |
 | Token (LLM) | A unit of text in a language model's vocabulary, used for cost calculation |
-| Nervous System | Orbit's architectural metaphor — the Inference Gateway is the sensory-motor interface for model access |
 | API Dialect | A client-facing wire format (OpenAI-compatible or Anthropic Messages API) — the gateway supports multiple dialects via separate inbound translation handlers sharing a single internal routing and connector layer |
 | Anthropic Messages API | The native wire format used by Claude Code and all Anthropic SDK clients — `POST /v1/messages`, separate system field, content array format, distinct SSE event lifecycle |
 | Event Spine | Orbit's event-driven signalling system (integrated Post-MVP) |

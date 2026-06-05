@@ -1,0 +1,171 @@
+# Architecture Decision Records
+
+Orbit records every significant technical decision as an ADR. This index is the catalogue.
+
+**Naming.** ADR files are named `YYYY-MM-DD-kebab-slug.md` — the decision date plus a short slug. There is **no sequential number**; the slug is the citation handle (e.g. *inference-gateway-architecture*). Files sort chronologically. The original sequential numbers are preserved in the *Former #* column below for traceability with older commits and discussions. To add one, copy [`template.md`](template.md) and follow the [contributing workflow](../../CONTRIBUTING.md).
+
+**Status values:** `Proposed` (under discussion) · `Accepted` (ratified; may or may not be fully implemented) · `Deprecated` / `Superseded`.
+
+> Note: a few *Accepted* ADRs describe subsystems that are designed but **not yet implemented** — notably the credential broker (*credential-aware-outbound-gateway*) and the MCP tool gateway (*mcp-server-registration*, *scope-gated-tool-exposure*). See [the architecture overview](../architecture.md) for current implementation status.
+
+## By subsystem
+
+### Foundations & Platform
+
+- [Monorepo Technology Stack](2026-02-16-monorepo-technology-stack.md) — `Accepted` · 2026-02-16
+- [Language and Framework Selection (Go & Next.js)](2026-02-16-language-and-framework-selection.md) — `Accepted` · 2026-02-16
+- [Repository Pattern and Code Organization](2026-02-17-repository-pattern-and-code-organization.md) — `Accepted` · 2026-02-17
+- [OTEL-Compatible Dependency-Injected Logging](2026-02-17-dependency-injected-logging.md) — `Accepted` · 2026-02-17
+- [Controller-Based HTTP Routing with Stdlib ServeMux](2026-02-17-controller-based-http-routing.md) — `Accepted` · 2026-02-17
+- [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) — `Accepted` · 2026-02-18
+- [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) — `Accepted` · 2026-03-03
+- [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
+- [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
+- [Local Development Environment](2026-03-10-local-development-environment.md) — `Accepted` · 2026-03-10
+
+### Identity, Auth & Tokens
+
+- [Unified Identity Model](2026-03-05-unified-identity-model.md) — `Accepted` · 2026-03-05
+- [SPIFFE/SPIRE Workload Attestation](2026-03-05-spiffe-spire-workload-attestation.md) — `Accepted` · 2026-03-05
+- [OIDC Provider Abstraction and Local Identity Provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — `Accepted` · 2026-03-16
+- [Dynamic SPIFFE Identity Grants and Tenant Isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) — `Accepted` · 2026-03-17
+- [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) — `Accepted` · 2026-03-31
+- [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) — `Accepted` · 2026-03-31
+- [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — `Accepted` · 2026-04-01
+- [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — `Accepted` · 2026-04-01
+- [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) — `Accepted` · 2026-04-02
+- [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `Accepted` · 2026-04-19
+- [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — `Accepted` · 2026-03-21
+
+### Policy & Authorization
+
+- [Universal Gateway as Policy Enforcement Point](2026-03-05-universal-gateway-policy-enforcement.md) — `Accepted` · 2026-03-05
+- [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (revised 2026-04-13)` · 2026-04-14
+- [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted` · 2026-04-14
+- [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) — `Accepted` · 2026-04-14
+- [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted` · 2026-04-15
+- [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — `Accepted` · 2026-04-19
+- [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) — `Accepted` · 2026-04-27
+- [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — `Accepted` · 2026-06-04
+
+### Inference Gateway
+
+- [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) — `Accepted` · 2026-04-01
+- [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — `Accepted (Amended 2025-07-22)` · 2026-04-01
+- [Anthropic Zero-Translation Path](2026-04-01-anthropic-zero-translation-path.md) — `Accepted` · 2026-04-01
+- [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) — `Accepted` · 2026-04-01
+- [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) — `Accepted` · 2026-04-17
+- [Inference Usage Logs](2026-04-17-inference-usage-logs.md) — `Accepted` · 2026-04-17
+- [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) — `Accepted` · 2026-04-27
+- [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — `Accepted` · 2026-05-03
+- [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) — `Accepted` · 2026-06-05
+
+### Agents Control Plane & Execution
+
+- [Agent Execution Flow Patterns & Delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) — `Accepted` · 2026-03-05
+- [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — `Accepted` · 2026-03-05
+- [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
+- [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Accepted` · 2026-03-05
+- [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
+- [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted` · 2026-05-11
+- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
+- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
+- [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted` · 2026-05-11
+- [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
+- [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
+- [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
+- [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted` · 2026-05-11
+- [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
+- [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
+- [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
+- [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
+- [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted` · 2026-06-04
+- [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
+
+### Service Mesh, Operator & Deployment
+
+- [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) — `Accepted` · 2026-03-05
+- [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — `Accepted` · 2026-03-31
+- [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Accepted` · 2026-03-31
+- [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
+
+### Frontend & Design System
+
+- [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) — `Accepted` · 2026-03-17
+- [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
+- [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) — `Accepted` · 2026-05-04
+- [Terra Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
+- [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
+- [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) — `Accepted` · 2026-05-08
+
+## All ADRs (chronological)
+
+| Date | Decision | Status | Former # |
+|------|----------|--------|----------|
+| 2026-02-16 | [Language and Framework Selection (Go & Next.js)](2026-02-16-language-and-framework-selection.md) | Accepted | 0002 |
+| 2026-02-16 | [Monorepo Technology Stack](2026-02-16-monorepo-technology-stack.md) | Accepted | 0001 |
+| 2026-02-17 | [Controller-Based HTTP Routing with Stdlib ServeMux](2026-02-17-controller-based-http-routing.md) | Accepted | 0005 |
+| 2026-02-17 | [OTEL-Compatible Dependency-Injected Logging](2026-02-17-dependency-injected-logging.md) | Accepted | 0004 |
+| 2026-02-17 | [Repository Pattern and Code Organization](2026-02-17-repository-pattern-and-code-organization.md) | Accepted | 0003 |
+| 2026-02-18 | [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) | Accepted | 0006 |
+| 2026-03-03 | [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) | Accepted | 0007 |
+| 2026-03-05 | [Agent Execution Flow Patterns & Delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) | Accepted | 0009 |
+| 2026-03-05 | [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) | Accepted | 0012 |
+| 2026-03-05 | [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) | Accepted | 0013 |
+| 2026-03-05 | [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) | Accepted | 0014 |
+| 2026-03-05 | [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) | Accepted | 0015 |
+| 2026-03-05 | [SPIFFE/SPIRE Workload Attestation](2026-03-05-spiffe-spire-workload-attestation.md) | Accepted | 0010 |
+| 2026-03-05 | [Unified Identity Model](2026-03-05-unified-identity-model.md) | Accepted | 0008 |
+| 2026-03-05 | [Universal Gateway as Policy Enforcement Point](2026-03-05-universal-gateway-policy-enforcement.md) | Accepted | 0011 |
+| 2026-03-10 | [Local Development Environment](2026-03-10-local-development-environment.md) | Accepted | 0016 |
+| 2026-03-16 | [OIDC Provider Abstraction and Local Identity Provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) | Accepted | 0017 |
+| 2026-03-17 | [Dynamic SPIFFE Identity Grants and Tenant Isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) | Accepted | 0018 |
+| 2026-03-17 | [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) | Accepted | 0019 |
+| 2026-03-19 | [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) | Accepted | 0020 |
+| 2026-03-21 | [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) | Accepted | 0021 |
+| 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted | 0022 |
+| 2026-03-25 | [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
+| 2026-03-31 | [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | Accepted | 0027 |
+| 2026-03-31 | [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) | Accepted | 0029 |
+| 2026-03-31 | [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) | Accepted | 0028 |
+| 2026-03-31 | [Tenant Registration and OIDC Provider Binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) | Accepted | 0026 |
+| 2026-04-01 | [Anthropic Zero-Translation Path](2026-04-01-anthropic-zero-translation-path.md) | Accepted | 0025 |
+| 2026-04-01 | [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) | Accepted | 0030 |
+| 2026-04-01 | [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) | Accepted | 0031 |
+| 2026-04-01 | [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) | Accepted | 0023 |
+| 2026-04-01 | [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) | Accepted | 0032 |
+| 2026-04-01 | [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) | Accepted (Amended 2025-07-22) | 0024 |
+| 2026-04-02 | [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) | Accepted | 0033 |
+| 2026-04-06 | [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) | Accepted | 0034 |
+| 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted | 0036 |
+| 2026-04-14 | [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) | Accepted | 0037 |
+| 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (revised 2026-04-13) | 0035 |
+| 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted | 0038 |
+| 2026-04-17 | [Inference Usage Logs](2026-04-17-inference-usage-logs.md) | Accepted | 0040 |
+| 2026-04-17 | [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) | Accepted | 0039 |
+| 2026-04-19 | [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) | Accepted | 0041 |
+| 2026-04-19 | [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) | Accepted | 0042 |
+| 2026-04-27 | [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) | Accepted | 0044 |
+| 2026-04-27 | [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) | Accepted | 0043 |
+| 2026-05-03 | [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) | Accepted | 0045 |
+| 2026-05-04 | [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) | Accepted | 0046 |
+| 2026-05-04 | [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) | Accepted | 0048 |
+| 2026-05-04 | [Terra Design System Hardening](2026-05-04-terra-design-system-hardening.md) | Accepted | 0047 |
+| 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
+| 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
+| 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
+| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted | 0051 |
+| 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted | 0057 |
+| 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
+| 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted | 0050 |
+| 2026-05-11 | [Agent Workspace Model](2026-05-11-agent-workspace-model.md) | Accepted | 0055 |
+| 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
+| 2026-05-11 | [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
+| 2026-05-11 | [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
+| 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted | 0053 |
+| 2026-05-11 | [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) | Accepted | 0059 |
+| 2026-06-04 | [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) | Accepted | 0061 |
+| 2026-06-04 | [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) | Accepted | 0063 |
+| 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted | 0062 |
+| 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
+| 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |

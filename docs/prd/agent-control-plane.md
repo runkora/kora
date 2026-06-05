@@ -1,6 +1,6 @@
 # Agent Control Plane — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Implemented  
 **Created:** 2026-05-08  
 **Last Updated:** 2026-05-08  
 **Owner:** Orbit Core Team  
@@ -440,12 +440,12 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 | Dependency | Status | Requirement |
 |---|---|---|
-| Platform JWT / Principal model (ADR-0008) | Implemented | Agent runs as AGENT principal; JWT governs LLM access |
-| SPIFFE/SPIRE (ADR-0010) | Implemented | Workload attestation for agent pods |
-| identity-proxy sidecar (ADR-0021) | Implemented | SVID → JWT exchange; outbound token injection |
-| inference-gateway (ADR-0023) | Implemented | LLM access for agent workloads |
-| Policy service / grants (ADR-0035) | Implemented | Grant creation for agent tool scopes |
-| Orbit Operator (ADR-0028) | Implemented | Operator manages platform infrastructure; untouched by this feature |
+| Platform JWT / Principal model ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) | Implemented | Agent runs as AGENT principal; JWT governs LLM access |
+| SPIFFE/SPIRE ([spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md)) | Implemented | Workload attestation for agent pods |
+| identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) | Implemented | SVID → JWT exchange; outbound token injection |
+| inference-gateway ([inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md)) | Implemented | LLM access for agent workloads |
+| Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent tool scopes |
+| Orbit Operator ([orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md)) | Implemented | Operator manages platform infrastructure; untouched by this feature |
 | PostgreSQL | Implemented | Agent type registry, run/session state, event log |
 | Istio / Envoy | Implemented | mTLS between orbit-agents and session-manager pods |
 | Object storage (S3-compatible) | Planned | Workspace snapshot destination |
@@ -626,14 +626,14 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ### Related Documents
 
-- [Design Session Notes](../product/scratch/agent-control-plane-design.md) — raw design decisions and tradeoff analysis
-- [ADR-0008](../adr/0008-unified-identity-model.md) — Unified Principal model
-- [ADR-0009](../adr/0009-agent-execution-flow-patterns.md) — Agent execution flow and delegation
-- [ADR-0010](../adr/0010-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload identity
-- [ADR-0021](../adr/0021-envoy-ext-proc-sidecar-token-injection.md) — identity-proxy sidecar
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) — Inference Gateway
-- [ADR-0028](../adr/0028-orbit-kubernetes-operator.md) — Orbit Operator
-- [ADR-0035](../adr/0035-policy-gateway-authorization-model.md) — Policy and grant model
+- [Design Session Notes](../archive/agent-control-plane-design.md) — raw design decisions and tradeoff analysis (archived)
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified Principal model
+- [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) — Agent execution flow and delegation
+- [spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload identity
+- [envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — identity-proxy sidecar
+- [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference Gateway
+- [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) — Orbit Operator
+- [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md) — Policy and grant model
 
 ### Glossary
 

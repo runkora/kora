@@ -30,7 +30,7 @@ import (
 // OIDC client secrets are NOT stored in this file. They are read from the
 // aggregated Secret orbit-tenant-oidc-secrets (managed by the orbit-operator)
 // and passed to loadTenantRegistry as the clientSecrets map.
-// See docs/adr/0029-oidc-client-secret-projection-for-confidential-tenants.md
+// See docs/adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md
 
 // tenantRegistryFile is the on-disk schema for the tenant registry YAML.
 type tenantRegistryFile struct {
@@ -55,7 +55,7 @@ type tenantOIDCEntry struct {
 	Scopes    []string `json:"scopes"`
 	// EmailDomains is the list of email address domains routed to this tenant
 	// by the Home Realm Discovery endpoint. Example: ["acme.com", "acme.io"].
-	// See docs/adr/0031-home-realm-discovery-and-email-based-tenant-routing.md
+	// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 	EmailDomains []string `json:"emailDomains"`
 }
 
@@ -68,7 +68,7 @@ type TenantOIDCConfig struct {
 	ClientSecret string
 	Scopes       []string
 	// EmailDomains lists the email address domains that resolve to this tenant
-	// during Home Realm Discovery. See ADR-0031.
+	// during Home Realm Discovery. See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md.
 	EmailDomains []string
 }
 

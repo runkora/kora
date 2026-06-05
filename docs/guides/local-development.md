@@ -59,13 +59,15 @@ Copies `.env.example` → `.env`. Open `.env` and review the values — the defa
 make dev-up
 ```
 
-Starts three Docker containers on the `orbit-network` bridge:
+Starts five Docker containers on the `orbit-network` bridge:
 
 | Container | Port | Purpose |
 |---|---|---|
 | `orbit-postgres` | 5432 | Primary PostgreSQL database |
 | `orbit-redis` | 6379 | JTI blocklist and session cache |
+| `orbit-glauth` | internal | LDAP directory backing Dex user authentication |
 | `orbit-dex` | 5556 | Local OIDC identity provider |
+| `orbit-port-proxy` | 80, 443 | TLS/ingress proxy for `*.orbit.local.clearroute.io` |
 
 **On first run, `make dev-up` automatically bootstraps two prerequisites before starting the containers:**
 
@@ -87,7 +89,7 @@ make dev-up
 make gen-signing-key
 ```
 
-Docker Compose health checks will block `make dev-up` until all three containers pass their health checks.
+Docker Compose health checks will block `make dev-up` until the containers pass their health checks.
 
 ### Step 4 — Run database migrations
 
@@ -95,7 +97,7 @@ Docker Compose health checks will block `make dev-up` until all three containers
 make migrate-up
 ```
 
-Applies all pending Goose migrations from `backend/internal/platform/storage/migrations/`. Safe to run multiple times — already-applied migrations are skipped.
+Applies all pending Goose migrations. Each service owns its migrations under `backend/cmd/{service}/migrations/`; `make migrate-up` applies them across every service. Safe to run multiple times — already-applied migrations are skipped.
 
 ### Step 5 — Start the backend
 
@@ -103,13 +105,13 @@ Applies all pending Goose migrations from `backend/internal/platform/storage/mig
 make dev
 ```
 
-Starts the Orbit backend with `air` for hot-reload. The server listens on `http://localhost:6069` by default.
+Starts the Orbit backend with `air` for hot-reload. The server listens on `http://localhost:8080` by default.
 
 You should see startup output including:
 
 ```
 INFO  OIDC provider initialized  issuer=https://dex.orbit.local.clearroute.io:5556/dex
-INFO  Server listening           addr=:6069
+INFO  Server listening           addr=:8080
 ```
 
 ### Step 6 — Authenticate
@@ -130,7 +132,7 @@ Your token is now ready. Use it in API calls:
 
 ```bash
 TOKEN=$(jq -r .access_token /tmp/orbit_credentials.json)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:6069/api/v1/...
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/...
 ```
 
 ---
@@ -152,7 +154,7 @@ To check code quality before committing:
 make check
 ```
 
-This runs `go mod tidy`, `gofmt`, `go vet`, `golangci-lint`, `gitleaks`, and the test suite.
+This runs `go mod tidy`, `gofmt`, `go vet`, `golangci-lint`, `gitleaks`, the backend tests, **and** the frontend checks (lint + type-check + tests). Run it from the repo root.
 
 ---
 
@@ -163,17 +165,17 @@ Orbit uses [Goose](https://github.com/pressly/goose) for database migrations.
 **Never write migration files by hand.** Always generate them:
 
 ```bash
-make migrate-create name=add_agent_sessions
+make migrate-create service=orbit-agents name=add_agent_sessions
 ```
 
-This creates a correctly timestamped file in `backend/internal/platform/storage/migrations/` with the `-- +goose Up` and `-- +goose Down` annotations pre-populated.
+Both `service=` and `name=` are required. This creates a correctly timestamped file in `backend/cmd/{service}/migrations/` with the `-- +goose Up` and `-- +goose Down` annotations pre-populated.
 
 | Command | Description |
 |---|---|
 | `make migrate-up` | Apply all pending migrations |
 | `make migrate-down` | Roll back the last applied migration |
 | `make migrate-status` | Show applied and pending migrations |
-| `make migrate-create name=X` | Generate a new migration file |
+| `make migrate-create service=X name=Y` | Generate a new migration file for a service |
 
 ---
 
@@ -192,18 +194,23 @@ Integration tests (`//go:build integration`) require the Tier 2 k3d cluster and 
 
 ## Using a Real OIDC Provider
 
-To authenticate against Microsoft Entra (or any OIDC-compliant provider) instead of local Dex, set environment variables before starting the backend:
+OIDC configuration is **per-tenant**, defined in the tenant registry — there are no global `ORBIT_OIDC_*` variables. For host dev (`make dev`), the identity service reads `config/tenants.yaml` (via `ORBIT_TENANTS_CONFIG`, already set in `.env`); the committed file is pre-wired for local Dex.
 
-```bash
-export ORBIT_OIDC_ISSUER_URL=https://login.microsoftonline.com/{tenant-id}/v2.0
-export ORBIT_OIDC_CLIENT_ID={your-application-client-id}
-export ORBIT_OIDC_CLIENT_SECRET={your-application-client-secret}
-make dev
+To authenticate against Microsoft Entra (or any OIDC-compliant provider) instead, edit the tenant's `oidc` block in `config/tenants.yaml`:
+
+```yaml
+tenants:
+  - id: "example"
+    oidc:
+      issuerURL: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+      clientID: "{your-application-client-id}"
+      emailDomains: ["yourcompany.com"]
+      scopes: [openid, profile, email, groups]
 ```
 
-No code changes are required. The backend discovers the provider's endpoints from the standard `/.well-known/openid-configuration` document on startup.
+No code changes are required — the backend discovers the provider's endpoints from its `/.well-known/openid-configuration` document on startup. The local Dex client is public and needs no secret; confidential clients are handled by the operator in cluster deployments ([oidc-client-secret-projection-for-confidential-tenants](../adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md)).
 
-The `ORBIT_OIDC_ISSUER_URL` environment variable overrides the `issuerUrl` value in `backend/internal/identity/config/local.yaml`. The YAML file is not modified.
+For **cluster** dev, tenants are `OrbitTenant` CRs under `deploy/local/tenants/`, reconciled into a ConfigMap by the operator — `config/tenants.yaml` is not used. See [tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md).
 
 > **Entra application requirements**: The registered application must have the `urn:ietf:params:oauth:grant-type:device_code` grant type enabled under Authentication → Advanced settings → Allow public client flows.
 
@@ -230,7 +237,7 @@ To tear down the cluster (Docker Compose services keep running):
 make dev-cluster-down
 ```
 
-See [ADR-0016](../adr/0016-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [ADR-0028](../adr/0028-orbit-kubernetes-operator.md) for the operator design.
+See [local-development-environment](../adr/2026-03-10-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) for the operator design.
 
 ---
 
@@ -271,13 +278,13 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 | `ORBIT_TOKEN_SIGNING_KEY_FILE` | Local | Path to RSA private key PEM file (mode 600). Default: `secrets/signing.key`. Generate with `make gen-signing-key`. |
 | `ORBIT_TOKEN_SIGNING_KEY` | CI/Prod | Inline RSA private key PEM (with real newlines, as injected by secret managers). If both are set, `_FILE` takes precedence. |
 
-### OIDC / Federated Identity
+### OIDC / Tenant Registry
+
+OIDC is configured per-tenant in the registry, not via `ORBIT_OIDC_*` variables ([tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md)).
 
 | Variable | Required | Description |
 |---|---|---|
-| `ORBIT_OIDC_CLIENT_ID` | Yes (when OIDC enabled) | OAuth2 client ID. For local Dex: `orbit-local` |
-| `ORBIT_OIDC_CLIENT_SECRET` | No | OAuth2 client secret. Leave empty for public clients (Dex local config is a public client). |
-| `ORBIT_OIDC_ISSUER_URL` | No | Runtime override for the OIDC issuer URL. Overrides `issuerUrl` in `local.yaml`. Use to point at a real provider. |
+| `ORBIT_TENANTS_CONFIG` | Local (host dev) | Path to the tenant registry YAML read by the identity service. Default: `../config/tenants.yaml`. Not used in cluster mode — the operator builds a ConfigMap from `OrbitTenant` CRs. |
 
 ---
 
@@ -287,10 +294,13 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 orbit/
 ├── backend/
 │   ├── cmd/
-│   │   ├── orbit/             # Main API server (identity, sessions, future features)
-│   │   ├── identity/          # Standalone identity service binary
-│   │   ├── identity-proxy/    # Envoy ext_proc sidecar — injects platform tokens into agent calls
-│   │   └── example/           # Reference implementation binary (not production)
+│   │   ├── identity/          # Main control-plane API (port 8080) — identity, sessions, PATs, tenants
+│   │   ├── inference-gateway/ # OpenAI/Anthropic-compatible LLM gateway (8081)
+│   │   ├── policy-service/    # Authz data plane PDP/PAP (8083); policy-gateway/ is the PEP (8084)
+│   │   ├── orbit-agents/      # Agent control plane — runs, sessions, sandboxing
+│   │   ├── operator/          # Kubernetes operator (reconciles Tenant/Platform CRDs)
+│   │   ├── identity-proxy/    # Envoy ext_proc sidecar — injects platform tokens
+│   │   └── ...                # session-manager, sandbox-exec, orbit-runtime-mcp, orbit-shell, example
 │   ├── internal/
 │   │   ├── identity/          # Authentication, sessions, token issuance
 │   │   ├── identityproxy/     # Envoy ext_proc server, token cache, SVID watcher
@@ -299,11 +309,11 @@ orbit/
 │   │   │   ├── clients/       # Typed service-to-service HTTP clients
 │   │   │   │   ├── httpclient/ # Base client: OTel tracing, W3C propagation, logging
 │   │   │   │   └── identity/  # Identity service typed client
-│   │   │   ├── config/        # YAML config loader (config.Load[T])
+│   │   │   ├── config/        # YAML config loaders (config.Load[T] / config.LoadService[T])
 │   │   │   ├── logging/       # Structured logger (zerolog, trace correlation)
 │   │   │   ├── middleware/    # HTTP middleware (tracing, logging, auth)
 │   │   │   ├── observability/ # OpenTelemetry setup and OTLP exporter
-│   │   │   └── storage/       # Postgres (pgx/v5) + Redis clients and migrations
+│   │   │   └── storage/       # Postgres (pgx/v5) + Redis clients (migrations live per-binary under cmd/{service}/migrations/)
 │   │   └── example/           # Reference implementation of a feature package
 │   └── rules/                 # Custom golangci-lint ruleguard rules (orbit_rules.go)
 ├── config/
@@ -311,7 +321,7 @@ orbit/
 │       ├── config.yaml        # Dex OIDC provider configuration
 │       └── .env               # Generated by make dex-hash (gitignored)
 ├── docs/
-│   ├── adr/                   # Architecture Decision Records (ADR-0001 through ADR-0022)
+│   ├── adr/                   # Architecture Decision Records — see [docs/adr/README.md](../adr/README.md)
 │   ├── guides/                # This file and other how-to guides
 │   └── observability/         # Tracing, logging, and OTel configuration docs
 ├── rules/                     # Custom golangci-lint AST rules (enforces ADRs)
@@ -324,7 +334,7 @@ orbit/
 ├── .env                       # Local secrets (gitignored, copied from .env.example)
 ├── .env.example               # Template for .env — committed, no real secrets
 ├── .golangci.yml              # Linter configuration (Tier 2 import-ban rules)
-├── docker-compose.yml         # Tier 1: Postgres, Redis, Dex
+├── docker-compose.yml         # Tier 1: Postgres + Redis + glauth + Dex + port-proxy
 └── Makefile                   # All development targets
 ```
 
@@ -349,9 +359,9 @@ make dev-up
 
 **Symptom:** The backend starts but OIDC discovery does not appear in logs.
 
-**Cause:** `issuerUrl` is empty in `backend/internal/identity/config/local.yaml` and `ORBIT_OIDC_ISSUER_URL` is not set.
+**Cause:** The tenant's `oidc.issuerURL` is missing or unreachable, so OIDC discovery did not run.
 
-**Fix:** Confirm `local.yaml` has `issuerUrl: "https://dex.orbit.local.clearroute.io:5556/dex"` and that the Dex container is healthy:
+**Fix:** Confirm the `example` tenant in `config/tenants.yaml` has `oidc.issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"`, that `ORBIT_TENANTS_CONFIG` points at that file, and that the Dex container is healthy:
 ```bash
 docker compose ps
 curl -k https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration
@@ -450,8 +460,8 @@ make migrate-up       # apply pending migrations
 
 ## Related Documentation
 
-- [ADR-0016](../adr/0016-local-development-environment.md) — Local development environment strategy (Tier 1 vs Tier 2)
-- [ADR-0017](../adr/0017-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction and Dex decision
-- [ADR-0008](../adr/0008-unified-identity-model.md) — Unified identity model
+- [local-development-environment](../adr/2026-03-10-local-development-environment.md) — Local development environment strategy (Tier 1 vs Tier 2)
+- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction and Dex decision
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified identity model
 - [Configuration reference](../configuration/config.md) — YAML config system
 - [Secrets reference](../configuration/secrets.md) — How secrets are managed

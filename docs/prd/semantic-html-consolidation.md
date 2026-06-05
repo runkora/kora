@@ -1,11 +1,11 @@
 # Semantic HTML Consolidation — header, article, nav, aside, footer
 
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2026-04-28
 **Last Updated:** 2026-04-28
 **Owner:** Frontend
 **Stakeholders:** Engineering
-**Authoritative ADR:** [docs/adr/0047-semantic-html-consolidation.md](../../docs/adr/0047-semantic-html-consolidation.md)
+**Authoritative ADR:** [docs/adr/2026-05-04-semantic-html-consolidation.md](../adr/2026-05-04-semantic-html-consolidation.md)
 
 ---
 
@@ -19,7 +19,7 @@ The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, 
 
 ### Current State
 
-ADR-0046 established that raw layout HTML is banned in product code. `<div>` and `<section>` are banned unconditionally. Five additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry layout-mode Tailwind classes (`flex`, `grid`, `block`, etc.). A systematic audit finds **53 instances** that bypass this rule today:
+[frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) established that raw layout HTML is banned in product code. `<div>` and `<section>` are banned unconditionally. Five additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry layout-mode Tailwind classes (`flex`, `grid`, `block`, etc.). A systematic audit finds **53 instances** that bypass this rule today:
 
 | Tag | Count | Primary use patterns |
 |-----|-------|----------------------|
@@ -203,7 +203,7 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 ### In Scope
 - All 49 instances across 18 files in `src/app/**` and `src/components/**`
 - `no-raw-layout-elements` rule upgrade in `frontend/eslint.config.mjs`
-- 4 new Terra Tier 1 components with full ADR-0021 authoring conventions
+- 4 new Terra Tier 1 components with full [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) authoring conventions
 - Golden-path doc update
 
 ### Out of Scope
@@ -216,7 +216,7 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 ## Dependencies
 
 - `@radix-ui/react-dialog` — already installed; `SidePanel` reuses it.
-- Terra authoring conventions: `data-slot`, `React.forwardRef`, `cn`, `cva` per ADR-0021.
+- Terra authoring conventions: `data-slot`, `React.forwardRef`, `cn`, `cva` per [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md).
 - `pnpm lint` must continue to pass throughout migration (phased approach).
 
 ---
@@ -273,4 +273,4 @@ After Phase 1 banned layout and structural HTML elements, AI coding agents were 
 | New Terra components (`Form`, `Checkbox`, `List`, `ListItem`, `Output`) | ✅ Complete (2026-04-29) |
 | ESLint rules (`no-raw-list-elements`, `no-raw-form-elements`) | ✅ Complete (2026-04-29) |
 | Migrate all product-code instances | ✅ Complete (2026-04-29) |
-| Update ADR-0047 | ✅ Complete (2026-04-29) |
+| Update [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) | ✅ Complete (2026-04-29) |

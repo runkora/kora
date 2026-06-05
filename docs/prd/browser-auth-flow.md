@@ -1,6 +1,6 @@
 # Browser-Based Authentication Flow — Product Requirements Document
 
-**Status:** Draft
+**Status:** Implemented
 **Created:** 2026-03-23
 **Last Updated:** 2026-03-25
 **Owner:** Engineering Team  
@@ -20,7 +20,7 @@ Orbit currently has no authentication mechanism for human operators accessing th
 
 The Orbit frontend is an unauthenticated application. Any user who can reach the URL gets full access to every page. There is no login page, no session management, no middleware protecting routes, and no mechanism for the frontend to prove operator identity to the Go backend.
 
-The Go identity service (`ADR-0017`) implements the OAuth 2.0 Device Authorization Grant (RFC 8628) as its only human authentication flow. This was designed for headless CLI use and is unsuitable for a browser session model. ADR-0017 explicitly lists "supporting OAuth 2.0 Authorization Code Flow" as a deferred non-goal.
+The Go identity service (`[oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md)`) implements the OAuth 2.0 Device Authorization Grant (RFC 8628) as its only human authentication flow. This was designed for headless CLI use and is unsuitable for a browser session model. [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) explicitly lists "supporting OAuth 2.0 Authorization Code Flow" as a deferred non-goal.
 
 The current gaps, by layer:
 
@@ -276,7 +276,7 @@ sequenceDiagram
 
 ### Key Components
 
-- **OIDC client library** (browser) — An OIDC-compliant library that runs in the browser and owns the Authorization Code Flow with PKCE. Responsible for generating the code verifier, redirecting to the provider, handling the callback, exchanging the code, and validating the `id_token` locally. Specific library selection is deferred to ADR-0023.
+- **OIDC client library** (browser) — An OIDC-compliant library that runs in the browser and owns the Authorization Code Flow with PKCE. Responsible for generating the code verifier, redirecting to the provider, handling the callback, exchanging the code, and validating the `id_token` locally. Specific library selection is deferred to [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md).
 - **`/auth/callback` page** (`src/app/auth/callback/page.tsx`) — A client-rendered Next.js page that the OIDC provider redirects to. Invokes the OIDC client's callback handler, which completes the token exchange and then calls `/api/auth/session` to hand off the `id_token`.
 - **`middleware.ts`** — Edge-compatible middleware that checks for a valid session cookie on every request. Redirects unauthenticated requests to `/login?next=<path>`. Validates the `next` parameter on redirect to prevent open redirect (must be a relative path present in `APP_ROUTES`). Performs token expiry check and triggers inline refresh if needed.
 - **`src/server/session.ts`** — Server-only session read/write helpers for encrypted cookie management. Session payload schema:
@@ -368,7 +368,7 @@ sequenceDiagram
 - CSRF protection enforced via the OIDC `state` parameter — a callback with a mismatched or missing `state` must be rejected
 - The `next` redirect parameter must be validated against `APP_ROUTES` before use to prevent open redirect attacks
 - OIDC `client_secret` must not be required — the frontend OIDC client is a public client; PKCE provides code interception protection
-- The session management library used by `src/server/session.ts` must be compatible with the Next.js Edge Runtime. Library selection is deferred to ADR-0023.
+- The session management library used by `src/server/session.ts` must be compatible with the Next.js Edge Runtime. Library selection is deferred to [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md).
 
 **Performance:**
 - Token refresh adds at most one additional backend round-trip per expiry event; subsequent requests within the new token window are not affected
@@ -452,7 +452,7 @@ Use Auth.js as the integrated Next.js authentication framework. It supports OIDC
 ### Phases
 
 **Phase 1: Foundation**
-- Write ADR-0023 (browser auth flow architecture)
+- Write [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) (browser auth flow architecture)
 - Update `config/dex/config.yaml` with callback redirect URI
 - Implement backend change: `oidc_id_token` grant type in `POST /identity/session`
 
@@ -472,7 +472,7 @@ Use Auth.js as the integrated Next.js authentication framework. It supports OIDC
 ### Key Milestones
 
 - [ ] PRD Approved
-- [ ] ADR-0023 Written and Approved
+- [ ] [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) Written and Approved
 - [ ] Backend changes implemented
 - [ ] Frontend implementation complete
 - [ ] End-to-end local dev test passing
@@ -484,9 +484,9 @@ Use Auth.js as the integrated Next.js authentication framework. It supports OIDC
 
 ### Related Documents
 
-- [ADR-0017](../adr/0017-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction; establishes Device Authorization Grant and explicitly defers Authorization Code Flow
-- [ADR-0019](../adr/0019-frontend-scaffolding-and-toolchain.md) — Frontend scaffolding and Next.js conventions
-- [ADR-0008](../adr/0008-unified-identity-model.md) — Unified identity model; defines the `Principal` abstraction
+- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction; establishes Device Authorization Grant and explicitly defers Authorization Code Flow
+- [frontend-scaffolding-and-toolchain](../adr/2026-03-17-frontend-scaffolding-and-toolchain.md) — Frontend scaffolding and Next.js conventions
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified identity model; defines the `Principal` abstraction
 
 ### References
 

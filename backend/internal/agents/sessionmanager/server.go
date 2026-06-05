@@ -16,7 +16,7 @@ type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
 	// ClaudeWrapperPath is the path to orbit-session-runner. When set, it wraps
-	// the claude subprocess to apply Landlock filesystem restrictions (ADR-0062).
+	// the claude subprocess to apply Landlock filesystem restrictions (docs/adr/2026-06-04-per-session-home-isolation.md).
 	ClaudeWrapperPath string
 	// ClaudeDefaultModel is used when the session request omits a model.
 	ClaudeDefaultModel string

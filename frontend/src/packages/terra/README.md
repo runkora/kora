@@ -375,6 +375,6 @@ for the same rules.
 
 ## Related
 
-- [Design System PRD](../../../docs/prd/design-system.md)
-- [Architecture Decision Record](../../../docs/adr/0017-terra-frontend-design-system.md)
+- [Design System PRD](../../../../docs/prd/design-system.md)
+- [Architecture Decision Record](../../../../docs/adr/2026-03-25-terra-frontend-design-system.md)
 - [Orbit Frontend](../../)

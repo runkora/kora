@@ -157,7 +157,7 @@ func TestStart_RunHomeDirCreated(t *testing.T) {
 
 func TestStart_PerRunTmpDirCreated(t *testing.T) {
 	// The per-run tmpdir must live inside the workspace at {workDir}/.tmp so that
-	// the Landlock RWDirs(workDir) rule covers it automatically. See ADR-0062.
+	// the Landlock RWDirs(workDir) rule covers it automatically. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	_, workDir := startIsolated(t, ClaudeRunnerConfig{})
 	tmpDir := filepath.Join(workDir, ".tmp")
 	if info, err := os.Stat(tmpDir); err != nil || !info.IsDir() {
@@ -314,7 +314,7 @@ func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 
 func TestStart_WithWrapper_TmpDirInsideWorkDir(t *testing.T) {
 	// TMPDIR must be inside the workDir passed as args[1] to the wrapper so that
-	// the Landlock RWDirs(workDir) rule covers the tmp directory. See ADR-0062.
+	// the Landlock RWDirs(workDir) rule covers the tmp directory. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{
 		WrapperPath: truePath,

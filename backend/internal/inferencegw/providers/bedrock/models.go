@@ -214,7 +214,7 @@ func computeDialects(canonicalID string, outputMods []inferencegw.Modality) []in
 
 // computeCapabilities derives the endpoint families a model supports from its
 // output modalities and model ID. The rules mirror the three-layer taxonomy
-// described in ADR-0026:
+// described in docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md:
 //
 //   - text output + non-reranker  → CapabilityChat
 //   - embedding output            → CapabilityEmbedding

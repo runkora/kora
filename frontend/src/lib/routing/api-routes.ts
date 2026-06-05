@@ -78,7 +78,7 @@ export const ApiRoute = {
   /**
    * `/api/auth/discover?email=user@example.com`
    *
-   * GET — Home Realm Discovery (ADR-0031). Resolves the OIDC tenant config
+   * GET — Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md). Resolves the OIDC tenant config
    *       for a given email address by matching the email domain against
    *       registered tenant email domains.
    *

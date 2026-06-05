@@ -1,6 +1,6 @@
 # Inference Log Details — Product Requirements Document
 
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2026-05-08
 **Last Updated:** 2026-05-15
 **Stakeholders:** Platform Engineering, Tenant Admins, Individual API Consumers
@@ -324,7 +324,7 @@ The following corrections apply to [PRD: Inference Logs](inference-logs.md). Tha
 ### Key Milestones
 
 - [x] PRD Approved
-- [x] ADR-0050 Approved
+- [x] [inference-log-details](../adr/2026-06-05-inference-log-details.md) Approved
 - [ ] Phase 1 Complete — detail modal in production
 - [ ] Phase 2 Complete — metadata capture and modal fields live
 
@@ -335,7 +335,7 @@ The following corrections apply to [PRD: Inference Logs](inference-logs.md). Tha
 ### Related Documents
 
 - [PRD: Inference Analytics](inference-analytics.md) — aggregation layer built on the same `inference_usage` table
-- [ADR-0050](../adr/0050-inference-log-details.md) — architectural decisions for detail modal presentation and JSONB column design
+- [inference-log-details](../adr/2026-06-05-inference-log-details.md) — architectural decisions for detail modal presentation and JSONB column design
 
 ### Glossary
 

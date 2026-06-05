@@ -14,7 +14,7 @@ import (
 // route models through Chat Completions when the client is using the Responses
 // API wire format.
 //
-// Translation contract (see ADR-0045 "Bridge Limitations"):
+// Translation contract (see docs/adr/2026-05-03-embeddings-and-responses-api-endpoints.md "Bridge Limitations"):
 //   - PreviousResponseID is rejected as INVALID_REQUEST.
 //   - system / developer role messages are emitted as system Chat Completions
 //     messages.

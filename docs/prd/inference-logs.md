@@ -1,6 +1,6 @@
 # Inference Logs - Product Requirements Document
 
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2025-04-09
 **Last Updated:** 2025-04-10
 **Owner:** TBD
@@ -295,7 +295,7 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 ### Key Milestones
 
 - [x] PRD Approved
-- [x] ADR Created — [ADR-0040](../adr/0040-inference-usage-logs.md)
+- [x] ADR Created — [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md)
 - [x] Implementation Started — Phase 1 complete (backend attribution + API)
 - [x] Phase 2 Complete — frontend logs page, key filter, deep-link from API Keys page
 - [ ] Alpha/Beta
@@ -307,8 +307,8 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 ### Related Documents
 
-- [ADR-0040](../adr/0040-inference-usage-logs.md) — Inference Logs architecture decision
-- [ADR-0003](../adr/0003-repository-pattern-and-code-organization.md) — Repository pattern and code organization
+- [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md) — Inference Logs architecture decision
+- [repository-pattern-and-code-organization](../adr/2026-02-17-repository-pattern-and-code-organization.md) — Repository pattern and code organization
 
 ### Glossary
 

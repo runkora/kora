@@ -1,7 +1,7 @@
 /**
  * E2E baseline — /login page.
  *
- * ADR-0030 Category A constraint: no live Go backend is required.
+ * docs/adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md Category A constraint: no live Go backend is required.
  * All API calls are intercepted via page.route() — the Next.js server is
  * the only real process under test.
  *

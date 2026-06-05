@@ -608,7 +608,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 // lifecycle is managed by SPIRE workload attestation.
 //
 // The XFCC header is written by Envoy after mTLS termination and cannot be
-// forged by the calling workload (ADR-0010, ADR-0011, ADR-0015).
+// forged by the calling workload (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, docs/adr/2026-03-05-universal-gateway-policy-enforcement.md, docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md).
 func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ExchangeSVID")
 	defer span.End()

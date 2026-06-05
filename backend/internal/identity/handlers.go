@@ -23,7 +23,7 @@ type Controller struct {
 
 // NewController creates a ready-to-boot identity Controller.
 //
-// eval and routes are passed to ScopeEnforcementMiddleware (ADR-0064). Identity
+// eval and routes are passed to ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Identity
 // has unauthenticated routes (device, session, exchange, jwks, etc.) that the
 // middleware never sees because they are registered with mux.Handle directly
 // rather than mux.HandleWithMiddleware. Only the PAT and user routes — which
@@ -70,7 +70,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the
 	// token is not itself a PAT — PATs are scoped exclusively to the inference
 	// gateway and must not be used to manage identity resources.
-	// ScopeEnforcementMiddleware (ADR-0064) then checks the route's required
+	// ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md) then checks the route's required
 	// scope against the principal's grants.
 	auth := mw.MiddlewareChain(
 		c.svc.AuthMiddleware(c.logger),
@@ -259,7 +259,7 @@ func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 // x-forwarded-client-cert (XFCC) header and issues a platform session token.
 // The agent workload is completely identity-unaware — it makes a plain HTTP
 // POST and the sidecar infrastructure supplies the cryptographic identity
-// (ADR-0010, ADR-0011, ADR-0015).
+// (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, docs/adr/2026-03-05-universal-gateway-policy-enforcement.md, docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md).
 //
 // No request body is needed: tenant and principal identity are derived entirely
 // from the SPIFFE URI that SPIRE attests and Envoy injects via XFCC.
@@ -367,7 +367,7 @@ func (c *Controller) handleJWKS(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDiscoverTenant implements GET /identity/tenants/discover?email=user@example.com
-// It resolves the OIDC tenant for an email address via Home Realm Discovery (ADR-0031).
+// It resolves the OIDC tenant for an email address via Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md).
 // The response contains only public OIDC config — never the client secret.
 // Returns 404 if no tenant claims the email domain, 400 if the email is missing/malformed.
 func (c *Controller) handleDiscoverTenant(w http.ResponseWriter, r *http.Request) {

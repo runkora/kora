@@ -36,7 +36,7 @@ const (
 // via fsnotify when Kubelet writes a new symlink — tenant additions and
 // secret rotations never require an identity service pod restart.
 //
-// See docs/adr/0029-oidc-client-secret-projection-for-confidential-tenants.md
+// See docs/adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md
 type ClientSecretAggregator struct {
 	client client.Client
 	logger logging.Logger

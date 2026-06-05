@@ -182,7 +182,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if err != nil {
 		// RecordError captures the full error event. Static description keeps
 		// raw network strings (hostnames, addresses) out of span string fields
-		// per ADR-0007.
+		// per docs/adr/2026-03-03-database-infrastructure-layer.md.
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "transport failure")
 		return nil, err

@@ -33,7 +33,7 @@ type Controller struct {
 // callers do not need to construct or inject a Verifier.
 //
 // routes and eval are passed to ScopeEnforcementMiddleware for in-process
-// route → scope enforcement (ADR-0064). basePath must match the server's
+// route → scope enforcement (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). basePath must match the server's
 // BasePath so the middleware can reconstruct absolute paths after
 // http.StripPrefix removes the prefix.
 func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {

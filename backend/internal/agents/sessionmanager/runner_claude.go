@@ -151,7 +151,7 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 // plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
 // by the per-run isolation values. Stripping is necessary because on Linux
 // getenv() returns the first match — any pre-existing HOME= or TMPDIR= would
-// shadow our values if they appeared earlier in the slice. See ADR-0062.
+// shadow our values if they appeared earlier in the slice. See docs/adr/2026-06-04-per-session-home-isolation.md.
 func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
 	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
 	for _, e := range baseEnv {
@@ -178,14 +178,14 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	args = append(args, "--mcp-config", mcpConfigPath)
 
 	// Per-run home: isolates ~/.claude/ (session transcripts, memories) from
-	// sibling runs on the same pod. See ADR-0062.
+	// sibling runs on the same pod. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	runHome := filepath.Join(workDir, ".runhome")
 	if err := os.MkdirAll(runHome, 0o700); err != nil {
 		return fmt.Errorf("create run home: %w", err)
 	}
 
 	// Per-run tmp directory lives inside the workspace so it is covered by the
-	// same Landlock rule as the rest of the run's files. See ADR-0062.
+	// same Landlock rule as the rest of the run's files. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	tmpDir := filepath.Join(workDir, ".tmp")
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return fmt.Errorf("create run tmpdir: %w", err)
@@ -487,7 +487,7 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 }
 
 // handleStreamEvent accumulates text and thinking deltas for message_complete
-// and also emits them immediately as push-only streaming events (ADR-0054).
+// and also emits them immediately as push-only streaming events (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 	if ev.Type != "content_block_delta" || ev.Delta == nil {
 		return
