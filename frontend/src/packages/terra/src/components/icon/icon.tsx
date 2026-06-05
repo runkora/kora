@@ -79,7 +79,7 @@ const CONTAINER_VARIANT: Record<IconContainerVariant, string> = {
   accent: 'bg-accent/15 text-accent',
   surface: 'bg-surface-elevated text-foreground border border-border-subtle',
   'surface-subtle': 'bg-surface-elevated text-subtle border border-border-subtle',
-  muted: 'bg-surface-overlay text-muted-foreground',
+  muted: 'bg-surface-elevated text-muted',
 };
 
 /**
@@ -100,7 +100,7 @@ export type IconColor =
 const ICON_COLOR: Record<IconColor, string> = {
   default: 'text-foreground',
   accent: 'text-accent',
-  muted: 'text-muted-foreground',
+  muted: 'text-muted',
   subtle: 'text-subtle',
   rose: 'text-rose-500',
   'status-healthy': 'text-status-healthy',

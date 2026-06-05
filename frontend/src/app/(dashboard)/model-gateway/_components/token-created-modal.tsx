@@ -65,24 +65,21 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
               </Text>
             </Stack>
           </Stack>
-          <Separator />
 
-          {/* Warning banner */}
-          <Alert variant="warning">
-            <Icon name="triangle-alert" color="status-degraded" />
-            <Stack gap="tight">
-              <Text size="supporting" color="foreground" weight="heavy">
-                Copy this key now.
-              </Text>
-              <Text size="supporting" color="foreground">
-                It will not be shown again. If you lose it, you will need to revoke it and create a
-                new one.
-              </Text>
-            </Stack>
-          </Alert>
-
-          {/* Token */}
+          {/* Body: warning banner + token */}
           <ModalBody>
+            <Alert variant="warning">
+              <Icon name="triangle-alert" color="status-degraded" />
+              <Stack gap="tight">
+                <Text size="supporting" color="foreground" weight="heavy">
+                  Copy this key now.
+                </Text>
+                <Text size="supporting" color="foreground">
+                  It will not be shown again. If you lose it, you will need to revoke it and create
+                  a new one.
+                </Text>
+              </Stack>
+            </Alert>
             <Stack gap="tight">
               <Text size="caption" color="subtle" weight="emphasis">
                 Your API key
@@ -93,7 +90,7 @@ export function TokenCreatedModal({ pat, onClose }: TokenCreatedModalProps) {
                 onClick={handleCopy}
                 aria-label="Copy API key to clipboard"
               >
-                <Stack direction="horizontal" align="center" justify="between" grow>
+                <Stack direction="horizontal" align="center" justify="between" grow minWidth="none">
                   <Stack grow minWidth="none">
                     <Text size="supporting" mono truncate>
                       {pat.token}

@@ -25,6 +25,7 @@ import {
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
+import { FilterChip } from './filter-chip';
 
 interface VocabularyTabProps {
   initialScopes: ScopeEntryWithUsage[];
@@ -242,37 +243,6 @@ export function VocabularyTab({ initialScopes, initialError }: VocabularyTabProp
         ))
       )}
     </Stack>
-  );
-}
-
-// ── Filter Chip ─────────────────────────────────────────────────────────────
-
-function FilterChip({
-  label,
-  count,
-  mono,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  mono?: boolean;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
-      {mono ? (
-        <Text as="span" size="micro" mono>
-          {label}
-        </Text>
-      ) : (
-        label
-      )}
-      <Text as="span" size="micro" color="muted">
-        {count}
-      </Text>
-    </Button>
   );
 }
 

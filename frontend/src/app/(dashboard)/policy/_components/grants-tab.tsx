@@ -18,7 +18,6 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
-  Separator,
   Stack,
   Text,
   PageSectionHeader,
@@ -261,6 +260,7 @@ export function GrantsTab({
         title="Delete Grant"
         description="Remove this grant? This action cannot be undone."
         confirmLabel="Delete"
+        size="md"
         confirming={deletingId === deleteCandidate?.id}
         error={deleteError}
         onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.id)}
@@ -270,8 +270,8 @@ export function GrantsTab({
         }}
       >
         {deleteCandidate && (
-          <Card>
-            <CardContent padded>
+          <Card subtle>
+            <CardContent padded compact>
               <Stack gap="snug">
                 <Stack direction="horizontal" align="center" gap="snug">
                   <PrincipalBadge type={deleteCandidate.principal_type} />
@@ -656,7 +656,7 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
           onChange={(e) => setSearch(e.target.value)}
         />
       </Stack>
-      <Card maxHeight="scroll-sm" overflowY="auto">
+      <Card maxHeight="scroll-sm" overflowY="auto" border="default" divide>
         {loading || users.length === 0 ? (
           <Stack paddingBlock="tight" paddingInline="snug">
             <Text size="caption" color="muted">
@@ -664,39 +664,36 @@ function UserPicker({ value, onChange }: { value: string; onChange: (id: string)
             </Text>
           </Stack>
         ) : (
-          <Stack gap="none">
-            {users.map((u) => {
-              const isSelected = value === u.id;
-              return (
-                <Stack key={u.id} gap="none">
-                  <Button
-                    variant={isSelected ? 'secondary' : 'ghost'}
-                    fullWidth
-                    onClick={() => onChange(u.id)}
+          users.map((u) => {
+            const isSelected = value === u.id;
+            return (
+              <Button
+                key={u.id}
+                variant="ghost"
+                shape="square"
+                size="sm"
+                selected={isSelected}
+                fullWidth
+                onClick={() => onChange(u.id)}
+              >
+                <Stack direction="horizontal" grow align="center" justify="between" minWidth="none">
+                  <Text
+                    size="micro"
+                    truncate
+                    color={isSelected ? 'accent' : 'foreground'}
+                    weight={isSelected ? 'emphasis' : undefined}
                   >
-                    <Stack grow minWidth="none" gap="none">
-                      <Text
-                        size="caption"
-                        truncate
-                        color={isSelected ? 'accent' : 'foreground'}
-                        weight={isSelected ? 'emphasis' : undefined}
-                      >
-                        {u.display_name || u.email}
-                      </Text>
-                    </Stack>
-                    {u.display_name && u.display_name !== u.email && (
-                      <Stack shrink gap="none">
-                        <Text size="caption" color="muted">
-                          {u.email}
-                        </Text>
-                      </Stack>
-                    )}
-                  </Button>
-                  <Separator />
+                    {u.display_name || u.email}
+                  </Text>
+                  {u.display_name && u.display_name !== u.email && (
+                    <Text size="micro" color="muted">
+                      {u.email}
+                    </Text>
+                  )}
                 </Stack>
-              );
-            })}
-          </Stack>
+              </Button>
+            );
+          })
         )}
       </Card>
     </Stack>
@@ -747,7 +744,7 @@ function CreateGrantModal({
   return (
     <Modal open={open} onClose={onClose} size="lg">
       <ModalHeader title="Create Grant" />
-      <ModalBody>
+      <ModalBody flushY>
         <Stack gap="comfortable">
           {/* Principal type */}
           <Stack gap="tight">

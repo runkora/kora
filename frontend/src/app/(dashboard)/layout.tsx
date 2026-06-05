@@ -5,6 +5,7 @@ import {
   DashboardHeader,
   DashboardSidebar,
   PermissionsProvider,
+  SidebarBrandHeader,
   SidebarUserFooter,
 } from './_components';
 
@@ -26,6 +27,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <PermissionsProvider>
       <PageLayout
+        sidebarHeader={<SidebarBrandHeader />}
         sidebar={<DashboardSidebar />}
         sidebarFooter={<SidebarUserFooter />}
         header={<DashboardHeader />}

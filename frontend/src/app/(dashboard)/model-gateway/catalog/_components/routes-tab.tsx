@@ -105,11 +105,19 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
           ].map((s) => (
             <Button
               key={s.value}
-              asChild
-              variant={model.strategy === s.value ? 'secondary' : 'outline'}
+              size="tile"
+              fullWidth
+              variant={model.strategy === s.value ? 'accent-outline' : 'secondary'}
               onClick={() => onChange({ ...model, strategy: s.value })}
             >
-              <Stack gap="tight" align="start" paddingBlock="snug" paddingInline="snug">
+              <Stack
+                gap="tight"
+                align="start"
+                paddingBlock="cozy"
+                paddingInline="cozy"
+                grow
+                textAlign="start"
+              >
                 <Icon name={s.iconName} color={model.strategy === s.value ? 'accent' : 'muted'} />
                 <Text as="span" size="caption" weight="emphasis">
                   {s.label}
@@ -335,7 +343,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     }
                     aria-label="Remove route"
                   >
-                    <Icon name="trash" size="2xs" />
+                    <Icon name="trash" size="2xs" color="subtle" />
                   </Button>
                 </Stack>
               </Stack>

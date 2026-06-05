@@ -61,7 +61,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         ref={ref}
         role={role}
         className={cn(
-          'flex items-center gap-2 rounded-lg border px-4 py-3',
+          'flex items-start gap-2 rounded-lg border px-4 py-3',
           VARIANT_CLASSES[variant],
           className,
         )}

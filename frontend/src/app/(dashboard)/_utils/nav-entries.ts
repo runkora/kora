@@ -101,7 +101,7 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'Main', items: MAIN_NAV },
+  { label: 'Control Plane', items: MAIN_NAV },
   { label: 'Security', items: SECURITY_NAV },
   { label: 'Policy', items: POLICY_NAV },
   { label: 'Model Gateway', items: MODEL_GATEWAY_NAV },

@@ -9,13 +9,26 @@ export interface FilterChipProps {
   count: number;
   active: boolean;
   onClick: () => void;
+  /** Render the label in a monospace typeface — use for resource/type identifiers. */
+  mono?: boolean;
 }
 
-export function FilterChip({ label, count, active, onClick }: FilterChipProps) {
+export function FilterChip({ label, count, active, onClick, mono }: FilterChipProps) {
   return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="xs" shape="pill" onClick={onClick}>
-      {label}
-      <Text as="span" size="micro" color="muted">
+    <Button
+      variant={active ? 'accent-outline' : 'outline-muted'}
+      size="xs"
+      shape="pill"
+      onClick={onClick}
+    >
+      {mono ? (
+        <Text as="span" size="micro" mono>
+          {label}
+        </Text>
+      ) : (
+        label
+      )}
+      <Text as="span" size="micro" color={active ? 'accent' : 'subtle'}>
         {count}
       </Text>
     </Button>

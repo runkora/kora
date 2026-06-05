@@ -45,6 +45,13 @@ const buttonVariants = cva(
          */
         muted: 'bg-transparent text-subtle hover:text-foreground hover:bg-surface-elevated',
 
+        /** Accent outline — semi-transparent accent background with accent-coloured border and text. Use for active filter chips and selected toggles. */
+        'accent-outline': 'bg-accent/10 text-accent border border-accent hover:bg-accent/15',
+
+        /** Outline muted — transparent background with subtle-coloured border and text. Use for inactive filter chips. */
+        'outline-muted':
+          'bg-transparent text-subtle border border-border-subtle hover:bg-surface-elevated hover:text-foreground',
+
         /** Destructive — error intent */
         destructive: 'bg-status-error text-foreground hover:bg-status-error/80',
       },
@@ -72,6 +79,12 @@ const buttonVariants = cva(
          * Always pair with an `aria-label`.
          */
         'icon-sm': 'h-7 w-7 p-0',
+        /**
+         * Tile — card-style option selector. Height expands with content;
+         * padding and layout are owned by the child Stack. Use with `fullWidth`
+         * and a `Stack grow` child for equal-height card grids.
+         */
+        tile: 'h-auto whitespace-normal p-0 justify-start items-start',
       },
 
       /**
@@ -94,6 +107,8 @@ const buttonVariants = cva(
          * ```
          */
         pill: 'rounded-full',
+        /** Square — no border-radius. Use for list-row buttons that sit inside a divided card. */
+        square: 'rounded-none',
       },
     },
 
@@ -141,15 +156,27 @@ export interface ButtonProps
    * ```
    */
   dim?: boolean;
+
+  /**
+   * When true, applies a semi-transparent accent background without changing
+   * the border or text colour. Use for list-row selection where only the fill
+   * should indicate the active item.
+   *
+   * ```tsx
+   * <Button variant="ghost" shape="square" selected={isSelected}>…</Button>
+   * ```
+   */
+  selected?: boolean;
 }
 
 /**
  * Button
  *
- * The primary interactive element of the Terra design system. Supports six
- * visual variants (`default`, `secondary`, `outline`, `ghost`, `muted`,
- * `destructive`), six sizes (`xs`, `sm`, `md`, `lg`, `icon`, `icon-sm`),
- * and two shapes (`default`, `pill`).
+ * The primary interactive element of the Terra design system. Supports eight
+ * visual variants (`default`, `secondary`, `outline`, `outline-muted`, `ghost`,
+ * `muted`, `accent-outline`, `destructive`), seven sizes (`xs`, `sm`, `md`,
+ * `lg`, `icon`, `icon-sm`, `tile`), and three shapes (`default`, `pill`,
+ * `square`).
  *
  * Use `asChild` to apply button styles to an arbitrary child element such as
  * a router link. Use `fullWidth` to stretch the button across its container
@@ -169,7 +196,17 @@ export interface ButtonProps
  */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { className, variant, size, shape, fullWidth = false, asChild = false, dim = false, ...props },
+    {
+      className,
+      variant,
+      size,
+      shape,
+      fullWidth = false,
+      asChild = false,
+      dim = false,
+      selected = false,
+      ...props
+    },
     ref,
   ) => {
     const Comp = asChild ? Slot : 'button';
@@ -180,6 +217,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           buttonVariants({ variant, size, shape }),
           fullWidth && 'w-full',
           dim && 'opacity-30 hover:opacity-100',
+          selected && 'bg-accent/10 hover:bg-accent/15',
           className,
         )}
         {...props}

@@ -95,6 +95,9 @@ export type { FormProps } from './components/form';
 export { Anchor, anchorVariants } from './components/anchor';
 export type { AnchorProps } from './components/anchor';
 
+export { Breadcrumbs } from './components/breadcrumbs';
+export type { BreadcrumbsProps, BreadcrumbsItem } from './components/breadcrumbs';
+
 export { Label } from './components/label';
 
 export { Separator } from './components/separator';

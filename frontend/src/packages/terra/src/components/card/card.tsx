@@ -139,6 +139,34 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
    * (collapsed). Has no effect on non-toggleable cards.
    */
   defaultOpen?: boolean;
+
+  /**
+   * When `true`, uses `bg-surface-elevated` instead of `bg-surface`.
+   * Use for summary or detail cards that sit inside a modal or panel
+   * where you want a subtle visual distinction from the surrounding surface.
+   */
+  subtle?: boolean;
+
+  /**
+   * Border colour token.
+   * - `'subtle'` (default) — `border-border-subtle`, the standard card border.
+   * - `'default'` — `border-border`, matching the Input component border.
+   *   Use when the card sits adjacent to an Input and visual parity matters.
+   */
+  border?: 'subtle' | 'default';
+
+  /**
+   * When `true`, adds `divide-y divide-border-subtle` between direct children.
+   * Use for list-style card bodies where each child represents a row.
+   *
+   * ```tsx
+   * <Card divide>
+   *   <Row>…</Row>
+   *   <Row>…</Row>
+   * </Card>
+   * ```
+   */
+  divide?: boolean;
 }
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
@@ -151,6 +179,9 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       maxHeight,
       toggleable = false,
       defaultOpen = false,
+      subtle = false,
+      border = 'subtle',
+      divide = false,
       children,
       ...props
     },
@@ -163,8 +194,11 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         ref={ref}
         data-interactive={interactive ? 'true' : undefined}
         className={cn(
-          'rounded-lg border border-border-subtle bg-surface text-foreground overflow-hidden',
+          'rounded-lg border text-foreground overflow-hidden',
+          border === 'default' ? 'border-border' : 'border-border-subtle',
+          subtle ? 'bg-surface-elevated' : 'bg-surface',
           (column || toggleable) && 'flex flex-col',
+          divide && 'divide-y divide-border-subtle',
           interactive &&
             'cursor-pointer transition-colors hover:bg-surface-elevated/50 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30',
           overflowY && OVERFLOW_Y[overflowY],
@@ -468,6 +502,18 @@ export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
    * ```
    */
   grow?: boolean;
+  /**
+   * When `true`, reduces padding from `px-6 py-6` to `px-3 py-3`.
+   * Use for summary or detail cards inside modals where the standard spacing
+   * feels too generous relative to the compact context.
+   *
+   * ```tsx
+   * <Card subtle>
+   *   <CardContent padded compact>…</CardContent>
+   * </Card>
+   * ```
+   */
+  compact?: boolean;
 }
 
 /**
@@ -483,14 +529,18 @@ export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
  * automatically while the card is collapsed.
  */
 const CardContent = React.forwardRef<HTMLDivElement, CardContentProps>(
-  ({ className, padded = false, flush = false, grow = false, ...props }, ref) => {
+  ({ className, padded = false, flush = false, grow = false, compact = false, ...props }, ref) => {
     const ctx = React.useContext(CardContext);
     if (ctx && !ctx.open) return null;
     return (
       <div
         ref={ref}
         className={cn(
-          flush ? 'p-0' : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
+          flush
+            ? 'p-0'
+            : compact
+              ? cn('px-3 pb-3', padded ? 'pt-3' : 'pt-0')
+              : cn('px-6 pb-6', padded ? 'pt-6' : 'pt-0'),
           grow && 'flex-1',
           className,
         )}

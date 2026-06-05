@@ -127,6 +127,8 @@ export interface ModalHeaderProps {
   /** When `false`, the built-in close (×) button is hidden.
    *  Default: `true`. */
   showClose?: boolean;
+  /** When `true`, removes the bottom border. Use for borderless modal designs. */
+  borderless?: boolean;
 }
 
 /**
@@ -142,10 +144,15 @@ export interface ModalHeaderProps {
  * <ModalHeader title="Create grant" description="Assign scopes to a principal." />
  * ```
  */
-const ModalHeader = ({ title, description, showClose = true }: ModalHeaderProps) => (
+const ModalHeader = ({
+  title,
+  description,
+  showClose = true,
+  borderless = true,
+}: ModalHeaderProps) => (
   <div
     data-slot="modal-header"
-    className="flex items-start justify-between border-b border-border p-5"
+    className={cn('flex items-start justify-between p-5', !borderless && 'border-b border-border')}
   >
     <div className="flex flex-col gap-0.5">
       <DialogPrimitive.Title asChild>
@@ -165,13 +172,13 @@ const ModalHeader = ({ title, description, showClose = true }: ModalHeaderProps)
           type="button"
           aria-label="Close"
           className={cn(
-            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+            'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
             'border-transparent bg-transparent text-muted',
             'transition-colors hover:bg-surface-overlay hover:text-foreground',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
           )}
         >
-          <Icon name="close" size="xs" />
+          <Icon name="close" size="sm" />
         </button>
       </DialogPrimitive.Close>
     )}
@@ -188,6 +195,13 @@ export interface ModalBodyProps {
    * layout.
    */
   flush?: boolean;
+
+  /**
+   * Removes vertical padding only, keeping horizontal (`px-5`). Use for
+   * compact modals where the header and footer already provide sufficient
+   * visual separation without additional top/bottom whitespace in the body.
+   */
+  flushY?: boolean;
 
   /**
    * Removes the default `gap-5` between children. Use when child components
@@ -231,15 +245,15 @@ export interface ModalBodyProps {
  * ```
  */
 const ModalBody = React.forwardRef<HTMLDivElement, ModalBodyProps>(
-  ({ className, flush, gapless, constrained, ...props }, ref) => (
+  ({ className, flush, flushY, gapless, constrained, ...props }, ref) => (
     <div
       ref={ref}
       data-slot="modal-body"
       className={cn(
-        'flex flex-col overflow-y-auto',
-        flush ? 'p-0' : 'p-5',
+        'flex flex-col',
+        flush ? 'p-0' : flushY ? 'px-5 py-0' : 'p-5',
         gapless ? 'gap-0' : 'gap-5',
-        constrained && 'max-h-[60vh]',
+        constrained && 'max-h-[60vh] overflow-y-auto',
         className,
       )}
       {...props}
@@ -256,6 +270,8 @@ export interface ModalFooterProps {
   children?: React.ReactNode;
   /** @internal Used for internal Terra composition via cn(). */
   className?: string;
+  /** When `true`, removes the top border. Use for borderless modal designs. */
+  borderless?: boolean;
 }
 
 const FOOTER_JUSTIFY: Record<Required<ModalFooterProps>['justify'], string> = {
@@ -279,12 +295,13 @@ const FOOTER_JUSTIFY: Record<Required<ModalFooterProps>['justify'], string> = {
  * ```
  */
 const ModalFooter = React.forwardRef<HTMLElement, ModalFooterProps>(
-  ({ className, justify = 'end', ...props }, ref) => (
+  ({ className, justify = 'end', borderless = true, ...props }, ref) => (
     <footer
       ref={ref}
       data-slot="modal-footer"
       className={cn(
-        'flex items-center gap-2.5 border-t border-border px-5 py-3',
+        'flex items-center gap-2.5 p-5',
+        !borderless && 'border-t border-border',
         FOOTER_JUSTIFY[justify],
         className,
       )}

@@ -1,6 +1,7 @@
 'use client';
 
-import { NativeSelect, Stack } from '@orbit/terra';
+import Link from 'next/link';
+import { Button, Icon, NativeSelect, Stack } from '@orbit/terra';
 import type { PAT } from '@orbit/shared/api';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
@@ -29,7 +30,14 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
           ))}
         </NativeSelect>
       </Stack>
-    ) : undefined;
+    ) : (
+      <Stack direction="horizontal" align="center" gap="snug">
+        <Icon name="key" size="2xs" color="subtle" />
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/model-gateway/keys">No API keys</Link>
+        </Button>
+      </Stack>
+    );
 
   return (
     <AnalyticsDashboard

@@ -196,6 +196,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
             : ''
         }
         confirmLabel="Delete"
+        size="md"
         confirming={deletingRole === deleteCandidate?.role}
         error={deleteError}
         onConfirm={() => deleteCandidate && void handleDeleteConfirm(deleteCandidate.role)}
@@ -477,7 +478,7 @@ function UpsertRoleModal({
   return (
     <Modal open={open} onClose={onClose} size="lg">
       <ModalHeader title={editingRole ? 'Edit Role' : 'Create Role'} />
-      <ModalBody>
+      <ModalBody flushY>
         <Stack gap="comfortable">
           {/* Role name */}
           <Stack gap="tight">

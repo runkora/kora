@@ -25,6 +25,8 @@ export interface ConfirmDialogProps {
   onConfirm: () => void;
   confirming?: boolean;
   error?: string | null;
+  /** Modal width. Defaults to `'sm'`. */
+  size?: 'sm' | 'md' | 'lg';
   /** Extra body content rendered below the description (e.g. a summary card of what will be deleted). */
   children?: React.ReactNode;
 }
@@ -38,12 +40,13 @@ export function ConfirmDialog({
   onConfirm,
   confirming,
   error,
+  size = 'sm',
   children,
 }: ConfirmDialogProps) {
   return (
-    <Modal open={open} onClose={onClose} size="sm">
+    <Modal open={open} onClose={onClose} size={size}>
       <ModalHeader title={title} />
-      <ModalBody>
+      <ModalBody flushY>
         <Stack gap="comfortable">
           <Stack gap="snug">
             <Text size="caption" color="muted">

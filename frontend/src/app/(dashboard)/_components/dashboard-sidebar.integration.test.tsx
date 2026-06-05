@@ -7,7 +7,7 @@
  *   scopes without needing a live PermissionsProvider + MSW. The provider's own
  *   fetch behaviour is tested separately.
  *
- * Default state (empty scopes) renders Main, Security, Model Gateway, System
+ * Default state (empty scopes) renders Control Plane, Security, Model Gateway, System
  * groups. Policy group requires `platform:grants:read` and is hidden by default.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -38,22 +38,10 @@ function renderSidebar() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('DashboardSidebar', () => {
-  describe('branding', () => {
-    it('renders the Orbit logo text', () => {
-      renderSidebar();
-      expect(screen.getByText('Orbit')).toBeInTheDocument();
-    });
-
-    it('renders a semver version badge', () => {
-      renderSidebar();
-      expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
-    });
-  });
-
   describe('navigation groups', () => {
-    it('renders Main, Security, Model Gateway, and System group labels by default', () => {
+    it('renders Control Plane, Security, Model Gateway, and System group labels by default', () => {
       renderSidebar();
-      expect(screen.getByText('Main')).toBeInTheDocument();
+      expect(screen.getByText('Control Plane')).toBeInTheDocument();
       expect(screen.getByText('Security')).toBeInTheDocument();
       expect(screen.getByText('Model Gateway')).toBeInTheDocument();
       expect(screen.getByText('System')).toBeInTheDocument();
