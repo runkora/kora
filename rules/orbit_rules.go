@@ -3,7 +3,7 @@
 // Package gorules defines custom static-analysis rules for Orbit, enforced by
 // golangci-lint's gocritic/ruleguard integration.
 //
-// # ADR-0022: OpenTelemetry observability discipline
+// # docs/adr/2026-03-21-opentelemetry-observability-discipline.md: OpenTelemetry observability discipline
 //
 // Raw error strings must never appear in span status descriptions or span
 // string attributes. The two-signal pattern is mandatory:
@@ -20,7 +20,7 @@
 // strings, filesystem paths, and upstream error messages into those indexes,
 // creating both a security and a cardinality explosion problem.
 //
-// See docs/adr/0022-opentelemetry-observability-discipline.md
+// See docs/adr/2026-03-21-opentelemetry-observability-discipline.md
 //
 // # Pattern-matching strategy (minimising false positives)
 //
@@ -37,28 +37,28 @@
 // ctx.Err() method-call chain, which together cover all realistic violations
 // without producing false positives against correctly named sentinels.
 //
-// # ADR-0005: Controller-based HTTP routing
+// # docs/adr/2026-02-17-controller-based-http-routing.md: Controller-based HTTP routing
 //
 // HTTP handlers must decode request bodies via api.DecodeJSON rather than
 // constructing a raw json.NewDecoder. api.DecodeJSON writes a standard error
 // response, records the span failure, and emits a structured log line.
 //
-// See docs/adr/0005-controller-based-http-routing.md
+// See docs/adr/2026-02-17-controller-based-http-routing.md
 //
-// # ADR-0003: Repository pattern and code organisation
+// # docs/adr/2026-02-17-repository-pattern-and-code-organization.md: Repository pattern and code organisation
 //
 // Errors must be wrapped with %w, not formatted with %s, so that the error
 // chain is preserved for errors.Is / errors.As callers.
 //
-// See docs/adr/0003-repository-pattern-and-code-organization.md
+// See docs/adr/2026-02-17-repository-pattern-and-code-organization.md
 //
-// # ADR-0020: Multi-service backend deployment structure
+// # docs/adr/2026-03-19-multi-service-backend-deployment-structure.md: Multi-service backend deployment structure
 //
 // Service-to-service HTTP calls must go through a typed client that embeds
 // *httpclient.Base. Raw http.Client literals bypass OTel span creation, W3C
 // traceparent injection, and structured logging.
 //
-// See docs/adr/0020-multi-service-backend-deployment-structure.md
+// See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
 package gorules
 
 import "github.com/quasilyte/go-ruleguard/dsl"
@@ -66,7 +66,7 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 // spanSetStatusLocalErr flags span.SetStatus calls whose description is
 // sourced from a local error variable named "err".
 //
-// Enforces: ADR-0022 — OpenTelemetry observability discipline.
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md — OpenTelemetry observability discipline.
 //
 // Bad:
 //
@@ -78,17 +78,17 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 //	span.SetStatus(codes.Error, errMyThing.Error())
 func spanSetStatusLocalErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, err.Error())`).
-		Report(`ADR-0022: do not pass err.Error() as the span status description — ` +
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass err.Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
 			`Use span.RecordError(err) for the full error event and a package-level ` +
 			`sentinel error string for SetStatus (e.g. errMyThing.Error()). ` +
-			`See docs/adr/0022-opentelemetry-observability-discipline.md`)
+			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
 // spanSetStatusCtxErr flags span.SetStatus calls whose description is sourced
 // from ctx.Err() (or any receiver).Err(), which is always dynamic.
 //
-// Enforces: ADR-0022 — OpenTelemetry observability discipline.
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md — OpenTelemetry observability discipline.
 //
 // Bad:
 //
@@ -100,16 +100,16 @@ func spanSetStatusLocalErr(m dsl.Matcher) {
 //	span.SetStatus(codes.Error, errContextCanceled.Error())
 func spanSetStatusCtxErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, $x.Err().Error())`).
-		Report(`ADR-0022: do not pass ctx.Err().Error() as the span status description — ` +
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass ctx.Err().Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
 			`Use span.RecordError(ctx.Err()) and a package-level sentinel string for SetStatus. ` +
-			`See docs/adr/0022-opentelemetry-observability-discipline.md`)
+			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
 // spanAttrStringLocalErr flags attribute.String calls that embed a local error
 // variable's .Error() string directly into a span attribute value.
 //
-// Enforces: ADR-0022 — OpenTelemetry observability discipline.
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md — OpenTelemetry observability discipline.
 //
 // Span attributes are indexed by observability backends. Raw error strings
 // contain internal details that should stay in span events, not attributes.
@@ -123,31 +123,31 @@ func spanSetStatusCtxErr(m dsl.Matcher) {
 //	span.RecordError(err)  // stored under exception.* standard keys
 func spanAttrStringLocalErr(m dsl.Matcher) {
 	m.Match(`attribute.String($_, err.Error())`).
-		Report(`ADR-0022: do not embed err.Error() in a span attribute — ` +
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not embed err.Error() in a span attribute — ` +
 			`raw error strings leak runtime context into indexed telemetry. ` +
 			`Use span.RecordError(err) to record errors under standard exception.* keys. ` +
-			`See docs/adr/0022-opentelemetry-observability-discipline.md`)
+			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
 // spanAttrStringCtxErr flags attribute.String calls that embed a ctx.Err()
 // string into a span attribute value.
 //
-// Enforces: ADR-0022 — OpenTelemetry observability discipline.
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md — OpenTelemetry observability discipline.
 //
 // Bad:
 //
 //	span.SetAttributes(attribute.String("cancel.reason", ctx.Err().Error()))
 func spanAttrStringCtxErr(m dsl.Matcher) {
 	m.Match(`attribute.String($_, $x.Err().Error())`).
-		Report(`ADR-0022: do not embed ctx.Err().Error() in a span attribute — ` +
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not embed ctx.Err().Error() in a span attribute — ` +
 			`use span.RecordError(ctx.Err()) instead. ` +
-			`See docs/adr/0022-opentelemetry-observability-discipline.md`)
+			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
 // noRawJsonDecodeRequest flags direct use of json.NewDecoder(r.Body).Decode
 // inside HTTP handlers, where api.DecodeJSON must be used instead.
 //
-// Enforces: ADR-0005 — controller-based HTTP routing.
+// Enforces: docs/adr/2026-02-17-controller-based-http-routing.md — controller-based HTTP routing.
 //
 // api.DecodeJSON handles the full failure path in one call:
 //   - Writes a standard {code, message, details} error response to the client
@@ -173,15 +173,15 @@ func spanAttrStringCtxErr(m dsl.Matcher) {
 //	}
 func noRawJsonDecodeRequest(m dsl.Matcher) {
 	m.Match(`json.NewDecoder(r.Body).Decode($dest)`).
-		Report(`ADR-0005: use api.DecodeJSON(ctx, r, w, logger, &dest) instead of json.NewDecoder(r.Body) — ` +
+		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.DecodeJSON(ctx, r, w, logger, &dest) instead of json.NewDecoder(r.Body) — ` +
 			`it writes a standard error response, records the span failure, and emits a structured log line. ` +
-			`See docs/adr/0005-controller-based-http-routing.md`)
+			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }
 
 // noFmtErrorfStringErr flags fmt.Errorf calls that format an error value using
 // %s rather than wrapping it with %w.
 //
-// Enforces: ADR-0003 — repository pattern and code organisation.
+// Enforces: docs/adr/2026-02-17-repository-pattern-and-code-organization.md — repository pattern and code organisation.
 //
 // Using %s discards the error chain entirely: errors.Is and errors.As both
 // become useless against the resulting error, and callers can no longer
@@ -201,21 +201,21 @@ func noRawJsonDecodeRequest(m dsl.Matcher) {
 func noFmtErrorfStringErr(m dsl.Matcher) {
 	m.Match(`fmt.Errorf($format, $err)`).
 		Where(m["format"].Text.Matches(`".*%s.*"`) && m["err"].Type.Implements(`error`)).
-		Report(`ADR-0003: wrap errors with %%w, not %%s — ` +
+		Report(`docs/adr/2026-02-17-repository-pattern-and-code-organization.md: wrap errors with %%w, not %%s — ` +
 			`%%s discards the error chain, breaking errors.Is / errors.As for callers. ` +
-			`See docs/adr/0003-repository-pattern-and-code-organization.md`)
+			`See docs/adr/2026-02-17-repository-pattern-and-code-organization.md`)
 }
 
 // noRawHttpClientLiteral flags bare http.Client struct literals constructed
 // outside of the httpclient base package.
 //
-// Enforces: ADR-0020 — multi-service backend deployment structure.
+// Enforces: docs/adr/2026-03-19-multi-service-backend-deployment-structure.md — multi-service backend deployment structure.
 //
 // Raw *http.Client instances bypass the shared httpclient.Base foundation,
 // which means the call silently loses:
-//   - OpenTelemetry SpanKindClient span creation (ADR-0022)
+//   - OpenTelemetry SpanKindClient span creation (docs/adr/2026-03-21-opentelemetry-observability-discipline.md)
 //   - W3C traceparent / tracestate header injection (distributed tracing breaks)
-//   - Structured logging of transport outcomes (ADR-0004)
+//   - Structured logging of transport outcomes (docs/adr/2026-02-17-dependency-injected-logging.md)
 //
 // All service-to-service HTTP calls must go through a typed client that embeds
 // *httpclient.Base. Legitimate exceptions (e.g. OIDC provider discovery,
@@ -239,14 +239,14 @@ func noRawHttpClientLiteral(m dsl.Matcher) {
 	// struct literal independently of the surrounding unary-& expression, so
 	// omitting & here covers both forms.
 	m.Match(`http.Client{$*_}`).
-		Report(`ADR-0020: use httpclient.New(...) instead of constructing a raw *http.Client — ` +
+		Report(`docs/adr/2026-03-19-multi-service-backend-deployment-structure.md: use httpclient.New(...) instead of constructing a raw *http.Client — ` +
 			`bare clients bypass OTel span creation, W3C trace header injection, and structured logging. ` +
-			`See docs/adr/0020-multi-service-backend-deployment-structure.md`)
+			`See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md`)
 }
 
 // noHttpErrorInHandler flags direct http.Error calls inside HTTP handlers.
 //
-// Enforces: ADR-0005 — controller-based HTTP routing.
+// Enforces: docs/adr/2026-02-17-controller-based-http-routing.md — controller-based HTTP routing.
 //
 // http.Error writes a plain-text body and sets a status code, but it:
 //   - Does not produce the standard {code, message, details} JSON envelope
@@ -267,14 +267,14 @@ func noRawHttpClientLiteral(m dsl.Matcher) {
 //	api.ErrorResponse(ctx, w, logger, api.ValidationError(...), err)
 func noHttpErrorInHandler(m dsl.Matcher) {
 	m.Match(`http.Error($w, $_, $_)`).
-		Report(`ADR-0005: use api.ErrorResponse(ctx, w, logger, apiErr, err) instead of http.Error — ` +
+		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.ErrorResponse(ctx, w, logger, apiErr, err) instead of http.Error — ` +
 			`http.Error bypasses the standard JSON error envelope, OTel span recording, and structured logging. ` +
-			`See docs/adr/0005-controller-based-http-routing.md`)
+			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }
 
 // noDirectWriteHeader flags direct calls to w.WriteHeader inside HTTP handlers.
 //
-// Enforces: ADR-0005 — controller-based HTTP routing.
+// Enforces: docs/adr/2026-02-17-controller-based-http-routing.md — controller-based HTTP routing.
 //
 // w.WriteHeader sets the status code but does not:
 //   - Write the standard {code, message, details} JSON response body
@@ -300,7 +300,7 @@ func noHttpErrorInHandler(m dsl.Matcher) {
 //	api.JSON(ctx, w, logger, http.StatusNoContent, nil)
 func noDirectWriteHeader(m dsl.Matcher) {
 	m.Match(`$w.WriteHeader($code)`).
-		Report(`ADR-0005: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
+		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
 			`a bare WriteHeader writes no JSON envelope, records nothing on the OTel span, and emits no structured log line. ` +
-			`See docs/adr/0005-controller-based-http-routing.md`)
+			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }

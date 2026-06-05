@@ -1,7 +1,7 @@
 /**
  * E2E baseline — Dashboard page (/) with HealthStatus component.
  *
- * ADR-0049 Category A constraint: no live Go backend is required.
+ * docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md Category A constraint: no live Go backend is required.
  * All BFF API calls are intercepted via page.route() — the Next.js dev server
  * is the only real process under test.
  *

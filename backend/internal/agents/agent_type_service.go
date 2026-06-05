@@ -58,7 +58,7 @@ func (s *AgentTypeService) SetAgentTypeHook(fn func()) { s.hook = fn }
 // CreateAgentType registers a new agent type and initiates k8s provisioning.
 // Tenant is derived from the verified claims in ctx; the request-body field is
 // ignored. Coarse-level authorization (agents:types:write) is enforced by
-// ScopeEnforcementMiddleware before this method is called (ADR-0064); no
+// ScopeEnforcementMiddleware before this method is called (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md); no
 // per-resource authz check is needed here since the resource does not yet exist.
 func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentTypeRequest) (*AgentType, error) {
 	req.TenantID = tenantFromContext(ctx)

@@ -1,6 +1,6 @@
 # Terra Design System Hardening — Product Requirements Document
 
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2026-04-23
 **Last Updated:** 2026-04-24
 **Owner:** Frontend
@@ -303,7 +303,7 @@ None. All work is contained within the frontend monorepo package.
 ### Key Milestones
 
 - [ ] PRD Approved
-- [ ] ADR-0046 Created and Accepted
+- [ ] [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) Created and Accepted
 - [ ] Track A complete (ESLint extended, violations migrated)
 - [ ] Track B complete (style removed from Text + StatusDot)
 - [ ] Track C complete (all 35 components whitelisted)
@@ -316,9 +316,9 @@ None. All work is contained within the frontend monorepo package.
 
 ### Related Documents
 
-- [ADR-0046](../adr/0046-terra-design-system-hardening.md) — Architecture decision for this work
-- [ADR-0021](../adr/0021-terra-frontend-design-system.md) — Original Terra design system decision
-- [ADR-0045](../adr/0045-frontend-component-consolidation.md) — Component consolidation (Phase 0 + component hierarchy)
+- [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) — Architecture decision for this work
+- [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) — Original Terra design system decision
+- [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) — Component consolidation (Phase 0 + component hierarchy)
 - `terra-style-removal-plan.md` (repo root) — Per-file migration guide for `style` prop removal
 - `frontend-lint-remediation-progress.md` (repo root) — Phase 1 progress tracker (completed)
 - `frontend/docs/golden-paths/terra-design-system.md` — Terra component usage reference

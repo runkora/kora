@@ -17,7 +17,7 @@ const blockTypeToolUse = "tool_use"
 // Claude models through the Anthropic Messages API when the client is using
 // the Responses API wire format.
 //
-// Translation contract (see ADR-0045 "Bridge Limitations"):
+// Translation contract (see docs/adr/2026-05-03-embeddings-and-responses-api-endpoints.md "Bridge Limitations"):
 //   - PreviousResponseID is not supported and is rejected as INVALID_REQUEST.
 //   - max_output_tokens, when set, is forwarded verbatim. When the client
 //     omits it, the bridge falls back to the model's documented maximum

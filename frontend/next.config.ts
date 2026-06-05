@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
   // ORBIT_OIDC_ISSUER_URL and ORBIT_OIDC_CLIENT_ID have been intentionally
   // removed. Tenant OIDC configuration is now resolved at runtime via the
-  // Home Realm Discovery endpoint (ADR-0031) — there is no longer a single
+  // Home Realm Discovery endpoint (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — there is no longer a single
   // build-time issuer or client ID to bake in.
 };
 

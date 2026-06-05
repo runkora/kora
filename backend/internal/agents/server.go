@@ -34,7 +34,7 @@ type Controller struct {
 // at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
-// middleware can reconstruct full paths after http.StripPrefix. See ADR-0064.
+// middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
@@ -70,7 +70,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //     surface, and agent principals hold no route scopes — running it would
 //     deny every callback with "no route match". Per-run authorization (binding
 //     the calling agent's tenant + slug to the target run) is enforced in each
-//     internal handler via runs.AuthorizeAgentCallback. See ADR-0063 + ADR-0064.
+//     internal handler via runs.AuthorizeAgentCallback. See docs/adr/2026-06-04-orbit-agents-authorization-model.md + docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	publicChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
@@ -139,7 +139,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// Tenant is derived from the verified platform claims by the service layer;
-	// any request-body tenant_id is ignored. See ADR-0063.
+	// any request-body tenant_id is ignored. See docs/adr/2026-06-04-orbit-agents-authorization-model.md.
 	if req.Name == "" || req.Slug == "" {
 		apiErr := api.ValidationError(api.ErrCodeMissingField, "name and slug are required", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -389,7 +389,7 @@ type runStateCallbackRequest struct {
 // authorizeCallback binds the agent principal carried by the (already
 // JWT-authenticated) internal request to the target run before the handler
 // proceeds. It writes the appropriate error response and returns false on deny.
-// See RunService.AuthorizeAgentCallback and ADR-0063.
+// See RunService.AuthorizeAgentCallback and docs/adr/2026-06-04-orbit-agents-authorization-model.md.
 func (c *Controller) authorizeCallback(ctx context.Context, w http.ResponseWriter, id string) bool {
 	switch err := c.runs.AuthorizeAgentCallback(ctx, id); {
 	case err == nil:

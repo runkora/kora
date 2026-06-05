@@ -26,7 +26,7 @@ type Config struct {
 	PollInterval time.Duration
 
 	// RefreshThreshold is how far before expiry the background goroutine should
-	// proactively re-exchange the token (ADR-0021: expiry minus 60 s).
+	// proactively re-exchange the token (docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md: expiry minus 60 s).
 	RefreshThreshold time.Duration
 
 	// HealthAddr is the TCP address the HTTP health server listens on.

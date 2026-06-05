@@ -156,7 +156,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// XFCCPrincipalExtractor reads the Envoy-injected x-forwarded-client-cert
 	// header after mTLS termination. In local development, callers simply set
 	// the header directly — no stub or special dev path needed
-	// (ADR-0010, ADR-0011, ADR-0015).
+	// (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, docs/adr/2026-03-05-universal-gateway-policy-enforcement.md, docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md).
 	extractor := &identity.XFCCPrincipalExtractor{}
 
 	svc, err = identity.NewService(

@@ -25,7 +25,7 @@ var ErrForbidden = errors.New("forbidden")
 // the principal's claims — cross-tenant isolation is provided by bundle
 // scoping in policy-service, not by encoding tenantID in path segments.
 //
-// See ADR-0063.
+// See docs/adr/2026-06-04-orbit-agents-authorization-model.md.
 type Authz struct {
 	eval policy.Evaluator
 }
@@ -100,7 +100,7 @@ func (a *Authz) filterAgentTypes(ctx context.Context, ats []AgentType) ([]AgentT
 
 // checkRun returns nil if the principal may perform action on the given run.
 // The agent type is required because run-level scopes are keyed by agent slug,
-// not by run ID (the vocabulary in ADR-0060 registers `agents:runs:{slug}:…`).
+// not by run ID (the vocabulary in docs/adr/2026-05-11-orbit-agents-route-scope-registration.md registers `agents:runs:{slug}:…`).
 func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error {
 	r, err := a.eval.Check(ctx, policy.CheckInput{
 		Claims:       claimsFromContext(ctx),

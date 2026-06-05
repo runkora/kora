@@ -1,6 +1,6 @@
 # Frontend Test Strategy — Product Requirements Document
 
-**Status:** Approved  
+**Status:** Implemented  
 **Created:** 2026-03-23
 **Last Updated:** 2026-04-08
 **Owner:** Frontend
@@ -696,7 +696,7 @@ All open questions have been resolved.
 
 - [PRD: Orbit Terra Design System](./design-system.md) — establishes the workspace package structure this strategy builds on
 - [Terra README](../../frontend/src/packages/terra/README.md) — AI assistant rules including Rule 8 (do not modify Terra while working on app code)
-- [ADR-0030](../adr/0030-frontend-test-strategy-and-toolchain.md) — test tooling selection, Next.js compatibility, E2E strategy
+- [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) — test tooling selection, Next.js compatibility, E2E strategy
 
 ### Codebase Reference
 

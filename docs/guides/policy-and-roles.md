@@ -400,6 +400,6 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 
 ## Related
 
-- [ADR-0035: Policy Gateway and Authorisation Model](../adr/0035-policy-gateway-and-authorisation-model.md)
-- [ADR-0036: Dynamic Route-Scope Registration](../adr/0036-dynamic-route-scope-registration.md)
-- [Policy Enforcement Redesign](../design/policy-enforcement-redesign.md)
+- [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
+- [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
+- [Policy Enforcement Redesign](../archive/policy-enforcement-redesign.md) (archived — superseded by [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md))

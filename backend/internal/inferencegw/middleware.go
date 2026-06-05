@@ -40,7 +40,7 @@ func xAPIKeyMiddleware() mw.Middleware {
 // header bearer value when present.
 //
 // PATs are returned from the API as "orb_<jwt>" for visual identification and
-// secret-scanning compatibility (ADR-0033). This middleware removes the prefix
+// secret-scanning compatibility (docs/adr/2026-04-02-personal-access-tokens.md). This middleware removes the prefix
 // so the raw JWT reaches AuthMiddleware unchanged, regardless of whether the
 // credential arrived via x-api-key (after xAPIKeyMiddleware promotion) or
 // directly in the Authorization header.

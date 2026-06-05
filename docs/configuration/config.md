@@ -17,31 +17,41 @@ Supported values: `local`, `development`, `production`.
 
 There are two places config is loaded, each with a slightly different pattern.
 
-### Binary entry point (`cmd/orbit`)
+### Binary entry point (`cmd/{service}`)
 
-`cmd/orbit` has a dedicated `config/` sub-package with a `config.go` that exposes a package-level variable initialised at startup:
+Each service binary under `backend/cmd/` (for example the main API binary `cmd/identity`) has a dedicated `config/` sub-package with a `config.go` that exposes a package-level variable initialised at startup. Binaries use the **per-service loader** `config.MustLoadService[T]` (or `config.LoadService[T]` for the error-returning variant), which reads `backend/cmd/{service}/config/base.yaml` plus an optional `{env}.yaml` overlay:
 
 ```go
-// cmd/orbit/config/config.go
-package config
+// cmd/identity/config/config.go
+package identityConfig
 
 import "github.com/clear-route/orbit/internal/platform/config"
 
-// AppConfig is initialised once at program start.
-var AppConfig = config.MustLoad[appConfig]("cmd/orbit", config.Environment())
+// Config holds the identity service's own configuration values.
+type Config struct {
+    App struct {
+        Version string `yaml:"version"`
+    } `yaml:"app"`
 
-type appConfig struct {
     Server struct {
         Port                int    `yaml:"port"`
         BasePath            string `yaml:"basePath"`
         ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
     } `yaml:"server"`
-    OTLPEndpoint string  `yaml:"otlpEndpoint"`
-    SamplingRate float64 `yaml:"samplingRate"`
+
+    Observability struct {
+        ServiceName string `yaml:"serviceName"`
+    } `yaml:"observability"`
 }
+
+// Current is initialised once at program start, reading
+// cmd/identity/config/base.yaml (+ optional {env}.yaml overlay).
+var Current = config.MustLoadService[Config]("cmd/identity", config.Environment())
 ```
 
-`MustLoad` panics on startup if the file is missing or unparseable — this surfaces misconfiguration immediately rather than silently at first use.
+`MustLoadService` panics on startup if the file is missing or unparseable — this surfaces misconfiguration immediately rather than silently at first use. `LoadService` returns the error instead of panicking.
+
+> **`LoadService` vs `Load`.** The per-service loader `LoadService[T](serviceModule, env)` resolves config under `backend/cmd/{service}/config/` and is the primary pattern used by the service binaries. The generic loader `Load[T](module, env)` resolves config under an arbitrary module path (e.g. `internal/{feature}`) and is used by feature packages, as shown below. Both have `Must*` variants that panic on error.
 
 ### Feature packages (`internal/{feature}`)
 
@@ -111,9 +121,9 @@ type appConfig struct {
 2. Add the value to each environment YAML file:
 
 ```yaml
-# cmd/orbit/config/local.yaml
+# cmd/identity/config/base.yaml
 server:
-  port: 6069
+  port: 8080
   basePath: /api/v1
   shutdownTimeoutSecs: 5
   readTimeoutSecs: 30  # ← new
@@ -162,7 +172,7 @@ func LoadConfig() (*Config, error) {
 3. Call `LoadConfig()` from `main.go` when wiring the service:
 
 ```go
-// cmd/orbit/main.go
+// cmd/identity/main.go
 featureCfg, err := feature.LoadConfig()
 if err != nil {
     logger.Error(ctx, "failed to load feature config", logging.Field{Key: "error", Value: err})
@@ -175,8 +185,8 @@ svc := feature.NewService(db, redis, logger, featureCfg)
 
 ## Reference
 
-- `internal/platform/config/config.go` — the loader package (`Load`, `MustLoad`, `Environment`)
+- `internal/platform/config/config.go` — the loader package (`Load`, `MustLoad`, `LoadService`, `MustLoadService`, `Environment`)
 - `internal/identity/service.go` — canonical example of feature-level `LoadConfig()` with secret overlays
-- `cmd/orbit/config/config.go` — canonical example of binary-level `MustLoad` package var
-- [ADR-0006](../adr/0006-yaml-file-based-configuration.md) — decision record and rationale
+- `cmd/identity/config/config.go` — canonical example of binary-level `MustLoadService` package var
+- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md) — decision record and rationale
 - [Secrets reference](secrets.md) — how secrets are separated from config

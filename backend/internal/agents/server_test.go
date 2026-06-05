@@ -492,7 +492,7 @@ func TestHandleProvisionSandbox_NotFound(t *testing.T) {
 	}
 }
 
-// ── Internal callback authorization (ADR-0063) ─────────────────────────────────
+// ── Internal callback authorization (docs/adr/2026-06-04-orbit-agents-authorization-model.md) ─────────────────────────────────
 
 // internalCallbackDenied asserts every internal callback handler rejects the
 // given request context with 403. ctxFn decorates the request context with the

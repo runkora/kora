@@ -6,6 +6,8 @@ OpenTelemetry-based observability for Orbit, providing distributed tracing, stru
 
 Orbit implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
 
+Orbit is a multi-service backend — it compiles to 13 binaries under `backend/cmd/` (the main API is `cmd/identity`), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
+
 ## Documentation Structure
 
 - **[README.md](README.md)** - This file: architecture overview and quick start
@@ -83,7 +85,7 @@ OTEL_TRACE_SAMPLING_RATE=0.1              # Sample 10% of traces (default: 0.1)
 All HTTP requests are automatically traced via middleware:
 
 ```go
-// In cmd/orbit/main.go
+// In cmd/identity/main.go
 server := apiServer.Server(
     ctx,
     port,
@@ -202,7 +204,7 @@ As a control plane for autonomous agents, observability is critical:
 - OTLP exporter support
 - Service-to-service client tracing via `httpclient.Base.Do()` (`SpanKindClient` child spans with OTel HTTP semantic conventions)
 - Upstream error body capture in `error.upstream_body` span attribute for non-2xx responses
-- ADR-0022 lint rules enforcing static span status descriptions and correct `RecordError` usage
+- [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md) lint rules enforcing static span status descriptions and correct `RecordError` usage
 
 🚧 **Future Enhancements**:
 - Database query tracing
@@ -218,10 +220,10 @@ As a control plane for autonomous agents, observability is critical:
 
 ```bash
 # Start Orbit with stdout tracing
-ENVIRONMENT=development go run cmd/orbit/main.go
+ENVIRONMENT=development go run cmd/identity/main.go
 
 # Make a request
-curl http://localhost:6069/api/v1/example/health
+curl http://localhost:8080/api/v1/example/health
 
 # See trace output in terminal
 ```
@@ -238,10 +240,10 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
 export OTEL_EXPORTER_OTLP_INSECURE=true
 
 # Start Orbit
-go run cmd/orbit/main.go
+go run cmd/identity/main.go
 
 # Make requests
-curl http://localhost:6069/api/v1/example/hello/world
+curl http://localhost:8080/api/v1/example/hello/world
 
 # View traces at http://localhost:16686
 ```
@@ -268,7 +270,7 @@ curl http://localhost:6069/api/v1/example/hello/world
 - **[configuration.md](configuration.md)** - Complete configuration reference
 - **[tracing.md](tracing.md)** - Distributed tracing deep dive
 - **[logging.md](logging.md)** - Structured logging guide
-- [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../adr/0004-dependency-injected-logging.md)
-- [ADR-0022: OpenTelemetry Observability Discipline](../adr/0022-opentelemetry-observability-discipline.md)
+- [dependency-injected-logging](../adr/2026-02-17-dependency-injected-logging.md)
+- [opentelemetry-observability-discipline](../adr/2026-03-21-opentelemetry-observability-discipline.md)
 - [OpenTelemetry Go Documentation](https://opentelemetry.io/docs/instrumentation/go/)
 - [W3C TraceContext Specification](https://www.w3.org/TR/trace-context/)

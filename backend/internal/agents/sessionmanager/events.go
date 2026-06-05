@@ -14,7 +14,7 @@ const (
 	EventTypeRunError        EventType = "run_error"
 
 	// Streaming-only events — emitted via HTTPNotifier and fanned out over SSE.
-	// Not written to run_events (ADR-0054); consumed by orbit-agents SSE subscribers.
+	// Not written to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md); consumed by orbit-agents SSE subscribers.
 	EventTypeTextDelta     EventType = "text_delta"
 	EventTypeThinkingDelta EventType = "thinking_delta"
 	EventTypeMessageStop   EventType = "message_stop"
@@ -66,13 +66,13 @@ type RunErrorPayload struct {
 }
 
 // TextDeltaPayload carries one chunk of streamed assistant text.
-// Push-only — never persisted to run_events (ADR-0054).
+// Push-only — never persisted to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 type TextDeltaPayload struct {
 	Delta string `json:"delta"`
 }
 
 // ThinkingDeltaPayload carries one chunk of streamed assistant reasoning.
-// Push-only — never persisted to run_events (ADR-0054).
+// Push-only — never persisted to run_events (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 type ThinkingDeltaPayload struct {
 	Delta string `json:"delta"`
 }

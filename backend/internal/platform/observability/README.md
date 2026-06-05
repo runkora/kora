@@ -63,7 +63,7 @@ The package uses environment variables for configuration:
 
 ```bash
 # Run with stdout trace export (default)
-go run cmd/orbit/main.go
+go run ./cmd/identity/main.go
 
 # You'll see:
 # 1. Colorized logs with trace_id/span_id fields
@@ -77,7 +77,7 @@ go run cmd/orbit/main.go
 # Export to local OTEL collector
 export ENVIRONMENT=production
 export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-go run cmd/orbit/main.go
+go run ./cmd/identity/main.go
 
 # Traces sent to collector via gRPC
 # Logs still go to stdout (k8s best practice)
@@ -88,7 +88,7 @@ go run cmd/orbit/main.go
 ```bash
 # Production mode, no trace export
 export ENVIRONMENT=production
-go run cmd/orbit/main.go
+go run ./cmd/identity/main.go
 
 # Logs work normally (with trace_id when spans present)
 # Traces not exported anywhere
@@ -165,4 +165,4 @@ The `shutdown` function:
 
 ## Architecture Decision
 
-See [ADR-0004: OTEL-Compatible Dependency-Injected Logging](../../../../docs/adr/0004-dependency-injected-logging.md) for the design rationale behind the logging/observability split.
+See [dependency-injected-logging](../../../../docs/adr/2026-02-17-dependency-injected-logging.md) for the design rationale behind the logging/observability split.

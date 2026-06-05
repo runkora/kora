@@ -92,7 +92,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             )}
 
             {/*
-             * EmailSignInForm drives Home Realm Discovery (ADR-0031): the user
+             * EmailSignInForm drives Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md): the user
              * enters their work email, the BFF resolves the tenant's OIDC
              * configuration, and the browser is redirected to the correct IdP.
              * The `next` destination is encoded in the PKCE state so the

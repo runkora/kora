@@ -9,7 +9,7 @@ import (
 
 // LoggingMiddleware creates middleware that logs HTTP requests with OTEL trace correlation.
 // It extracts the request context which may contain an active OTEL span, enabling
-// automatic trace_id and span_id attachment to log entries (per ADR-0004).
+// automatic trace_id and span_id attachment to log entries (per docs/adr/2026-02-17-dependency-injected-logging.md).
 //
 // Logs both the incoming request and the response status/duration.
 func LoggingMiddleware(logger logging.Logger) Middleware {

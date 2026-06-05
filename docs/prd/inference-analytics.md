@@ -1,6 +1,6 @@
 # Inference Analytics - Product Requirements Document
 
-**Status:** Draft
+**Status:** Implemented
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-21
 **Owner:** Platform Engineering
@@ -404,7 +404,7 @@ Build a dedicated analytics microservice with its own read replica and pre-mater
 
 - [PRD: Inference Logs](inference-logs.md) — per-request log visibility that this feature extends with aggregation
 - [PRD: Inference Gateway](inference-gateway.md) — the underlying gateway whose usage data is being surfaced
-- [ADR-0043](../adr/0043-inference-analytics.md) — Inference Analytics Architecture
+- [inference-analytics](../adr/2026-04-27-inference-analytics.md) — Inference Analytics Architecture
 
 ### References
 

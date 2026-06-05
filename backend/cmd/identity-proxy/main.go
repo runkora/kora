@@ -17,7 +17,7 @@
 // All other tunables (socket path, timeouts, backoff values, service name) are
 // configured in cmd/identity-proxy/config/{base,local,development,production}.yaml.
 //
-// See ADR-0021 for the full architecture.
+// See docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md for the full architecture.
 package main
 
 import (
@@ -125,7 +125,7 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 	// upgrades the outbound connection to mTLS using the pod's SPIRE SVID
 	// automatically. Doing our own mTLS via go-spiffe would produce a
 	// double-TLS situation where Envoy sees an opaque stream and never injects
-	// the XFCC header. See ADR-0020 Service-to-Service Communication.
+	// the XFCC header. See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md Service-to-Service Communication.
 	exchanger := identityclient.NewClient(identityURL, logger)
 	refresher := identityproxy.NewRefresher(cache, exchanger, logger, proxyCfg)
 	server := identityproxy.NewServer(cache, exchanger, refresher, logger, proxyCfg)

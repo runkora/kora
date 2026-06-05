@@ -6,7 +6,7 @@
  *        with the `oidc_id_token` grant type, and seals the resulting Orbit
  *        tokens into an HttpOnly iron-session cookie.
  *
- *        `tenant_id` is resolved upstream via Home Realm Discovery (ADR-0031)
+ *        `tenant_id` is resolved upstream via Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md)
  *        and threaded through the PKCE state param to the callback page.
  *
  *        Request:  { id_token: string; tenant_id: string }
@@ -164,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // tenant_id is required — resolved via email-based Home Realm Discovery
-  // (ADR-0031) and threaded through the PKCE state param by the callback page.
+  // (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) and threaded through the PKCE state param by the callback page.
   const tenantId = raw.tenant_id;
   if (typeof tenantId !== 'string' || !tenantId) {
     return Response.json(

@@ -28,7 +28,7 @@ export type APIDialect = 'openai' | 'anthropic' | 'responses';
  * Endpoint family a model belongs to.
  * Mirrors Go: inferencegw.ModelCapability
  *
- * Three-layer taxonomy (matches ADR-0026 / ADR-0027):
+ * Three-layer taxonomy (matches docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md / docs/adr/2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md):
  *   ModelCapability — what endpoint family?    (chat, embedding, image, …)
  *   APIDialect      — which wire format?       (openai, anthropic) [chat only]
  *   Modality        — what physical I/O types? (text, image, embedding, …)

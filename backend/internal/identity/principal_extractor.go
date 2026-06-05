@@ -14,11 +14,11 @@ import (
 // trusts that header because:
 //  1. The Envoy sidecar performs the mTLS handshake and cryptographic SVID
 //     validation — no re-validation is needed in application code.
-//  2. Istio / Cilium (ADR-0015) ensures traffic cannot reach the service without
+//  2. Istio / Cilium (docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) ensures traffic cannot reach the service without
 //     passing through the sidecar, so the header cannot be forged by a caller.
 //
 // Agents make plain HTTP calls — they never handle SVID material directly
-// (ADR-0010, ADR-0011).
+// (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, docs/adr/2026-03-05-universal-gateway-policy-enforcement.md).
 //
 // In local development there is no Envoy sidecar, but there is also no threat
 // model — callers simply set the x-forwarded-client-cert header directly (e.g.
@@ -32,7 +32,7 @@ type PrincipalExtractor interface {
 // (XFCC) header and parses the SPIFFE URI out of it. This is the only
 // implementation — it is used in production, local development, and tests alike.
 //
-// Example header written by Envoy for an Orbit agent workload (ADR-0010):
+// Example header written by Envoy for an Orbit agent workload (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md):
 //
 //	x-forwarded-client-cert: By=spiffe://orbit.test/system/envoy-proxy;Hash=…;URI=spiffe://orbit.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot
 //
@@ -82,14 +82,14 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 
 // principalFromSpiffeID constructs a Principal from a SPIFFE URI.
 //
-// Supported SPIFFE ID formats per ADR-0010:
+// Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md:
 //
 //	Agent:   spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
 //	Service: spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
 //	System:  spiffe://orbit.{instance-id}/system/{component-name}
 //
 // The full URI is stored as the principal ID and in Claims["spiffe_id"] so
-// that policy rules can match on it directly (ADR-0010).
+// that policy rules can match on it directly (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md).
 func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	if !strings.HasPrefix(spiffeID, "spiffe://") {
 		return nil, fmt.Errorf("not a SPIFFE URI: %q", spiffeID)
@@ -105,7 +105,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	trustDomain := withoutScheme[:slashIdx]
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
-	// Parse tenant and principal type/ID from ADR-0010 path structure:
+	// Parse tenant and principal type/ID from docs/adr/2026-03-05-spiffe-spire-workload-attestation.md path structure:
 	// /tenant/{tenant-id}/agent/{agent-id}
 	// /tenant/{tenant-id}/service/{service-id}
 	// /system/{component-name}

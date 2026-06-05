@@ -1,6 +1,8 @@
-# [Number]. [Title]
+# [Title]
 
-**Status:** [Proposed | Accepted | Deprecated | Superseded by [ADR-XXXX](XXXX-title.md)]
+<!-- Filename: YYYY-MM-DD-kebab-title.md  (decision date + slug; no sequential number) -->
+
+**Status:** [Proposed | Accepted | Deprecated | Superseded by [decision-slug](YYYY-MM-DD-decision-slug.md)]
 **Date:** YYYY-MM-DD
 **Deciders:** [List of people involved in the decision]
 **Technical Story:** [Optional: Link to issue/PR or description of the feature/problem]
@@ -150,8 +152,8 @@
 ## Related Decisions
 
 [Links to related ADRs]
-- [ADR-XXXX](XXXX-title.md) - Related decision
-- [ADR-YYYY](YYYY-title.md) - Supersedes/Superseded by
+- [related-decision-slug](YYYY-MM-DD-related-decision-slug.md) - Related decision
+- [other-decision-slug](YYYY-MM-DD-other-decision-slug.md) - Supersedes/Superseded by
 
 ---
 

@@ -1,6 +1,6 @@
 # Orbit Terra Design System — Product Requirements Document
 
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2025-07-11
 **Last Updated:** 2025-07-11
 **Owner:** Frontend
@@ -421,7 +421,7 @@ Orbit's visual identity should feel like infrastructure — not a consumer app. 
 ### Related Documents
 
 - [ADR to be created](../adr/) — Architecture decision for package structure, Storybook setup, token conventions, and Tailwind cross-package config
-- [model-gateway PRD](./model-gateway.md) — Example of a feature PRD; design system must support the UI this feature will require
+- [model-gateway PRD](../archive/prd-model-gateway.md) (retired — superseded by [Inference Gateway PRD](inference-gateway.md)) — Example of a feature PRD; design system must support the UI this feature will require
 
 ### References
 

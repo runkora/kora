@@ -30,7 +30,7 @@ import (
 //     identity service without a pod restart.
 //  4. Marks the tenant Ready and records the last-reconciled timestamp.
 //
-// See docs/adr/0028-orbit-kubernetes-operator.md for the design.
+// See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
 type TenantReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
@@ -210,7 +210,7 @@ func (r *TenantReconciler) secretToTenants(ctx context.Context, obj client.Objec
 // ensureNamespace creates the tenant namespace if it does not exist, or patches
 // it if required labels are missing. Namespace creation is done via client-go
 // CreateOrUpdate so Helm never owns the namespace (avoiding the ownership
-// conflict described in ADR-0028).
+// conflict described in docs/adr/2026-03-31-orbit-kubernetes-operator.md).
 func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
 
@@ -324,7 +324,7 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTen
 	// OPA bundle polling interval is configurable via operator config. After a
 	// grant write, enforcement is stale for up to max_delay_seconds until the
 	// next bundle poll picks up the change. Emergency revocation uses the JTI
-	// blocklist (ADR-0008), not bundle propagation.
+	// blocklist (docs/adr/2026-03-05-unified-identity-model.md), not bundle propagation.
 	minDelay := r.BundlePollingMinDelay
 	if minDelay == 0 {
 		minDelay = 30

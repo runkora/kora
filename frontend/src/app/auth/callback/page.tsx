@@ -5,7 +5,7 @@
  * OIDC client. It runs entirely in the browser:
  *
  *   1. Reads the tenant OIDC config written to sessionStorage by the login page
- *      immediately before `signinRedirect()` (ADR-0031 sessionStorage handoff).
+ *      immediately before `signinRedirect()` (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md sessionStorage handoff).
  *
  *   2. Calls `signinRedirectCallback()` on a reconstructed UserManager, which:
  *      - Reads `code` and `state` from the URL search params

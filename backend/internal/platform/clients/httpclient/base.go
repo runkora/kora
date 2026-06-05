@@ -300,7 +300,7 @@ func (b *Base) Do(
 		// RecordError captures the full error event (message + stack trace if
 		// available). SetStatus uses a static description so raw network error
 		// strings — which may contain internal hostnames or addresses — are
-		// kept out of span string fields (see ADR-0007).
+		// kept out of span string fields (see docs/adr/2026-03-03-database-infrastructure-layer.md).
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "transport failure")
 		return ctx, span, nil, err

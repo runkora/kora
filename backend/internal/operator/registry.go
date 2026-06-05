@@ -13,7 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// registryFile is the in-memory representation of the ADR-0026 tenant registry
+// registryFile is the in-memory representation of the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry
 // YAML written to the orbit-tenants ConfigMap. Marshaled via sigs.k8s.io/yaml
 // so the output is consistent with how the identity service parses it.
 type registryFile struct {
@@ -37,7 +37,7 @@ type registryOIDC struct {
 
 const (
 	// tenantsConfigMapName is the ConfigMap read by the identity service to
-	// discover tenant OIDC providers. See ADR-0026.
+	// discover tenant OIDC providers. See docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md.
 	tenantsConfigMapName = "orbit-tenants"
 
 	// tenantsConfigMapKey is the key within the ConfigMap that holds the YAML.
@@ -48,7 +48,7 @@ const (
 )
 
 // TenantRegistry manages the orbit-tenants ConfigMap. It translates the set of
-// active OrbitTenant CRs into the ADR-0026 tenant registry YAML format that
+// active OrbitTenant CRs into the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML format that
 // the identity service reads at startup and watches for changes via a file watcher.
 //
 // Registry operations are idempotent — calling Sync multiple times with the
@@ -116,7 +116,7 @@ func (r *TenantRegistry) listActiveTenants(ctx context.Context) ([]OrbitTenant, 
 	return active, nil
 }
 
-// buildRegistryYAML produces the ADR-0026 tenant registry YAML that the
+// buildRegistryYAML produces the docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md tenant registry YAML that the
 // identity service parses. The format must remain stable — the identity
 // service owns the schema; the operator only writes it.
 //

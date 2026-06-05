@@ -1,6 +1,6 @@
 // Package identity provides a typed HTTP client for the Orbit identity service.
 //
-// This is the platform-layer client that satisfies the ADR-0020 mandate for
+// This is the platform-layer client that satisfies the docs/adr/2026-03-19-multi-service-backend-deployment-structure.md mandate for
 // service-to-service HTTP calls. Any Orbit service or sidecar that needs to
 // call the identity service must use this client rather than constructing a raw
 // http.Client inline.
@@ -10,7 +10,7 @@
 // service HTTP wire format. They are NOT imported from internal/identity —
 // that would couple this client to the identity service's internal domain types.
 // If the identity service refactors its internal structs but keeps the JSON
-// output identical, this client is unaffected. See ADR-0020 §Wire type ownership.
+// output identical, this client is unaffected. See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md §Wire type ownership.
 package identity
 
 import (
@@ -66,7 +66,7 @@ type exchangeResponse struct {
 // "spire" injection template). The identity service's Envoy terminates mTLS and
 // injects the x-forwarded-client-cert (XFCC) header from the validated peer
 // cert, which the identity service reads to establish the caller's principal
-// (ADR-0010, ADR-0011, ADR-0015, ADR-0021).
+// (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, docs/adr/2026-03-05-universal-gateway-policy-enforcement.md, docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md, docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
 //
 // We do NOT perform manual mTLS here — doing so would produce a double-TLS
 // situation where Envoy sees an opaque TCP stream and never injects XFCC.

@@ -224,7 +224,7 @@ func inferAzureModalities(id string) (input, output []inferencegw.Modality) {
 }
 
 // inferAzureCapabilities returns the endpoint families supported for an Azure model.
-// Rules follow ADR-0026: output modality drives capability, with text → chat,
+// Rules follow docs/adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md: output modality drives capability, with text → chat,
 // embedding → embedding, image → image_generation. Audio speech models (whisper/tts)
 // that output text are treated as chat-capable since they use the completions path.
 func inferAzureCapabilities(id string, outputMods []inferencegw.Modality) []inferencegw.ModelCapability {

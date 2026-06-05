@@ -10,7 +10,7 @@ import (
 
 // eventRepository writes durable Orbit events to the run_events table.
 // Only message_complete, tool_use, and tool_result are written here — ephemeral
-// streaming events (text_delta, thinking_delta, message_stop) are push-only (ADR-0054).
+// streaming events (text_delta, thinking_delta, message_stop) are push-only (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 type eventRepository struct {
 	pool *pgxpool.Pool
 }

@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright E2E configuration.
  *
- * Category A constraint (ADR-0030): E2E tests in frontend/e2e/ must NEVER
+ * Category A constraint (docs/adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md): E2E tests in frontend/e2e/ must NEVER
  * require a live Go backend, Postgres, or Redis instance.  All Go API calls
  * are intercepted at the network level using page.route() inside each test.
  *

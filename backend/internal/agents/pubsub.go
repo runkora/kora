@@ -16,7 +16,7 @@ type PushedEvent struct {
 // PubSub is the in-memory fan-out hub for live run events.
 // Session-managers push events here; SSE clients subscribe per run.
 // Ephemeral events (text_delta, thinking_delta) are dropped when no subscriber
-// is present — they are never persisted (ADR-0054).
+// is present — they are never persisted (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 type PubSub struct {
 	mu   sync.RWMutex
 	subs map[string][]chan PushedEvent

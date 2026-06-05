@@ -17,17 +17,17 @@ Each function in the file is one rule. The rule name is the function name. Viola
 
 | Rule | What it bans | ADR |
 |------|-------------|-----|
-| `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())` — dynamic local error string in span status | [ADR-0022] |
-| `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())` — dynamic context error in span status | [ADR-0022] |
-| `spanAttrStringLocalErr` | `attribute.String(_, err.Error())` — raw error string in a span attribute | [ADR-0022] |
+| `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())` — dynamic local error string in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())` — dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanAttrStringLocalErr` | `attribute.String(_, err.Error())` — raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())` — context error string in a span attribute | [ADD-0022] |
-| `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` — raw body decode bypassing `api.DecodeJSON` | [ADR-0005] |
-| `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)` — `%s` formatting that discards the error chain | [ADR-0003] |
-| `noRawHttpClientLiteral` | `http.Client{...}` composite literal outside the httpclient base package | [ADR-0020] |
-| `noHttpErrorInHandler` | `http.Error(w, ...)` — plain-text error response bypassing `api.ErrorResponse` | [ADR-0005] |
-| `noDirectWriteHeader` | `w.WriteHeader(code)` — bare status code bypassing `api.JSON` / `api.ErrorResponse` | [ADR-0005] |
+| `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` — raw body decode bypassing `api.DecodeJSON` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)` — `%s` formatting that discards the error chain | [[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)] |
+| `noRawHttpClientLiteral` | `http.Client{...}` composite literal outside the httpclient base package | [[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)] |
+| `noHttpErrorInHandler` | `http.Error(w, ...)` — plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noDirectWriteHeader` | `w.WriteHeader(code)` — bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 
-### ADR-0022 rules (span telemetry)
+### [opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md) rules (span telemetry)
 
 Span status descriptions and span attributes are indexed by observability backends (Jaeger, Tempo, Datadog). A dynamic `err.Error()` string leaks internal hostnames, connection strings, and upstream messages into those indexes — a security and cardinality problem. The mandatory pattern is:
 
@@ -38,15 +38,15 @@ span.SetStatus(codes.Error, errSentinel.Error())   // static sentinel string onl
 
 The rules target the literal identifier `err` and the `ctx.Err()` chain, which covers all realistic violations without false-positives against correctly named package-level sentinels.
 
-### ADR-0005 rules (HTTP handler discipline)
+### [controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md) rules (HTTP handler discipline)
 
 `api.DecodeJSON`, `api.ErrorResponse`, and `api.JSON` each do three things in one call: write the standard `{code, message, details}` JSON envelope, record the outcome on the active OTel span, and emit a structured log line. Using raw stdlib equivalents silently drops all three signals.
 
-### ADR-0003 rule (error wrapping)
+### [repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md) rule (error wrapping)
 
 `%s` in `fmt.Errorf` discards the error chain. `errors.Is` and `errors.As` become useless against the resulting error. Always use `%w`.
 
-### ADR-0020 rule (service-to-service HTTP)
+### [multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md) rule (service-to-service HTTP)
 
 `httpclient.Base` is the sole legitimate owner of `*http.Client`. It injects W3C `traceparent`/`tracestate` headers, opens a `SpanKindClient` OTel span, and logs transport outcomes. A raw `http.Client{}` literal bypasses all of this.
 
@@ -66,12 +66,12 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 
 | Rule name | Banned package(s) | Allowed in | ADR |
 |-----------|------------------|------------|-----|
-| `no-stdlib-log` | `log`, `log/slog` | `cmd/` only | [ADR-0004] |
-| `no-otel-span-mgmt-in-service-clients` | `go.opentelemetry.io/otel/codes`, `.../otel/trace` | `httpclient/base.go` only | [ADR-0022] |
-| `no-database-sql` | `database/sql` | `platform/storage/` only | [ADR-0007] |
-| `no-raw-viper` | `github.com/spf13/viper` | `platform/config/` only | [ADR-0006] |
-| `no-raw-yaml` | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3` | `platform/config/` only | [ADR-0006] |
-| `no-third-party-routers` | `gin`, `chi`, `echo`, `gorilla/mux` | nowhere | [ADR-0005] |
+| `no-stdlib-log` | `log`, `log/slog` | `cmd/` only | [[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)] |
+| `no-otel-span-mgmt-in-service-clients` | `go.opentelemetry.io/otel/codes`, `.../otel/trace` | `httpclient/base.go` only | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `no-database-sql` | `database/sql` | `platform/storage/` only | [[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)] |
+| `no-raw-viper` | `github.com/spf13/viper` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
+| `no-raw-yaml` | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
+| `no-third-party-routers` | `gin`, `chi`, `echo`, `gorilla/mux` | nowhere | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 
 ### Why depguard instead of ruleguard for these?
 
@@ -87,15 +87,15 @@ Stdlib `log` and `log/slog` produce unstructured output and have no access to th
 
 ### `no-database-sql`
 
-ADR-0007 mandates `pgx/v5` as the sole database driver. `database/sql` loses `pgx`-specific types (`pgtype.UUID`, `pgtype.Timestamptz`, JSONB arrays), bypasses `pgxpool` connection pooling, and cannot use `pgx` pipeline mode. Feature packages receive a `*storage.DB` (which wraps `pgxpool.Pool`) injected at startup.
+[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md) mandates `pgx/v5` as the sole database driver. `database/sql` loses `pgx`-specific types (`pgtype.UUID`, `pgtype.Timestamptz`, JSONB arrays), bypasses `pgxpool` connection pooling, and cannot use `pgx` pipeline mode. Feature packages receive a `*storage.DB` (which wraps `pgxpool.Pool`) injected at startup.
 
 ### `no-raw-viper` and `no-raw-yaml`
 
-ADR-0006 requires all YAML loading to go through `config.Load[T]` or `config.MustLoadService[T]`. These loaders enforce a two-layer base/environment YAML merge, `UnmarshalExact` (unknown keys fail fast), and `yaml:"-"` secret field protection. Importing viper or yaml directly bypasses every one of those guarantees.
+[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md) requires all YAML loading to go through `config.Load[T]` or `config.MustLoadService[T]`. These loaders enforce a two-layer base/environment YAML merge, `UnmarshalExact` (unknown keys fail fast), and `yaml:"-"` secret field protection. Importing viper or yaml directly bypasses every one of those guarantees.
 
 ### `no-third-party-routers`
 
-ADR-0005 mandates the internal `api.Mux` / `api.Controller` pattern. Third-party routers are invisible to the platform middleware chain, so requests routed through them are never instrumented with OTel spans or structured logs.
+[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md) mandates the internal `api.Mux` / `api.Controller` pattern. Third-party routers are invisible to the platform middleware chain, so requests routed through them are never instrumented with OTel spans or structured logs.
 
 ---
 
@@ -107,10 +107,10 @@ ADR-0005 mandates the internal `api.Mux` / `api.Controller` pattern. Third-party
 
 Run `make check` to verify the rule compiles, fires correctly, and doesn't produce false positives against the existing codebase.
 
-[ADR-0003]: docs/adr/0003-repository-pattern-and-code-organization.md
-[ADR-0004]: docs/adr/0004-dependency-injected-logging.md
-[ADR-0005]: docs/adr/0005-controller-based-http-routing.md
-[ADR-0006]: docs/adr/0006-yaml-file-based-configuration.md
-[ADR-0007]: docs/adr/0007-database-infrastructure-layer.md
-[ADR-0020]: docs/adr/0020-multi-service-backend-deployment-structure.md
-[ADR-0022]: docs/adr/0022-opentelemetry-observability-discipline.md
+[[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)]: docs/adr/2026-02-17-repository-pattern-and-code-organization.md
+[[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)]: docs/adr/2026-02-17-dependency-injected-logging.md
+[[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)]: docs/adr/2026-02-17-controller-based-http-routing.md
+[[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)]: docs/adr/2026-02-18-yaml-file-based-configuration.md
+[[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)]: docs/adr/2026-03-03-database-infrastructure-layer.md
+[[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)]: docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
+[[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)]: docs/adr/2026-03-21-opentelemetry-observability-discipline.md

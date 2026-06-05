@@ -25,7 +25,7 @@ import (
 //
 //	spire-crds → spire → istio-base → istiod → gateway → orbit-platform → orbit
 //
-// See docs/adr/0028-orbit-kubernetes-operator.md for the design.
+// See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
 type PlatformReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme

@@ -14,7 +14,7 @@
  * IMPORTANT: Do NOT import `server-only` here — Edge Runtime does not run
  * Node.js built-ins. `iron-session` v8 uses the Web Crypto API exclusively.
  *
- * See ADR-0023 §Q3 and the NFR section in docs/prd/browser-auth-flow.md.
+ * See docs/adr/2026-04-01-inference-gateway-architecture.md §Q3 and the NFR section in docs/prd/browser-auth-flow.md.
  */
 import { getIronSession } from 'iron-session';
 import { type NextRequest, NextResponse } from 'next/server';

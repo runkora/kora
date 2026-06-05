@@ -1,92 +1,58 @@
 # Orbit
 
-**The Nervous System for Scalable AI Agents**
+**The agentic engineering platform — from POC to production.**
 
 ---
 
-Agents don't fail because they're unintelligent.  
-They fail because they lack **coordination, identity, and control**.
+Orbit is the control plane for AI agents. It closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production — the gap where most enterprise AI efforts stall.
 
-Orbit provides the signaling, policy, and identity infrastructure required to safely scale autonomous agents inside real systems.
+It is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native. Industry-standard tools, not invented primitives. The problems aren't new — the workloads are.
 
-From a single agent to an intelligent fleet — Orbit keeps them connected, governed, and observable.
+Maintained by [ClearRoute](https://www.clearroute.io).
 
-**Scale intelligence — without losing control.**
+## The three questions
 
----
+Putting an agent into production raises three questions. Orbit answers each one directly.
 
-## The Problem
+### Who is this agent?
+Every agent gets a machine-verifiable identity the moment it deploys — no human managing secrets or provisioning credentials. Humans and agents share one identity model, so a person can delegate work to an agent with defined scope and full accountability, and the agent can never access more than the person who delegated to it.
 
-Agents can think.  
-They can act.  
-They can decide.
+### What can it access?
+Every action is checked against policy before it executes. Admins define exactly what each agent can do, down to the individual tool, and anything outside that list is rejected and logged. Enforcement happens at the edge inside each pod — not by trusting the agent to behave.
 
-But without coordination, they are isolated reflexes.
+### How does it connect?
+Agents never handle credentials. The platform intercepts outbound calls and injects the right credentials just in time, deferring to the upstream system as the authority on what a user can access. A Claude Code or Codex instance drops in without modifying its auth handling.
 
-- Without **identity**, they are unsafe.
-- Without **policy**, they are unpredictable.
-- Without **signaling**, they are blind.
+Every agent action traces back to the human who initiated it and the policy that authorised it. The "how do we know the agent isn't going rogue?" question gets a concrete answer.
 
-Orbit is the nervous system that connects intelligence to action.
+## What Orbit is — and isn't
 
-## What Orbit Does
+Orbit **is** the control plane for agents — the runtime platform underneath production agentic systems.
 
-Orbit ensures that:
-- Every decision is **contextual**
-- Every action is **authorized**
-- Every interaction is **observable**
-- Every agent is **accountable**
+It **is not** an agent framework, a model router, or an LLM wrapper. It does not write your agent for you; it provides the identity, policy, and gateway substrate that lets one run safely in your environment.
 
-Scaling intelligence requires coordination.  
-**Orbit makes coordination possible.**
-
-## The Nervous System Metaphor
-
-Just as a biological nervous system coordinates complex organisms, Orbit coordinates autonomous agents:
-
-| Component | Nervous System Function |
-|-----------|------------------------|
-| **Identity** | Sensory input — who is acting? |
-| **Policy** | Reflex control — what's allowed? |
-| **Token Broker** | Motor function — how action is executed |
-| **Event Spine** | Neural signaling — awareness & feedback |
-| **Autonomy Levels** | Brain stem vs cortex — decision hierarchy |
-| **Observability** | Feedback loop — learning & adjustment |
-
-## What Orbit Is Not
-
-Orbit is **not**:
-- ❌ A framework
-- ❌ A model router
-- ❌ A wrapper around LLM APIs
-
-Orbit **is**:
-- ✅ The control plane for agents
-- ✅ The runtime platform for autonomous systems
-- ✅ Infrastructure for production-grade AI agents
-
-## Core Capabilities
+## Capabilities
 
 ### Identity & Authentication
-Establish verified identity for humans and agents. Provider-agnostic OIDC integration — works with Entra, Okta, Google Workspace, Keycloak, or any standards-compliant provider. Supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for headless CLI authentication. Local development uses [Dex](https://dexidp.io/) — no cloud credentials required.
+Verified identity for humans and agents under a single model. Provider-agnostic OIDC (Entra, Okta, Google Workspace, Keycloak) with the OAuth 2.0 Device Authorization Grant for headless CLIs. Workload identity via SPIFFE SVIDs exchanged for Orbit platform tokens. Personal Access Tokens for programmatic access. Multi-tenant identity registry. Local development uses [Dex](https://dexidp.io/) — no cloud credentials required.
 
 ### Policy Enforcement
-Govern what agents can do **before** they do it. OPA-compatible policy engine with RBAC and PBAC.
+Pre-execution authorization. Open Policy Agent (OPA) for the engine; a PDP/PAP (`policy-service`) owns grants, roles, and the route-scope vocabulary; a PEP (`policy-gateway`) answers `check`/`query`/`explain`/`simulate` for owned services; gateway-level OPA enforces external traffic. Admin dashboard ships in the frontend.
 
-### Credential Brokering
-Securely provide agents with scoped credentials without direct access. Just-in-time provisioning with full audit trails.
+### Inference Gateway
+A unified, OpenAI/Anthropic-compatible interface across providers (AWS Bedrock, Google Vertex, Azure, OpenAI). Model catalog with capability taxonomy and alias/virtual-model routing, an Anthropic zero-translation path, embeddings and Responses endpoints, plus per-request usage logging and analytics.
 
 ### Agent Run Control
-Orchestrate agent lifecycle, manage execution state, coordinate multi-agent workflows.
+Agent type registry, run/session lifecycle, event streaming, BYOC discovery, per-tenant Kubernetes orchestration. `session-manager` runs Claude Code (or your agent of choice) per session in an isolated workspace; the sandbox stack provides Landlock/namespace-isolated command execution.
 
-### Model Gateway
-Route model calls, enforce quotas, track costs, provide fallback and caching.
+### Identity-aware egress
+The `identity-proxy` Envoy `ext_proc` sidecar exchanges each pod's SPIFFE SVID for an Orbit platform token and injects it as a `Bearer` header on outbound calls. Agents never see credentials.
 
-### Tool/MCP Gateway
-Broker tool access with permission enforcement. Full integration with Model Context Protocol (MCP).
+### Observability
+OpenTelemetry traces and metrics across every service, W3C trace propagation through typed platform HTTP clients, log–trace correlation via the injected structured logger.
 
-### Event Spine
-Emit structured events for complete observability and audit trails of all agent decisions and actions.
+### Future
+A general credential broker, a governed MCP/tool gateway, and a platform-wide event spine are designed (ADRs exist) but not yet implemented. See [docs/architecture.md](docs/architecture.md) for the current build status.
 
 ## Use Cases
 
@@ -102,7 +68,9 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ## Development Status
 
-Orbit is in **active early development**. The following are fully implemented: identity layer (OIDC federation, Device Authorization Grant, SPIFFE SVID exchange, session management, JWT issuance and revocation), the Envoy ext_proc token injection sidecar (`cmd/identity-proxy`), service-to-service typed HTTP clients with W3C trace propagation, platform infrastructure (HTTP controller routing, structured logging, OpenTelemetry, PostgreSQL, Redis), and the local development environment. Policy enforcement, agent execution, credential brokering, and the event spine are designed and under active development.
+Orbit is in **active development** and already runs a multi-service control plane (13 binaries). **Built and running:** the identity layer (OIDC federation, Device Authorization Grant, SPIFFE SVID exchange, sessions, PATs, multi-tenant registry); the Envoy ext_proc token-injection sidecar; policy enforcement (OPA-based PDP/PAP + PEP, with an admin dashboard); the inference gateway (multi-provider, OpenAI/Anthropic-compatible, with usage logging and analytics); the agent run control plane (runs, sessions, sandboxing, event streaming); the Kubernetes operator and Helm/GitOps deployment; and the platform foundation (controller routing, DI logging, OpenTelemetry, PostgreSQL, Redis, typed service clients). **Designed but not yet built:** the general credential broker, the governed MCP/tool gateway, and a platform-wide event spine.
+
+See [docs/architecture.md](docs/architecture.md) for the full picture and [docs/adr/README.md](docs/adr/README.md) for the decision history.
 
 ## Getting Started
 
@@ -160,15 +128,16 @@ For a detailed walkthrough see the **[Local Development Guide](docs/guides/local
 - `make migrate-up` — Apply pending migrations
 - `make migrate-down` — Roll back last migration
 - `make migrate-status` — Show applied and pending migrations
-- `make migrate-create name=X` — Generate a new Goose migration file
+- `make migrate-create service=X name=Y` — Generate a new Goose migration file for a service (e.g. `service=identity name=add_sessions_index`)
 
 **Development**
-- `make dev` — Start backend with hot-reload
+- `make dev` — Start the main API (the `identity` service) with hot-reload (`air`)
 - `make auth-device` — Authenticate via Device Authorization Grant
-- `make build` — Build all service binaries (`orbit`, `identity`, `identity-proxy`) to `.bin/`
+- `make build-backend` — Build the Go service binaries to `.bin/`
+- `make frontend-dev` — Start the Next.js frontend (see [frontend/README.md](frontend/README.md))
 
 **Testing & Quality**
-- `make check` — Run `go vet`, `golangci-lint`, `gitleaks`, and tests
+- `make check` — Full quality gate: tidy, fmt, `go vet`, `golangci-lint`, secret scan, backend tests, **and** the frontend checks (lint + type-check + tests). Run from the repo root.
 - `make test` — Run unit tests with coverage
 - `make test-integration` — Run integration tests (requires Tier 2 cluster)
 
@@ -191,4 +160,4 @@ Orbit is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for detai
 
 ---
 
-**Orbit: Scale intelligence — without losing control.**
+**Orbit — the agentic engineering platform.**

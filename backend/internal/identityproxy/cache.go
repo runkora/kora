@@ -1,7 +1,7 @@
 // Package identityproxy implements the ext_proc identity sidecar.
 // It caches a platform JWT, exchanges it via mTLS against the identity service,
 // and injects it as an Authorization header on every outbound request from the
-// agent workload — without any involvement from the agent itself (ADR-0021).
+// agent workload — without any involvement from the agent itself (docs/adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
 package identityproxy
 
 import (

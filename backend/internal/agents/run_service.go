@@ -501,7 +501,7 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 //
 // Internal endpoints are authenticated by the agent's platform JWT, which the
 // identity-proxy ext_proc sidecar injects on every outbound request from the
-// agent pod (ADR-0063). That token alone proves "an agent in this mesh", not
+// agent pod (docs/adr/2026-06-04-orbit-agents-authorization-model.md). That token alone proves "an agent in this mesh", not
 // "the agent that owns this run" — so this method binds the verified identity
 // to the specific run: the caller must be an AGENT principal whose tenant
 // matches the run's tenant and whose agent-type slug matches the run's agent

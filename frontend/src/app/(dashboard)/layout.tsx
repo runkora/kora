@@ -21,7 +21,7 @@ import {
  * structure at h-screen.
  *
  * `PermissionsProvider` fetches the principal's scope set from the BFF session
- * and provides it to all client components via React context (ADR-0037).
+ * and provides it to all client components via React context (docs/adr/2026-04-14-frontend-policy-projection.md).
  */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
