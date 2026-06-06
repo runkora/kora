@@ -25,7 +25,7 @@ No budget enforcement exists. ADR-0039 explicitly deferred quota controls. There
 ### Goals
 
 - Record accurate `estimated_cost_usd` on every inference request for all supported providers, sourced from an automatically-maintained pricing catalog.
-- Decouple pricing from the routing table into a dedicated, provider-keyed catalog with admin override support and full price history.
+- Decouple pricing from the routing table into a dedicated, provider-keyed catalog with four pricing dimensions (input, output, cache read, cache write), admin override support, and effective prices written directly onto inference records for full auditability.
 - Enforce per-principal monthly budget caps via a low-latency check on the inference hot path.
 - Enable quota groups so a single budget policy can be applied to a range of principals, with per-principal overrides where needed.
 
@@ -43,7 +43,7 @@ No budget enforcement exists. ADR-0039 explicitly deferred quota controls. There
 
 * **Hot-path latency** — the budget check runs on every inference request; it must add < 5 ms p99 and must never synchronously block on a database read.
 * **Correctness over complexity** — the pricing catalog must stay current automatically; manual admin updates are not a sustainable approach.
-* **Auditability** — price history must be queryable point-in-time to support retroactive cost analysis and audit.
+* **Auditability** — the effective price used for each request must be queryable without joining to a separate table; self-contained records are simpler and more robust.
 * **Operational simplicity** — Redis is already in the stack; no new infrastructure should be introduced unless it provides a clear advantage.
 * **Separation of concerns** — pricing is a first-class domain concern and must not be coupled to routing configuration.
 * **Scalability of quota management** — a tenant with thousands of principals needs a policy-by-group model, not individual record creation.
@@ -111,10 +111,12 @@ The interface must not leak LiteLLM-specific field names. The minimal contract t
 
 ```go
 type ModelPriceEntry struct {
-    Provider           string
-    ModelID            string
-    InputCostPer1M     float64
-    OutputCostPer1M    float64
+    Provider              string
+    ModelID               string
+    InputCostPer1M        float64
+    OutputCostPer1M       float64
+    CacheReadCostPer1M    float64  // 0 if not provided by source
+    CacheWriteCostPer1M   float64  // 0 if not provided by source
 }
 
 type PricingSource interface {
@@ -122,9 +124,9 @@ type PricingSource interface {
 }
 ```
 
-The LiteLLM implementation maps the JSON fields `litellm_provider`, `input_cost_per_token`, and `output_cost_per_token` to this struct internally. Any replacement source implements the same interface.
+The LiteLLM implementation maps `litellm_provider`, `input_cost_per_token`, `output_cost_per_token`, `cache_read_input_token_cost`, and `cache_creation_input_token_cost` to this struct (converting per-token to per-1M). Any replacement source implements the same interface.
 
-**Sync schedule:** Daily. The sync worker runs on the inference gateway binary. With multiple replicas, each independently fetches and upserts — writes are idempotent (`ON CONFLICT (provider, model_id) DO UPDATE` on synced columns only). This produces redundant syncs but no correctness issues. The snapshot table (see Decision 2) will receive multiple rows if replicas sync near-simultaneously; the ADR accepts this as a known minor noisiness in the history table. A distributed lock is not added at this time — the cost of the coordination infrastructure is not justified by the benefit. If snapshot duplication becomes a problem, a `UNIQUE` constraint on `(provider, model_id, date_trunc('hour', recorded_at))` can be added to deduplicate at the DB layer.
+**Sync schedule:** Daily. The sync worker runs on the inference gateway binary. With multiple replicas, each independently fetches and upserts — writes are idempotent (`ON CONFLICT (provider, model_id) DO UPDATE` on synced columns only). This produces redundant syncs but no correctness issues. A distributed lock is not added at this time — the cost of the coordination infrastructure is not justified by the benefit.
 
 ---
 
@@ -148,67 +150,76 @@ Add a `price_admin_override` flag column and a sync worker that writes to `virtu
 
 #### Option B: Dedicated `model_pricing` table with override columns (Chosen)
 
-A new table keyed by `(provider, model_id)` with separate synced columns and nullable override columns. The sync worker writes only to synced columns. Platform admins write only to override columns. The `PricingCache` reads both and applies override-first resolution.
+A new table keyed by `(provider, model_id)` with separate synced columns and nullable override columns across all four pricing dimensions. The sync worker writes only to synced columns. Platform admins write only to override columns. Effective prices are written onto `inference_usage` at request time — each record is a self-contained audit entry.
 
 **Pros:**
 - Single source of truth for a given `(provider, model_id)` — no fan-out.
 - Synced and override values coexist on the same row; override semantics are transparent.
 - Override removal is a NULL set — no separate flag, no footgun.
+- Effective prices on `inference_usage` make every record fully auditable without joining to a separate table.
 - Clean path to per-tenant pricing in future (add `tenant_model_pricing` keyed by `(tenant_id, provider, model_id)`).
-- Snapshot table is a natural append-only companion.
 
 **Cons:**
 - New table; requires migration to remove pricing columns from `virtual_model_routes`.
 
-### Decision 2: Dedicated `model_pricing` table
+### Decision 2: Dedicated `model_pricing` table with effective prices on `inference_usage`
 
 **Chosen Option: Option B**
 
-**Schema:**
+**`model_pricing` schema:**
 
 ```sql
 CREATE TABLE model_pricing (
-    provider                TEXT           NOT NULL,
-    model_id                TEXT           NOT NULL,
-    synced_input_per_1m     NUMERIC(10, 6) NOT NULL DEFAULT 0,
-    synced_output_per_1m    NUMERIC(10, 6) NOT NULL DEFAULT 0,
-    override_input_per_1m   NUMERIC(10, 6),          -- NULL = no override
-    override_output_per_1m  NUMERIC(10, 6),          -- NULL = no override
-    last_synced_at          TIMESTAMPTZ    NOT NULL,
-    created_at              TIMESTAMPTZ    NOT NULL DEFAULT now(),
-    updated_at              TIMESTAMPTZ    NOT NULL DEFAULT now(),
+    provider                         TEXT           NOT NULL,
+    model_id                         TEXT           NOT NULL,
+    -- Synced columns: always written by the sync worker
+    synced_input_cost_per_1m         NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    synced_output_cost_per_1m        NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    synced_cache_read_cost_per_1m    NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    synced_cache_write_cost_per_1m   NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    -- Override columns: set by platform admins; NULL = use synced value
+    override_input_cost_per_1m       NUMERIC(10, 6),
+    override_output_cost_per_1m      NUMERIC(10, 6),
+    override_cache_read_cost_per_1m  NUMERIC(10, 6),
+    override_cache_write_cost_per_1m NUMERIC(10, 6),
+    last_synced_at                   TIMESTAMPTZ    NOT NULL,
+    created_at                       TIMESTAMPTZ    NOT NULL DEFAULT now(),
+    updated_at                       TIMESTAMPTZ    NOT NULL DEFAULT now(),
     PRIMARY KEY (provider, model_id)
 );
-
-CREATE TABLE model_pricing_snapshots (
-    id          TEXT        PRIMARY KEY,
-    provider    TEXT        NOT NULL,
-    model_id    TEXT        NOT NULL,
-    source      TEXT        NOT NULL CHECK (source IN ('sync', 'override')),
-    input_per_1m  NUMERIC(10, 6) NOT NULL,
-    output_per_1m NUMERIC(10, 6) NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX ON model_pricing_snapshots (provider, model_id, recorded_at DESC);
 ```
+
+**`inference_usage` additions:**
+
+```sql
+ALTER TABLE inference_usage
+    ADD COLUMN price_unknown                  BOOLEAN        NOT NULL DEFAULT false,
+    ADD COLUMN effective_input_cost_per_1m    NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN effective_output_cost_per_1m   NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN effective_cache_read_cost_per_1m  NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    ADD COLUMN effective_cache_write_cost_per_1m NUMERIC(10, 6) NOT NULL DEFAULT 0;
+```
+
+The four effective columns record the prices actually used to compute `estimated_cost_usd` for that request. When `price_unknown = true` all four are 0. This makes every record a complete, self-contained audit entry — no join to `model_pricing` is required to reconstruct what was charged.
 
 **Price resolution at request time:**
 
 ```
-effective_input  = COALESCE(override_input_per_1m,  synced_input_per_1m)
-effective_output = COALESCE(override_output_per_1m, synced_output_per_1m)
+effective_input_cost_per_1m      = COALESCE(override_input_cost_per_1m,      synced_input_cost_per_1m)
+effective_output_cost_per_1m     = COALESCE(override_output_cost_per_1m,     synced_output_cost_per_1m)
+effective_cache_read_cost_per_1m = COALESCE(override_cache_read_cost_per_1m, synced_cache_read_cost_per_1m)
+effective_cache_write_cost_per_1m = COALESCE(override_cache_write_cost_per_1m, synced_cache_write_cost_per_1m)
 ```
 
-If both synced columns are 0 and both override columns are NULL, the price is unknown: `estimated_cost_usd = 0`, `price_unknown = true`.
+If all synced columns are 0 and all override columns are NULL: `price_unknown = true`, `estimated_cost_usd = 0`.
 
-**Snapshot writes:**
-- Sync run: one row per model with `source = 'sync'`, recording synced prices.
-- Override set/clear: one row with `source = 'override'`, recording the resulting effective price at the time of the change.
+**Cache pricing fallback:** When a model's LiteLLM entry has no explicit cache pricing (common for non-Anthropic models), `synced_cache_read_cost_per_1m` and `synced_cache_write_cost_per_1m` are stored as 0. The `EstimatedCostUSD` method in the codebase already applies industry-standard fallbacks at compute time (cache read = 10% of input, cache write = 125% of input) when these are 0. This is a computation convenience, not a stored price — the stored value remains 0, and `price_unknown` is not set because input and output prices are known.
 
-**Migration:** The `input_cost_per_1m` and `output_cost_per_1m` columns are dropped from `virtual_model_routes` once `model_pricing` is populated and all read paths have been updated. The `PricingCache` is updated to load from `model_pricing` rather than `virtual_model_routes`. This is a Phase 1 milestone.
+**`price_unknown` flag:** Distinguishes a genuinely $0.00 model from a model with no price data. Supports the P2 "unknown pricing" report. `estimated_cost_usd = 0` alone is ambiguous.
 
-**`price_unknown` flag:** A `price_unknown BOOLEAN NOT NULL DEFAULT false` column is added to `inference_usage`. This distinguishes a genuinely `$0.00` model from a model with no price data, and supports the P2 "unknown pricing" report cleanly. `estimated_cost_usd = 0` alone is ambiguous.
+**No separate snapshot table:** Effective prices are written to `inference_usage` at request time. Price history for the Provider Catalog overlay is derived by querying distinct effective price values from `inference_usage` over time for a given `(provider, model_id)`. This only shows models that have had actual traffic — models with no usage do not appear. This is intentional: a price history with no usage data has no operational value.
+
+**Migration:** The `input_cost_per_1m` and `output_cost_per_1m` columns are dropped from `virtual_model_routes` once `model_pricing` is populated and all read paths updated. The `ModelPricing` Go struct is updated to rename `CacheCreationCostPerMillion` → `CacheWriteCostPerMillion` for consistency with the DB naming convention.
 
 ---
 
@@ -414,9 +425,10 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 
 ### Positive
 
-- `estimated_cost_usd` becomes meaningful for all models in the LiteLLM catalog — covering Bedrock, Vertex AI, Azure OpenAI, Anthropic, and OpenAI.
+- `estimated_cost_usd` becomes meaningful for all models in the LiteLLM catalog — covering Bedrock, Vertex AI, Azure OpenAI, Anthropic, and OpenAI across all four pricing dimensions.
 - Pricing is decoupled from routing; the `model_pricing` table is a clean, single source of truth keyed by `(provider, model_id)`.
-- Full price history is queryable point-in-time from `model_pricing_snapshots`.
+- Every `inference_usage` record is a self-contained audit entry — effective prices are written at request time, no join required to reconstruct costs.
+- No separate snapshot table to maintain or write to on every sync and override.
 - Budget enforcement adds < 1 ms to the inference hot path (single Redis GET when quota exists).
 - Quota groups scale budget management to large principal fleets without per-principal configuration.
 - Monthly budget counters cannot race at the midnight boundary — `DATE_TRUNC` aggregation is stateless.
@@ -424,6 +436,7 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 ### Negative
 
 - `virtual_model_routes.input_cost_per_1m` and `output_cost_per_1m` must be migrated away and dropped — a schema migration with a brief dual-write period.
+- `inference_usage` gains five new columns (`price_unknown` + four `effective_*_cost_per_1m`) — a schema migration on a potentially large table.
 - The 5-minute PricingCache TTL means a platform admin price override takes up to 5 minutes to propagate across all gateway replicas.
 - Redis counter drift (bounded to one request's cost) is possible on usage write failures. Self-corrects on rehydration but means the enforced limit may occasionally be off by a small amount.
 - Quota resolution now requires two lookups (individual + group) instead of one. Mitigated by the per-principal quota cache.
@@ -431,7 +444,8 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 ### Neutral
 
 - `NewNopPricingCache()` is removed from production wiring. Tests that depend on it must be updated to use `NewStaticPricingCache(nil)` or a test double.
-- The `price_unknown` column is added to `inference_usage`. Existing records will have `price_unknown = false` — consistent with them having been written with whatever price was available at the time (zero in practice, but not flagged as unknown retroactively).
+- The `ModelPricing` Go struct field `CacheCreationCostPerMillion` is renamed to `CacheWriteCostPerMillion`. Call sites must be updated.
+- The price history chart in the Provider Catalog overlay sources from `inference_usage` rather than a dedicated snapshot table. Models with no usage data do not appear in the chart — this is intentional behaviour, not a gap.
 
 ---
 
@@ -439,15 +453,17 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 
 ### Phase 1: Pricing Data Pipeline
 
-1. Create `model_pricing` and `model_pricing_snapshots` migrations.
-2. Implement `PricingSource` interface and `LiteLLMPricingSource` implementation.
-3. Implement `PricingSyncWorker` — fetches, upserts synced columns, writes snapshot rows.
-4. Implement `DatabasePricingCache` — loads from `model_pricing`, background refresh at 5-minute interval.
-5. Wire `DatabasePricingCache` into `main.go`, replacing `NewNopPricingCache()`.
-6. Add `price_unknown` column to `inference_usage`.
-7. Add platform admin API routes for price override set/clear (`PUT /v1/catalog/pricing/:provider/:model_id/override`, `DELETE /v1/catalog/pricing/:provider/:model_id/override`), registered under `platform:catalog:write`.
-8. Migrate and drop pricing columns from `virtual_model_routes`.
-9. Verify `estimated_cost_usd > 0` on test requests for all supported providers.
+1. Create `model_pricing` migration with eight pricing columns (four synced, four nullable override) using `*_cost_per_1m` naming.
+2. Add `price_unknown` and four `effective_*_cost_per_1m` columns to `inference_usage`.
+3. Update `ModelPricing` Go struct: rename `CacheCreationCostPerMillion` → `CacheWriteCostPerMillion`; add `CacheReadCostPerMillion` and `CacheWriteCostPerMillion` to all serialisation paths.
+4. Implement `PricingSource` interface and `LiteLLMPricingSource` — maps four LiteLLM fields to `ModelPriceEntry`.
+5. Implement `PricingSyncWorker` — fetches, upserts all eight synced columns.
+6. Implement `DatabasePricingCache` — loads from `model_pricing`, background refresh at 5-minute interval. Resolves all four effective prices via COALESCE at load time.
+7. Wire `DatabasePricingCache` into `main.go`, replacing `NewNopPricingCache()`.
+8. Update inference request handlers to write four `effective_*_cost_per_1m` values and `price_unknown` flag onto each `inference_usage` record at write time.
+9. Add platform admin API routes for price override set/clear (`PUT /v1/catalog/pricing/:provider/:model_id/override`, `DELETE /v1/catalog/pricing/:provider/:model_id/override`), registered under `platform:catalog:write`.
+10. Migrate and drop pricing columns from `virtual_model_routes`.
+11. Verify `estimated_cost_usd > 0` on test requests for all supported providers.
 
 ### Phase 2: Budget Enforcement
 
@@ -460,14 +476,14 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 
 ### Phase 3: Frontend
 
-See PRD Phase 3 milestones.
+See PRD Phase 3 milestones. Note: the price history chart in the Provider Catalog detail overlay is an experimental feature and is implemented as a dedicated atomic commit so it can be reverted independently if needed.
 
 ### Migration Path
 
 `virtual_model_routes` pricing column migration:
 
-1. Deploy Phase 1 with `model_pricing` populated.
-2. Verify `PricingCache` is reading from `model_pricing` in all environments.
+1. Deploy Phase 1 with `model_pricing` populated and `DatabasePricingCache` reading from it.
+2. Verify effective prices are being written to `inference_usage` in all environments.
 3. Run migration to drop `input_cost_per_1m` and `output_cost_per_1m` from `virtual_model_routes`.
 
 ---
@@ -513,6 +529,8 @@ See PRD Phase 3 milestones.
 **Why not a shared spending pool for quota groups?** A shared pool requires atomic cross-principal accounting — every request from any group member must decrement a shared counter. This is a distributed coordination problem with no clean Redis primitive. It also creates unpredictable UX: a single high-traffic agent could exhaust the pool for all other members. Per-member individual limits are both simpler to implement and more predictable for operators.
 
 **Why drop `virtual_model_routes` pricing columns rather than leave them?** Leaving them creates an ongoing confusion risk — engineers may write to or read from them not knowing they are superseded. The columns are also populated with stale data that could silently re-emerge if someone wires them back in. A clean drop in Phase 1 is safer than deprecation-in-place.
+
+**Why store effective prices on `inference_usage` rather than a separate snapshot table?** A snapshot table requires writes on every sync run and every override change, adds a join to cost reconstruction, and creates a second source of truth that can diverge from the actual prices used. Writing effective prices directly onto `inference_usage` at request time makes every record self-contained — the prices used to compute `estimated_cost_usd` are stored alongside the token counts, no join required. The price history chart is derived from actual usage records, not synthetic snapshot events, which is more operationally meaningful. Models with no traffic produce no history — which is the correct behaviour, not a gap.
 
 **Why is the budget limit state a server-computed flag rather than a client-side calculation?** The frontend should not contain business logic. If the definition of "limit reached" ever changes — for example, if a grace amount or grace period is introduced — a client-side calculation would require updates in every frontend surface. The backend computes `spend_limit_reached = current_spend_usd >= monthly_budget_usd` and returns it on the quota API. The frontend reads the flag and renders the banner. There is no configurable alert threshold percentage — the limit and the banner are the same concept at the same boundary.
 

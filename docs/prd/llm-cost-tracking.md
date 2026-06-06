@@ -205,16 +205,16 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### Key Components
 
-- **Pricing Sync Worker**: Background process that fetches model prices from LiteLLM's `model_prices_and_context_window.json`, writes the synced price columns on `model_pricing`, and appends a timestamped row to `model_pricing_snapshots`. Never touches override columns. Runs on the inference gateway binary on a daily schedule.
-- **`model_pricing` table**: New global pricing catalog keyed by `(provider, model_id)`. Contains `synced_input_per_1m` and `synced_output_per_1m` (written by sync worker) and nullable `override_input_per_1m` and `override_output_per_1m` (set by platform admins). Decoupled from `virtual_model_routes`.
-- **`model_pricing_snapshots` table**: Append-only history keyed by `(provider, model_id, recorded_at)`. A row is written on each sync run (recording synced prices) and on each override change (recording the new effective price). Enables point-in-time price reconstruction for historical cost audit and retroactive recomputation.
-- **DB-backed PricingCache**: Replaces `NewNopPricingCache()`. Loaded from `model_pricing` at startup, refreshed periodically. Resolves price as: override (if non-null) → synced price → unknown. Read by `service.go` at request dispatch.
+- **Pricing Sync Worker**: Background process that fetches model prices from LiteLLM's `model_prices_and_context_window.json`, writes all four synced price columns on `model_pricing`. Never touches override columns. Runs on the inference gateway binary on a daily schedule.
+- **`model_pricing` table**: New global pricing catalog keyed by `(provider, model_id)`. Contains four synced columns (`synced_input_cost_per_1m`, `synced_output_cost_per_1m`, `synced_cache_read_cost_per_1m`, `synced_cache_write_cost_per_1m`) written by the sync worker, and four nullable override columns (same names, `override_` prefix) set by platform admins. Decoupled from `virtual_model_routes`.
+- **DB-backed PricingCache**: Replaces `NewNopPricingCache()`. Loaded from `model_pricing` at startup, refreshed every 5 minutes in the background. Resolves each of the four effective prices via override-first COALESCE. Read by `service.go` at request dispatch.
+- **Effective prices on `inference_usage`**: Four `effective_*_cost_per_1m` columns and a `price_unknown` flag are written onto each `inference_usage` record at request time. Every record is a self-contained audit entry — no join required to reconstruct what was charged.
 - **Quota Store**: A `principal_quotas` table for individual overrides and a `quota_groups` table for named groups, each with `monthly_budget_usd`. A `principal_quota_group_memberships` join table assigns principals to groups. Effective quota resolution: individual quota → group quota → no limit. Redis counter (`quota:{principal_id}:{year_month}`) is the fast read layer; rehydrated from `inference_usage` on miss using `DATE_TRUNC('month', created_at)` aggregation.
 - **Budget Check Middleware / Pre-routing Gate**: A step in `Service.{ChatCompletion, AnthropicMessages, ...}` that resolves the principal's effective quota (individual → group → none) and rejects the request with HTTP 429 and `error_code = "BUDGET_EXCEEDED"` if the Redis counter meets or exceeds the budget. Recorded with `status = "policy_denied"`.
 - **Quota API**: Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is computed server-side as `current_spend_usd >= monthly_budget_usd`. The frontend uses this flag directly to show or hide the banner — no client-side threshold logic.
 - **Cost Dashboards (Frontend)**: Three surfaces: (1) new `/model-gateway/platform-usage` page for platform operators (cross-tenant aggregate + per-tenant breakdown, default 30-day range); (2) enhancements to the existing `/model-gateway/analytics` page for tenant admins (Principals tab with per-principal spend leaderboard, default 30-day range); (3) enhancements to the existing `/model-gateway/my-usage` page for developers (accurate cost data + budget alert banner).
 - **Budget Management UI**: New `/policy/quotas` page in the Policy section. Principals tab lists all principals with effective quota, current spend, and utilisation progress bar (individual or group quota indicated). Groups tab manages quota group definitions and principal assignments. Individual override set/clear available on the principal detail view.
-- **Provider Catalog pricing enhancements**: The existing Provider Catalog tab gains an **Effective Price** column (override indicator / synced indicator / price-unknown warning), a price history chart in the detail overlay, and a sync status banner on the Catalog page. The detail overlay surfaces read-only sync metadata, a price-over-time chart from `model_pricing_snapshots`, override price inputs with a clear action, and mirrors the enable/disable toggle.
+- **Provider Catalog pricing enhancements**: The existing Provider Catalog tab gains an **Effective Price** column (override indicator / synced indicator / price-unknown warning) and a sync status banner on the Catalog page. The detail overlay surfaces read-only sync metadata, override price inputs with a clear action, and mirrors the enable/disable toggle. A price-over-time chart sourced from `inference_usage` is included as an experimental feature delivered as a dedicated atomic commit — only models with actual usage data appear.
 
 ---
 
@@ -222,11 +222,10 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### In Scope
 
-- Automated daily pricing sync from LiteLLM `model_prices_and_context_window.json` into a dedicated `model_pricing` catalog table, decoupled from `virtual_model_routes`.
-- Timestamped pricing snapshots (`model_pricing_snapshots` table) written on every sync run and on every override change, providing a complete point-in-time price history for historical audit and retroactive cost recomputation.
-- Platform admin price overrides via nullable override columns on `model_pricing`; sync worker never touches overrides; platform admin can clear an override to revert to the synced price.
+- Automated daily pricing sync from LiteLLM `model_prices_and_context_window.json` into a dedicated `model_pricing` catalog table (four pricing dimensions: input, output, cache read, cache write), decoupled from `virtual_model_routes`.
+- Platform admin price overrides via nullable override columns on `model_pricing` for all four dimensions; sync worker never touches overrides; platform admin can clear an override to revert to the synced price.
+- Effective prices (`effective_*_cost_per_1m`) and `price_unknown` flag written onto each `inference_usage` record at request time, providing a self-contained audit trail.
 - Price resolution order at request time: platform admin override → synced catalog price → `$0.00` with `price_unknown` flag.
-- `$0.00` fallback behavior and flagging when price is unknown at write time.
 - Per-principal monthly budget caps with hard-block enforcement (HTTP 429, `BUDGET_EXCEEDED`).
 - Quota groups: named groups with a shared `monthly_budget_usd` applied individually per member principal. Individual overrides take precedence over group quotas.
 - Server-computed `spend_limit_reached` flag on the quota API (`current_spend_usd >= monthly_budget_usd`); shown as a banner on `/model-gateway/my-usage` when true.
@@ -289,12 +288,12 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - [ ] A quota API endpoint returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is computed server-side as `current_spend_usd >= monthly_budget_usd`.
 - [ ] Existing `/model-gateway/my-usage` page displays accurate dollar costs (no `$0.00` placeholders) and shows a budget limit banner when `spend_limit_reached` is true.
 
-- [ ] Provider Catalog tab gains an Effective Price column with synced/override/unknown indicators; model rows are clickable and open a detail overlay with sync metadata, price history chart, override inputs, clear action, and mirrored enable/disable toggle.
+- [ ] Provider Catalog tab gains an Effective Price column with synced/override/unknown indicators; model rows are clickable and open a detail overlay with sync metadata, override inputs (all four dimensions), clear action, and mirrored enable/disable toggle.
 
 **Should Have (P1):**
 - [ ] Budget utilization progress bar on the `/policy/quotas` per-principal view.
 - [ ] Pricing sync status banner on the Catalog page header (last sync time, models updated, error count) with expandable run log.
-- [ ] Price history chart in the Provider Catalog detail overlay, sourced from `model_pricing_snapshots`.
+- [ ] Price history chart in the Provider Catalog detail overlay, sourced from `inference_usage` effective price columns. Only models with actual usage data appear. Delivered as a dedicated atomic commit (experimental — may be reverted independently).
 
 **Nice to Have (P2):**
 - [ ] A "price unknown" report in the admin UI listing models with no pricing data.
@@ -453,11 +452,12 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 **Phase 1: Pricing Data Pipeline** (Target: TBD)
 - Document pricing source and sync architecture in ADR.
 - Introduce `model_pricing` table with synced and nullable override columns.
-- Introduce `model_pricing_snapshots` table for price history.
-- Migrate pricing off `virtual_model_routes`; drop `input_cost_per_1m` and `output_cost_per_1m` columns from `virtual_model_routes` once migration is verified.
-- Implement `PricingSource` interface and LiteLLM sync worker.
+- Introduce `model_pricing` table with four synced and four nullable override columns using `*_cost_per_1m` naming; migrate pricing off `virtual_model_routes` and drop the old pricing columns.
+- Add `price_unknown` and four `effective_*_cost_per_1m` columns to `inference_usage`.
+- Rename `CacheCreationCostPerMillion` → `CacheWriteCostPerMillion` in `ModelPricing` Go struct.
+- Implement `PricingSource` interface and LiteLLM sync worker (four pricing dimensions).
 - Replace `NewNopPricingCache()` with the database-backed implementation.
-- Implement platform admin API for price override set/clear.
+- Implement platform admin API for price override set/clear across all four dimensions.
 - Verify `estimated_cost_usd > 0` on test requests for all supported providers.
 
 **Phase 2: Budget Enforcement** (Target: TBD)
@@ -466,16 +466,17 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Wire budget check into inference gateway request path with HTTP 429 rejection.
 - Implement Redis counter with `DATE_TRUNC`-based rehydration from `inference_usage`.
 - Implement `BUDGET_EXCEEDED` rejection with correct status and error code.
-- Implement alert threshold state (fires once per month, cleared on reset).
+- Implement quota API endpoint returning `spend_limit_reached` flag.
 - Admin API for quota group CRUD, principal group assignment, and individual override CRUD.
 
 **Phase 3: Frontend Dashboards** (Target: TBD)
 - New `/model-gateway/platform-usage` page (platform operator: aggregate + per-tenant spend breakdown, by model, provider, time; default 30-day range).
 - Enhance `/model-gateway/analytics` with Principals tab (per-principal spend leaderboard for tenant admins; default 30-day range).
 - New `/policy/quotas` page: Principals tab (effective quota, spend, utilisation progress bar per principal; individual/group source indicated), Groups tab (create/edit/delete quota groups, assign principals, manage overrides).
-- Enhance `/model-gateway/my-usage` with accurate cost data and budget alert banner.
-- Provider Catalog tab: Effective Price column (synced/override/unknown indicators) and clickable row detail overlay (sync metadata, price history chart, override inputs, clear action, mirrored enable/disable toggle).
+- Enhance `/model-gateway/my-usage` with accurate cost data and budget limit banner.
+- Provider Catalog tab: Effective Price column (synced/override/unknown indicators) and clickable row detail overlay (sync metadata, override inputs for all four dimensions, clear action, mirrored enable/disable toggle).
 - Catalog page header: sync status banner (last sync time, models updated, error count, expandable run log).
+- **[Experimental — separate atomic commit]** Price history chart in Provider Catalog detail overlay, sourced from `inference_usage` effective price columns; only models with actual usage data appear.
 
 ### Key Milestones
 
@@ -499,11 +500,11 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### Glossary
 
-- **`estimated_cost_usd`:** The dollar cost of an inference request, computed at write time from token counts and per-model pricing. Stored as `NUMERIC(18,10)` in `inference_usage`.
-- **`model_pricing`:** New global pricing catalog table keyed by `(provider, model_id)`. Contains synced price columns (written by the sync worker) and nullable override columns (set by platform admins). Decoupled from the routing table `virtual_model_routes`.
-- **`model_pricing_snapshots`:** Append-only history table keyed by `(provider, model_id, recorded_at)`. Written on sync runs and on override changes. Enables point-in-time price reconstruction for historical cost audit and retroactive recomputation.
+- **`estimated_cost_usd`:** The dollar cost of an inference request, computed at write time from token counts and per-model pricing across four dimensions (input, output, cache read, cache write). Stored as `NUMERIC(18,10)` in `inference_usage`.
+- **`model_pricing`:** New global pricing catalog table keyed by `(provider, model_id)`. Contains four synced price columns (written by the sync worker) and four nullable override columns (set by platform admins), all using `*_cost_per_1m` naming. Decoupled from the routing table `virtual_model_routes`.
+- **`effective_*_cost_per_1m` columns:** Four columns added to `inference_usage` recording the prices actually used to compute `estimated_cost_usd` for that request. Together with `price_unknown`, they make each record a self-contained audit entry.
 - **`virtual_model_routes`:** Database table mapping a virtual model to ordered provider targets. Pricing columns on this table are superseded by `model_pricing`.
-- **`PricingCache`:** The in-process interface in `internal/inferencegw/pricing.go` that the service layer calls to resolve model prices. Currently wired to a no-op implementation; to be replaced with a DB-backed implementation that resolves override → synced → unknown.
+- **`PricingCache`:** The in-process interface in `internal/inferencegw/pricing.go` that the service layer calls to resolve model prices. Currently wired to a no-op implementation; to be replaced with a DB-backed implementation that resolves override → synced → unknown across all four dimensions.
 - **`PrincipalQuota`:** A per-principal budget override record storing `monthly_budget_usd`. Takes precedence over any group quota. Does not yet exist in the codebase.
 - **`QuotaGroup`:** A named quota policy (e.g. "engineer", "agent") storing `monthly_budget_usd`, scoped to a tenant. Applied individually to each member principal — not a shared spending pool. Does not yet exist in the codebase.
 - **Effective quota:** The quota that applies to a principal at enforcement time, resolved as: individual `PrincipalQuota` (if set) → `QuotaGroup` membership (if assigned) → no limit.
