@@ -1,4 +1,4 @@
-# 61. LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Groups
+# LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Groups
 
 **Status:** Proposed  
 **Date:** 2026-06-05  
@@ -509,11 +509,11 @@ See PRD Phase 3 milestones. Note: the price history chart in the Provider Catalo
 
 ## Related Decisions
 
-- [ADR-0039](0039-virtual-model-catalog-and-platform-routing.md) — Virtual model catalog; pricing columns on `virtual_model_routes` are superseded by this ADR.
-- [ADR-0023](0023-inference-gateway-architecture.md) — Inference gateway architecture and usage write path.
-- [ADR-0040](0040-inference-usage-logs.md) — Inference usage logs; `inference_usage` table is the source of truth for spend aggregation.
-- [ADR-0043](0043-inference-analytics.md) — Analytics endpoints consumed by cost dashboards.
-- [ADR-0035](0035-policy-gateway-and-authorisation-model.md) — Policy model; `platform:quotas:*` and `platform:catalog:write` scopes follow the established vocabulary pattern.
+- [virtual-model-catalog-and-platform-routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) — Virtual model catalog; pricing columns on `virtual_model_routes` are superseded by this ADR.
+- [inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md) — Inference gateway architecture and usage write path.
+- [inference-usage-logs](2026-04-17-inference-usage-logs.md) — Inference usage logs; `inference_usage` table is the source of truth for spend aggregation.
+- [inference-analytics](2026-04-27-inference-analytics.md) — Analytics endpoints consumed by cost dashboards.
+- [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — Policy model; `platform:quotas:*` and `platform:catalog:write` scopes follow the established vocabulary pattern.
 
 ---
 
