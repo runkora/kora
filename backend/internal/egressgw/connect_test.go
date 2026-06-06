@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -17,10 +18,24 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
+	"github.com/clear-route/orbit/internal/egressgw/tlsca"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// fixedCABundle is a one-tenant CABundle for tests.
+type fixedCABundle struct {
+	tenant string
+	ca     *tlsca.IssuingCA
+}
+
+func (f *fixedCABundle) For(tenant string) (IssuingCA, error) {
+	if tenant != f.tenant {
+		return nil, fmt.Errorf("no CA for tenant %q", tenant)
+	}
+	return f.ca, nil
+}
 
 // TestConnect_EndToEnd is the load-bearing Phase 2b test: a real http.Client
 // configured to use the gateway as an HTTPS proxy hits an upstream over a
@@ -109,7 +124,11 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// Wrap proxyInner with claims-injection so the broker sees a verified caller.
 	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyInner)
 
-	connect := NewConnectHandler(ca, innerWithAuth, logger)
+	// Wrap the single test CA in a one-tenant bundle so it satisfies
+	// CABundle. In production this comes from cabundle.LoadEager scanning the
+	// per-tenant K8s-secret mount.
+	bundle := &fixedCABundle{tenant: "acme", ca: ca}
+	connect := NewConnectHandler(bundle, innerWithAuth, logger)
 
 	// The gateway's outer HTTP server only handles CONNECT; AuthMiddleware
 	// (simulated by authInjector) runs before the CONNECT handler reads claims

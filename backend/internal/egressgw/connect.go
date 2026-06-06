@@ -20,6 +20,14 @@ type IssuingCA interface {
 	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 }
 
+// CABundle resolves the IssuingCA for a tenant. The egress gateway holds one
+// IssuingCA per tenant it serves; before TLS termination, the CONNECT handler
+// reads the verified caller's tenant from claims and asks the bundle for the
+// right CA to mint a leaf with.
+type CABundle interface {
+	For(tenant string) (IssuingCA, error)
+}
+
 // ConnectHandler is the gateway's HTTP handler for CONNECT-method requests
 // from sandbox-resident tools configured with HTTPS_PROXY=<gateway>.
 //
@@ -47,17 +55,17 @@ type IssuingCA interface {
 // will dial a fresh CONNECT for the next request, which is the standard
 // behavior for HTTPS_PROXY clients anyway.
 type ConnectHandler struct {
-	ca     IssuingCA
+	bundle CABundle
 	inner  http.Handler
 	logger logging.Logger
 }
 
-// NewConnectHandler constructs a ConnectHandler. ca mints leaves for the SNI
-// the tool sends; inner is invoked with the parsed *http.Request after TLS
-// termination — pass the gateway's ProxyHandler so the established Phase 2a
-// pipeline runs unchanged.
-func NewConnectHandler(ca IssuingCA, inner http.Handler, logger logging.Logger) *ConnectHandler {
-	return &ConnectHandler{ca: ca, inner: inner, logger: logger}
+// NewConnectHandler constructs a ConnectHandler. bundle resolves the per-tenant
+// IssuingCA from the verified caller's claims; inner is invoked with the parsed
+// *http.Request after TLS termination — pass the gateway's ProxyHandler so the
+// established Phase 2a pipeline runs unchanged.
+func NewConnectHandler(bundle CABundle, inner http.Handler, logger logging.Logger) *ConnectHandler {
+	return &ConnectHandler{bundle: bundle, inner: inner, logger: logger}
 }
 
 // ServeHTTP handles one CONNECT request. Non-CONNECT methods are rejected; the
@@ -83,6 +91,28 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the per-tenant CA before hijack so we fail cleanly with an HTTP
+	// error if the bundle has no CA for this tenant. After hijack, errors can
+	// only be surfaced as a closed connection.
+	tenantID := claims.Orbit.TenantID
+	if tenantID == "" {
+		platformapi.ErrorResponse(ctx, w, h.logger,
+			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "platform token missing tenant", nil),
+			ErrUnauthenticated)
+		return
+	}
+	ca, err := h.bundle.For(tenantID)
+	if err != nil {
+		h.logger.Error(ctx, "no issuing CA for tenant",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		platformapi.ErrorResponse(ctx, w, h.logger,
+			platformapi.InternalError(platformapi.ErrCodeInternalError, "tenant CA unavailable", nil),
+			err)
+		return
+	}
+
 	// Hijack the TCP conn so we can run TLS on it directly.
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -99,12 +129,12 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = clientConn.Close() }()
 
 	// Tell the tool the tunnel is established. Standard HTTP/1.1 form.
-	if _, err := bufrw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
-		h.logger.Warn(ctx, "write CONNECT 200 failed", logging.Field{Key: "error", Value: err.Error()})
+	if _, writeErr := bufrw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); writeErr != nil {
+		h.logger.Warn(ctx, "write CONNECT 200 failed", logging.Field{Key: "error", Value: writeErr.Error()})
 		return
 	}
-	if err := bufrw.Flush(); err != nil {
-		h.logger.Warn(ctx, "flush CONNECT 200 failed", logging.Field{Key: "error", Value: err.Error()})
+	if flushErr := bufrw.Flush(); flushErr != nil {
+		h.logger.Warn(ctx, "flush CONNECT 200 failed", logging.Field{Key: "error", Value: flushErr.Error()})
 		return
 	}
 
@@ -126,7 +156,7 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				CipherSuites:      hello.CipherSuites,
 			}
 		}
-		return h.ca.GetCertificate(hello)
+		return ca.GetCertificate(hello)
 	}
 
 	tlsConn := tls.Server(clientConn, &tls.Config{
@@ -135,10 +165,10 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	defer func() { _ = tlsConn.Close() }()
 
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
+	if hsErr := tlsConn.HandshakeContext(ctx); hsErr != nil {
 		h.logger.Warn(ctx, "tls handshake with client failed",
 			logging.Field{Key: "host", Value: host},
-			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "error", Value: hsErr.Error()},
 		)
 		return
 	}
@@ -176,26 +206,29 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // connectResponseWriter is the http.ResponseWriter implementation we use to
 // write the inner request's response back to the tool over the tunneled TLS
-// connection. It buffers headers until the first Write or finish(), so the
-// inner handler can call WriteHeader followed by streaming Write calls and we
-// emit a well-formed HTTP/1.1 response.
+// connection.
 //
-// Streaming bodies (chunked or content-length) and trailers are not supported
-// in Phase 2b; this is sufficient for git smart-HTTP, REST, and the proxied
-// upstream traffic the broker handles. A future revision can promote this to
-// chunked transfer when the broker grows server-side streaming.
+// It serializes the response as HTTP/1.1 with Transfer-Encoding: chunked, so
+// large or open-ended upstream responses (git pack-receive, kubectl logs,
+// SSE) flow byte-for-byte to the agent without buffering the full body in
+// memory. Each Write becomes one chunk frame, flushed immediately. finish()
+// writes the terminator frame.
+//
+// connectResponseWriter implements http.Flusher so httputil.ReverseProxy can
+// propagate upstream flushes (the ReverseProxy is wired to flush whenever the
+// upstream itself flushes its body).
 type connectResponseWriter struct {
-	conn        net.Conn
+	bw          *bufio.Writer
 	headers     http.Header
 	wroteHeader bool
 	statusCode  int
-	body        []byte
-	hadWrite    bool
+	headersOut  bool // true once the status line + headers have been emitted
+	finishErr   error
 }
 
 func newConnectResponseWriter(conn net.Conn) *connectResponseWriter {
 	return &connectResponseWriter{
-		conn:       conn,
+		bw:         bufio.NewWriter(conn),
 		headers:    make(http.Header),
 		statusCode: http.StatusOK,
 	}
@@ -211,41 +244,94 @@ func (w *connectResponseWriter) WriteHeader(code int) {
 	w.statusCode = code
 }
 
+// Write emits one chunk frame per call. The first Write also serializes the
+// status line and headers. A zero-length write is a no-op for chunk emission
+// (a 0-length frame is the chunked-encoding terminator and must only appear
+// in finish()).
 func (w *connectResponseWriter) Write(p []byte) (int, error) {
-	w.hadWrite = true
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	w.body = append(w.body, p...)
+	if !w.headersOut {
+		if err := w.emitHeaders(); err != nil {
+			return 0, err
+		}
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if _, err := fmt.Fprintf(w.bw, "%x\r\n", len(p)); err != nil {
+		return 0, err
+	}
+	if _, err := w.bw.Write(p); err != nil {
+		return 0, err
+	}
+	if _, err := w.bw.WriteString("\r\n"); err != nil {
+		return 0, err
+	}
+	if err := w.bw.Flush(); err != nil {
+		return 0, err
+	}
 	return len(p), nil
 }
 
-// finish serializes the buffered response and writes it to the underlying
-// TLS conn as one HTTP/1.1 response with Content-Length and Connection: close.
-func (w *connectResponseWriter) finish() error {
+// Flush implements http.Flusher. It triggers header emission if the inner
+// handler has only set headers (no Write yet); otherwise it is a no-op
+// because every Write already flushes its chunk to the wire.
+func (w *connectResponseWriter) Flush() {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	w.headers.Set("Content-Length", fmt.Sprintf("%d", len(w.body)))
-	w.headers.Set("Connection", "close")
+	if !w.headersOut {
+		// Best-effort — if header emission fails the next Write will see the
+		// error. We can't return an error from http.Flusher.
+		w.finishErr = w.emitHeaders()
+		return
+	}
+	// Subsequent flushes have nothing to push: each Write already wrote and
+	// flushed a complete chunk frame.
+	_ = w.bw.Flush()
+}
 
-	bw := bufio.NewWriter(w.conn)
+// emitHeaders writes the status line and headers to the wire. Called exactly
+// once per response, on the first Write or first Flush.
+func (w *connectResponseWriter) emitHeaders() error {
+	w.headersOut = true
+	w.headers.Set("Transfer-Encoding", "chunked")
+	w.headers.Set("Connection", "close")
+	// Content-Length is incompatible with chunked; strip if the inner handler
+	// set one.
+	w.headers.Del("Content-Length")
+
 	statusText := http.StatusText(w.statusCode)
-	if _, err := fmt.Fprintf(bw, "HTTP/1.1 %d %s\r\n", w.statusCode, statusText); err != nil {
+	if _, err := fmt.Fprintf(w.bw, "HTTP/1.1 %d %s\r\n", w.statusCode, statusText); err != nil {
 		return err
 	}
-	if err := w.headers.Write(bw); err != nil {
+	if err := w.headers.Write(w.bw); err != nil {
 		return err
 	}
-	if _, err := bw.WriteString("\r\n"); err != nil {
+	if _, err := w.bw.WriteString("\r\n"); err != nil {
 		return err
 	}
-	if len(w.body) > 0 {
-		if _, err := bw.Write(w.body); err != nil {
+	return w.bw.Flush()
+}
+
+// finish writes the chunked-encoding terminator and flushes. If the inner
+// handler never wrote anything (and never explicitly called Flush), finish
+// emits the headers first so the response is well-formed.
+func (w *connectResponseWriter) finish() error {
+	if w.finishErr != nil {
+		return w.finishErr
+	}
+	if !w.headersOut {
+		if err := w.emitHeaders(); err != nil {
 			return err
 		}
 	}
-	return bw.Flush()
+	if _, err := w.bw.WriteString("0\r\n\r\n"); err != nil {
+		return err
+	}
+	return w.bw.Flush()
 }
 
 // Hijack is intentionally absent — the inner ProxyHandler must not hijack the

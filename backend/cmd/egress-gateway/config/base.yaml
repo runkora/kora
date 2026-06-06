@@ -1,0 +1,19 @@
+app:
+  version: "0.1.0"
+
+server:
+  httpPort: 8085
+  basePath: "/v1"
+  shutdownTimeoutSecs: 30
+
+policy:
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc:9091"
+
+secrets:
+  tenantCARoot: "/var/run/orbit/tenant-ca"
+  connectionSecretRoot: "/var/run/orbit/connection-secrets"
+
+observability:
+  serviceName: "egress-gateway"

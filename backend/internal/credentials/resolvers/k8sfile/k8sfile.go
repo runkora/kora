@@ -1,0 +1,96 @@
+// Package k8sfile implements credentials.SecretResolver by reading
+// Kubernetes-secret-mounted files under a configured root directory. The
+// gateway projects per-tenant secrets at this root via standard Kubernetes
+// volume mounts; the connection's SecretRef is interpreted as a relative path
+// under that root.
+//
+// Reference shapes accepted by Resolve:
+//
+//	"acme/github/app.pem"               → {root}/acme/github/app.pem
+//	"connections/orbit-prod-github.pem" → {root}/connections/orbit-prod-github.pem
+//
+// Path traversal is rejected: a SecretRef containing ".." or starting with "/"
+// returns an error without touching the filesystem.
+//
+// Hot-reload on rotation is not implemented yet — every Resolve call reads the
+// file fresh, which means rotation is picked up on the next request. That's
+// acceptable for credential minting where each Resolve call is a one-shot
+// secret read.
+package k8sfile
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// ErrInvalidRef is returned when a SecretRef is empty, contains "..", or is
+// absolute. The egress gateway treats this as a programmer/config error
+// (operator misconfigured the connection) — never a runtime credential issue.
+var ErrInvalidRef = errors.New("invalid secret reference")
+
+// Resolver reads secret material under a fixed root directory.
+type Resolver struct {
+	root   string
+	logger logging.Logger
+}
+
+// New constructs a Resolver. root must be an existing directory the gateway
+// has read access to. Returns an error if root is empty or unreadable so
+// startup fails loudly when the secret mount is misconfigured.
+func New(root string, logger logging.Logger) (*Resolver, error) {
+	if root == "" {
+		return nil, fmt.Errorf("k8sfile: root is required")
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		// Tolerate a missing root the same way cabundle does — the operator may
+		// not have mounted the secret yet. Resolve calls will fail individually.
+		if os.IsNotExist(err) {
+			logger.Warn(context.Background(), "connection secret root does not exist — every Resolve will fail until the secret is mounted",
+				logging.Field{Key: "root", Value: root})
+			return &Resolver{root: root, logger: logger}, nil
+		}
+		return nil, fmt.Errorf("stat root %q: %w", root, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("k8sfile: root %q is not a directory", root)
+	}
+	return &Resolver{root: root, logger: logger}, nil
+}
+
+// Resolve reads the secret material identified by ref. ref is interpreted as a
+// relative path under the configured root.
+func (r *Resolver) Resolve(_ context.Context, ref string) ([]byte, error) {
+	if ref == "" {
+		return nil, fmt.Errorf("%w: empty", ErrInvalidRef)
+	}
+	if strings.HasPrefix(ref, "/") {
+		return nil, fmt.Errorf("%w: absolute path %q", ErrInvalidRef, ref)
+	}
+	clean := filepath.Clean(ref)
+	if strings.HasPrefix(clean, "..") || strings.Contains(clean, string(filepath.Separator)+"..") {
+		return nil, fmt.Errorf("%w: path traversal %q", ErrInvalidRef, ref)
+	}
+
+	full := filepath.Join(r.root, clean)
+	// Defense in depth: even after Clean, ensure the resolved path stays under
+	// root. filepath.Join + Clean would already strip "../", but a SecretRef
+	// like "x/../../etc/passwd" could in theory escape on some platforms; the
+	// HasPrefix guard rejects anything that did.
+	rel, err := filepath.Rel(r.root, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return nil, fmt.Errorf("%w: escapes root %q", ErrInvalidRef, ref)
+	}
+
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return nil, fmt.Errorf("read secret %q: %w", ref, err)
+	}
+	return data, nil
+}

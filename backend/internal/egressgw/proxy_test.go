@@ -62,6 +62,12 @@ type memConnRepo struct {
 }
 
 func (m *memConnRepo) Create(_ context.Context, c *credentials.Connection) error {
+	// Mirror the Postgres impl: generate an ID if the caller didn't set one,
+	// so handlers that expect Create to populate c.ID work the same against
+	// the in-memory fixture.
+	if c.ID == "" {
+		c.ID = "conn-" + c.TenantID + "-" + c.Name
+	}
 	m.items[c.TenantID+"|"+c.Name] = c
 	return nil
 }
