@@ -52,6 +52,14 @@ type K8sProvisionerConfig struct {
 	// DestinationRules are created here so Istio applies them to outbound
 	// traffic from orbit-agents pods targeting agent session-managers.
 	SystemNamespace string
+	// EgressGatewayURL is the per-tenant egress gateway agents route outbound
+	// HTTP(S) traffic through (the CONNECT proxy from
+	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md). When
+	// non-empty, it is set as HTTPS_PROXY/HTTP_PROXY on sandbox pods so tools
+	// (git, gh, aws, kubectl, SDKs) tunnel their TLS calls through the broker.
+	// Leave empty in environments where the broker is not yet deployed —
+	// sandboxes will simply have no governed egress.
+	EgressGatewayURL string
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -260,23 +268,46 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// {volumeName}-{statefulSetName}-{ordinal}
 	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
 
+	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
+	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
+	//     tenant NetworkPolicy locking egress to the gateway.
+	//   - orbit.io/run-id, orbit.io/agent-slug: matched by the
+	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
+	//     pod is attested as
+	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
+	//     The principal extractor (internal/identity/principal_extractor.go)
+	//     normalizes this back to the agent principal for authorization
+	//     while lifting run_id into claims for attribution.
+	//
+	// We deliberately NO LONGER set orbit.io/skip-injection: per
+	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
+	// sandbox rejoins the mesh — the operator pod webhook adds the
+	// identity-proxy + opa-policy + spire injection templates, giving the
+	// sandbox the same outbound enforcement chain as the agent StatefulSet
+	// pod. Without injection the credential broker would be unreachable.
 	labels := map[string]string{
-		"orbit.io/role":           "sandbox",
-		"orbit.io/run-id":         run.ID,
-		"orbit.io/skip-injection": "true",
+		"orbit.io/role":       "sandbox",
+		"orbit.io/run-id":     run.ID,
+		"orbit.io/agent-slug": agentTypeSlug,
+	}
+
+	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
+	// outbound traffic on its own (orbit-shell connects directly via plain
+	// TCP); however the sandbox pod ALSO hosts the agent's tooling
+	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
+	// injection is therefore required — see comment on the labels block.
+	annotations := map[string]string{
+		// Exclude the gRPC port from the mesh so orbit-shell still connects
+		// over plain TCP, matching the existing pre-injection behavior.
+		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
 	}
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-			Labels:    labels,
-			Annotations: map[string]string{
-				// No sidecars — sandbox-exec is a pure gRPC server with no outbound
-				// calls. The session-manager's Envoy excludes port 50051 so orbit-shell
-				// connects directly via plain TCP without mTLS.
-				"sidecar.istio.io/inject": "false",
-			},
+			Name:        podName,
+			Namespace:   namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -302,9 +333,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 					Ports: []corev1.ContainerPort{
 						{Name: "grpc", ContainerPort: p.cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
 					},
-					Env: []corev1.EnvVar{
-						{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", p.cfg.SandboxGRPCPort)},
-					},
+					Env: sandboxContainerEnv(p.cfg),
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "workspaces", MountPath: "/workspaces"},
 					},
@@ -423,6 +452,40 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 		return "", fmt.Errorf("pod ready but no IP assigned")
 	}
 	return podIP, nil
+}
+
+// sandboxContainerEnv builds the env block for the sandbox-exec container.
+//
+// SANDBOX_EXEC_PORT is consumed by sandbox-exec itself.
+//
+// HTTPS_PROXY / HTTP_PROXY route the sandbox's outbound HTTP(S) traffic
+// through the per-tenant egress gateway from
+// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md. The gateway
+// terminates the upstream's TLS with a per-tenant-CA-signed leaf, swaps the
+// platform token for a JIT-minted upstream credential, and re-originates real
+// TLS to the upstream. NO_PROXY excludes loopback so in-pod traffic
+// (including the SPIRE workload socket and any locally-listened Istio
+// admin endpoints) bypasses the proxy.
+//
+// When EgressGatewayURL is empty (no broker deployed), no proxy env is set
+// and the sandbox simply has no governed egress — the same end-state as the
+// pre-broker behavior, just with the mesh sidecars present.
+func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
+	}
+	if cfg.EgressGatewayURL != "" {
+		env = append(env,
+			corev1.EnvVar{Name: "HTTPS_PROXY", Value: cfg.EgressGatewayURL},
+			corev1.EnvVar{Name: "HTTP_PROXY", Value: cfg.EgressGatewayURL},
+			corev1.EnvVar{Name: "NO_PROXY", Value: "localhost,127.0.0.1,::1"},
+			// Some tools and runtimes look at the lowercase form.
+			corev1.EnvVar{Name: "https_proxy", Value: cfg.EgressGatewayURL},
+			corev1.EnvVar{Name: "http_proxy", Value: cfg.EgressGatewayURL},
+			corev1.EnvVar{Name: "no_proxy", Value: "localhost,127.0.0.1,::1"},
+		)
+	}
+	return env
 }
 
 // ── Policy grant management ───────────────────────────────────────────────────

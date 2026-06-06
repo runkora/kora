@@ -137,6 +137,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
 		TrustDomain:               cfg.Platform.TrustDomain,
 		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
+		EgressGatewayURL:          cfg.Agents.EgressGatewayURL,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
