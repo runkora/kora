@@ -1,0 +1,341 @@
+# JIT Credential Brokering via a Per-Tenant Egress Gateway
+
+<!-- Filename: 2026-06-06-jit-credential-brokering-egress-gateway.md -->
+
+**Status:** Proposed
+**Date:** 2026-06-06
+**Deciders:** Platform Engineering
+**Technical Story:** How an Orbit agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
+
+---
+
+## Context
+
+Orbit agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
+
+This ADR supersedes [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md). That ADR proposed an **explicit reverse proxy**: agents would rewrite their outbound calls to `/proxy/{service-name}/{path}` and the gateway would forward them with credentials injected. That model does not survive contact with real agents:
+
+- It requires every tool to address an Orbit-specific URL. `git push`, `aws s3 cp`, `gh`, and off-the-shelf SDKs with hard-coded hostnames will not do this. It breaks the platform's core promise that an unmodified Claude Code / Codex instance "drops in without modifying its auth handling."
+- It makes the gateway a faithful reverse proxy for every external API shape (streaming, pagination, git's smart-HTTP pack protocol, websockets) — an unbounded, permanently leaky surface. Its own "credential issuance escape hatch" was the tell: the moment you hit `git`, the exception becomes the rule.
+
+The platform has since built the primitives that make a better design possible: transparent outbound interception and identity injection via the [Envoy ext_proc identity-proxy sidecar](2026-03-21-envoy-ext-proc-sidecar-token-injection.md); policy enforcement on the agent's own egress via an OPA `ext_authz` sidecar (the identity-proxy + OPA pair injected by the operator's pod webhook); the [gateway-level OPA enforcement](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) precedent of *centralizing* enforcement rather than per-pod sprawl; and SPIFFE/SPIRE attestation ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)).
+
+### Background — the current agent-pod enforcement path
+
+A tenant agent pod runs the coupled pair injected by `internal/operator/pod_webhook.go`. On the pod's own `SIDECAR_OUTBOUND` Envoy chain:
+
+```
+ext_proc  → identity-proxy   injects Authorization: Bearer <platform-token> (from SVID exchange)
+ext_authz → OPA sidecar      localhost:9191, path orbit/authz/allow, fail-closed (allow_if_undefined: false)
+router    → out
+```
+
+`identity-proxy` runs first and stamps the platform token; OPA runs second and authorizes using that token against the per-tenant bundle (`route_scopes` keyed on path+method, grants keyed on `principal_id`, `scope_covers` hierarchy). **The sandbox pod is the exception:** it is provisioned with `orbit.io/skip-injection: "true"` and `sidecar.istio.io/inject: "false"` (`internal/agents/k8s.go`), so it has *no* Envoy, *no* identity, *no* policy, and no egress NetworkPolicy. It was built that way on the assumption it makes "no outbound calls" — the assumption this feature invalidates.
+
+### Problem Statement
+
+Define how a sandbox-resident tool makes an external call such that: (1) the real credential never exists in the agent process; (2) the call is authorized before it executes; (3) the call carries a verifiable agent + run identity; (4) the credential is minted just-in-time, narrowly scoped, and short-lived; (5) the tool is unmodified; (6) credentials and trust are isolated per tenant; and (7) the pattern extends to new services as data, not code.
+
+### Goals
+
+- Credentials never present in the agent process (structural, not conventional).
+- Unmodified tools (`git`, `gh`, `aws`, `kubectl`, SDKs) work as-is.
+- Authorization before execution, on the egress path, reusing the existing OPA model.
+- Verifiable per-run identity on every external call, for attribution and audit.
+- Per-tenant isolation of credentials and trust material.
+- Connections are data; a small set of adapters are code.
+
+### Non-Goals
+
+- **Delegated ("act as the human") authority.** v1 agents act under their own identity (e.g. as a GitHub App). The design must be forward-compatible with delegation, which rides the same header channel, but delegation issuance/propagation is out of scope.
+- **Event spine.** Audit records are emitted; the general event subsystem is not built here.
+- **A secrets vault.** Connection secrets use per-tenant Kubernetes Secrets via the existing projection pattern; no new vault.
+- **git over SSH** and non-HTTP protocols. HTTPS is the supported git transport.
+
+---
+
+## Decision Drivers
+
+* **Credential isolation** must be structural — a compromised agent cannot yield a usable external secret.
+* **Tool transparency** — the platform's adoption story depends on unmodified agents.
+* **Reuse over invention** — the identity-proxy, OPA sidecar, SPIRE attestation, and OPA bundle distribution already exist; prefer wiring them to building new transports.
+* **Authorize before mint** — no credential is ever constructed for a call policy would deny.
+* **Per-tenant blast radius** — a compromise must be contained to one tenant.
+* **Forward-compatibility with delegation** — the v1 identity channel must be the one delegation will later travel on.
+
+---
+
+## Considered Options
+
+### Option 1: Explicit reverse proxy at `/proxy/{service}` (the superseded design)
+
+**Description:** Agents address `/proxy/{service}/{path}`; the gateway forwards with credentials injected.
+
+**Pros:** Conceptually simple addressing; one registration per service.
+
+**Cons:** Requires rewriting every tool's outbound URL — unmodified `git`/`aws`/`gh`/SDKs will not comply; turns the gateway into a faithful reverse proxy for every API shape. Rejected for the reasons in Context.
+
+### Option 2: Issue credentials into the agent (env vars / credential helpers)
+
+**Description:** The platform writes short-lived credentials into the sandbox (env, `git` credential helper, etc.); tools use them natively.
+
+**Pros:** Maximum tool compatibility; trivial for `git`.
+
+**Cons:** The credential exists in the agent process — exactly the property we must avoid. Acceptable only as a *narrow* fallback for protocols that cannot be intercepted (see SigV4 below), where the issued credential is itself short-lived and scoped.
+
+### Option 3: Transparent, TLS-terminating, per-tenant egress gateway with JIT minting (chosen)
+
+**Description:** The sandbox rejoins the mesh (reusing identity-proxy + OPA). Its external egress is forced, by NetworkPolicy, through a **per-tenant egress gateway**. Tools call real hostnames unmodified. The gateway terminates TLS (via a per-tenant CA the sandbox trusts), authenticates the caller from the platform token, authorizes the connection via OPA, mints a short-lived credential just-in-time, swaps it onto the outbound leg, re-originates real TLS to the upstream, and audits.
+
+**Pros:** Credentials never enter the agent; tools unmodified; authorize-before-mint on the egress path; per-tenant isolation; reuses identity-proxy/OPA/SPIRE; connections are data.
+
+**Cons:** Per-run sandbox pods now carry the mesh sidecar stack (startup + resources); requires per-tenant CA provisioning and TLS interception; SigV4 needs a side path (Option 2 fallback, bounded).
+
+### Option 4: Full credential machinery per sandbox pod (sidecar mints)
+
+**Description:** Each sandbox pod holds the connection secrets and mints locally.
+
+**Pros:** No central dependency on the egress path.
+
+**Cons:** Smears long-lived secrets and the per-tenant CA key across every ephemeral pod — the worst blast radius. Rejected.
+
+---
+
+## Decision
+
+**Chosen Option:** Option 3 — a transparent, TLS-terminating, per-tenant egress gateway with JIT minting, fed by the existing identity-proxy + OPA sidecars on a sandbox that rejoins the mesh.
+
+The following sub-decisions are part of this ADR:
+
+1. **The sandbox rejoins the mesh.** Drop `skip-injection`/`inject:false` for sandbox pods; they receive the standard `identity-proxy` + `opa-policy` pair. The "no outbound calls" rationale no longer holds. Reusing identity-proxy means **no bespoke egress shim is built**.
+2. **Caller identity is the platform token (a Bearer JWT).** identity-proxy injects it as today. The egress gateway authenticates and authorizes from it. This is chosen over a bespoke mTLS-SVID channel specifically because **delegation will later ride the same header channel** (`X-Orbit-Delegation-Token` / an `act:` claim) with no transport change.
+3. **Per-run sandbox SVID.** The sandbox is attested as `spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>`. The principal extractor normalizes this to the agent principal (`…/agent/<slug>`) for **authorization** (existing agent grants apply unchanged) and lifts `run_id` into claims for **attribution**. This is *authorize-as-agent, attribute-as-run*. Per the PRD, "any human with the scope can run any run of the agent" — authority is at the agent level; the run-id is for audit and forward-compatibility with per-run delegation.
+4. **The egress gateway is per-tenant and holds the minting material.** One per-tenant component holds the tenant CA intermediate signing key (it must, for TLS termination), the connection minting secrets, and the connection registry it serves from. It embeds the in-process `policy.Evaluator` (zero-hop OPA, same per-tenant bundle the sidecars use). There is exactly one place that resolves a secret and mints. A thin, shared **connection-registration control plane** stores connection config + secret references (admin CRUD); it never mints and never handles a live credential in flight.
+5. **Connections are data; adapters are code.** A connection is a tenant-scoped registration naming an adapter, a base host, a secret reference, a scope ceiling, and (for now) the bot authority model. Adapters implement a small interface (below). New SaaS using an existing adapter is a registration, not a code change.
+6. **Secrets via per-tenant Kubernetes Secrets** using the existing [OIDC client-secret projection](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) pattern (mounted + `fsnotify` reload), not a new vault.
+
+### Component & request topology
+
+```
+Sandbox pod (rejoined to mesh)
+  tool (git/gh/aws/kubectl/SDK) → real hostname, no credential
+  └── Envoy SIDECAR_OUTBOUND
+        ext_proc  → identity-proxy   inject Authorization: Bearer <platform-token> (agent principal + run_id)
+        ext_authz → OPA sidecar      authorize connection:<name>:<action> (fail-closed)
+        router    → routed to the per-tenant egress gateway (NetworkPolicy default-deny except this)
+  → Per-Tenant Egress Gateway
+        validate platform token → agent principal + run_id
+        policy.Evaluator → confirm connection grant
+        resolve Connection → select adapter
+        mint JIT credential (cached) / resolve static secret
+        terminate external TLS (per-tenant CA leaf), swap auth, re-originate real TLS to upstream
+        stream response back; emit audit { agent, run_id, connection, method, host, status }
+  → External service (GitHub / AWS / cluster / SaaS)
+```
+
+The platform token identifies the caller on the sandbox→gateway hop and is **stripped at the gateway**; the real credential is injected only on the gateway→upstream leg. The agent never sees the upstream credential; the upstream never sees the Orbit token.
+
+---
+
+## Per-Tool Flows
+
+The gateway deals with each tool through one of **three injection patterns**, selected by the connection's adapter. This is the core of how the outbound gateway handles each tool.
+
+### Pattern A — header-swap with a minted token
+
+For services that accept a Bearer/Basic credential the gateway can mint on demand. The gateway terminates the upstream TLS, removes the Orbit platform token, injects the minted credential, and re-originates TLS.
+
+#### GitHub — `git` over HTTPS, `gh`, REST/GraphQL (GitHub App / bot authority)
+
+1. Sandbox runs `git push` to a **credential-less** remote `https://github.com/org/repo.git`.
+2. Sandbox Envoy: identity-proxy injects the platform token; OPA authorizes `connection:github:repo:write`; routed to the gateway.
+3. Gateway resolves the GitHub connection (App ID + private key, installation ID, repo + permission ceiling), validates the platform token (agent + run_id), confirms the grant.
+4. **Mint:** build an App JWT (RS256, ~10 min, signed with the App private key) → `POST /app/installations/{id}/access_tokens` requesting the granted repos + permissions → receive an **installation token (≤1 h)**, cached by `(connection, repo-set, permissions)`.
+5. **Inject:** strip the platform token; set `Authorization: Basic base64("x-access-token:" + token)` for git smart-HTTP. For `gh`/REST the *same* token is injected as `Authorization: Bearer <token>`.
+6. Re-originate TLS to the real `github.com`, stream the pack/response back, emit the audit record.
+
+The agent never produced a credential; the token lives only in the gateway, ≤1 h, scoped to the granted repos, attributed to the run. **git over SSH is not supported** — SSH remotes are rewritten to HTTPS at sandbox bootstrap.
+
+#### Kubernetes — `kubectl`, client-go
+
+1. The sandbox kubeconfig names the cluster API server (cluster block + CA) with **no/placeholder credential**.
+2. Egress routed to the gateway; OPA authorizes `connection:k8s:<cluster>:<verb-class>`.
+3. Gateway resolves the cluster connection's credential (a ServiceAccount token / client cert Orbit holds), terminates the API-server TLS, injects `Authorization: Bearer <sa-token>`, re-originates to the API server.
+4. Audit. Kubernetes' own RBAC enforces path-level authority on the injected identity.
+
+#### Generic OAuth2 service (client-credentials grant)
+
+1. SDK/`curl` calls the service base URL.
+2. Egress routed; OPA authorizes `connection:<name>:<action>`.
+3. **Mint:** gateway performs the client-credentials grant against the connection's token endpoint (client ID + secret, requested scopes) → access token, cached to expiry.
+4. **Inject:** `Authorization: Bearer <token>`; re-originate to the service. Audit.
+
+### Pattern B — header-swap with a static secret
+
+For services using a long-lived API key. No minting; the gateway resolves the stored secret and injects it.
+
+#### API-key SaaS / Custom HTTP connection
+
+1. Client calls the service base URL.
+2. OPA authorizes `connection:<name>:<action>`.
+3. Gateway resolves the static API key from the per-tenant secret store (never the agent), injects it per the connection's spec (header name or query parameter), re-originates TLS, audits.
+
+The key is static but never leaves the platform; rotation is an admin action on the connection.
+
+### Pattern C — native credential-provider endpoint (request-signing protocols)
+
+Some protocols **sign** the request with the credential rather than carrying it in a swappable header — a TLS-terminating header-swap cannot reconstruct the signature. For these the gateway model is replaced by a native, JIT credential endpoint.
+
+#### Amazon Web Services — `aws` CLI, AWS SDKs (SigV4)
+
+1. The sandbox sets `AWS_CONTAINER_CREDENTIALS_FULL_URI` to a loopback endpoint served by the sandbox-local identity-proxy (extended) — *not* a static key.
+2. On demand, the SDK fetches credentials from that endpoint. The endpoint authorizes `connection:aws:<conn>:use`, calls **STS `AssumeRole`** on the connection's role ARN (with the connection's permissions boundary) → **short-lived STS credentials (≤1 h)**, cached.
+3. The SDK signs locally and calls AWS. Egress is still forced through the gateway for allow-listing and audit (host-level allow/deny + record); the gateway does not re-sign.
+
+This is the one connection type where a credential — short-lived, role-scoped, JIT STS credentials — briefly lives in the sandbox (Option 2, bounded). The **long-lived** secret (Orbit's AWS principal) never leaves the platform. Future GCP support uses the same pattern via the metadata endpoint.
+
+### Summary
+
+| Connection | Tools | Pattern | What the gateway injects |
+|---|---|---|---|
+| GitHub | `git` (HTTPS), `gh`, API | A — minted | App installation token (Basic for git, Bearer for API) |
+| Kubernetes | `kubectl`, SDKs | A — minted | ServiceAccount bearer token |
+| OAuth2 service | SDKs, `curl` | A — minted | client-credentials access token (Bearer) |
+| API-key SaaS / Custom | any HTTPS client | B — static | stored API key (header/query) |
+| AWS | `aws`, SDKs | C — native endpoint | short-lived STS creds via container-credentials endpoint |
+
+---
+
+## Implementation
+
+### Adapter interface
+
+```go
+// CredentialAdapter mints or resolves the credential for one connection.
+// It is selected by the connection registration's adapter type.
+type CredentialAdapter interface {
+    // Resolve returns the credential to apply for this call and how to apply it.
+    // identity carries the agent principal + run_id (and, later, delegation).
+    Resolve(ctx context.Context, conn Connection, identity CallerIdentity) (Credential, error)
+}
+
+// Credential describes how the gateway applies auth on the outbound leg:
+// an injected header (Pattern A/B) or a vended short-lived credential set (Pattern C).
+```
+
+Adapters: `github_app`, `k8s_bearer`, `oauth2_client_credentials`, `api_key`, `aws_sts` (Pattern C). Adding a SaaS that fits an existing adapter is a registration, not code.
+
+### Connection registration (data)
+
+```
+tenant_id        acme
+name             github                      # agent-facing connection name
+adapter          github_app
+base_host        github.com                  # the upstream the gateway terminates + re-originates
+authority        bot                         # v1; "delegated" deferred
+secret_ref       k8s:orbit-conn-acme-github  # reference, never a raw value
+scope_ceiling    [repo:read, repo:write]     # max any grant may reach
+adapter_config   { app_id, installation_id, repos, permissions }
+```
+
+### Policy integration
+
+A new resource type `connection` enters the scope vocabulary: `connection:<name>:<action>` (e.g. `connection:github:repo:write`), hierarchical via the existing `scope_covers` (`connection:github:*` covers `connection:github:repo:write`). Granting an agent a connection creates a grant on the **agent principal** (extending `ensureAgentGrant`). The sandbox OPA sidecar authorizes the egress-to-gateway hop; the gateway re-checks via its embedded `policy.Evaluator` (defense in depth, consistent with [gateway-level-opa](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md)).
+
+### Identity & attestation
+
+- New `orbit-tenant-sandbox` ClusterSPIFFEID templating `spiffe://<td>/tenant/{ns}/agent/{label:orbit.io/agent-slug}/sandbox/{label:orbit.io/run-id}`, selecting `orbit.io/role: sandbox`. The sandbox is labelled `orbit.io/agent-slug` (not `spiffe.io/agent`, to avoid double-matching the existing `orbit-tenant-agent` ID) and already carries `orbit.io/run-id`. Add the SPIRE `csi.spiffe.io` workload-socket volume to the sandbox pod.
+- `internal/identity/principal_extractor.go`: recognize the `…/agent/<slug>/sandbox/<run-id>` form → `Type=AGENT`, **normalize `ID` to `…/agent/<slug>`** for authorization, add `run_id` (and the full SVID) to `Claims`.
+
+### TLS interception & per-tenant CA
+
+- Per-tenant CA: the **root key lives only in the gateway/KMS**; the gateway holds a short-lived **intermediate** and mints per-host **leaf** certs for the upstream it terminates. The sandbox trusts the tenant **root** only (root cert injected at pod start; private key never in the sandbox).
+- The shared sandbox image carries the *mechanism* (trust-store tooling + per-runtime bundle env: `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, etc.); the per-tenant root is mounted at pod creation, keyed on the pod's attested identity. **Each sandbox trusts only its own tenant's root** — never a union — so no cross-tenant interception is possible.
+- The gateway validates the *real* upstream certificate on the re-originated leg; only the agent→gateway hop is inspected, inside the tenant trust boundary.
+
+### Egress lockdown
+
+- New tenant-namespace NetworkPolicy: default-deny egress for `orbit.io/role: sandbox` except to the per-tenant gateway (and DNS). None exists today; this is the chokepoint that makes interception unavoidable.
+- The `:50051` exec channel now sits behind Envoy: lock it to the owning agent pod (mTLS or an Istio exclusion as session-manager already uses), closing the current plain-TCP exec gap.
+
+### Workstreams & sequencing
+
+| # | Workstream | Notes |
+|---|---|---|
+| 1 | Sandbox rejoins mesh + per-run SVID | drop skip-injection; new ClusterSPIFFEID + labels + CSI mount in `k8s.go` |
+| 2 | `principal_extractor` normalize-to-agent + `run_id` | one localized change; feeds the SVID→token exchange |
+| 3 | Per-tenant egress gateway | TLS termination, `policy.Evaluator`, adapters, mint+cache, audit; holds CA intermediate + secrets |
+| 4 | Connection registry control plane | tenant-scoped CRUD + secret references; `connection:*` scope vocabulary + agent grant extension |
+| 5 | Egress lockdown + CA provisioning | tenant NetworkPolicy, per-tenant CA, root-in-sandbox-trust, `:50051` policy |
+
+**Spike (milestone 0):** the GitHub bot-authority slice end to end — sandbox gets its per-run SVID, identity-proxy injects the platform token to the per-tenant gateway, OPA authorizes `connection:github:repo:write`, the gateway mints a GitHub App installation token, terminates `github.com` TLS with the per-tenant CA, swaps the auth, and a real `git push` succeeds — egress locked to the gateway. This proves the one load-bearing assumption (TLS termination + platform-token auth + mint) before the rest is built. Delegation (Non-Goal) is deliberately excluded and rides the same header channel when added.
+
+---
+
+## Consequences
+
+### Positive
+
+- **Structural credential isolation** — the upstream credential exists only in the gateway, short-lived and scoped; the agent process never holds it.
+- **Unmodified tools** — `git`, `gh`, `aws`, `kubectl`, SDKs work as-is; the platform's drop-in promise holds.
+- **Authorize-before-mint** — no credential is constructed for a denied call; enforcement is on the egress path, reusing OPA.
+- **Per-tenant blast radius** — CA key and connection secrets are isolated per tenant in one component.
+- **Reuse over invention** — identity-proxy, OPA, SPIRE, and OPA bundle distribution are reused; no bespoke identity transport.
+- **Open-ended surface** — connections are data; generic adapters (API-key, OAuth2) cover most new SaaS with zero code.
+- **Forward-compatible with delegation** — identity travels the header channel delegation will later use.
+
+### Negative
+
+- **Heavier sandbox pods** — per-run pods now boot Envoy + SPIRE + identity-proxy + OPA; added startup latency and memory per ephemeral run.
+- **TLS interception complexity** — per-tenant CA provisioning, trust-store injection across runtimes, and leaf minting are new operational surface.
+- **The gateway is a per-tenant crown jewel** — it sees plaintext egress and holds the CA key + minting secrets. Mitigated by per-tenant isolation, hardening (no shell, read-only rootfs), short-lived cached tokens, and the fact that the CA key must live there regardless.
+- **SigV4 is a partial exception** — AWS uses short-lived JIT STS creds inside the SDK (Pattern C), not a pure header swap.
+
+### Neutral
+
+- **The sandbox gains a second enforcement point** (its own OPA) in addition to the gateway — defense in depth, consistent with the platform's existing double-enforcement for agent pods.
+- **Agents are aware they call through Orbit** only insofar as egress is governed; the URLs they use are the real ones.
+
+---
+
+## Validation
+
+### Success Metrics
+
+- Memory/-env inspection of a sandbox shows **no upstream credential** present during or after a `git push` (Pattern A/B); for AWS (Pattern C) only short-lived STS creds, never the long-lived secret.
+- **100%** of external calls produce an audit record with agent principal, `run_id`, connection, method, host, and status.
+- Every minted token is **≤ its adapter's max TTL** and scoped to the granted ceiling.
+- An agent without a `connection:*` grant is **denied at OPA before any mint**, and the denial is recorded.
+- Gateway added latency p99 **< 50 ms** for non-streaming calls under normal load.
+
+### Monitoring
+
+- Gateway mint success/failure by connection and adapter; cache hit rate.
+- OPA allow/deny rates on the sandbox `SIDECAR_OUTBOUND` and the gateway.
+- TLS termination errors / trust failures by tenant.
+- Per-tenant gateway availability and egress error rate.
+
+---
+
+## Related Decisions
+
+- [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md) — **Superseded by this ADR.** Replaces the `/proxy/{service}` reverse-proxy model with transparent egress + JIT minting.
+- [envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — the identity-proxy reused for caller identity at the gateway.
+- [gateway-level-opa-enforcement-for-external-traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) — the centralized-enforcement precedent the egress gateway mirrors.
+- [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — the sandbox this ADR re-joins to the mesh.
+- [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) / [dynamic-spiffe-identity-grants](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) — the attestation extended with the per-run sandbox SVID.
+- [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — the grant/scope model extended with `connection:*`.
+- [oidc-client-secret-projection-for-confidential-tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) — the secret projection pattern reused for connection secrets.
+
+## References
+
+- [GitHub Apps — authenticating as an installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation)
+- [AWS — container credentials provider (`AWS_CONTAINER_CREDENTIALS_FULL_URI`)](https://docs.aws.amazon.com/sdkref/latest/guide/feature-container-credentials.html)
+- [OAuth 2.0 Client Credentials Grant — RFC 6749 §4.4](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4)
+- [SPIFFE — workload identity](https://spiffe.io/docs/latest/spiffe-about/overview/)
+
+## Notes
+
+The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
+
+**Last Updated:** 2026-06-06

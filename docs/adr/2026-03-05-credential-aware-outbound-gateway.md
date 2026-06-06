@@ -1,9 +1,11 @@
 # Credential-Aware Outbound Gateway
 
-**Status:** Accepted
+**Status:** Superseded by [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md)
 **Date:** 2026-03-05
 **Deciders:** Engineering Team
 **Technical Story:** Defining how Orbit agents make governed, audited calls to external services (MSGraph, Salesforce, cloud provider APIs, and arbitrary SaaS) without credentials ever existing inside the agent process.
+
+> **Superseded (2026-06-06).** The `/proxy/{service-name}/{path}` reverse-proxy model in this ADR required agents to rewrite their outbound calls to an Orbit URL — which unmodified tools (`git`, `gh`, `aws`, SDKs) will not do — and made the gateway a faithful reverse proxy for every external API shape. It is replaced by [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md), which uses transparent egress interception (the sandbox rejoins the mesh; identity-proxy + OPA on its `SIDECAR_OUTBOUND` path) routed through a per-tenant, TLS-terminating egress gateway that mints credentials just-in-time. The credential-isolation, scope-intersection, and audit *goals* below remain valid; the proxy *mechanism* does not.
 
 ---
 
