@@ -12,11 +12,13 @@ ENV GONOSUMDB=github.com/clear-route/*
 ENV GONOPROXY=github.com/clear-route/*
 
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && go mod verify
 
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \

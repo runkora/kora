@@ -15,11 +15,13 @@ ENV GONOPROXY=github.com/clear-route/*
 
 COPY go.mod go.sum ./
 # TODO: use .netrc + docker secrets for private modules in CI
-RUN go mod download && go mod verify
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && go mod verify
 
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/${SERVICE}/main.go
 
 # Collect every */config/*.yaml file into /configs/ maintaining the same relative

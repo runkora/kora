@@ -31,7 +31,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # @orbit/terra workspace dependency without copying all source files.
 COPY src/packages/terra/package.json ./src/packages/terra/
 
-RUN corepack prepare pnpm@10.32.1 --activate && \
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store/v3 \
+    corepack prepare pnpm@10.32.1 --activate && \
     pnpm install --frozen-lockfile
 
 # ── Stage 2: builder ──────────────────────────────────────────────────────────
