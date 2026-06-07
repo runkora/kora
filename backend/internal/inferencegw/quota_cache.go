@@ -39,6 +39,10 @@ func NewQuotaCache(repo QuotaRepository, ttl time.Duration) *QuotaCache {
 
 // Resolve returns the cached quota limit for the principal, refreshing from the
 // repository when the entry is absent or expired.
+//
+// No singleflight: concurrent misses for the same principal may each query the
+// DB. This is intentional — quota reads are cheap and singleflight would add
+// complexity for a case that only arises on cold start or TTL expiry.
 func (c *QuotaCache) Resolve(ctx context.Context, tenantID, principalID string) (float64, bool, error) {
 	key := tenantID + ":" + principalID
 

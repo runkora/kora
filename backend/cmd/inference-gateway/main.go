@@ -191,7 +191,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
-		inferencegw.NewQuotasController(quotaRepo, quotaCounter, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewQuotasController(quotaRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 

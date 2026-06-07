@@ -432,3 +432,126 @@ func TestBuildFilter_TokenIDWithTenantAndPrincipal(t *testing.T) {
 	}
 	_ = where
 }
+
+// ── GET /usage/quota ──────────────────────────────────────────────────────────
+
+func newPersonalQuotaController(t *testing.T, cache QuotaResolver, counter SpendCounter) *Controller {
+	t.Helper()
+	svc := &Service{
+		usage:        newMockUsageRepo(),
+		quotaCache:   cache,
+		quotaCounter: counter,
+		logger:       logging.NewLoggerWithOutput(io.Discard),
+	}
+	return &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+}
+
+func TestHandleGetPersonalQuota_NoLimit(t *testing.T) {
+	t.Parallel()
+	cache := &mockQuotaResolver{budget: 0, hasLimit: false}
+	counter := &mockSpendCounter{spend: 0}
+	c := newPersonalQuotaController(t, cache, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalQuota(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status QuotaStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false")
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false")
+	}
+}
+
+func TestHandleGetPersonalQuota_WithLimit(t *testing.T) {
+	t.Parallel()
+	cache := &mockQuotaResolver{budget: 100.0, hasLimit: true}
+	counter := &mockSpendCounter{spend: 42.5}
+	c := newPersonalQuotaController(t, cache, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalQuota(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status QuotaStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !status.HasLimit {
+		t.Error("HasLimit = false, want true")
+	}
+	if status.MonthlyBudgetUSD != 100.0 {
+		t.Errorf("MonthlyBudgetUSD = %v, want 100.0", status.MonthlyBudgetUSD)
+	}
+	if status.CurrentSpendUSD != 42.5 {
+		t.Errorf("CurrentSpendUSD = %v, want 42.5", status.CurrentSpendUSD)
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false (42.5 < 100.0)")
+	}
+}
+
+func TestHandleGetPersonalQuota_LimitReached(t *testing.T) {
+	t.Parallel()
+	cache := &mockQuotaResolver{budget: 50.0, hasLimit: true}
+	counter := &mockSpendCounter{spend: 50.0}
+	c := newPersonalQuotaController(t, cache, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalQuota(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status QuotaStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !status.SpendLimitReached {
+		t.Error("SpendLimitReached = false, want true (spend == budget)")
+	}
+}
+
+func TestHandleGetPersonalQuota_CacheError(t *testing.T) {
+	t.Parallel()
+	cache := &mockQuotaResolver{err: errTestInternal}
+	counter := &mockSpendCounter{}
+	c := newPersonalQuotaController(t, cache, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalQuota(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestHandleGetPersonalQuota_MissingClaims(t *testing.T) {
+	t.Parallel()
+	c := newPersonalQuotaController(t, &mockQuotaResolver{}, &mockSpendCounter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil) // no claims
+	w := httptest.NewRecorder()
+	c.handleGetPersonalQuota(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}

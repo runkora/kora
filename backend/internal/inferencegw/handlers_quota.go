@@ -31,7 +31,6 @@ import (
 //	DELETE /principals/{principalId}             clear an individual principal quota
 type QuotasController struct {
 	repo     QuotaRepository
-	counter  SpendCounter
 	verifier *token.Verifier
 	eval     policy.Evaluator
 	routes   []routescopes.RouteScope
@@ -40,8 +39,8 @@ type QuotasController struct {
 }
 
 // NewQuotasController constructs a QuotasController.
-func NewQuotasController(repo QuotaRepository, counter SpendCounter, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *QuotasController {
-	return &QuotasController{repo: repo, counter: counter, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewQuotasController(repo QuotaRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *QuotasController {
+	return &QuotasController{repo: repo, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 func (c *QuotasController) GroupedBy() string { return "/quotas" }
@@ -164,6 +163,10 @@ func (c *QuotasController) handleCreateGroup(w http.ResponseWriter, r *http.Requ
 func (c *QuotasController) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if id == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -187,6 +190,10 @@ func (c *QuotasController) handleGetGroup(w http.ResponseWriter, r *http.Request
 func (c *QuotasController) handleUpdateGroupBudget(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if id == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -219,6 +226,10 @@ func (c *QuotasController) handleUpdateGroupBudget(w http.ResponseWriter, r *htt
 func (c *QuotasController) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
+	if id == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -244,6 +255,10 @@ func (c *QuotasController) handleSetMembership(w http.ResponseWriter, r *http.Re
 	ctx := r.Context()
 	groupID := r.PathValue("id")
 	principalID := r.PathValue("principalId")
+	if groupID == "" || principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id and principalId are required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -271,11 +286,26 @@ func (c *QuotasController) handleSetMembership(w http.ResponseWriter, r *http.Re
 
 func (c *QuotasController) handleRemoveMembership(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	groupID := r.PathValue("id")
 	principalID := r.PathValue("principalId")
+	if groupID == "" || principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id and principalId are required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
 		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	// Verify the group exists and belongs to this tenant before removing membership.
+	if _, err := c.repo.GetGroup(ctx, claims.Orbit.TenantID, groupID); err != nil {
+		if errors.Is(err, ErrQuotaGroupNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "quota group not found", nil), nil)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to verify quota group", nil), err)
 		return
 	}
 
@@ -292,6 +322,10 @@ func (c *QuotasController) handleRemoveMembership(w http.ResponseWriter, r *http
 func (c *QuotasController) handleGetPrincipalQuota(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	principalID := r.PathValue("principalId")
+	if principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "principalId is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -322,6 +356,10 @@ func (c *QuotasController) handleGetPrincipalQuota(w http.ResponseWriter, r *htt
 func (c *QuotasController) handleSetPrincipalQuota(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	principalID := r.PathValue("principalId")
+	if principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "principalId is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -350,6 +388,10 @@ func (c *QuotasController) handleSetPrincipalQuota(w http.ResponseWriter, r *htt
 func (c *QuotasController) handleClearPrincipalQuota(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	principalID := r.PathValue("principalId")
+	if principalID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "principalId is required", nil), nil)
+		return
+	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {

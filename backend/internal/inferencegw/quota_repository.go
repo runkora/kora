@@ -66,7 +66,7 @@ func (r *PostgresQuotaRepository) Resolve(ctx context.Context, tenantID, princip
 	const groupQ = `
 		SELECT qg.monthly_budget_usd
 		FROM principal_quota_group_memberships m
-		JOIN quota_groups qg ON qg.id = m.group_id
+		JOIN quota_groups qg ON qg.id = m.group_id AND qg.tenant_id = $1
 		WHERE m.tenant_id = $1 AND m.principal_id = $2`
 
 	err = r.pool.QueryRow(ctx, groupQ, tenantID, principalID).Scan(&budget)

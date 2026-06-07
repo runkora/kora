@@ -27,6 +27,8 @@ type SpendCounter interface {
 
 // RedisQuotaCounter implements SpendCounter using Redis INCRBYFLOAT.
 // Key format: quota:{principal_id}:{YYYY-MM}
+// TenantID is intentionally absent from the key: principal IDs are UUIDs that
+// are globally unique across tenants, so cross-tenant key collision is impossible.
 type RedisQuotaCounter struct {
 	rc     *storage.RedisClient
 	usage  InferenceUsageRepository
@@ -87,14 +89,21 @@ func (c *RedisQuotaCounter) IncrementSpend(ctx context.Context, tenantID, princi
 		return fmt.Errorf("quota counter incr %q: %w", key, err)
 	}
 
-	// Set TTL only when the key has none (freshly created by INCRBYFLOAT).
+	// Set TTL only when the key exists but has none (freshly created by INCRBYFLOAT).
+	// TTL returns -1 (key exists, no TTL) or -2 (key doesn't exist). Only set
+	// expiry for -1; calling Expire on a non-existent key is a no-op but misleading.
 	ttl, err := c.rc.Client().TTL(ctx, key).Result()
 	if err != nil {
 		// Non-fatal: the counter was incremented; TTL failure is best-effort.
 		return nil
 	}
-	if ttl < 0 {
-		c.rc.Client().Expire(ctx, key, quotaKeyTTL)
+	if ttl == -1 {
+		if expErr := c.rc.Client().Expire(ctx, key, quotaKeyTTL).Err(); expErr != nil {
+			c.logger.Warn(ctx, "quota counter expire failed",
+				logging.Field{Key: "key", Value: key},
+				logging.Field{Key: "error", Value: expErr.Error()},
+			)
+		}
 	}
 
 	return nil

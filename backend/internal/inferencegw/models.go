@@ -77,13 +77,14 @@ type ChatCompletionRequest struct {
 type UsageStatus string
 
 const (
-	UsageStatusSuccess       UsageStatus = "success"
-	UsageStatusProviderError UsageStatus = "provider_error"
-	UsageStatusPolicyDenied  UsageStatus = "policy_denied"
-	UsageStatusAuthError     UsageStatus = "auth_error"
-	UsageStatusTimeout       UsageStatus = "timeout"
-	UsageStatusRoutingFailed UsageStatus = "routing_failed"
-	UsageStatusCanceled      UsageStatus = "canceled"
+	UsageStatusSuccess        UsageStatus = "success"
+	UsageStatusProviderError  UsageStatus = "provider_error"
+	UsageStatusPolicyDenied   UsageStatus = "policy_denied"
+	UsageStatusBudgetExceeded UsageStatus = "budget_exceeded"
+	UsageStatusAuthError      UsageStatus = "auth_error"
+	UsageStatusTimeout        UsageStatus = "timeout"
+	UsageStatusRoutingFailed  UsageStatus = "routing_failed"
+	UsageStatusCanceled       UsageStatus = "canceled"
 )
 
 // InferenceUsageRecord is a completed inference event written to the database.

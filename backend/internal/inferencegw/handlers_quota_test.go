@@ -277,6 +277,7 @@ func TestHandleSetMembership_GroupNotFound(t *testing.T) {
 func TestHandleRemoveMembership_OK(t *testing.T) {
 	t.Parallel()
 	repo := &mockQuotaRepository{}
+	repo.groups = []QuotaGroup{{ID: "g1", TenantID: "tenant1", Name: "dev", MonthlyBudgetUSD: 50}}
 	c := newQuotasController(t, repo)
 
 	req := quotaRequestWithPath(t, http.MethodDelete, "/quotas/groups/g1/members/user42", nil, map[string]string{"id": "g1", "principalId": "user42"})
@@ -285,6 +286,20 @@ func TestHandleRemoveMembership_OK(t *testing.T) {
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body)
+	}
+}
+
+func TestHandleRemoveMembership_GroupNotFound(t *testing.T) {
+	t.Parallel()
+	repo := &mockQuotaRepository{}
+	c := newQuotasController(t, repo)
+
+	req := quotaRequestWithPath(t, http.MethodDelete, "/quotas/groups/missing/members/user42", nil, map[string]string{"id": "missing", "principalId": "user42"})
+	w := httptest.NewRecorder()
+	c.handleRemoveMembership(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }
 
@@ -386,5 +401,100 @@ func TestHandleClearPrincipalQuota_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+// ── empty-string path value guards ────────────────────────────────────────────
+
+func TestHandleGetGroup_EmptyID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequest(t, http.MethodGet, "/quotas/groups/", nil) // no path value set
+	w := httptest.NewRecorder()
+	c.handleGetGroup(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleUpdateGroupBudget_EmptyID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequest(t, http.MethodPut, "/quotas/groups/", updateGroupBudgetRequest{MonthlyBudgetUSD: 10})
+	w := httptest.NewRecorder()
+	c.handleUpdateGroupBudget(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleDeleteGroup_EmptyID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequest(t, http.MethodDelete, "/quotas/groups/", nil)
+	w := httptest.NewRecorder()
+	c.handleDeleteGroup(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSetMembership_EmptyGroupID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequestWithPath(t, http.MethodPut, "/quotas/groups//members/user42", nil, map[string]string{"principalId": "user42"}) // id not set
+	w := httptest.NewRecorder()
+	c.handleSetMembership(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleRemoveMembership_EmptyGroupID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequestWithPath(t, http.MethodDelete, "/quotas/groups//members/user42", nil, map[string]string{"principalId": "user42"}) // id not set
+	w := httptest.NewRecorder()
+	c.handleRemoveMembership(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSetPrincipalQuota_EmptyPrincipalID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequest(t, http.MethodPut, "/quotas/principals/", setPrincipalQuotaRequest{MonthlyBudgetUSD: 10})
+	w := httptest.NewRecorder()
+	c.handleSetPrincipalQuota(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleClearPrincipalQuota_EmptyPrincipalID(t *testing.T) {
+	t.Parallel()
+	c := newQuotasController(t, &mockQuotaRepository{})
+	req := quotaRequest(t, http.MethodDelete, "/quotas/principals/", nil)
+	w := httptest.NewRecorder()
+	c.handleClearPrincipalQuota(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// ── GET /principals/{principalId} — repo error path ───────────────────────────
+
+func TestHandleGetPrincipalQuota_RepoError(t *testing.T) {
+	t.Parallel()
+	repo := &mockQuotaRepository{getPrincipalErr: errTestInternal}
+	c := newQuotasController(t, repo)
+
+	req := quotaRequestWithPath(t, http.MethodGet, "/quotas/principals/usr_abc", nil, map[string]string{"principalId": "usr_abc"})
+	w := httptest.NewRecorder()
+	c.handleGetPrincipalQuota(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
 	}
 }

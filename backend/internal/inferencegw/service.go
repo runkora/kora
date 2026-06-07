@@ -186,7 +186,9 @@ func (s *Service) ChatCompletion(
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -326,8 +328,10 @@ func (s *Service) ChatCompletionStream(
 
 	// ── 2b. Budget check ─────────────────────────────────────────────────────
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -675,6 +679,10 @@ const spanStatusBudgetExceeded = "budget exceeded"
 // if the principal has a hard limit and their current spend meets or exceeds it.
 // Fails open (returns nil) on any infrastructure error so that Redis unavailability
 // never blocks inference traffic.
+//
+// Note: enforcement is soft — check and increment are not atomic. Concurrent
+// requests near the limit may both pass and briefly overspend before the counter
+// catches up. This is acceptable for cost-cap (not hard billing) use cases.
 func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
 	if s.quotaCache == nil || s.quotaCounter == nil {
 		return ctx, nil
@@ -1052,7 +1060,9 @@ func (s *Service) Embeddings(
 	}
 
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
-		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1164,7 +1174,9 @@ func (s *Service) Responses(
 	}
 
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1285,8 +1297,10 @@ func (s *Service) ResponsesStream(
 	}
 
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1498,7 +1512,9 @@ func (s *Service) AnthropicMessages(
 
 	// ── Budget check ─────────────────────────────────────────────────────────
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1629,8 +1645,10 @@ func (s *Service) AnthropicMessagesStream(
 
 	// ── Budget check ─────────────────────────────────────────────────────────
 	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		span.End()
-		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
