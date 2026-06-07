@@ -290,6 +290,46 @@ export const ApiRoute = {
     events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
       `${API_BASE}/agents/runs/${runId}/events`,
   },
+
+  /**
+   * `/api/quotas/groups`
+   *
+   * GET  — list all quota groups for the caller's tenant.
+   * POST — create a new quota group.
+   */
+  quotaGroups: {
+    GET: (): `${typeof API_BASE}/quotas/groups` => `${API_BASE}/quotas/groups`,
+    POST: (): `${typeof API_BASE}/quotas/groups` => `${API_BASE}/quotas/groups`,
+  },
+
+  /**
+   * `/api/quotas/groups/[id]`
+   *
+   * PUT    — update a quota group's monthly budget.
+   * DELETE — delete a quota group.
+   */
+  quotaGroup: {
+    PUT: (id: string): `${typeof API_BASE}/quotas/groups/${string}` =>
+      `${API_BASE}/quotas/groups/${id}`,
+    DELETE: (id: string): `${typeof API_BASE}/quotas/groups/${string}` =>
+      `${API_BASE}/quotas/groups/${id}`,
+  },
+
+  /**
+   * `/api/quotas/principals/[principalId]`
+   *
+   * GET    — get the individual quota for a principal (404 if none set).
+   * PUT    — set an individual quota override for a principal.
+   * DELETE — clear the individual quota override for a principal.
+   */
+  quotaPrincipal: {
+    GET: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
+      `${API_BASE}/quotas/principals/${principalId}`,
+    PUT: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
+      `${API_BASE}/quotas/principals/${principalId}`,
+    DELETE: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
+      `${API_BASE}/quotas/principals/${principalId}`,
+  },
 } as const;
 
 /**
@@ -330,4 +370,11 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
-  | string; // analyticsMe and analytics routes include dynamic query strings
+  | ReturnType<(typeof ApiRoute)['quotaGroups']['GET']>
+  | ReturnType<(typeof ApiRoute)['quotaGroups']['POST']>
+  | ReturnType<(typeof ApiRoute)['quotaGroup']['PUT']>
+  | ReturnType<(typeof ApiRoute)['quotaGroup']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['GET']>
+  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['PUT']>
+  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['DELETE']>
+  | string; // analyticsMe, analytics, analyticsPrincipals, and quota routes include dynamic query strings

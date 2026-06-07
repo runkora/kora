@@ -65,6 +65,12 @@ const POLICY_NAV: NavEntry[] = [
     icon: 'flask',
     requiredScope: 'platform:grants:read',
   },
+  {
+    label: 'Quotas',
+    href: APP_ROUTES.policy.quotas,
+    icon: 'dollar-sign',
+    requiredScope: 'platform:quotas:read',
+  },
 ];
 
 const SYSTEM_NAV: NavEntry[] = [
