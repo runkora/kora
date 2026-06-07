@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -53,6 +52,21 @@ func (*stubEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, err
 	return nil, nil
 }
 func (*stubEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*policy.ScopesExplainResult, error) {
+	return nil, nil
+}
+func (*stubEvaluator) CheckBudget(context.Context, string, policy.BudgetCheckRequest) (policy.BudgetResult, error) {
+	return policy.BudgetResult{Allow: true}, nil
+}
+func (*stubEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+func (*stubEvaluator) GetRoleBudgets(context.Context, string, []string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+func (*stubEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return nil, nil, nil
+}
+func (*stubEvaluator) GetTenantBudget(context.Context, string) (*policy.TenantBudget, error) {
 	return nil, nil
 }
 func (*stubEvaluator) Start(context.Context) {}
@@ -348,16 +362,38 @@ func TestProxy_PolicyDenies(t *testing.T) {
 	}
 }
 
-func TestProxy_NoConnectionForHost(t *testing.T) {
+// A host with no registered connection AUTO-PASSTHROUGHS: the broker forwards
+// to the host with no credential injected (the egress posture at the caller's
+// OPA sidecar is the reachability gate; connections are a credential overlay).
+// It must NOT reject — connections are not required just to reach a host.
+func TestProxy_NoConnectionAutoPassthrough(t *testing.T) {
 	f := newFixture(t)
 
-	resp, err := f.callGateway(http.MethodGet, "/x", "unregistered.example.com")
+	// Remove the only registered connection so the upstream host is now
+	// unregistered. The request must still be forwarded, with nothing injected.
+	if err := f.repo.Delete(context.Background(), "conn-1", "acme"); err != nil {
+		t.Fatalf("delete connection: %v", err)
+	}
+
+	resp, err := f.callGateway(http.MethodGet, "/x", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (auto-passthrough forwards to the host)", resp.StatusCode)
+	}
+	// Nothing injected, and the platform token is stripped — the upstream sees
+	// no Authorization at all.
+	if f.upstreamSawAuth != "" {
+		t.Errorf("upstream Authorization = %q, want empty (passthrough injects nothing, strips platform token)", f.upstreamSawAuth)
+	}
+	if f.upstreamSawHost != f.connectionHost {
+		t.Errorf("upstream Host = %q, want %q", f.upstreamSawHost, f.connectionHost)
+	}
+	if f.upstreamSawPath != "/x" {
+		t.Errorf("upstream path = %q, want /x", f.upstreamSawPath)
 	}
 }
 
@@ -405,13 +441,15 @@ func TestProxy_Unauthenticated(t *testing.T) {
 // guard against url.URL{Scheme:"https"} ever being silently rewritten if the
 // connection's base_host is mis-formatted.
 func TestBuildUpstreamURL_StripSchemes(t *testing.T) {
-	in, _ := url.Parse("/foo/bar?x=1")
 	for _, base := range []string{"github.com", "https://github.com", "http://github.com", "github.com/"} {
-		got, err := buildUpstreamURL(base, in)
+		got, err := buildUpstreamURL(base)
 		if err != nil {
 			t.Fatalf("%q: %v", base, err)
 		}
-		if got.Host != "github.com" || got.Scheme != "https" || got.Path != "/foo/bar" || got.RawQuery != "x=1" {
+		// Only scheme + host. The inbound path/query are joined onto this target
+		// by the ReverseProxy's ProxyRequest.SetURL, so they must NOT be set here
+		// (doing so would double the path).
+		if got.Host != "github.com" || got.Scheme != "https" || got.Path != "" || got.RawQuery != "" {
 			t.Errorf("%q -> %+v", base, got)
 		}
 	}

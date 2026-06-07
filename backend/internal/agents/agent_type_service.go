@@ -92,6 +92,18 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		grantScopes = []string{}
 	}
 
+	// Connectivity posture: default to deny-by-default (none) when omitted.
+	connectivity := Connectivity{Mode: ConnectivityNone}
+	if req.Connectivity != nil {
+		connectivity = *req.Connectivity
+	}
+	if connectivity.Mode == "" {
+		connectivity.Mode = ConnectivityNone
+	}
+	if err := connectivity.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, err)
+	}
+
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -102,6 +114,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Framework:               framework,
 		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
+		Connectivity:            connectivity,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -275,6 +288,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if err != nil {
 		return nil, err
 	}
+	if req.Connectivity != nil {
+		if vErr := req.Connectivity.Validate(); vErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
+		}
+	}
 	applyAgentTypeUpdates(at, req)
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
@@ -283,10 +301,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes or budget change
-	// (e.g. model or budget update). Run in background so the update response
-	// is not delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.Budget != nil {
+	// Re-reconcile the policy-service grant when grant scopes, budget, or the
+	// connectivity posture change (egress scopes are compiled from connectivity
+	// into the grant). Run in background so the update response is not delayed
+	// by a policy-service round-trip.
+	if req.GrantScopes != nil || req.Budget != nil || req.Connectivity != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
@@ -354,6 +373,9 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.Budget != nil {
 		at.Budget = req.Budget
+	}
+	if req.Connectivity != nil {
+		at.Connectivity = *req.Connectivity
 	}
 }
 

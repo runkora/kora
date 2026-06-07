@@ -70,14 +70,13 @@ func TestLoadEager_MissingDirectory(t *testing.T) {
 
 func TestLoadEager_MalformedTenantFails(t *testing.T) {
 	root := t.TempDir()
-	bad := filepath.Join(root, "broken")
-	if err := os.MkdirAll(bad, 0o755); err != nil {
+	// Both halves present but neither is valid PEM. The loader should error
+	// rather than silently skip — malformed material is an operator config
+	// problem we want to fail loud on.
+	if err := os.WriteFile(filepath.Join(root, "broken.ca.crt"), []byte("not pem"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bad, "ca.crt"), []byte("not pem"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bad, "ca.key"), []byte("not pem"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "broken.ca.key"), []byte("not pem"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,10 +86,16 @@ func TestLoadEager_MalformedTenantFails(t *testing.T) {
 	}
 }
 
-func TestLoadEager_IgnoresNonDirectoryEntries(t *testing.T) {
+func TestLoadEager_IgnoresUnrelatedFilesAndStraySubdirs(t *testing.T) {
 	root := t.TempDir()
-	// Stray file alongside tenant subdirs (e.g. a metadata file the operator wrote).
+	// Stray non-CA file at the root — kubelet sometimes drops these
+	// (..data, ..2024_xx_xx symlinks); we must ignore them.
 	if err := os.WriteFile(filepath.Join(root, "stray.txt"), []byte("ignored"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Stray subdirectory — kubelet projects symlinks/directories that we
+	// also need to skip without iterating into them.
+	if err := os.MkdirAll(filepath.Join(root, "..data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTenant(t, root, "acme")
@@ -105,14 +110,31 @@ func TestLoadEager_IgnoresNonDirectoryEntries(t *testing.T) {
 	}
 }
 
-// writeTenant generates a fresh self-signed CA and writes ca.crt + ca.key
-// under {root}/{tenant}/ as the loader expects.
-func writeTenant(t *testing.T, root, tenant string) {
-	t.Helper()
-	dir := filepath.Join(root, tenant)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+func TestLoadEager_RequiresBothCertAndKey(t *testing.T) {
+	root := t.TempDir()
+	// Only the crt half — the key is missing. Must be skipped, not loaded
+	// (and importantly, not raised as an error — partial material can
+	// briefly appear during a kubelet projection update).
+	if err := os.WriteFile(filepath.Join(root, "acme.ca.crt"), []byte("PEMBYTES"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	b, err := LoadEager(context.Background(), root, logger)
+	if err != nil {
+		t.Fatalf("LoadEager: %v", err)
+	}
+	if _, err := b.For("acme"); !errors.Is(err, ErrTenantNotFound) {
+		t.Errorf("expected acme to be skipped without ca.key; got %v", err)
+	}
+}
+
+// writeTenant generates a fresh self-signed CA and writes
+// {root}/{tenant}.ca.crt + {tenant}.ca.key — the same flat layout the
+// operator's aggregated Secret produces when projected as a volume. Tests
+// and production use the same on-disk shape so what we test is what runs.
+func writeTenant(t *testing.T, root, tenant string) {
+	t.Helper()
 
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -139,7 +161,7 @@ func writeTenant(t *testing.T, root, tenant string) {
 		t.Fatal(err)
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), certPEM, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, tenant+".ca.crt"), certPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	keyDER, err := x509.MarshalPKCS8PrivateKey(caKey)
@@ -147,7 +169,7 @@ func writeTenant(t *testing.T, root, tenant string) {
 		t.Fatal(err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(filepath.Join(dir, "ca.key"), keyPEM, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, tenant+".ca.key"), keyPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

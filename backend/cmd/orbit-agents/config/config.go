@@ -68,12 +68,6 @@ type Config struct {
 			// Should be "require" in production and "disable" for local dev.
 			PostgresSSLMode string `yaml:"postgresSSLMode"`
 		} `yaml:"sessionManager"`
-		// EgressGatewayURL routes sandbox-pod outbound HTTP(S) through the
-		// per-tenant egress gateway (the credential broker from
-		// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md).
-		// Set as HTTPS_PROXY/HTTP_PROXY on every sandbox pod when non-empty.
-		// Leave empty in environments where the broker is not yet deployed.
-		EgressGatewayURL string `yaml:"egressGatewayURL"`
 	} `yaml:"agents"`
 }
 

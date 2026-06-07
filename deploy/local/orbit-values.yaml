@@ -133,6 +133,16 @@ policyGateway:
     otlpInsecure: "true"
     logFormat: "console"
 
+egressGateway:
+  image:
+    repository: orbit-registry:5001/orbit-egress-gateway
+    tag: latest
+  replicas: 1
+  config:
+    otlpInsecure: "true"
+    logFormat: "console"
+    postgresSSLMode: "disable"
+
 opaGateway:
   image:
     # Pulled by: make docker-pull-third-party

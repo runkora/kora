@@ -53,7 +53,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream, err := buildUpstreamURL(decision.Connection.BaseHost, r.URL)
+	upstream, err := buildUpstreamURL(decision.Connection.BaseHost)
 	if err != nil {
 		p.writeError(w, r, err, http.StatusBadGateway, "invalid upstream url")
 		return
@@ -143,10 +143,11 @@ func (p *ProxyHandler) writeError(w http.ResponseWriter, r *http.Request, cause 
 	platformapi.ErrorResponse(r.Context(), w, p.logger, apiErr, cause)
 }
 
-// buildUpstreamURL combines the connection's base host with the inbound request
-// path/query. In Phase 2a the gateway's HTTPS listener accepts requests at any
-// path; the path is reused verbatim against the upstream.
-func buildUpstreamURL(baseHost string, inbound *url.URL) (*url.URL, error) {
+// buildUpstreamURL returns the upstream base URL (scheme + host) the forward
+// proxy targets. The inbound request's path and query are NOT set here: the
+// ReverseProxy's ProxyRequest.SetURL joins them onto this target, so setting
+// them here too would double the path (e.g. "/x" → "/x/x").
+func buildUpstreamURL(baseHost string) (*url.URL, error) {
 	if baseHost == "" {
 		return nil, errors.New("connection has empty base_host")
 	}
@@ -155,12 +156,5 @@ func buildUpstreamURL(baseHost string, inbound *url.URL) (*url.URL, error) {
 	host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
 	host = strings.TrimSuffix(host, "/")
 
-	upstream := &url.URL{
-		Scheme:   "https",
-		Host:     host,
-		Path:     inbound.Path,
-		RawPath:  inbound.RawPath,
-		RawQuery: inbound.RawQuery,
-	}
-	return upstream, nil
+	return &url.URL{Scheme: "https", Host: host}, nil
 }

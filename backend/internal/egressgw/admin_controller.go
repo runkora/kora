@@ -47,9 +47,8 @@ func NewAdminController(
 	return &AdminController{repo: repo, verifier: verifier, eval: eval, basePath: basePath, logger: logger}
 }
 
-// GroupedBy mounts admin handlers directly under the server base path so URLs
-// look like /v1/api/v1/connections — wait, no. The platform mux composes the
-// base path; we want /api/v1/connections under no further group.
+// GroupedBy adds no extra group prefix: the server base path ("/api/v1") is the
+// only prefix, so admin URLs are "/api/v1/connections".
 func (c *AdminController) GroupedBy() string { return "" }
 
 // Middleware returns the controller-level middleware chain applied to every
@@ -62,12 +61,16 @@ func (c *AdminController) Middleware() mw.MiddlewareHandler {
 	)
 }
 
-// Boot registers the admin connection routes.
+// Boot registers the admin connection routes. Paths are RELATIVE to the server
+// base path ("/api/v1"), which http.StripPrefix removes before the controller
+// mux runs; the absolute paths are "/api/v1/connections", matching AdminRoutes()
+// and the scopes registered with the policy service. Repeating "/api/v1" here
+// would double the prefix to "/api/v1/api/v1/connections".
 func (c *AdminController) Boot(mux *platformapi.Mux) {
-	mux.Handle("POST /api/v1/connections", c.handleCreate)
-	mux.Handle("GET /api/v1/connections", c.handleList)
-	mux.Handle("GET /api/v1/connections/{id}", c.handleGet)
-	mux.Handle("DELETE /api/v1/connections/{id}", c.handleDelete)
+	mux.Handle("POST /connections", c.handleCreate)
+	mux.Handle("GET /connections", c.handleList)
+	mux.Handle("GET /connections/{id}", c.handleGet)
+	mux.Handle("DELETE /connections/{id}", c.handleDelete)
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -200,7 +203,10 @@ func validateConnection(req connectionRequest) error {
 	if req.BaseHost == "" {
 		return fmt.Errorf("base_host is required")
 	}
-	if req.SecretRef == "" {
+	// secret_ref is required for every adapter that resolves or mints a
+	// credential. The passthrough adapter injects nothing, so it has no secret
+	// to reference — requiring one would be meaningless.
+	if req.SecretRef == "" && req.Adapter != credentials.AdapterPassthrough {
 		return fmt.Errorf("secret_ref is required")
 	}
 	return nil

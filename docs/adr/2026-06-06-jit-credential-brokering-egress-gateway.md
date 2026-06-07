@@ -7,6 +7,8 @@
 **Deciders:** Platform Engineering
 **Technical Story:** How an Orbit agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
 
+> **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
+
 ---
 
 ## Context
@@ -298,6 +300,65 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 
 ---
 
+## Amendment — 2026-06-07: Two-layer egress authorization
+
+**Status:** Accepted — corrects the original **Decision**, **Per-Tool Flows**, and **Policy integration**.
+
+Implementing and validating Option 3 in a live cluster surfaced an error threaded through the original text: it places per-connection authorization (`connection:<name>:<action>`) at the **sandbox OPA `ext_authz`**. That is structurally impossible for this transport. The real design is **two complementary layers**, each enforcing where the data to make its decision actually exists.
+
+### Why the sandbox OPA cannot authorize `connection:<name>:<action>`
+
+A sandbox tool reaches an upstream via `HTTPS_PROXY=<gateway>`, so the first thing on the wire is an HTTP **CONNECT** to the gateway. On that CONNECT the sandbox OPA sees only:
+
+- `:method = CONNECT`, `:authority = <host>:<port>` (e.g. `api.github.com:443`)
+- the injected `Authorization: Bearer <platform-token>` — identity ✓
+
+It does **not**, and cannot, see:
+
+- **the connection name** (`github`) — the `host → connection` mapping lives in the gateway's connection registry (`Broker` / `conns.GetByHost`); the sandbox bundle has no registry.
+- **the action** (`repo:write`) — classified by the adapter from the **inner HTTP method+path**, which is *inside the TLS tunnel*: encrypted and invisible until the gateway terminates TLS.
+
+OPA's Layer-1 derives the required scope from `data.routes.route_scopes` by **path-prefix + method**; a CONNECT has no path → it matches no route → `no_route_match` → fail-closed **deny**. The deployed decision log for `curl https://example.com` confirms exactly this: a valid injected Bearer, `method=CONNECT`, `host=example.com:443`, `orbit/authz/allow → result:false`. Identity arrives; the connection and action do not.
+
+The gateway's `Broker.Authorize` already performs the correct check — `GetByHost` → `adapter.ClassifyAction(innerRequest)` → `policy.Check(connection:<name>:<action>)`, fail-closed, then mint — because it is the only place holding both the registry and the decrypted inner request. (`internal/egressgw/scopes.go` already states the egress hot path "is authorized in-process by `Broker.Authorize`".)
+
+### The correction: two layers, each enforcing where the data exists
+
+| Layer | Enforces | Scope | Inputs it has |
+|---|---|---|---|
+| **Sandbox OPA (`ext_authz`)** | connectivity **posture** — may this agent reach this host at all? | `egress:<host>:connect` | CONNECT host + identity |
+| **Egress gateway (`Broker.Authorize`)** | **connection** authorization + JIT mint | `connection:<name>:<action>` | registry + decrypted inner request |
+
+These are **complementary, not redundant**. To reach `api.github.com` an agent needs **both** an `egress:…:connect` posture grant **and** a `connection:github:repo:write` grant. This replaces the original "sandbox OPA authorizes the connection; the gateway re-checks the same scope (defense in depth)" framing — it was never the same scope, and the sandbox could never evaluate the connection scope.
+
+### Connectivity posture: the `egress:<host>:connect` vocabulary
+
+A new resource type `egress`, shape-consistent with `connection:<name>:<action>`: **`egress:<host>:connect`**. `resourceType` (`egress`) and `action` (`connect`) match exactly like every other scope; only the **host** segment uses a dedicated matcher (`_host_matches`) — *not* `scope_covers`, because host-suffix globbing is a different algebra than the colon-hierarchy.
+
+| Grant scope | Matches | Posture |
+|---|---|---|
+| `egress:*:connect` (≡ `egress:connect`) | every host | **open** |
+| `egress:api.github.com:connect` | that host exactly | whitelist (exact) |
+| `egress:*.github.com:connect` | `github.com` + any subdomain depth | whitelist (wildcard) |
+| *(no `egress:…:connect` grant)* | nothing | **none** (default-deny) |
+
+Host matching is **IPv4 / DNS hostnames only**; IPv6 literals are a v1 non-goal (no `egress:` match → fail-closed deny). Posture is **agent configuration compiled to grants** on the agent principal — `none → ∅`, `open → egress:*:connect`, `whitelist [h…] → egress:<h>:connect` per entry — distributed in the per-tenant bundle like every other grant. The platform thus sets each sandbox's reachability (no egress / whitelisted egress / open egress) as data.
+
+### Security model (unchanged, now precise)
+
+The gates, in order: **NetworkPolicy** (sandbox egress only to the gateway) → **posture** (sandbox OPA: `egress:<host>:connect`, fail-closed, audited at the edge) → **connection authz + mint** (gateway: `connection:<name>:<action>`) → **credential isolation** (mint on the upstream leg only). Removing the impossible connection-check from the sandbox does not weaken this — the connection decision simply lives where it can actually be made.
+
+### Statements superseded by this amendment
+
+- **Component & request topology** (`ext_authz → OPA sidecar authorize connection:<name>:<action>`) → the sidecar authorizes **`egress:<host>:connect`**.
+- **Per-Tool Flows** (GitHub / Kubernetes / OAuth2 / API-key steps reading "OPA authorizes `connection:…`") → that authorization is at the **gateway**; the sandbox OPA authorizes the **egress posture** for the destination host.
+- **Policy integration** → sandbox OPA = posture (`egress:*`); gateway = connection authz (`connection:*`); not a re-check of one scope.
+- **Consequences / Neutral** ("a second enforcement point … double-enforcement") → two **distinct** responsibilities, not the same check twice.
+
+The `connection:<name>:<action>` vocabulary, the gateway's `policy.Evaluator`, the per-tenant CA / TLS termination, and the per-tool mint/inject flows are otherwise unchanged.
+
+---
+
 ## Validation
 
 ### Success Metrics
@@ -338,4 +399,4 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 
 The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
-**Last Updated:** 2026-06-06
+**Last Updated:** 2026-06-07

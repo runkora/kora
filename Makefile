@@ -404,7 +404,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	agents frontend operator session-manager sandbox-exec
+	egress-gateway agents frontend operator session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
@@ -478,7 +478,7 @@ redeploy-platform-bake: ## (Experimental) Build + push every platform service vi
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	echo "$(COLOR_YELLOW)Baking platform images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
-	for tgt in orbit-identity orbit-identity-proxy orbit-inference-gateway orbit-policy-service orbit-policy-gateway orbit-agents orbit-frontend orbit-operator orbit-session-manager orbit-sandbox-exec; do \
+	for tgt in orbit-identity orbit-identity-proxy orbit-inference-gateway orbit-policy-service orbit-policy-gateway orbit-egress-gateway orbit-agents orbit-frontend orbit-operator orbit-session-manager orbit-sandbox-exec; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
 				-f docker-bake.hcl -f docker-bake.local.hcl \
@@ -664,6 +664,10 @@ redeploy-policy-service: ## Redeploy the policy service (PDP/PAP)
 .PHONY: redeploy-policy-gateway
 redeploy-policy-gateway: ## Redeploy the policy gateway (PEP)
 	@bash scripts/cluster/redeploy.sh policy-gateway $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-egress-gateway
+redeploy-egress-gateway: ## Redeploy the egress gateway (per-tenant credential broker)
+	@bash scripts/cluster/redeploy.sh egress-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-agents
 redeploy-agents: ## Redeploy orbit-agents (agent control plane)

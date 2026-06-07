@@ -197,6 +197,7 @@ func initWebhooks(mgr ctrl.Manager) {
 func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logger) error {
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
 	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
+	caAggregator := operator.NewTenantCAAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
 		Client:      mgr.GetClient(),
@@ -217,6 +218,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		Scheme:                mgr.GetScheme(),
 		Registry:              registry,
 		Aggregator:            aggregator,
+		CAAggregator:          caAggregator,
 		Logger:                logger,
 		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
 		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,

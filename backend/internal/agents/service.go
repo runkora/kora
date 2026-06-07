@@ -55,6 +55,7 @@ type CreateAgentTypeRequest struct {
 	Framework               AgentFramework `json:"framework"`
 	ToolScopes              []string       `json:"tool_scopes"`
 	GrantScopes             []string       `json:"grant_scopes"`
+	Connectivity            *Connectivity  `json:"connectivity"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string        `json:"model_id"`
 	// Budget is applied to the agent's policy grant (nil = no budget).
@@ -73,7 +74,8 @@ type UpdateAgentTypeRequest struct {
 	GrantScopes             []string        `json:"grant_scopes"`
 	// Budget updates the agent's grant budget. nil = unchanged; both limits
 	// zero = remove the budget.
-	Budget *AgentBudget `json:"budget"`
+	Budget       *AgentBudget  `json:"budget"`
+	Connectivity *Connectivity `json:"connectivity"`
 }
 
 type StartRunRequest struct {

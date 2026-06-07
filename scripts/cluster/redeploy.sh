@@ -123,6 +123,17 @@ workload=deployment/orbit-policy-gateway
 restart=true
 EOF
       ;;
+    egress-gateway)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=egress-gateway
+image=orbit-egress-gateway
+namespace=orbit-system
+workload=deployment/orbit-egress-gateway
+restart=true
+EOF
+      ;;
     agents|orbit-agents)
       cat <<'EOF'
 dockerfile=backend/Dockerfile

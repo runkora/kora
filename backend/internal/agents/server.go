@@ -153,6 +153,11 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrInvalidConnectivity) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to create agent type", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -207,6 +212,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrInvalidConnectivity) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

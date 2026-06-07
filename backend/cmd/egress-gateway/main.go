@@ -42,6 +42,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/credentials/resolvers/k8sfile"
 	"github.com/clear-route/orbit/internal/egressgw"
 	"github.com/clear-route/orbit/internal/egressgw/cabundle"
@@ -97,6 +98,9 @@ func realMain() error {
 		secretResolver,
 		logger,
 	))
+	// No-auth passthrough: governed egress to public/unauthenticated upstreams
+	// (no credential minted or injected). Needs no secret resolver.
+	registry.Register(passthrough.New())
 
 	// ── Per-tenant CA bundle ─────────────────────────────────────────────────
 	caBundle, err := cabundle.LoadEager(ctx, egc.Current.Secrets.TenantCARoot, logger)

@@ -2,6 +2,8 @@ package agents
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -23,6 +25,78 @@ const (
 	AgentFrameworkCodex      AgentFramework = "codex"
 	AgentFrameworkOpenCode   AgentFramework = "opencode"
 )
+
+// ConnectivityMode is an agent type's outbound egress posture — the platform's
+// reachability gate for the agent's sandboxes. It compiles to egress:<host>:connect
+// scopes enforced at the sandbox OPA. See the egress-gateway ADR (Amendment
+// 2026-06-07): connections are a credential overlay; this posture decides what a
+// sandbox may reach at all.
+type ConnectivityMode string
+
+const (
+	// ConnectivityNone — no external egress (default; deny-by-default).
+	ConnectivityNone ConnectivityMode = "none"
+	// ConnectivityWhitelist — egress only to the listed host patterns.
+	ConnectivityWhitelist ConnectivityMode = "whitelist"
+	// ConnectivityOpen — egress to any host (the egress gateway + connection
+	// registry still gate credentialed destinations).
+	ConnectivityOpen ConnectivityMode = "open"
+)
+
+// Connectivity is an agent type's egress posture. Hosts is consulted only in
+// whitelist mode and holds host patterns (exact, "*", or "*.suffix"), IPv4/DNS
+// only.
+type Connectivity struct {
+	Mode  ConnectivityMode `json:"mode"`
+	Hosts []string         `json:"hosts,omitempty"`
+}
+
+// Validate checks the posture is well-formed. Whitelist hosts must be IPv4/DNS
+// host patterns (exact, "*", or "*.suffix") with no whitespace, ":" (an IPv6
+// literal or port), or "/" — mirroring the egress scope rules the policy
+// service enforces, so a bad host is rejected at config time, not silently at
+// grant-reconcile time.
+func (c Connectivity) Validate() error {
+	switch c.Mode {
+	case ConnectivityNone, ConnectivityOpen, "":
+		return nil
+	case ConnectivityWhitelist:
+		for _, h := range c.Hosts {
+			if strings.TrimSpace(h) == "" {
+				return fmt.Errorf("connectivity whitelist host must not be empty")
+			}
+			if strings.ContainsAny(h, " \t:/") {
+				return fmt.Errorf("connectivity host %q is invalid: IPv4/DNS hostnames only (no spaces, ':' or '/')", h)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("connectivity mode %q is invalid: want none, whitelist, or open", c.Mode)
+	}
+}
+
+// EgressScopes compiles the posture into the egress scope set granted to the
+// agent principal:
+//
+//	none       → (nothing)
+//	open       → ["egress:connect"]   (the 2-part form the rego reads as any host)
+//	whitelist  → ["egress:<host>:connect", …] for each non-empty host
+func (c Connectivity) EgressScopes() []string {
+	switch c.Mode {
+	case ConnectivityOpen:
+		return []string{"egress:connect"}
+	case ConnectivityWhitelist:
+		scopes := make([]string, 0, len(c.Hosts))
+		for _, h := range c.Hosts {
+			if h = strings.TrimSpace(h); h != "" {
+				scopes = append(scopes, "egress:"+h+":connect")
+			}
+		}
+		return scopes
+	default: // none or unset
+		return nil
+	}
+}
 
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
@@ -50,6 +124,7 @@ type AgentType struct {
 	Framework               AgentFramework `json:"framework"`
 	ToolScopes              []string       `json:"tool_scopes"`
 	GrantScopes             []string       `json:"grant_scopes"`
+	Connectivity            Connectivity   `json:"connectivity"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 	State                   AgentTypeState `json:"state"`
 	CreatedAt               time.Time      `json:"created_at"`
@@ -59,6 +134,27 @@ type AgentType struct {
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
 	Budget *AgentBudget `json:"budget,omitempty"`
+}
+
+// EffectiveGrantScopes is the full scope set reconciled onto the agent's policy
+// grant: its capability GrantScopes plus the egress scopes compiled from its
+// connectivity posture, de-duplicated. This is what ensureAgentGrant enforces,
+// so egress posture is durable — it survives every re-provision rather than
+// being wiped like a hand-added grant.
+func (at AgentType) EffectiveGrantScopes() []string {
+	out := make([]string, 0, len(at.GrantScopes)+len(at.Connectivity.Hosts)+1)
+	seen := make(map[string]struct{})
+	for _, s := range at.GrantScopes {
+		if _, ok := seen[s]; !ok {
+			seen[s], out = struct{}{}, append(out, s)
+		}
+	}
+	for _, s := range at.Connectivity.EgressScopes() {
+		if _, ok := seen[s]; !ok {
+			seen[s], out = struct{}{}, append(out, s)
+		}
+	}
+	return out
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────

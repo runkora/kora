@@ -3,13 +3,16 @@ app:
 
 server:
   httpPort: 8085
-  basePath: "/v1"
+  # Admin-API base path. Controller routes are registered RELATIVE to this
+  # (e.g. "/connections"), so the absolute path is "/api/v1/connections" —
+  # matching AdminRoutes() and the Orbit admin-API convention (cf. identity).
+  basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc:9091"
+  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
 
 secrets:
   tenantCARoot: "/var/run/orbit/tenant-ca"

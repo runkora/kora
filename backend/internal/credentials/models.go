@@ -30,6 +30,12 @@ const (
 	AdapterOAuth2ClientCreds AdapterType = "oauth2_client_credentials"
 	AdapterAPIKey            AdapterType = "api_key"
 	AdapterAWSSTS            AdapterType = "aws_sts"
+	// AdapterPassthrough injects NO credential — the connection is governed
+	// (egress posture + connection grant + audit) and the gateway re-originates
+	// to the upstream unchanged. The "agent reaches a public, unauthenticated
+	// resource" case (Pattern D), alongside minted (A), static-secret (B), and
+	// native-endpoint (C). See the egress-gateway ADR.
+	AdapterPassthrough AdapterType = "passthrough"
 )
 
 // Connection is a tenant-scoped registration of one external service. It names

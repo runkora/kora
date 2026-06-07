@@ -51,15 +51,9 @@ type K8sProvisionerConfig struct {
 	// SystemNamespace is the namespace where orbit-agents runs.
 	// DestinationRules are created here so Istio applies them to outbound
 	// traffic from orbit-agents pods targeting agent session-managers.
+	// Also used to derive the egress-gateway service URL for sandbox
+	// HTTPS_PROXY (the gateway always lives in this namespace).
 	SystemNamespace string
-	// EgressGatewayURL is the per-tenant egress gateway agents route outbound
-	// HTTP(S) traffic through (the CONNECT proxy from
-	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md). When
-	// non-empty, it is set as HTTPS_PROXY/HTTP_PROXY on sandbox pods so tools
-	// (git, gh, aws, kubectl, SDKs) tunnel their TLS calls through the broker.
-	// Leave empty in environments where the broker is not yet deployed —
-	// sandboxes will simply have no governed egress.
-	EgressGatewayURL string
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -297,9 +291,22 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
 	// injection is therefore required — see comment on the labels block.
 	annotations := map[string]string{
-		// Exclude the gRPC port from the mesh so orbit-shell still connects
-		// over plain TCP, matching the existing pre-injection behavior.
+		// Exclude the gRPC port from the inbound mesh so orbit-shell still
+		// connects over plain TCP, matching the existing pre-injection
+		// behavior. Outbound to the egress-gateway intentionally STAYS in
+		// the mesh — the sandbox's identity-proxy ext_proc filter must see
+		// the CONNECT and inject the platform Bearer token, which is the
+		// gateway's only signal of caller identity. The CONNECT method is
+		// passed through HCM via the egress-gateway EnvoyFilter
+		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
 		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
+		// Hold every other container until istio-proxy is ready. Without
+		// this, identity-proxy starts immediately and times out after 60s
+		// waiting for Envoy — which istio-proxy is the LAST container
+		// kubelet starts (it follows the largest image, sandbox-exec, whose
+		// pull alone can take ~50s on a cold node). Same wiring the
+		// session-manager StatefulSet pod uses.
+		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
 	}
 
 	pod := &corev1.Pod{
@@ -315,49 +322,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 				RunAsUser:    &uid,
 				RunAsNonRoot: &nonRoot,
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "workspaces",
-					VolumeSource: corev1.VolumeSource{
-						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: workspacesPVC,
-						},
-					},
-				},
-			},
-			Containers: []corev1.Container{
-				{
-					Name:            "sandbox-exec",
-					Image:           p.cfg.SandboxImage,
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Ports: []corev1.ContainerPort{
-						{Name: "grpc", ContainerPort: p.cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
-					},
-					Env: sandboxContainerEnv(p.cfg),
-					VolumeMounts: []corev1.VolumeMount{
-						{Name: "workspaces", MountPath: "/workspaces"},
-					},
-					ReadinessProbe: &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							TCPSocket: &corev1.TCPSocketAction{
-								Port: intstr.FromInt32(p.cfg.SandboxGRPCPort),
-							},
-						},
-						InitialDelaySeconds: 2,
-						PeriodSeconds:       3,
-					},
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("100m"),
-							corev1.ResourceMemory: resource.MustParse("256Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("4Gi"),
-						},
-					},
-				},
-			},
+			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
+			Containers: []corev1.Container{sandboxContainer(p.cfg)},
 		},
 	}
 
@@ -467,25 +433,158 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // (including the SPIRE workload socket and any locally-listened Istio
 // admin endpoints) bypasses the proxy.
 //
-// When EgressGatewayURL is empty (no broker deployed), no proxy env is set
-// and the sandbox simply has no governed egress — the same end-state as the
-// pre-broker behavior, just with the mesh sidecars present.
+// SSL_CERT_FILE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS / REQUESTS_CA_BUNDLE
+// point common runtimes at the per-tenant CA root mounted at
+// sandboxTenantCAPath. The gateway presents a leaf for whatever upstream the
+// tool dialed, signed by this CA — without this hint, every TLS handshake
+// would fail because the leaves chain to a CA that's not in the system trust
+// store.
+//
+// When SystemNamespace is empty (defensive — should never happen in
+// production) the proxy + CA env are omitted so the sandbox simply has no
+// governed egress.
 func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
 	}
-	if cfg.EgressGatewayURL != "" {
-		env = append(env,
-			corev1.EnvVar{Name: "HTTPS_PROXY", Value: cfg.EgressGatewayURL},
-			corev1.EnvVar{Name: "HTTP_PROXY", Value: cfg.EgressGatewayURL},
-			corev1.EnvVar{Name: "NO_PROXY", Value: "localhost,127.0.0.1,::1"},
-			// Some tools and runtimes look at the lowercase form.
-			corev1.EnvVar{Name: "https_proxy", Value: cfg.EgressGatewayURL},
-			corev1.EnvVar{Name: "http_proxy", Value: cfg.EgressGatewayURL},
-			corev1.EnvVar{Name: "no_proxy", Value: "localhost,127.0.0.1,::1"},
-		)
+	gatewayURL := egressGatewayURL(cfg)
+	if gatewayURL == "" {
+		return env
 	}
+	env = append(env,
+		corev1.EnvVar{Name: "HTTPS_PROXY", Value: gatewayURL},
+		corev1.EnvVar{Name: "HTTP_PROXY", Value: gatewayURL},
+		corev1.EnvVar{Name: "NO_PROXY", Value: "localhost,127.0.0.1,::1"},
+		corev1.EnvVar{Name: "https_proxy", Value: gatewayURL},
+		corev1.EnvVar{Name: "http_proxy", Value: gatewayURL},
+		corev1.EnvVar{Name: "no_proxy", Value: "localhost,127.0.0.1,::1"},
+		// Trust-store hints for the per-tenant CA root. Different runtimes
+		// honor different env vars; we set all the common ones so a tool
+		// (git/curl/Node SDK/Python requests) finds the CA wherever it
+		// looks. The file itself is mounted by sandboxVolumes below.
+		corev1.EnvVar{Name: "SSL_CERT_FILE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "CURL_CA_BUNDLE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "NODE_EXTRA_CA_CERTS", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "REQUESTS_CA_BUNDLE", Value: sandboxTenantCAPath},
+	)
 	return env
+}
+
+// egressGatewayURL returns the in-cluster URL of the egress gateway, or empty
+// if SystemNamespace is unset. The gateway always lives in SystemNamespace
+// under the well-known service name + port (matching
+// charts/orbit/templates/egress-gateway/service.yaml and
+// internal/operator/tenant_netpol.go's egressGatewayCONNECTPort) — there's no
+// configurable knob because there's no version of the topology where it
+// could be different.
+func egressGatewayURL(cfg K8sProvisionerConfig) string {
+	if cfg.SystemNamespace == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://orbit-egress-gateway.%s.svc:%d", cfg.SystemNamespace, egressGatewayCONNECTPort)
+}
+
+// egressGatewayCONNECTPort matches charts/orbit/values.yaml's
+// egressGateway.connectPort and cmd/egress-gateway/config/base.yaml's
+// server.httpPort. Kept in sync with internal/operator/tenant_netpol.go.
+const egressGatewayCONNECTPort = 8085
+
+// sandboxTenantCAPath is where the tenant CA root is mounted inside the
+// sandbox container. The runtime env hints in sandboxContainerEnv all point
+// here.
+const sandboxTenantCAPath = "/var/run/orbit/tenant-ca/ca.crt"
+
+// tenantCAVolumeName is the projected-volume name for the tenant CA.
+const tenantCAVolumeName = "orbit-tenant-ca"
+
+// sandboxVolumes builds the sandbox pod's volume list. The workspaces PVC
+// always mounts; the per-tenant CA Secret is added only when an egress
+// gateway URL can be derived (otherwise there's nothing to trust).
+//
+// The CA Secret (orbit-tenant-ca) is created by the operator's
+// ensureTenantCA step in the same tenant namespace as the sandbox pod, so
+// no cross-namespace projection is needed.
+func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Volume {
+	vols := []corev1.Volume{
+		{
+			Name: "workspaces",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: workspacesPVC,
+				},
+			},
+		},
+	}
+	if egressGatewayURL(cfg) == "" {
+		return vols
+	}
+	// 0o444 — world-readable. The sandbox container runs as a non-root UID
+	// the operator does not pre-coordinate with the Secret mount's UID, so
+	// any-user-readable is the safest default for a public CA cert. The
+	// CA's *private key* is intentionally NOT projected here (Items below
+	// only includes ca.crt); the key never leaves the egress gateway pod.
+	mode := int32(0o444)
+	vols = append(vols, corev1.Volume{
+		Name: tenantCAVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  "orbit-tenant-ca",
+				DefaultMode: &mode,
+				Items: []corev1.KeyToPath{
+					// Project ca.crt only — the private key never reaches
+					// the sandbox; that lives on the egress gateway pod.
+					{Key: "ca.crt", Path: "ca.crt"},
+				},
+			},
+		},
+	})
+	return vols
+}
+
+// sandboxContainer builds the sandbox-exec container. Mirrors sandboxVolumes:
+// when an egress gateway URL can be derived, a read-only mount of the tenant
+// CA root is added so the env vars in sandboxContainerEnv point at a real
+// file.
+func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
+	mounts := []corev1.VolumeMount{
+		{Name: "workspaces", MountPath: "/workspaces"},
+	}
+	if egressGatewayURL(cfg) != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      tenantCAVolumeName,
+			MountPath: "/var/run/orbit/tenant-ca",
+			ReadOnly:  true,
+		})
+	}
+	return corev1.Container{
+		Name:            "sandbox-exec",
+		Image:           cfg.SandboxImage,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Ports: []corev1.ContainerPort{
+			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
+		},
+		Env:          sandboxContainerEnv(cfg),
+		VolumeMounts: mounts,
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromInt32(cfg.SandboxGRPCPort),
+				},
+			},
+			InitialDelaySeconds: 2,
+			PeriodSeconds:       3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+	}
 }
 
 // ── Policy grant management ───────────────────────────────────────────────────
@@ -504,8 +603,9 @@ func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, nam
 }
 
 // ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
-// principal toward exactly one grant containing at.GrantScopes and, when
-// at.Budget is set, the desired budget assignment.
+// principal toward exactly one grant containing at.EffectiveGrantScopes()
+// (capability scopes + compiled egress scopes) and, when at.Budget is set,
+// the desired budget assignment.
 //
 // Reconcile logic:
 //   - Keep the first existing grant whose scopes (and, when a budget is
@@ -545,13 +645,18 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
+	// The reconciled scope set is the agent's capability scopes PLUS the egress
+	// scopes compiled from its connectivity posture, so egress survives every
+	// re-provision (a hand-added egress grant would be deleted as "stale" here).
+	effectiveScopes := at.EffectiveGrantScopes()
+
 	// Walk existing grants: keep the first whose SCOPES match (budget is
 	// reconciled separately), delete the rest. Remember the kept grant's budget
 	// so an unspecified desired budget survives.
 	var keepID string
 	var keptBudget *policyclient.BudgetAssignment
 	for _, g := range existing {
-		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) {
+		if keepID == "" && scopeSetsEqual(g.Scopes, effectiveScopes) {
 			keepID = g.ID
 			keptBudget = g.Budget
 			continue
@@ -599,7 +704,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	if at.Budget == nil {
 		createBudget = firstBudget(existing)
 	}
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes, createBudget); err != nil {
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)

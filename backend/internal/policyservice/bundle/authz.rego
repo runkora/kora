@@ -294,12 +294,97 @@ delegator_covers_required_scope if {
 	scope_covers(gs, _required_scope)
 }
 
+# ══ EGRESS CONNECTIVITY POSTURE (sandbox CONNECT) ════════════════════════════
+#
+# A sandbox tool reaches upstreams via HTTPS_PROXY=<gateway>, so its first
+# request on the wire is an HTTP CONNECT to the gateway. The CONNECT exposes
+# only the destination host:port and the injected platform token — never the
+# connection name (registry-only, resolved at the gateway) nor the action
+# (inside the TLS tunnel, visible only after the gateway terminates TLS). So
+# OPA cannot evaluate connection:<name>:<action> here; it enforces the
+# connectivity POSTURE: may this agent reach this host at all?
+#
+# Posture is expressed as grants, shape-consistent with connection:<name>:<action>:
+#   egress:*:connect              open — any host  (≡ the 2-part egress:connect)
+#   egress:<host>:connect         whitelist a host (exact)
+#   egress:*.<suffix>:connect     whitelist a host and any subdomain depth
+#   (no egress grant)             no egress (default deny)
+#
+# resourceType (egress) and action (connect) match exactly like every other
+# scope; only the host segment globs, via _host_matches. Host matching is
+# IPv4/DNS only — IPv6 literals never match and fall through to deny.
+# See ADR 2026-06-06-jit-credential-brokering-egress-gateway (Amendment 2026-06-07).
+
+_is_connect if {
+	_is_envoy
+	input.attributes.request.http.method == "CONNECT"
+}
+
+# Destination host from the CONNECT :authority, lowercased, port stripped.
+# IPv4/DNS only: split on ":" takes the host; an IPv6 literal would split on its
+# own colons and never match a sane egress pattern (→ deny), which is intended.
+_connect_host := lower(host) if {
+	_is_connect
+	host := split(input.attributes.request.http.host, ":")[0]
+}
+
+# _host_matches(pattern, host): does an egress grant's host pattern cover host?
+_host_matches(pattern, host) if pattern == host # exact
+
+_host_matches(pattern, _host) if pattern == "*" # open — any host
+
+_host_matches(pattern, host) if { # "*.suffix" — the apex itself
+	startswith(pattern, "*.")
+	host == substring(pattern, 2, -1)
+}
+
+_host_matches(pattern, host) if { # "*.suffix" — any subdomain depth
+	startswith(pattern, "*.")
+	endswith(host, substring(pattern, 1, -1))
+}
+
+# Host pattern carried by an egress scope. Two accepted shapes:
+#   egress:connect            → "*" (open, no host segment)
+#   egress:<pattern>:connect  → <pattern>
+# Any non-egress scope (e.g. connection:*) yields undefined and is skipped.
+_egress_host_pattern(scope) := "*" if scope == "egress:connect"
+
+_egress_host_pattern(scope) := parts[1] if {
+	parts := split(scope, ":")
+	count(parts) == 3
+	parts[0] == "egress"
+	parts[2] == "connect"
+}
+
+# The principal holds an egress grant whose host pattern covers the CONNECT host.
+_principal_egress_allows if {
+	some grant in data.grants.grants
+	grant.principal_type == _principal_type
+	grant.principal_id == _principal_id
+	some scope in grant.scopes
+	_host_matches(_egress_host_pattern(scope), _connect_host)
+}
+
+# Egress posture allow. Connection-level authorization (connection:<name>:<action>)
+# + JIT mint happen at the gateway after TLS termination — not here.
+allow if {
+	_is_connect
+	not _is_delegated
+	_principal_egress_allows
+}
+
 # ══ REASON RULES ═════════════════════════════════════════════════════════════
 #
 # reason is for logging only — never returned to callers.
 # On allow: which path matched. On deny: which condition failed.
 
 default reason := "deny:no_matching_grant"
+
+reason := concat("", ["egress:", _connect_host]) if {
+	_is_connect
+	not _is_delegated
+	_principal_egress_allows
+}
 
 reason := concat("", ["grant:", matched_grant_scope]) if {
 	not _is_delegated

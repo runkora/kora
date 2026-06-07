@@ -68,7 +68,15 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	conn, err := b.conns.GetByHost(ctx, tenantID, req.Host)
 	if err != nil {
 		if errors.Is(err, credentials.ErrConnectionNotFound) {
-			return Decision{}, fmt.Errorf("%w: host %q in tenant %q", credentials.ErrConnectionNotFound, req.Host, tenantID)
+			// No credential-injecting connection is registered for this host.
+			// Reachability was already authorized by the egress posture at the
+			// caller's OPA sidecar (egress:<host>:connect) — which the agent
+			// cannot bypass — so default to PASSTHROUGH: re-originate to the
+			// host with NO credential injected and NO connection-scope check.
+			// Connections are a credential OVERLAY, not the reachability gate;
+			// a host that just needs to be reached only needs the egress
+			// whitelist, never a duplicate connection registration.
+			return b.passthroughDecision(ctx, tenantID, claims, req.Host), nil
 		}
 		return Decision{}, fmt.Errorf("resolve connection: %w", err)
 	}
@@ -146,4 +154,30 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	)
 
 	return Decision{Connection: conn, Action: action, Credential: cred}, nil
+}
+
+// passthroughDecision builds a no-credential Decision for a host that has no
+// registered connection. The egress posture enforced at the caller's OPA
+// sidecar (egress:<host>:connect, which the agent cannot bypass) is the sole
+// reachability gate for such hosts, so there is no connection-scope check here
+// and nothing is injected on the outbound leg — the gateway re-originates the
+// request to the host unchanged. See the egress-gateway ADR (auto-passthrough:
+// connections are a credential overlay, not the reachability gate).
+func (b *Broker) passthroughDecision(ctx context.Context, tenantID string, claims *token.PlatformClaims, host string) Decision {
+	b.logger.Info(ctx, "egress auto-passthrough (no connection; posture-authorized)",
+		logging.Field{Key: "host", Value: host},
+		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
+		logging.Field{Key: "run_id", Value: claims.Orbit.Claims["run_id"]},
+	)
+	return Decision{
+		Connection: &credentials.Connection{
+			TenantID: tenantID,
+			Name:     "passthrough",
+			Adapter:  credentials.AdapterPassthrough,
+			BaseHost: host,
+		},
+		Action:     "use",
+		Credential: credentials.Credential{}, // inject nothing
+	}
 }

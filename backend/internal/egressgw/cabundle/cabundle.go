@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/clear-route/orbit/internal/egressgw"
@@ -51,12 +52,24 @@ func (b *Bundle) For(tenant string) (egressgw.IssuingCA, error) {
 	return ca, nil
 }
 
-// LoadEager walks root for tenant subdirectories and loads each one's CA
-// material into the bundle. Returns an error if the root is missing,
-// unreadable, or any tenant's material is malformed. Empty roots are
-// permitted — the operator may not have mounted the secret yet — and yield an
-// empty bundle that rejects every CONNECT with ErrTenantNotFound until the
-// gateway is restarted with the secret mounted.
+// LoadEager scans root for tenant CA material and loads each tenant into
+// the bundle. Returns an error if the root is unreadable or any tenant's
+// material is malformed. Empty / missing roots are permitted (the operator
+// may not have mounted the secret yet) and yield an empty bundle that
+// rejects every CONNECT with ErrTenantNotFound until the gateway restarts
+// with the secret populated.
+//
+// On-disk layout:
+//
+//	{root}/{tenant}.ca.crt
+//	{root}/{tenant}.ca.key
+//
+// This is a flat layout because Kubernetes Secret data keys cannot contain
+// "/", and the operator's ClusterCAAggregator writes the aggregated
+// orbit-tenant-cas Secret with keys like "acme.ca.crt" / "acme.ca.key".
+// When projected as a volume, those become files at the root of the mount.
+// Dev and test setups use the same layout so what we test is what
+// production runs.
 func LoadEager(ctx context.Context, root string, logger logging.Logger) (*Bundle, error) {
 	b := &Bundle{cas: make(map[string]*tlsca.IssuingCA)}
 
@@ -75,12 +88,8 @@ func LoadEager(ctx context.Context, root string, logger logging.Logger) (*Bundle
 		return nil, fmt.Errorf("read tenant CA root %q: %w", root, err)
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		tenant := entry.Name()
-		ca, err := loadOne(filepath.Join(root, tenant), tenant)
+	for _, tenant := range tenantsWithCertAndKey(entries) {
+		ca, err := loadTenantCA(root, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("load CA for tenant %q: %w", tenant, err)
 		}
@@ -94,15 +103,52 @@ func LoadEager(ctx context.Context, root string, logger logging.Logger) (*Bundle
 	return b, nil
 }
 
-// loadOne reads ca.crt and ca.key from dir and constructs an IssuingCA.
-func loadOne(dir, tenant string) (*tlsca.IssuingCA, error) {
-	certPEM, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
+// loadTenantCA reads {root}/{tenant}.ca.crt + {tenant}.ca.key and
+// constructs an IssuingCA.
+func loadTenantCA(root, tenant string) (*tlsca.IssuingCA, error) {
+	certPEM, err := os.ReadFile(filepath.Join(root, tenant+".ca.crt"))
 	if err != nil {
-		return nil, fmt.Errorf("read ca.crt: %w", err)
+		return nil, fmt.Errorf("read %s.ca.crt: %w", tenant, err)
 	}
-	keyPEM, err := os.ReadFile(filepath.Join(dir, "ca.key"))
+	keyPEM, err := os.ReadFile(filepath.Join(root, tenant+".ca.key"))
 	if err != nil {
-		return nil, fmt.Errorf("read ca.key: %w", err)
+		return nil, fmt.Errorf("read %s.ca.key: %w", tenant, err)
 	}
 	return tlsca.New(tenant, certPEM, keyPEM)
+}
+
+// tenantsWithCertAndKey returns the set of tenant names for which both
+// {tenant}.ca.crt and {tenant}.ca.key are present in the root. A tenant
+// with only one half is intentionally skipped (no warning at this layer —
+// the operator's aggregator should never produce that state, so silence
+// here keeps the log clean during ordinary projection updates).
+func tenantsWithCertAndKey(entries []os.DirEntry) []string {
+	const certSuffix = ".ca.crt"
+	const keySuffix = ".ca.key"
+	have := make(map[string]struct{ cert, key bool })
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		switch {
+		case strings.HasSuffix(name, certSuffix):
+			t := strings.TrimSuffix(name, certSuffix)
+			h := have[t]
+			h.cert = true
+			have[t] = h
+		case strings.HasSuffix(name, keySuffix):
+			t := strings.TrimSuffix(name, keySuffix)
+			h := have[t]
+			h.key = true
+			have[t] = h
+		}
+	}
+	var out []string
+	for t, h := range have {
+		if h.cert && h.key {
+			out = append(out, t)
+		}
+	}
+	return out
 }
