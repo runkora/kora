@@ -32,9 +32,7 @@ function buildSyncSummary(
     if (!acc) return e.last_synced_at;
     return e.last_synced_at > acc ? e.last_synced_at : acc;
   }, null);
-  const isStale = latest
-    ? Date.now() - new Date(latest).getTime() > 25 * 60 * 60 * 1000
-    : false;
+  const isStale = latest ? Date.now() - new Date(latest).getTime() > 25 * 60 * 60 * 1000 : false;
   return {
     lastSyncedAt: latest,
     modelsWithPricing: pricingEntries.length,
@@ -51,7 +49,12 @@ export default async function CatalogPage() {
         initialVirtualModels={[]}
         initialProviderModels={[]}
         initialError="Not authenticated"
-        syncSummary={{ lastSyncedAt: null, modelsWithPricing: 0, pricingFetchFailed: false, isStale: false }}
+        syncSummary={{
+          lastSyncedAt: null,
+          modelsWithPricing: 0,
+          pricingFetchFailed: false,
+          isStale: false,
+        }}
       />
     );
   }

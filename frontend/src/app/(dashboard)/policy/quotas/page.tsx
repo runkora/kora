@@ -10,7 +10,9 @@ export default async function QuotasPage() {
   const session = await getSession();
 
   if (!isSessionValid(session)) {
-    return <QuotasPageClient initialGroups={[]} initialError="Session expired — please sign in again." />;
+    return (
+      <QuotasPageClient initialGroups={[]} initialError="Session expired — please sign in again." />
+    );
   }
 
   const groupsResult = await fetchQuotaGroups(session.accessToken);

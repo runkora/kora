@@ -41,8 +41,14 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
 
   const handleSubmit = useCallback(async () => {
     const budgetNum = parseFloat(budget);
-    if (!name.trim()) { setError('Name is required.'); return; }
-    if (isNaN(budgetNum) || budgetNum <= 0) { setError('Monthly budget must be a positive number.'); return; }
+    if (!name.trim()) {
+      setError('Name is required.');
+      return;
+    }
+    if (isNaN(budgetNum) || budgetNum <= 0) {
+      setError('Monthly budget must be a positive number.');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -56,7 +62,14 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
         const body = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(body.message ?? `Request failed (${res.status})`);
       }
-      const created = (await res.json()) as { id: string; name: string; monthly_budget_usd: number; tenant_id: string; created_at: string; updated_at: string };
+      const created = (await res.json()) as {
+        id: string;
+        name: string;
+        monthly_budget_usd: number;
+        tenant_id: string;
+        created_at: string;
+        updated_at: string;
+      };
       onCreated(created);
       setName('');
       setBudget('');
@@ -74,7 +87,9 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
       <ModalBody>
         <Stack gap="comfortable">
           <Stack gap="snug">
-            <Text size="supporting" color="muted">Name</Text>
+            <Text size="supporting" color="muted">
+              Name
+            </Text>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -83,7 +98,9 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
             />
           </Stack>
           <Stack gap="snug">
-            <Text size="supporting" color="muted">Monthly budget (USD)</Text>
+            <Text size="supporting" color="muted">
+              Monthly budget (USD)
+            </Text>
             <Input
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
@@ -98,7 +115,9 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
         </Stack>
       </ModalBody>
       <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
         <Button variant="default" size="sm" onClick={() => void handleSubmit()} disabled={saving}>
           {saving ? 'Creating…' : 'Create group'}
         </Button>
@@ -116,14 +135,20 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const updateGroups = useCallback((next: QuotaGroup[]) => {
-    setGroups(next);
-    onGroupsChange(next);
-  }, [onGroupsChange]);
+  const updateGroups = useCallback(
+    (next: QuotaGroup[]) => {
+      setGroups(next);
+      onGroupsChange(next);
+    },
+    [onGroupsChange],
+  );
 
-  const handleCreated = useCallback((group: QuotaGroup) => {
-    updateGroups([...groups, group]);
-  }, [groups, updateGroups]);
+  const handleCreated = useCallback(
+    (group: QuotaGroup) => {
+      updateGroups([...groups, group]);
+    },
+    [groups, updateGroups],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -150,7 +175,9 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
       header: 'Group name',
       locked: true,
       cell: (row) => (
-        <Text size="supporting" color="foreground">{row.name}</Text>
+        <Text size="supporting" color="foreground">
+          {row.name}
+        </Text>
       ),
     },
     {
@@ -166,20 +193,25 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
       ),
     },
     ...(canWrite
-      ? [{
-          id: 'actions',
-          header: '',
-          align: 'right' as const,
-          cell: (row: QuotaGroup) => (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { setDeleteTarget(row); setDeleteError(null); }}
-            >
-              Delete
-            </Button>
-          ),
-        }]
+      ? [
+          {
+            id: 'actions',
+            header: '',
+            align: 'right' as const,
+            cell: (row: QuotaGroup) => (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDeleteTarget(row);
+                  setDeleteError(null);
+                }}
+              >
+                Delete
+              </Button>
+            ),
+          },
+        ]
       : []),
   ];
 

@@ -16,20 +16,16 @@ interface MyUsageTabProps {
 function BudgetBanner({ quota }: { quota: QuotaStatus }) {
   if (!quota.has_limit) return null;
 
-  const pct = quota.monthly_budget_usd > 0
-    ? (quota.current_spend_usd / quota.monthly_budget_usd) * 100
-    : 0;
-  const variant = quota.spend_limit_reached
-    ? 'error'
-    : pct >= 80
-      ? 'degraded'
-      : 'healthy';
+  const pct =
+    quota.monthly_budget_usd > 0 ? (quota.current_spend_usd / quota.monthly_budget_usd) * 100 : 0;
+  const variant = quota.spend_limit_reached ? 'error' : pct >= 80 ? 'degraded' : 'healthy';
 
   return (
     <Stack gap="snug">
       {quota.spend_limit_reached && (
         <Alert variant="error">
-          Monthly budget reached — inference requests are blocked until the next billing cycle or your limit is raised.
+          Monthly budget reached — inference requests are blocked until the next billing cycle or
+          your limit is raised.
         </Alert>
       )}
       <Stack gap="snug">

@@ -60,4 +60,3 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
     </Tabs>
   );
 }
-

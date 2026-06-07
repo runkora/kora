@@ -6,8 +6,7 @@ import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashbo
 import { AnalyticsPrincipalsTable } from '../../_components/analytics/analytics-principals-table';
 
 export function PlatformUsageTab() {
-  const { data, status, error, days, granularity, setDays, setGranularity } =
-    useAnalyticsContext();
+  const { data, status, error, days, granularity, setDays, setGranularity } = useAnalyticsContext();
 
   return (
     <Stack gap="comfortable">

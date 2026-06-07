@@ -504,10 +504,7 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         },
         cell: (m) => (
           <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <Toggle
-              checked={m.enabled}
-              onChange={(v) => void toggle(m.provider, m.modelId, v)}
-            />
+            <Toggle checked={m.enabled} onChange={(v) => void toggle(m.provider, m.modelId, v)} />
           </Stack>
         ),
       },

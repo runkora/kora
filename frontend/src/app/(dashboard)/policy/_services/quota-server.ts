@@ -97,10 +97,7 @@ export async function updateQuotaGroupBudget(
   });
 }
 
-export async function deleteQuotaGroup(
-  accessToken: string,
-  id: string,
-): Promise<Result<void>> {
+export async function deleteQuotaGroup(accessToken: string, id: string): Promise<Result<void>> {
   return quotaFetch(`/groups/${encodeURIComponent(id)}`, accessToken, {
     method: 'DELETE',
   });

@@ -69,9 +69,17 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           throw new Error(body.message ?? `Request failed (${res.status})`);
         }
       } else {
-        if (!groupId) { setError('Please select a group.'); setSaving(false); return; }
+        if (!groupId) {
+          setError('Please select a group.');
+          setSaving(false);
+          return;
+        }
         const selected = groups.find((g) => g.id === groupId);
-        if (!selected) { setError('Selected group not found.'); setSaving(false); return; }
+        if (!selected) {
+          setError('Selected group not found.');
+          setSaving(false);
+          return;
+        }
         // Assign to group — this is a group membership operation, not in the current BFF.
         // For now, set principal quota to the group's budget as an individual override.
         // TODO: wire up group membership endpoint when available.
@@ -102,7 +110,9 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
       <ModalBody>
         <Stack gap="comfortable">
           <Stack gap="snug">
-            <Text size="supporting" color="muted">Source</Text>
+            <Text size="supporting" color="muted">
+              Source
+            </Text>
             <NativeSelect
               value={mode}
               onChange={(e) => setMode(e.target.value as 'individual' | 'group')}
@@ -115,7 +125,9 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
 
           {mode === 'individual' ? (
             <Stack gap="snug">
-              <Text size="supporting" color="muted">Monthly budget (USD)</Text>
+              <Text size="supporting" color="muted">
+                Monthly budget (USD)
+              </Text>
               <Input
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
@@ -128,7 +140,9 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
             </Stack>
           ) : (
             <Stack gap="snug">
-              <Text size="supporting" color="muted">Group</Text>
+              <Text size="supporting" color="muted">
+                Group
+              </Text>
               <NativeSelect
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
@@ -148,7 +162,9 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
         </Stack>
       </ModalBody>
       <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
         <Button variant="default" size="sm" onClick={() => void handleSave()} disabled={saving}>
           {saving ? 'Saving…' : 'Save limit'}
         </Button>
@@ -203,7 +219,9 @@ function usePrincipalsWithQuotas() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return { rows, loading, error, reload: load };
 }
@@ -291,7 +309,9 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
             {fmtCost(row.monthly_budget_usd)}
           </Text>
         ) : (
-          <Text size="supporting" color="subtle" align="end">—</Text>
+          <Text size="supporting" color="subtle" align="end">
+            —
+          </Text>
         ),
     },
     {
@@ -299,7 +319,11 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
       header: 'Utilisation',
       cell: (row) => {
         if (row.monthly_budget_usd == null || row.monthly_budget_usd === 0) {
-          return <Text size="supporting" color="subtle">No limit</Text>;
+          return (
+            <Text size="supporting" color="subtle">
+              No limit
+            </Text>
+          );
         }
         const pct = (row.estimated_cost_usd / row.monthly_budget_usd) * 100;
         return (
@@ -320,44 +344,65 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
       id: 'source',
       header: 'Source',
       cell: (row) => {
-        if (row.quota_source === 'none') return <Badge variant="secondary" size="sm">None</Badge>;
-        if (row.quota_source === 'group') return <Badge variant="secondary" size="sm">{row.group_name ?? 'Group'}</Badge>;
-        return <Badge variant="secondary" size="sm">Individual</Badge>;
+        if (row.quota_source === 'none')
+          return (
+            <Badge variant="secondary" size="sm">
+              None
+            </Badge>
+          );
+        if (row.quota_source === 'group')
+          return (
+            <Badge variant="secondary" size="sm">
+              {row.group_name ?? 'Group'}
+            </Badge>
+          );
+        return (
+          <Badge variant="secondary" size="sm">
+            Individual
+          </Badge>
+        );
       },
     },
     ...(canWrite
-      ? [{
-          id: 'actions',
-          header: '',
-          align: 'right' as const,
-          cell: (row: PrincipalQuotaRow) => (
-            <Stack direction="horizontal" gap="tight" justify="end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSetQuotaFor(row.principal_id)}
-              >
-                Set limit
-              </Button>
-              {row.quota_source === 'individual' && (
+      ? [
+          {
+            id: 'actions',
+            header: '',
+            align: 'right' as const,
+            cell: (row: PrincipalQuotaRow) => (
+              <Stack direction="horizontal" gap="tight" justify="end">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => { setClearTarget(row); setClearError(null); }}
+                  onClick={() => setSetQuotaFor(row.principal_id)}
                 >
-                  Clear
+                  Set limit
                 </Button>
-              )}
-            </Stack>
-          ),
-        }]
+                {row.quota_source === 'individual' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setClearTarget(row);
+                      setClearError(null);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </Stack>
+            ),
+          },
+        ]
       : []),
   ];
 
   return (
     <Stack gap="comfortable">
       {error && (
-        <Text size="supporting" color="status-error">{error}</Text>
+        <Text size="supporting" color="status-error">
+          {error}
+        </Text>
       )}
 
       <DataTable

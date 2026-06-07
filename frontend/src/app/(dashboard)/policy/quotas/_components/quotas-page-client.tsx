@@ -39,11 +39,7 @@ export function QuotasPageClient({ initialGroups, initialError }: QuotasPageClie
         </TabsContent>
 
         <TabsContent value="groups">
-          <QuotaGroupsTab
-            initialGroups={groups}
-            onGroupsChange={setGroups}
-            canWrite={canWrite}
-          />
+          <QuotaGroupsTab initialGroups={groups} onGroupsChange={setGroups} canWrite={canWrite} />
         </TabsContent>
       </Tabs>
     </Stack>

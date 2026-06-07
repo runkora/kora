@@ -16,4 +16,3 @@ export function PlatformUsageShell({ initialData, initialError }: PlatformUsageS
     </AnalyticsProvider>
   );
 }
-

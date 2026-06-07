@@ -15,10 +15,7 @@ export async function fetchPersonalQuotaFromGateway(accessToken: string): Promis
     });
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === 'TimeoutError';
-    console.error(
-      `[fetchPersonalQuota] ${isTimeout ? 'timeout' : 'network error'}:`,
-      err,
-    );
+    console.error(`[fetchPersonalQuota] ${isTimeout ? 'timeout' : 'network error'}:`, err);
     return {
       ok: false,
       status: isTimeout ? 504 : 502,
