@@ -81,7 +81,16 @@ func resolveProvider(liteLLMProvider string) (ProviderName, bool) {
 // stripProviderPrefix removes a leading "provider/" prefix from a LiteLLM model key,
 // returning the bare model ID that matches what Orbit stores in virtual_model_routes.
 func stripProviderPrefix(key string) string {
-	prefixes := []string{"bedrock/", "vertex_ai/", "azure/"}
+	prefixes := []string{
+		"bedrock/",
+		"vertex_ai/",
+		"vertex_ai-text-models/",
+		"vertex_ai-chat-models/",
+		"vertex_ai-code-text-models/",
+		"vertex_ai-language-models/",
+		"azure/",
+		"azure_ai/",
+	}
 	for _, pfx := range prefixes {
 		if trimmed, ok := strings.CutPrefix(key, pfx); ok {
 			return trimmed

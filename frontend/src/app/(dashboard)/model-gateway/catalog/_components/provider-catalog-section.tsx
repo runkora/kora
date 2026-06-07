@@ -289,7 +289,8 @@ function PricingOverlay({
             <Alert variant="warning">
               <Icon name="alert-circle" size="2xs" color="status-degraded" />
               <Text size="caption" color="muted">
-                No pricing data available. Set an override to enable cost tracking for this model.
+                No pricing data available. This model must appear in the pricing catalog before
+                overrides can be set.
               </Text>
             </Alert>
           )}
@@ -364,7 +365,7 @@ function PricingOverlay({
               variant="default"
               size="sm"
               onClick={() => void handleSaveOverride()}
-              disabled={saving || clearing}
+              disabled={saving || clearing || !p}
             >
               {saving ? 'Saving…' : 'Save override'}
             </Button>

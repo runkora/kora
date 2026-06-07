@@ -47,9 +47,12 @@ func (c *QuotaCache) Resolve(ctx context.Context, tenantID, principalID string) 
 	key := tenantID + ":" + principalID
 
 	c.mu.Lock()
-	if e, ok := c.cache[key]; ok && time.Now().Before(e.expiresAt) {
-		c.mu.Unlock()
-		return e.budgetUSD, e.hasLimit, nil
+	if e, ok := c.cache[key]; ok {
+		if time.Now().Before(e.expiresAt) {
+			c.mu.Unlock()
+			return e.budgetUSD, e.hasLimit, nil
+		}
+		delete(c.cache, key)
 	}
 	c.mu.Unlock()
 

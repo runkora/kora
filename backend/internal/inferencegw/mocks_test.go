@@ -268,7 +268,7 @@ func (m *mockQuotaRepository) SetMembership(_ context.Context, _, _, _ string) e
 	return m.setMembershipErr
 }
 
-func (m *mockQuotaRepository) RemoveMembership(_ context.Context, _, _ string) error {
+func (m *mockQuotaRepository) RemoveMembership(_ context.Context, _, _, _ string) error {
 	return m.removeMembershipErr
 }
 

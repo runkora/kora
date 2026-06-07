@@ -309,7 +309,11 @@ func (c *QuotasController) handleRemoveMembership(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := c.repo.RemoveMembership(ctx, claims.Orbit.TenantID, principalID); err != nil {
+	if err := c.repo.RemoveMembership(ctx, claims.Orbit.TenantID, principalID, groupID); err != nil {
+		if errors.Is(err, ErrQuotaGroupNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "quota group membership not found", nil), nil)
+			return
+		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to remove membership", nil), err)
 		return
 	}

@@ -80,9 +80,10 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           setSaving(false);
           return;
         }
-        // Assign to group — this is a group membership operation, not in the current BFF.
-        // For now, set principal quota to the group's budget as an individual override.
-        // TODO: wire up group membership endpoint when available.
+        // Copies the group's monthly_budget_usd as an individual quota override.
+        // This is NOT a group membership — the principal gets a fixed individual limit
+        // equal to the group budget at the time of this action. Future group budget
+        // changes won't propagate. Full group membership support is a future milestone.
         const res = await fetch(ApiRoute.quotaPrincipal.PUT(principalId), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -119,7 +120,7 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
               disabled={saving}
             >
               <option value="individual">Individual limit</option>
-              <option value="group">Apply group budget</option>
+              <option value="group">Copy budget from group</option>
             </NativeSelect>
           </Stack>
 

@@ -563,6 +563,13 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 		return
 	}
 
+	for _, v := range []*float64{req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M} {
+		if v != nil && *v < 0 {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "override prices must be non-negative", nil), nil)
+			return
+		}
+	}
+
 	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
 		if errors.Is(err, ErrModelPricingNotFound) {
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("model_pricing_not_found", "no pricing entry found for this provider/model pair", nil), nil)

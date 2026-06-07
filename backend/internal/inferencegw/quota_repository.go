@@ -26,7 +26,7 @@ type QuotaRepository interface {
 	DeleteGroup(ctx context.Context, tenantID, id string) error
 
 	SetMembership(ctx context.Context, tenantID, principalID, groupID string) error
-	RemoveMembership(ctx context.Context, tenantID, principalID string) error
+	RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error
 
 	SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error
 	GetPrincipalQuota(ctx context.Context, tenantID, principalID string) (float64, bool, error)
@@ -187,19 +187,20 @@ func (r *PostgresQuotaRepository) SetMembership(ctx context.Context, tenantID, p
 	return nil
 }
 
-func (r *PostgresQuotaRepository) RemoveMembership(ctx context.Context, tenantID, principalID string) error {
+func (r *PostgresQuotaRepository) RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error {
 	const q = `
 		DELETE FROM principal_quota_group_memberships
-		WHERE principal_id = $1 AND tenant_id = $2`
+		WHERE principal_id = $1 AND tenant_id = $2 AND group_id = $3`
 
-	_, err := r.pool.Exec(ctx, q, principalID, tenantID)
+	tag, err := r.pool.Exec(ctx, q, principalID, tenantID, groupID)
 	if err != nil {
 		return fmt.Errorf("quota membership remove: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return ErrQuotaGroupNotFound
+	}
 	return nil
-}
-
-// ─── Individual principal quotas ─────────────────────────────────────────────
+} // ─── Individual principal quotas ─────────────────────────────────────────────
 
 func (r *PostgresQuotaRepository) SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error {
 	const q = `
