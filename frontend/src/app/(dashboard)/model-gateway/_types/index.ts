@@ -159,6 +159,17 @@ export interface AnalyticsPrincipalsPageResponse {
   limit: number;
 }
 
+// ── Quota ─────────────────────────────────────────────────────────────────────
+//
+// Mirrors QuotaStatus in backend/internal/inferencegw/models.go.
+
+export interface QuotaStatus {
+  monthly_budget_usd: number;
+  current_spend_usd: number;
+  spend_limit_reached: boolean;
+  has_limit: boolean;
+}
+
 // ── Value-type unions ─────────────────────────────────────────────────────────
 
 export type ModelStatus = 'available' | 'unavailable';

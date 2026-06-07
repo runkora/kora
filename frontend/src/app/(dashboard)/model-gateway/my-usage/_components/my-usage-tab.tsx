@@ -1,16 +1,59 @@
 'use client';
 
 import Link from 'next/link';
-import { Button, Icon, NativeSelect, Stack } from '@orbit/terra';
+import { Alert, Button, Icon, NativeSelect, Progress, Stack, Text } from '@orbit/terra';
 import type { PAT } from '@orbit/shared/api';
+import { fmtCost } from '@orbit/utils';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
+import type { QuotaStatus } from '../../_types';
 
 interface MyUsageTabProps {
   pats: PAT[];
+  initialQuota: QuotaStatus | null;
 }
 
-export function MyUsageTab({ pats }: MyUsageTabProps) {
+function BudgetBanner({ quota }: { quota: QuotaStatus }) {
+  if (!quota.has_limit) return null;
+
+  const pct = quota.monthly_budget_usd > 0
+    ? (quota.current_spend_usd / quota.monthly_budget_usd) * 100
+    : 0;
+  const variant = quota.spend_limit_reached
+    ? 'error'
+    : pct >= 80
+      ? 'degraded'
+      : 'healthy';
+
+  return (
+    <Stack gap="snug">
+      {quota.spend_limit_reached && (
+        <Alert variant="error">
+          Monthly budget reached — inference requests are blocked until the next billing cycle or your limit is raised.
+        </Alert>
+      )}
+      <Stack gap="snug">
+        <Stack direction="horizontal" align="center" justify="between">
+          <Text size="supporting" color="muted">
+            Monthly budget
+          </Text>
+          <Text size="supporting" color="foreground" mono>
+            {fmtCost(quota.current_spend_usd)} / {fmtCost(quota.monthly_budget_usd)}
+          </Text>
+        </Stack>
+        <Progress
+          value={quota.current_spend_usd}
+          max={quota.monthly_budget_usd}
+          label="Monthly budget utilisation"
+          variant={variant}
+          showValue
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+export function MyUsageTab({ pats, initialQuota }: MyUsageTabProps) {
   const { data, status, error, days, granularity, tokenId, setDays, setGranularity, setTokenId } =
     useAnalyticsMeContext();
 
@@ -40,17 +83,20 @@ export function MyUsageTab({ pats }: MyUsageTabProps) {
     );
 
   return (
-    <AnalyticsDashboard
-      title="My Usage"
-      description="Your personal inference activity — spend, tokens, and request volume."
-      data={data}
-      status={status}
-      error={error}
-      days={days}
-      granularity={granularity}
-      onSetDays={setDays}
-      onSetGranularity={setGranularity}
-      filterSlot={filterSlot}
-    />
+    <Stack gap="comfortable">
+      {initialQuota && <BudgetBanner quota={initialQuota} />}
+      <AnalyticsDashboard
+        title="My Usage"
+        description="Your personal inference activity — spend, tokens, and request volume."
+        data={data}
+        status={status}
+        error={error}
+        days={days}
+        granularity={granularity}
+        onSetDays={setDays}
+        onSetGranularity={setGranularity}
+        filterSlot={filterSlot}
+      />
+    </Stack>
   );
 }

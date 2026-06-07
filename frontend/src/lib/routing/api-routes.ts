@@ -292,6 +292,16 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/usage/quota`
+   *
+   * GET — returns the caller's current monthly quota status (spend vs limit).
+   *       Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached, has_limit }`.
+   */
+  usageQuota: {
+    GET: (): `${typeof API_BASE}/usage/quota` => `${API_BASE}/usage/quota`,
+  },
+
+  /**
    * `/api/quotas/groups`
    *
    * GET  — list all quota groups for the caller's tenant.
@@ -359,6 +369,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['usageQuota']['GET']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['list']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['create']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['detail']>
