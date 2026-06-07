@@ -24,17 +24,21 @@ import { StatCard } from './stat-card';
 import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import { EditorPanel } from './editor-panel';
+import { SyncStatusBanner } from './sync-status-banner';
+import type { SyncSummary } from './sync-status-banner';
 
 interface CatalogTabProps {
   initialVirtualModels: ApiVirtualModel[];
   initialProviderModels: ApiProviderModel[];
   initialError?: string | null;
+  syncSummary: SyncSummary;
 }
 
 export function CatalogTab({
   initialVirtualModels,
   initialProviderModels,
   initialError,
+  syncSummary,
 }: CatalogTabProps) {
   const [selectedModel, setSelectedModel] = useState<VirtualModel | null>(null);
   const [virtualModels, setVirtualModels] = useState<VirtualModel[]>(
@@ -79,6 +83,7 @@ export function CatalogTab({
             </Text>
           </Alert>
         )}
+        <SyncStatusBanner sync={syncSummary} />
       </Stack>
 
       <Grid cols={{ base: 2, lg: 4 }} gap="snug">
