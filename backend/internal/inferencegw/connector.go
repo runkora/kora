@@ -289,12 +289,12 @@ func (e ConnectorError) Unwrap() error {
 // ModelPricing holds per-million-token cost data for a specific provider+model.
 // Pricing data flows exclusively from PricingCache -- never from the connector.
 type ModelPricing struct {
-	Provider                    ProviderName
-	ModelID                     string
-	InputCostPerMillion         float64 // USD per 1,000,000 input tokens
-	OutputCostPerMillion        float64 // USD per 1,000,000 output tokens
-	CacheReadCostPerMillion     float64 // USD per 1,000,000 cache-read tokens (0 → use 10% of input)
-	CacheCreationCostPerMillion float64 // USD per 1,000,000 cache-write tokens (0 → use 125% of input)
+	Provider                 ProviderName
+	ModelID                  string
+	InputCostPerMillion      float64 // USD per 1,000,000 input tokens
+	OutputCostPerMillion     float64 // USD per 1,000,000 output tokens
+	CacheReadCostPerMillion  float64 // USD per 1,000,000 cache-read tokens (0 → use 10% of input)
+	CacheWriteCostPerMillion float64 // USD per 1,000,000 cache-write tokens (0 → use 125% of input)
 }
 
 // EstimatedCostUSD returns the estimated total cost for the given token counts,
@@ -307,7 +307,7 @@ func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens, cacheRead
 	if cacheReadPrice == 0 {
 		cacheReadPrice = p.InputCostPerMillion * 0.10
 	}
-	cacheCreationPrice := p.CacheCreationCostPerMillion
+	cacheCreationPrice := p.CacheWriteCostPerMillion
 	if cacheCreationPrice == 0 {
 		cacheCreationPrice = p.InputCostPerMillion * 1.25
 	}

@@ -2,8 +2,12 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
+
+// errTestInternal is a sentinel used in tests to simulate unexpected repository errors.
+var errTestInternal = errors.New("internal test error")
 
 // Compile-time interface satisfaction check.
 var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
@@ -108,3 +112,52 @@ func (m *mockInferenceUsageRepository) ListPrincipalUsage(_ context.Context, _ A
 //
 //go:fix inline
 func strPtr(s string) *string { return new(s) }
+
+// f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
+func f64Ptr(f float64) *float64 { return &f }
+
+// ── mockPricingCatalogRepository ─────────────────────────────────────────────
+
+var _ PricingCatalogRepository = (*mockPricingCatalogRepository)(nil)
+
+type mockPricingCatalogRepository struct {
+	setOverrideErr   error
+	clearOverrideErr error
+	loadAllResult    []PricingCatalogEntry
+	loadAllErr       error
+	upsertSyncedErr  error
+
+	// captured args
+	lastSetProvider  ProviderName
+	lastSetModelID   string
+	lastSetInput     *float64
+	lastSetOutput    *float64
+	lastSetCacheRead *float64
+	lastSetCacheWrite *float64
+	lastClearProvider ProviderName
+	lastClearModelID  string
+}
+
+func (m *mockPricingCatalogRepository) UpsertSynced(_ context.Context, _ []ModelPriceEntry) error {
+	return m.upsertSyncedErr
+}
+
+func (m *mockPricingCatalogRepository) SetOverride(_ context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
+	m.lastSetProvider = provider
+	m.lastSetModelID = modelID
+	m.lastSetInput = input
+	m.lastSetOutput = output
+	m.lastSetCacheRead = cacheRead
+	m.lastSetCacheWrite = cacheWrite
+	return m.setOverrideErr
+}
+
+func (m *mockPricingCatalogRepository) ClearOverride(_ context.Context, provider ProviderName, modelID string) error {
+	m.lastClearProvider = provider
+	m.lastClearModelID = modelID
+	return m.clearOverrideErr
+}
+
+func (m *mockPricingCatalogRepository) LoadAll(_ context.Context) ([]PricingCatalogEntry, error) {
+	return m.loadAllResult, m.loadAllErr
+}

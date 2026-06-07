@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
@@ -82,7 +83,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-// initStorage initializes only PostgreSQL — the inference gateway does not use Redis.
+// initStorage initializes PostgreSQL. Redis is not used by the inference gateway yet.
 func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
 	cfg, err := storage.LoadStorageConfig()
 	if err != nil {
@@ -132,6 +133,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 	catalogRepo := inferencegw.NewPostgresCatalogRepository(db.Pool())
+	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
 	catalog := inferencegw.NewCatalogStore(catalogRepo, router)
 
 	// Load the virtual model catalog into the routing engine before accepting
@@ -161,12 +163,23 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	initScopeRegistration(ctx, logger, router)
 
-	svc := inferencegw.NewService(pol, router, inferencegw.NewNopPricingCache(), usageRepo, logger)
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, 5*time.Minute, logger)
+	go pricingCache.Start(ctx)
+
+	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
+		inferencegw.NewLiteLLMPricingSource(),
+		pricingCatalogRepo,
+		inferencegw.DefaultSyncInterval,
+		logger,
+	)
+	go pricingSyncWorker.Start(ctx)
+
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
-		inferencegw.NewCatalogController(catalog, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 
@@ -228,8 +241,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:read"},
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "PUT", RequiredScope: "platform:catalog:write"},
-		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"},
-		// GET /v1/analytics/me is personal — any authenticated caller may read
+		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"}, // GET /v1/analytics/me is personal — any authenticated caller may read
 		// their own analytics. Listed before /v1/analytics so the more-specific
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},

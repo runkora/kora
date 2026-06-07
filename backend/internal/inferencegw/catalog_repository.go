@@ -258,13 +258,12 @@ func (r *PostgresCatalogRepository) inTx(ctx context.Context, fn func(pgx.Tx) er
 func (r *PostgresCatalogRepository) insertRoutes(ctx context.Context, tx pgx.Tx, vmID string, routes []VirtualModelRoute) error {
 	const q = `
 		INSERT INTO virtual_model_routes
-			(id, virtual_model_id, provider, model_id, priority, weight, input_cost_per_1m, output_cost_per_1m, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+			(id, virtual_model_id, provider, model_id, priority, weight, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 	for _, route := range routes {
 		_, err := tx.Exec(ctx, q,
 			route.ID, vmID, string(route.Provider), route.ModelID,
 			route.Priority, route.Weight,
-			route.InputCostPer1M, route.OutputCostPer1M,
 			route.Enabled,
 		)
 		if err != nil {
@@ -281,7 +280,7 @@ func (r *PostgresCatalogRepository) getByID(ctx context.Context, q rowQuerier, i
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
 			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
-			rt.input_cost_per_1m, rt.output_cost_per_1m, rt.enabled
+			rt.enabled
 		FROM virtual_models vm
 		LEFT JOIN virtual_model_routes rt
 			ON rt.virtual_model_id = vm.id
@@ -297,7 +296,7 @@ func (r *PostgresCatalogRepository) listAll(ctx context.Context, q rowQuerier) (
 			vm.id, vm.family, vm.name, vm.display_name, vm.description,
 			vm.strategy, vm.enabled, vm.created_at, vm.updated_at,
 			rt.id, rt.provider, rt.model_id, rt.priority, rt.weight,
-			rt.input_cost_per_1m, rt.output_cost_per_1m, rt.enabled
+			rt.enabled
 		FROM virtual_models vm
 		LEFT JOIN virtual_model_routes rt
 			ON rt.virtual_model_id = vm.id
@@ -345,20 +344,18 @@ func (r *PostgresCatalogRepository) scanVirtualModelRows(ctx context.Context, q 
 			vm       VirtualModel
 			strategy string
 			// Route fields are nullable (LEFT JOIN — a model with no routes has NULLs).
-			rtID         *string
-			rtProvider   *string
-			rtModelID    *string
-			rtPriority   *int
-			rtWeight     *int
-			rtInputCost  *float64
-			rtOutputCost *float64
-			rtEnabled    *bool
+			rtID       *string
+			rtProvider *string
+			rtModelID  *string
+			rtPriority *int
+			rtWeight   *int
+			rtEnabled  *bool
 		)
 		if err := rows.Scan(
 			&vm.ID, &vm.Family, &vm.Name, &vm.DisplayName, &vm.Description,
 			&strategy, &vm.Enabled, &vm.CreatedAt, &vm.UpdatedAt,
 			&rtID, &rtProvider, &rtModelID, &rtPriority, &rtWeight,
-			&rtInputCost, &rtOutputCost, &rtEnabled,
+			&rtEnabled,
 		); err != nil {
 			return nil, fmt.Errorf("scan virtual model row: %w", err)
 		}
@@ -373,15 +370,13 @@ func (r *PostgresCatalogRepository) scanVirtualModelRows(ctx context.Context, q 
 
 		if rtID != nil {
 			existing.Routes = append(existing.Routes, VirtualModelRoute{
-				ID:              *rtID,
-				VirtualModelID:  vm.ID,
-				Provider:        ProviderName(*rtProvider),
-				ModelID:         *rtModelID,
-				Priority:        *rtPriority,
-				Weight:          *rtWeight,
-				InputCostPer1M:  *rtInputCost,
-				OutputCostPer1M: *rtOutputCost,
-				Enabled:         *rtEnabled,
+				ID:             *rtID,
+				VirtualModelID: vm.ID,
+				Provider:       ProviderName(*rtProvider),
+				ModelID:        *rtModelID,
+				Priority:       *rtPriority,
+				Weight:         *rtWeight,
+				Enabled:        *rtEnabled,
 			})
 		}
 	}

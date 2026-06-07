@@ -220,30 +220,35 @@ func (s *Service) ChatCompletion(
 	}
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
 
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:                   uuid.NewString(),
-		TenantID:             p.TenantID,
-		PrincipalID:          p.PrincipalID,
-		PrincipalType:        p.PrincipalType,
-		TokenID:              nullableText(p.TokenID),
-		APIDialect:           DialectOpenAI,
-		Provider:             &usedTarget.Provider,
-		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
-		ModelID:              usedTarget.ModelID,
-		ModelFamily:          nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:      &strategy,
-		PromptTokens:         promptTokens,
-		CompletionTokens:     completionTokens,
-		TotalTokens:          totalTokens,
-		CacheReadInputTokens: cacheReadTokens,
-		EstimatedCostUSD:     estimatedCost,
-		Status:               UsageStatusSuccess,
-		RetryCount:           retryCount,
-		LatencyMS:            latencyMS,
-		CreatedAt:            start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectOpenAI,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  totalTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -384,30 +389,35 @@ func (s *Service) ChatCompletionStream(
 
 		span.SetStatus(codes.Ok, "")
 
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:                   uuid.NewString(),
-			TenantID:             p.TenantID,
-			PrincipalID:          p.PrincipalID,
-			PrincipalType:        p.PrincipalType,
-			TokenID:              nullableText(p.TokenID),
-			APIDialect:           DialectOpenAI,
-			Provider:             &capturedTarget.Provider,
-			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
-			ModelID:              capturedTarget.ModelID,
-			ModelFamily:          nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:      &capturedStrategy,
-			PromptTokens:         promptTokens,
-			CompletionTokens:     completionTokens,
-			TotalTokens:          totalTokens,
-			CacheReadInputTokens: cacheReadTokens,
-			EstimatedCostUSD:     estimatedCost,
-			Status:               UsageStatusSuccess,
-			RetryCount:           streamRetryCount,
-			LatencyMS:            latencyMS,
-			CreatedAt:            start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectOpenAI,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 promptTokens,
+			CompletionTokens:             completionTokens,
+			TotalTokens:                  totalTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -668,6 +678,48 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 	}, nil
 }
 
+// resolvedPricing holds the effective costs and price_unknown flag for a single
+// inference request. It is the output of resolvePricing and written directly
+// onto the InferenceUsageRecord.
+type resolvedPricing struct {
+	inputCostPer1M      float64
+	outputCostPer1M     float64
+	cacheReadCostPer1M  float64
+	cacheWriteCostPer1M float64
+	priceUnknown        bool
+}
+
+// resolvePricing looks up the effective price for a provider+model pair from
+// the PricingCache. When the model is not in the catalog it returns
+// priceUnknown=true and all-zero costs.
+func (s *Service) resolvePricing(provider ProviderName, modelID string) resolvedPricing {
+	p, ok := s.pricing.Price(provider, modelID)
+	if !ok {
+		return resolvedPricing{priceUnknown: true}
+	}
+	return resolvedPricing{
+		inputCostPer1M:      p.InputCostPerMillion,
+		outputCostPer1M:     p.OutputCostPerMillion,
+		cacheReadCostPer1M:  p.CacheReadCostPerMillion,
+		cacheWriteCostPer1M: p.CacheWriteCostPerMillion,
+	}
+}
+
+// estimatedCostUSD computes the USD cost from token counts and resolved prices,
+// applying industry-standard cache fallbacks when explicit cache prices are zero.
+func (rp resolvedPricing) estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens int) float64 {
+	if rp.priceUnknown {
+		return 0
+	}
+	m := ModelPricing{
+		InputCostPerMillion:      rp.inputCostPer1M,
+		OutputCostPerMillion:     rp.outputCostPer1M,
+		CacheReadCostPerMillion:  rp.cacheReadCostPer1M,
+		CacheWriteCostPerMillion: rp.cacheWriteCostPer1M,
+	}
+	return m.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens)
+}
+
 func (s *Service) writeFailedUsage(
 	ctx context.Context,
 	p principal,
@@ -901,29 +953,34 @@ func (s *Service) Embeddings(
 	}
 
 	promptTokens := int(resp.Usage.PromptTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, 0, 0, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, 0, 0, 0)
 
 	rec := InferenceUsageRecord{
-		ID:               uuid.NewString(),
-		TenantID:         p.TenantID,
-		PrincipalID:      p.PrincipalID,
-		PrincipalType:    p.PrincipalType,
-		TokenID:          nullableText(p.TokenID),
-		APIDialect:       DialectOpenAI,
-		Provider:         &usedTarget.Provider,
-		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
-		ModelID:          usedTarget.ModelID,
-		ModelFamily:      nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:  &strategy,
-		PromptTokens:     promptTokens,
-		CompletionTokens: 0,
-		TotalTokens:      promptTokens,
-		EstimatedCostUSD: estimatedCost,
-		Status:           UsageStatusSuccess,
-		RetryCount:       retryCount,
-		LatencyMS:        latencyMS,
-		CreatedAt:        start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectOpenAI,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             0,
+		TotalTokens:                  promptTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -1007,30 +1064,35 @@ func (s *Service) Responses(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:                   uuid.NewString(),
-		TenantID:             p.TenantID,
-		PrincipalID:          p.PrincipalID,
-		PrincipalType:        p.PrincipalType,
-		TokenID:              nullableText(p.TokenID),
-		APIDialect:           DialectResponses,
-		Provider:             &usedTarget.Provider,
-		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
-		ModelID:              usedTarget.ModelID,
-		ModelFamily:          nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:      &strategy,
-		PromptTokens:         promptTokens,
-		CompletionTokens:     completionTokens,
-		TotalTokens:          totalTokens,
-		CacheReadInputTokens: cacheReadTokens,
-		EstimatedCostUSD:     estimatedCost,
-		Status:               UsageStatusSuccess,
-		RetryCount:           retryCount,
-		LatencyMS:            latencyMS,
-		CreatedAt:            start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectResponses,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  totalTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -1136,30 +1198,35 @@ func (s *Service) ResponsesStream(
 		span.SetStatus(codes.Ok, "")
 
 		totalTokens := inputTokens + outputTokens
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:                   uuid.NewString(),
-			TenantID:             p.TenantID,
-			PrincipalID:          p.PrincipalID,
-			PrincipalType:        p.PrincipalType,
-			TokenID:              nullableText(p.TokenID),
-			APIDialect:           DialectResponses,
-			Provider:             &capturedTarget.Provider,
-			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
-			ModelID:              capturedTarget.ModelID,
-			ModelFamily:          nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:      &capturedStrategy,
-			PromptTokens:         inputTokens,
-			CompletionTokens:     outputTokens,
-			TotalTokens:          totalTokens,
-			CacheReadInputTokens: cacheReadTokens,
-			EstimatedCostUSD:     estimatedCost,
-			Status:               UsageStatusSuccess,
-			RetryCount:           streamRetryCount,
-			LatencyMS:            latencyMS,
-			CreatedAt:            start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectResponses,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 inputTokens,
+			CompletionTokens:             outputTokens,
+			TotalTokens:                  totalTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
@@ -1322,31 +1389,36 @@ func (s *Service) AnthropicMessages(
 	completionTokens := int(msg.Usage.OutputTokens)
 	cacheReadTokens := int(msg.Usage.CacheReadInputTokens)
 	cacheCreationTokens := int(msg.Usage.CacheCreationInputTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
-		ID:                       uuid.NewString(),
-		TenantID:                 p.TenantID,
-		PrincipalID:              p.PrincipalID,
-		PrincipalType:            p.PrincipalType,
-		TokenID:                  nullableText(p.TokenID),
-		APIDialect:               DialectAnthropic,
-		Provider:                 &usedTarget.Provider,
-		VirtualModelID:           nullableText(usedTarget.VirtualModelID),
-		ModelID:                  usedTarget.ModelID,
-		ModelFamily:              nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:          &strategy,
-		PromptTokens:             promptTokens,
-		CompletionTokens:         completionTokens,
-		TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
-		CacheReadInputTokens:     cacheReadTokens,
-		CacheCreationInputTokens: cacheCreationTokens,
-		EstimatedCostUSD:         estimatedCost,
-		Status:                   UsageStatusSuccess,
-		RetryCount:               retryCount,
-		LatencyMS:                latencyMS,
-		CreatedAt:                start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectAnthropic,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
 	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
@@ -1468,31 +1540,36 @@ func (s *Service) AnthropicMessagesStream(
 		completionTokens := int(accumulated.Usage.OutputTokens)
 		cacheReadTokens := int(accumulated.Usage.CacheReadInputTokens)
 		cacheCreationTokens := int(accumulated.Usage.CacheCreationInputTokens)
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
-			ID:                       uuid.NewString(),
-			TenantID:                 p.TenantID,
-			PrincipalID:              p.PrincipalID,
-			PrincipalType:            p.PrincipalType,
-			TokenID:                  nullableText(p.TokenID),
-			APIDialect:               DialectAnthropic,
-			Provider:                 &capturedTarget.Provider,
-			VirtualModelID:           nullableText(capturedTarget.VirtualModelID),
-			ModelID:                  capturedTarget.ModelID,
-			ModelFamily:              nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:          &capturedStrategy,
-			PromptTokens:             promptTokens,
-			CompletionTokens:         completionTokens,
-			TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
-			CacheReadInputTokens:     cacheReadTokens,
-			CacheCreationInputTokens: cacheCreationTokens,
-			EstimatedCostUSD:         estimatedCost,
-			Status:                   UsageStatusSuccess,
-			RetryCount:               streamRetryCount,
-			LatencyMS:                latencyMS,
-			CreatedAt:                start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectAnthropic,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 promptTokens,
+			CompletionTokens:             completionTokens,
+			TotalTokens:                  promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
 		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {

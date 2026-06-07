@@ -120,16 +120,6 @@ func TestValidateVirtualModelRequest_RouteValidation(t *testing.T) {
 			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, Weight: -1},
 			wantMsg: "route[0].weight must be between 0 and 100",
 		},
-		{
-			name:    "input cost negative",
-			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, InputCostPer1M: -0.01},
-			wantMsg: "route[0].input_cost_per_1m must be non-negative",
-		},
-		{
-			name:    "output cost negative",
-			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, OutputCostPer1M: -1},
-			wantMsg: "route[0].output_cost_per_1m must be non-negative",
-		},
 	}
 
 	for _, tc := range cases {
@@ -254,14 +244,12 @@ func TestToVirtualModelRoutes_MapsFields(t *testing.T) {
 	vmID := "vm-123"
 	inputs := []routeInput{
 		{
-			ID:              "route-1",
-			Provider:        "bedrock",
-			ModelID:         "us.anthropic.claude-sonnet-4-6-v1:0",
-			Priority:        1,
-			Weight:          60,
-			InputCostPer1M:  3.0,
-			OutputCostPer1M: 15.0,
-			Enabled:         true,
+			ID:       "route-1",
+			Provider: "bedrock",
+			ModelID:  "us.anthropic.claude-sonnet-4-6-v1:0",
+			Priority: 1,
+			Weight:   60,
+			Enabled:  true,
 		},
 		{
 			ID:       "",
@@ -288,9 +276,6 @@ func TestToVirtualModelRoutes_MapsFields(t *testing.T) {
 	}
 	if r0.Provider != ProviderBedrock {
 		t.Errorf("Provider = %q, want bedrock", r0.Provider)
-	}
-	if r0.InputCostPer1M != 3.0 {
-		t.Errorf("InputCostPer1M = %v, want 3.0", r0.InputCostPer1M)
 	}
 	if !r0.Enabled {
 		t.Error("Enabled should be true for route 0")

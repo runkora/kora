@@ -88,29 +88,34 @@ const (
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID                       string           `json:"id"`
-	TenantID                 string           `json:"tenant_id"`
-	PrincipalID              string           `json:"principal_id"`
-	PrincipalType            string           `json:"principal_type"`
-	TokenID                  *string          `json:"token_id"`
-	APIDialect               APIDialect       `json:"api_dialect"`
-	Provider                 *ProviderName    `json:"provider"`
-	VirtualModelID           *string          `json:"virtual_model_id"` // consumer-facing "{family}/{name}"; NULL for pre-migration rows
-	ModelID                  string           `json:"model_id"`
-	ModelFamily              *string          `json:"model_family"`
-	RoutingStrategy          *RoutingStrategy `json:"routing_strategy"`
-	PromptTokens             int              `json:"prompt_tokens"`
-	CompletionTokens         int              `json:"completion_tokens"`
-	TotalTokens              int              `json:"total_tokens"`
-	CacheReadInputTokens     int              `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int              `json:"cache_creation_input_tokens"`
-	EstimatedCostUSD         float64          `json:"estimated_cost_usd"`
-	Status                   UsageStatus      `json:"status"`
-	RetryCount               int              `json:"retry_count"`
-	ErrorCode                *string          `json:"error_code"`
-	FailureDetails           *FailureDetails  `json:"failure_details"`
-	LatencyMS                int              `json:"latency_ms"`
-	CreatedAt                time.Time        `json:"created_at"`
+	ID                           string           `json:"id"`
+	TenantID                     string           `json:"tenant_id"`
+	PrincipalID                  string           `json:"principal_id"`
+	PrincipalType                string           `json:"principal_type"`
+	TokenID                      *string          `json:"token_id"`
+	APIDialect                   APIDialect       `json:"api_dialect"`
+	Provider                     *ProviderName    `json:"provider"`
+	VirtualModelID               *string          `json:"virtual_model_id"` // consumer-facing "{family}/{name}"; NULL for pre-migration rows
+	ModelID                      string           `json:"model_id"`
+	ModelFamily                  *string          `json:"model_family"`
+	RoutingStrategy              *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens                 int              `json:"prompt_tokens"`
+	CompletionTokens             int              `json:"completion_tokens"`
+	TotalTokens                  int              `json:"total_tokens"`
+	CacheReadInputTokens         int              `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens     int              `json:"cache_creation_input_tokens"`
+	EstimatedCostUSD             float64          `json:"estimated_cost_usd"`
+	PriceUnknown                 bool             `json:"price_unknown"`
+	EffectiveInputCostPer1M      float64          `json:"effective_input_cost_per_1m"`
+	EffectiveOutputCostPer1M     float64          `json:"effective_output_cost_per_1m"`
+	EffectiveCacheReadCostPer1M  float64          `json:"effective_cache_read_cost_per_1m"`
+	EffectiveCacheWriteCostPer1M float64          `json:"effective_cache_write_cost_per_1m"`
+	Status                       UsageStatus      `json:"status"`
+	RetryCount                   int              `json:"retry_count"`
+	ErrorCode                    *string          `json:"error_code"`
+	FailureDetails               *FailureDetails  `json:"failure_details"`
+	LatencyMS                    int              `json:"latency_ms"`
+	CreatedAt                    time.Time        `json:"created_at"`
 }
 
 // FailureDetails holds structured provider error context for non-success
@@ -272,4 +277,5 @@ var (
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")
 	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
+	ErrModelPricingNotFound  = errors.New("model pricing not found")
 )
