@@ -1,10 +1,28 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Badge, DataTable, Stack, Text, Toggle } from '@orbit/terra';
+import {
+  Alert,
+  Badge,
+  Button,
+  DataTable,
+  Icon,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Stack,
+  Text,
+  Toggle,
+} from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import type { ProviderModel } from '../_types/catalog';
+import { fmtCost, fmtDate } from '@orbit/utils';
+import { ApiRoute } from '@orbit/lib/routing';
+import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 const PROVIDER_OPTIONS = [
   { value: 'bedrock', label: 'AWS Bedrock' },
@@ -20,6 +38,8 @@ const STATUS_OPTIONS = [
 interface ProviderCatalogSectionProps {
   models: ProviderModel[];
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function providerModelMatchesSearch(m: ProviderModel, q: string): boolean {
   return (
@@ -47,8 +67,319 @@ function Chips({ values }: { values: string[] }) {
   );
 }
 
+function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
+  if (!pricing) {
+    return (
+      <Stack direction="horizontal" align="center" gap="tight">
+        <Icon name="alert-circle" size="2xs" color="status-degraded" />
+        <Text size="caption" color="muted">
+          Unknown
+        </Text>
+      </Stack>
+    );
+  }
+  const source = pricing.has_override ? 'override' : 'synced';
+  return (
+    <Stack gap="none">
+      <Stack direction="horizontal" align="center" gap="tight">
+        <Text size="supporting" mono color="foreground">
+          {fmtCost(pricing.effective_input_cost_per_1m)}/1M
+        </Text>
+        <Badge variant={source === 'override' ? 'secondary' : 'outline'} size="sm">
+          {source}
+        </Badge>
+      </Stack>
+      <Text size="caption" color="muted" mono>
+        out: {fmtCost(pricing.effective_output_cost_per_1m)}/1M
+      </Text>
+    </Stack>
+  );
+}
+
+// ── Detail overlay ────────────────────────────────────────────────────────────
+
+interface PricingOverlayProps {
+  model: ProviderModel;
+  open: boolean;
+  onClose: () => void;
+  onModelChange: (m: ProviderModel) => void;
+  onToggleEnabled: (provider: string, modelId: string, enabled: boolean) => Promise<void>;
+}
+
+function PricingOverlay({
+  model,
+  open,
+  onClose,
+  onModelChange,
+  onToggleEnabled,
+}: PricingOverlayProps) {
+  const [inputOverride, setInputOverride] = useState(
+    model.pricing?.override_input_cost_per_1m != null
+      ? String(model.pricing.override_input_cost_per_1m)
+      : '',
+  );
+  const [outputOverride, setOutputOverride] = useState(
+    model.pricing?.override_output_cost_per_1m != null
+      ? String(model.pricing.override_output_cost_per_1m)
+      : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSaveOverride = useCallback(async () => {
+    const inp = inputOverride.trim() !== '' ? parseFloat(inputOverride) : undefined;
+    const out = outputOverride.trim() !== '' ? parseFloat(outputOverride) : undefined;
+
+    if ((inp !== undefined && isNaN(inp)) || (out !== undefined && isNaN(out))) {
+      setError('Override prices must be valid numbers.');
+      return;
+    }
+    if (inp === undefined && out === undefined) {
+      setError('At least one override price field is required.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const body: Record<string, number> = {};
+      if (inp !== undefined) body.input_cost_per_1m = inp;
+      if (out !== undefined) body.output_cost_per_1m = out;
+
+      const res = await fetch(ApiRoute.catalogPricingOverride.PUT(model.provider, model.modelId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(b.message ?? `Request failed (${res.status})`);
+      }
+      onModelChange({
+        ...model,
+        pricing: model.pricing
+          ? {
+              ...model.pricing,
+              override_input_cost_per_1m: inp ?? model.pricing.override_input_cost_per_1m,
+              override_output_cost_per_1m: out ?? model.pricing.override_output_cost_per_1m,
+              effective_input_cost_per_1m: inp ?? model.pricing.effective_input_cost_per_1m,
+              effective_output_cost_per_1m: out ?? model.pricing.effective_output_cost_per_1m,
+              has_override: true,
+            }
+          : undefined,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save override.');
+    } finally {
+      setSaving(false);
+    }
+  }, [inputOverride, outputOverride, model, onModelChange, onClose]);
+
+  const handleClearOverride = useCallback(async () => {
+    setClearing(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        ApiRoute.catalogPricingOverride.DELETE(model.provider, model.modelId),
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(b.message ?? `Request failed (${res.status})`);
+      }
+      setInputOverride('');
+      setOutputOverride('');
+      onModelChange({
+        ...model,
+        pricing: model.pricing
+          ? {
+              ...model.pricing,
+              override_input_cost_per_1m: null,
+              override_output_cost_per_1m: null,
+              override_cache_read_cost_per_1m: null,
+              override_cache_write_cost_per_1m: null,
+              effective_input_cost_per_1m: model.pricing.synced_input_cost_per_1m,
+              effective_output_cost_per_1m: model.pricing.synced_output_cost_per_1m,
+              has_override: false,
+            }
+          : undefined,
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear override.');
+    } finally {
+      setClearing(false);
+    }
+  }, [model, onModelChange, onClose]);
+
+  const p = model.pricing;
+
+  return (
+    <Modal open={open} onClose={onClose} size="sm">
+      <ModalHeader title={model.displayName || model.modelId} />
+      <ModalBody>
+        <Stack gap="comfortable">
+          {/* Read-only metadata */}
+          <Stack gap="snug">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="supporting" color="muted">
+                Provider
+              </Text>
+              <ProviderBadge provider={model.provider} />
+            </Stack>
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="supporting" color="muted">
+                Model ID
+              </Text>
+              <Text size="supporting" mono>
+                {model.modelId}
+              </Text>
+            </Stack>
+            {model.family && (
+              <Stack direction="horizontal" align="center" justify="between">
+                <Text size="supporting" color="muted">
+                  Family
+                </Text>
+                <Text size="supporting" mono>
+                  {model.family}
+                </Text>
+              </Stack>
+            )}
+            {model.capabilities.length > 0 && (
+              <Stack direction="horizontal" align="center" justify="between">
+                <Text size="supporting" color="muted">
+                  Capabilities
+                </Text>
+                <Chips values={model.capabilities} />
+              </Stack>
+            )}
+          </Stack>
+
+          {/* Pricing metadata */}
+          {p ? (
+            <Stack gap="snug">
+              <Stack direction="horizontal" align="center" justify="between">
+                <Text size="supporting" color="muted">
+                  Last synced
+                </Text>
+                <Text size="supporting" color="muted">
+                  {fmtDate(p.last_synced_at)}
+                </Text>
+              </Stack>
+              <Stack direction="horizontal" align="center" justify="between">
+                <Text size="supporting" color="muted">
+                  Synced input /1M
+                </Text>
+                <Text size="supporting" mono>
+                  {fmtCost(p.synced_input_cost_per_1m)}
+                </Text>
+              </Stack>
+              <Stack direction="horizontal" align="center" justify="between">
+                <Text size="supporting" color="muted">
+                  Synced output /1M
+                </Text>
+                <Text size="supporting" mono>
+                  {fmtCost(p.synced_output_cost_per_1m)}
+                </Text>
+              </Stack>
+            </Stack>
+          ) : (
+            <Alert variant="warning">
+              <Icon name="alert-circle" size="2xs" color="status-degraded" />
+              <Text size="caption" color="muted">
+                No pricing data available. Set an override to enable cost tracking for this model.
+              </Text>
+            </Alert>
+          )}
+
+          {/* Override inputs */}
+          <Stack gap="snug">
+            <Text size="supporting" weight="emphasis">
+              Price overrides
+            </Text>
+            <Stack gap="snug">
+              <Text size="caption" color="muted">
+                Input /1M tokens (USD)
+              </Text>
+              <Input
+                type="number"
+                value={inputOverride}
+                onChange={(e) => setInputOverride(e.target.value)}
+                placeholder={p ? String(p.synced_input_cost_per_1m) : '0.00'}
+                min="0"
+                step="0.01"
+                disabled={saving || clearing}
+              />
+            </Stack>
+            <Stack gap="snug">
+              <Text size="caption" color="muted">
+                Output /1M tokens (USD)
+              </Text>
+              <Input
+                type="number"
+                value={outputOverride}
+                onChange={(e) => setOutputOverride(e.target.value)}
+                placeholder={p ? String(p.synced_output_cost_per_1m) : '0.00'}
+                min="0"
+                step="0.01"
+                disabled={saving || clearing}
+              />
+            </Stack>
+            {error && <Alert variant="error">{error}</Alert>}
+          </Stack>
+
+          {/* Enable/disable toggle */}
+          <Stack direction="horizontal" align="center" justify="between">
+            <Text size="supporting" color="muted">
+              Enabled
+            </Text>
+            <Toggle
+              checked={model.enabled}
+              onChange={(v) => void onToggleEnabled(model.provider, model.modelId, v)}
+            />
+          </Stack>
+        </Stack>
+      </ModalBody>
+      <ModalFooter>
+        <Stack direction="horizontal" gap="snug" justify="between" grow>
+          {p?.has_override ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleClearOverride()}
+              disabled={clearing || saving}
+            >
+              {clearing ? 'Clearing…' : 'Clear override'}
+            </Button>
+          ) : (
+            <Stack />
+          )}
+          <Stack direction="horizontal" gap="snug">
+            <Button variant="outline" size="sm" onClick={onClose} disabled={saving || clearing}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => void handleSaveOverride()}
+              disabled={saving || clearing}
+            >
+              {saving ? 'Saving…' : 'Save override'}
+            </Button>
+          </Stack>
+        </Stack>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function ProviderCatalogSection({ models: initialModels }: ProviderCatalogSectionProps) {
   const [localModels, setLocalModels] = useState(initialModels);
+  const [detailModel, setDetailModel] = useState<ProviderModel | null>(null);
 
   const toggle = useCallback(async (provider: string, modelId: string, enabled: boolean) => {
     setLocalModels((prev) =>
@@ -77,6 +408,15 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         ),
       );
     }
+  }, []);
+
+  const handleModelChange = useCallback((updated: ProviderModel) => {
+    setLocalModels((prev) =>
+      prev.map((m) =>
+        m.provider === updated.provider && m.modelId === updated.modelId ? updated : m,
+      ),
+    );
+    setDetailModel(updated);
   }, []);
 
   const columns = useMemo<DataTableColumn<ProviderModel>[]>(
@@ -124,6 +464,13 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
         ),
       },
       {
+        id: 'effectivePrice',
+        header: 'Effective Price',
+        sortable: true,
+        sortAccessor: (m) => m.pricing?.effective_input_cost_per_1m ?? -1,
+        cell: (m) => <EffectivePriceCell pricing={m.pricing} />,
+      },
+      {
         id: 'capabilities',
         header: 'Capabilities',
         cell: (m) => <Chips values={m.capabilities} />,
@@ -156,7 +503,12 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
           filterFn: (m, selected) => selected.has(m.enabled ? 'enabled' : 'disabled'),
         },
         cell: (m) => (
-          <Toggle checked={m.enabled} onChange={(v) => void toggle(m.provider, m.modelId, v)} />
+          <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <Toggle
+              checked={m.enabled}
+              onChange={(v) => void toggle(m.provider, m.modelId, v)}
+            />
+          </Stack>
         ),
       },
     ],
@@ -164,17 +516,30 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
   );
 
   return (
-    <DataTable
-      data={localModels}
-      columns={columns}
-      getRowKey={(m) => `${m.provider}/${m.modelId}`}
-      noun="provider models"
-      searchPlaceholder="Search models…"
-      searchFn={providerModelMatchesSearch}
-      defaultSortId="modelId"
-      defaultSortDir="asc"
-      emptyMessage="No provider models discovered yet."
-      filteredEmptyMessage="No provider models match your filters."
-    />
+    <>
+      <DataTable
+        data={localModels}
+        columns={columns}
+        getRowKey={(m) => `${m.provider}/${m.modelId}`}
+        noun="provider models"
+        searchPlaceholder="Search models…"
+        searchFn={providerModelMatchesSearch}
+        defaultSortId="modelId"
+        defaultSortDir="asc"
+        emptyMessage="No provider models discovered yet."
+        filteredEmptyMessage="No provider models match your filters."
+        onRowClick={setDetailModel}
+      />
+
+      {detailModel && (
+        <PricingOverlay
+          model={detailModel}
+          open
+          onClose={() => setDetailModel(null)}
+          onModelChange={handleModelChange}
+          onToggleEnabled={toggle}
+        />
+      )}
+    </>
   );
 }

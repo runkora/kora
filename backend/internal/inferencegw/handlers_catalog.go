@@ -28,6 +28,9 @@ import (
 //	GET    /provider-models             list discovered provider models with override status
 //	POST   /provider-models/refresh     trigger a live provider model discovery sweep
 //	PUT    /provider-models/{provider}/{modelId}  enable or disable a provider model
+//	GET    /pricing                     list all model_pricing rows with synced/override/effective columns
+//	PUT    /pricing/{provider}/{modelId}/override  set one or more pricing override columns
+//	DELETE /pricing/{provider}/{modelId}/override  clear all pricing overrides (revert to synced)
 type CatalogController struct {
 	store          *CatalogStore
 	pricingCatalog PricingCatalogRepository
@@ -68,6 +71,7 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("GET /provider-models", c.handleListProviderModels)
 	mux.Handle("POST /provider-models/refresh", c.handleRefreshProviderModels)
 	mux.Handle("PUT /provider-models/{provider}/{modelId}", c.handleSetProviderModelEnabled)
+	mux.Handle("GET /pricing", c.handleListPricing)
 	mux.Handle("PUT /pricing/{provider}/{modelId}/override", c.handleSetPricingOverride)
 	mux.Handle("DELETE /pricing/{provider}/{modelId}/override", c.handleClearPricingOverride)
 }
@@ -473,7 +477,62 @@ func validateRouteInput(i int, r routeInput) error {
 	return nil
 }
 
-// ─── Pricing override handlers ────────────────────────────────────────────────
+// ─── Pricing handlers ─────────────────────────────────────────────────────────
+
+type pricingEntryJSON struct {
+	Provider           string   `json:"provider"`
+	ModelID            string   `json:"model_id"`
+	SyncedInput        float64  `json:"synced_input_cost_per_1m"`
+	SyncedOutput       float64  `json:"synced_output_cost_per_1m"`
+	SyncedCacheRead    float64  `json:"synced_cache_read_cost_per_1m"`
+	SyncedCacheWrite   float64  `json:"synced_cache_write_cost_per_1m"`
+	OverrideInput      *float64 `json:"override_input_cost_per_1m"`
+	OverrideOutput     *float64 `json:"override_output_cost_per_1m"`
+	OverrideCacheRead  *float64 `json:"override_cache_read_cost_per_1m"`
+	OverrideCacheWrite *float64 `json:"override_cache_write_cost_per_1m"`
+	EffectiveInput     float64  `json:"effective_input_cost_per_1m"`
+	EffectiveOutput    float64  `json:"effective_output_cost_per_1m"`
+	HasOverride        bool     `json:"has_override"`
+	LastSyncedAt       string   `json:"last_synced_at"` // RFC3339
+}
+
+// handleListPricing returns the full model_pricing table for platform admins.
+// Each entry exposes both synced and override columns alongside computed
+// effective prices so the frontend can display accurate pricing data without
+// additional joins.
+func (c *CatalogController) handleListPricing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	entries, err := c.pricingCatalog.LoadAll(ctx)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to load pricing catalog", nil), err)
+		return
+	}
+
+	items := make([]pricingEntryJSON, len(entries))
+	for i, e := range entries {
+		hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
+			e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
+		items[i] = pricingEntryJSON{
+			Provider:           string(e.Provider),
+			ModelID:            e.ModelID,
+			SyncedInput:        e.SyncedInput,
+			SyncedOutput:       e.SyncedOutput,
+			SyncedCacheRead:    e.SyncedCacheRead,
+			SyncedCacheWrite:   e.SyncedCacheWrite,
+			OverrideInput:      e.OverrideInput,
+			OverrideOutput:     e.OverrideOutput,
+			OverrideCacheRead:  e.OverrideCacheRead,
+			OverrideCacheWrite: e.OverrideCacheWrite,
+			EffectiveInput:     e.EffectiveInput(),
+			EffectiveOutput:    e.EffectiveOutput(),
+			HasOverride:        hasOverride,
+			LastSyncedAt:       e.LastSyncedAt.UTC().Format(time.RFC3339),
+		}
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
+}
 
 type setPricingOverrideRequest struct {
 	InputCostPer1M      *float64 `json:"input_cost_per_1m"`

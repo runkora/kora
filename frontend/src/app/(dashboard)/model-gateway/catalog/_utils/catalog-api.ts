@@ -40,6 +40,7 @@ export function toProviderModel(m: ApiProviderModel): ProviderModel {
     outputModalities: m.output_modalities ?? [],
     dialects: m.dialects ?? [],
     enabled: m.enabled,
+    pricing: m.pricing,
   };
 }
 

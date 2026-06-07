@@ -302,6 +302,35 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/catalog/pricing`
+   *
+   * GET — returns all model_pricing rows with synced, override, and effective
+   *       price columns. Requires `platform:catalog:read` scope.
+   */
+  catalogPricing: {
+    GET: (): `${typeof API_BASE}/catalog/pricing` => `${API_BASE}/catalog/pricing`,
+  },
+
+  /**
+   * `/api/catalog/pricing/[provider]/[modelId]/override`
+   *
+   * PUT    — set one or more pricing override columns for a provider/model pair.
+   * DELETE — clear all pricing overrides (revert to synced prices).
+   */
+  catalogPricingOverride: {
+    PUT: (
+      provider: string,
+      modelId: string,
+    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
+      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+    DELETE: (
+      provider: string,
+      modelId: string,
+    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
+      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+  },
+
+  /**
    * `/api/quotas/groups`
    *
    * GET  — list all quota groups for the caller's tenant.
@@ -370,6 +399,9 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
   | ReturnType<(typeof ApiRoute)['usageQuota']['GET']>
+  | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
+  | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>
+  | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['DELETE']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['list']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['create']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['detail']>
