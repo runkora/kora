@@ -102,6 +102,8 @@ func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "totally-unknown-model")
@@ -122,6 +124,8 @@ func TestCheckModelPolicy_VirtualModelAllowed(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
@@ -140,6 +144,8 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 		&stubEvaluator{checkAllow: &deny},
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
+		nil,
 		nil,
 		nil,
 	)
@@ -180,6 +186,8 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	targets := []RouteTarget{
@@ -217,6 +225,8 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{}}, // nothing allowed
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
+		nil,
 		nil,
 		nil,
 	)

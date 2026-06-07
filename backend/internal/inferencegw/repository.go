@@ -42,6 +42,11 @@ type InferenceUsageRepository interface {
 	// estimated cost descending, with offset-based pagination.
 	// filter.TenantID must be non-empty.
 	ListPrincipalUsage(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error)
+
+	// GetMonthlySpend returns the sum of estimated_cost_usd for the given principal
+	// within the calendar month that contains the provided time value.
+	// Returns 0.0 with no error when no records exist for the period.
+	GetMonthlySpend(ctx context.Context, tenantID, principalID string, month time.Time) (float64, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -617,6 +622,23 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		Page:  page,
 		Limit: limit,
 	}, nil
+}
+
+// GetMonthlySpend returns the total estimated_cost_usd for a principal within
+// the calendar month containing the provided time value.
+func (r *PostgresInferenceUsageRepository) GetMonthlySpend(ctx context.Context, tenantID, principalID string, month time.Time) (float64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND principal_id = $2
+		  AND date_trunc('month', created_at) = date_trunc('month', $3::timestamptz)`
+
+	var total float64
+	if err := r.pool.QueryRow(ctx, q, tenantID, principalID, month.UTC()).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get monthly spend: %w", err)
+	}
+	return total, nil
 }
 
 // granularityToTrunc maps the analytics granularity parameter to the

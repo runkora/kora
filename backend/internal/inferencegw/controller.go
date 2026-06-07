@@ -87,6 +87,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /responses", c.handleResponses)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
+	mux.Handle("GET /usage/quota", c.handleGetPersonalQuota)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)
@@ -121,6 +122,8 @@ func inferenceErrorResponse(err error) *api.APIError {
 	switch {
 	case errors.Is(err, ErrTokenParseFailed):
 		return api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil)
+	case errors.Is(err, ErrBudgetExceeded):
+		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: "monthly budget exceeded", StatusCode: 429}
 	case errors.Is(err, ErrPolicyDenied):
 		return api.ForbiddenError("policy_denied", "access denied by policy", nil)
 	case errors.Is(err, ErrProviderNotConfigured):

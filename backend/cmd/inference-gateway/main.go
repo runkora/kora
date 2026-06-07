@@ -38,15 +38,16 @@ func main() {
 	logger := initLogger()
 	logger.Info(ctx, "Inference gateway starting", logging.Field{Key: "version", Value: igc.Current.App.Version})
 
-	db, err := initStorage(ctx, logger)
+	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1) //nolint:gocritic
 	}
 	defer db.Close()
+	defer redis.Close()
 
-	server, err := initServer(ctx, logger, db)
+	server, err := initServer(ctx, logger, db, redis)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
 		shutdownObservability()
@@ -83,23 +84,30 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-// initStorage initializes PostgreSQL. Redis is not used by the inference gateway yet.
-func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
+// initStorage initializes PostgreSQL and Redis.
+func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *storage.RedisClient, error) {
 	cfg, err := storage.LoadStorageConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	db, err := storage.New(ctx, &cfg.Postgres, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	logger.Info(ctx, "Database initialized successfully")
 
-	return db, nil
+	rc, err := storage.NewRedis(ctx, &cfg.Redis, logger)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+
+	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB) ([]api.Controller, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────
 	// Register factories for every supported provider. Each factory reads its
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
@@ -174,12 +182,16 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	)
 	go pricingSyncWorker.Start(ctx)
 
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, logger)
+	quotaRepo := inferencegw.NewPostgresQuotaRepository(db.Pool())
+	quotaCache := inferencegw.NewQuotaCache(quotaRepo, 60*time.Second)
+	quotaCounter := inferencegw.NewRedisQuotaCounter(redis, usageRepo, logger)
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, quotaCache, quotaCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewQuotasController(quotaRepo, quotaCounter, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 
@@ -241,12 +253,20 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:read"},
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
 		{PathPrefix: "/v1/catalog", Method: "PUT", RequiredScope: "platform:catalog:write"},
-		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"}, // GET /v1/analytics/me is personal — any authenticated caller may read
+		{PathPrefix: "/v1/catalog", Method: "DELETE", RequiredScope: "platform:catalog:write"},
+		// GET /v1/analytics/me is personal — any authenticated caller may read
 		// their own analytics. Listed before /v1/analytics so the more-specific
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
+		// GET /v1/usage/quota is personal — any authenticated caller may check
+		// their own quota. Listed before /v1/usage so the more-specific path wins.
+		{PathPrefix: "/v1/usage/quota", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/v1/quotas", Method: "GET", RequiredScope: "platform:quotas:read"},
+		{PathPrefix: "/v1/quotas", Method: "POST", RequiredScope: "platform:quotas:write"},
+		{PathPrefix: "/v1/quotas", Method: "PUT", RequiredScope: "platform:quotas:write"},
+		{PathPrefix: "/v1/quotas", Method: "DELETE", RequiredScope: "platform:quotas:write"},
 	}
 }
 
@@ -261,6 +281,8 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},
+		{Scope: "platform:quotas:read", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "read", Description: "Read tenant budget quotas"},
+		{Scope: "platform:quotas:write", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "write", Description: "Manage tenant budget quotas and group memberships"},
 	}
 	for _, cs := range catalogScopes {
 		decls = append(decls, routescopes.ScopeDeclaration{
@@ -274,10 +296,10 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, err := initControllers(ctx, logger, db)
+	controllers, err := initControllers(ctx, logger, db, redis)
 	if err != nil {
 		return nil, err
 	}

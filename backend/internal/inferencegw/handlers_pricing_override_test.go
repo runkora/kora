@@ -58,10 +58,10 @@ func TestHandleSetPricingOverride_AllFields(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	body := setPricingOverrideRequest{
-		InputCostPer1M:      f64Ptr(3.0),
-		OutputCostPer1M:     f64Ptr(15.0),
-		CacheReadCostPer1M:  f64Ptr(0.3),
-		CacheWriteCostPer1M: f64Ptr(3.75),
+		InputCostPer1M:      new(3.0),
+		OutputCostPer1M:     new(15.0),
+		CacheReadCostPer1M:  new(0.3),
+		CacheWriteCostPer1M: new(3.75),
 	}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "us.anthropic.claude-sonnet-4-6-v1:0", body)
 
@@ -88,7 +88,7 @@ func TestHandleSetPricingOverride_PartialFields(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	// Only input cost provided — output/cache fields should be nil.
-	body := setPricingOverrideRequest{InputCostPer1M: f64Ptr(5.0)}
+	body := setPricingOverrideRequest{InputCostPer1M: new(5.0)}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "azure", "gpt-4o", body)
 
 	if w.Code != http.StatusNoContent {
@@ -113,7 +113,7 @@ func TestHandleSetPricingOverride_InvalidProvider(t *testing.T) {
 	mock := &mockPricingCatalogRepository{}
 	c := newPricingOverrideController(t, mock)
 
-	body := setPricingOverrideRequest{InputCostPer1M: f64Ptr(1.0)}
+	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "openai", "gpt-4o", body)
 
 	if w.Code != http.StatusBadRequest {
@@ -150,7 +150,7 @@ func TestHandleSetPricingOverride_NotFound(t *testing.T) {
 	mock := &mockPricingCatalogRepository{setOverrideErr: ErrModelPricingNotFound}
 	c := newPricingOverrideController(t, mock)
 
-	body := setPricingOverrideRequest{InputCostPer1M: f64Ptr(1.0)}
+	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "nonexistent-model", body)
 
 	if w.Code != http.StatusNotFound {
@@ -167,7 +167,7 @@ func TestHandleSetPricingOverride_RepoError(t *testing.T) {
 	mock := &mockPricingCatalogRepository{setOverrideErr: errTestInternal}
 	c := newPricingOverrideController(t, mock)
 
-	body := setPricingOverrideRequest{InputCostPer1M: f64Ptr(1.0)}
+	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "some-model", body)
 
 	if w.Code != http.StatusInternalServerError {
@@ -257,7 +257,7 @@ func TestHandleSetPricingOverride_ZeroValueField(t *testing.T) {
 
 	// 0.0 is a valid override (e.g. a free model). The all-nil guard must not
 	// reject a pointer to zero.
-	body := setPricingOverrideRequest{InputCostPer1M: f64Ptr(0.0)}
+	body := setPricingOverrideRequest{InputCostPer1M: new(0.0)}
 	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "some-free-model", body)
 
 	if w.Code != http.StatusNoContent {

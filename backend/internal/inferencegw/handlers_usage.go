@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // ─── GET /v1/usage ───────────────────────────────────────────────────────────
@@ -203,6 +204,26 @@ func parsePosIntParam(raw, paramLabel string, defaultVal int) (int, *api.APIErro
 		return 0, api.BadRequestError("invalid_param", paramLabel+" must be a positive integer", nil), err
 	}
 	return v, nil, nil
+}
+
+// handleGetPersonalQuota handles GET /v1/usage/quota.
+// Returns the caller's current quota status: budget, spend, and whether the limit is reached.
+func (c *Controller) handleGetPersonalQuota(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	status, err := c.svc.GetPersonalQuota(ctx, claims.Orbit.TenantID, claims.Subject)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get quota status", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, status)
 }
 
 // handleUsageStats handles GET /v1/usage/stats.

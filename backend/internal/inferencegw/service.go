@@ -41,11 +41,13 @@ type principal struct {
 // Auth is handled upstream by AuthMiddleware — the service reads
 // the verified principal from context, never from raw headers.
 type Service struct {
-	policy  policy.Evaluator
-	router  *RoutingEngine
-	pricing PricingCache
-	usage   InferenceUsageRepository
-	logger  logging.Logger
+	policy       policy.Evaluator
+	router       *RoutingEngine
+	pricing      PricingCache
+	usage        InferenceUsageRepository
+	quotaCache   QuotaResolver
+	quotaCounter SpendCounter
+	logger       logging.Logger
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -54,14 +56,18 @@ func NewService(
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
+	quotaCache QuotaResolver,
+	quotaCounter SpendCounter,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:  pol,
-		router:  router,
-		pricing: pricing,
-		usage:   usage,
-		logger:  logger,
+		policy:       pol,
+		router:       router,
+		pricing:      pricing,
+		usage:        usage,
+		quotaCache:   quotaCache,
+		quotaCounter: quotaCounter,
+		logger:       logger,
 	}
 }
 
@@ -178,6 +184,12 @@ func (s *Service) ChatCompletion(
 		return nil, err
 	}
 
+	// ── 2b. Budget check ─────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	// ── 3. Route request ──────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
@@ -256,6 +268,8 @@ func (s *Service) ChatCompletion(
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -307,6 +321,13 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	// ── 2b. Budget check ─────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -425,6 +446,8 @@ func (s *Service) ChatCompletionStream(
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 
@@ -644,6 +667,107 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 		return nil, ErrPolicyDenied
 	}
 	return filtered, nil
+}
+
+const spanStatusBudgetExceeded = "budget exceeded"
+
+// checkBudget opens a budget.quota_check OTel span and returns ErrBudgetExceeded
+// if the principal has a hard limit and their current spend meets or exceeds it.
+// Fails open (returns nil) on any infrastructure error so that Redis unavailability
+// never blocks inference traffic.
+func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
+	if s.quotaCache == nil || s.quotaCounter == nil {
+		return ctx, nil
+	}
+
+	ctx, span := tracer.Start(ctx, "budget.quota_check",
+		trace.WithAttributes(
+			attribute.String("tenant_id", p.TenantID),
+			attribute.String("principal_id", p.PrincipalID),
+		),
+	)
+	defer span.End()
+
+	budget, hasLimit, err := s.quotaCache.Resolve(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "quota cache resolve failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.RecordError(err)
+		return ctx, nil
+	}
+	if !hasLimit {
+		return ctx, nil
+	}
+
+	spend, err := s.quotaCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "spend counter get failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.RecordError(err)
+		return ctx, nil
+	}
+
+	if spend >= budget {
+		s.logger.Info(ctx, "budget.hard_block",
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+			logging.Field{Key: "tenant_id", Value: p.TenantID},
+			logging.Field{Key: "spend_usd", Value: spend},
+			logging.Field{Key: "budget_usd", Value: budget},
+		)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		return ctx, ErrBudgetExceeded
+	}
+
+	return ctx, nil
+}
+
+// incrementSpend best-effort increments the Redis spend counter after a
+// successful usage write. Logs on failure but never returns an error — a
+// counter increment failure must not affect the caller's control flow.
+func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID string, amount float64) {
+	if s.quotaCounter == nil {
+		return
+	}
+	if err := s.quotaCounter.IncrementSpend(ctx, tenantID, principalID, amount); err != nil {
+		s.logger.Warn(ctx, "budget.counter_increment_failed",
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+	}
+}
+
+// GetPersonalQuota returns the effective quota status for the given principal,
+// combining the quota limit from the cache with the current spend from Redis.
+func (s *Service) GetPersonalQuota(ctx context.Context, tenantID, principalID string) (QuotaStatus, error) {
+	if s.quotaCache == nil || s.quotaCounter == nil {
+		return QuotaStatus{}, nil
+	}
+
+	budget, hasLimit, err := s.quotaCache.Resolve(ctx, tenantID, principalID)
+	if err != nil {
+		return QuotaStatus{}, fmt.Errorf("quota resolve: %w", err)
+	}
+
+	var spend float64
+	if hasLimit {
+		spend, err = s.quotaCounter.GetSpend(ctx, tenantID, principalID)
+		if err != nil {
+			return QuotaStatus{}, fmt.Errorf("quota spend: %w", err)
+		}
+	}
+
+	return QuotaStatus{
+		MonthlyBudgetUSD:  budget,
+		CurrentSpendUSD:   spend,
+		SpendLimitReached: hasLimit && spend >= budget,
+		HasLimit:          hasLimit,
+	}, nil
 }
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
@@ -927,6 +1051,11 @@ func (s *Service) Embeddings(
 		return nil, err
 	}
 
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -988,6 +1117,8 @@ func (s *Service) Embeddings(
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -1029,6 +1160,11 @@ func (s *Service) Responses(
 		span.RecordError(err)
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1100,6 +1236,8 @@ func (s *Service) Responses(
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -1143,6 +1281,12 @@ func (s *Service) ResponsesStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1234,6 +1378,8 @@ func (s *Service) ResponsesStream(
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 
@@ -1350,6 +1496,12 @@ func (s *Service) AnthropicMessages(
 		return nil, err
 	}
 
+	// ── Budget check ─────────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -1426,6 +1578,8 @@ func (s *Service) AnthropicMessages(
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -1470,6 +1624,13 @@ func (s *Service) AnthropicMessagesStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	// ── Budget check ─────────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1577,6 +1738,8 @@ func (s *Service) AnthropicMessagesStream(
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 
