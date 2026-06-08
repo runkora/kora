@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Checkbox,
+  Card,
   DataTable,
   Icon,
   Input,
@@ -28,21 +28,107 @@ interface QuotaGroupsTabProps {
   canWrite: boolean;
 }
 
-// ── Create group modal ────────────────────────────────────────────────────────
+// ── Group modal (New + Edit) ───────────────────────────────────────────────────
 
-interface CreateGroupModalProps {
-  open: boolean;
+interface GroupModalProps {
+  /** Null = create mode; non-null = edit mode. */
+  group: QuotaGroup | null;
   onClose: () => void;
-  onCreated: (group: QuotaGroup) => void;
+  onSaved: (group: QuotaGroup) => void;
+  onDeleted?: (id: string) => void;
 }
 
-function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState('');
+const PRINCIPAL_TYPES = ['AGENT', 'HUMAN', 'SERVICE'] as const;
+type PrincipalTypeKey = (typeof PRINCIPAL_TYPES)[number];
+
+function typeLabel(t: string): string {
+  if (t === 'HUMAN') return 'Human';
+  if (t === 'AGENT') return 'Agent';
+  if (t === 'SERVICE') return 'Service';
+  return t;
+}
+
+function principalDisplayName(p: PrincipalUsageRow): string {
+  return p.display_name ?? p.email ?? p.principal_id;
+}
+
+function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
+  const isEdit = group !== null;
+
+  const [name, setName] = useState(group?.name ?? '');
+  const [budget, setBudget] = useState(group ? String(group.monthly_budget_usd) : '');
+  const [principalType, setPrincipalType] = useState<PrincipalTypeKey>('AGENT');
+  const [principalSearch, setPrincipalSearch] = useState('');
+  const [allPrincipals, setAllPrincipals] = useState<PrincipalUsageRow[]>([]);
+  const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
+  const [serverMemberIds, setServerMemberIds] = useState<Set<string>>(new Set());
+  const [loadingPrincipals, setLoadingPrincipals] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  const handleSubmit = useCallback(async () => {
+  // Load principals and (in edit mode) existing members.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoadingPrincipals(true);
+      try {
+        const requests: Promise<Response>[] = [
+          fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 200 })),
+        ];
+        if (isEdit && group) {
+          requests.push(fetch(ApiRoute.quotaGroupMembers.GET(group.id)));
+        }
+        const responses = await Promise.all(requests);
+        if (responses.some((r) => !r.ok)) throw new Error('Failed to load data.');
+        const bodies = (await Promise.all(responses.map((r) => r.json()))) as [
+          { data: PrincipalUsageRow[] },
+          { data: string[] }?,
+        ];
+        const [pData, mData] = bodies;
+        if (!cancelled) {
+          setAllPrincipals(pData.data ?? []);
+          const ids = new Set(mData?.data ?? []);
+          setMemberIds(ids);
+          setServerMemberIds(ids);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load principals.');
+      } finally {
+        if (!cancelled) setLoadingPrincipals(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleMember = useCallback((id: string) => {
+    setMemberIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Principals for the currently-selected type, filtered by search.
+  const visiblePrincipals = useMemo(() => {
+    const forType = allPrincipals.filter(
+      (p) => (p.principal_type?.toUpperCase() ?? '') === principalType,
+    );
+    const q = principalSearch.toLowerCase();
+    if (!q) return forType;
+    return forType.filter(
+      (p) =>
+        principalDisplayName(p).toLowerCase().includes(q) ||
+        p.principal_id.toLowerCase().includes(q),
+    );
+  }, [allPrincipals, principalType, principalSearch]);
+
+  const handleSave = useCallback(async () => {
     const budgetNum = parseFloat(budget);
     if (!name.trim()) {
       setError('Name is required.');
@@ -56,230 +142,264 @@ function CreateGroupModal({ open, onClose, onCreated }: CreateGroupModalProps) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(ApiRoute.quotaGroups.POST(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), monthly_budget_usd: budgetNum }),
-      });
+      let saved: QuotaGroup;
+
+      if (!isEdit) {
+        const res = await fetch(ApiRoute.quotaGroups.POST(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), monthly_budget_usd: budgetNum }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { message?: string };
+          throw new Error(body.message ?? `Request failed (${res.status})`);
+        }
+        const { data: created } = (await res.json()) as { data: QuotaGroup };
+        saved = created;
+
+        await Promise.all(
+          [...memberIds].map((pid) =>
+            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+              if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
+            }),
+          ),
+        );
+      } else {
+        if (budgetNum !== group!.monthly_budget_usd) {
+          const res = await fetch(ApiRoute.quotaGroup.PUT(group!.id), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monthly_budget_usd: budgetNum }),
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as { message?: string };
+            throw new Error(body.message ?? `Request failed (${res.status})`);
+          }
+        }
+        saved = { ...group!, name: name.trim(), monthly_budget_usd: budgetNum };
+
+        const toAdd = [...memberIds].filter((id) => !serverMemberIds.has(id));
+        const toRemove = [...serverMemberIds].filter((id) => !memberIds.has(id));
+        await Promise.all([
+          ...toAdd.map((pid) =>
+            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+              if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
+            }),
+          ),
+          ...toRemove.map((pid) =>
+            fetch(ApiRoute.quotaGroupMember.DELETE(saved.id, pid), { method: 'DELETE' }).then(
+              (r) => {
+                if (!r.ok) throw new Error(`Failed to remove member ${pid} (${r.status})`);
+              },
+            ),
+          ),
+        ]);
+      }
+
+      onSaved(saved);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save group.');
+    } finally {
+      setSaving(false);
+    }
+  }, [isEdit, name, budget, group, memberIds, serverMemberIds, onSaved, onClose]);
+
+  const handleDelete = useCallback(async () => {
+    if (!group) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(ApiRoute.quotaGroup.DELETE(group.id), { method: 'DELETE' });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(body.message ?? `Request failed (${res.status})`);
       }
-      const { data: created } = (await res.json()) as {
-        data: {
-          id: string;
-          name: string;
-          monthly_budget_usd: number;
-          tenant_id: string;
-          created_at: string;
-          updated_at: string;
-        };
-      };
-      onCreated(created);
-      setName('');
-      setBudget('');
+      onDeleted?.(group.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create group.');
+      setError(err instanceof Error ? err.message : 'Failed to delete group.');
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
-  }, [name, budget, onCreated, onClose]);
+  }, [group, onDeleted, onClose]);
+
+  const selectedCount = memberIds.size;
 
   return (
-    <Modal open={open} onClose={onClose} size="sm">
-      <ModalHeader title="Create quota group" />
-      <ModalBody>
-        <Stack gap="comfortable">
-          <Stack gap="snug">
-            <Text size="supporting" color="muted">
-              Name
-            </Text>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. engineering"
-              disabled={saving}
-            />
-          </Stack>
-          <Stack gap="snug">
-            <Text size="supporting" color="muted">
-              Monthly budget (USD)
-            </Text>
-            <Input
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              placeholder="e.g. 100"
-              type="number"
-              min="0.01"
-              step="0.01"
-              disabled={saving}
-            />
-          </Stack>
-          {error && <Alert variant="error">{error}</Alert>}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
-        <Button variant="default" size="sm" onClick={() => void handleSubmit()} disabled={saving}>
-          {saving ? 'Creating…' : 'Create group'}
-        </Button>
-      </ModalFooter>
-    </Modal>
-  );
-}
+    <>
+      <Modal open onClose={onClose} size="md">
+        <ModalHeader title={isEdit ? 'Edit group' : 'New group'} />
+        <ModalBody>
+          <Stack gap="comfortable">
+            {/* Name */}
+            <Stack gap="snug">
+              <Text size="supporting" color="muted">
+                Name
+              </Text>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. engineering"
+                disabled={saving || deleting}
+              />
+            </Stack>
 
-// ── Members modal ─────────────────────────────────────────────────────────────
+            {/* Budget */}
+            <Stack gap="snug">
+              <Text size="supporting" color="muted">
+                Monthly budget (USD)
+              </Text>
+              <Input
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="e.g. 100"
+                type="number"
+                min="1"
+                step="1"
+                disabled={saving || deleting}
+              />
+            </Stack>
 
-interface MembersModalProps {
-  group: QuotaGroup;
-  onClose: () => void;
-}
+            {/* Members */}
+            <Stack gap="snug">
+              <Text size="supporting" color="muted">
+                Members ({selectedCount} selected)
+              </Text>
 
-function MembersModal({ group, onClose }: MembersModalProps) {
-  const [principals, setPrincipals] = useState<PrincipalUsageRow[]>([]);
-  const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
-  const [pending, setPending] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+              {/* Type toggle */}
+              <Stack direction="horizontal" gap="tight">
+                {PRINCIPAL_TYPES.map((t) => (
+                  <Button
+                    key={t}
+                    variant={principalType === t ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setPrincipalType(t);
+                      setPrincipalSearch('');
+                    }}
+                    disabled={saving || deleting}
+                  >
+                    {typeLabel(t)}
+                  </Button>
+                ))}
+              </Stack>
 
-  // Load principals and current members in parallel.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [pRes, mRes] = await Promise.all([
-          fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 200 })),
-          fetch(ApiRoute.quotaGroupMembers.GET(group.id)),
-        ]);
-        if (!pRes.ok) throw new Error(`Failed to load principals (${pRes.status})`);
-        if (!mRes.ok) throw new Error(`Failed to load members (${mRes.status})`);
-        const pData = (await pRes.json()) as { data: PrincipalUsageRow[] };
-        const mData = (await mRes.json()) as { data: string[] };
-        if (!cancelled) {
-          setPrincipals(pData.data ?? []);
-          setMemberIds(new Set(mData.data ?? []));
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load data.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [group.id]);
+              {/* Search */}
+              <Input
+                value={principalSearch}
+                onChange={(e) => setPrincipalSearch(e.target.value)}
+                placeholder={`Search ${typeLabel(principalType).toLowerCase()}s…`}
+                disabled={saving || deleting}
+              />
 
-  const toggle = useCallback((principalId: string) => {
-    setMemberIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(principalId)) {
-        next.delete(principalId);
-      } else {
-        next.add(principalId);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      // Diff against what's actually pending on the server (captured at open).
-      const toAdd = [...memberIds].filter((id) => !pending.has(id));
-      const toRemove = [...pending].filter((id) => !memberIds.has(id));
-
-      await Promise.all([
-        ...toAdd.map((pid) =>
-          fetch(ApiRoute.quotaGroupMember.PUT(group.id, pid), { method: 'PUT' }).then((r) => {
-            if (!r.ok) throw new Error(`Failed to add ${pid} (${r.status})`);
-          }),
-        ),
-        ...toRemove.map((pid) =>
-          fetch(ApiRoute.quotaGroupMember.DELETE(group.id, pid), { method: 'DELETE' }).then(
-            (r) => {
-              if (!r.ok) throw new Error(`Failed to remove ${pid} (${r.status})`);
-            },
-          ),
-        ),
-      ]);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save members.');
-    } finally {
-      setSaving(false);
-    }
-  }, [group.id, memberIds, pending, onClose]);
-
-  // Once loaded, snapshot the server state so we can diff on save.
-  useEffect(() => {
-    if (!loading) setPending(new Set(memberIds));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
-
-  const label = (p: PrincipalUsageRow) =>
-    p.display_name ?? p.email ?? p.principal_id;
-
-  return (
-    <Modal open onClose={onClose} size="sm">
-      <ModalHeader title={`Members — ${group.name}`} />
-      <ModalBody>
-        <Stack gap="snug">
-          {loading && (
-            <Text size="supporting" color="muted">
-              Loading…
-            </Text>
-          )}
-          {!loading && principals.length === 0 && (
-            <Text size="supporting" color="muted">
-              No principals with inference activity in the last 30 days.
-            </Text>
-          )}
-          {!loading &&
-            principals.map((p) => (
-              <Checkbox
-                key={p.principal_id}
-                checked={memberIds.has(p.principal_id)}
-                onChange={() => toggle(p.principal_id)}
-                disabled={saving}
-                id={`member-${p.principal_id}`}
-              >
-                <Stack gap="none">
-                  <Text size="supporting" color="foreground">
-                    {label(p)}
-                  </Text>
-                  {p.display_name && (
-                    <Text size="caption" color="subtle" mono>
-                      {p.email ?? p.principal_id}
+              {/* Principal list */}
+              <Card maxHeight="scroll-sm" overflowY="auto" border="default" divide>
+                {loadingPrincipals ? (
+                  <Stack paddingBlock="tight" paddingInline="snug">
+                    <Text size="caption" color="muted">
+                      Loading…
                     </Text>
-                  )}
-                </Stack>
-              </Checkbox>
-            ))}
-          {error && <Alert variant="error">{error}</Alert>}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => void handleSave()}
-          disabled={saving || loading}
-        >
-          {saving ? 'Saving…' : 'Save members'}
-        </Button>
-      </ModalFooter>
-    </Modal>
+                  </Stack>
+                ) : visiblePrincipals.length === 0 ? (
+                  <Stack paddingBlock="tight" paddingInline="snug">
+                    <Text size="caption" color="muted">
+                      {principalSearch
+                        ? 'No principals match your search.'
+                        : `No ${typeLabel(principalType).toLowerCase()} activity in the last 30 days.`}
+                    </Text>
+                  </Stack>
+                ) : (
+                  visiblePrincipals.map((p) => {
+                    const isSelected = memberIds.has(p.principal_id);
+                    return (
+                      <Button
+                        key={p.principal_id}
+                        variant="ghost"
+                        shape="square"
+                        size="sm"
+                        selected={isSelected}
+                        fullWidth
+                        onClick={() => toggleMember(p.principal_id)}
+                        disabled={saving || deleting}
+                      >
+                        <Stack
+                          direction="horizontal"
+                          grow
+                          align="center"
+                          justify="between"
+                          minWidth="none"
+                        >
+                          <Stack gap="none" minWidth="none">
+                            <Text
+                              size="micro"
+                              truncate
+                              color={isSelected ? 'accent' : 'foreground'}
+                              weight={isSelected ? 'emphasis' : undefined}
+                            >
+                              {principalDisplayName(p)}
+                            </Text>
+                            {p.display_name && (
+                              <Text size="micro" color="muted" mono truncate>
+                                {p.email ?? p.principal_id}
+                              </Text>
+                            )}
+                          </Stack>
+                          {isSelected && <Icon name="check" size="2xs" color="accent" />}
+                        </Stack>
+                      </Button>
+                    );
+                  })
+                )}
+              </Card>
+            </Stack>
+
+            {error && <Alert variant="error">{error}</Alert>}
+          </Stack>
+        </ModalBody>
+        <ModalFooter>
+          <Stack direction="horizontal" justify="between" grow>
+            {isEdit && onDeleted ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={saving || deleting}
+              >
+                Delete group
+              </Button>
+            ) : (
+              <Stack />
+            )}
+            <Stack direction="horizontal" gap="snug">
+              <Button variant="outline" size="sm" onClick={onClose} disabled={saving || deleting}>
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => void handleSave()}
+                disabled={saving || deleting}
+              >
+                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create group'}
+              </Button>
+            </Stack>
+          </Stack>
+        </ModalFooter>
+      </Modal>
+
+      {isEdit && (
+        <ConfirmDialog
+          open={showDeleteConfirm}
+          onClose={() => setShowDeleteConfirm(false)}
+          title="Delete quota group"
+          description={`Delete "${group?.name}"? All principals currently assigned to this group will have their group quota removed. This cannot be undone.`}
+          confirmLabel="Delete group"
+          onConfirm={() => void handleDelete()}
+          confirming={deleting}
+        />
+      )}
+    </>
   );
 }
 
@@ -287,45 +407,33 @@ function MembersModal({ group, onClose }: MembersModalProps) {
 
 export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: QuotaGroupsTabProps) {
   const [groups, setGroups] = useState<QuotaGroup[]>(initialGroups);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [membersGroup, setMembersGroup] = useState<QuotaGroup | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<QuotaGroup | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // undefined = closed, null = create, QuotaGroup = edit
+  const [modalGroup, setModalGroup] = useState<QuotaGroup | null | undefined>(undefined);
 
-  const updateGroups = useCallback(
-    (next: QuotaGroup[]) => {
-      setGroups(next);
-      onGroupsChange(next);
+  const modalOpen = modalGroup !== undefined;
+
+  const handleSaved = useCallback(
+    (saved: QuotaGroup) => {
+      setGroups((prev) => {
+        const idx = prev.findIndex((g) => g.id === saved.id);
+        const next = idx >= 0 ? prev.map((g) => (g.id === saved.id ? saved : g)) : [...prev, saved];
+        onGroupsChange(next);
+        return next;
+      });
     },
     [onGroupsChange],
   );
 
-  const handleCreated = useCallback(
-    (group: QuotaGroup) => {
-      updateGroups([...groups, group]);
+  const handleDeleted = useCallback(
+    (id: string) => {
+      setGroups((prev) => {
+        const next = prev.filter((g) => g.id !== id);
+        onGroupsChange(next);
+        return next;
+      });
     },
-    [groups, updateGroups],
+    [onGroupsChange],
   );
-
-  const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      const res = await fetch(ApiRoute.quotaGroup.DELETE(deleteTarget.id), { method: 'DELETE' });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `Request failed (${res.status})`);
-      }
-      updateGroups(groups.filter((g) => g.id !== deleteTarget.id));
-      setDeleteTarget(null);
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Failed to delete group.');
-    } finally {
-      setDeleting(false);
-    }
-  }, [deleteTarget, groups, updateGroups]);
 
   const COLUMNS: DataTableColumn<QuotaGroup>[] = [
     {
@@ -350,29 +458,6 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
         </Text>
       ),
     },
-    ...(canWrite
-      ? [
-          {
-            id: 'actions',
-            header: '',
-            align: 'right' as const,
-            cell: (row: QuotaGroup) => (
-              <Stack direction="horizontal" justify="end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setDeleteTarget(row);
-                    setDeleteError(null);
-                  }}
-                >
-                  Delete
-                </Button>
-              </Stack>
-            ),
-          },
-        ]
-      : []),
   ];
 
   return (
@@ -388,10 +473,10 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
         defaultSortDir="desc"
         emptyMessage="No quota groups yet."
         filteredEmptyMessage="No groups match your search."
-        onRowClick={canWrite ? (row) => setMembersGroup(row) : undefined}
+        onRowClick={canWrite ? (row) => setModalGroup(row) : undefined}
         toolbarActions={
           canWrite ? (
-            <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+            <Button variant="default" size="sm" onClick={() => setModalGroup(null)}>
               <Icon name="plus" size="2xs" />
               New group
             </Button>
@@ -399,26 +484,14 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
         }
       />
 
-      <CreateGroupModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={handleCreated}
-      />
-
-      {membersGroup && (
-        <MembersModal group={membersGroup} onClose={() => setMembersGroup(null)} />
+      {modalOpen && (
+        <GroupModal
+          group={modalGroup ?? null}
+          onClose={() => setModalGroup(undefined)}
+          onSaved={handleSaved}
+          onDeleted={canWrite ? handleDeleted : undefined}
+        />
       )}
-
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete quota group"
-        description={`Delete "${deleteTarget?.name}"? All principals currently assigned to this group will have their group quota removed. This cannot be undone.`}
-        confirmLabel="Delete group"
-        onConfirm={() => void handleDelete()}
-        confirming={deleting}
-        error={deleteError}
-      />
     </Stack>
   );
 }

@@ -569,6 +569,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 	const dataQ = `
 		SELECT
 		    principal_id,
+		    MAX(principal_type)                                                        AS principal_type,
 		    COUNT(*)                                                                AS request_count,
 		    COALESCE(SUM(total_tokens), 0)                                         AS total_tokens,
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
@@ -599,7 +600,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		var s PrincipalUsageSummary
 		var lastActive time.Time
 		if err := rows.Scan(
-			&s.PrincipalID,
+			&s.PrincipalID, &s.PrincipalType,
 			&s.RequestCount, &s.TotalTokens, &s.PromptTokens, &s.CompletionTokens, &s.CacheReadTokens, &s.CacheCreationTokens,
 			&s.EstimatedCostUSD,
 			&s.ErrorRate, &s.AvgLatencyMS, &lastActive,

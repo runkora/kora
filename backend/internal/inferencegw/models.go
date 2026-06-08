@@ -237,6 +237,7 @@ type AnalyticsResponse struct {
 // over the analytics window. Returned by GET /v1/analytics/principals.
 type PrincipalUsageSummary struct {
 	PrincipalID         string  `json:"principal_id"`
+	PrincipalType       string  `json:"principal_type"`
 	RequestCount        int64   `json:"request_count"`
 	TotalTokens         int64   `json:"total_tokens"`
 	PromptTokens        int64   `json:"prompt_tokens"`

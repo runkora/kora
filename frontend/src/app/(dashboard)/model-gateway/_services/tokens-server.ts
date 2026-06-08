@@ -178,3 +178,16 @@ export async function searchUsers(
     return fromApiError(err);
   }
 }
+
+// Fetches all tenant users from the identity service (up to 500).
+// Used to seed the principals list with users who have no recent inference activity.
+export async function fetchAllTenantUsers(accessToken: string): Promise<GetUsersResult> {
+  try {
+    const data = await orbitClient.get<IdentityUsersResponse>('/identity/users?limit=500', {
+      Authorization: `Bearer ${accessToken}`,
+    });
+    return { ok: true, users: data?.users ?? [] };
+  } catch (err) {
+    return fromApiError(err);
+  }
+}

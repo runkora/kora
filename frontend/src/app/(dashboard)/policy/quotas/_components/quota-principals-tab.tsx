@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Badge,
   Button,
   DataTable,
@@ -14,7 +15,6 @@ import {
   Progress,
   Stack,
   Text,
-  Alert,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
@@ -34,19 +34,28 @@ interface PrincipalQuotaRow extends PrincipalUsageRow {
 // ── Set quota modal ───────────────────────────────────────────────────────────
 
 interface SetQuotaModalProps {
-  principalId: string;
+  row: PrincipalQuotaRow;
   groups: QuotaGroup[];
-  open: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuotaModalProps) {
-  const [mode, setMode] = useState<'individual' | 'group'>('individual');
-  const [budget, setBudget] = useState('');
+function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
+  const [mode, setMode] = useState<'individual' | 'group'>(
+    row.quota_source === 'group' ? 'group' : 'individual',
+  );
+  const [budget, setBudget] = useState(
+    row.quota_source === 'individual' && row.monthly_budget_usd != null
+      ? String(row.monthly_budget_usd)
+      : '',
+  );
   const [groupId, setGroupId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const canClear = row.quota_source === 'individual';
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -59,7 +68,7 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           setSaving(false);
           return;
         }
-        const res = await fetch(ApiRoute.quotaPrincipal.PUT(principalId), {
+        const res = await fetch(ApiRoute.quotaPrincipal.PUT(row.principal_id), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ monthly_budget_usd: budgetNum }),
@@ -74,7 +83,7 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           setSaving(false);
           return;
         }
-        const res = await fetch(ApiRoute.quotaGroupMember.PUT(groupId, principalId), {
+        const res = await fetch(ApiRoute.quotaGroupMember.PUT(groupId, row.principal_id), {
           method: 'PUT',
         });
         if (!res.ok) {
@@ -82,8 +91,6 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           throw new Error(body.message ?? `Request failed (${res.status})`);
         }
       }
-      setBudget('');
-      setGroupId('');
       onSaved();
       onClose();
     } catch (err) {
@@ -91,80 +98,136 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
     } finally {
       setSaving(false);
     }
-  }, [mode, budget, groupId, principalId, onSaved, onClose]);
+  }, [mode, budget, groupId, row.principal_id, onSaved, onClose]);
+
+  const handleClear = useCallback(async () => {
+    setClearing(true);
+    setError(null);
+    try {
+      const res = await fetch(ApiRoute.quotaPrincipal.DELETE(row.principal_id), {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(body.message ?? `Request failed (${res.status})`);
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear quota.');
+    } finally {
+      setClearing(false);
+    }
+  }, [row.principal_id, onSaved, onClose]);
+
+  const displayName = row.display_name ?? row.email ?? row.principal_id;
 
   return (
-    <Modal open={open} onClose={onClose} size="sm">
-      <ModalHeader title="Set spending limit" />
-      <ModalBody>
-        <Stack gap="comfortable">
-          <Stack gap="snug">
-            <Text size="supporting" color="muted">
-              Source
-            </Text>
-            <NativeSelect
-              value={mode}
-              onChange={(e) => setMode(e.target.value as 'individual' | 'group')}
-              disabled={saving}
-            >
-              <option value="individual">Individual</option>
-              <option value="group">Group</option>
-            </NativeSelect>
-          </Stack>
-
-          {mode === 'individual' ? (
+    <>
+      <Modal open onClose={onClose} size="sm">
+        <ModalHeader title="Set spending limit" description={displayName} />
+        <ModalBody>
+          <Stack gap="comfortable">
             <Stack gap="snug">
               <Text size="supporting" color="muted">
-                Monthly budget (USD)
-              </Text>
-              <Input
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                placeholder="e.g. 50"
-                type="number"
-                min="0.01"
-                step="0.01"
-                disabled={saving}
-              />
-            </Stack>
-          ) : (
-            <Stack gap="snug">
-              <Text size="supporting" color="muted">
-                Group
+                Source
               </Text>
               <NativeSelect
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-                disabled={saving || groups.length === 0}
+                value={mode}
+                onChange={(e) => setMode(e.target.value as 'individual' | 'group')}
+                disabled={saving || clearing}
               >
-                <option value="">Select a group…</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} ({fmtBudget(g.monthly_budget_usd)}/mo)
-                  </option>
-                ))}
+                <option value="individual">Individual</option>
+                <option value="group">Group</option>
               </NativeSelect>
             </Stack>
-          )}
 
-          {error && <Alert variant="error">{error}</Alert>}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
-        <Button variant="default" size="sm" onClick={() => void handleSave()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save limit'}
-        </Button>
-      </ModalFooter>
-    </Modal>
+            {mode === 'individual' ? (
+              <Stack gap="snug">
+                <Text size="supporting" color="muted">
+                  Monthly budget (USD)
+                </Text>
+                <Input
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="e.g. 50"
+                  type="number"
+                  min="1"
+                  step="1"
+                  disabled={saving || clearing}
+                />
+              </Stack>
+            ) : (
+              <Stack gap="snug">
+                <Text size="supporting" color="muted">
+                  Group
+                </Text>
+                <NativeSelect
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  disabled={saving || clearing || groups.length === 0}
+                >
+                  <option value="">Select a group…</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Stack>
+            )}
+
+            {error && <Alert variant="error">{error}</Alert>}
+          </Stack>
+        </ModalBody>
+        <ModalFooter>
+          <Stack direction="horizontal" justify="between" grow>
+            {canClear ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowClearConfirm(true)}
+                disabled={saving || clearing}
+              >
+                Clear limit
+              </Button>
+            ) : (
+              <Stack />
+            )}
+            <Stack direction="horizontal" gap="snug">
+              <Button variant="outline" size="sm" onClick={onClose} disabled={saving || clearing}>
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => void handleSave()}
+                disabled={saving || clearing}
+              >
+                {saving ? 'Saving…' : 'Save limit'}
+              </Button>
+            </Stack>
+          </Stack>
+        </ModalFooter>
+      </Modal>
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        title="Remove spending limit"
+        description={`Remove the individual spending limit for ${displayName}? They will fall back to any group quota, or have no limit.`}
+        confirmLabel="Remove limit"
+        onConfirm={() => void handleClear()}
+        confirming={clearing}
+        error={error ?? undefined}
+      />
+    </>
   );
 }
 
 // ── Hook — loads spend data ───────────────────────────────────────────────────
 
-function usePrincipalsWithQuotas() {
+function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
   const [rows, setRows] = useState<PrincipalQuotaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,30 +236,57 @@ function usePrincipalsWithQuotas() {
     setLoading(true);
     setError(null);
     try {
-      // Fetch the principals spend data for last 30 days
-      const res = await fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 100 }));
-      if (!res.ok) throw new Error(`Failed to load principals (${res.status})`);
-      const data = (await res.json()) as { data: PrincipalUsageRow[] };
+      // Fetch principals and all group member lists in parallel.
+      const [principalsRes, ...memberResponses] = await Promise.all([
+        fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 100 })),
+        ...groups.map((g) => fetch(ApiRoute.quotaGroupMembers.GET(g.id))),
+      ]);
+      if (!principalsRes.ok) throw new Error(`Failed to load principals (${principalsRes.status})`);
+      const data = (await principalsRes.json()) as { data: PrincipalUsageRow[] };
 
-      // For each principal with spend, try to fetch their quota
+      // Build principalId → QuotaGroup lookup from membership lists.
+      const membershipMap = new Map<string, QuotaGroup>();
+      await Promise.all(
+        groups.map(async (g, i) => {
+          const res = memberResponses[i];
+          if (!res?.ok) return;
+          const body = (await res.json()) as { data: string[] };
+          for (const pid of body.data ?? []) {
+            membershipMap.set(pid, g);
+          }
+        }),
+      );
+
+      // Enrich each principal with individual quota or group membership.
       const enriched = await Promise.all(
         (data.data ?? []).map(async (p): Promise<PrincipalQuotaRow> => {
           try {
             const qRes = await fetch(ApiRoute.quotaPrincipal.GET(p.principal_id));
-            if (qRes.status === 404) {
-              return { ...p, monthly_budget_usd: null, quota_source: 'none', group_name: null };
+            if (qRes.ok) {
+              const q = (await qRes.json()) as { data: { monthly_budget_usd: number } };
+              return {
+                ...p,
+                monthly_budget_usd: q.data.monthly_budget_usd,
+                quota_source: 'individual',
+                group_name: null,
+              };
             }
-            if (!qRes.ok) throw new Error();
-            const q = (await qRes.json()) as { data: { monthly_budget_usd: number } };
+          } catch {
+            // fall through to group lookup
+          }
+
+          // Individual quota missing — check group membership.
+          const grp = membershipMap.get(p.principal_id);
+          if (grp) {
             return {
               ...p,
-              monthly_budget_usd: q.data.monthly_budget_usd,
-              quota_source: 'individual',
-              group_name: null,
+              monthly_budget_usd: grp.monthly_budget_usd,
+              quota_source: 'group',
+              group_name: grp.name,
             };
-          } catch {
-            return { ...p, monthly_budget_usd: null, quota_source: 'none', group_name: null };
           }
+
+          return { ...p, monthly_budget_usd: null, quota_source: 'none', group_name: null };
         }),
       );
 
@@ -206,7 +296,7 @@ function usePrincipalsWithQuotas() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [groups]);
 
   useEffect(() => {
     void load();
@@ -214,6 +304,14 @@ function usePrincipalsWithQuotas() {
 
   return { rows, loading, error, reload: load };
 }
+
+// ── Filter options ────────────────────────────────────────────────────────────
+
+const TYPE_FILTER_OPTIONS = [
+  { value: 'HUMAN', label: 'Human' },
+  { value: 'AGENT', label: 'Agent' },
+  { value: 'SERVICE', label: 'Service' },
+];
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -223,32 +321,8 @@ interface QuotaPrincipalsTabProps {
 }
 
 export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps) {
-  const { rows, loading, error, reload } = usePrincipalsWithQuotas();
-  const [setQuotaFor, setSetQuotaFor] = useState<string | null>(null);
-  const [clearTarget, setClearTarget] = useState<PrincipalQuotaRow | null>(null);
-  const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState<string | null>(null);
-
-  const handleClear = useCallback(async () => {
-    if (!clearTarget) return;
-    setClearing(true);
-    setClearError(null);
-    try {
-      const res = await fetch(ApiRoute.quotaPrincipal.DELETE(clearTarget.principal_id), {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `Request failed (${res.status})`);
-      }
-      setClearTarget(null);
-      await reload();
-    } catch (err) {
-      setClearError(err instanceof Error ? err.message : 'Failed to clear quota.');
-    } finally {
-      setClearing(false);
-    }
-  }, [clearTarget, reload]);
+  const { rows, loading, error, reload } = usePrincipalsWithQuotas(groups);
+  const [modalRow, setModalRow] = useState<PrincipalQuotaRow | null>(null);
 
   const utilisationVariant = (pct: number) => {
     if (pct >= 100) return 'error' as const;
@@ -273,6 +347,27 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
           )}
         </Stack>
       ),
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      sortable: true,
+      sortAccessor: (row) => row.principal_type ?? '',
+      filter: {
+        mode: 'client',
+        options: TYPE_FILTER_OPTIONS,
+        filterFn: (row, selected) => selected.has(row.principal_type?.toUpperCase() ?? ''),
+      },
+      cell: (row) =>
+        row.principal_type ? (
+          <Badge variant="secondary" size="sm">
+            {row.principal_type}
+          </Badge>
+        ) : (
+          <Text size="supporting" color="subtle">
+            —
+          </Text>
+        ),
     },
     {
       id: 'spend',
@@ -352,38 +447,6 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
         );
       },
     },
-    ...(canWrite
-      ? [
-          {
-            id: 'actions',
-            header: '',
-            align: 'right' as const,
-            cell: (row: PrincipalQuotaRow) => (
-              <Stack direction="horizontal" gap="tight" justify="end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSetQuotaFor(row.principal_id)}
-                >
-                  Set limit
-                </Button>
-                {row.quota_source === 'individual' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setClearTarget(row);
-                      setClearError(null);
-                    }}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </Stack>
-            ),
-          },
-        ]
-      : []),
   ];
 
   return (
@@ -409,28 +472,17 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
         defaultSortDir="desc"
         emptyMessage={loading ? 'Loading…' : 'No inference activity in the last 30 days.'}
         filteredEmptyMessage="No principals match your search."
+        onRowClick={canWrite ? (row) => setModalRow(row) : undefined}
       />
 
-      {setQuotaFor && (
+      {modalRow && (
         <SetQuotaModal
-          principalId={setQuotaFor}
+          row={modalRow}
           groups={groups}
-          open={true}
-          onClose={() => setSetQuotaFor(null)}
+          onClose={() => setModalRow(null)}
           onSaved={() => void reload()}
         />
       )}
-
-      <ConfirmDialog
-        open={clearTarget !== null}
-        onClose={() => setClearTarget(null)}
-        title="Remove spending limit"
-        description={`Remove the individual spending limit for ${clearTarget?.display_name ?? clearTarget?.email ?? clearTarget?.principal_id}? They will fall back to any group quota, or have no limit.`}
-        confirmLabel="Remove limit"
-        onConfirm={() => void handleClear()}
-        confirming={clearing}
-        error={clearError}
-      />
     </Stack>
   );
 }

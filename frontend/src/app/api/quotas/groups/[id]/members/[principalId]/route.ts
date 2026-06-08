@@ -10,10 +10,7 @@ interface Params {
   params: Promise<{ id: string; principalId: string }>;
 }
 
-export async function PUT(
-  _request: NextRequest,
-  { params }: Params,
-): Promise<NextResponse> {
+export async function PUT(_request: NextRequest, { params }: Params): Promise<NextResponse> {
   const session = await getSession();
   if (!isSessionValid(session)) {
     return NextResponse.json(
@@ -36,10 +33,7 @@ export async function PUT(
   return new NextResponse(null, { status: 204 });
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: Params,
-): Promise<NextResponse> {
+export async function DELETE(_request: NextRequest, { params }: Params): Promise<NextResponse> {
   const session = await getSession();
   if (!isSessionValid(session)) {
     return NextResponse.json(

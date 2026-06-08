@@ -134,6 +134,7 @@ export type AnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
 // Mirrors PrincipalUsageSummary in backend/internal/inferencegw/models.go.
 export interface PrincipalUsageSummary {
   principal_id: string;
+  principal_type: string;
   request_count: number;
   total_tokens: number;
   prompt_tokens: number;
