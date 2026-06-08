@@ -217,14 +217,6 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
 
   return (
     <Stack gap="comfortable">
-      {canWrite && (
-        <Stack direction="horizontal" justify="end">
-          <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
-            New group
-          </Button>
-        </Stack>
-      )}
-
       <DataTable
         data={groups}
         columns={COLUMNS}
@@ -236,6 +228,13 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
         defaultSortDir="desc"
         emptyMessage="No quota groups yet."
         filteredEmptyMessage="No groups match your search."
+        toolbarActions={
+          canWrite ? (
+            <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+              New group
+            </Button>
+          ) : undefined
+        }
       />
 
       <CreateGroupModal
