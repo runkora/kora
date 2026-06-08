@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   DataTable,
+  Icon,
   Input,
   Modal,
   ModalBody,
@@ -231,6 +232,7 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
         toolbarActions={
           canWrite ? (
             <Button variant="default" size="sm" onClick={() => setCreateOpen(true)}>
+              <Icon name="plus" size="2xs" />
               New group
             </Button>
           ) : undefined
