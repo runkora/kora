@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose StatementBegin
 CREATE TABLE model_pricing (
     provider                         TEXT           NOT NULL,
     model_id                         TEXT           NOT NULL,
@@ -15,6 +16,9 @@ CREATE TABLE model_pricing (
     updated_at                       TIMESTAMPTZ    NOT NULL DEFAULT now(),
     PRIMARY KEY (provider, model_id)
 );
+-- +goose StatementEnd
 
 -- +goose Down
+-- +goose StatementBegin
 DROP TABLE IF EXISTS model_pricing;
+-- +goose StatementEnd

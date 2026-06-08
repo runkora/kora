@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose StatementBegin
 CREATE TABLE quota_groups (
     id                 TEXT           NOT NULL PRIMARY KEY,
     tenant_id          TEXT           NOT NULL,
@@ -8,7 +9,9 @@ CREATE TABLE quota_groups (
     updated_at         TIMESTAMPTZ    NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, name)
 );
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TABLE principal_quota_group_memberships (
     principal_id TEXT        NOT NULL,
     tenant_id    TEXT        NOT NULL,
@@ -16,7 +19,9 @@ CREATE TABLE principal_quota_group_memberships (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (principal_id, tenant_id)
 );
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TABLE principal_quotas (
     principal_id       TEXT           NOT NULL,
     tenant_id          TEXT           NOT NULL,
@@ -25,8 +30,17 @@ CREATE TABLE principal_quotas (
     updated_at         TIMESTAMPTZ    NOT NULL DEFAULT now(),
     PRIMARY KEY (principal_id, tenant_id)
 );
+-- +goose StatementEnd
 
 -- +goose Down
+-- +goose StatementBegin
 DROP TABLE IF EXISTS principal_quotas;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
 DROP TABLE IF EXISTS principal_quota_group_memberships;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
 DROP TABLE IF EXISTS quota_groups;
+-- +goose StatementEnd
