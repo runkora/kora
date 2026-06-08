@@ -71,8 +71,10 @@ func TestHandleSetPricingOverride_AllFields(t *testing.T) {
 	if mock.lastSetProvider != ProviderBedrock {
 		t.Errorf("provider = %q, want %q", mock.lastSetProvider, ProviderBedrock)
 	}
-	if mock.lastSetModelID != "us.anthropic.claude-sonnet-4-6-v1:0" {
-		t.Errorf("modelID = %q, want %q", mock.lastSetModelID, "us.anthropic.claude-sonnet-4-6-v1:0")
+	// normalisePricingModelID strips the region prefix and version suffix so the
+	// write targets the same bare ID stored in model_pricing (sourced from LiteLLM).
+	if mock.lastSetModelID != "anthropic.claude-sonnet-4-6" {
+		t.Errorf("modelID = %q, want %q", mock.lastSetModelID, "anthropic.claude-sonnet-4-6")
 	}
 	if mock.lastSetInput == nil || *mock.lastSetInput != 3.0 {
 		t.Errorf("input = %v, want 3.0", mock.lastSetInput)

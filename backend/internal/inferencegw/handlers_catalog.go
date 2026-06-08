@@ -601,7 +601,7 @@ type setPricingOverrideRequest struct {
 func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
-	modelID := r.PathValue("modelId")
+	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !isValidProvider(provider) {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
@@ -642,7 +642,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	provider := ProviderName(r.PathValue("provider"))
-	modelID := r.PathValue("modelId")
+	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !isValidProvider(provider) {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
