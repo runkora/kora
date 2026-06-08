@@ -79,16 +79,17 @@ function EffectivePriceCell({ pricing }: { pricing?: PricingEntry }) {
       </Stack>
     );
   }
-  const source = pricing.has_override ? 'override' : 'synced';
   return (
     <Stack gap="none">
       <Stack direction="horizontal" align="center" gap="tight">
         <Text size="supporting" mono color="foreground">
           {fmtCost(pricing.effective_input_cost_per_1m)}/1M
         </Text>
-        <Badge variant={source === 'override' ? 'secondary' : 'outline'} size="sm">
-          {source}
-        </Badge>
+        {pricing.has_override && (
+          <Badge variant="error" size="sm">
+            override
+          </Badge>
+        )}
       </Stack>
       <Text size="caption" color="muted" mono>
         out: {fmtCost(pricing.effective_output_cost_per_1m)}/1M
