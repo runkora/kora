@@ -331,6 +331,20 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/catalog/pricing/[provider]/[modelId]/history`
+   *
+   * GET — daily effective input and output prices for the given provider/model pair,
+   *       sourced from inference_usage records. Only days with actual traffic appear.
+   *       Accepts optional `days` param (1–365, default 90).
+   */
+  catalogPricingHistory: {
+    GET: (provider: string, modelId: string, days?: number): string => {
+      const base = `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/history`;
+      return days !== undefined ? `${base}?days=${days}` : base;
+    },
+  },
+
+  /**
    * `/api/quotas/groups`
    *
    * GET  — list all quota groups for the caller's tenant.

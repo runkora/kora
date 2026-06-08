@@ -31,9 +31,11 @@ import (
 //	GET    /pricing                     list all model_pricing rows with synced/override/effective columns
 //	PUT    /pricing/{provider}/{modelId}/override  set one or more pricing override columns
 //	DELETE /pricing/{provider}/{modelId}/override  clear all pricing overrides (revert to synced)
+//	GET    /pricing/{provider}/{modelId}/history   price history from inference_usage (days=90 default)
 type CatalogController struct {
 	store          *CatalogStore
 	pricingCatalog PricingCatalogRepository
+	usageRepo      InferenceUsageRepository
 	verifier       *token.Verifier
 	eval           policy.Evaluator
 	routes         []routescopes.RouteScope
@@ -49,8 +51,8 @@ type CatalogController struct {
 // prefix entries in that table. basePath must match the server's BasePath
 // (e.g. "/v1") so the middleware can reconstruct absolute paths after
 // http.StripPrefix.
-func NewCatalogController(store *CatalogStore, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
-	return &CatalogController{store: store, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewCatalogController(store *CatalogStore, pricingCatalog PricingCatalogRepository, usageRepo InferenceUsageRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
+	return &CatalogController{store: store, pricingCatalog: pricingCatalog, usageRepo: usageRepo, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 func (c *CatalogController) GroupedBy() string { return "/catalog" }
@@ -74,6 +76,7 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("GET /pricing", c.handleListPricing)
 	mux.Handle("PUT /pricing/{provider}/{modelId}/override", c.handleSetPricingOverride)
 	mux.Handle("DELETE /pricing/{provider}/{modelId}/override", c.handleClearPricingOverride)
+	mux.Handle("GET /pricing/{provider}/{modelId}/history", c.handleGetPricingHistory)
 }
 
 // ─── JSON wire types ──────────────────────────────────────────────────────────
@@ -604,4 +607,35 @@ func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r 
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// handleGetPricingHistory returns daily effective input and output prices for
+// the given (provider, modelId) pair over the last N days (default 90, max 365),
+// sourced from inference_usage records. Only days with actual traffic appear.
+func (c *CatalogController) handleGetPricingHistory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	provider := ProviderName(r.PathValue("provider"))
+	modelID := r.PathValue("modelId")
+
+	if !isValidProvider(provider) {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
+		return
+	}
+
+	days := 90
+	if raw := r.URL.Query().Get("days"); raw != "" {
+		parsed, err := fmt.Sscanf(raw, "%d", &days)
+		if err != nil || parsed != 1 || days < 1 || days > 365 {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "days must be an integer between 1 and 365", nil), nil)
+			return
+		}
+	}
+
+	points, err := c.usageRepo.GetPriceHistory(ctx, provider, modelID, days)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to load price history", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": points})
 }

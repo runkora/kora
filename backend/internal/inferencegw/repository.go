@@ -47,6 +47,11 @@ type InferenceUsageRepository interface {
 	// within the calendar month that contains the provided time value.
 	// Returns 0.0 with no error when no records exist for the period.
 	GetMonthlySpend(ctx context.Context, tenantID, principalID string, month time.Time) (float64, error)
+
+	// GetPriceHistory returns daily effective input and output prices for the given
+	// (provider, modelID) pair over the last `days` days, sourced from inference_usage.
+	// Only days with actual traffic appear. Returns an empty slice when no records exist.
+	GetPriceHistory(ctx context.Context, provider ProviderName, modelID string, days int) ([]PriceHistoryPoint, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -639,6 +644,49 @@ func (r *PostgresInferenceUsageRepository) GetMonthlySpend(ctx context.Context, 
 		return 0, fmt.Errorf("get monthly spend: %w", err)
 	}
 	return total, nil
+}
+
+// GetPriceHistory returns one row per day where the given (provider, model_id)
+// pair had traffic in the last `days` days. Each row holds the most recent
+// effective input and output prices seen that day (MAX to produce a stable,
+// deterministic value when multiple prices were observed intra-day).
+// The idx_inference_usage_provider_model index on (provider, model_id, created_at DESC)
+// makes this query efficient even on large tables.
+func (r *PostgresInferenceUsageRepository) GetPriceHistory(ctx context.Context, provider ProviderName, modelID string, days int) ([]PriceHistoryPoint, error) {
+	const q = `
+		SELECT
+			to_char(date_trunc('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS date,
+			MAX(effective_input_cost_per_1m)  AS input_cost_per_1m,
+			MAX(effective_output_cost_per_1m) AS output_cost_per_1m
+		FROM inference_usage
+		WHERE provider = $1
+		  AND model_id = $2
+		  AND price_unknown = false
+		  AND created_at >= NOW() - ($3 * INTERVAL '1 day')
+		GROUP BY date_trunc('day', created_at AT TIME ZONE 'UTC')
+		ORDER BY 1 ASC`
+
+	rows, err := r.pool.Query(ctx, q, string(provider), modelID, days)
+	if err != nil {
+		return nil, fmt.Errorf("get price history: %w", err)
+	}
+	defer rows.Close()
+
+	var points []PriceHistoryPoint
+	for rows.Next() {
+		var p PriceHistoryPoint
+		if err := rows.Scan(&p.Date, &p.Input, &p.Output); err != nil {
+			return nil, fmt.Errorf("get price history scan: %w", err)
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get price history rows: %w", err)
+	}
+	if points == nil {
+		points = []PriceHistoryPoint{}
+	}
+	return points, nil
 }
 
 // granularityToTrunc maps the analytics granularity parameter to the
