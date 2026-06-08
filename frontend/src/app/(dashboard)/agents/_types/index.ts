@@ -3,9 +3,16 @@
 // AgentTypeRow and RunRow are the shapes consumed by all UI components.
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
-import type { AgentType, AgentBudget, Run, AgentTypeState, RunState } from '@orbit/shared/api';
+import type {
+  AgentType,
+  AgentBudget,
+  Run,
+  AgentTypeState,
+  RunState,
+  Connectivity,
+} from '@orbit/shared/api';
 
-export type { AgentTypeState, RunState };
+export type { AgentTypeState, RunState, Connectivity };
 
 export interface AgentTypeRow {
   id: string;
@@ -19,6 +26,8 @@ export interface AgentTypeRow {
   state: AgentTypeState;
   toolScopes: string[];
   grantScopes: string[];
+  /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
+  connectivity: Connectivity;
   maxConcurrentRunsPerPod: number;
   systemPrompt: string;
   createdAt: string;
@@ -66,6 +75,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     state: a.state,
     toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
+    connectivity: a.connectivity ?? { mode: 'none' },
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,

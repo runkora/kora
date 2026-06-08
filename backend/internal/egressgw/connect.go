@@ -2,11 +2,13 @@ package egressgw
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 
+	"github.com/clear-route/orbit/internal/credentials"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -57,15 +59,26 @@ type CABundle interface {
 type ConnectHandler struct {
 	bundle CABundle
 	inner  http.Handler
+	conns  connLookup
 	logger logging.Logger
+}
+
+// connLookup is the narrow slice of the connection repository the CONNECT
+// handler needs: "is there a registered connection for this host?", used to
+// decide intercept-vs-relay for non-:443 ports. *credentials.PostgresRepository
+// and the test repos satisfy it.
+type connLookup interface {
+	GetByHost(ctx context.Context, tenantID, host string) (*credentials.Connection, error)
 }
 
 // NewConnectHandler constructs a ConnectHandler. bundle resolves the per-tenant
 // IssuingCA from the verified caller's claims; inner is invoked with the parsed
 // *http.Request after TLS termination — pass the gateway's ProxyHandler so the
-// established Phase 2a pipeline runs unchanged.
-func NewConnectHandler(bundle CABundle, inner http.Handler, logger logging.Logger) *ConnectHandler {
-	return &ConnectHandler{bundle: bundle, inner: inner, logger: logger}
+// established Phase 2a pipeline runs unchanged. conns lets the handler intercept
+// registered connections on any port (it may be nil, in which case only :443 is
+// intercepted and all other ports are relayed).
+func NewConnectHandler(bundle CABundle, inner http.Handler, conns connLookup, logger logging.Logger) *ConnectHandler {
+	return &ConnectHandler{bundle: bundle, inner: inner, conns: conns, logger: logger}
 }
 
 // ServeHTTP handles one CONNECT request. Non-CONNECT methods are rejected; the
@@ -91,9 +104,6 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the per-tenant CA before hijack so we fail cleanly with an HTTP
-	// error if the bundle has no CA for this tenant. After hijack, errors can
-	// only be surfaced as a closed connection.
 	tenantID := claims.Orbit.TenantID
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, h.logger,
@@ -101,6 +111,24 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ErrUnauthenticated)
 		return
 	}
+
+	// Route by destination. :443 (HTTPS) and registered connections are TLS-
+	// intercepted and credential-brokered (below); every other port is a raw,
+	// authorized TCP relay — the sandbox OPA already gated the destination, so
+	// the gateway just lets it through. See shouldIntercept / serveRelay.
+	host, port, splitErr := net.SplitHostPort(r.Host)
+	if splitErr != nil {
+		// CONNECT normally carries "host:port"; tolerate a bare host as HTTPS.
+		host, port = r.Host, "443"
+	}
+	if !h.shouldIntercept(ctx, tenantID, r.Host, port) {
+		h.serveRelay(ctx, w, claims, host, port)
+		return
+	}
+
+	// Resolve the per-tenant CA before hijack so we fail cleanly with an HTTP
+	// error if the bundle has no CA for this tenant. After hijack, errors can
+	// only be surfaced as a closed connection.
 	ca, err := h.bundle.For(tenantID)
 	if err != nil {
 		h.logger.Error(ctx, "no issuing CA for tenant",
@@ -136,12 +164,6 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if flushErr := bufrw.Flush(); flushErr != nil {
 		h.logger.Warn(ctx, "flush CONNECT 200 failed", logging.Field{Key: "error", Value: flushErr.Error()})
 		return
-	}
-
-	host, _, splitErr := net.SplitHostPort(r.Host)
-	if splitErr != nil {
-		// Tools normally send "host:port"; tolerate a bare host.
-		host = r.Host
 	}
 
 	// Mint the leaf using the CONNECT host as a fallback when the client did
@@ -202,6 +224,32 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+}
+
+// shouldIntercept decides whether a CONNECT is TLS-terminated and credential-
+// brokered, or raw-relayed.
+//
+//   - :443 is always intercepted — HTTPS where the agent trusts the per-tenant
+//     CA leaf (registered connections AND passthrough). Relaying it would expose
+//     the real upstream cert, which the sandbox (trusting only the tenant CA)
+//     would reject.
+//   - any other port whose authority matches a REGISTERED connection is
+//     intercepted, so an explicitly-brokered destination still runs through the
+//     broker wherever it lives. (Production registered connections are reached
+//     on :443 and caught above; this also covers connections registered with an
+//     explicit host:port base.)
+//   - everything else is a raw, authorized TCP relay — the sandbox OPA already
+//     gated the destination (docs/adr/2026-06-06-jit-credential-brokering-
+//     egress-gateway.md, Amendment 2), so the gateway lets it through, no creds.
+func (h *ConnectHandler) shouldIntercept(ctx context.Context, tenantID, authority, port string) bool {
+	if port == "443" {
+		return true
+	}
+	if h.conns == nil {
+		return false
+	}
+	_, err := h.conns.GetByHost(ctx, tenantID, authority)
+	return err == nil
 }
 
 // connectResponseWriter is the http.ResponseWriter implementation we use to

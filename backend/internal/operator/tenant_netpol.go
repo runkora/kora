@@ -68,8 +68,22 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
-				// DNS — both UDP (standard) and TCP (large responses, IPv6).
+				// DNS — to CoreDNS only (kube-system, k8s-app=kube-dns), NOT
+				// 53-to-anywhere. An open 53 lets a hostile agent tunnel data
+				// out via an arbitrary upstream resolver; restricting to the
+				// in-cluster resolver removes that path (residual: CoreDNS ->
+				// upstream is still possible, a narrower, accepted risk).
 				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"kubernetes.io/metadata.name": "kube-system"},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"k8s-app": "kube-dns"},
+							},
+						},
+					},
 					Ports: []networkingv1.NetworkPolicyPort{
 						{Protocol: new(corev1.ProtocolUDP), Port: portIntOrString(53)},
 						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(53)},
@@ -102,10 +116,11 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 				// bypass the credential broker by design.
 				//
 				// Critically, the sandbox-exec container's user code does
-				// NOT use this path: HTTPS_PROXY forces every outbound HTTPS
-				// from the agent through orbit-egress-gateway:8085, while
-				// the sidecars dial orbit-system services on cluster-DNS
-				// without proxy involvement.
+				// NOT reach orbit-system this way: the sandbox Envoy
+				// transparently rewrites the agent's external egress into a
+				// CONNECT to orbit-egress-gateway:8085 (see
+				// charts/orbit/templates/egress-gateway/transparent-egress.yaml),
+				// while the sidecars dial orbit-system services on cluster-DNS.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
@@ -117,22 +132,18 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						},
 					},
 				},
-				// Kubernetes API server. Required by Istio's SDS bootstrap
-				// (token review for the SVID) and any in-pod component that
-				// resolves a kube object. The API server runs on the host
-				// network and can't be selected by pod/namespace selector,
-				// so we use an ipBlock open to 443 and 6443 — same pattern
-				// as charts/orbit-platform/templates/netpols.yaml's
-				// allow-kube-apiserver.
-				{
-					To: []networkingv1.NetworkPolicyPeer{
-						{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0"}},
-					},
-					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(443)},
-						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(6443)},
-					},
-				},
+				// NOTE: there is deliberately NO kube-API egress rule here. A
+				// sandbox does not call the API server: the Istio sidecar gets
+				// its config from istiod (15012, above) and its SVID from the
+				// SPIRE CSI socket, and TokenReview for the SVID happens at
+				// istiod, not in the pod. An earlier `ipBlock 0.0.0.0/0` on
+				// 443/6443 (added to reach the host-networked API server)
+				// reopened the entire internet on 443 and let tools bypass the
+				// egress gateway entirely — defeating the chokepoint. If a
+				// future component genuinely needs the API server, scope it to
+				// the resolved `kubernetes` Service ClusterIP (/32 on 443) and
+				// Endpoints (/32 on 6443) — never 0.0.0.0/0.
+				//
 				// The egress gateway in orbit-system. We match by namespace
 				// label + service name (via pod label) — Kubernetes
 				// NetworkPolicy does not have a native "Service" matcher,

@@ -141,6 +141,25 @@ export type RunState =
   | 'budget_exhausted';
 
 /**
+ * An agent type's outbound egress posture — the reachability gate for its
+ * sandboxes. Mirrors Go: agents.ConnectivityMode.
+ *   none      — no external egress (deny-by-default)
+ *   whitelist — egress only to the listed host patterns
+ *   open      — egress to any host
+ */
+export type ConnectivityMode = 'none' | 'whitelist' | 'open';
+
+/**
+ * Connectivity posture. `hosts` is consulted only in whitelist mode and holds
+ * host patterns (exact, "*", or "*.suffix"), IPv4/DNS only.
+ * Mirrors Go: agents.Connectivity
+ */
+export interface Connectivity {
+  mode: ConnectivityMode;
+  hosts?: string[];
+}
+
+/**
  * An AgentType defines the configuration template for a class of agents.
  * Mirrors Go: agents.AgentType
  */
@@ -154,6 +173,7 @@ export interface AgentType {
   framework: AgentFramework;
   tool_scopes: string[];
   grant_scopes: string[];
+  connectivity: Connectivity;
   max_concurrent_runs_per_pod: number;
   state: AgentTypeState;
   created_at: string;
@@ -217,6 +237,7 @@ export interface CreateAgentTypeRequest {
   framework?: AgentFramework;
   tool_scopes?: string[];
   grant_scopes?: string[];
+  connectivity?: Connectivity;
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
@@ -241,4 +262,5 @@ export interface UpdateAgentTypeRequest {
   grant_scopes?: string[];
   /** Budget update: omit = unchanged; both limits zero = remove. */
   budget?: AgentBudget;
+  connectivity?: Connectivity;
 }

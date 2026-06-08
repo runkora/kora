@@ -128,7 +128,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// CABundle. In production this comes from cabundle.LoadEager scanning the
 	// per-tenant K8s-secret mount.
 	bundle := &fixedCABundle{tenant: "acme", ca: ca}
-	connect := NewConnectHandler(bundle, innerWithAuth, logger)
+	connect := NewConnectHandler(bundle, innerWithAuth, repo, logger)
 
 	// The gateway's outer HTTP server only handles CONNECT; AuthMiddleware
 	// (simulated by authInjector) runs before the CONNECT handler reads claims

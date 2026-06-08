@@ -134,7 +134,7 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 		t.Fatalf("testtlsca.NewCA: %v", err)
 	}
 	bundle := &fixedCABundle{tenant: "acme", ca: ca}
-	connect := NewConnectHandler(bundle, innerWithAuth, logger)
+	connect := NewConnectHandler(bundle, innerWithAuth, repo, logger)
 	gateway := httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), connect))
 	defer gateway.Close()
 

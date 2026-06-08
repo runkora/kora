@@ -24,6 +24,7 @@ import {
 } from '@orbit/terra';
 import { ConfirmDialog, ScopePicker } from '@orbit/components';
 import { useAgentSettings } from '../_hooks/use-agent-settings';
+import { ConnectivityFields } from '../../_components/connectivity-fields';
 
 // ── Data ───────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,10 @@ export function AgentSettingsTab() {
     setBudgetCadence,
     budgetPerRunUSD,
     setBudgetPerRunUSD,
+    connectivityMode,
+    setConnectivityMode,
+    connectivityHosts,
+    setConnectivityHosts,
     models,
     modelsLoading,
     modelGroups,
@@ -290,6 +295,30 @@ export function AgentSettingsTab() {
               }}
               search={toolScopesSearch}
               onSearchChange={setToolScopesSearch}
+            />
+          </CardContent>
+        </Card>
+
+        {/* ── Connectivity ──────────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader
+            leadingIcon="network"
+            title="Connectivity"
+            description="Where this agent's sandboxes may reach on the internet. Hosts needing credentials are configured separately as connections."
+            divider
+          />
+          <CardContent padded>
+            <ConnectivityFields
+              mode={connectivityMode}
+              hosts={connectivityHosts}
+              onModeChange={(m) => {
+                setConnectivityMode(m);
+                setSaveSuccess(false);
+              }}
+              onHostsChange={(h) => {
+                setConnectivityHosts(h);
+                setSaveSuccess(false);
+              }}
             />
           </CardContent>
         </Card>

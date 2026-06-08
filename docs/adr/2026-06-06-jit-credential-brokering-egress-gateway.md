@@ -359,6 +359,89 @@ The `connection:<name>:<action>` vocabulary, the gateway's `policy.Evaluator`, t
 
 ---
 
+## Amendment 2 — 2026-06-07: Transparent egress enforcement (the chokepoint)
+
+**Status:** Accepted — corrects the *enforcement* assumption in the original Decision (the sandbox `HTTPS_PROXY` + NetworkPolicy chokepoint).
+
+### What was wrong
+
+The original design forced egress through the gateway two ways, and **neither is a security boundary**:
+
+- **`HTTPS_PROXY` is agent-cooperative.** A hostile agent (arbitrary code) uses a raw socket and ignores it. Verified: an agent reached `github.com` / `digizoo.com.au` directly while its posture whitelisted only `*.clearroute.io`.
+- **Egress NetworkPolicy is not enforced in local k3d** (Cilium/Calico don't run on Mac k3d), and the rule additionally had an `ipBlock 0.0.0.0/0:443` hole. So even in prod it leaked, and locally it does nothing. Verified: `8.8.8.8:443` connects from a sandbox with no rule allowing it.
+
+The control object existing is not the same as the control being enforced. It wasn't.
+
+### Decision: transparent egress, full broker on every connection
+
+All sandbox outbound is intercepted by the **in-path Envoy sidecar** (which a hardened, non-root, no-`NET_ADMIN` agent cannot bypass) and forced through the broker. Nothing relies on the agent cooperating, and `HTTPS_PROXY`/agent-initiated `CONNECT` is **removed** (transparent only).
+
+### Mechanism: the sandbox Envoy encapsulates egress into a CONNECT — no shared component changes
+
+All changes live in the **sandbox's Envoy config** (an EnvoyFilter scoped to the sandbox pod). The identity-proxy, OPA, and gateway binaries are **untouched**.
+
+1. The sandbox Envoy redirects outbound TCP (:443 and others) into a `tcp_proxy` with `tunneling_config`, wrapping the raw bytes in a generated HTTP `CONNECT <host>:<port>` instead of passing through.
+2. That generated `CONNECT` is routed through an **internal listener** whose HCM runs the **existing** ext_proc (identity-proxy stamps the platform JWT) and the **existing** ext_authz (OPA checks `egress:<host>:connect`) — the same filter targets already wired on the outbound HCM today.
+3. The `CONNECT` then routes to the egress gateway, which terminates TLS with the tenant CA and runs the broker (connection authz + JIT mint + audit).
+
+The agent's TLS is end-to-end to the gateway; Envoy only tunnels ciphertext.
+
+### Why this shape (and not a forward proxy in the identity-proxy)
+
+The identity-proxy already stamps the JWT on the **agent-initiated** `CONNECT` today (via `HTTPS_PROXY`). Removing `HTTPS_PROXY` means *Envoy* must **generate** the `CONNECT`; the internal-listener indirection is what lets that generated `CONNECT` re-enter an HCM so the **unchanged** ext_proc still stamps the JWT and the **unchanged** OPA still checks posture.
+
+We deliberately do **not** turn the identity-proxy into an inline data-plane forwarder: it is a **shared, load-bearing mesh sidecar** injected beyond sandboxes, and bespoke byte-forwarding there would put cluster-wide availability and a wider attack surface into the very path we are hardening, for no benefit. Envoy is the proxy; the work belongs in its config, scoped to the sandbox. The single mechanism to prove before building the chart is that the internal-listener + `tunneling_config` path runs the existing ext_proc + ext_authz on the Envoy-generated `CONNECT`.
+
+### Identity
+
+Preserved as the **platform JWT** (not the raw mTLS SVID), per the requirement to keep claims + the future delegation flow on the same Bearer channel. The identity-proxy injects it; the gateway verifies it. The gateway stays a **verifier**, not a token minter. The agent never handles a credential.
+
+### Protocols
+
+All TCP is intercepted via the transparent `CONNECT`. **443** → TLS interception + credential injection; **other TCP** → posture-gated tunnel (per-protocol adapters later); **UDP** cannot be `CONNECT`-tunnelled → allow only DNS→CoreDNS, deny the rest.
+
+### Enforcement boundary
+
+The **Envoy interception + redirect is the enforced chokepoint, in dev *and* prod** (Envoy is in-path everywhere, including Mac k3d). **Pod hardening** (`runAsNonRoot`, drop `NET_ADMIN`/`NET_RAW`, `allowPrivilegeEscalation: false`) prevents the agent escaping the redirect (e.g. becoming UID 1337). The NetworkPolicy is demoted to **defense-in-depth** where the CNI enforces it (prod), no longer the primary boundary; its `0.0.0.0/0` hole is removed and DNS is scoped to CoreDNS.
+
+### Supersedes
+
+The "NetworkPolicy forces egress through the gateway" and "agent uses `HTTPS_PROXY`/`CONNECT`" statements throughout the original Decision and per-tool flows. The gateway, posture, TLS termination, and mint are unchanged — only how traffic is *forced into* them changes.
+
+### Definition of done (the test that was missing)
+
+A negative egress test: from a fresh sandbox, **direct** connects (raw socket, multiple ports) to non-whitelisted hosts must **fail**; whitelisted hosts succeed through the gateway with credentials injected. It runs in dev (Envoy enforces) and is the gate on calling this complete.
+
+### Implementation & proof (2026-06-07)
+
+The mechanism was proven on a live k3d sandbox before building, then productised. A plain `curl https://github.com` (no `HTTPS_PROXY`) on a sandbox whose posture did not whitelist GitHub:
+
+- **denied** — Envoy debug showed the generated `CONNECT` running `ext_proc` then `Sending local reply: ext_authz_denied`, reset mid-handshake;
+- with OPA removed, the **same** request flowed through the gateway: server cert `CN=github.com` issued by `Orbit Tenant CA — example`, `verify ok`, `HTTP/1.1 200` — confirming "deny" was real posture enforcement, not a broken tunnel.
+
+What shipped:
+
+- `charts/orbit/templates/egress-gateway/transparent-egress.yaml` — the sandbox-scoped EnvoyFilter (internal-listener HCM running the existing `identity_proxy_local` ext_proc + `opa_policy_local` ext_authz). **All** outbound TCP is intercepted and OPA-gated: `tls_inspector` + SNI-tunnel chain on `0.0.0.0_443` (hostname posture), and the `virtualOutbound-catchall-tcp` chain retargeted to tunnel every other port using the **original destination** (`%DOWNSTREAM_LOCAL_ADDRESS%`) as the CONNECT host (IP posture). identity-proxy / OPA / gateway binaries unchanged.
+- `internal/agents/k8s.go` — `HTTPS_PROXY`/`HTTP_PROXY` removed from the sandbox env (transparent only; CA-trust hints kept); sandbox-exec container hardened (`drop ALL` caps, `allowPrivilegeEscalation: false`) on top of the pod's `runAsNonRoot`.
+- `internal/operator/tenant_netpol.go` — `0.0.0.0/0` hole removed, DNS scoped to CoreDNS (prod defense-in-depth).
+
+Validated in-cluster against the chart EnvoyFilter: 443 deny (`github.com`) / allow (`*.clearroute.io` via tenant CA), arbitrary TCP `1.1.1.1:53` denied (`CONNECT 1.1.1.1:53` → `ext_authz_denied`), no-SNI `8.8.8.8:443` denied (fail-closed), port 80 denied (`403`).
+
+### Egress is HTTPS-only (HTTP/80 intentionally unsupported)
+
+Plain HTTP on :80 is **denied by design** — egress is HTTPS-only. It is fail-closed in two independent places: the OPA egress posture matches only `CONNECT` (a plain `GET` hits `default allow := false` → `403`), and the gateway has no plain-HTTP forward-proxy path (its dispatcher is `CONNECT → ConnectHandler`, else admin API). This is a deliberate security posture, not a gap. Plaintext egress loses confidentiality, integrity, and server authentication on the gateway→upstream hop; for an agent, HTTP **response tampering becomes prompt-injection / supply-chain risk** (the agent acts on what it fetched). The governance (identity + per-host policy + audit) would be unchanged, but the connection itself would be unprotected.
+
+A future addition may support HTTP/80 **through the gateway** with guardrails: **passthrough-only** (never inject a credential over plaintext), **strip the platform JWT** at the gateway (ext_proc stamps it on the visible request, unlike the CONNECT path), and gate it as a **distinct, explicit per-host opt-in** (e.g. `http-egress:<host>`) rather than implicitly via the HTTPS whitelist.
+
+### Tracked follow-ups (not blocking this milestone)
+
+- **Non-443 TCP relay (databases, etc.):** the gateway raw-passthrough is BUILT (`internal/egressgw/relay.go` — `:443`/registered connection → intercept, every other port → raw bidirectional relay with half-close, idle timeout, and connection-level audit; unit-tested), and SNI-on-the-catch-all (hostname posture for non-443 TLS) is proven on a sandbox but not yet folded into the chart. End-to-end validation against a live non-443 upstream is deferred — this dev network refuses external non-443 (`:853` → `errno 111`). Posture for non-SNI raw TCP stays IP-based (fail-closed for hostname whitelists).
+- **HTTP/80**: see "Egress is HTTPS-only" above — deliberate, future addition with guardrails.
+- **Empty-SNI TLS** tunnels with an empty host and is fail-closed at OPA; an explicit reject is cleaner — deferred.
+- **UDP** beyond DNS→CoreDNS is denied; no QUIC/UDP brokering yet.
+
+---
+
 ## Validation
 
 ### Success Metrics

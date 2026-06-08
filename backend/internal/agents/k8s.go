@@ -424,14 +424,14 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 //
 // SANDBOX_EXEC_PORT is consumed by sandbox-exec itself.
 //
-// HTTPS_PROXY / HTTP_PROXY route the sandbox's outbound HTTP(S) traffic
-// through the per-tenant egress gateway from
-// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md. The gateway
-// terminates the upstream's TLS with a per-tenant-CA-signed leaf, swaps the
-// platform token for a JIT-minted upstream credential, and re-originates real
-// TLS to the upstream. NO_PROXY excludes loopback so in-pod traffic
-// (including the SPIRE workload socket and any locally-listened Istio
-// admin endpoints) bypasses the proxy.
+// Egress is TRANSPARENT — the sandbox has NO proxy env. The sandbox Envoy
+// rewrites the agent's raw outbound TLS into a CONNECT to the per-tenant egress
+// gateway and runs OPA posture + platform-JWT injection on it; see
+// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md (Amendment 2)
+// and charts/orbit/templates/egress-gateway/transparent-egress.yaml. We
+// deliberately do NOT set HTTPS_PROXY: it was agent-cooperative (a hostile
+// agent ignores it and uses a raw socket), so it was never an enforcement
+// boundary. The interception now happens below the agent, at Envoy.
 //
 // SSL_CERT_FILE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS / REQUESTS_CA_BUNDLE
 // point common runtimes at the per-tenant CA root mounted at
@@ -441,23 +441,18 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // store.
 //
 // When SystemNamespace is empty (defensive — should never happen in
-// production) the proxy + CA env are omitted so the sandbox simply has no
-// governed egress.
+// production) the CA env is omitted so the sandbox simply has no governed
+// egress.
 func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
 	}
-	gatewayURL := egressGatewayURL(cfg)
-	if gatewayURL == "" {
+	// egressGatewayURL is empty only when SystemNamespace is unset; in that
+	// case there is no gateway and no per-tenant CA to trust.
+	if egressGatewayURL(cfg) == "" {
 		return env
 	}
 	env = append(env,
-		corev1.EnvVar{Name: "HTTPS_PROXY", Value: gatewayURL},
-		corev1.EnvVar{Name: "HTTP_PROXY", Value: gatewayURL},
-		corev1.EnvVar{Name: "NO_PROXY", Value: "localhost,127.0.0.1,::1"},
-		corev1.EnvVar{Name: "https_proxy", Value: gatewayURL},
-		corev1.EnvVar{Name: "http_proxy", Value: gatewayURL},
-		corev1.EnvVar{Name: "no_proxy", Value: "localhost,127.0.0.1,::1"},
 		// Trust-store hints for the per-tenant CA root. Different runtimes
 		// honor different env vars; we set all the common ones so a tool
 		// (git/curl/Node SDK/Python requests) finds the CA wherever it
@@ -562,6 +557,19 @@ func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
+		},
+		// The agent is untrusted code. Dropping all Linux capabilities —
+		// critically NET_ADMIN and NET_RAW — is what makes the transparent
+		// egress redirect un-bypassable: without them the agent cannot rewrite
+		// the pod's iptables or open raw sockets to escape the sidecar
+		// interception (docs/adr/2026-06-06-jit-credential-brokering-egress-
+		// gateway.md, Amendment 2). Combined with the pod's RunAsNonRoot, the
+		// agent has no path back to the network layer Envoy controls.
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: new(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
 		},
 		Env:          sandboxContainerEnv(cfg),
 		VolumeMounts: mounts,

@@ -6,9 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
+import type { ModelObject, ToolScopeDefinition, ConnectivityMode } from '@orbit/shared/api';
 import { updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { hostsToText, textToHosts } from '../../_components/connectivity-fields';
 import type { AgentTypeRow } from '../../_types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -64,6 +65,12 @@ export function useAgentSettings() {
   );
   const [toolScopesSearch, setToolScopesSearch] = useState('');
   const [persistMemory, setPersistMemory] = useState(false);
+  const [connectivityMode, setConnectivityMode] = useState<ConnectivityMode>(
+    agent?.connectivity.mode ?? 'none',
+  );
+  const [connectivityHosts, setConnectivityHosts] = useState(
+    hostsToText(agent?.connectivity.hosts),
+  );
 
   // Tracks the last-saved values so isDirty resets immediately after a successful save.
   const [savedBaseline, setSavedBaseline] = useState({
@@ -77,6 +84,8 @@ export function useAgentSettings() {
     budgetLimitUSD: agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
     budgetCadence: agent?.budget?.reset_cadence ?? 'monthly',
     budgetPerRunUSD: agent?.budget?.per_run_limit_usd ? String(agent.budget.per_run_limit_usd) : '',
+    connectivityMode: agent?.connectivity.mode ?? ('none' as ConnectivityMode),
+    connectivityHosts: hostsToText(agent?.connectivity.hosts),
   });
 
   // ── Model data ──────────────────────────────────────────────────────────────
@@ -116,6 +125,8 @@ export function useAgentSettings() {
     systemPrompt !== savedBaseline.systemPrompt ||
     maxConcurrentRuns !== savedBaseline.maxConcurrentRuns ||
     modelId !== savedBaseline.modelId ||
+    connectivityMode !== savedBaseline.connectivityMode ||
+    connectivityHosts !== savedBaseline.connectivityHosts ||
     JSON.stringify(toolScopes.slice().sort()) !==
       JSON.stringify(savedBaseline.toolScopes.slice().sort()) ||
     budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
@@ -173,6 +184,10 @@ export function useAgentSettings() {
               },
             }
           : {}),
+        connectivity:
+          connectivityMode === 'whitelist'
+            ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
+            : { mode: connectivityMode },
       });
       setSaving(false);
       if (result.error) {
@@ -190,6 +205,8 @@ export function useAgentSettings() {
           budgetLimitUSD,
           budgetCadence,
           budgetPerRunUSD,
+          connectivityMode,
+          connectivityHosts,
         });
         setSaveSuccess(true);
         if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
@@ -210,6 +227,8 @@ export function useAgentSettings() {
       budgetCadence,
       budgetPerRunUSD,
       savedBaseline,
+      connectivityMode,
+      connectivityHosts,
     ],
   );
 
@@ -225,6 +244,8 @@ export function useAgentSettings() {
     setBudgetLimitUSD(savedBaseline.budgetLimitUSD);
     setBudgetCadence(savedBaseline.budgetCadence);
     setBudgetPerRunUSD(savedBaseline.budgetPerRunUSD);
+    setConnectivityMode(savedBaseline.connectivityMode);
+    setConnectivityHosts(savedBaseline.connectivityHosts);
     setSaveError(null);
   }, [agent, savedBaseline]);
 
@@ -273,6 +294,10 @@ export function useAgentSettings() {
     setBudgetCadence,
     budgetPerRunUSD,
     setBudgetPerRunUSD,
+    connectivityMode,
+    setConnectivityMode,
+    connectivityHosts,
+    setConnectivityHosts,
     // model data
     models,
     modelsLoading,

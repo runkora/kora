@@ -373,6 +373,15 @@ allow if {
 	_principal_egress_allows
 }
 
+# Egress is HTTPS-only by design. A plain HTTP request (non-CONNECT) to an
+# external host is intentionally NOT matched here, so it falls through to
+# `default allow := false` (→ 403). This is deliberate, not an omission:
+# plaintext egress has no confidentiality/integrity/server-auth on the
+# gateway→upstream hop, and for an agent HTTP response-tampering becomes an
+# injection vector. Supporting HTTP/80 is future work (passthrough-only, strip
+# the platform JWT at the gateway, distinct per-host opt-in) — see ADR
+# 2026-06-06-jit-credential-brokering-egress-gateway (Amendment 2).
+
 # ══ REASON RULES ═════════════════════════════════════════════════════════════
 #
 # reason is for logging only — never returned to callers.

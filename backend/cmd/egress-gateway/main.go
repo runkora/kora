@@ -111,7 +111,7 @@ func realMain() error {
 	// ── Broker + handlers ────────────────────────────────────────────────────
 	broker := egressgw.NewBroker(eval, connRepo, registry, logger)
 	proxyHandler := egressgw.NewProxyHandler(broker, http.DefaultTransport, logger)
-	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, logger)
+	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRepo, logger)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
