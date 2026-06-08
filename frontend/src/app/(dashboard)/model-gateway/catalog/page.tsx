@@ -1,22 +1,8 @@
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchVirtualModels, fetchProviderModels, fetchPricing } from '../_services/catalog-server';
-import type { ProviderModel, PricingEntryWire } from '../_services/catalog-server';
+import type { PricingEntryWire } from '../_services/catalog-server';
 import { CatalogTab } from './_components/catalog-tab';
 import type { SyncSummary } from './_components/sync-status-banner';
-
-function mergeProviderModelPricing(
-  providerModels: ProviderModel[],
-  pricingEntries: PricingEntryWire[],
-): ProviderModel[] {
-  const pricingMap = new Map<string, PricingEntryWire>();
-  for (const e of pricingEntries) {
-    pricingMap.set(`${e.provider}/${e.model_id}`, e);
-  }
-  return providerModels.map((m) => {
-    const pricing = pricingMap.get(`${m.provider}/${m.model_id}`);
-    return pricing ? { ...m, pricing } : m;
-  });
-}
 
 function buildSyncSummary(
   pricingEntries: PricingEntryWire[],
@@ -66,9 +52,8 @@ export default async function CatalogPage() {
   ]);
 
   const virtualModels = vmResult.ok ? (vmResult.data.data ?? []) : [];
-  const rawProviderModels = pmResult.ok ? (pmResult.data.data ?? []) : [];
+  const providerModels = pmResult.ok ? (pmResult.data.data ?? []) : [];
   const pricingEntries = pricingResult.ok ? (pricingResult.data.data ?? []) : [];
-  const providerModels = mergeProviderModelPricing(rawProviderModels, pricingEntries);
   const error = !vmResult.ok ? vmResult.message : null;
   const syncSummary = buildSyncSummary(pricingEntries, !pricingResult.ok);
 

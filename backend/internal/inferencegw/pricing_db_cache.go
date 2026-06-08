@@ -68,9 +68,14 @@ func (c *DatabasePricingCache) Start(ctx context.Context) {
 
 // Price returns the effective pricing for a provider+model pair.
 // Returns (ModelPricing{}, false) when the model is not in the catalog.
+//
+// For Bedrock models, cross-region profile IDs (e.g. "us.anthropic.claude-…")
+// are normalised to their base form (e.g. "anthropic.claude-…") before the
+// lookup because the pricing catalog is keyed on the base ID from LiteLLM.
 func (c *DatabasePricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
 	snap := c.snap.Load()
-	p, ok := snap.entries[string(provider)+"/"+modelID]
+	key := string(provider) + "/" + normalisePricingModelID(provider, modelID)
+	p, ok := snap.entries[key]
 	return p, ok
 }
 

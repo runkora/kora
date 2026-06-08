@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -62,6 +63,7 @@ type liteLLMEntry struct {
 // liteLLMProviderToOrbit maps LiteLLM litellm_provider field values to Orbit ProviderNames.
 var liteLLMProviderToOrbit = map[string]ProviderName{
 	"bedrock":                    ProviderBedrock,
+	"bedrock_converse":           ProviderBedrock,
 	"vertex_ai":                  ProviderVertexAI,
 	"vertex_ai-text-models":      ProviderVertexAI,
 	"vertex_ai-chat-models":      ProviderVertexAI,
@@ -76,6 +78,76 @@ var liteLLMProviderToOrbit = map[string]ProviderName{
 func resolveProvider(liteLLMProvider string) (ProviderName, bool) {
 	p, ok := liteLLMProviderToOrbit[liteLLMProvider]
 	return p, ok
+}
+
+// bedrockRegionPrefixes are the cross-region inference profile prefixes that
+// Bedrock prepends to a base model ID (e.g. "us.anthropic.claude-…" → "anthropic.claude-…").
+// This list must stay in sync with providers/bedrock/models.go:knownRegionPrefixes.
+var bedrockRegionPrefixes = []string{
+	"apac.", "au.", "global.",
+	"us.", "eu.", "ap.", "jp.",
+}
+
+// normalisePricingModelID strips any Bedrock cross-region prefix and any
+// trailing version suffix from modelID so it matches the base model ID stored
+// in the pricing catalog (sourced from LiteLLM bare keys like
+// "anthropic.claude-…" or "qwen.qwen3-coder-480b-a35b").
+//
+// This intentionally does NOT strip "-instruct": the DB stores bare aliases
+// with the "-instruct" suffix intact (e.g. "meta.llama3-8b-instruct"), and
+// stripping it at lookup time would produce a miss.
+// For non-Bedrock providers the ID is returned unchanged.
+func normalisePricingModelID(provider ProviderName, modelID string) string {
+	if provider != ProviderBedrock {
+		return modelID
+	}
+	for _, pfx := range bedrockRegionPrefixes {
+		if strings.HasPrefix(modelID, pfx) {
+			modelID = modelID[len(pfx):]
+			break
+		}
+	}
+	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
+}
+
+// bedrockLookupSuffix strips version/date suffixes from a **discovered** Bedrock
+// model ID at pricing-lookup time. Intentionally excludes "-instruct" because
+// that suffix is part of the model's identity in the pricing catalog for
+// instruct-only models (e.g. "meta.llama3-8b-instruct").
+//
+//	"anthropic.claude-haiku-4-5-20251001-v1:0"  → "anthropic.claude-haiku-4-5"
+//	"anthropic.claude-opus-4-6-v1"              → "anthropic.claude-opus-4-6"
+//	"anthropic.claude-haiku-4-5@20251001"        → "anthropic.claude-haiku-4-5"
+//	"openai.gpt-oss-120b-1:0"                    → "openai.gpt-oss-120b"
+//	"meta.llama3-3-70b-instruct-v1:0"            → "meta.llama3-3-70b-instruct" (preserved)
+//	"qwen.qwen3-coder-480b-a35b-instruct"        → unchanged (caller falls back to stripping -instruct)
+var bedrockLookupSuffix = regexp.MustCompile(`(-\d{8})?(-v\d+(?::\d+)?|@\d{8}|-\d+:\d+)$`)
+
+// bedrockInstructSuffix matches a trailing "-instruct" used in the fallback
+// pricing lookup for models like "qwen.qwen3-coder-480b-a35b-instruct" whose
+// DB entry is stored without the suffix.
+var bedrockInstructSuffix = regexp.MustCompile(`-instruct$`)
+
+// bedrockVersionSuffix strips version/date/alias suffixes from a LiteLLM model
+// key at **sync time** to emit a bare alias DB entry alongside the versioned key.
+// Includes "-instruct" so that LiteLLM versioned keys like
+// "qwen.qwen3-coder-480b-a35b-v1:0" also emit "qwen.qwen3-coder-480b-a35b"
+// (matched by AWS aliases of the form "qwen.qwen3-coder-480b-a35b-instruct"
+// via the lookup fallback above).
+//
+//	"qwen.qwen3-coder-480b-a35b-v1:0"       → alias "qwen.qwen3-coder-480b-a35b"
+//	"anthropic.claude-haiku-4-5@20251001"   → alias "anthropic.claude-haiku-4-5"
+var bedrockVersionSuffix = regexp.MustCompile(`(-\d{8})?(-v\d+(?::\d+)?|@\d{8}|-instruct|-\d+:\d+)$`)
+
+// bedrockBareAlias returns the unversioned alias form of a Bedrock model ID by
+// stripping any trailing date/version suffix. Returns "" when the ID is already
+// bare (no suffix to strip), to avoid creating a duplicate entry.
+func bedrockBareAlias(modelID string) string {
+	stripped := bedrockVersionSuffix.ReplaceAllString(modelID, "")
+	if stripped == modelID {
+		return ""
+	}
+	return stripped
 }
 
 // stripProviderPrefix removes a leading "provider/" prefix from a LiteLLM model key,
@@ -142,14 +214,25 @@ func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, er
 		}
 
 		const perTokenToPerMillion = 1_000_000
-		entries = append(entries, ModelPriceEntry{
+		e := ModelPriceEntry{
 			Provider:            provider,
 			ModelID:             modelID,
 			InputCostPer1M:      entry.InputCostPerToken * perTokenToPerMillion,
 			OutputCostPer1M:     entry.OutputCostPerToken * perTokenToPerMillion,
 			CacheReadCostPer1M:  entry.CacheReadInputTokenCost * perTokenToPerMillion,
 			CacheWriteCostPer1M: entry.CacheCreationInputTokenCost * perTokenToPerMillion,
-		})
+		}
+		entries = append(entries, e)
+
+		// For Bedrock, also emit a bare alias (no date/version suffix) so that
+		// unversioned model IDs returned by ListFoundationModels can be priced.
+		if provider == ProviderBedrock {
+			if alias := bedrockBareAlias(modelID); alias != "" {
+				aliasEntry := e
+				aliasEntry.ModelID = alias
+				entries = append(entries, aliasEntry)
+			}
+		}
 	}
 
 	return entries, nil

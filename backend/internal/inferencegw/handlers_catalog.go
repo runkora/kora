@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -128,16 +129,17 @@ type setProviderModelEnabledRequest struct {
 }
 
 type providerModelJSON struct {
-	Provider         string   `json:"provider"`
-	ModelID          string   `json:"model_id"`
-	DisplayName      string   `json:"display_name"`
-	Family           string   `json:"family"`
-	Capabilities     []string `json:"capabilities"`
-	Aliases          []string `json:"aliases"`
-	InputModalities  []string `json:"input_modalities"`
-	OutputModalities []string `json:"output_modalities"`
-	Dialects         []string `json:"dialects"`
-	Enabled          bool     `json:"enabled"`
+	Provider         string            `json:"provider"`
+	ModelID          string            `json:"model_id"`
+	DisplayName      string            `json:"display_name"`
+	Family           string            `json:"family"`
+	Capabilities     []string          `json:"capabilities"`
+	Aliases          []string          `json:"aliases"`
+	InputModalities  []string          `json:"input_modalities"`
+	OutputModalities []string          `json:"output_modalities"`
+	Dialects         []string          `json:"dialects"`
+	Enabled          bool              `json:"enabled"`
+	Pricing          *pricingEntryJSON `json:"pricing,omitempty"`
 }
 
 // ─── Virtual model handlers ───────────────────────────────────────────────────
@@ -275,10 +277,43 @@ func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *h
 
 // ─── Provider model handlers ──────────────────────────────────────────────────
 
+// buildPricingMap loads all pricing catalog entries and returns a map keyed by
+// "provider/modelID". Returns (nil, err) on load failure so the caller can log
+// and decide how to proceed.
+func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pricingEntryJSON, error) {
+	entries, err := c.pricingCatalog.LoadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]*pricingEntryJSON, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		m[string(e.Provider)+"/"+e.ModelID] = toPricingEntryJSON(e)
+	}
+	return m, nil
+}
+
+// lookupPricing returns the pricing entry for a provider+modelID pair from the
+// map built by buildPricingMap. For Bedrock, it applies two-pass normalisation:
+//  1. Strip region prefix + version suffix via normalisePricingModelID.
+//  2. If still no match and the ID ends in "-instruct", strip that suffix and
+//     retry — handles AWS aliases like "qwen.qwen3-coder-480b-a35b-instruct"
+//     whose DB entry is stored as "qwen.qwen3-coder-480b-a35b".
+func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderName, modelID string) *pricingEntryJSON {
+	key := string(provider) + "/" + normalisePricingModelID(provider, modelID)
+	if p, ok := pricingMap[key]; ok {
+		return p
+	}
+	if provider == ProviderBedrock && bedrockInstructSuffix.MatchString(key) {
+		fallbackKey := bedrockInstructSuffix.ReplaceAllString(key, "")
+		return pricingMap[fallbackKey]
+	}
+	return nil
+}
+
 func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get admin overrides from DB to compute effective enabled status.
 	overrides, err := c.store.ListProviderModelOverrides(ctx)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list provider overrides", nil), err)
@@ -289,6 +324,16 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		if !o.Enabled {
 			disabledSet[string(o.Provider)+"/"+o.ModelID] = true
 		}
+	}
+
+	// Build a pricing map keyed by "provider/modelID" so we can embed pricing
+	// data directly on each provider model — the frontend doesn't need to join.
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing catalog for provider models — returning models without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
 	}
 
 	// Merge with live discovery cache. The cache is warmed at startup via
@@ -324,6 +369,7 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Enabled:          !disabledSet[string(m.Provider)+"/"+m.ModelID],
+			Pricing:          lookupPricing(pricingMap, m.Provider, m.ModelID),
 		})
 	}
 
@@ -499,6 +545,29 @@ type pricingEntryJSON struct {
 	LastSyncedAt       string   `json:"last_synced_at"` // RFC3339
 }
 
+// toPricingEntryJSON converts a PricingCatalogEntry to its JSON wire type.
+// Uses the canonical EffectiveInput/Output methods so override logic is not duplicated.
+func toPricingEntryJSON(e *PricingCatalogEntry) *pricingEntryJSON {
+	hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
+		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
+	return &pricingEntryJSON{
+		Provider:           string(e.Provider),
+		ModelID:            e.ModelID,
+		SyncedInput:        e.SyncedInput,
+		SyncedOutput:       e.SyncedOutput,
+		SyncedCacheRead:    e.SyncedCacheRead,
+		SyncedCacheWrite:   e.SyncedCacheWrite,
+		OverrideInput:      e.OverrideInput,
+		OverrideOutput:     e.OverrideOutput,
+		OverrideCacheRead:  e.OverrideCacheRead,
+		OverrideCacheWrite: e.OverrideCacheWrite,
+		EffectiveInput:     e.EffectiveInput(),
+		EffectiveOutput:    e.EffectiveOutput(),
+		HasOverride:        hasOverride,
+		LastSyncedAt:       e.LastSyncedAt.UTC().Format(time.RFC3339),
+	}
+}
+
 // handleListPricing returns the full model_pricing table for platform admins.
 // Each entry exposes both synced and override columns alongside computed
 // effective prices so the frontend can display accurate pricing data without
@@ -513,25 +582,8 @@ func (c *CatalogController) handleListPricing(w http.ResponseWriter, r *http.Req
 	}
 
 	items := make([]pricingEntryJSON, len(entries))
-	for i, e := range entries {
-		hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
-			e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
-		items[i] = pricingEntryJSON{
-			Provider:           string(e.Provider),
-			ModelID:            e.ModelID,
-			SyncedInput:        e.SyncedInput,
-			SyncedOutput:       e.SyncedOutput,
-			SyncedCacheRead:    e.SyncedCacheRead,
-			SyncedCacheWrite:   e.SyncedCacheWrite,
-			OverrideInput:      e.OverrideInput,
-			OverrideOutput:     e.OverrideOutput,
-			OverrideCacheRead:  e.OverrideCacheRead,
-			OverrideCacheWrite: e.OverrideCacheWrite,
-			EffectiveInput:     e.EffectiveInput(),
-			EffectiveOutput:    e.EffectiveOutput(),
-			HasOverride:        hasOverride,
-			LastSyncedAt:       e.LastSyncedAt.UTC().Format(time.RFC3339),
-		}
+	for i := range entries {
+		items[i] = *toPricingEntryJSON(&entries[i])
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})

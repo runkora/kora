@@ -126,6 +126,8 @@ type PricingSource interface {
 
 The LiteLLM implementation maps `litellm_provider`, `input_cost_per_token`, `output_cost_per_token`, `cache_read_input_token_cost`, and `cache_creation_input_token_cost` to this struct (converting per-token to per-1M). Any replacement source implements the same interface.
 
+**Bedrock cross-region profile ID normalisation:** The Bedrock connector uses cross-region inference profile IDs as canonical model IDs — e.g. `us.anthropic.claude-3-5-sonnet-20241022-v2:0` — because those are the routable forms. LiteLLM only carries the bare base form: `anthropic.claude-3-5-sonnet-20241022-v2:0`. `PricingCache.Price` strips the known region prefix (`us.`, `eu.`, `apac.`, etc.) before performing the lookup so that every Bedrock model with a cross-region profile resolves correctly. This normalisation is applied at the `PricingCache` read layer — the `model_pricing` table and the sync worker are unaffected.
+
 **Sync schedule:** Daily. The sync worker runs on the inference gateway binary. With multiple replicas, each independently fetches and upserts — writes are idempotent (`ON CONFLICT (provider, model_id) DO UPDATE` on synced columns only). This produces redundant syncs but no correctness issues. A distributed lock is not added at this time — the cost of the coordination infrastructure is not justified by the benefit.
 
 ---
@@ -529,6 +531,8 @@ See PRD Phase 3 milestones. Note: the price history chart in the Provider Catalo
 **Why not a shared spending pool for quota groups?** A shared pool requires atomic cross-principal accounting — every request from any group member must decrement a shared counter. This is a distributed coordination problem with no clean Redis primitive. It also creates unpredictable UX: a single high-traffic agent could exhaust the pool for all other members. Per-member individual limits are both simpler to implement and more predictable for operators.
 
 **Why drop `virtual_model_routes` pricing columns rather than leave them?** Leaving them creates an ongoing confusion risk — engineers may write to or read from them not knowing they are superseded. The columns are also populated with stale data that could silently re-emerge if someone wires them back in. A clean drop in Phase 1 is safer than deprecation-in-place.
+
+**Why normalise Bedrock model IDs at the cache read layer rather than at sync or write time?** The `model_pricing` table is keyed on the bare LiteLLM form (`anthropic.claude-…`). Normalising at write time would require `PricingSyncWorker` to know about the Bedrock profile ID scheme — coupling two independent concerns. Normalising at the cache read layer in `PricingCache.Price` is the minimal change: one function, no schema impact, no migration, and covers both the inference request path and any future consumer of the same cache.
 
 **Why store effective prices on `inference_usage` rather than a separate snapshot table?** A snapshot table requires writes on every sync run and every override change, adds a join to cost reconstruction, and creates a second source of truth that can diverge from the actual prices used. Writing effective prices directly onto `inference_usage` at request time makes every record self-contained — the prices used to compute `estimated_cost_usd` are stored alongside the token counts, no join required. The price history chart is derived from actual usage records, not synthetic snapshot events, which is more operationally meaningful. Models with no traffic produce no history — which is the correct behaviour, not a gap.
 

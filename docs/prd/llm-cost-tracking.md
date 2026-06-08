@@ -340,7 +340,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### External Dependencies
 
-- **Pricing data source**: LiteLLM `model_prices_and_context_window.json` (open-source, community-maintained, updated approximately daily, covers Bedrock/Vertex/Azure/OpenAI/Anthropic). The sync worker must be designed against an abstracted `PricingSource` interface so the source can be swapped in future.
+- **Pricing data source**: LiteLLM `model_prices_and_context_window.json` (open-source, community-maintained, updated approximately daily, covers Bedrock/Vertex/Azure/OpenAI/Anthropic). The sync worker must be designed against an abstracted `PricingSource` interface so the source can be swapped in future. **Note:** LiteLLM keys Bedrock models by their bare base ID (e.g. `anthropic.claude-3-5-sonnet-20241022-v2:0`). Orbit's Bedrock connector uses the routable cross-region inference profile ID (e.g. `us.anthropic.claude-3-5-sonnet-20241022-v2:0`) as the canonical model ID. The `PricingCache` normalises these by stripping the region prefix before lookup; the `model_pricing` table and sync worker are unaffected.
 
 ---
 
