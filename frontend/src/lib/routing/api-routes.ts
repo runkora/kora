@@ -355,6 +355,35 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/quotas/groups/[id]/members`
+   *
+   * GET — list principal IDs that are members of the group.
+   */
+  quotaGroupMembers: {
+    GET: (id: string): `${typeof API_BASE}/quotas/groups/${string}/members` =>
+      `${API_BASE}/quotas/groups/${id}/members`,
+  },
+
+  /**
+   * `/api/quotas/groups/[id]/members/[principalId]`
+   *
+   * PUT    — add a principal to a quota group.
+   * DELETE — remove a principal from a quota group.
+   */
+  quotaGroupMember: {
+    PUT: (
+      id: string,
+      principalId: string,
+    ): `${typeof API_BASE}/quotas/groups/${string}/members/${string}` =>
+      `${API_BASE}/quotas/groups/${id}/members/${principalId}`,
+    DELETE: (
+      id: string,
+      principalId: string,
+    ): `${typeof API_BASE}/quotas/groups/${string}/members/${string}` =>
+      `${API_BASE}/quotas/groups/${id}/members/${principalId}`,
+  },
+
+  /**
    * `/api/quotas/principals/[principalId]`
    *
    * GET    — get the individual quota for a principal (404 if none set).
@@ -417,6 +446,9 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['quotaGroups']['POST']>
   | ReturnType<(typeof ApiRoute)['quotaGroup']['PUT']>
   | ReturnType<(typeof ApiRoute)['quotaGroup']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['quotaGroupMembers']['GET']>
+  | ReturnType<(typeof ApiRoute)['quotaGroupMember']['PUT']>
+  | ReturnType<(typeof ApiRoute)['quotaGroupMember']['DELETE']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['GET']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['PUT']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['DELETE']>

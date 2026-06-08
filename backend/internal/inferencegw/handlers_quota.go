@@ -58,6 +58,7 @@ func (c *QuotasController) Boot(mux *api.Mux) {
 	mux.Handle("GET /groups/{id}", c.handleGetGroup)
 	mux.Handle("PUT /groups/{id}", c.handleUpdateGroupBudget)
 	mux.Handle("DELETE /groups/{id}", c.handleDeleteGroup)
+	mux.Handle("GET /groups/{id}/members", c.handleListMembers)
 	mux.Handle("PUT /groups/{id}/members/{principalId}", c.handleSetMembership)
 	mux.Handle("DELETE /groups/{id}/members/{principalId}", c.handleRemoveMembership)
 	mux.Handle("GET /principals/{principalId}", c.handleGetPrincipalQuota)
@@ -250,6 +251,38 @@ func (c *QuotasController) handleDeleteGroup(w http.ResponseWriter, r *http.Requ
 }
 
 // ─── Membership handlers ──────────────────────────────────────────────────────
+
+func (c *QuotasController) handleListMembers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if id == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "id is required", nil), nil)
+		return
+	}
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	if _, err := c.repo.GetGroup(ctx, claims.Orbit.TenantID, id); err != nil {
+		if errors.Is(err, ErrQuotaGroupNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("not_found", "quota group not found", nil), nil)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to verify quota group", nil), err)
+		return
+	}
+
+	members, err := c.repo.ListMembers(ctx, claims.Orbit.TenantID, id)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list members", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": members})
+}
 
 func (c *QuotasController) handleSetMembership(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

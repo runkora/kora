@@ -27,6 +27,7 @@ type QuotaRepository interface {
 
 	SetMembership(ctx context.Context, tenantID, principalID, groupID string) error
 	RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error
+	ListMembers(ctx context.Context, tenantID, groupID string) ([]string, error)
 
 	SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error
 	GetPrincipalQuota(ctx context.Context, tenantID, principalID string) (float64, bool, error)
@@ -200,6 +201,35 @@ func (r *PostgresQuotaRepository) RemoveMembership(ctx context.Context, tenantID
 		return ErrQuotaGroupNotFound
 	}
 	return nil
+}
+
+func (r *PostgresQuotaRepository) ListMembers(ctx context.Context, tenantID, groupID string) ([]string, error) {
+	const q = `
+		SELECT principal_id FROM principal_quota_group_memberships
+		WHERE tenant_id = $1 AND group_id = $2
+		ORDER BY principal_id ASC`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("quota membership list: %w", err)
+	}
+	defer rows.Close()
+
+	var members []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("quota membership list scan: %w", err)
+		}
+		members = append(members, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("quota membership list rows: %w", err)
+	}
+	if members == nil {
+		members = []string{}
+	}
+	return members, nil
 } // ─── Individual principal quotas ─────────────────────────────────────────────
 
 func (r *PostgresQuotaRepository) SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error {

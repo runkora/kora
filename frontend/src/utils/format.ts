@@ -47,6 +47,16 @@ export function fmtCost(usd: number | null): string {
   return `$${usd.toFixed(4)}`;
 }
 
+/**
+ * Formats a USD budget value at 2 decimal places, e.g. "$50.00", "$1,234.56".
+ * Use for user-configured budget fields (quota groups, principal limits) where
+ * sub-cent precision is not meaningful and readability matters.
+ */
+export function fmtBudget(usd: number | null): string {
+  if (usd === null || usd === undefined) return '—';
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 // ── Dates & times ─────────────────────────────────────────────────────────────
 
 /**

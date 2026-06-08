@@ -103,6 +103,37 @@ export async function deleteQuotaGroup(accessToken: string, id: string): Promise
   });
 }
 
+export async function fetchGroupMembers(
+  accessToken: string,
+  id: string,
+): Promise<Result<{ data: string[] }>> {
+  return quotaFetch(`/groups/${encodeURIComponent(id)}/members`, accessToken);
+}
+
+export async function setGroupMember(
+  accessToken: string,
+  groupId: string,
+  principalId: string,
+): Promise<Result<void>> {
+  return quotaFetch(
+    `/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
+    accessToken,
+    { method: 'PUT' },
+  );
+}
+
+export async function removeGroupMember(
+  accessToken: string,
+  groupId: string,
+  principalId: string,
+): Promise<Result<void>> {
+  return quotaFetch(
+    `/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
+    accessToken,
+    { method: 'DELETE' },
+  );
+}
+
 // ── Principal quotas ──────────────────────────────────────────────────────────
 
 export async function fetchPrincipalQuota(

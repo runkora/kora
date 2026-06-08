@@ -114,7 +114,9 @@ func (m *mockInferenceUsageRepository) GetMonthlySpend(_ context.Context, _, _ s
 // ── shared test helpers ────────────────────────────────────────────────────────
 
 // f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
-func f64Ptr(f float64) *float64 { return &f }
+//
+//go:fix inline
+func f64Ptr(f float64) *float64 { return new(f) }
 
 // ── mockPricingCatalogRepository ─────────────────────────────────────────────
 
@@ -268,6 +270,10 @@ func (m *mockQuotaRepository) SetMembership(_ context.Context, _, _, _ string) e
 
 func (m *mockQuotaRepository) RemoveMembership(_ context.Context, _, _, _ string) error {
 	return m.removeMembershipErr
+}
+
+func (m *mockQuotaRepository) ListMembers(_ context.Context, _, _ string) ([]string, error) {
+	return []string{}, nil
 }
 
 func (m *mockQuotaRepository) SetPrincipalQuota(_ context.Context, _, _ string, budget float64) error {

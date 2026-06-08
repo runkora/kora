@@ -19,7 +19,7 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
 import { ApiRoute } from '@orbit/lib/routing';
-import { fmtCost } from '@orbit/utils';
+import { fmtCost, fmtBudget } from '@orbit/utils';
 import type { QuotaGroup } from '../../_services/quota-server';
 import type { PrincipalUsageRow } from '../../../model-gateway/_types';
 
@@ -74,20 +74,8 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
           setSaving(false);
           return;
         }
-        const selected = groups.find((g) => g.id === groupId);
-        if (!selected) {
-          setError('Selected group not found.');
-          setSaving(false);
-          return;
-        }
-        // Copies the group's monthly_budget_usd as an individual quota override.
-        // This is NOT a group membership — the principal gets a fixed individual limit
-        // equal to the group budget at the time of this action. Future group budget
-        // changes won't propagate. Full group membership support is a future milestone.
-        const res = await fetch(ApiRoute.quotaPrincipal.PUT(principalId), {
+        const res = await fetch(ApiRoute.quotaGroupMember.PUT(groupId, principalId), {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ monthly_budget_usd: selected.monthly_budget_usd }),
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { message?: string };
@@ -103,7 +91,7 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
     } finally {
       setSaving(false);
     }
-  }, [mode, budget, groupId, groups, principalId, onSaved, onClose]);
+  }, [mode, budget, groupId, principalId, onSaved, onClose]);
 
   return (
     <Modal open={open} onClose={onClose} size="sm">
@@ -119,8 +107,8 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
               onChange={(e) => setMode(e.target.value as 'individual' | 'group')}
               disabled={saving}
             >
-              <option value="individual">Individual limit</option>
-              <option value="group">Copy budget from group</option>
+              <option value="individual">Individual</option>
+              <option value="group">Group</option>
             </NativeSelect>
           </Stack>
 
@@ -152,7 +140,7 @@ function SetQuotaModal({ principalId, groups, open, onClose, onSaved }: SetQuota
                 <option value="">Select a group…</option>
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.name} ({fmtCost(g.monthly_budget_usd)}/mo)
+                    {g.name} ({fmtBudget(g.monthly_budget_usd)}/mo)
                   </option>
                 ))}
               </NativeSelect>
@@ -307,7 +295,7 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
       cell: (row) =>
         row.monthly_budget_usd != null ? (
           <Text size="supporting" color="foreground" mono align="end">
-            {fmtCost(row.monthly_budget_usd)}
+            {fmtBudget(row.monthly_budget_usd)}
           </Text>
         ) : (
           <Text size="supporting" color="subtle" align="end">
