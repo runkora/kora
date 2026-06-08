@@ -2,9 +2,7 @@ import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { fetchAnalyticsPrincipalsFromGateway } from '../../../(dashboard)/model-gateway/_services/analytics-server';
-import {
-  fetchAllTenantUsers,
-} from '../../../(dashboard)/model-gateway/_services/tokens-server';
+import { fetchAllTenantUsers } from '../../../(dashboard)/model-gateway/_services/tokens-server';
 import type {
   AnalyticsPrincipalsPageResponse,
   PrincipalUsageRow,
