@@ -32,7 +32,7 @@ async function quotaFetch<T>(
 ): Promise<Result<T>> {
   let res: Response;
   try {
-    res = await fetch(`${config.inferenceGatewayUrl}/v1/quotas${path}`, {
+    res = await fetch(`${config.inferenceGatewayUrl}/quotas${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${accessToken}`,
