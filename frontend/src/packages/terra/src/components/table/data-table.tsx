@@ -73,7 +73,6 @@ import * as React from 'react';
 import {
   useReactTable,
   getCoreRowModel,
-  getSortedRowModel,
   type ColumnDef,
   type SortingState,
   type VisibilityState,
@@ -271,7 +270,11 @@ export function DataTable<TData>({
     return vis;
   });
 
-  // ── Pre-filter (search + client-side column filters) ────────────────────────
+  // ── Pre-filter + pre-sort (search, client-side column filters, sort) ──────────
+  // Sorting is done here in React rather than via TanStack's getSortedRowModel.
+  // This avoids a TanStack v8 issue where the sorted row model memo can return
+  // stale or accumulated rows when row model factory functions change identity
+  // across renders. manualSorting: true tells TanStack to trust the data order.
 
   const filteredData = React.useMemo(() => {
     let result = data;
@@ -291,8 +294,26 @@ export function DataTable<TData>({
       }
     }
 
+    if (sorting.length > 0) {
+      const { id: sortId, desc } = sorting[0];
+      const col = columnDefs.find((c) => c.id === sortId);
+      if (col?.sortAccessor) {
+        const accessor = col.sortAccessor;
+        result = [...result].sort((a, b) => {
+          const av = accessor(a);
+          const bv = accessor(b);
+          if (av === bv) return 0;
+          const cmp =
+            typeof av === 'number' && typeof bv === 'number'
+              ? av - bv
+              : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+          return desc ? -cmp : cmp;
+        });
+      }
+    }
+
     return result;
-  }, [data, searchQuery, searchFn, clientFilters, columnDefs]);
+  }, [data, searchQuery, searchFn, clientFilters, columnDefs, sorting]);
 
   // ── TanStack column definitions ─────────────────────────────────────────────
 
@@ -315,17 +336,9 @@ export function DataTable<TData>({
     [columnDefs],
   );
 
-  // ── Stable row model factories ──────────────────────────────────────────────
-  // getCoreRowModel/getSortedRowModel must be called once and held stable.
-  // Calling them fresh every render creates a new memo closure each time; while
-  // table._getCoreRowModel is guarded after the first render, the new closure
-  // still runs its dep-check on every call in some TanStack versions and can
-  // return stale or accumulated results. Ref holds across re-renders without
-  // causing an extra render cycle.
+  // ── Stable core row model factory ──────────────────────────────────────────
   const coreRowModelRef = React.useRef<ReturnType<typeof getCoreRowModel> | null>(null);
   if (!coreRowModelRef.current) coreRowModelRef.current = getCoreRowModel();
-  const sortedRowModelRef = React.useRef<ReturnType<typeof getSortedRowModel> | null>(null);
-  if (!sortedRowModelRef.current) sortedRowModelRef.current = getSortedRowModel();
 
   // ── TanStack table instance ─────────────────────────────────────────────────
   // TanStack Table returns new function references each render by design; this is
@@ -338,8 +351,8 @@ export function DataTable<TData>({
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: coreRowModelRef.current,
-    getSortedRowModel: sortedRowModelRef.current,
-    // Filtering is performed above in the pre-filter useMemo.
+    // Sorting is applied in the filteredData useMemo above.
+    manualSorting: true,
     manualFiltering: true,
     enableSortingRemoval: false,
   });
