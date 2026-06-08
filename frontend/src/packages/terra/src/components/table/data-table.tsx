@@ -315,6 +315,18 @@ export function DataTable<TData>({
     [columnDefs],
   );
 
+  // ── Stable row model factories ──────────────────────────────────────────────
+  // getCoreRowModel/getSortedRowModel must be called once and held stable.
+  // Calling them fresh every render creates a new memo closure each time; while
+  // table._getCoreRowModel is guarded after the first render, the new closure
+  // still runs its dep-check on every call in some TanStack versions and can
+  // return stale or accumulated results. Ref holds across re-renders without
+  // causing an extra render cycle.
+  const coreRowModelRef = React.useRef<ReturnType<typeof getCoreRowModel> | null>(null);
+  if (!coreRowModelRef.current) coreRowModelRef.current = getCoreRowModel();
+  const sortedRowModelRef = React.useRef<ReturnType<typeof getSortedRowModel> | null>(null);
+  if (!sortedRowModelRef.current) sortedRowModelRef.current = getSortedRowModel();
+
   // ── TanStack table instance ─────────────────────────────────────────────────
   // TanStack Table returns new function references each render by design; this is
   // a known React Compiler incompatibility accepted for `DataTable` only.
@@ -325,8 +337,8 @@ export function DataTable<TData>({
     state: { sorting, columnVisibility },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    getCoreRowModel: coreRowModelRef.current,
+    getSortedRowModel: sortedRowModelRef.current,
     // Filtering is performed above in the pre-filter useMemo.
     manualFiltering: true,
     enableSortingRemoval: false,
