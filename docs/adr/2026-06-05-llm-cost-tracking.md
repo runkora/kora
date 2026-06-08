@@ -219,7 +219,7 @@ If all synced columns are 0 and all override columns are NULL: `price_unknown = 
 
 **`price_unknown` flag:** Distinguishes a genuinely $0.00 model from a model with no price data. Supports the P2 "unknown pricing" report. `estimated_cost_usd = 0` alone is ambiguous.
 
-**No separate snapshot table:** Effective prices are written to `inference_usage` at request time. Price history for the Provider Catalog overlay is derived by querying distinct effective price values from `inference_usage` over time for a given `(provider, model_id)`. This only shows models that have had actual traffic — models with no usage do not appear. This is intentional: a price history with no usage data has no operational value.
+**No separate snapshot table:** Effective prices are written to `inference_usage` at request time. The `(provider, model_id, created_at)` index makes cost reconstruction efficient without a separate snapshot table.
 
 **Migration:** The `input_cost_per_1m` and `output_cost_per_1m` columns are dropped from `virtual_model_routes` once `model_pricing` is populated and all read paths updated. The `ModelPricing` Go struct is updated to rename `CacheCreationCostPerMillion` → `CacheWriteCostPerMillion` for consistency with the DB naming convention.
 
@@ -447,7 +447,6 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 
 - `NewNopPricingCache()` is removed from production wiring. Tests that depend on it must be updated to use `NewStaticPricingCache(nil)` or a test double.
 - The `ModelPricing` Go struct field `CacheCreationCostPerMillion` is renamed to `CacheWriteCostPerMillion`. Call sites must be updated.
-- The price history chart in the Provider Catalog overlay sources from `inference_usage` rather than a dedicated snapshot table. Models with no usage data do not appear in the chart — this is intentional behaviour, not a gap.
 
 ---
 
@@ -478,7 +477,7 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 
 ### Phase 3: Frontend
 
-See PRD Phase 3 milestones. Note: the price history chart in the Provider Catalog detail overlay is an experimental feature and is implemented as a dedicated atomic commit so it can be reverted independently if needed.
+See PRD Phase 3 milestones.
 
 ### Migration Path
 
@@ -534,7 +533,7 @@ See PRD Phase 3 milestones. Note: the price history chart in the Provider Catalo
 
 **Why normalise Bedrock model IDs at the cache read layer rather than at sync or write time?** The `model_pricing` table is keyed on the bare LiteLLM form (`anthropic.claude-…`). Normalising at write time would require `PricingSyncWorker` to know about the Bedrock profile ID scheme — coupling two independent concerns. Normalising at the cache read layer in `PricingCache.Price` is the minimal change: one function, no schema impact, no migration, and covers both the inference request path and any future consumer of the same cache.
 
-**Why store effective prices on `inference_usage` rather than a separate snapshot table?** A snapshot table requires writes on every sync run and every override change, adds a join to cost reconstruction, and creates a second source of truth that can diverge from the actual prices used. Writing effective prices directly onto `inference_usage` at request time makes every record self-contained — the prices used to compute `estimated_cost_usd` are stored alongside the token counts, no join required. The price history chart is derived from actual usage records, not synthetic snapshot events, which is more operationally meaningful. Models with no traffic produce no history — which is the correct behaviour, not a gap.
+**Why store effective prices on `inference_usage` rather than a separate snapshot table?** A snapshot table requires writes on every sync run and every override change, adds a join to cost reconstruction, and creates a second source of truth that can diverge from the actual prices used. Writing effective prices directly onto `inference_usage` at request time makes every record self-contained — the prices used to compute `estimated_cost_usd` are stored alongside the token counts, no join required.
 
 **Why is the budget limit state a server-computed flag rather than a client-side calculation?** The frontend should not contain business logic. If the definition of "limit reached" ever changes — for example, if a grace amount or grace period is introduced — a client-side calculation would require updates in every frontend surface. The backend computes `spend_limit_reached = current_spend_usd >= monthly_budget_usd` and returns it on the quota API. The frontend reads the flag and renders the banner. There is no configurable alert threshold percentage — the limit and the banner are the same concept at the same boundary.
 

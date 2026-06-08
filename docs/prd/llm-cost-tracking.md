@@ -292,8 +292,6 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 **Should Have (P1):**
 - [ ] Budget utilization progress bar on the `/policy/quotas` per-principal view.
 - [ ] Pricing sync status banner on the Catalog page header (last sync time, models updated, error count) with expandable run log.
-- [ ] Price history chart in the Provider Catalog detail overlay, sourced from `inference_usage` effective price columns. Only models with actual usage data appear. Delivered as a dedicated atomic commit (experimental — may be reverted independently).
-
 **Nice to Have (P2):**
 - [ ] A "price unknown" report in the admin UI listing models with no pricing data.
 - [ ] A per-principal budget history log (budget changes, reset events).
@@ -473,7 +471,6 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Enhance `/model-gateway/my-usage` with accurate cost data and budget limit banner.
 - Provider Catalog tab: Effective Price column (synced/override/unknown indicators) and clickable row detail overlay (sync metadata, override inputs for all four dimensions, clear action, mirrored enable/disable toggle).
 - Catalog page header: sync status banner (last sync time, models updated, error count, expandable run log).
-- **[Experimental — separate atomic commit]** Price history chart in Provider Catalog detail overlay, sourced from `inference_usage` effective price columns; only models with actual usage data appear.
 
 ### Key Milestones
 
