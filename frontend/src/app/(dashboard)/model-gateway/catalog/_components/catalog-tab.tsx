@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   Alert,
   Badge,
@@ -44,7 +44,10 @@ export function CatalogTab({
   const [virtualModels, setVirtualModels] = useState<VirtualModel[]>(
     initialVirtualModels.map(toVirtualModel),
   );
-  const providerModels = initialProviderModels.map(toProviderModel);
+  const providerModels = useMemo(
+    () => initialProviderModels.map(toProviderModel),
+    [initialProviderModels],
+  );
 
   const handleModelSaved = useCallback((saved: VirtualModel) => {
     setVirtualModels((prev) => {
