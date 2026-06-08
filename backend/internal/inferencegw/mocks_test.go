@@ -111,16 +111,10 @@ func (m *mockInferenceUsageRepository) GetMonthlySpend(_ context.Context, _, _ s
 	return 0, nil
 }
 
-func (m *mockInferenceUsageRepository) GetPriceHistory(_ context.Context, _ ProviderName, _ string, _ int) ([]PriceHistoryPoint, error) {
-	return []PriceHistoryPoint{}, nil
-}
-
 // ── shared test helpers ────────────────────────────────────────────────────────
 
 // f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
-//
-//go:fix inline
-func f64Ptr(f float64) *float64 { return new(f) }
+func f64Ptr(f float64) *float64 { return &f }
 
 // ── mockPricingCatalogRepository ─────────────────────────────────────────────
 

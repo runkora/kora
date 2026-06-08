@@ -304,11 +304,3 @@ type QuotaStatus struct {
 	SpendLimitReached bool    `json:"spend_limit_reached"`
 	HasLimit          bool    `json:"has_limit"`
 }
-
-// PriceHistoryPoint is a single day's effective price for a (provider, model_id) pair,
-// derived from inference_usage records. Only days with actual traffic are included.
-type PriceHistoryPoint struct {
-	Date   string  `json:"date"` // "YYYY-MM-DD"
-	Input  float64 `json:"input_cost_per_1m"`
-	Output float64 `json:"output_cost_per_1m"`
-}

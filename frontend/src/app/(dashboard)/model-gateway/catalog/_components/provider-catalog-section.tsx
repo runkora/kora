@@ -21,7 +21,6 @@ import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
-import { PriceHistoryChart } from './price-history-chart';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -296,9 +295,6 @@ function PricingOverlay({
               </Text>
             </Alert>
           )}
-
-          {/* Price history — only shown when the model has pricing data */}
-          {p && <PriceHistoryChart provider={model.provider} modelId={model.modelId} />}
 
           {/* Override inputs */}
           <Stack gap="snug">
