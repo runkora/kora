@@ -236,16 +236,25 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
     setLoading(true);
     setError(null);
     try {
-      // Fetch principals and all group member lists in parallel.
-      const [principalsRes, ...memberResponses] = await Promise.all([
-        fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 100 })),
+      // Fetch all tenant users, group members, and analytics spend in parallel.
+      // Analytics is best-effort — a 403 or failure just means spend shows as $0.
+      const [usersRes, analyticsRes, ...memberResponses] = await Promise.all([
+        fetch(ApiRoute.identityUsers.GET()),
+        fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 500 })),
         ...groups.map((g) => fetch(ApiRoute.quotaGroupMembers.GET(g.id))),
       ]);
-      if (principalsRes.status === 403) {
-        throw new Error('Viewing principals requires the platform:analytics:read scope.');
+
+      if (!usersRes.ok) throw new Error(`Failed to load users (${usersRes.status})`);
+      const usersData = (await usersRes.json()) as { data: { id: string; email: string; display_name: string }[] };
+
+      // Build spend map from analytics (best-effort — ignored on failure).
+      const spendMap = new Map<string, number>();
+      if (analyticsRes.ok) {
+        const analyticsData = (await analyticsRes.json()) as { data: PrincipalUsageRow[] };
+        for (const row of analyticsData.data ?? []) {
+          spendMap.set(row.principal_id, row.estimated_cost_usd);
+        }
       }
-      if (!principalsRes.ok) throw new Error(`Failed to load principals (${principalsRes.status})`);
-      const data = (await principalsRes.json()) as { data: PrincipalUsageRow[] };
 
       // Build principalId → QuotaGroup lookup from membership lists.
       const membershipMap = new Map<string, QuotaGroup>();
@@ -260,36 +269,42 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
         }),
       );
 
-      // Enrich each principal with individual quota or group membership.
+      // Enrich each user with individual quota or group membership.
       const enriched = await Promise.all(
-        (data.data ?? []).map(async (p): Promise<PrincipalQuotaRow> => {
+        (usersData.data ?? []).map(async (u): Promise<PrincipalQuotaRow> => {
+          const base: PrincipalUsageRow = {
+            principal_id: u.id,
+            principal_type: 'HUMAN',
+            request_count: 0,
+            total_tokens: 0,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            estimated_cost_usd: spendMap.get(u.id) ?? 0,
+            error_rate: 0,
+            avg_latency_ms: 0,
+            last_active_at: '',
+            email: u.email,
+            display_name: u.display_name,
+          };
+
           try {
-            const qRes = await fetch(ApiRoute.quotaPrincipal.GET(p.principal_id));
+            const qRes = await fetch(ApiRoute.quotaPrincipal.GET(u.id));
             if (qRes.ok) {
               const q = (await qRes.json()) as { data: { monthly_budget_usd: number } };
-              return {
-                ...p,
-                monthly_budget_usd: q.data.monthly_budget_usd,
-                quota_source: 'individual',
-                group_name: null,
-              };
+              return { ...base, monthly_budget_usd: q.data.monthly_budget_usd, quota_source: 'individual', group_name: null };
             }
           } catch {
             // fall through to group lookup
           }
 
-          // Individual quota missing — check group membership.
-          const grp = membershipMap.get(p.principal_id);
+          const grp = membershipMap.get(u.id);
           if (grp) {
-            return {
-              ...p,
-              monthly_budget_usd: grp.monthly_budget_usd,
-              quota_source: 'group',
-              group_name: grp.name,
-            };
+            return { ...base, monthly_budget_usd: grp.monthly_budget_usd, quota_source: 'group', group_name: grp.name };
           }
 
-          return { ...p, monthly_budget_usd: null, quota_source: 'none', group_name: null };
+          return { ...base, monthly_budget_usd: null, quota_source: 'none', group_name: null };
         }),
       );
 

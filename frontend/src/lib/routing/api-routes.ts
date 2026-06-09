@@ -52,6 +52,16 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/identity/users`
+   *
+   * Returns all users in the caller's tenant. Does not require the
+   * analytics scope — safe to call from quota admin pages.
+   */
+  identityUsers: {
+    GET: (): `${typeof API_BASE}/identity/users` => `${API_BASE}/identity/users`,
+  },
+
+  /**
    * `/api/auth/logout`
    *
    * Revokes the Orbit tokens server-side (best-effort) and destroys the
@@ -409,6 +419,7 @@ export const ApiRoute = {
 export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['health']['GET']>
   | ReturnType<(typeof ApiRoute)['identityHealth']['GET']>
+  | ReturnType<(typeof ApiRoute)['identityUsers']['GET']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>
