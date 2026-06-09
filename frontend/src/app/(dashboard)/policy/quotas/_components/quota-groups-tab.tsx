@@ -69,27 +69,84 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
   const [deleting, setDeleting] = useState(false);
 
   // Load principals and (in edit mode) existing members.
+  //
+  // Principal sources unioned here:
+  //   - HUMAN  → GET /api/identity/users
+  //   - AGENT  → GET /api/agents/types
+  //
+  // TODO: add SERVICE and SYSTEM principal sources here once those principal
+  // types are implemented in the identity/credential-broker layer.
+  //
+  // PAT principals are intentionally excluded — they are extensions of the
+  // HUMAN principals that created them; spend is attributed to the human.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setLoadingPrincipals(true);
       try {
         const requests: Promise<Response>[] = [
-          fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 200 })),
+          fetch(ApiRoute.identityUsers.GET()),
+          fetch(ApiRoute.agentTypes.list()),
         ];
         if (isEdit && group) {
           requests.push(fetch(ApiRoute.quotaGroupMembers.GET(group.id)));
         }
-        const responses = await Promise.all(requests);
-        if (responses.some((r) => !r.ok)) throw new Error('Failed to load data.');
-        const bodies = (await Promise.all(responses.map((r) => r.json()))) as [
-          { data: PrincipalUsageRow[] },
-          { data: string[] }?,
+        const [usersRes, agentTypesRes, membersRes] = await Promise.all(requests);
+        if (!usersRes!.ok) throw new Error(`Failed to load users (${usersRes!.status})`);
+        if (!agentTypesRes!.ok)
+          throw new Error(`Failed to load agent types (${agentTypesRes!.status})`);
+
+        const usersData = (await usersRes!.json()) as {
+          data: { id: string; email: string; display_name: string }[];
+        };
+        const agentTypesData = (await agentTypesRes!.json()) as {
+          data: { id: string; name: string; slug: string }[];
+        };
+
+        const principals: PrincipalUsageRow[] = [
+          ...(usersData.data ?? []).map(
+            (u): PrincipalUsageRow => ({
+              principal_id: u.id,
+              principal_type: 'HUMAN',
+              display_name: u.display_name ?? u.email,
+              email: u.email,
+              request_count: 0,
+              total_tokens: 0,
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              estimated_cost_usd: 0,
+              error_rate: 0,
+              avg_latency_ms: 0,
+              last_active_at: '',
+            }),
+          ),
+          ...(agentTypesData.data ?? []).map(
+            (a): PrincipalUsageRow => ({
+              principal_id: a.id,
+              principal_type: 'AGENT',
+              display_name: a.name,
+              email: null,
+              request_count: 0,
+              total_tokens: 0,
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              estimated_cost_usd: 0,
+              error_rate: 0,
+              avg_latency_ms: 0,
+              last_active_at: '',
+            }),
+          ),
         ];
-        const [pData, mData] = bodies;
+
+        const memberData = membersRes?.ok ? ((await membersRes.json()) as { data: string[] }) : null;
+
         if (!cancelled) {
-          setAllPrincipals(pData.data ?? []);
-          const ids = new Set(mData?.data ?? []);
+          setAllPrincipals(principals);
+          const ids = new Set(memberData?.data ?? []);
           setMemberIds(ids);
           setServerMemberIds(ids);
         }
@@ -306,7 +363,7 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
                     <Text size="caption" color="muted">
                       {principalSearch
                         ? 'No principals match your search.'
-                        : `No ${typeLabel(principalType).toLowerCase()} activity in the last 30 days.`}
+                        : `No ${typeLabel(principalType).toLowerCase()} principals found.`}
                     </Text>
                   </Stack>
                 ) : (
