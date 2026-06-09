@@ -109,9 +109,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/quotas/roles/{id}                        Get a quota role
 //	PUT    /policy/quotas/roles/{id}                        Update a quota role's budget
 //	DELETE /policy/quotas/roles/{id}                        Delete a quota role
-//	GET    /policy/quotas/roles/{id}/members                List group members
-//	PUT    /policy/quotas/roles/{id}/members/{principalId}  Assign a principal to a group
-//	DELETE /policy/quotas/roles/{id}/members/{principalId}  Remove a principal from a group
+//	GET    /policy/quotas/roles/{id}/members                List role members
+//	PUT    /policy/quotas/roles/{id}/members/{principalId}  Assign a principal to a role
+//	DELETE /policy/quotas/roles/{id}/members/{principalId}  Remove a principal from a role
 //	GET    /policy/quotas/principals/{principalId}           Get an individual principal quota
 //	PUT    /policy/quotas/principals/{principalId}           Set an individual principal quota
 //	DELETE /policy/quotas/principals/{principalId}           Clear an individual principal quota

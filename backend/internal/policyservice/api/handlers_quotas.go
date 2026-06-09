@@ -41,7 +41,7 @@ type principalQuotaJSON struct {
 	HasLimit         bool    `json:"has_limit"`
 }
 
-// ─── Group handlers ───────────────────────────────────────────────────────────
+// ─── Role handlers ────────────────────────────────────────────────────────────
 
 func (s *Service) handleListQuotaRoles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -52,15 +52,15 @@ func (s *Service) handleListQuotaRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := s.quotaRepo.ListRoles(ctx, claims.Orbit.TenantID)
+	roles, err := s.quotaRepo.ListRoles(ctx, claims.Orbit.TenantID)
 	if err != nil {
 		api.ErrorResponse(ctx, w, s.logger, api.InternalError(api.ErrCodeInternalError, "failed to list quota roles", nil), err)
 		return
 	}
 
-	items := make([]quotaRoleJSON, len(groups))
-	for i, g := range groups {
-		items[i] = toQuotaRoleJSON(g)
+	items := make([]quotaRoleJSON, len(roles))
+	for i, r := range roles {
+		items[i] = toQuotaRoleJSON(r)
 	}
 	api.JSON(ctx, w, s.logger, http.StatusOK, map[string]any{"data": items})
 }
@@ -240,9 +240,9 @@ func (s *Service) handleListQuotaMembers(w http.ResponseWriter, r *http.Request)
 
 func (s *Service) handleSetQuotaMembership(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	groupID := r.PathValue("id")
+	roleID := r.PathValue("id")
 	principalID := r.PathValue("principalId")
-	if groupID == "" || principalID == "" {
+	if roleID == "" || principalID == "" {
 		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("invalid_request", "id and principalId are required", nil), nil)
 		return
 	}
@@ -253,7 +253,7 @@ func (s *Service) handleSetQuotaMembership(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, err := s.quotaRepo.GetRole(ctx, claims.Orbit.TenantID, groupID); err != nil {
+	if _, err := s.quotaRepo.GetRole(ctx, claims.Orbit.TenantID, roleID); err != nil {
 		if errors.Is(err, quotas.ErrRoleNotFound) {
 			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("not_found", "quota role not found", nil), nil)
 			return
@@ -262,7 +262,7 @@ func (s *Service) handleSetQuotaMembership(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.quotaRepo.SetMembership(ctx, claims.Orbit.TenantID, principalID, groupID); err != nil {
+	if err := s.quotaRepo.SetMembership(ctx, claims.Orbit.TenantID, principalID, roleID); err != nil {
 		api.ErrorResponse(ctx, w, s.logger, api.InternalError(api.ErrCodeInternalError, "failed to set membership", nil), err)
 		return
 	}
@@ -275,9 +275,9 @@ func (s *Service) handleSetQuotaMembership(w http.ResponseWriter, r *http.Reques
 
 func (s *Service) handleRemoveQuotaMembership(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	groupID := r.PathValue("id")
+	roleID := r.PathValue("id")
 	principalID := r.PathValue("principalId")
-	if groupID == "" || principalID == "" {
+	if roleID == "" || principalID == "" {
 		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError("invalid_request", "id and principalId are required", nil), nil)
 		return
 	}
@@ -288,7 +288,7 @@ func (s *Service) handleRemoveQuotaMembership(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if _, err := s.quotaRepo.GetRole(ctx, claims.Orbit.TenantID, groupID); err != nil {
+	if _, err := s.quotaRepo.GetRole(ctx, claims.Orbit.TenantID, roleID); err != nil {
 		if errors.Is(err, quotas.ErrRoleNotFound) {
 			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("not_found", "quota role not found", nil), nil)
 			return
@@ -297,7 +297,7 @@ func (s *Service) handleRemoveQuotaMembership(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := s.quotaRepo.RemoveMembership(ctx, claims.Orbit.TenantID, principalID, groupID); err != nil {
+	if err := s.quotaRepo.RemoveMembership(ctx, claims.Orbit.TenantID, principalID, roleID); err != nil {
 		if errors.Is(err, quotas.ErrRoleNotFound) {
 			api.ErrorResponse(ctx, w, s.logger, api.NotFoundError("not_found", "quota role membership not found", nil), nil)
 			return

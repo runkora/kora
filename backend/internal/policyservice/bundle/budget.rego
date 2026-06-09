@@ -11,11 +11,11 @@ budget_allow := false if {
 	input.current_spend_usd >= limit
 }
 
-# Deny when the principal has no individual quota but belongs to a group that is over budget.
+# Deny when the principal has no individual quota but belongs to a role that is over budget.
 budget_allow := false if {
 	not data.quotas.principal_quotas[input.principal.id]
-	group_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.roles[group_id].monthly_budget_usd
+	role_id := data.quotas.memberships[input.principal.id]
+	limit := data.quotas.roles[role_id].monthly_budget_usd
 	input.current_spend_usd >= limit
 }
 
@@ -26,8 +26,8 @@ effective_budget_usd := limit if {
 
 effective_budget_usd := limit if {
 	not data.quotas.principal_quotas[input.principal.id]
-	group_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.roles[group_id].monthly_budget_usd
+	role_id := data.quotas.memberships[input.principal.id]
+	limit := data.quotas.roles[role_id].monthly_budget_usd
 }
 
 # spend_limit_reached mirrors budget_allow as a positive-sense boolean for API consumers.
