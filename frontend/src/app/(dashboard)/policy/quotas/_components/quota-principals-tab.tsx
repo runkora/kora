@@ -241,6 +241,9 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
         fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 100 })),
         ...groups.map((g) => fetch(ApiRoute.quotaGroupMembers.GET(g.id))),
       ]);
+      if (principalsRes.status === 403) {
+        throw new Error('Viewing principals requires the platform:analytics:read scope.');
+      }
       if (!principalsRes.ok) throw new Error(`Failed to load principals (${principalsRes.status})`);
       const data = (await principalsRes.json()) as { data: PrincipalUsageRow[] };
 

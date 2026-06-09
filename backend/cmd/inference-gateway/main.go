@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
@@ -171,13 +170,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	initScopeRegistration(ctx, logger, router)
 
-	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, 5*time.Minute, logger)
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
 	go pricingCache.Start(ctx)
 
 	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
-		inferencegw.NewLiteLLMPricingSource(),
+		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),
 		pricingCatalogRepo,
-		inferencegw.DefaultSyncInterval,
+		igc.Current.Pricing.SyncInterval(),
 		logger,
 	)
 	go pricingSyncWorker.Start(ctx)

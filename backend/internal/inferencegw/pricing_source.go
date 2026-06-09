@@ -12,8 +12,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 )
 
-const liteLLMPricesURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
-
 // ModelPriceEntry is a provider/model price tuple produced by a PricingSource.
 // All cost values are USD per 1,000,000 tokens. Fields are 0 when not provided
 // by the source — never negative.
@@ -41,11 +39,10 @@ type LiteLLMPricingSource struct {
 	client *http.Client
 }
 
-// NewLiteLLMPricingSource returns a LiteLLMPricingSource using the canonical
-// LiteLLM GitHub URL.
-func NewLiteLLMPricingSource() *LiteLLMPricingSource {
+// NewLiteLLMPricingSource returns a LiteLLMPricingSource using the given URL.
+func NewLiteLLMPricingSource(sourceURL string) *LiteLLMPricingSource {
 	return &LiteLLMPricingSource{
-		url:    liteLLMPricesURL,
+		url:    sourceURL,
 		client: httpclient.NewHTTPClient(30*time.Second, httpclient.NewTracingTransport("orbit.litellm-pricing", nil)),
 	}
 }
