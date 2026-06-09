@@ -1,4 +1,4 @@
-# LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Groups
+# LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles
 
 **Status:** Proposed  
 **Date:** 2026-06-05  
@@ -27,7 +27,7 @@ No budget enforcement exists. ADR-0039 explicitly deferred quota controls. There
 - Record accurate `estimated_cost_usd` on every inference request for all supported providers, sourced from an automatically-maintained pricing catalog.
 - Decouple pricing from the routing table into a dedicated, provider-keyed catalog with four pricing dimensions (input, output, cache read, cache write), admin override support, and effective prices written directly onto inference records for full auditability.
 - Enforce per-principal monthly budget caps via a low-latency check on the inference hot path.
-- Enable quota groups so a single budget policy can be applied to a range of principals, with per-principal overrides where needed.
+- Enable quota roles so a single budget policy can be applied to a range of principals, with per-principal overrides where needed.
 
 ### Non-Goals
 
@@ -46,7 +46,7 @@ No budget enforcement exists. ADR-0039 explicitly deferred quota controls. There
 * **Auditability** — the effective price used for each request must be queryable without joining to a separate table; self-contained records are simpler and more robust.
 * **Operational simplicity** — Redis is already in the stack; no new infrastructure should be introduced unless it provides a clear advantage.
 * **Separation of concerns** — pricing is a first-class domain concern and must not be coupled to routing configuration.
-* **Scalability of quota management** — a tenant with thousands of principals needs a policy-by-group model, not individual record creation.
+* **Scalability of quota management** — a tenant with thousands of principals needs a policy-by-role model, not individual record creation.
 
 ---
 
@@ -326,7 +326,7 @@ WHERE principal_id = $1
 
 ---
 
-## Decision 5: Quota Model — Groups and Resolution Order
+## Decision 5: Quota Model — Roles and Resolution Order
 
 ### Considered Options
 
@@ -341,19 +341,19 @@ Each principal has at most one `PrincipalQuota` record. Tenant admins create ind
 **Cons:**
 - Does not scale. A tenant admin managing hundreds or thousands of principals (especially agent fleets) must create and maintain individual records. There is no way to apply a default policy to a class of principals.
 
-#### Option B: Quota groups with per-principal override (Chosen)
+#### Option B: Quota roles with per-principal override (Chosen)
 
-A `quota_groups` table defines named policies (e.g. "engineer", "agent-fleet") scoped to a tenant. A `principal_quota_group_memberships` join table assigns principals to groups. A `principal_quotas` table holds per-principal overrides that take precedence over any group. Enforcement resolves: individual quota → group quota → no limit.
+A `quota_roles` table defines named policies (e.g. "engineer", "agent-fleet") scoped to a tenant. A `principal_quota_role_memberships` join table assigns principals to roles. A `principal_quotas` table holds per-principal overrides that take precedence over any role. Enforcement resolves: individual quota → role quota → no limit.
 
 **Pros:**
-- Scales to large principal counts — assign a group once, all members inherit the policy.
+- Scales to large principal counts — assign a role once, all members inherit the policy.
 - Per-principal overrides remain available for exceptions.
-- Each group member gets their own individual limit — the group budget is not a shared pool.
-- Clean path for future UI: groups are manageable from `/policy/quotas` alongside individual overrides.
+- Each role member gets their own individual limit — the role budget is not a shared pool.
+- Clean path for future UI: roles are manageable from `/policy/quotas` alongside individual overrides.
 
 **Cons:**
 - Three tables instead of one.
-- Quota resolution requires two lookups (individual, then group) instead of one; both can be served from Redis/cache.
+- Quota resolution requires two lookups (individual, then role) instead of one; both can be served from Redis/cache.
 
 #### Option C: Hierarchical roles with inherited quotas
 
@@ -366,7 +366,7 @@ Reuse the existing `policy_role_scopes` mechanism to attach quota metadata to OI
 - Roles are an auth concern; budget policy is an operational concern. Coupling them makes both harder to evolve independently.
 - OIDC role claims are managed externally (in Entra/Okta); quota management would require coordinating with the external IdP.
 
-### Decision 5: Quota groups with per-principal override
+### Decision 5: Quota roles with per-principal override
 
 **Chosen Option: Option B**
 
@@ -375,7 +375,7 @@ Reuse the existing `policy_role_scopes` mechanism to attach quota metadata to OI
 These tables are owned by the policy-service, not the inference-gateway. Budget limits are a policy concern — co-locating them with grants and roles keeps quota management within the policy service boundary and allows bundle compilation to include quota data without a cross-service fetch.
 
 ```sql
-CREATE TABLE quota_groups (
+CREATE TABLE quota_roles (
     id                 TEXT           PRIMARY KEY,
     tenant_id          TEXT           NOT NULL,
     name               TEXT           NOT NULL,
@@ -385,12 +385,12 @@ CREATE TABLE quota_groups (
     UNIQUE (tenant_id, name)
 );
 
-CREATE TABLE principal_quota_group_memberships (
+CREATE TABLE principal_quota_role_memberships (
     principal_id  TEXT NOT NULL,
     tenant_id     TEXT NOT NULL,
-    group_id      TEXT NOT NULL REFERENCES quota_groups(id) ON DELETE CASCADE,
+    role_id      TEXT NOT NULL REFERENCES quota_roles(id) ON DELETE CASCADE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (principal_id, tenant_id)  -- one group per principal per tenant
+    PRIMARY KEY (principal_id, tenant_id)  -- one role per principal per tenant
 );
 
 CREATE TABLE principal_quotas (
@@ -405,7 +405,7 @@ CREATE TABLE principal_quotas (
 
 **Effective quota resolution:**
 
-Resolution is implemented in Rego (`policy/budget.rego`), not in Go. Quota limits and group memberships are compiled into the tenant bundle as `data/quotas/data.json`. The inference gateway reads current spend from Redis, injects it into the OPA input, and evaluates `data.orbit.budget.budget_allow`. The Rego rule applies the resolution order:
+Resolution is implemented in Rego (`policy/budget.rego`), not in Go. Quota limits and role memberships are compiled into the tenant bundle as `data/quotas/data.json`. The inference gateway reads current spend from Redis, injects it into the OPA input, and evaluates `data.orbit.budget.budget_allow`. The Rego rule applies the resolution order:
 
 ```rego
 package orbit.budget
@@ -421,8 +421,8 @@ budget_allow := false if {
 
 budget_allow := false if {
     not data.quotas.principal_quotas[input.principal.id]
-    group_id := data.quotas.memberships[input.principal.id]
-    limit := data.quotas.groups[group_id].monthly_budget_usd
+    role_id := data.quotas.memberships[input.principal.id]
+    limit := data.quotas.roles[role_id].monthly_budget_usd
     input.current_spend_usd >= limit
 }
 ```
@@ -443,7 +443,7 @@ The bundle data document (`data/quotas/data.json`) shape compiled by policy-serv
   "principal_quotas": {
     "usr_abc123": 50.00
   },
-  "groups": {
+  "roles": {
     "grp_agents": { "name": "agents", "monthly_budget_usd": 5.00 }
   },
   "memberships": {
@@ -456,11 +456,11 @@ This eliminates the in-process `QuotaCache` (60-second TTL) and `QuotaRepository
 
 **Budget limit banner semantics:** The quota API returns `spend_limit_reached: bool`, derived from the OPA evaluation result. This is the same condition as the hard block — the principal cannot make further requests, and the banner informs them of this state. The frontend uses the flag directly with no threshold logic. There is no separate configurable alert threshold.
 
-**Quota deletion:** Deleting a `principal_quotas` record or removing a principal from a group removes the cap immediately. Spend already recorded for the month is not adjusted. In-flight requests that have already passed the budget check complete normally.
+**Quota deletion:** Deleting a `principal_quotas` record or removing a principal from a role removes the cap immediately. Spend already recorded for the month is not adjusted. In-flight requests that have already passed the budget check complete normally.
 
 **API scopes:**
-- `platform:quotas:read` — list groups, list memberships, read individual quotas.
-- `platform:quotas:write` — create/update/delete groups, assign/remove memberships, set/clear individual quotas.
+- `platform:quotas:read` — list roles, list memberships, read individual quotas.
+- `platform:quotas:write` — create/update/delete roles, assign/remove memberships, set/clear individual quotas.
 - All quota API operations are tenant-scoped. A tenant admin cannot read or write quotas for principals outside their own tenant. Platform operators may manage quotas across tenants.
 
 ---
@@ -474,7 +474,7 @@ This eliminates the in-process `QuotaCache` (60-second TTL) and `QuotaRepository
 - Every `inference_usage` record is a self-contained audit entry — effective prices are written at request time, no join required to reconstruct costs.
 - No separate snapshot table to maintain or write to on every sync and override.
 - Budget enforcement adds < 1 ms to the inference hot path (single Redis GET + in-process OPA evaluation).
-- Quota groups scale budget management to large principal fleets without per-principal configuration.
+- Quota roles scale budget management to large principal fleets without per-principal configuration.
 - Monthly budget counters cannot race at the midnight boundary — `DATE_TRUNC` aggregation is stateless.
 - Budget enforcement logic lives entirely in Rego — adding or changing enforcement rules (e.g. grace periods, tenant-level caps) requires no Go service changes.
 - Quota tables co-located with grants and roles in policy-service — bundle compilation requires no cross-service fetch for quota data.
@@ -517,7 +517,7 @@ Budget enforcement is split into two sub-phases: migrating quota ownership to po
 
 #### Phase 2a: Quota tables and bundle data in policy-service
 
-1. Create migrations in `cmd/policy-service/migrations/` for `quota_groups`, `principal_quota_group_memberships`, and `principal_quotas` — identical schema to Phase 2 original, but owned by the policy-service database.
+1. Create migrations in `cmd/policy-service/migrations/` for `quota_roles`, `principal_quota_role_memberships`, and `principal_quotas` — identical schema to Phase 2 original, but owned by the policy-service database.
 2. Implement quota repository in `internal/policyservice/quotas/` — `postgres.go` with CRUD methods; `repository.go` interface.
 3. Add quota CRUD API routes to policy-service under `platform:quotas:read`/`write` scopes, replacing the inference-gateway quota handlers. Quota admin API is now co-located with grants admin.
 4. Extend the bundle compiler (`internal/policyservice/bundle/compiler.go`) to load quota data and include `data/quotas/data.json` in every tenant bundle. Recompile triggers on every quota write — same mechanism as grant writes.
@@ -532,7 +532,7 @@ Budget enforcement is split into two sub-phases: migrating quota ownership to po
 2. Remove `quotaCache` and `quotaCounter` fields from the `Service` struct in `service.go`; update `NewService` constructor to drop those parameters. Update all call sites in `cmd/inference-gateway/main.go`.
 3. Rewrite `checkBudget` in `service.go`: read spend from Redis via `SpendCounter.GetSpend`, inject into OPA input, call `pol.CheckBudget`. Fail open on Redis error or OPA error — same semantics as before.
 4. Remove quota route registrations from `cmd/inference-gateway/main.go`. Remove `QuotaCache` and `QuotaRepository` wiring.
-5. Add a new Goose migration in `cmd/inference-gateway/migrations/` that drops the `quota_groups`, `principal_quota_group_memberships`, and `principal_quotas` tables. Do not delete the earlier `20260608015333_create_quota_tables.sql` migration — Goose requires the full history to remain intact. The new down migration is the correct mechanism for removing the tables.
+5. Add a new Goose migration in `cmd/inference-gateway/migrations/` that drops the `quota_roles`, `principal_quota_role_memberships`, and `principal_quotas` tables. Do not delete the earlier `20260608015333_create_quota_tables.sql` migration — Goose requires the full history to remain intact. The new down migration is the correct mechanism for removing the tables.
 6. Delete the inference-gateway quota test files: `handlers_quota_test.go`, `quota_cache_test.go` (if present), and `quota_repository_test.go` (if present). Quota behaviour is now covered by policy-service tests.
 7. Add quota status API endpoint to **policy-service**: returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached }` for the authenticated principal. Policy-service reads current spend from the Redis counter (same key format as the gateway: `quota:{principal_id}:{YYYY-MM}`) and evaluates `orbit.budget.budget_allow` to derive `spend_limit_reached`. This keeps the quota read path co-located with quota data ownership and avoids a cross-service call from the gateway for the status response.
 8. Verify: integration test confirms zero successful inference requests after a principal's monthly spend meets their effective budget.
@@ -591,7 +591,7 @@ See PRD Phase 3 milestones.
 
 **Why move quota tables to policy-service rather than keep them in the inference-gateway?** Budget limits are a policy concern — they define what a principal is *allowed* to spend, in the same way grants define what a principal is *allowed* to access. Co-locating them with grants and roles in policy-service means bundle compilation can include quota data without a cross-service fetch. It also means quota admin sits alongside grant admin in a single service boundary rather than being split across two binaries. The inference-gateway is the *enforcement* point, not the *authority* on budget limits; this mirrors the existing pattern where the gateway evaluates OPA decisions but does not own the grant data. Future budget rules (tenant-level caps, grace periods, per-model limits) are Rego changes, not Go changes.
 
-**Why not a shared spending pool for quota groups?** A shared pool requires atomic cross-principal accounting — every request from any group member must decrement a shared counter. This is a distributed coordination problem with no clean Redis primitive. It also creates unpredictable UX: a single high-traffic agent could exhaust the pool for all other members. Per-member individual limits are both simpler to implement and more predictable for operators.
+**Why not a shared spending pool for quota roles?** A shared pool requires atomic cross-principal accounting — every request from any role member must decrement a shared counter. This is a distributed coordination problem with no clean Redis primitive. It also creates unpredictable UX: a single high-traffic agent could exhaust the pool for all other members. Per-member individual limits are both simpler to implement and more predictable for operators.
 
 **Why drop `virtual_model_routes` pricing columns rather than leave them?** Leaving them creates an ongoing confusion risk — engineers may write to or read from them not knowing they are superseded. The columns are also populated with stale data that could silently re-emerge if someone wires them back in. A clean drop in Phase 1 is safer than deprecation-in-place.
 

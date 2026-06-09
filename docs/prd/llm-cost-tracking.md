@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, quota groups for scalable budget assignment, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
+Orbit's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, quota roles for scalable budget assignment, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
 
 ---
 
@@ -97,16 +97,16 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 ---
 
 **As a** tenant admin,  
-**I want to** define quota groups (e.g. "engineer", "agent") and assign principals to them,  
+**I want to** define quota roles (e.g. "engineer", "agent") and assign principals to them,  
 **So that** I can apply a shared budget policy to a range of principals without configuring each one individually.
 
 **Acceptance Criteria:**
-- [ ] Admin can create, update, and delete named quota groups within their tenant.
-- [ ] Each quota group defines a `monthly_budget_usd` that applies individually to every principal assigned to the group (not a shared pool).
-- [ ] Admin can assign any principal to a quota group.
-- [ ] Admin can set a principal-level quota override that takes precedence over the group quota for that principal.
-- [ ] Budget enforcement at request time follows: individual quota (if set) → group quota (if assigned) → no limit.
-- [ ] Removing a principal's individual override reverts them to their group quota.
+- [ ] Admin can create, update, and delete named quota roles within their tenant.
+- [ ] Each quota role defines a `monthly_budget_usd` that applies individually to every principal assigned to the role (not a shared pool).
+- [ ] Admin can assign any principal to a quota role.
+- [ ] Admin can set a principal-level quota override that takes precedence over the role quota for that principal.
+- [ ] Budget enforcement at request time follows: individual quota (if set) → role quota (if assigned) → no limit.
+- [ ] Removing a principal's individual override reverts them to their role quota.
 
 ---
 
@@ -158,9 +158,9 @@ The feature is delivered in three layers:
 A background sync worker pulls model pricing from LiteLLM's `model_prices_and_context_window.json` on a daily schedule. Prices are written to a dedicated `model_pricing` table keyed by `(provider, model_id)` — decoupled from the routing table `virtual_model_routes`. The sync always refreshes the synced price columns across all four pricing dimensions (input, output, cache read, cache write); it never clears or overwrites the nullable override columns. Platform admins may set nullable override columns for any of the four dimensions on any `model_pricing` row. At inference request time the gateway resolves each effective price in order: override (if non-null) → synced price → `$0.00` with `price_unknown` flag. The four effective prices and the `price_unknown` flag are written directly onto each `inference_usage` record at request time — each record is a self-contained audit entry. A `StaticPricingCache` implementation already exists; this layer replaces `NewNopPricingCache()` with a real, database-backed, periodically-refreshed implementation.
 
 **2. Budget Enforcement**  
-Principals may be subject to a monthly budget cap via two mechanisms: a principal-level `PrincipalQuota` record, or membership in a `QuotaGroup`. A quota group defines a `monthly_budget_usd` that applies individually to each member principal — it is not a shared spending pool. A principal-level quota always takes precedence over a group quota. The quota tables (`principal_quotas`, `quota_groups`, `principal_quota_group_memberships`) live in the **policy-service** database alongside grants and roles — budget limits are a policy concern, not a gateway concern.
+Principals may be subject to a monthly budget cap via two mechanisms: a principal-level `PrincipalQuota` record, or membership in a `QuotaRole`. A quota role defines a `monthly_budget_usd` that applies individually to each member principal — it is not a shared spending pool. A principal-level quota always takes precedence over a role quota. The quota tables (`principal_quotas`, `quota_roles`, `principal_quota_role_memberships`) live in the **policy-service** database alongside grants and roles — budget limits are a policy concern, not a gateway concern.
 
-Budget enforcement is OPA-native. Quota limits and group memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` alongside grants and roles. The `orbit.budget` Rego module evaluates the allow/deny decision: it resolves the effective limit (individual → group → no limit) and compares it against the injected current spend. The inference gateway reads current monthly spend from Redis (a counter keyed by `quota:{principal_id}:{year_month}`), injects it into the OPA input document, and evaluates `data.orbit.budget.budget_allow` via the policy evaluator's `CheckBudget` method. If the result is `false`, the request is rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`. The resolution order and enforcement logic live entirely in Rego — adding or changing enforcement rules requires no Go service changes.
+Budget enforcement is OPA-native. Quota limits and role memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` alongside grants and roles. The `orbit.budget` Rego module evaluates the allow/deny decision: it resolves the effective limit (individual → role → no limit) and compares it against the injected current spend. The inference gateway reads current monthly spend from Redis (a counter keyed by `quota:{principal_id}:{year_month}`), injects it into the OPA input document, and evaluates `data.orbit.budget.budget_allow` via the policy evaluator's `CheckBudget` method. If the result is `false`, the request is rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`. The resolution order and enforcement logic live entirely in Rego — adding or changing enforcement rules requires no Go service changes.
 
 A quota API endpoint returns `spend_limit_reached: bool` alongside `monthly_budget_usd` and `current_spend_usd`; `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly with no client-side threshold logic. Redis is not the source of truth for spend — it is a fast read layer over `inference_usage`; on cache miss it is rehydrated using `SELECT SUM(estimated_cost_usd) FROM inference_usage WHERE DATE_TRUNC('month', created_at) = current_month`. Records where `estimated_cost_usd = 0` due to an unknown price contribute zero to the counter; `price_unknown` records are not backfilled into the budget retrospectively. Monthly spend is computed using `DATE_TRUNC('month', created_at)` — no mutable counter is reset at midnight. Cost is attributed to the month in which the request completes. Budget checks are fail-open: if OPA or Redis is unreachable, the request proceeds and the event is logged. This is a fixed platform behaviour and is not configurable per tenant.
 
@@ -197,9 +197,9 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 #### Tenant Admin — Budget Management Flow
 
 1. Admin navigates to **Policy → Quotas** (`/policy/quotas`) in the Orbit UI.
-2. Views all principals in their tenant with their current monthly spend, effective budget cap (individual or group), and utilisation progress bar.
-3. Navigates to **Groups** tab to create, edit, and delete quota groups (e.g. "engineer", "agent") and assign principals to them.
-4. Clicks a principal → can set or edit an individual quota override (`monthly_budget_usd`) or remove the override to revert the principal to their group quota.
+2. Views all principals in their tenant with their current monthly spend, effective budget cap (individual or role), and utilisation progress bar.
+3. Navigates to **Roles** tab to create, edit, and delete quota roles (e.g. "engineer", "agent") and assign principals to them.
+4. Clicks a principal → can set or edit an individual quota override (`monthly_budget_usd`) or remove the override to revert the principal to their role quota.
 
 #### Developer / Agent Operator Flow
 
@@ -213,12 +213,12 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - **`model_pricing` table**: New global pricing catalog keyed by `(provider, model_id)`. Contains four synced columns (`synced_input_cost_per_1m`, `synced_output_cost_per_1m`, `synced_cache_read_cost_per_1m`, `synced_cache_write_cost_per_1m`) written by the sync worker, and four nullable override columns (same names, `override_` prefix) set by platform admins. Decoupled from `virtual_model_routes`.
 - **DB-backed PricingCache**: Replaces `NewNopPricingCache()`. Loaded from `model_pricing` at startup, refreshed every 5 minutes in the background. Resolves each of the four effective prices via override-first COALESCE. Read by `service.go` at request dispatch.
 - **Effective prices on `inference_usage`**: Four `effective_*_cost_per_1m` columns and a `price_unknown` flag are written onto each `inference_usage` record at request time. Every record is a self-contained audit entry — no join required to reconstruct what was charged.
-- **Quota Store**: Three tables (`principal_quotas`, `quota_groups`, `principal_quota_group_memberships`) owned by the **policy-service** database. Budget limits and group memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` — same pipeline as grants and roles. Redis counter (`quota:{principal_id}:{year_month}`) is the fast spend read layer; rehydrated from `inference_usage` on miss using `DATE_TRUNC('month', created_at)` aggregation.
-- **OPA Budget Module (`orbit.budget`)**: A `budget.rego` policy module compiled into every tenant bundle. Evaluates `budget_allow` and `spend_limit_reached` by comparing injected `current_spend_usd` against quota data in `data.quotas`. Resolution order (`individual quota → group quota → no limit`) is implemented in Rego. Enforced via the policy evaluator's `CheckBudget` method in the inference gateway.
+- **Quota Store**: Three tables (`principal_quotas`, `quota_roles`, `principal_quota_role_memberships`) owned by the **policy-service** database. Budget limits and role memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` — same pipeline as grants and roles. Redis counter (`quota:{principal_id}:{year_month}`) is the fast spend read layer; rehydrated from `inference_usage` on miss using `DATE_TRUNC('month', created_at)` aggregation.
+- **OPA Budget Module (`orbit.budget`)**: A `budget.rego` policy module compiled into every tenant bundle. Evaluates `budget_allow` and `spend_limit_reached` by comparing injected `current_spend_usd` against quota data in `data.quotas`. Resolution order (`individual quota → role quota → no limit`) is implemented in Rego. Enforced via the policy evaluator's `CheckBudget` method in the inference gateway.
 - **Budget Check Gate**: A step in `Service.{ChatCompletion, AnthropicMessages, Embed, ...}` that reads current spend from Redis, injects it into OPA input, and evaluates `orbit.budget.budget_allow`. Rejects with HTTP 429 and `error_code = "BUDGET_EXCEEDED"` if the result is `false`. Recorded with `status = "policy_denied"`. Fails open on OPA or Redis unavailability.
 - **Quota API**: Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly to show or hide the banner — no client-side threshold logic.
 - **Cost Dashboards (Frontend)**: Three surfaces: (1) new `/model-gateway/platform-usage` page for platform operators (cross-tenant aggregate + per-tenant breakdown, default 30-day range); (2) enhancements to the existing `/model-gateway/analytics` page for tenant admins (Principals tab with per-principal spend leaderboard, default 30-day range); (3) enhancements to the existing `/model-gateway/my-usage` page for developers (accurate cost data + budget alert banner).
-- **Budget Management UI**: New `/policy/quotas` page in the Policy section. Principals tab lists all principals with effective quota, current spend, and utilisation progress bar (individual or group quota indicated). Groups tab manages quota group definitions and principal assignments. Individual override set/clear available on the principal detail view.
+- **Budget Management UI**: New `/policy/quotas` page in the Policy section. Principals tab lists all principals with effective quota, current spend, and utilisation progress bar (individual or role quota indicated). Roles tab manages quota role definitions and principal assignments. Individual override set/clear available on the principal detail view.
 - **Provider Catalog pricing enhancements**: The existing Provider Catalog tab gains an **Effective Price** column (override indicator / synced indicator / price-unknown warning) and a sync status banner on the Catalog page. The detail overlay surfaces read-only sync metadata, override price inputs with a clear action, and mirrors the enable/disable toggle. A price-over-time chart sourced from `inference_usage` is included as an experimental feature delivered as a dedicated atomic commit — only models with actual usage data appear.
 
 ---
@@ -232,13 +232,13 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Effective prices (`effective_*_cost_per_1m`) and `price_unknown` flag written onto each `inference_usage` record at request time, providing a self-contained audit trail.
 - Price resolution order at request time: platform admin override → synced catalog price → `$0.00` with `price_unknown` flag.
 - Per-principal monthly budget caps with hard-block enforcement (HTTP 429, `BUDGET_EXCEEDED`).
-- Quota groups: named groups with a shared `monthly_budget_usd` applied individually per member principal. Individual overrides take precedence over group quotas.
+- Quota roles: named roles with a `monthly_budget_usd` applied individually per member principal. Individual overrides take precedence over role quotas.
 - Server-computed `spend_limit_reached` flag on the quota API (`current_spend_usd >= monthly_budget_usd`); shown as a banner on `/model-gateway/my-usage` when true.
 - Monthly calendar reset of budget state using `DATE_TRUNC('month', created_at)` — no mutable counter.
 - Cost attributed to the month in which the request completes.
 - New `/model-gateway/platform-usage` page for platform operators: aggregate and per-tenant spend breakdown by model, provider, and time.
 - Enhancements to existing `/model-gateway/analytics` page for tenant admins: Principals tab with per-principal spend leaderboard.
-- New `/policy/quotas` page for tenant admins: budget cap management per principal and group, with utilisation progress bars.
+- New `/policy/quotas` page for tenant admins: budget cap management per principal and role, with utilisation progress bars.
 - Enhancements to existing `/model-gateway/my-usage` page for developers: accurate cost data and budget limit banner.
 
 ### Out of Scope
@@ -276,19 +276,19 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - [ ] `estimated_cost_usd` is non-zero for all models present in the pricing catalog on successful requests.
 - [ ] Records where price is unknown at write time are written with `estimated_cost_usd = 0` and a `price_unknown` flag.
 - [ ] A `principal_quotas` table stores individual per-principal budget overrides (`monthly_budget_usd`).
-- [ ] A `quota_groups` table stores named quota groups (`name`, `monthly_budget_usd`) scoped to a tenant.
-- [ ] A `principal_quota_group_memberships` join table assigns principals to quota groups.
-- [ ] Effective quota resolution at request time: individual quota (if set) → group quota (if assigned) → no limit.
+- [ ] A `quota_roles` table stores named quota roles (`name`, `monthly_budget_usd`) scoped to a tenant.
+- [ ] A `principal_quota_role_memberships` join table assigns principals to quota roles.
+- [ ] Effective quota resolution at request time: individual quota (if set) → role quota (if assigned) → no limit.
 - [ ] Budget check reads a Redis counter (`quota:{principal_id}:{year_month}`) before routing; counter is rehydrated from `SELECT SUM(estimated_cost_usd) ... WHERE DATE_TRUNC('month', created_at) = current_month` on cache miss. No mutable counter is reset at month boundary.
 - [ ] Requests from a principal whose monthly spend ≥ effective `monthly_budget_usd` are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`.
 - [ ] Cost is attributed to the month in which the request completes (when `estimated_cost_usd` is written), not when it starts.
 - [ ] Monthly spend resets naturally via the `DATE_TRUNC` aggregation — no explicit reset job required.
-- [ ] Tenant admin can create, update, and delete quota groups for their tenant via API (requires `platform:quotas:write` scope, tenant-scoped).
-- [ ] Tenant admin can assign and remove principals from quota groups via API (requires `platform:quotas:write` scope, tenant-scoped).
+- [ ] Tenant admin can create, update, and delete quota roles for their tenant via API (requires `platform:quotas:write` scope, tenant-scoped).
+- [ ] Tenant admin can assign and remove principals from quota roles via API (requires `platform:quotas:write` scope, tenant-scoped).
 - [ ] Tenant admin can set, update, and delete individual principal quota overrides for principals in their tenant via API (requires `platform:quotas:write` scope, tenant-scoped). Platform operators may manage quotas across tenants.
 - [ ] Platform operator cost dashboard exists at `/model-gateway/platform-usage` (aggregate and per-tenant spend breakdown by model, provider, and time; default range 30 days). Requires `platform:catalog:write` scope.
 - [ ] Existing `/model-gateway/analytics` page is enhanced with a Principals tab showing per-principal spend leaderboard for tenant admins (default range 30 days). Requires `platform:analytics:read` scope.
-- [ ] New `/policy/quotas` page exists for tenant admins: Principals tab (effective quota, spend, utilisation per principal), Groups tab (create/edit/delete groups, assign principals). Requires `platform:quotas:read`/`write` scope.
+- [ ] New `/policy/quotas` page exists for tenant admins: Principals tab (effective quota, spend, utilisation per principal), Roles tab (create/edit/delete roles, assign principals). Requires `platform:quotas:read`/`write` scope.
 - [ ] A quota API endpoint returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is computed server-side as `current_spend_usd >= monthly_budget_usd`.
 - [ ] Existing `/model-gateway/my-usage` page displays accurate dollar costs (no `$0.00` placeholders) and shows a budget limit banner when `spend_limit_reached` is true.
 
@@ -310,7 +310,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 **Security:**
 - Principals may only view their own cost data; tenant admins may view and manage within their own tenant only; platform operators may view across tenants.
-- Budget quota administration (principal quotas and quota groups) requires `platform:quotas:write` scope; reads require `platform:quotas:read`. All quota API operations are tenant-scoped — a tenant admin cannot read or write quotas for principals outside their own tenant.
+- Budget quota administration (principal quotas and quota roles) requires `platform:quotas:write` scope; reads require `platform:quotas:read`. All quota API operations are tenant-scoped — a tenant admin cannot read or write quotas for principals outside their own tenant.
 - Pricing override administration requires `platform:catalog:write` scope.
 - Budget check must be evaluated inside the trust boundary of the inference gateway — never client-supplied.
 
@@ -461,10 +461,10 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Verify `estimated_cost_usd > 0` on test requests for all supported providers.
 
 **Phase 2: Budget Enforcement** (Target: TBD)
-- Migrate `principal_quotas`, `quota_groups`, and `principal_quota_group_memberships` tables to policy-service database.
+- Migrate `principal_quotas`, `quota_roles`, and `principal_quota_role_memberships` tables to policy-service database.
 - Implement quota repository and CRUD API routes in policy-service under `platform:quotas:read`/`write` scopes.
 - Extend policy-service bundle compiler to include `data/quotas/data.json` in every tenant bundle; recompile on every quota write.
-- Implement `policy/budget.rego` (`orbit.budget` module) with OPA-native resolution: individual quota → group quota → no limit.
+- Implement `policy/budget.rego` (`orbit.budget` module) with OPA-native resolution: individual quota → role quota → no limit.
 - Add `CheckBudget` method to `platform/policy.Evaluator` interface and in-process engine.
 - Rewrite inference gateway budget check: read spend from Redis, inject into OPA input, evaluate `orbit.budget.budget_allow`.
 - Remove `QuotaCache`, `QuotaRepository`, and inference-gateway quota handlers.
@@ -473,7 +473,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 **Phase 3: Frontend Dashboards** (Target: TBD)
 - New `/model-gateway/platform-usage` page (platform operator: aggregate + per-tenant spend breakdown, by model, provider, time; default 30-day range).
 - Enhance `/model-gateway/analytics` with Principals tab (per-principal spend leaderboard for tenant admins; default 30-day range).
-- New `/policy/quotas` page: Principals tab (effective quota, spend, utilisation progress bar per principal; individual/group source indicated), Groups tab (create/edit/delete quota groups, assign principals, manage overrides).
+- New `/policy/quotas` page: Principals tab (effective quota, spend, utilisation progress bar per principal; individual/role source indicated), Roles tab (create/edit/delete quota roles, assign principals, manage overrides).
 - Enhance `/model-gateway/my-usage` with accurate cost data and budget limit banner.
 - Provider Catalog tab: Effective Price column (synced/override/unknown indicators) and clickable row detail overlay (sync metadata, override inputs for all four dimensions, clear action, mirrored enable/disable toggle).
 - Catalog page header: sync status banner (last sync time, models updated, error count, expandable run log).
@@ -505,9 +505,9 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - **`effective_*_cost_per_1m` columns:** Four columns added to `inference_usage` recording the prices actually used to compute `estimated_cost_usd` for that request. Together with `price_unknown`, they make each record a self-contained audit entry.
 - **`virtual_model_routes`:** Database table mapping a virtual model to ordered provider targets. Pricing columns on this table are superseded by `model_pricing`.
 - **`PricingCache`:** The in-process interface in `internal/inferencegw/pricing.go` that the service layer calls to resolve model prices. Currently wired to a no-op implementation; to be replaced with a DB-backed implementation that resolves override → synced → unknown across all four dimensions.
-- **`PrincipalQuota`:** A per-principal budget override record storing `monthly_budget_usd`. Takes precedence over any group quota. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.principal_quotas`.
-- **`QuotaGroup`:** A named quota policy (e.g. "engineer", "agent") storing `monthly_budget_usd`, scoped to a tenant. Applied individually to each member principal — not a shared spending pool. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.groups` and `data.quotas.memberships`.
-- **Effective quota:** The quota that applies to a principal at enforcement time, resolved by the `orbit.budget` Rego module: individual `PrincipalQuota` (if set) → `QuotaGroup` membership (if assigned) → no limit.
+- **`PrincipalQuota`:** A per-principal budget override record storing `monthly_budget_usd`. Takes precedence over any role quota. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.principal_quotas`.
+- **`QuotaRole`:** A named quota policy (e.g. "engineer", "agent") storing `monthly_budget_usd`, scoped to a tenant. Applied individually to each member principal — not a shared spending pool. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.roles` and `data.quotas.memberships`.
+- **Effective quota:** The quota that applies to a principal at enforcement time, resolved by the `orbit.budget` Rego module: individual `PrincipalQuota` (if set) → `QuotaRole` membership (if assigned) → no limit.
 - **Redis quota counter:** A key `quota:{principal_id}:{year_month}` incremented on each inference usage write by the `estimated_cost_usd` of that request. The fast read layer for budget checks; rehydrated from `SELECT SUM(estimated_cost_usd) FROM inference_usage WHERE DATE_TRUNC(...)` on miss. Records where `estimated_cost_usd = 0` (price unknown) contribute zero to the counter. Not the source of truth.
 - **`orbit.budget` Rego module:** The OPA policy module compiled into every tenant bundle. Evaluates `budget_allow` and `spend_limit_reached` by comparing injected `current_spend_usd` against `data.quotas` bundle data. The enforcement logic and resolution order live entirely in Rego.
 - **Fail-open:** Fixed platform behaviour when the quota store is unreachable — the request proceeds rather than is blocked, and the event is logged. Not configurable per tenant.
