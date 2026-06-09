@@ -142,7 +142,9 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
           ),
         ];
 
-        const memberData = membersRes?.ok ? ((await membersRes.json()) as { data: string[] }) : null;
+        const memberData = membersRes?.ok
+          ? ((await membersRes.json()) as { data: string[] })
+          : null;
 
         if (!cancelled) {
           setAllPrincipals(principals);
