@@ -375,8 +375,7 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
                       <Button
                         key={p.principal_id}
                         variant="ghost"
-                        shape="square"
-                        size="sm"
+                        size="tile"
                         selected={isSelected}
                         fullWidth
                         onClick={() => toggleMember(p.principal_id)}
@@ -388,6 +387,8 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
                           align="center"
                           justify="between"
                           minWidth="none"
+                          paddingBlock="tight"
+                          paddingInline="snug"
                         >
                           <Stack gap="none" minWidth="none">
                             <Text
