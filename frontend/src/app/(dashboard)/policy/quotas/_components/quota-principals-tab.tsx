@@ -227,6 +227,14 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
 
 // ── Hook — loads spend data ───────────────────────────────────────────────────
 
+// Canonical seed record for a principal before quota/spend data is joined in.
+interface PrincipalSeed {
+  id: string;
+  principal_type: string;
+  display_name: string;
+  email: string | null;
+}
+
 function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
   const [rows, setRows] = useState<PrincipalQuotaRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -236,16 +244,53 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
     setLoading(true);
     setError(null);
     try {
-      // Fetch all tenant users, group members, and analytics spend in parallel.
+      // Fetch all principal sources, group members, and analytics spend in parallel.
       // Analytics is best-effort — a 403 or failure just means spend shows as $0.
-      const [usersRes, analyticsRes, ...memberResponses] = await Promise.all([
+      //
+      // Principal sources unioned here:
+      //   - HUMAN  → GET /api/identity/users
+      //   - AGENT  → GET /api/agents/types
+      //
+      // TODO: add SERVICE and SYSTEM principal sources here once those principal
+      // types are implemented in the identity/credential-broker layer.
+      //
+      // PAT principals are intentionally excluded — they are extensions of the
+      // HUMAN principals that created them; spend is attributed to the human.
+      const [usersRes, agentTypesRes, analyticsRes, ...memberResponses] = await Promise.all([
         fetch(ApiRoute.identityUsers.GET()),
+        fetch(ApiRoute.agentTypes.list()),
         fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 500 })),
         ...groups.map((g) => fetch(ApiRoute.quotaGroupMembers.GET(g.id))),
       ]);
 
       if (!usersRes.ok) throw new Error(`Failed to load users (${usersRes.status})`);
-      const usersData = (await usersRes.json()) as { data: { id: string; email: string; display_name: string }[] };
+      if (!agentTypesRes.ok) throw new Error(`Failed to load agent types (${agentTypesRes.status})`);
+
+      const usersData = (await usersRes.json()) as {
+        data: { id: string; email: string; display_name: string }[];
+      };
+      const agentTypesData = (await agentTypesRes.json()) as {
+        data: { id: string; name: string; slug: string }[];
+      };
+
+      // Union all principal seeds, deduplicating by id.
+      const seedMap = new Map<string, PrincipalSeed>();
+      for (const u of usersData.data ?? []) {
+        seedMap.set(u.id, {
+          id: u.id,
+          principal_type: 'HUMAN',
+          display_name: u.display_name ?? u.email,
+          email: u.email,
+        });
+      }
+      for (const a of agentTypesData.data ?? []) {
+        seedMap.set(a.id, {
+          id: a.id,
+          principal_type: 'AGENT',
+          display_name: a.name,
+          email: null,
+        });
+      }
 
       // Build spend map from analytics (best-effort — ignored on failure).
       const spendMap = new Map<string, number>();
@@ -269,39 +314,49 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
         }),
       );
 
-      // Enrich each user with individual quota or group membership.
+      // Enrich each principal with individual quota or group membership.
       const enriched = await Promise.all(
-        (usersData.data ?? []).map(async (u): Promise<PrincipalQuotaRow> => {
+        Array.from(seedMap.values()).map(async (seed): Promise<PrincipalQuotaRow> => {
           const base: PrincipalUsageRow = {
-            principal_id: u.id,
-            principal_type: 'HUMAN',
+            principal_id: seed.id,
+            principal_type: seed.principal_type,
             request_count: 0,
             total_tokens: 0,
             prompt_tokens: 0,
             completion_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            estimated_cost_usd: spendMap.get(u.id) ?? 0,
+            estimated_cost_usd: spendMap.get(seed.id) ?? 0,
             error_rate: 0,
             avg_latency_ms: 0,
             last_active_at: '',
-            email: u.email,
-            display_name: u.display_name,
+            email: seed.email,
+            display_name: seed.display_name,
           };
 
           try {
-            const qRes = await fetch(ApiRoute.quotaPrincipal.GET(u.id));
+            const qRes = await fetch(ApiRoute.quotaPrincipal.GET(seed.id));
             if (qRes.ok) {
               const q = (await qRes.json()) as { data: { monthly_budget_usd: number } };
-              return { ...base, monthly_budget_usd: q.data.monthly_budget_usd, quota_source: 'individual', group_name: null };
+              return {
+                ...base,
+                monthly_budget_usd: q.data.monthly_budget_usd,
+                quota_source: 'individual',
+                group_name: null,
+              };
             }
           } catch {
             // fall through to group lookup
           }
 
-          const grp = membershipMap.get(u.id);
+          const grp = membershipMap.get(seed.id);
           if (grp) {
-            return { ...base, monthly_budget_usd: grp.monthly_budget_usd, quota_source: 'group', group_name: grp.name };
+            return {
+              ...base,
+              monthly_budget_usd: grp.monthly_budget_usd,
+              quota_source: 'group',
+              group_name: grp.name,
+            };
           }
 
           return { ...base, monthly_budget_usd: null, quota_source: 'none', group_name: null };
