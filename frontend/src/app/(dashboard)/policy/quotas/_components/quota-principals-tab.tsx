@@ -264,7 +264,8 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
       ]);
 
       if (!usersRes.ok) throw new Error(`Failed to load users (${usersRes.status})`);
-      if (!agentTypesRes.ok) throw new Error(`Failed to load agent types (${agentTypesRes.status})`);
+      if (!agentTypesRes.ok)
+        throw new Error(`Failed to load agent types (${agentTypesRes.status})`);
 
       const usersData = (await usersRes.json()) as {
         data: { id: string; email: string; display_name: string }[];
