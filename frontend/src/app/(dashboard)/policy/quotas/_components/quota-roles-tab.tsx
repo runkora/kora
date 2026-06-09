@@ -19,22 +19,22 @@ import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
 import { ApiRoute } from '@orbit/lib/routing';
 import { fmtBudget } from '@orbit/utils';
-import type { QuotaGroup } from '../../_services/quota-server';
+import type { QuotaRole } from '../../_services/quota-server';
 import type { PrincipalUsageRow } from '../../../model-gateway/_types';
 
-interface QuotaGroupsTabProps {
-  initialGroups: QuotaGroup[];
-  onGroupsChange: (groups: QuotaGroup[]) => void;
+interface QuotaRolesTabProps {
+  initialRoles: QuotaRole[];
+  onRolesChange:  (roles: QuotaRole[]) => void;
   canWrite: boolean;
 }
 
 // ── Group modal (New + Edit) ───────────────────────────────────────────────────
 
-interface GroupModalProps {
+interface RoleModalProps {
   /** Null = create mode; non-null = edit mode. */
-  group: QuotaGroup | null;
+  role: QuotaRole | null;
   onClose: () => void;
-  onSaved: (group: QuotaGroup) => void;
+  onSaved: (role: QuotaRole) => void;
   onDeleted?: (id: string) => void;
 }
 
@@ -52,11 +52,11 @@ function principalDisplayName(p: PrincipalUsageRow): string {
   return p.display_name ?? p.email ?? p.principal_id;
 }
 
-function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
-  const isEdit = group !== null;
+function RoleModal({ role, onClose, onSaved, onDeleted }: RoleModalProps) {
+  const isEdit = role !== null;
 
-  const [name, setName] = useState(group?.name ?? '');
-  const [budget, setBudget] = useState(group ? String(group.monthly_budget_usd) : '');
+  const [name, setName] = useState(role?.name ?? '');
+  const [budget, setBudget] = useState(role ? String(role.monthly_budget_usd) : '');
   const [principalType, setPrincipalType] = useState<PrincipalTypeKey>('AGENT');
   const [principalSearch, setPrincipalSearch] = useState('');
   const [allPrincipals, setAllPrincipals] = useState<PrincipalUsageRow[]>([]);
@@ -88,8 +88,8 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
           fetch(ApiRoute.identityUsers.GET()),
           fetch(ApiRoute.agentTypes.list()),
         ];
-        if (isEdit && group) {
-          requests.push(fetch(ApiRoute.quotaGroupMembers.GET(group.id)));
+        if (isEdit && role) {
+          requests.push(fetch(ApiRoute.quotaRoleMembers.GET(role.id)));
         }
         const [usersRes, agentTypesRes, membersRes] = await Promise.all(requests);
         if (!usersRes!.ok) throw new Error(`Failed to load users (${usersRes!.status})`);
@@ -201,10 +201,10 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
     setSaving(true);
     setError(null);
     try {
-      let saved: QuotaGroup;
+      let saved: QuotaRole;
 
       if (!isEdit) {
-        const res = await fetch(ApiRoute.quotaGroups.POST(), {
+        const res = await fetch(ApiRoute.quotaRoles.POST(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), monthly_budget_usd: budgetNum }),
@@ -213,19 +213,19 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
           const body = (await res.json().catch(() => ({}))) as { message?: string };
           throw new Error(body.message ?? `Request failed (${res.status})`);
         }
-        const { data: created } = (await res.json()) as { data: QuotaGroup };
+        const { data: created } = (await res.json()) as { data: QuotaRole };
         saved = created;
 
         await Promise.all(
           [...memberIds].map((pid) =>
-            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+            fetch(ApiRoute.quotaRoleMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
               if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
             }),
           ),
         );
       } else {
-        if (budgetNum !== group!.monthly_budget_usd) {
-          const res = await fetch(ApiRoute.quotaGroup.PUT(group!.id), {
+        if (budgetNum !== role!.monthly_budget_usd) {
+          const res = await fetch(ApiRoute.quotaRole.PUT(role!.id), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ monthly_budget_usd: budgetNum }),
@@ -235,18 +235,18 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
             throw new Error(body.message ?? `Request failed (${res.status})`);
           }
         }
-        saved = { ...group!, name: name.trim(), monthly_budget_usd: budgetNum };
+        saved = { ...role!, name: name.trim(), monthly_budget_usd: budgetNum };
 
         const toAdd = [...memberIds].filter((id) => !serverMemberIds.has(id));
         const toRemove = [...serverMemberIds].filter((id) => !memberIds.has(id));
         await Promise.all([
           ...toAdd.map((pid) =>
-            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+            fetch(ApiRoute.quotaRoleMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
               if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
             }),
           ),
           ...toRemove.map((pid) =>
-            fetch(ApiRoute.quotaGroupMember.DELETE(saved.id, pid), { method: 'DELETE' }).then(
+            fetch(ApiRoute.quotaRoleMember.DELETE(saved.id, pid), { method: 'DELETE' }).then(
               (r) => {
                 if (!r.ok) throw new Error(`Failed to remove member ${pid} (${r.status})`);
               },
@@ -258,37 +258,37 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
       onSaved(saved);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save group.');
+      setError(err instanceof Error ? err.message : 'Failed to save role.');
     } finally {
       setSaving(false);
     }
-  }, [isEdit, name, budget, group, memberIds, serverMemberIds, onSaved, onClose]);
+  }, [isEdit, name, budget, role, memberIds, serverMemberIds, onSaved, onClose]);
 
   const handleDelete = useCallback(async () => {
-    if (!group) return;
+    if (!role) return;
     setDeleting(true);
     setError(null);
     try {
-      const res = await fetch(ApiRoute.quotaGroup.DELETE(group.id), { method: 'DELETE' });
+      const res = await fetch(ApiRoute.quotaRole.DELETE(role.id), { method: 'DELETE' });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(body.message ?? `Request failed (${res.status})`);
       }
-      onDeleted?.(group.id);
+      onDeleted?.(role.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete group.');
+      setError(err instanceof Error ? err.message : 'Failed to delete role.');
     } finally {
       setDeleting(false);
     }
-  }, [group, onDeleted, onClose]);
+  }, [role, onDeleted, onClose]);
 
   const selectedCount = memberIds.size;
 
   return (
     <>
       <Modal open onClose={onClose} size="md">
-        <ModalHeader title={isEdit ? 'Edit group' : 'New group'} />
+        <ModalHeader title={isEdit ? 'Edit role' : 'New role'} />
         <ModalBody>
           <Stack gap="comfortable">
             {/* Name */}
@@ -426,7 +426,7 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={saving || deleting}
               >
-                Delete group
+                Delete role
               </Button>
             ) : (
               <Stack />
@@ -441,7 +441,7 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
                 onClick={() => void handleSave()}
                 disabled={saving || deleting}
               >
-                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create group'}
+                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create role'}
               </Button>
             </Stack>
           </Stack>
@@ -452,9 +452,9 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
         <ConfirmDialog
           open={showDeleteConfirm}
           onClose={() => setShowDeleteConfirm(false)}
-          title="Delete quota group"
-          description={`Delete "${group?.name}"? All principals currently assigned to this group will have their group quota removed. This cannot be undone.`}
-          confirmLabel="Delete group"
+          title="Delete quota role"
+          description={`Delete "${role?.name}"? All principals currently assigned to this role will have their role quota removed. This cannot be undone.`}
+          confirmLabel="Delete role"
           onConfirm={() => void handleDelete()}
           confirming={deleting}
         />
@@ -465,40 +465,40 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: QuotaGroupsTabProps) {
-  const [groups, setGroups] = useState<QuotaGroup[]>(initialGroups);
-  // undefined = closed, null = create, QuotaGroup = edit
-  const [modalGroup, setModalGroup] = useState<QuotaGroup | null | undefined>(undefined);
+export function QuotaRolesTab({ initialRoles, onRolesChange, canWrite }: QuotaRolesTabProps) {
+  const [roles, setRoles] = useState<QuotaRole[]>(initialRoles);
+  // undefined = closed, null = create, QuotaRole = edit
+  const [modalRole, setModalRole] = useState<QuotaRole | null | undefined>(undefined);
 
-  const modalOpen = modalGroup !== undefined;
+  const modalOpen = modalRole !== undefined;
 
   const handleSaved = useCallback(
-    (saved: QuotaGroup) => {
-      setGroups((prev) => {
+    (saved: QuotaRole) => {
+      setRoles((prev) => {
         const idx = prev.findIndex((g) => g.id === saved.id);
         const next = idx >= 0 ? prev.map((g) => (g.id === saved.id ? saved : g)) : [...prev, saved];
-        onGroupsChange(next);
+        onRolesChange(next);
         return next;
       });
     },
-    [onGroupsChange],
+    [onRolesChange],
   );
 
   const handleDeleted = useCallback(
     (id: string) => {
-      setGroups((prev) => {
+      setRoles((prev) => {
         const next = prev.filter((g) => g.id !== id);
-        onGroupsChange(next);
+        onRolesChange(next);
         return next;
       });
     },
-    [onGroupsChange],
+    [onRolesChange],
   );
 
-  const COLUMNS: DataTableColumn<QuotaGroup>[] = [
+  const COLUMNS: DataTableColumn<QuotaRole>[] = [
     {
       id: 'name',
-      header: 'Group name',
+      header: 'Role name',
       locked: true,
       cell: (row) => (
         <Text size="supporting" color="foreground">
@@ -523,31 +523,31 @@ export function QuotaGroupsTab({ initialGroups, onGroupsChange, canWrite }: Quot
   return (
     <Stack gap="comfortable">
       <DataTable
-        data={groups}
+        data={roles}
         columns={COLUMNS}
         getRowKey={(row) => row.id}
-        noun="groups"
-        searchPlaceholder="Search groups…"
+        noun="roles"
+        searchPlaceholder="Search roles…"
         searchFn={(row, q) => row.name.toLowerCase().includes(q)}
         defaultSortId="budget"
         defaultSortDir="desc"
-        emptyMessage="No quota groups yet."
-        filteredEmptyMessage="No groups match your search."
-        onRowClick={canWrite ? (row) => setModalGroup(row) : undefined}
+        emptyMessage="No quota roles yet."
+        filteredEmptyMessage="No roles match your search."
+        onRowClick={canWrite ? (row) => setModalRole(row) : undefined}
         toolbarActions={
           canWrite ? (
-            <Button variant="default" size="sm" onClick={() => setModalGroup(null)}>
+            <Button variant="default" size="sm" onClick={() => setModalRole(null)}>
               <Icon name="plus" size="2xs" />
-              New group
+              New role
             </Button>
           ) : undefined
         }
       />
 
       {modalOpen && (
-        <GroupModal
-          group={modalGroup ?? null}
-          onClose={() => setModalGroup(undefined)}
+        <RoleModal
+          role={modalRole ?? null}
+          onClose={() => setModalRole(undefined)}
           onSaved={handleSaved}
           onDeleted={canWrite ? handleDeleted : undefined}
         />

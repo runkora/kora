@@ -20,36 +20,36 @@ import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog } from '@orbit/components';
 import { ApiRoute } from '@orbit/lib/routing';
 import { fmtCost, fmtBudget } from '@orbit/utils';
-import type { QuotaGroup } from '../../_services/quota-server';
+import type { QuotaRole } from '../../_services/quota-server';
 import type { PrincipalUsageRow } from '../../../model-gateway/_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface PrincipalQuotaRow extends PrincipalUsageRow {
   monthly_budget_usd: number | null;
-  quota_source: 'individual' | 'group' | 'none';
-  group_name: string | null;
+  quota_source: 'individual' | 'role' | 'none';
+  role_name: string | null;
 }
 
 // ── Set quota modal ───────────────────────────────────────────────────────────
 
 interface SetQuotaModalProps {
   row: PrincipalQuotaRow;
-  groups: QuotaGroup[];
+  roles: QuotaRole[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
-  const [mode, setMode] = useState<'individual' | 'group'>(
-    row.quota_source === 'group' ? 'group' : 'individual',
+function SetQuotaModal({ row, roles, onClose, onSaved }: SetQuotaModalProps) {
+  const [mode, setMode] = useState<'individual' | 'role'>(
+    row.quota_source === 'role' ? 'role' : 'individual',
   );
   const [budget, setBudget] = useState(
     row.quota_source === 'individual' && row.monthly_budget_usd != null
       ? String(row.monthly_budget_usd)
       : '',
   );
-  const [groupId, setGroupId] = useState('');
+  const [roleId, setRoleId] = useState('');
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,12 +78,12 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
           throw new Error(body.message ?? `Request failed (${res.status})`);
         }
       } else {
-        if (!groupId) {
-          setError('Please select a group.');
+        if (!roleId) {
+          setError('Please select a role.');
           setSaving(false);
           return;
         }
-        const res = await fetch(ApiRoute.quotaGroupMember.PUT(groupId, row.principal_id), {
+        const res = await fetch(ApiRoute.quotaRoleMember.PUT(roleId, row.principal_id), {
           method: 'PUT',
         });
         if (!res.ok) {
@@ -98,7 +98,7 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
     } finally {
       setSaving(false);
     }
-  }, [mode, budget, groupId, row.principal_id, onSaved, onClose]);
+  }, [mode, budget, roleId, row.principal_id, onSaved, onClose]);
 
   const handleClear = useCallback(async () => {
     setClearing(true);
@@ -134,11 +134,11 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
               </Text>
               <NativeSelect
                 value={mode}
-                onChange={(e) => setMode(e.target.value as 'individual' | 'group')}
+                onChange={(e) => setMode(e.target.value as 'individual' | 'role')}
                 disabled={saving || clearing}
               >
                 <option value="individual">Individual</option>
-                <option value="group">Group</option>
+                <option value="role">Role</option>
               </NativeSelect>
             </Stack>
 
@@ -160,15 +160,15 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
             ) : (
               <Stack gap="snug">
                 <Text size="supporting" color="muted">
-                  Group
+                  Role
                 </Text>
                 <NativeSelect
-                  value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
-                  disabled={saving || clearing || groups.length === 0}
+                  value={roleId}
+                  onChange={(e) => setRoleId(e.target.value)}
+                  disabled={saving || clearing || roles.length === 0}
                 >
-                  <option value="">Select a group…</option>
-                  {groups.map((g) => (
+                  <option value="">Select a role…</option>
+                  {roles.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.name}
                     </option>
@@ -215,7 +215,7 @@ function SetQuotaModal({ row, groups, onClose, onSaved }: SetQuotaModalProps) {
         open={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
         title="Remove spending limit"
-        description={`Remove the individual spending limit for ${displayName}? They will fall back to any group quota, or have no limit.`}
+        description={`Remove the individual spending limit for ${displayName}? They will fall back to any role quota, or have no limit.`}
         confirmLabel="Remove limit"
         onConfirm={() => void handleClear()}
         confirming={clearing}
@@ -235,7 +235,7 @@ interface PrincipalSeed {
   email: string | null;
 }
 
-function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
+function usePrincipalsWithQuotas(roles: QuotaRole[]) {
   const [rows, setRows] = useState<PrincipalQuotaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -260,7 +260,7 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
         fetch(ApiRoute.identityUsers.GET()),
         fetch(ApiRoute.agentTypes.list()),
         fetch(ApiRoute.analyticsPrincipals.GET({ days: 30, limit: 500 })),
-        ...groups.map((g) => fetch(ApiRoute.quotaGroupMembers.GET(g.id))),
+        ...roles.map((g) => fetch(ApiRoute.quotaRoleMembers.GET(g.id))),
       ]);
 
       if (!usersRes.ok) throw new Error(`Failed to load users (${usersRes.status})`);
@@ -302,10 +302,10 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
         }
       }
 
-      // Build principalId → QuotaGroup lookup from membership lists.
-      const membershipMap = new Map<string, QuotaGroup>();
+      // Build principalId → QuotaRole lookup from membership lists.
+      const membershipMap = new Map<string, QuotaRole>();
       await Promise.all(
-        groups.map(async (g, i) => {
+        roles.map(async (g, i) => {
           const res = memberResponses[i];
           if (!res?.ok) return;
           const body = (await res.json()) as { data: string[] };
@@ -343,7 +343,7 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
                 ...base,
                 monthly_budget_usd: q.data.monthly_budget_usd,
                 quota_source: 'individual',
-                group_name: null,
+                role_name: null,
               };
             }
           } catch {
@@ -355,12 +355,12 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
             return {
               ...base,
               monthly_budget_usd: grp.monthly_budget_usd,
-              quota_source: 'group',
-              group_name: grp.name,
+              quota_source: 'role',
+              role_name: grp.name,
             };
           }
 
-          return { ...base, monthly_budget_usd: null, quota_source: 'none', group_name: null };
+          return { ...base, monthly_budget_usd: null, quota_source: 'none', role_name: null };
         }),
       );
 
@@ -370,7 +370,7 @@ function usePrincipalsWithQuotas(groups: QuotaGroup[]) {
     } finally {
       setLoading(false);
     }
-  }, [groups]);
+  }, [roles]);
 
   useEffect(() => {
     void load();
@@ -390,12 +390,12 @@ const TYPE_FILTER_OPTIONS = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface QuotaPrincipalsTabProps {
-  groups: QuotaGroup[];
+  roles: QuotaRole[];
   canWrite: boolean;
 }
 
-export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps) {
-  const { rows, loading, error, reload } = usePrincipalsWithQuotas(groups);
+export function QuotaPrincipalsTab({ roles, canWrite }: QuotaPrincipalsTabProps) {
+  const { rows, loading, error, reload } = usePrincipalsWithQuotas(roles);
   const [modalRow, setModalRow] = useState<PrincipalQuotaRow | null>(null);
 
   const utilisationVariant = (pct: number) => {
@@ -508,10 +508,10 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
               None
             </Badge>
           );
-        if (row.quota_source === 'group')
+        if (row.quota_source === 'role')
           return (
             <Badge variant="secondary" size="sm">
-              {row.group_name ?? 'Group'}
+              {row.role_name ?? 'Role'}
             </Badge>
           );
         return (
@@ -552,7 +552,7 @@ export function QuotaPrincipalsTab({ groups, canWrite }: QuotaPrincipalsTabProps
       {modalRow && (
         <SetQuotaModal
           row={modalRow}
-          groups={groups}
+          roles={roles}
           onClose={() => setModalRow(null)}
           onSaved={() => void reload()}
         />

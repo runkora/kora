@@ -306,7 +306,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	if quotaData == nil {
 		quotaData = &quotas.BundleDocument{
 			PrincipalQuotas: map[string]float64{},
-			Groups:          map[string]quotas.GroupDoc{},
+			Roles:          map[string]quotas.RoleDoc{},
 			Memberships:     map[string]string{},
 		}
 	}

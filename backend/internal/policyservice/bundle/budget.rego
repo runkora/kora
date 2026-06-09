@@ -15,7 +15,7 @@ budget_allow := false if {
 budget_allow := false if {
 	not data.quotas.principal_quotas[input.principal.id]
 	group_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.groups[group_id].monthly_budget_usd
+	limit := data.quotas.roles[group_id].monthly_budget_usd
 	input.current_spend_usd >= limit
 }
 
@@ -27,7 +27,7 @@ effective_budget_usd := limit if {
 effective_budget_usd := limit if {
 	not data.quotas.principal_quotas[input.principal.id]
 	group_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.groups[group_id].monthly_budget_usd
+	limit := data.quotas.roles[group_id].monthly_budget_usd
 }
 
 # spend_limit_reached mirrors budget_allow as a positive-sense boolean for API consumers.

@@ -22,96 +22,96 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) CreateGroup(ctx context.Context, g QuotaGroup) error {
+func (r *PostgresRepository) CreateRole(ctx context.Context, g QuotaRole) error {
 	const q = `
-		INSERT INTO quota_groups (id, tenant_id, name, monthly_budget_usd, created_at, updated_at)
+		INSERT INTO quota_roles (id, tenant_id, name, monthly_budget_usd, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`
 
 	now := time.Now().UTC()
 	_, err := r.pool.Exec(ctx, q, g.ID, g.TenantID, g.Name, g.MonthlyBudgetUSD, now, now)
 	if err != nil {
-		return fmt.Errorf("quota group create: %w", err)
+		return fmt.Errorf("quota role create: %w", err)
 	}
 	return nil
 }
 
-func (r *PostgresRepository) GetGroup(ctx context.Context, tenantID, id string) (QuotaGroup, error) {
+func (r *PostgresRepository) GetRole(ctx context.Context, tenantID, id string) (QuotaRole, error) {
 	const q = `
 		SELECT id, tenant_id, name, monthly_budget_usd, created_at, updated_at
-		FROM quota_groups WHERE id = $1 AND tenant_id = $2`
+		FROM quota_roles WHERE id = $1 AND tenant_id = $2`
 
-	var g QuotaGroup
+	var g QuotaRole
 	err := r.pool.QueryRow(ctx, q, id, tenantID).Scan(
 		&g.ID, &g.TenantID, &g.Name, &g.MonthlyBudgetUSD, &g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return QuotaGroup{}, fmt.Errorf("quota group get %s: %w", id, ErrGroupNotFound)
+			return QuotaRole{}, fmt.Errorf("quota role get %s: %w", id, ErrRoleNotFound)
 		}
-		return QuotaGroup{}, fmt.Errorf("quota group get %s: %w", id, err)
+		return QuotaRole{}, fmt.Errorf("quota role get %s: %w", id, err)
 	}
 	return g, nil
 }
 
-func (r *PostgresRepository) ListGroups(ctx context.Context, tenantID string) ([]QuotaGroup, error) {
+func (r *PostgresRepository) ListRoles(ctx context.Context, tenantID string) ([]QuotaRole, error) {
 	const q = `
 		SELECT id, tenant_id, name, monthly_budget_usd, created_at, updated_at
-		FROM quota_groups WHERE tenant_id = $1 ORDER BY name ASC`
+		FROM quota_roles WHERE tenant_id = $1 ORDER BY name ASC`
 
 	rows, err := r.pool.Query(ctx, q, tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("quota group list: %w", err)
+		return nil, fmt.Errorf("quota role list: %w", err)
 	}
 	defer rows.Close()
 
-	var groups []QuotaGroup
+	var groups []QuotaRole
 	for rows.Next() {
-		var g QuotaGroup
+		var g QuotaRole
 		if err := rows.Scan(&g.ID, &g.TenantID, &g.Name, &g.MonthlyBudgetUSD, &g.CreatedAt, &g.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("quota group list scan: %w", err)
+			return nil, fmt.Errorf("quota role list scan: %w", err)
 		}
 		groups = append(groups, g)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("quota group list rows: %w", err)
+		return nil, fmt.Errorf("quota role list rows: %w", err)
 	}
 	if groups == nil {
-		groups = []QuotaGroup{}
+		groups = []QuotaRole{}
 	}
 	return groups, nil
 }
 
-func (r *PostgresRepository) UpdateGroupBudget(ctx context.Context, tenantID, id string, budgetUSD float64) error {
+func (r *PostgresRepository) UpdateRoleBudget(ctx context.Context, tenantID, id string, budgetUSD float64) error {
 	const q = `
-		UPDATE quota_groups SET monthly_budget_usd = $1, updated_at = now()
+		UPDATE quota_roles SET monthly_budget_usd = $1, updated_at = now()
 		WHERE id = $2 AND tenant_id = $3`
 
 	tag, err := r.pool.Exec(ctx, q, budgetUSD, id, tenantID)
 	if err != nil {
-		return fmt.Errorf("quota group update %s: %w", id, err)
+		return fmt.Errorf("quota role update %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("quota group update %s: %w", id, ErrGroupNotFound)
+		return fmt.Errorf("quota role update %s: %w", id, ErrRoleNotFound)
 	}
 	return nil
 }
 
-func (r *PostgresRepository) DeleteGroup(ctx context.Context, tenantID, id string) error {
-	const q = `DELETE FROM quota_groups WHERE id = $1 AND tenant_id = $2`
+func (r *PostgresRepository) DeleteRole(ctx context.Context, tenantID, id string) error {
+	const q = `DELETE FROM quota_roles WHERE id = $1 AND tenant_id = $2`
 
 	tag, err := r.pool.Exec(ctx, q, id, tenantID)
 	if err != nil {
-		return fmt.Errorf("quota group delete %s: %w", id, err)
+		return fmt.Errorf("quota role delete %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("quota group delete %s: %w", id, ErrGroupNotFound)
+		return fmt.Errorf("quota role delete %s: %w", id, ErrRoleNotFound)
 	}
 	return nil
 }
 
 // ─── Memberships ─────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) SetMembership(ctx context.Context, tenantID, principalID, groupID string) error {
+func (r *PostgresRepository) SetMembership(ctx context.Context, tenantID, principalID, roleID string) error {
 	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// A principal can only hold one quota slot — clear any individual quota.
 		if _, err := tx.Exec(ctx,
@@ -122,10 +122,10 @@ func (r *PostgresRepository) SetMembership(ctx context.Context, tenantID, princi
 		}
 
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO principal_quota_group_memberships (principal_id, tenant_id, group_id)
+			INSERT INTO principal_quota_role_memberships (principal_id, tenant_id, role_id)
 			VALUES ($1, $2, $3)
-			ON CONFLICT (principal_id, tenant_id) DO UPDATE SET group_id = EXCLUDED.group_id`,
-			principalID, tenantID, groupID,
+			ON CONFLICT (principal_id, tenant_id) DO UPDATE SET role_id = EXCLUDED.role_id`,
+			principalID, tenantID, roleID,
 		); err != nil {
 			return fmt.Errorf("quota membership set: %w", err)
 		}
@@ -133,28 +133,28 @@ func (r *PostgresRepository) SetMembership(ctx context.Context, tenantID, princi
 	})
 }
 
-func (r *PostgresRepository) RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error {
+func (r *PostgresRepository) RemoveMembership(ctx context.Context, tenantID, principalID, roleID string) error {
 	const q = `
-		DELETE FROM principal_quota_group_memberships
-		WHERE principal_id = $1 AND tenant_id = $2 AND group_id = $3`
+		DELETE FROM principal_quota_role_memberships
+		WHERE principal_id = $1 AND tenant_id = $2 AND role_id = $3`
 
-	tag, err := r.pool.Exec(ctx, q, principalID, tenantID, groupID)
+	tag, err := r.pool.Exec(ctx, q, principalID, tenantID, roleID)
 	if err != nil {
 		return fmt.Errorf("quota membership remove: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrGroupNotFound
+		return ErrRoleNotFound
 	}
 	return nil
 }
 
-func (r *PostgresRepository) ListMembers(ctx context.Context, tenantID, groupID string) ([]string, error) {
+func (r *PostgresRepository) ListMembers(ctx context.Context, tenantID, roleID string) ([]string, error) {
 	const q = `
-		SELECT principal_id FROM principal_quota_group_memberships
-		WHERE tenant_id = $1 AND group_id = $2
+		SELECT principal_id FROM principal_quota_role_memberships
+		WHERE tenant_id = $1 AND role_id = $2
 		ORDER BY principal_id ASC`
 
-	rows, err := r.pool.Query(ctx, q, tenantID, groupID)
+	rows, err := r.pool.Query(ctx, q, tenantID, roleID)
 	if err != nil {
 		return nil, fmt.Errorf("quota membership list: %w", err)
 	}
@@ -183,7 +183,7 @@ func (r *PostgresRepository) SetPrincipalQuota(ctx context.Context, tenantID, pr
 	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// A principal can only hold one quota slot — clear any group membership.
 		if _, err := tx.Exec(ctx,
-			`DELETE FROM principal_quota_group_memberships WHERE tenant_id = $1 AND principal_id = $2`,
+			`DELETE FROM principal_quota_role_memberships WHERE tenant_id = $1 AND principal_id = $2`,
 			tenantID, principalID,
 		); err != nil {
 			return fmt.Errorf("set principal quota (clear membership): %w", err)
@@ -239,12 +239,12 @@ func (r *PostgresRepository) ClearPrincipalQuota(ctx context.Context, tenantID, 
 func (r *PostgresRepository) BundleData(ctx context.Context, tenantID string) (*BundleDocument, error) {
 	doc := &BundleDocument{
 		PrincipalQuotas: make(map[string]float64),
-		Groups:          make(map[string]GroupDoc),
+		Roles:          make(map[string]RoleDoc),
 		Memberships:     make(map[string]string),
 	}
 
 	// Load all groups for this tenant.
-	const groupQ = `SELECT id, name, monthly_budget_usd FROM quota_groups WHERE tenant_id = $1`
+	const groupQ = `SELECT id, name, monthly_budget_usd FROM quota_roles WHERE tenant_id = $1`
 	gRows, err := r.pool.Query(ctx, groupQ, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("bundle data groups: %w", err)
@@ -256,14 +256,14 @@ func (r *PostgresRepository) BundleData(ctx context.Context, tenantID string) (*
 		if scanErr := gRows.Scan(&id, &name, &budget); scanErr != nil {
 			return nil, fmt.Errorf("bundle data groups scan: %w", scanErr)
 		}
-		doc.Groups[id] = GroupDoc{Name: name, MonthlyBudgetUSD: budget}
+		doc.Roles[id] = RoleDoc{Name: name, MonthlyBudgetUSD: budget}
 	}
 	if err = gRows.Err(); err != nil {
 		return nil, fmt.Errorf("bundle data groups rows: %w", err)
 	}
 
 	// Load all memberships.
-	const memQ = `SELECT principal_id, group_id FROM principal_quota_group_memberships WHERE tenant_id = $1`
+	const memQ = `SELECT principal_id, role_id FROM principal_quota_role_memberships WHERE tenant_id = $1`
 	mRows, err := r.pool.Query(ctx, memQ, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("bundle data memberships: %w", err)

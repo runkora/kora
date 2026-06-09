@@ -2,8 +2,8 @@ import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import {
-  setGroupMember,
-  removeGroupMember,
+  setRoleMember,
+  removeRoleMember,
 } from '../../../../../../(dashboard)/policy/_services/quota-server';
 
 interface Params {
@@ -21,7 +21,7 @@ export async function PUT(_request: NextRequest, { params }: Params): Promise<Ne
 
   const { id, principalId } = await params;
 
-  const result = await setGroupMember(session.accessToken, id, principalId);
+  const result = await setRoleMember(session.accessToken, id, principalId);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(
@@ -44,7 +44,7 @@ export async function DELETE(_request: NextRequest, { params }: Params): Promise
 
   const { id, principalId } = await params;
 
-  const result = await removeGroupMember(session.accessToken, id, principalId);
+  const result = await removeRoleMember(session.accessToken, id, principalId);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(

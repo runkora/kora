@@ -341,56 +341,56 @@ export const ApiRoute = {
   },
 
   /**
-   * `/api/quotas/groups`
+   * `/api/quotas/roles`
    *
-   * GET  — list all quota groups for the caller's tenant.
-   * POST — create a new quota group.
+   * GET  — list all quota roles for the caller's tenant.
+   * POST — create a new quota role.
    */
-  quotaGroups: {
-    GET: (): `${typeof API_BASE}/quotas/groups` => `${API_BASE}/quotas/groups`,
-    POST: (): `${typeof API_BASE}/quotas/groups` => `${API_BASE}/quotas/groups`,
+  quotaRoles: {
+    GET: (): `${typeof API_BASE}/quotas/roles` => `${API_BASE}/quotas/roles`,
+    POST: (): `${typeof API_BASE}/quotas/roles` => `${API_BASE}/quotas/roles`,
   },
 
   /**
-   * `/api/quotas/groups/[id]`
+   * `/api/quotas/roles/[id]`
    *
-   * PUT    — update a quota group's monthly budget.
-   * DELETE — delete a quota group.
+   * PUT    — update a quota role's monthly budget.
+   * DELETE — delete a quota role.
    */
-  quotaGroup: {
-    PUT: (id: string): `${typeof API_BASE}/quotas/groups/${string}` =>
-      `${API_BASE}/quotas/groups/${id}`,
-    DELETE: (id: string): `${typeof API_BASE}/quotas/groups/${string}` =>
-      `${API_BASE}/quotas/groups/${id}`,
+  quotaRole: {
+    PUT: (id: string): `${typeof API_BASE}/quotas/roles/${string}` =>
+      `${API_BASE}/quotas/roles/${id}`,
+    DELETE: (id: string): `${typeof API_BASE}/quotas/roles/${string}` =>
+      `${API_BASE}/quotas/roles/${id}`,
   },
 
   /**
-   * `/api/quotas/groups/[id]/members`
+   * `/api/quotas/roles/[id]/members`
    *
-   * GET — list principal IDs that are members of the group.
+   * GET — list principal IDs that are members of the role.
    */
-  quotaGroupMembers: {
-    GET: (id: string): `${typeof API_BASE}/quotas/groups/${string}/members` =>
-      `${API_BASE}/quotas/groups/${id}/members`,
+  quotaRoleMembers: {
+    GET: (id: string): `${typeof API_BASE}/quotas/roles/${string}/members` =>
+      `${API_BASE}/quotas/roles/${id}/members`,
   },
 
   /**
-   * `/api/quotas/groups/[id]/members/[principalId]`
+   * `/api/quotas/roles/[id]/members/[principalId]`
    *
-   * PUT    — add a principal to a quota group.
-   * DELETE — remove a principal from a quota group.
+   * PUT    — add a principal to a quota role.
+   * DELETE — remove a principal from a quota role.
    */
-  quotaGroupMember: {
+  quotaRoleMember: {
     PUT: (
       id: string,
       principalId: string,
-    ): `${typeof API_BASE}/quotas/groups/${string}/members/${string}` =>
-      `${API_BASE}/quotas/groups/${id}/members/${principalId}`,
+    ): `${typeof API_BASE}/quotas/roles/${string}/members/${string}` =>
+      `${API_BASE}/quotas/roles/${id}/members/${principalId}`,
     DELETE: (
       id: string,
       principalId: string,
-    ): `${typeof API_BASE}/quotas/groups/${string}/members/${string}` =>
-      `${API_BASE}/quotas/groups/${id}/members/${principalId}`,
+    ): `${typeof API_BASE}/quotas/roles/${string}/members/${string}` =>
+      `${API_BASE}/quotas/roles/${id}/members/${principalId}`,
   },
 
   /**
@@ -453,13 +453,13 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
-  | ReturnType<(typeof ApiRoute)['quotaGroups']['GET']>
-  | ReturnType<(typeof ApiRoute)['quotaGroups']['POST']>
-  | ReturnType<(typeof ApiRoute)['quotaGroup']['PUT']>
-  | ReturnType<(typeof ApiRoute)['quotaGroup']['DELETE']>
-  | ReturnType<(typeof ApiRoute)['quotaGroupMembers']['GET']>
-  | ReturnType<(typeof ApiRoute)['quotaGroupMember']['PUT']>
-  | ReturnType<(typeof ApiRoute)['quotaGroupMember']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['quotaRoles']['GET']>
+  | ReturnType<(typeof ApiRoute)['quotaRoles']['POST']>
+  | ReturnType<(typeof ApiRoute)['quotaRole']['PUT']>
+  | ReturnType<(typeof ApiRoute)['quotaRole']['DELETE']>
+  | ReturnType<(typeof ApiRoute)['quotaRoleMembers']['GET']>
+  | ReturnType<(typeof ApiRoute)['quotaRoleMember']['PUT']>
+  | ReturnType<(typeof ApiRoute)['quotaRoleMember']['DELETE']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['GET']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['PUT']>
   | ReturnType<(typeof ApiRoute)['quotaPrincipal']['DELETE']>

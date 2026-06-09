@@ -4,19 +4,19 @@ import { useState } from 'react';
 import { Callout, Stack, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@orbit/terra';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import type { QuotaGroup } from '../../_services/quota-server';
-import { QuotaGroupsTab } from './quota-groups-tab';
+import type { QuotaRole } from '../../_services/quota-server';
+import { QuotaRolesTab } from './quota-roles-tab';
 import { QuotaPrincipalsTab } from './quota-principals-tab';
 
 interface QuotasPageClientProps {
-  initialGroups: QuotaGroup[];
+  initialRoles: QuotaRole[];
   initialError: string | null;
 }
 
-export function QuotasPageClient({ initialGroups, initialError }: QuotasPageClientProps) {
+export function QuotasPageClient({ initialRoles, initialError }: QuotasPageClientProps) {
   const { scopes } = usePermissions();
   const canWrite = hasScope(scopes, 'platform:quotas:write');
-  const [groups, setGroups] = useState<QuotaGroup[]>(initialGroups);
+  const [roles, setRoles] = useState<QuotaRole[]>(initialRoles);
 
   return (
     <Stack gap="comfortable">
@@ -31,15 +31,15 @@ export function QuotasPageClient({ initialGroups, initialError }: QuotasPageClie
       <Tabs defaultValue="principals">
         <TabsList>
           <TabsTrigger value="principals">Principals</TabsTrigger>
-          <TabsTrigger value="groups">Groups</TabsTrigger>
+          <TabsTrigger value="roles">Roles</TabsTrigger>
         </TabsList>
 
         <TabsContent value="principals">
-          <QuotaPrincipalsTab groups={groups} canWrite={canWrite} />
+          <QuotaPrincipalsTab roles={roles} canWrite={canWrite} />
         </TabsContent>
 
-        <TabsContent value="groups">
-          <QuotaGroupsTab initialGroups={groups} onGroupsChange={setGroups} canWrite={canWrite} />
+        <TabsContent value="roles">
+          <QuotaRolesTab initialRoles={roles} onRolesChange={setRoles} canWrite={canWrite} />
         </TabsContent>
       </Tabs>
     </Stack>

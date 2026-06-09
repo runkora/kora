@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { fetchGroupMembers } from '../../../../../(dashboard)/policy/_services/quota-server';
+import { fetchRoleMembers } from '../../../../../(dashboard)/policy/_services/quota-server';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -18,11 +18,11 @@ export async function GET(_request: NextRequest, { params }: Params): Promise<Ne
 
   const { id } = await params;
 
-  const result = await fetchGroupMembers(session.accessToken, id);
+  const result = await fetchRoleMembers(session.accessToken, id);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(
-      { code: 'upstream_error', message: 'Failed to load group members' },
+      { code: 'upstream_error', message: 'Failed to load role members' },
       { status: clientStatus },
     );
   }

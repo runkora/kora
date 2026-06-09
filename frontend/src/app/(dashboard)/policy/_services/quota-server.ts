@@ -4,7 +4,7 @@ import { config } from '@orbit/server/config';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface QuotaGroup {
+export interface QuotaRole {
   id: string;
   tenant_id: string;
   name: string;
@@ -68,67 +68,67 @@ async function quotaFetch<T>(
   }
 }
 
-// ── Groups ────────────────────────────────────────────────────────────────────
+// ── Roles ────────────────────────────────────────────────────────────────────
 
-export async function fetchQuotaGroups(
+export async function fetchQuotaRoles(
   accessToken: string,
-): Promise<Result<{ data: QuotaGroup[] }>> {
-  return quotaFetch('/groups', accessToken);
+): Promise<Result<{ data: QuotaRole[] }>> {
+  return quotaFetch('/roles', accessToken);
 }
 
-export async function createQuotaGroup(
+export async function createQuotaRole(
   accessToken: string,
   body: { name: string; monthly_budget_usd: number },
-): Promise<Result<{ data: QuotaGroup }>> {
-  return quotaFetch('/groups', accessToken, {
+): Promise<Result<{ data: QuotaRole }>> {
+  return quotaFetch('/roles', accessToken, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function updateQuotaGroupBudget(
+export async function updateQuotaRoleBudget(
   accessToken: string,
   id: string,
   monthly_budget_usd: number,
 ): Promise<Result<void>> {
-  return quotaFetch(`/groups/${encodeURIComponent(id)}`, accessToken, {
+  return quotaFetch(`/roles/${encodeURIComponent(id)}`, accessToken, {
     method: 'PUT',
     body: JSON.stringify({ monthly_budget_usd }),
   });
 }
 
-export async function deleteQuotaGroup(accessToken: string, id: string): Promise<Result<void>> {
-  return quotaFetch(`/groups/${encodeURIComponent(id)}`, accessToken, {
+export async function deleteQuotaRole(accessToken: string, id: string): Promise<Result<void>> {
+  return quotaFetch(`/roles/${encodeURIComponent(id)}`, accessToken, {
     method: 'DELETE',
   });
 }
 
-export async function fetchGroupMembers(
+export async function fetchRoleMembers(
   accessToken: string,
   id: string,
 ): Promise<Result<{ data: string[] }>> {
-  return quotaFetch(`/groups/${encodeURIComponent(id)}/members`, accessToken);
+  return quotaFetch(`/roles/${encodeURIComponent(id)}/members`, accessToken);
 }
 
-export async function setGroupMember(
+export async function setRoleMember(
   accessToken: string,
   groupId: string,
   principalId: string,
 ): Promise<Result<void>> {
   return quotaFetch(
-    `/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
+    `/roles/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
     accessToken,
     { method: 'PUT' },
   );
 }
 
-export async function removeGroupMember(
+export async function removeRoleMember(
   accessToken: string,
   groupId: string,
   principalId: string,
 ): Promise<Result<void>> {
   return quotaFetch(
-    `/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
+    `/roles/${encodeURIComponent(groupId)}/members/${encodeURIComponent(principalId)}`,
     accessToken,
     { method: 'DELETE' },
   );

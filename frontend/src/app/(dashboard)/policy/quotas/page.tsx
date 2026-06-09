@@ -1,24 +1,24 @@
-// RSC — fetches initial quota groups server-side.
+// RSC — fetches initial quota roles server-side.
 // Requires platform:quotas:read scope; enforced at the API layer.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { fetchQuotaGroups } from '../_services/quota-server';
+import { fetchQuotaRoles } from '../_services/quota-server';
 import { QuotasPageClient } from './_components/quotas-page-client';
-import type { QuotaGroup } from '../_services/quota-server';
+import type { QuotaRole } from '../_services/quota-server';
 
 export default async function QuotasPage() {
   const session = await getSession();
 
   if (!isSessionValid(session)) {
     return (
-      <QuotasPageClient initialGroups={[]} initialError="Session expired — please sign in again." />
+      <QuotasPageClient initialRoles={[]} initialError="Session expired — please sign in again." />
     );
   }
 
-  const groupsResult = await fetchQuotaGroups(session.accessToken);
+  const rolesResult = await fetchQuotaRoles(session.accessToken);
 
-  const initialGroups: QuotaGroup[] = groupsResult.ok ? (groupsResult.data.data ?? []) : [];
-  const initialError = groupsResult.ok ? null : groupsResult.message;
+  const initialRoles: QuotaRole[] = rolesResult.ok ? (rolesResult.data.data ?? []) : [];
+  const initialError = rolesResult.ok ? null : rolesResult.message;
 
-  return <QuotasPageClient initialGroups={initialGroups} initialError={initialError} />;
+  return <QuotasPageClient initialRoles={initialRoles} initialError={initialError} />;
 }

@@ -2,8 +2,8 @@ import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import {
-  fetchQuotaGroups,
-  createQuotaGroup,
+  fetchQuotaRoles,
+  createQuotaRole,
 } from '../../../(dashboard)/policy/_services/quota-server';
 
 export async function GET(): Promise<NextResponse> {
@@ -15,11 +15,11 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const result = await fetchQuotaGroups(session.accessToken);
+  const result = await fetchQuotaRoles(session.accessToken);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(
-      { code: 'upstream_error', message: 'Failed to load quota groups' },
+      { code: 'upstream_error', message: 'Failed to load quota roles' },
       { status: clientStatus },
     );
   }
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const result = await createQuotaGroup(session.accessToken, body);
+  const result = await createQuotaRole(session.accessToken, body);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(

@@ -2,8 +2,8 @@ import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import {
-  updateQuotaGroupBudget,
-  deleteQuotaGroup,
+  updateQuotaRoleBudget,
+  deleteQuotaRole,
 } from '../../../../(dashboard)/policy/_services/quota-server';
 
 interface Params {
@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: Params): Promise<Nex
     );
   }
 
-  const result = await updateQuotaGroupBudget(session.accessToken, id, body.monthly_budget_usd);
+  const result = await updateQuotaRoleBudget(session.accessToken, id, body.monthly_budget_usd);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(
@@ -54,7 +54,7 @@ export async function DELETE(_request: NextRequest, { params }: Params): Promise
 
   const { id } = await params;
 
-  const result = await deleteQuotaGroup(session.accessToken, id);
+  const result = await deleteQuotaRole(session.accessToken, id);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(

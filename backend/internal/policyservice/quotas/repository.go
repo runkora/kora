@@ -1,4 +1,4 @@
-// Package quotas manages per-principal and group-based budget quota records
+// Package quotas manages per-principal and role-based budget quota records
 // owned by the policy service. Quota data is compiled into OPA bundles and
 // evaluated at inference time via the orbit.budget Rego module.
 package quotas
@@ -10,14 +10,14 @@ import (
 )
 
 var (
-	// ErrGroupNotFound is returned when a quota group cannot be located.
-	ErrGroupNotFound = errors.New("quota group not found")
+	// ErrRoleNotFound is returned when a quota role cannot be located.
+	ErrRoleNotFound = errors.New("quota role not found")
 	// ErrPrincipalQuotaNotFound is returned when no individual quota exists.
 	ErrPrincipalQuotaNotFound = errors.New("principal quota not found")
 )
 
-// QuotaGroup is a named budget that can be shared across principals.
-type QuotaGroup struct {
+// QuotaRole is a named budget that can be shared across principals.
+type QuotaRole struct {
 	ID               string
 	TenantID         string
 	Name             string
@@ -28,17 +28,17 @@ type QuotaGroup struct {
 
 // Repository defines the storage contract for quota data.
 type Repository interface {
-	// Groups
-	CreateGroup(ctx context.Context, g QuotaGroup) error
-	GetGroup(ctx context.Context, tenantID, id string) (QuotaGroup, error)
-	ListGroups(ctx context.Context, tenantID string) ([]QuotaGroup, error)
-	UpdateGroupBudget(ctx context.Context, tenantID, id string, budgetUSD float64) error
-	DeleteGroup(ctx context.Context, tenantID, id string) error
+	// Roles
+	CreateRole(ctx context.Context, g QuotaRole) error
+	GetRole(ctx context.Context, tenantID, id string) (QuotaRole, error)
+	ListRoles(ctx context.Context, tenantID string) ([]QuotaRole, error)
+	UpdateRoleBudget(ctx context.Context, tenantID, id string, budgetUSD float64) error
+	DeleteRole(ctx context.Context, tenantID, id string) error
 
 	// Memberships
-	SetMembership(ctx context.Context, tenantID, principalID, groupID string) error
-	RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error
-	ListMembers(ctx context.Context, tenantID, groupID string) ([]string, error)
+	SetMembership(ctx context.Context, tenantID, principalID, roleID string) error
+	RemoveMembership(ctx context.Context, tenantID, principalID, roleID string) error
+	ListMembers(ctx context.Context, tenantID, roleID string) ([]string, error)
 
 	// Individual principal quotas
 	SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error
@@ -55,14 +55,14 @@ type Repository interface {
 type BundleDocument struct {
 	// PrincipalQuotas maps principal_id → monthly_budget_usd for individual limits.
 	PrincipalQuotas map[string]float64 `json:"principal_quotas"`
-	// Groups maps group_id → GroupDoc for group budget definitions.
-	Groups map[string]GroupDoc `json:"groups"`
-	// Memberships maps principal_id → group_id.
+	// Roles maps role_id → RoleDoc for role budget definitions.
+	Roles map[string]RoleDoc `json:"roles"`
+	// Memberships maps principal_id → role_id.
 	Memberships map[string]string `json:"memberships"`
 }
 
-// GroupDoc is the per-group sub-document inside BundleDocument.
-type GroupDoc struct {
+// RoleDoc is the per-role sub-document inside BundleDocument.
+type RoleDoc struct {
 	Name             string  `json:"name"`
 	MonthlyBudgetUSD float64 `json:"monthly_budget_usd"`
 }
