@@ -13,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/quotas"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -39,12 +40,13 @@ const recompileDebounce = 500 * time.Millisecond
 // the gateway bundle loads all tenant data and is more expensive to compile.
 const gatewayRecompileDebounce = 1 * time.Second
 
-// Service orchestrates grant, role, and vocabulary management, including the
+// Service orchestrates grant, role, vocabulary, and quota management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
 	grantRepo  grants.Repository
 	vocabRepo  vocabulary.Repository
 	roleRepo   roles.Repository
+	quotaRepo  quotas.Repository
 	bundleSrv  *bundle.Server
 	routeStore *routes.Store
 	logger     logging.Logger
@@ -62,6 +64,7 @@ func NewService(
 	grantRepo grants.Repository,
 	vocabRepo vocabulary.Repository,
 	roleRepo roles.Repository,
+	quotaRepo quotas.Repository,
 	bundleSrv *bundle.Server,
 	routeStore *routes.Store,
 	logger logging.Logger,
@@ -70,6 +73,7 @@ func NewService(
 		grantRepo:       grantRepo,
 		vocabRepo:       vocabRepo,
 		roleRepo:        roleRepo,
+		quotaRepo:       quotaRepo,
 		bundleSrv:       bundleSrv,
 		routeStore:      routeStore,
 		logger:          logger,

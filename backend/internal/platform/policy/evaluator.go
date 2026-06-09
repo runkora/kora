@@ -35,6 +35,14 @@ type Evaluator interface {
 	// evaluate page for permission inspection.
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
+	// CheckBudget evaluates the orbit.budget rules for the principal.
+	// currentSpendUSD is the principal's spend for the current calendar month,
+	// typically read from Redis immediately before this call.
+	// Returns allow=true when the principal has no configured limit or has not
+	// yet reached it. Fails open (allow=true, err=nil) when the bundle is
+	// unavailable so that Redis/OPA infrastructure issues never block inference.
+	CheckBudget(ctx context.Context, tenantID, principalID string, currentSpendUSD float64) (BudgetResult, error)
+
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
 }
@@ -113,6 +121,31 @@ type DelegationClaims struct {
 	ActSub string
 	// Scopes are the scopes granted for this delegation session.
 	Scopes []string
+}
+
+// BudgetCheckInput is the OPA input shape for the orbit.budget module.
+type BudgetCheckInput struct {
+	Principal       budgetPrincipal `json:"principal"`
+	CurrentSpendUSD float64         `json:"current_spend_usd"`
+}
+
+type budgetPrincipal struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+}
+
+// BudgetResult is returned by CheckBudget. It carries the OPA decision and,
+// when a limit is configured for the principal, the effective budget value.
+type BudgetResult struct {
+	// Allow is true when the principal may continue spending (below limit or no limit).
+	Allow bool
+	// HasLimit is true when a spend limit is configured for this principal (via
+	// an individual quota or group membership). False when OPA has no configured
+	// limit for the principal.
+	HasLimit bool
+	// EffectiveBudgetUSD is the active monthly budget in USD, populated only when
+	// HasLimit is true. Zero when HasLimit is false.
+	EffectiveBudgetUSD float64
 }
 
 // NewEvaluator returns an Evaluator backed by in-process OPA.

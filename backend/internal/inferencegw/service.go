@@ -45,7 +45,6 @@ type Service struct {
 	router       *RoutingEngine
 	pricing      PricingCache
 	usage        InferenceUsageRepository
-	quotaCache   QuotaResolver
 	quotaCounter SpendCounter
 	logger       logging.Logger
 }
@@ -56,7 +55,6 @@ func NewService(
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
-	quotaCache QuotaResolver,
 	quotaCounter SpendCounter,
 	logger logging.Logger,
 ) *Service {
@@ -65,7 +63,6 @@ func NewService(
 		router:       router,
 		pricing:      pricing,
 		usage:        usage,
-		quotaCache:   quotaCache,
 		quotaCounter: quotaCounter,
 		logger:       logger,
 	}
@@ -675,16 +672,17 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 
 const spanStatusBudgetExceeded = "budget exceeded"
 
-// checkBudget opens a budget.quota_check OTel span and returns ErrBudgetExceeded
-// if the principal has a hard limit and their current spend meets or exceeds it.
-// Fails open (returns nil) on any infrastructure error so that Redis unavailability
-// never blocks inference traffic.
+// checkBudget evaluates the orbit.budget OPA rules via the policy evaluator.
+// It reads the principal's current-month spend from Redis, then delegates the
+// allow/deny decision to OPA (which evaluates group and individual quota data
+// from the compiled bundle). Fails open on any infrastructure error so that
+// Redis or OPA unavailability never blocks inference traffic.
 //
 // Note: enforcement is soft — check and increment are not atomic. Concurrent
 // requests near the limit may both pass and briefly overspend before the counter
 // catches up. This is acceptable for cost-cap (not hard billing) use cases.
 func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
-	if s.quotaCache == nil || s.quotaCounter == nil {
+	if s.quotaCounter == nil {
 		return ctx, nil
 	}
 
@@ -695,20 +693,6 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		),
 	)
 	defer span.End()
-
-	budget, hasLimit, err := s.quotaCache.Resolve(ctx, p.TenantID, p.PrincipalID)
-	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
-			logging.Field{Key: "reason", Value: "quota cache resolve failed"},
-			logging.Field{Key: "error", Value: err.Error()},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.RecordError(err)
-		return ctx, nil
-	}
-	if !hasLimit {
-		return ctx, nil
-	}
 
 	spend, err := s.quotaCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
 	if err != nil {
@@ -721,12 +705,22 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		return ctx, nil
 	}
 
-	if spend >= budget {
+	allow, err := s.policy.CheckBudget(ctx, p.TenantID, p.PrincipalID, spend)
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "OPA budget check failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.RecordError(err)
+		return ctx, nil
+	}
+
+	if !allow.Allow {
 		s.logger.Info(ctx, "budget.hard_block",
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 			logging.Field{Key: "tenant_id", Value: p.TenantID},
 			logging.Field{Key: "spend_usd", Value: spend},
-			logging.Field{Key: "budget_usd", Value: budget},
 		)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		return ctx, ErrBudgetExceeded
@@ -750,31 +744,29 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	}
 }
 
-// GetPersonalQuota returns the effective quota status for the given principal,
-// combining the quota limit from the cache with the current spend from Redis.
+// GetPersonalQuota returns the effective quota status for the given principal.
+// It reads the current spend from Redis and delegates the budget evaluation to
+// OPA via CheckBudget, which evaluates the bundle data for group and individual limits.
 func (s *Service) GetPersonalQuota(ctx context.Context, tenantID, principalID string) (QuotaStatus, error) {
-	if s.quotaCache == nil || s.quotaCounter == nil {
+	if s.quotaCounter == nil {
 		return QuotaStatus{}, nil
 	}
 
-	budget, hasLimit, err := s.quotaCache.Resolve(ctx, tenantID, principalID)
+	spend, err := s.quotaCounter.GetSpend(ctx, tenantID, principalID)
 	if err != nil {
-		return QuotaStatus{}, fmt.Errorf("quota resolve: %w", err)
+		return QuotaStatus{}, fmt.Errorf("quota spend: %w", err)
 	}
 
-	var spend float64
-	if hasLimit {
-		spend, err = s.quotaCounter.GetSpend(ctx, tenantID, principalID)
-		if err != nil {
-			return QuotaStatus{}, fmt.Errorf("quota spend: %w", err)
-		}
+	result, err := s.policy.CheckBudget(ctx, tenantID, principalID, spend)
+	if err != nil {
+		return QuotaStatus{}, fmt.Errorf("quota budget check: %w", err)
 	}
 
 	return QuotaStatus{
-		MonthlyBudgetUSD:  budget,
 		CurrentSpendUSD:   spend,
-		SpendLimitReached: hasLimit && spend >= budget,
-		HasLimit:          hasLimit,
+		SpendLimitReached: !result.Allow,
+		HasLimit:          result.HasLimit,
+		MonthlyBudgetUSD:  result.EffectiveBudgetUSD,
 	}, nil
 }
 

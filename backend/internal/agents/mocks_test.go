@@ -566,6 +566,10 @@ func (allowAllEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*po
 	return &policy.ScopesExplainResult{}, nil
 }
 
+func (allowAllEvaluator) CheckBudget(context.Context, string, string, float64) (policy.BudgetResult, error) {
+	return policy.BudgetResult{Allow: true}, nil
+}
+
 func (allowAllEvaluator) Start(context.Context) {}
 
 // testServiceFacade wraps AgentTypeService + RunService to expose the same method set

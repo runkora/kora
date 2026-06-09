@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/policyservice/grants"
+	"github.com/clear-route/orbit/internal/policyservice/quotas"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -34,6 +35,9 @@ var authzRego string
 
 //go:embed authz_gateway.rego
 var authzGatewayRego string
+
+//go:embed budget.rego
+var budgetRego string
 
 // DefaultRoleScopes maps OIDC role names to platform scopes.
 // The tenant-admin role is the bootstrapping exception — it grants
@@ -153,11 +157,11 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 }
 
 // Compile builds the OPA bundle for a single tenant from the provided grants,
-// vocabulary entries, and role→scope mappings. The result is cached and replaces
-// any prior bundle for that tenant. Returns the compiled bundle bytes.
-func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry) (*CachedBundle, error) {
+// vocabulary entries, role→scope mappings, and quota data. The result is cached
+// and replaces any prior bundle for that tenant. Returns the compiled bundle bytes.
+func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, quotaData *quotas.BundleDocument) (*CachedBundle, error) {
 	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantRoutes, c.cfg)
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantRoutes, c.cfg, quotaData)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -228,7 +232,7 @@ func (c *Compiler) CompileGateway(
 }
 
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config, quotaData *quotas.BundleDocument) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
 	// Build grants data document
@@ -298,10 +302,23 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
 
+	// Build quotas data document (per-tenant budget limits for orbit.budget).
+	if quotaData == nil {
+		quotaData = &quotas.BundleDocument{
+			PrincipalQuotas: map[string]float64{},
+			Groups:          map[string]quotas.GroupDoc{},
+			Memberships:     map[string]string{},
+		}
+	}
+	quotasJSON, err := json.Marshal(quotaData)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal quotas: %w", err)
+	}
+
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "grants", "vocabulary", "roles", "routes", "config"},
+		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "quotas"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -315,11 +332,13 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	bundleBytes, err := writeTarGz([]tarEntry{
 		{".manifest", manifestJSON},
 		{"policy/authz.rego", []byte(authzRego)},
+		{"policy/budget.rego", []byte(budgetRego)},
 		{"grants/data.json", grantsJSON},
 		{"vocabulary/data.json", vocabJSON},
 		{"roles/data.json", rolesJSON},
 		{"routes/data.json", routesJSON},
 		{"config/data.json", cfgJSON},
+		{"quotas/data.json", quotasJSON},
 	})
 	if err != nil {
 		return nil, "", err

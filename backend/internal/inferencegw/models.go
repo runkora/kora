@@ -269,36 +269,23 @@ type AnalyticsPrincipalsResponse struct {
 // ─── Sentinel errors ─────────────────────────────────────────────────────────
 
 var (
-	ErrPolicyDenied           = errors.New("inference request denied by policy")
-	ErrNoProvidersEnabled     = errors.New("no providers enabled")
-	ErrProviderNotConfigured  = errors.New("provider is not enabled or configured")
-	ErrRoutingFailed          = errors.New("routing failed: no suitable provider/model found")
-	ErrProviderError          = errors.New("provider returned an error")
-	ErrInvalidRequest         = errors.New("invalid inference request")
-	ErrTokenParseFailed       = errors.New("failed to parse platform token")
-	ErrUsageRecordNotFound    = errors.New("inference usage record not found")
-	ErrVirtualModelNotFound   = errors.New("virtual model not found")
-	ErrNoCatalog              = errors.New("virtual model catalog not loaded")
-	ErrModelPricingNotFound   = errors.New("model pricing not found")
-	ErrQuotaGroupNotFound     = errors.New("quota group not found")
-	ErrPrincipalQuotaNotFound = errors.New("principal quota not found")
-	ErrBudgetExceeded         = errors.New("budget exceeded")
+	ErrPolicyDenied          = errors.New("inference request denied by policy")
+	ErrNoProvidersEnabled    = errors.New("no providers enabled")
+	ErrProviderNotConfigured = errors.New("provider is not enabled or configured")
+	ErrRoutingFailed         = errors.New("routing failed: no suitable provider/model found")
+	ErrProviderError         = errors.New("provider returned an error")
+	ErrInvalidRequest        = errors.New("invalid inference request")
+	ErrTokenParseFailed      = errors.New("failed to parse platform token")
+	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
+	ErrVirtualModelNotFound  = errors.New("virtual model not found")
+	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
+	ErrModelPricingNotFound  = errors.New("model pricing not found")
+	ErrBudgetExceeded        = errors.New("budget exceeded")
 )
 
-// QuotaGroup represents a named budget group within a tenant. Principals may be
-// assigned to at most one group; group membership defines their spend limit when
-// no individual principal_quotas entry exists.
-type QuotaGroup struct {
-	ID               string
-	TenantID         string
-	Name             string
-	MonthlyBudgetUSD float64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
 // QuotaStatus is returned by the personal quota endpoint and the GetPersonalQuota
-// service method. HasLimit distinguishes "no limit configured" from a $0.00 limit.
+// service method. HasLimit indicates whether a spend limit is configured for the
+// principal (via individual quota or group membership) as reported by OPA.
 type QuotaStatus struct {
 	MonthlyBudgetUSD  float64 `json:"monthly_budget_usd"`
 	CurrentSpendUSD   float64 `json:"current_spend_usd"`

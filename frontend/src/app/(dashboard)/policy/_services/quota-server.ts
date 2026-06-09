@@ -32,7 +32,7 @@ async function quotaFetch<T>(
 ): Promise<Result<T>> {
   let res: Response;
   try {
-    res = await fetch(`${config.inferenceGatewayUrl}/quotas${path}`, {
+    res = await fetch(`${config.policyServiceUrl}/policy/quotas${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -48,7 +48,7 @@ async function quotaFetch<T>(
     return {
       ok: false,
       status: isTimeout ? 504 : 502,
-      message: isTimeout ? 'Inference gateway timed out' : 'Failed to reach inference gateway',
+      message: isTimeout ? 'Policy service timed out' : 'Failed to reach policy service',
     };
   }
 
@@ -64,7 +64,7 @@ async function quotaFetch<T>(
     const data = (await res.json()) as T;
     return { ok: true, data };
   } catch {
-    return { ok: false, status: 502, message: 'Invalid response from inference gateway' };
+    return { ok: false, status: 502, message: 'Invalid response from policy service' };
   }
 }
 

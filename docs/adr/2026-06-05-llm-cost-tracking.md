@@ -320,7 +320,9 @@ WHERE principal_id = $1
 - `price_unknown` records (`estimated_cost_usd = 0`) contribute zero to the counter. They are not backfilled retroactively. The pricing pipeline is the correct fix for coverage gaps.
 - Cost is attributed to the month in which the request completes (when `estimated_cost_usd` is written), not when it starts. Requests crossing the month boundary at 00:00 UTC on the 1st are attributed to the month of their completion timestamp.
 
-**Fail-open:** If Redis is unreachable during a budget check, the request proceeds and a structured log event is emitted. This is a fixed platform behaviour — agent continuity takes precedence over budget cap guarantees during infrastructure outages. It is not configurable per tenant.
+**Fail-open:** If Redis is unreachable during a budget check, or if OPA evaluation fails (e.g. bundle not yet loaded, evaluation error), the request proceeds and a structured log event is emitted. This is a fixed platform behaviour — agent continuity takes precedence over budget cap guarantees during infrastructure outages. It is not configurable per tenant.
+
+**Role of Redis in enforcement:** Redis provides the current-month spend value (`current_spend_usd`). The inference gateway reads this value, injects it into the OPA input document alongside the principal identity, and evaluates `data.orbit.budget.budget_allow` via `pol.CheckBudget`. Redis does not make the enforcement decision — OPA does. Redis is simply the fast data source for spend.
 
 ---
 
@@ -368,7 +370,9 @@ Reuse the existing `policy_role_scopes` mechanism to attach quota metadata to OI
 
 **Chosen Option: Option B**
 
-**Schema:**
+**Schema (tables live in the policy-service database):**
+
+These tables are owned by the policy-service, not the inference-gateway. Budget limits are a policy concern — co-locating them with grants and roles keeps quota management within the policy service boundary and allows bundle compilation to include quota data without a cross-service fetch.
 
 ```sql
 CREATE TABLE quota_groups (
@@ -401,18 +405,56 @@ CREATE TABLE principal_quotas (
 
 **Effective quota resolution:**
 
-```
-1. Look up principal_quotas WHERE principal_id = ? AND tenant_id = ?
-   → if found: use this quota (individual override)
-2. Look up principal_quota_group_memberships → quota_groups
-   WHERE principal_id = ? AND tenant_id = ?
-   → if found: use the group quota
-3. No quota found → no limit, request proceeds
+Resolution is implemented in Rego (`policy/budget.rego`), not in Go. Quota limits and group memberships are compiled into the tenant bundle as `data/quotas/data.json`. The inference gateway reads current spend from Redis, injects it into the OPA input, and evaluates `data.orbit.budget.budget_allow`. The Rego rule applies the resolution order:
+
+```rego
+package orbit.budget
+
+import rego.v1
+
+default budget_allow := true  # fail-open: no quota = allow
+
+budget_allow := false if {
+    limit := data.quotas.principal_quotas[input.principal.id]
+    input.current_spend_usd >= limit
+}
+
+budget_allow := false if {
+    not data.quotas.principal_quotas[input.principal.id]
+    group_id := data.quotas.memberships[input.principal.id]
+    limit := data.quotas.groups[group_id].monthly_budget_usd
+    input.current_spend_usd >= limit
+}
 ```
 
-Both lookups can be served from a short-lived in-process cache (e.g. 60-second TTL per principal) to avoid DB reads on the hot path. The Redis counter check only happens if a quota exists.
+The OPA input document for budget checks:
 
-**Budget limit banner semantics:** The quota API returns `spend_limit_reached: bool`, computed server-side as `current_spend_usd >= monthly_budget_usd`. This is the same condition as the hard block — the principal cannot make further requests, and the banner informs them of this state. The frontend uses the flag directly with no threshold logic. There is no separate configurable alert threshold.
+```json
+{
+  "principal": { "id": "usr_abc123", "type": "HUMAN", "tenant_id": "tenant_1" },
+  "current_spend_usd": 48.75
+}
+```
+
+The bundle data document (`data/quotas/data.json`) shape compiled by policy-service:
+
+```json
+{
+  "principal_quotas": {
+    "usr_abc123": 50.00
+  },
+  "groups": {
+    "grp_agents": { "name": "agents", "monthly_budget_usd": 5.00 }
+  },
+  "memberships": {
+    "agt_001": "grp_agents"
+  }
+}
+```
+
+This eliminates the in-process `QuotaCache` (60-second TTL) and `QuotaRepository` in the inference-gateway. Bundle refresh (triggered on every quota write, polled every 5 minutes) is the propagation mechanism. Because quota data lives in the policy-service database alongside grants, bundle compilation requires no cross-service fetch.
+
+**Budget limit banner semantics:** The quota API returns `spend_limit_reached: bool`, derived from the OPA evaluation result. This is the same condition as the hard block — the principal cannot make further requests, and the banner informs them of this state. The frontend uses the flag directly with no threshold logic. There is no separate configurable alert threshold.
 
 **Quota deletion:** Deleting a `principal_quotas` record or removing a principal from a group removes the cap immediately. Spend already recorded for the month is not adjusted. In-flight requests that have already passed the budget check complete normally.
 
@@ -431,9 +473,11 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 - Pricing is decoupled from routing; the `model_pricing` table is a clean, single source of truth keyed by `(provider, model_id)`.
 - Every `inference_usage` record is a self-contained audit entry — effective prices are written at request time, no join required to reconstruct costs.
 - No separate snapshot table to maintain or write to on every sync and override.
-- Budget enforcement adds < 1 ms to the inference hot path (single Redis GET when quota exists).
+- Budget enforcement adds < 1 ms to the inference hot path (single Redis GET + in-process OPA evaluation).
 - Quota groups scale budget management to large principal fleets without per-principal configuration.
 - Monthly budget counters cannot race at the midnight boundary — `DATE_TRUNC` aggregation is stateless.
+- Budget enforcement logic lives entirely in Rego — adding or changing enforcement rules (e.g. grace periods, tenant-level caps) requires no Go service changes.
+- Quota tables co-located with grants and roles in policy-service — bundle compilation requires no cross-service fetch for quota data.
 
 ### Negative
 
@@ -441,12 +485,13 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 - `inference_usage` gains five new columns (`price_unknown` + four `effective_*_cost_per_1m`) — a schema migration on a potentially large table.
 - The 5-minute PricingCache TTL means a platform admin price override takes up to 5 minutes to propagate across all gateway replicas.
 - Redis counter drift (bounded to one request's cost) is possible on usage write failures. Self-corrects on rehydration but means the enforced limit may occasionally be off by a small amount.
-- Quota resolution now requires two lookups (individual + group) instead of one. Mitigated by the per-principal quota cache.
+- Quota tables moving to policy-service requires migrating data out of the inference-gateway DB and updating all quota admin API routes and handlers to the policy-service binary. The existing `QuotaCache`, `QuotaRepository`, and `handlers_quota.go` in the inference-gateway are removed.
 
 ### Neutral
 
 - `NewNopPricingCache()` is removed from production wiring. Tests that depend on it must be updated to use `NewStaticPricingCache(nil)` or a test double.
 - The `ModelPricing` Go struct field `CacheCreationCostPerMillion` is renamed to `CacheWriteCostPerMillion`. Call sites must be updated.
+- The `QuotaCache` (60-second in-process TTL) is eliminated; bundle refresh is the propagation mechanism for quota limit changes.
 
 ---
 
@@ -466,14 +511,31 @@ Both lookups can be served from a short-lived in-process cache (e.g. 60-second T
 10. Migrate and drop pricing columns from `virtual_model_routes`.
 11. Verify `estimated_cost_usd > 0` on test requests for all supported providers.
 
-### Phase 2: Budget Enforcement
+### Phase 2: Budget Enforcement — OPA-Native
 
-1. Create `quota_groups`, `principal_quota_group_memberships`, and `principal_quotas` migrations.
-2. Implement `QuotaRepository` — wraps both the DB tables and the Redis counter. Exposes `EffectiveQuota(ctx, principalID, tenantID)` and `IncrementSpend(ctx, principalID, tenantID, amount)`.
-3. Implement budget check in `Service.{ChatCompletion, AnthropicMessages, Embed, ...}` — resolve effective quota, read Redis counter, reject with HTTP 429 if met or exceeded.
-4. Implement Redis increment in the usage write path.
-5. Implement quota group and individual quota CRUD API routes under `platform:quotas:read`/`write` scopes.
-6. Add quota API endpoint returning `{ monthly_budget_usd, current_spend_usd, spend_limit_reached }` for the authenticated principal.
+Budget enforcement is split into two sub-phases: migrating quota ownership to policy-service and wiring OPA evaluation into the gateway.
+
+#### Phase 2a: Quota tables and bundle data in policy-service
+
+1. Create migrations in `cmd/policy-service/migrations/` for `quota_groups`, `principal_quota_group_memberships`, and `principal_quotas` — identical schema to Phase 2 original, but owned by the policy-service database.
+2. Implement quota repository in `internal/policyservice/quotas/` — `postgres.go` with CRUD methods; `repository.go` interface.
+3. Add quota CRUD API routes to policy-service under `platform:quotas:read`/`write` scopes, replacing the inference-gateway quota handlers. Quota admin API is now co-located with grants admin.
+4. Extend the bundle compiler (`internal/policyservice/bundle/compiler.go`) to load quota data and include `data/quotas/data.json` in every tenant bundle. Recompile triggers on every quota write — same mechanism as grant writes.
+5. Write `policy/budget.rego` and embed it in the bundle alongside `authz.rego`. Update the bundle manifest `Roots` to include `"orbit/budget"` and `"quotas"` alongside the existing roots (`"orbit/authz"`, `"grants"`, `"vocabulary"`, `"roles"`, `"routes"`, `"config"`). Both new roots are required: `"orbit/budget"` for the Rego package, `"quotas"` for the `data/quotas/data.json` document. Without both declared, OPA will not load them from the bundle.
+6. Add a `CheckBudget(ctx, tenantID, principalID string, currentSpendUSD float64) (allow bool, err error)` method to `internal/platform/policy.Evaluator` and the in-process engine — evaluates `data.orbit.budget.budget_allow`.
+7. Migrate any existing quota data from the inference-gateway database to policy-service.
+8. Drop quota tables from the inference-gateway database.
+
+#### Phase 2b: Budget check in the inference gateway
+
+1. Remove `QuotaCache`, `QuotaRepository`, and `handlers_quota.go` from `internal/inferencegw/`. Keep `RedisQuotaCounter` (spend read/write) and `SpendCounter` interface unchanged.
+2. Remove `quotaCache` and `quotaCounter` fields from the `Service` struct in `service.go`; update `NewService` constructor to drop those parameters. Update all call sites in `cmd/inference-gateway/main.go`.
+3. Rewrite `checkBudget` in `service.go`: read spend from Redis via `SpendCounter.GetSpend`, inject into OPA input, call `pol.CheckBudget`. Fail open on Redis error or OPA error — same semantics as before.
+4. Remove quota route registrations from `cmd/inference-gateway/main.go`. Remove `QuotaCache` and `QuotaRepository` wiring.
+5. Add a new Goose migration in `cmd/inference-gateway/migrations/` that drops the `quota_groups`, `principal_quota_group_memberships`, and `principal_quotas` tables. Do not delete the earlier `20260608015333_create_quota_tables.sql` migration — Goose requires the full history to remain intact. The new down migration is the correct mechanism for removing the tables.
+6. Delete the inference-gateway quota test files: `handlers_quota_test.go`, `quota_cache_test.go` (if present), and `quota_repository_test.go` (if present). Quota behaviour is now covered by policy-service tests.
+7. Add quota status API endpoint to **policy-service**: returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached }` for the authenticated principal. Policy-service reads current spend from the Redis counter (same key format as the gateway: `quota:{principal_id}:{YYYY-MM}`) and evaluates `orbit.budget.budget_allow` to derive `spend_limit_reached`. This keeps the quota read path co-located with quota data ownership and avoids a cross-service call from the gateway for the status response.
+8. Verify: integration test confirms zero successful inference requests after a principal's monthly spend meets their effective budget.
 
 ### Phase 3: Frontend
 
@@ -504,7 +566,7 @@ See PRD Phase 3 milestones.
 - Structured log event `pricing.sync.completed` — emitted on every sync run with fields: `models_upserted`, `models_skipped` (override present), `errors`, `duration_ms`.
 - Structured log event `budget.hard_block` — emitted whenever a request is rejected for budget exceeded; fields: `principal_id`, `tenant_id`, `monthly_spend_usd`, `monthly_budget_usd`.
 - Structured log event `budget.fail_open` — emitted whenever a request proceeds because the quota store was unreachable; fields: `principal_id`, `tenant_id`, `error`.
-- OTel span `budget.quota_check` — wraps the Redis read and effective quota resolution on every request for a principal with a quota.
+- OTel span `budget.quota_check` — wraps the Redis spend read and OPA `CheckBudget` evaluation on every request for a principal with a quota.
 
 ---
 
@@ -527,6 +589,8 @@ See PRD Phase 3 milestones.
 
 ## Notes
 
+**Why move quota tables to policy-service rather than keep them in the inference-gateway?** Budget limits are a policy concern — they define what a principal is *allowed* to spend, in the same way grants define what a principal is *allowed* to access. Co-locating them with grants and roles in policy-service means bundle compilation can include quota data without a cross-service fetch. It also means quota admin sits alongside grant admin in a single service boundary rather than being split across two binaries. The inference-gateway is the *enforcement* point, not the *authority* on budget limits; this mirrors the existing pattern where the gateway evaluates OPA decisions but does not own the grant data. Future budget rules (tenant-level caps, grace periods, per-model limits) are Rego changes, not Go changes.
+
 **Why not a shared spending pool for quota groups?** A shared pool requires atomic cross-principal accounting — every request from any group member must decrement a shared counter. This is a distributed coordination problem with no clean Redis primitive. It also creates unpredictable UX: a single high-traffic agent could exhaust the pool for all other members. Per-member individual limits are both simpler to implement and more predictable for operators.
 
 **Why drop `virtual_model_routes` pricing columns rather than leave them?** Leaving them creates an ongoing confusion risk — engineers may write to or read from them not knowing they are superseded. The columns are also populated with stale data that could silently re-emerge if someone wires them back in. A clean drop in Phase 1 is safer than deprecation-in-place.
@@ -537,4 +601,4 @@ See PRD Phase 3 milestones.
 
 **Why is the budget limit state a server-computed flag rather than a client-side calculation?** The frontend should not contain business logic. If the definition of "limit reached" ever changes — for example, if a grace amount or grace period is introduced — a client-side calculation would require updates in every frontend surface. The backend computes `spend_limit_reached = current_spend_usd >= monthly_budget_usd` and returns it on the quota API. The frontend reads the flag and renders the banner. There is no configurable alert threshold percentage — the limit and the banner are the same concept at the same boundary.
 
-**Last Updated:** 2026-06-05
+**Last Updated:** 2026-06-09

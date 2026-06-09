@@ -182,16 +182,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	)
 	go pricingSyncWorker.Start(ctx)
 
-	quotaRepo := inferencegw.NewPostgresQuotaRepository(db.Pool())
-	quotaCache := inferencegw.NewQuotaCache(quotaRepo, 60*time.Second)
 	quotaCounter := inferencegw.NewRedisQuotaCounter(redis, usageRepo, logger)
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, quotaCache, quotaCounter, logger)
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, quotaCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
-		inferencegw.NewQuotasController(quotaRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 
@@ -263,10 +260,6 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// their own quota. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/quota", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
-		{PathPrefix: "/v1/quotas", Method: "GET", RequiredScope: "platform:quotas:read"},
-		{PathPrefix: "/v1/quotas", Method: "POST", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/v1/quotas", Method: "PUT", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/v1/quotas", Method: "DELETE", RequiredScope: "platform:quotas:write"},
 	}
 }
 
@@ -281,8 +274,6 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},
-		{Scope: "platform:quotas:read", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "read", Description: "Read tenant budget quotas"},
-		{Scope: "platform:quotas:write", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "write", Description: "Manage tenant budget quotas and group memberships"},
 	}
 	for _, cs := range catalogScopes {
 		decls = append(decls, routescopes.ScopeDeclaration{

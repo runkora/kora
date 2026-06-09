@@ -89,21 +89,32 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 // Route map:
 //
-//	GET    /policy/stats?tenant_id=                 Aggregate counts for dashboard overview
-//	POST   /policy/grants                           Create a grant
-//	GET    /policy/grants/{id}                      Get a grant by ID
-//	DELETE /policy/grants/{id}                      Delete a grant
-//	GET    /policy/grants?tenant_id=&principal_id=  List grants for a principal or tenant
-//	GET    /policy/vocabulary                       List scope vocabulary
-//	GET    /policy/vocabulary/{scope}               Get a single scope entry
-//	PUT    /policy/roles                            Create or replace a role→scope mapping
-//	GET    /policy/roles?tenant_id=                 List role→scope mappings for a tenant
-//	GET    /policy/roles/{role}?tenant_id=          Get a single role→scope mapping
-//	DELETE /policy/roles/{role}?tenant_id=          Remove a role→scope mapping
-//	GET    /policy/routes                           List all registered route→scope mappings
-//	POST   /policy/routes/register                  Register route→scope mappings (SYSTEM or SERVICE principal)
-//	GET    /policy/bundles/{tenant_id}              Serve OPA bundle (polling endpoint)
-//	GET    /policy/effective-scopes                 Return the caller's full effective scope set
+//	GET    /policy/stats?tenant_id=                           Aggregate counts for dashboard overview
+//	POST   /policy/grants                                     Create a grant
+//	GET    /policy/grants/{id}                                Get a grant by ID
+//	DELETE /policy/grants/{id}                                Delete a grant
+//	GET    /policy/grants?tenant_id=&principal_id=            List grants for a principal or tenant
+//	GET    /policy/vocabulary                                 List scope vocabulary
+//	GET    /policy/vocabulary/{scope}                         Get a single scope entry
+//	PUT    /policy/roles                                      Create or replace a role→scope mapping
+//	GET    /policy/roles?tenant_id=                           List role→scope mappings for a tenant
+//	GET    /policy/roles/{role}?tenant_id=                    Get a single role→scope mapping
+//	DELETE /policy/roles/{role}?tenant_id=                    Remove a role→scope mapping
+//	GET    /policy/routes                                     List all registered route→scope mappings
+//	POST   /policy/routes/register                            Register route→scope mappings (SYSTEM or SERVICE principal)
+//	GET    /policy/bundles/{tenant_id}                        Serve OPA bundle (polling endpoint)
+//	GET    /policy/effective-scopes                           Return the caller's full effective scope set
+//	GET    /policy/quotas/groups                              List quota groups
+//	POST   /policy/quotas/groups                             Create a quota group
+//	GET    /policy/quotas/groups/{id}                        Get a quota group
+//	PUT    /policy/quotas/groups/{id}                        Update a quota group's budget
+//	DELETE /policy/quotas/groups/{id}                        Delete a quota group
+//	GET    /policy/quotas/groups/{id}/members                List group members
+//	PUT    /policy/quotas/groups/{id}/members/{principalId}  Assign a principal to a group
+//	DELETE /policy/quotas/groups/{id}/members/{principalId}  Remove a principal from a group
+//	GET    /policy/quotas/principals/{principalId}           Get an individual principal quota
+//	PUT    /policy/quotas/principals/{principalId}           Set an individual principal quota
+//	DELETE /policy/quotas/principals/{principalId}           Clear an individual principal quota
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /stats", c.handleStats)
 	mux.Handle("GET /effective-scopes", c.handleEffectiveScopes)
@@ -121,6 +132,18 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("POST /routes/register", c.handleRegisterRoutes)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)
 	mux.Handle("GET /bundles/gateway", c.svc.GatewayBundleHandler())
+	// Quota management — routes delegate directly to Service methods.
+	mux.Handle("GET /quotas/groups", c.svc.handleListQuotaGroups)
+	mux.Handle("POST /quotas/groups", c.svc.handleCreateQuotaGroup)
+	mux.Handle("GET /quotas/groups/{id}", c.svc.handleGetQuotaGroup)
+	mux.Handle("PUT /quotas/groups/{id}", c.svc.handleUpdateQuotaGroupBudget)
+	mux.Handle("DELETE /quotas/groups/{id}", c.svc.handleDeleteQuotaGroup)
+	mux.Handle("GET /quotas/groups/{id}/members", c.svc.handleListQuotaMembers)
+	mux.Handle("PUT /quotas/groups/{id}/members/{principalId}", c.svc.handleSetQuotaMembership)
+	mux.Handle("DELETE /quotas/groups/{id}/members/{principalId}", c.svc.handleRemoveQuotaMembership)
+	mux.Handle("GET /quotas/principals/{principalId}", c.svc.handleGetPrincipalQuota)
+	mux.Handle("PUT /quotas/principals/{principalId}", c.svc.handleSetPrincipalQuota)
+	mux.Handle("DELETE /quotas/principals/{principalId}", c.svc.handleClearPrincipalQuota)
 }
 
 // grantErrorResponse maps service-layer grant errors to API error responses.

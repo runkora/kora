@@ -58,6 +58,14 @@ func (s *stubEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (
 	return &policy.ScopesExplainResult{}, nil
 }
 
+func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, _ float64) (policy.BudgetResult, error) {
+	allow := true
+	if s.checkAllow != nil {
+		allow = *s.checkAllow
+	}
+	return policy.BudgetResult{Allow: allow}, nil
+}
+
 func (s *stubEvaluator) Start(_ context.Context) {}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -103,7 +111,6 @@ func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "totally-unknown-model")
@@ -125,7 +132,6 @@ func TestCheckModelPolicy_VirtualModelAllowed(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
@@ -144,7 +150,6 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 		&stubEvaluator{checkAllow: &deny},
 		buildTestRouter(vms),
 		NewNopPricingCache(),
-		nil,
 		nil,
 		nil,
 		nil,
@@ -187,7 +192,6 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 	ctx := ctxWithClaims(t)
 	targets := []RouteTarget{
@@ -225,7 +229,6 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{}}, // nothing allowed
 		buildTestRouter(vms),
 		NewNopPricingCache(),
-		nil,
 		nil,
 		nil,
 		nil,

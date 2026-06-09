@@ -3,6 +3,7 @@ package policy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data
 const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
 const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
 const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
+const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
@@ -33,6 +35,7 @@ type tenantBundle struct {
 	scopesQuery      rego.PreparedEvalQuery
 	grantDetailQuery rego.PreparedEvalQuery
 	roleDetailQuery  rego.PreparedEvalQuery
+	budgetQuery      rego.PreparedEvalQuery
 	loadedAt         time.Time
 	revision         string
 }
@@ -182,12 +185,22 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare role detail rego eval: %w", err)
 	}
 
+	bq := rego.New(
+		rego.Query(budgetQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	bqq, err := bq.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare budget rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
 		query:            pq,
 		scopesQuery:      sq,
 		grantDetailQuery: gdq,
 		roleDetailQuery:  rdq,
+		budgetQuery:      bqq,
 		loadedAt:         time.Now().UTC(),
 		revision:         revision,
 	}
@@ -339,6 +352,52 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 		FromRoles:       fromRoles,
 		EffectiveScopes: effective,
 	}, nil
+}
+
+// CheckBudget evaluates the orbit.budget rules for the principal. Implements Evaluator.
+// Fails open (allow=true, hasLimit=false) when the tenant bundle is unavailable.
+func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, currentSpendUSD float64) (BudgetResult, error) {
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return BudgetResult{Allow: true}, nil // fail open: no bundle available
+	}
+
+	input := BudgetCheckInput{
+		Principal:       budgetPrincipal{ID: principalID, TenantID: tenantID},
+		CurrentSpendUSD: currentSpendUSD,
+	}
+
+	rs, err := tb.budgetQuery.Eval(ctx, rego.EvalInput(input))
+	if err != nil {
+		return BudgetResult{Allow: true}, nil // fail open: OPA eval error
+	}
+
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return BudgetResult{Allow: true}, nil // fail open: no result
+	}
+
+	decision, ok := rs[0].Bindings["x"].(map[string]any)
+	if !ok {
+		return BudgetResult{Allow: true}, nil
+	}
+
+	allow, _ := decision["allow"].(bool)
+	result := BudgetResult{Allow: allow}
+
+	if raw, ok := decision["effective_budget_usd"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case float64:
+			result.HasLimit = true
+			result.EffectiveBudgetUSD = v
+		case json.Number:
+			if f, err := v.Float64(); err == nil {
+				result.HasLimit = true
+				result.EffectiveBudgetUSD = f
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func evalGrantDetailResult(rs rego.ResultSet) []GrantDetail {

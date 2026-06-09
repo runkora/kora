@@ -345,6 +345,10 @@ func (m *mockPolicyEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesIn
 	return &policy.ScopesExplainResult{}, nil
 }
 
+func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _, _ string, _ float64) (policy.BudgetResult, error) {
+	return policy.BudgetResult{Allow: true}, nil
+}
+
 func (m *mockPolicyEvaluator) Start(_ context.Context) {}
 
 // ── OIDC test server ──────────────────────────────────────────────────────────
