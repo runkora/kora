@@ -70,9 +70,7 @@ async function quotaFetch<T>(
 
 // ── Roles ────────────────────────────────────────────────────────────────────
 
-export async function fetchQuotaRoles(
-  accessToken: string,
-): Promise<Result<{ data: QuotaRole[] }>> {
+export async function fetchQuotaRoles(accessToken: string): Promise<Result<{ data: QuotaRole[] }>> {
   return quotaFetch('/roles', accessToken);
 }
 

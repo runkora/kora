@@ -239,7 +239,7 @@ func (r *PostgresRepository) ClearPrincipalQuota(ctx context.Context, tenantID, 
 func (r *PostgresRepository) BundleData(ctx context.Context, tenantID string) (*BundleDocument, error) {
 	doc := &BundleDocument{
 		PrincipalQuotas: make(map[string]float64),
-		Roles:          make(map[string]RoleDoc),
+		Roles:           make(map[string]RoleDoc),
 		Memberships:     make(map[string]string),
 	}
 

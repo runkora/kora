@@ -24,7 +24,7 @@ import type { PrincipalUsageRow } from '../../../model-gateway/_types';
 
 interface QuotaRolesTabProps {
   initialRoles: QuotaRole[];
-  onRolesChange:  (roles: QuotaRole[]) => void;
+  onRolesChange: (roles: QuotaRole[]) => void;
   canWrite: boolean;
 }
 
