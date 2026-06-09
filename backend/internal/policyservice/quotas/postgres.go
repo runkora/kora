@@ -112,16 +112,25 @@ func (r *PostgresRepository) DeleteGroup(ctx context.Context, tenantID, id strin
 // ─── Memberships ─────────────────────────────────────────────────────────────
 
 func (r *PostgresRepository) SetMembership(ctx context.Context, tenantID, principalID, groupID string) error {
-	const q = `
-		INSERT INTO principal_quota_group_memberships (principal_id, tenant_id, group_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (principal_id, tenant_id) DO UPDATE SET group_id = EXCLUDED.group_id`
+	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// A principal can only hold one quota slot — clear any individual quota.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM principal_quotas WHERE tenant_id = $1 AND principal_id = $2`,
+			tenantID, principalID,
+		); err != nil {
+			return fmt.Errorf("quota membership set (clear individual): %w", err)
+		}
 
-	_, err := r.pool.Exec(ctx, q, principalID, tenantID, groupID)
-	if err != nil {
-		return fmt.Errorf("quota membership set: %w", err)
-	}
-	return nil
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO principal_quota_group_memberships (principal_id, tenant_id, group_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (principal_id, tenant_id) DO UPDATE SET group_id = EXCLUDED.group_id`,
+			principalID, tenantID, groupID,
+		); err != nil {
+			return fmt.Errorf("quota membership set: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *PostgresRepository) RemoveMembership(ctx context.Context, tenantID, principalID, groupID string) error {
@@ -171,18 +180,27 @@ func (r *PostgresRepository) ListMembers(ctx context.Context, tenantID, groupID 
 // ─── Individual principal quotas ─────────────────────────────────────────────
 
 func (r *PostgresRepository) SetPrincipalQuota(ctx context.Context, tenantID, principalID string, budgetUSD float64) error {
-	const q = `
-		INSERT INTO principal_quotas (principal_id, tenant_id, monthly_budget_usd)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (principal_id, tenant_id) DO UPDATE
-		SET monthly_budget_usd = EXCLUDED.monthly_budget_usd,
-		    updated_at = now()`
+	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		// A principal can only hold one quota slot — clear any group membership.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM principal_quota_group_memberships WHERE tenant_id = $1 AND principal_id = $2`,
+			tenantID, principalID,
+		); err != nil {
+			return fmt.Errorf("set principal quota (clear membership): %w", err)
+		}
 
-	_, err := r.pool.Exec(ctx, q, principalID, tenantID, budgetUSD)
-	if err != nil {
-		return fmt.Errorf("set principal quota: %w", err)
-	}
-	return nil
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO principal_quotas (principal_id, tenant_id, monthly_budget_usd)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (principal_id, tenant_id) DO UPDATE
+			SET monthly_budget_usd = EXCLUDED.monthly_budget_usd,
+			    updated_at = now()`,
+			principalID, tenantID, budgetUSD,
+		); err != nil {
+			return fmt.Errorf("set principal quota: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *PostgresRepository) GetPrincipalQuota(ctx context.Context, tenantID, principalID string) (float64, bool, error) {

@@ -217,16 +217,11 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
         saved = created;
 
         await Promise.all(
-          [...memberIds].map(async (pid) => {
-            // Add to group and clear any individual quota in parallel — the
-            // DELETE is a no-op (404) if no individual quota exists.
-            await Promise.all([
-              fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
-                if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
-              }),
-              fetch(ApiRoute.quotaPrincipal.DELETE(pid), { method: 'DELETE' }),
-            ]);
-          }),
+          [...memberIds].map((pid) =>
+            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+              if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
+            }),
+          ),
         );
       } else {
         if (budgetNum !== group!.monthly_budget_usd) {
@@ -245,16 +240,11 @@ function GroupModal({ group, onClose, onSaved, onDeleted }: GroupModalProps) {
         const toAdd = [...memberIds].filter((id) => !serverMemberIds.has(id));
         const toRemove = [...serverMemberIds].filter((id) => !memberIds.has(id));
         await Promise.all([
-          ...toAdd.map(async (pid) => {
-            // Add to group and clear any individual quota in parallel — the
-            // DELETE is a no-op (404) if no individual quota exists.
-            await Promise.all([
-              fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
-                if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
-              }),
-              fetch(ApiRoute.quotaPrincipal.DELETE(pid), { method: 'DELETE' }),
-            ]);
-          }),
+          ...toAdd.map((pid) =>
+            fetch(ApiRoute.quotaGroupMember.PUT(saved.id, pid), { method: 'PUT' }).then((r) => {
+              if (!r.ok) throw new Error(`Failed to add member ${pid} (${r.status})`);
+            }),
+          ),
           ...toRemove.map((pid) =>
             fetch(ApiRoute.quotaGroupMember.DELETE(saved.id, pid), { method: 'DELETE' }).then(
               (r) => {
