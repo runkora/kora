@@ -55,7 +55,7 @@ export const ApiRoute = {
    * `/api/identity/users`
    *
    * Returns all users in the caller's tenant. Does not require the
-   * analytics scope — safe to call from quota admin pages.
+   * analytics scope — safe to call from admin pages.
    */
   identityUsers: {
     GET: (): `${typeof API_BASE}/identity/users` => `${API_BASE}/identity/users`,
@@ -302,13 +302,13 @@ export const ApiRoute = {
   },
 
   /**
-   * `/api/usage/quota`
+   * `/api/usage/budget`
    *
-   * GET — returns the caller's current monthly quota status (spend vs limit).
+   * GET — returns the caller's current monthly budget status (spend vs limit).
    *       Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached, has_limit }`.
    */
-  usageQuota: {
-    GET: (): `${typeof API_BASE}/usage/quota` => `${API_BASE}/usage/quota`,
+  usageBudget: {
+    GET: (): `${typeof API_BASE}/usage/budget` => `${API_BASE}/usage/budget`,
   },
 
   /**
@@ -338,75 +338,6 @@ export const ApiRoute = {
       modelId: string,
     ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
       `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
-  },
-
-  /**
-   * `/api/quotas/roles`
-   *
-   * GET  — list all quota roles for the caller's tenant.
-   * POST — create a new quota role.
-   */
-  quotaRoles: {
-    GET: (): `${typeof API_BASE}/quotas/roles` => `${API_BASE}/quotas/roles`,
-    POST: (): `${typeof API_BASE}/quotas/roles` => `${API_BASE}/quotas/roles`,
-  },
-
-  /**
-   * `/api/quotas/roles/[id]`
-   *
-   * PUT    — update a quota role's monthly budget.
-   * DELETE — delete a quota role.
-   */
-  quotaRole: {
-    PUT: (id: string): `${typeof API_BASE}/quotas/roles/${string}` =>
-      `${API_BASE}/quotas/roles/${id}`,
-    DELETE: (id: string): `${typeof API_BASE}/quotas/roles/${string}` =>
-      `${API_BASE}/quotas/roles/${id}`,
-  },
-
-  /**
-   * `/api/quotas/roles/[id]/members`
-   *
-   * GET — list principal IDs that are members of the role.
-   */
-  quotaRoleMembers: {
-    GET: (id: string): `${typeof API_BASE}/quotas/roles/${string}/members` =>
-      `${API_BASE}/quotas/roles/${id}/members`,
-  },
-
-  /**
-   * `/api/quotas/roles/[id]/members/[principalId]`
-   *
-   * PUT    — add a principal to a quota role.
-   * DELETE — remove a principal from a quota role.
-   */
-  quotaRoleMember: {
-    PUT: (
-      id: string,
-      principalId: string,
-    ): `${typeof API_BASE}/quotas/roles/${string}/members/${string}` =>
-      `${API_BASE}/quotas/roles/${id}/members/${principalId}`,
-    DELETE: (
-      id: string,
-      principalId: string,
-    ): `${typeof API_BASE}/quotas/roles/${string}/members/${string}` =>
-      `${API_BASE}/quotas/roles/${id}/members/${principalId}`,
-  },
-
-  /**
-   * `/api/quotas/principals/[principalId]`
-   *
-   * GET    — get the individual quota for a principal (404 if none set).
-   * PUT    — set an individual quota override for a principal.
-   * DELETE — clear the individual quota override for a principal.
-   */
-  quotaPrincipal: {
-    GET: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
-      `${API_BASE}/quotas/principals/${principalId}`,
-    PUT: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
-      `${API_BASE}/quotas/principals/${principalId}`,
-    DELETE: (principalId: string): `${typeof API_BASE}/quotas/principals/${string}` =>
-      `${API_BASE}/quotas/principals/${principalId}`,
   },
 } as const;
 
@@ -438,7 +369,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
-  | ReturnType<(typeof ApiRoute)['usageQuota']['GET']>
+  | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>
   | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['DELETE']>
@@ -453,14 +384,4 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
-  | ReturnType<(typeof ApiRoute)['quotaRoles']['GET']>
-  | ReturnType<(typeof ApiRoute)['quotaRoles']['POST']>
-  | ReturnType<(typeof ApiRoute)['quotaRole']['PUT']>
-  | ReturnType<(typeof ApiRoute)['quotaRole']['DELETE']>
-  | ReturnType<(typeof ApiRoute)['quotaRoleMembers']['GET']>
-  | ReturnType<(typeof ApiRoute)['quotaRoleMember']['PUT']>
-  | ReturnType<(typeof ApiRoute)['quotaRoleMember']['DELETE']>
-  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['GET']>
-  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['PUT']>
-  | ReturnType<(typeof ApiRoute)['quotaPrincipal']['DELETE']>
-  | string; // analyticsMe, analytics, analyticsPrincipals, and quota routes include dynamic query strings
+  | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings

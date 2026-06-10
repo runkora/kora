@@ -140,7 +140,7 @@ type BudgetResult struct {
 	// Allow is true when the principal may continue spending (below limit or no limit).
 	Allow bool
 	// HasLimit is true when a spend limit is configured for this principal (via
-	// an individual quota or group membership). False when OPA has no configured
+	// an individual grant or OIDC role budget assignment). False when OPA has no configured
 	// limit for the principal.
 	HasLimit bool
 	// EffectiveBudgetUSD is the active monthly budget in USD, populated only when

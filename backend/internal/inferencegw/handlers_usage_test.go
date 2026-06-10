@@ -433,62 +433,65 @@ func TestBuildFilter_TokenIDWithTenantAndPrincipal(t *testing.T) {
 	_ = where
 }
 
-// ── GET /usage/quota ──────────────────────────────────────────────────────────
+// ── GET /usage/budget ──────────────────────────────────────────────────────────
 
-func newPersonalQuotaController(t *testing.T, eval *stubEvaluator, counter SpendCounter) *Controller {
+func newPersonalBudgetController(t *testing.T, eval *stubEvaluator, counter SpendCounter) *Controller {
 	t.Helper()
 	svc := &Service{
-		policy:       eval,
-		usage:        newMockUsageRepo(),
-		quotaCounter: counter,
-		logger:       logging.NewLoggerWithOutput(io.Discard),
+		policy:        eval,
+		usage:         newMockUsageRepo(),
+		budgetCounter: counter,
+		logger:        logging.NewLoggerWithOutput(io.Discard),
 	}
 	return &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
 }
 
-func TestHandleGetPersonalQuota_NoLimit(t *testing.T) {
+func TestHandleGetPersonalBudget_NoLimit(t *testing.T) {
 	t.Parallel()
-	// OPA allows (no limit configured) — CheckBudget returns true
-	eval := &stubEvaluator{}
+	// OPA allows (no limit configured for this principal).
+	eval := &stubEvaluator{budgetHasLimit: false}
 	counter := &mockSpendCounter{spend: 0}
-	c := newPersonalQuotaController(t, eval, counter)
+	c := newPersonalBudgetController(t, eval, counter)
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
 	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
-	c.handleGetPersonalQuota(w, req)
+	c.handleGetPersonalBudget(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
 	}
-	var status QuotaStatus
+	var status BudgetStatus
 	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if status.SpendLimitReached {
 		t.Error("SpendLimitReached = true, want false")
 	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (no budget configured)")
+	}
 	if status.CurrentSpendUSD != 0 {
 		t.Errorf("CurrentSpendUSD = %v, want 0", status.CurrentSpendUSD)
 	}
 }
 
-func TestHandleGetPersonalQuota_UnderLimit(t *testing.T) {
+func TestHandleGetPersonalBudget_UnderLimit(t *testing.T) {
 	t.Parallel()
-	// OPA allows — spend is below the configured limit
-	eval := &stubEvaluator{}
+	// OPA allows — spend is below the configured limit; limit details populated.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 100}
 	counter := &mockSpendCounter{spend: 42.5}
-	c := newPersonalQuotaController(t, eval, counter)
+	c := newPersonalBudgetController(t, eval, counter)
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
 	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
-	c.handleGetPersonalQuota(w, req)
+	c.handleGetPersonalBudget(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
 	}
-	var status QuotaStatus
+	var status BudgetStatus
 	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -498,25 +501,31 @@ func TestHandleGetPersonalQuota_UnderLimit(t *testing.T) {
 	if status.SpendLimitReached {
 		t.Error("SpendLimitReached = true, want false")
 	}
+	if !status.HasLimit {
+		t.Error("HasLimit = false, want true")
+	}
+	if status.MonthlyBudgetUSD != 100 {
+		t.Errorf("MonthlyBudgetUSD = %v, want 100", status.MonthlyBudgetUSD)
+	}
 }
 
-func TestHandleGetPersonalQuota_LimitReached(t *testing.T) {
+func TestHandleGetPersonalBudget_LimitReached(t *testing.T) {
 	t.Parallel()
-	// OPA denies — spend has hit or exceeded the limit
+	// OPA denies — spend has hit or exceeded the limit.
 	deny := false
-	eval := &stubEvaluator{checkAllow: &deny}
+	eval := &stubEvaluator{checkAllow: &deny, budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spend: 50.0}
-	c := newPersonalQuotaController(t, eval, counter)
+	c := newPersonalBudgetController(t, eval, counter)
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
 	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
-	c.handleGetPersonalQuota(w, req)
+	c.handleGetPersonalBudget(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
 	}
-	var status QuotaStatus
+	var status BudgetStatus
 	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -526,33 +535,79 @@ func TestHandleGetPersonalQuota_LimitReached(t *testing.T) {
 	if status.CurrentSpendUSD != 50.0 {
 		t.Errorf("CurrentSpendUSD = %v, want 50.0", status.CurrentSpendUSD)
 	}
-}
-
-func TestHandleGetPersonalQuota_SpendCounterError(t *testing.T) {
-	t.Parallel()
-	eval := &stubEvaluator{}
-	counter := &mockSpendCounter{getSpendErr: errTestInternal}
-	c := newPersonalQuotaController(t, eval, counter)
-
-	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil)
-	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
-	w := httptest.NewRecorder()
-	c.handleGetPersonalQuota(w, req)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	if !status.HasLimit {
+		t.Error("HasLimit = false, want true")
+	}
+	if status.MonthlyBudgetUSD != 50 {
+		t.Errorf("MonthlyBudgetUSD = %v, want 50", status.MonthlyBudgetUSD)
 	}
 }
 
-func TestHandleGetPersonalQuota_MissingClaims(t *testing.T) {
+func TestHandleGetPersonalBudget_SpendCounterError(t *testing.T) {
 	t.Parallel()
-	c := newPersonalQuotaController(t, &stubEvaluator{}, &mockSpendCounter{})
+	// Counter error → GetPersonalBudget fails open: 200 with empty BudgetStatus.
+	eval := &stubEvaluator{}
+	counter := &mockSpendCounter{getSpendErr: errTestInternal}
+	c := newPersonalBudgetController(t, eval, counter)
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/quota", nil) // no claims
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
 	w := httptest.NewRecorder()
-	c.handleGetPersonalQuota(w, req)
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (fail-open on counter error)", w.Code, http.StatusOK)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (fail-open → no limit info)")
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false (fail-open)")
+	}
+	if status.CurrentSpendUSD != 0 {
+		t.Errorf("CurrentSpendUSD = %v, want 0 (fail-open)", status.CurrentSpendUSD)
+	}
+}
+
+func TestHandleGetPersonalBudget_MissingClaims(t *testing.T) {
+	t.Parallel()
+	c := newPersonalBudgetController(t, &stubEvaluator{}, &mockSpendCounter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil) // no claims
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleGetPersonalBudget_NilCounter(t *testing.T) {
+	t.Parallel()
+	// When no spend counter is wired (nil), GetPersonalBudget returns an empty
+	// BudgetStatus with no error — effectively "no budget configured".
+	c := newPersonalBudgetController(t, &stubEvaluator{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (nil counter → no budget)")
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false (nil counter → no budget)")
 	}
 }

@@ -41,12 +41,12 @@ type principal struct {
 // Auth is handled upstream by AuthMiddleware — the service reads
 // the verified principal from context, never from raw headers.
 type Service struct {
-	policy       policy.Evaluator
-	router       *RoutingEngine
-	pricing      PricingCache
-	usage        InferenceUsageRepository
-	quotaCounter SpendCounter
-	logger       logging.Logger
+	policy        policy.Evaluator
+	router        *RoutingEngine
+	pricing       PricingCache
+	usage         InferenceUsageRepository
+	budgetCounter SpendCounter
+	logger        logging.Logger
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -55,16 +55,16 @@ func NewService(
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
-	quotaCounter SpendCounter,
+	budgetCounter SpendCounter,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:       pol,
-		router:       router,
-		pricing:      pricing,
-		usage:        usage,
-		quotaCounter: quotaCounter,
-		logger:       logger,
+		policy:        pol,
+		router:        router,
+		pricing:       pricing,
+		usage:         usage,
+		budgetCounter: budgetCounter,
+		logger:        logger,
 	}
 }
 
@@ -674,7 +674,7 @@ const spanStatusBudgetExceeded = "budget exceeded"
 
 // checkBudget evaluates the orbit.budget OPA rules via the policy evaluator.
 // It reads the principal's current-month spend from Redis, then delegates the
-// allow/deny decision to OPA (which evaluates group and individual quota data
+// allow/deny decision to OPA (which evaluates role and grant budget data
 // from the compiled bundle). Fails open on any infrastructure error so that
 // Redis or OPA unavailability never blocks inference traffic.
 //
@@ -682,7 +682,7 @@ const spanStatusBudgetExceeded = "budget exceeded"
 // requests near the limit may both pass and briefly overspend before the counter
 // catches up. This is acceptable for cost-cap (not hard billing) use cases.
 func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
-	if s.quotaCounter == nil {
+	if s.budgetCounter == nil {
 		return ctx, nil
 	}
 
@@ -694,7 +694,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	)
 	defer span.End()
 
-	spend, err := s.quotaCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
+	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -733,10 +733,10 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 // successful usage write. Logs on failure but never returns an error — a
 // counter increment failure must not affect the caller's control flow.
 func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID string, amount float64) {
-	if s.quotaCounter == nil {
+	if s.budgetCounter == nil {
 		return
 	}
-	if err := s.quotaCounter.IncrementSpend(ctx, tenantID, principalID, amount); err != nil {
+	if err := s.budgetCounter.IncrementSpend(ctx, tenantID, principalID, amount); err != nil {
 		s.logger.Warn(ctx, "budget.counter_increment_failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},
@@ -744,25 +744,37 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	}
 }
 
-// GetPersonalQuota returns the effective quota status for the given principal.
+// GetPersonalBudget returns the effective budget status for the given principal.
 // It reads the current spend from Redis and delegates the budget evaluation to
 // OPA via CheckBudget, which evaluates the bundle data for group and individual limits.
-func (s *Service) GetPersonalQuota(ctx context.Context, tenantID, principalID string) (QuotaStatus, error) {
-	if s.quotaCounter == nil {
-		return QuotaStatus{}, nil
+// Fails open on Redis or OPA errors: returns an empty BudgetStatus (no limit, no spend)
+// rather than propagating infrastructure errors to the caller.
+func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID string) (BudgetStatus, error) {
+	if s.budgetCounter == nil {
+		return BudgetStatus{}, nil
 	}
 
-	spend, err := s.quotaCounter.GetSpend(ctx, tenantID, principalID)
+	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID)
 	if err != nil {
-		return QuotaStatus{}, fmt.Errorf("quota spend: %w", err)
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "spend counter get failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+		return BudgetStatus{}, nil
 	}
 
 	result, err := s.policy.CheckBudget(ctx, tenantID, principalID, spend)
 	if err != nil {
-		return QuotaStatus{}, fmt.Errorf("quota budget check: %w", err)
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "OPA budget check failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+		return BudgetStatus{}, nil
 	}
 
-	return QuotaStatus{
+	return BudgetStatus{
 		CurrentSpendUSD:   spend,
 		SpendLimitReached: !result.Allow,
 		HasLimit:          result.HasLimit,

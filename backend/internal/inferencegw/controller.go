@@ -76,6 +76,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /responses             OpenAI Responses API (streaming and non-streaming)
 //	GET    /models                List available models
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
+//	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
 //	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
@@ -87,7 +88,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /responses", c.handleResponses)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
-	mux.Handle("GET /usage/quota", c.handleGetPersonalQuota)
+	mux.Handle("GET /usage/budget", c.handleGetPersonalBudget)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)

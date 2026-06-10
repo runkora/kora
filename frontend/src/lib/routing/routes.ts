@@ -48,7 +48,6 @@ export const APP_ROUTES = {
     vocabulary: '/policy/vocabulary',
     routes: '/policy/routes',
     evaluate: '/policy/evaluate',
-    quotas: '/policy/quotas',
   },
   identity: '/identity',
 

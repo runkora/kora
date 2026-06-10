@@ -27,7 +27,7 @@ const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data
 const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
 const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
 const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
-const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
+const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
@@ -382,16 +382,15 @@ func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, 
 	}
 
 	allow, _ := decision["allow"].(bool)
-	result := BudgetResult{Allow: allow}
+	hasLimit, _ := decision["has_limit"].(bool)
+	result := BudgetResult{Allow: allow, HasLimit: hasLimit}
 
-	if raw, ok := decision["effective_budget_usd"]; ok && raw != nil {
-		switch v := raw.(type) {
+	if hasLimit {
+		switch v := decision["effective_budget_usd"].(type) {
 		case float64:
-			result.HasLimit = true
 			result.EffectiveBudgetUSD = v
 		case json.Number:
 			if f, err := v.Float64(); err == nil {
-				result.HasLimit = true
 				result.EffectiveBudgetUSD = f
 			}
 		}

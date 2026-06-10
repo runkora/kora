@@ -6,14 +6,14 @@ import type { PAT } from '@orbit/shared/api';
 import { fmtCost } from '@orbit/utils';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
-import type { QuotaStatus } from '../../_types';
+import type { BudgetStatus } from '../../_types';
 
 interface MyUsageTabProps {
   pats: PAT[];
-  initialQuota: QuotaStatus | null;
+  initialBudget: BudgetStatus | null;
 }
 
-function BudgetBanner({ quota }: { quota: QuotaStatus }) {
+function BudgetBanner({ quota }: { quota: BudgetStatus }) {
   if (!quota.has_limit) return null;
 
   const pct =
@@ -49,7 +49,7 @@ function BudgetBanner({ quota }: { quota: QuotaStatus }) {
   );
 }
 
-export function MyUsageTab({ pats, initialQuota }: MyUsageTabProps) {
+export function MyUsageTab({ pats, initialBudget }: MyUsageTabProps) {
   const { data, status, error, days, granularity, tokenId, setDays, setGranularity, setTokenId } =
     useAnalyticsMeContext();
 
@@ -80,7 +80,7 @@ export function MyUsageTab({ pats, initialQuota }: MyUsageTabProps) {
 
   return (
     <Stack gap="comfortable">
-      {initialQuota && <BudgetBanner quota={initialQuota} />}
+      {initialBudget && <BudgetBanner quota={initialBudget} />}
       <AnalyticsDashboard
         title="My Usage"
         description="Your personal inference activity — spend, tokens, and request volume."

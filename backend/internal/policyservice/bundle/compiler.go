@@ -4,11 +4,13 @@
 // Each tenant's bundle is compiled on every grant write and cached in memory.
 // The bundle contains:
 //   - policy/authz.rego         — the Orbit authorisation rules
+//   - policy/budget.rego        — the orbit.budget enforcement rules
 //   - data/grants/data.json     — this tenant's grants only
 //   - data/vocabulary/data.json — the scope vocabulary (shared, but bundled per-tenant)
 //   - data/roles/data.json      — OIDC role → platform scope mappings
 //   - data/routes/data.json     — route→scope mappings (global + tenant-specific)
 //   - data/config/data.json     — cluster config (JWKS URL, issuer, audience)
+//   - data/budgets/data.json    — per-principal budget assignments (inline JSONB, MAX resolved)
 //   - .manifest                 — OPA bundle metadata
 package bundle
 
@@ -24,7 +26,6 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/quotas"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -44,8 +45,8 @@ var budgetRego string
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
 var DefaultRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:analytics:read", "platform:quotas:read"},
-	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:quotas:read", "platform:quotas:write"},
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:analytics:read", "platform:budgets:read"},
+	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
 }
 
 // Config holds cluster-specific values that are compiled into every bundle's
@@ -115,7 +116,80 @@ type gatewayConfigDocument struct {
 	FrontendHost string `json:"frontend_host"`
 }
 
-// manifest is the OPA bundle manifest.
+// principalBudget holds the resolved budget data for a single principal.
+type principalBudget struct {
+	Categories        []budgetCategory `json:"categories"`
+	EffectiveLimitUSD float64          `json:"effective_limit_usd"`
+}
+
+// budgetCategory is a single budget assignment source (role or grant).
+type budgetCategory struct {
+	Source          string  `json:"source"` // "role" or "grant"
+	ID              string  `json:"id"`     // role name or grant ID
+	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
+	ResetCadence    string  `json:"reset_cadence"`
+}
+
+// buildBudgets computes the data/budgets/data.json document from the current
+// role entries and grants. effective_limit_usd is MAX across all applicable
+// assignments for each principal (consistent with UNION for scopes).
+//
+// The returned map serializes directly to {"<principal_id>": {...}} so that
+// OPA mounts it at data.budgets and budget.rego can read data.budgets[id].
+func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string]principalBudget {
+	doc := make(map[string]principalBudget)
+
+	// For each grant-holding principal, collect all applicable budget categories.
+	for _, g := range tenantGrants {
+		if g.PrincipalType != grants.PrincipalTypeHuman {
+			continue
+		}
+		pb, exists := doc[g.PrincipalID]
+		if !exists {
+			pb = principalBudget{}
+		}
+
+		// Grant-level budget.
+		if g.Budget != nil {
+			pb.Categories = append(pb.Categories, budgetCategory{
+				Source:          "grant",
+				ID:              g.ID,
+				MonthlyLimitUSD: g.Budget.MonthlyLimitUSD,
+				ResetCadence:    g.Budget.ResetCadence,
+			})
+		}
+
+		doc[g.PrincipalID] = pb
+	}
+
+	// Role-level budgets: we can't resolve which principals hold which OIDC roles
+	// from inside the policy service (roles are asserted by the IDP at login time).
+	// Principals with only role-based budgets and no grants will be absent from
+	// the budgets map. The Rego default (budget_allow := true) handles them
+	// fail-open until per-principal grant budgets are assigned.
+
+	// Compute effective_limit_usd (MAX) for each principal with grant budgets.
+	for pid, pb := range doc {
+		var maxLimit float64
+		for _, c := range pb.Categories {
+			if c.MonthlyLimitUSD > maxLimit {
+				maxLimit = c.MonthlyLimitUSD
+			}
+		}
+		pb.EffectiveLimitUSD = maxLimit
+		doc[pid] = pb
+	}
+
+	// Remove principals that ended up with no categories (no budget set).
+	for pid, pb := range doc {
+		if len(pb.Categories) == 0 {
+			delete(doc, pid)
+		}
+	}
+
+	return doc
+}
+
 type manifest struct {
 	Revision string    `json:"revision"`
 	Roots    []string  `json:"roots"`
@@ -157,11 +231,11 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 }
 
 // Compile builds the OPA bundle for a single tenant from the provided grants,
-// vocabulary entries, role→scope mappings, and quota data. The result is cached
+// vocabulary entries, and role→scope mappings. The result is cached
 // and replaces any prior bundle for that tenant. Returns the compiled bundle bytes.
-func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, quotaData *quotas.BundleDocument) (*CachedBundle, error) {
+func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry) (*CachedBundle, error) {
 	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantRoutes, c.cfg, quotaData)
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantRoutes, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -232,7 +306,7 @@ func (c *Compiler) CompileGateway(
 }
 
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config, quotaData *quotas.BundleDocument) ([]byte, string, error) {
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
 	// Build grants data document
@@ -302,23 +376,18 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
 
-	// Build quotas data document (per-tenant budget limits for orbit.budget).
-	if quotaData == nil {
-		quotaData = &quotas.BundleDocument{
-			PrincipalQuotas: map[string]float64{},
-			Roles:           map[string]quotas.RoleDoc{},
-			Memberships:     map[string]string{},
-		}
-	}
-	quotasJSON, err := json.Marshal(quotaData)
+	// Build budgets data document (per-principal budget assignments for orbit.budget).
+	// effective_limit_usd is pre-computed as MAX across all applicable categories.
+	budgetsDoc := buildBudgets(tenantGrants, roleEntries)
+	budgetsJSON, err := json.Marshal(budgetsDoc)
 	if err != nil {
-		return nil, "", fmt.Errorf("marshal quotas: %w", err)
+		return nil, "", fmt.Errorf("marshal budgets: %w", err)
 	}
 
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "quotas"},
+		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -338,7 +407,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		{"roles/data.json", rolesJSON},
 		{"routes/data.json", routesJSON},
 		{"config/data.json", cfgJSON},
-		{"quotas/data.json", quotasJSON},
+		{"budgets/data.json", budgetsJSON},
 	})
 	if err != nil {
 		return nil, "", err

@@ -104,17 +104,6 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /policy/routes/register                            Register route→scope mappings (SYSTEM or SERVICE principal)
 //	GET    /policy/bundles/{tenant_id}                        Serve OPA bundle (polling endpoint)
 //	GET    /policy/effective-scopes                           Return the caller's full effective scope set
-//	GET    /policy/quotas/roles                              List quota roles
-//	POST   /policy/quotas/roles                             Create a quota role
-//	GET    /policy/quotas/roles/{id}                        Get a quota role
-//	PUT    /policy/quotas/roles/{id}                        Update a quota role's budget
-//	DELETE /policy/quotas/roles/{id}                        Delete a quota role
-//	GET    /policy/quotas/roles/{id}/members                List role members
-//	PUT    /policy/quotas/roles/{id}/members/{principalId}  Assign a principal to a role
-//	DELETE /policy/quotas/roles/{id}/members/{principalId}  Remove a principal from a role
-//	GET    /policy/quotas/principals/{principalId}           Get an individual principal quota
-//	PUT    /policy/quotas/principals/{principalId}           Set an individual principal quota
-//	DELETE /policy/quotas/principals/{principalId}           Clear an individual principal quota
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /stats", c.handleStats)
 	mux.Handle("GET /effective-scopes", c.handleEffectiveScopes)
@@ -132,18 +121,6 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("POST /routes/register", c.handleRegisterRoutes)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)
 	mux.Handle("GET /bundles/gateway", c.svc.GatewayBundleHandler())
-	// Quota management — routes delegate directly to Service methods.
-	mux.Handle("GET /quotas/roles", c.svc.handleListQuotaRoles)
-	mux.Handle("POST /quotas/roles", c.svc.handleCreateQuotaRole)
-	mux.Handle("GET /quotas/roles/{id}", c.svc.handleGetQuotaRole)
-	mux.Handle("PUT /quotas/roles/{id}", c.svc.handleUpdateQuotaRoleBudget)
-	mux.Handle("DELETE /quotas/roles/{id}", c.svc.handleDeleteQuotaRole)
-	mux.Handle("GET /quotas/roles/{id}/members", c.svc.handleListQuotaMembers)
-	mux.Handle("PUT /quotas/roles/{id}/members/{principalId}", c.svc.handleSetQuotaMembership)
-	mux.Handle("DELETE /quotas/roles/{id}/members/{principalId}", c.svc.handleRemoveQuotaMembership)
-	mux.Handle("GET /quotas/principals/{principalId}", c.svc.handleGetPrincipalQuota)
-	mux.Handle("PUT /quotas/principals/{principalId}", c.svc.handleSetPrincipalQuota)
-	mux.Handle("DELETE /quotas/principals/{principalId}", c.svc.handleClearPrincipalQuota)
 }
 
 // grantErrorResponse maps service-layer grant errors to API error responses.

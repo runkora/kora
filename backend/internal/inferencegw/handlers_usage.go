@@ -206,9 +206,9 @@ func parsePosIntParam(raw, paramLabel string, defaultVal int) (int, *api.APIErro
 	return v, nil, nil
 }
 
-// handleGetPersonalQuota handles GET /v1/usage/quota.
-// Returns the caller's current quota status: budget, spend, and whether the limit is reached.
-func (c *Controller) handleGetPersonalQuota(w http.ResponseWriter, r *http.Request) {
+// handleGetPersonalBudget handles GET /v1/usage/budget.
+// Returns the caller's current budget status: spend limit, current spend, and whether the limit is reached.
+func (c *Controller) handleGetPersonalBudget(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := token.ClaimsFromContext(ctx)
@@ -217,9 +217,9 @@ func (c *Controller) handleGetPersonalQuota(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	status, err := c.svc.GetPersonalQuota(ctx, claims.Orbit.TenantID, claims.Subject)
+	status, err := c.svc.GetPersonalBudget(ctx, claims.Orbit.TenantID, claims.Subject)
 	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get quota status", nil), err)
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get budget status", nil), err)
 		return
 	}
 

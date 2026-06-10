@@ -2,35 +2,29 @@ package orbit.budget
 
 import rego.v1
 
-# budget_allow is true by default (fail-open when no quota is configured).
+# budget_allow is true by default (fail-open: no budget configured = allow).
 default budget_allow := true
 
-# Deny when the principal has an individual quota and spend meets or exceeds it.
+# Deny when the principal has a configured effective limit and spend meets or exceeds it.
 budget_allow := false if {
-	limit := data.quotas.principal_quotas[input.principal.id]
-	input.current_spend_usd >= limit
+	principal := data.budgets[input.principal.id]
+	input.current_spend_usd >= principal.effective_limit_usd
 }
 
-# Deny when the principal has no individual quota but belongs to a role that is over budget.
-budget_allow := false if {
-	not data.quotas.principal_quotas[input.principal.id]
-	role_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.roles[role_id].monthly_budget_usd
-	input.current_spend_usd >= limit
+# spend_limit_reached is the positive-sense inverse of budget_allow for API consumers.
+spend_limit_reached := true if { not budget_allow }
+
+spend_limit_reached := false if { budget_allow }
+
+# has_limit is true only when the principal has an explicit budget entry in the bundle.
+default has_limit := false
+
+has_limit := true if {
+	data.budgets[input.principal.id]
 }
 
-# effective_budget_usd is the active limit for this principal (individual takes priority).
-effective_budget_usd := limit if {
-	limit := data.quotas.principal_quotas[input.principal.id]
-}
+# effective_budget_usd is the pre-computed MAX across all applicable budget assignments.
+# Returns 0 when the principal has no configured budget (consistent with fail-open).
+default effective_budget_usd := 0
 
-effective_budget_usd := limit if {
-	not data.quotas.principal_quotas[input.principal.id]
-	role_id := data.quotas.memberships[input.principal.id]
-	limit := data.quotas.roles[role_id].monthly_budget_usd
-}
-
-# spend_limit_reached mirrors budget_allow as a positive-sense boolean for API consumers.
-spend_limit_reached := true if {budget_allow == false}
-
-spend_limit_reached := false if {budget_allow == true}
+effective_budget_usd := data.budgets[input.principal.id].effective_limit_usd

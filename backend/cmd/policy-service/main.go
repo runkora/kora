@@ -22,7 +22,6 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/api"
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/quotas"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
@@ -62,7 +61,6 @@ func realMain() error {
 	grantRepo := grants.NewPostgresRepository(db.Pool())
 	vocabRepo := vocabulary.NewPostgresRepository(db.Pool())
 	roleRepo := roles.NewPostgresRepository(db.Pool())
-	quotaRepo := quotas.NewPostgresRepository(db.Pool())
 	routeStore := routes.NewStore()
 
 	bundleCfg := bundle.Config{
@@ -72,7 +70,7 @@ func realMain() error {
 		FrontendHost: psc.Current.Bundle.FrontendHost,
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, quotaRepo, logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, logger)
 
 	// Pre-compile bundles for all tenants that have grants.
 	if tenantIDs, err := grantRepo.ListDistinctTenants(ctx); err == nil {
@@ -85,7 +83,7 @@ func realMain() error {
 	bundleSrv.BootstrapGateway(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	svc := api.NewService(grantRepo, vocabRepo, roleRepo, quotaRepo, bundleSrv, routeStore, logger)
+	svc := api.NewService(grantRepo, vocabRepo, roleRepo, bundleSrv, routeStore, logger)
 
 	// Self-register the policy service's own routes and platform scope vocabulary.
 	// Direct call — no HTTP round-trip needed since the service owns the store.
@@ -99,18 +97,14 @@ func realMain() error {
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "GET", RequiredScope: "platform:quotas:read"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "POST", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "PUT", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "DELETE", RequiredScope: "platform:quotas:write"},
 	}, []routes.ScopeDeclaration{
 		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
 		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
 		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
 		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
 		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
-		{Scope: "platform:quotas:read", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "read", Description: "Read tenant budget quotas"},
-		{Scope: "platform:quotas:write", ResourceType: "platform", PathSegments: []string{"quotas"}, Action: "write", Description: "Manage tenant budget quotas and group memberships"},
+		{Scope: "platform:budgets:read", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "read", Description: "Read tenant budget assignments"},
+		{Scope: "platform:budgets:write", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "write", Description: "Manage tenant budget assignments on roles and grants"},
 	}); err != nil {
 		logger.Error(ctx, "policy-service self-registration failed", logging.Field{Key: "error", Value: err.Error()})
 	}
@@ -151,10 +145,6 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "GET", RequiredScope: "platform:quotas:read"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "POST", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "PUT", RequiredScope: "platform:quotas:write"},
-		{PathPrefix: "/api/v1/policy/quotas", Method: "DELETE", RequiredScope: "platform:quotas:write"},
 		// /effective-scopes returns the caller's own effective scopes — open to
 		// any authenticated principal so they can inspect what they hold.
 		{PathPrefix: "/api/v1/policy/effective-scopes", Method: "GET", RequiredScope: ""},

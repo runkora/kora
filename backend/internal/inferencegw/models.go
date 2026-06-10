@@ -283,10 +283,10 @@ var (
 	ErrBudgetExceeded        = errors.New("budget exceeded")
 )
 
-// QuotaStatus is returned by the personal quota endpoint and the GetPersonalQuota
+// BudgetStatus is returned by the personal budget endpoint and the GetPersonalBudget
 // service method. HasLimit indicates whether a spend limit is configured for the
-// principal (via individual quota or group membership) as reported by OPA.
-type QuotaStatus struct {
+// principal (via individual grant or OIDC role budget assignment) as reported by OPA.
+type BudgetStatus struct {
 	MonthlyBudgetUSD  float64 `json:"monthly_budget_usd"`
 	CurrentSpendUSD   float64 `json:"current_spend_usd"`
 	SpendLimitReached bool    `json:"spend_limit_reached"`

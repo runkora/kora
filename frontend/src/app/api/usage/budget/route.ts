@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { fetchPersonalQuotaFromGateway } from '../../../(dashboard)/model-gateway/_services/quota-personal-server';
+import { fetchPersonalBudgetFromGateway } from '../../../(dashboard)/model-gateway/_services/budget-personal-server';
 
 export async function GET(): Promise<NextResponse> {
   const session = await getSession();
@@ -12,7 +12,7 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const result = await fetchPersonalQuotaFromGateway(session.accessToken);
+  const result = await fetchPersonalBudgetFromGateway(session.accessToken);
   if (!result.ok) {
     const clientStatus = result.status >= 500 ? 502 : result.status;
     return NextResponse.json(

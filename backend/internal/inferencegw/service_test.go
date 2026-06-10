@@ -3,9 +3,11 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/golang-jwt/jwt/v5"
@@ -21,6 +23,14 @@ type stubEvaluator struct {
 	allowedCandidateIDs map[string]bool
 	// checkAllow controls the result of Check. When nil, Check always allows.
 	checkAllow *bool
+	// budgetHasLimit controls whether CheckBudget reports a configured limit.
+	budgetHasLimit bool
+	// budgetEffectiveUSD is the effective_limit_usd returned by CheckBudget.
+	budgetEffectiveUSD float64
+	// budgetErr, when non-nil, is returned by CheckBudget.
+	budgetErr error
+	// lastBudgetSpend captures the currentSpendUSD passed to CheckBudget.
+	lastBudgetSpend float64
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -58,12 +68,20 @@ func (s *stubEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, _ float64) (policy.BudgetResult, error) {
+func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, spend float64) (policy.BudgetResult, error) {
+	s.lastBudgetSpend = spend
+	if s.budgetErr != nil {
+		return policy.BudgetResult{}, s.budgetErr
+	}
 	allow := true
 	if s.checkAllow != nil {
 		allow = *s.checkAllow
 	}
-	return policy.BudgetResult{Allow: allow}, nil
+	return policy.BudgetResult{
+		Allow:              allow,
+		HasLimit:           s.budgetHasLimit,
+		EffectiveBudgetUSD: s.budgetEffectiveUSD,
+	}, nil
 }
 
 func (s *stubEvaluator) Start(_ context.Context) {}
@@ -313,5 +331,66 @@ func TestExtractFailureDetails_EmptyConnectorError(t *testing.T) {
 	err := &ConnectorError{Provider: ProviderBedrock}
 	if got := extractFailureDetails(err); got != nil {
 		t.Errorf("expected nil when all fields empty, got %+v", got)
+	}
+}
+
+// ─── GetPersonalBudget — service-level ──────────────────────────────────────
+
+func newBudgetService(eval *stubEvaluator, counter SpendCounter) *Service {
+	return NewService(eval, buildTestRouter(nil), NewNopPricingCache(), nil, counter, logging.NewLoggerWithOutput(io.Discard))
+}
+
+func TestGetPersonalBudget_SpendThreadedIntoCheckBudget(t *testing.T) {
+	t.Parallel()
+	// Verify the spend returned by the counter is the exact value passed to CheckBudget.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spend: 42.5}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetSpend != 42.5 {
+		t.Errorf("CheckBudget received spend = %v, want 42.5 (from counter)", eval.lastBudgetSpend)
+	}
+	if status.CurrentSpendUSD != 42.5 {
+		t.Errorf("CurrentSpendUSD = %v, want 42.5", status.CurrentSpendUSD)
+	}
+}
+
+func TestGetPersonalBudget_CounterError_FailsOpen(t *testing.T) {
+	t.Parallel()
+	// Counter error → fail-open: empty BudgetStatus, no error returned.
+	eval := &stubEvaluator{}
+	counter := &mockSpendCounter{getSpendErr: errors.New("redis down")}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("counter error should not propagate, got: %v", err)
+	}
+	if status.HasLimit || status.SpendLimitReached || status.CurrentSpendUSD != 0 {
+		t.Errorf("fail-open should return empty status, got: %+v", status)
+	}
+	// CheckBudget must not have been called when GetSpend failed.
+	if eval.lastBudgetSpend != 0 {
+		t.Error("CheckBudget should not be called when GetSpend errors")
+	}
+}
+
+func TestGetPersonalBudget_OPAError_FailsOpen(t *testing.T) {
+	t.Parallel()
+	// OPA error → fail-open: empty BudgetStatus, no error returned.
+	eval := &stubEvaluator{budgetErr: errors.New("OPA unavailable")}
+	counter := &mockSpendCounter{spend: 10.0}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("OPA error should not propagate, got: %v", err)
+	}
+	if status.HasLimit || status.SpendLimitReached || status.CurrentSpendUSD != 0 {
+		t.Errorf("fail-open should return empty status, got: %+v", status)
 	}
 }

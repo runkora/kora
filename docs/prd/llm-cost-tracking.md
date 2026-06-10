@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-05-29  
-**Last Updated:** 2026-06-09  
+**Last Updated:** 2026-06-10  
 **Owner:** Product  
 **Stakeholders:** Platform Engineering, Security, Frontend
 
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, quota roles for scalable budget assignment, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
+Orbit's inference gateway captures token counts on every request, but the dollar cost written to `inference_usage.estimated_cost_usd` is frequently `$0.00` because provider platforms like Bedrock do not expose pricing through their inference APIs. This PRD covers the complete feature set required to make cost data accurate and actionable: an automated pricing data pipeline to record correct dollar costs at spend time, per-principal monthly budget enforcement with hard-block semantics, budget assignment via OIDC roles and individual grants, in-app threshold alerts, and role-appropriate cost dashboards for platform operators, tenant admins, and individual developers.
 
 ---
 
@@ -24,7 +24,7 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 - The `virtual_model_routes` pricing columns are populated manually, making them stale by default and absent for most models. Pricing is coupled to the routing table rather than maintained as a first-class catalog.
 - Providers such as AWS Bedrock, Google Vertex AI, and Azure OpenAI do not surface per-request dollar cost in their API responses — Orbit must resolve prices independently.
 - The analytics API (`GET /v1/analytics`, `GET /v1/analytics/me`) already aggregates `SUM(estimated_cost_usd)` correctly, but the underlying values are almost always zero, making the data meaningless.
-- ADR-0039 explicitly deferred budget controls. No quota enforcement exists. There is no mechanism to constrain or alert on agent or human spending.
+- ADR-0039 explicitly deferred budget controls. No budget enforcement exists. There is no mechanism to constrain or alert on agent or human spending.
 
 ### User Pain Points
 
@@ -53,7 +53,7 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 
 - `estimated_cost_usd > 0` on ≥ 99% of successful inference requests where the model is in the pricing catalog.
 - Budget hard-block fires correctly: zero successful inference requests are processed after a principal's monthly budget is exceeded.
-- `spend_limit_reached` correctly reflects `true` whenever `current_spend_usd >= monthly_budget_usd` on the quota API.
+- `spend_limit_reached` correctly reflects `true` whenever `current_spend_usd >= effective_limit_usd` on the budget API.
 - Cost dashboard p95 load time < 500 ms.
 
 ### Non-Goals
@@ -88,25 +88,25 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 **So that** a misbehaving or looping agent cannot accumulate unbounded costs.
 
 **Acceptance Criteria:**
-- [ ] Admin can configure a monthly budget cap (USD) for any principal in their tenant.
-- [ ] Once a principal's monthly spend reaches 100% of their cap, all further inference requests from that principal are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, and recorded with `status = "policy_denied"`.
-- [ ] The gateway returns `spend_limit_reached: true` on the quota API when the principal's spend meets or exceeds their budget. The frontend uses this flag to display a banner; no threshold percentage is involved.
+- [ ] Admin can configure a monthly budget cap (USD) on any OIDC role or individual grant for principals in their tenant.
+- [ ] Once a principal's monthly spend reaches 100% of their effective cap, all further inference requests from that principal are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, and recorded with `status = "policy_denied"`.
+- [ ] The gateway returns `spend_limit_reached: true` on the budget API when the principal's spend meets or exceeds their effective limit. The frontend uses this flag to display a banner; no threshold percentage is involved.
 - [ ] The budget resets automatically at the start of each calendar month (00:00 UTC on the 1st).
-- [ ] Deleting a quota removes the cap immediately; spend already recorded for the month is not adjusted, and in-flight requests complete normally.
+- [ ] Removing a budget from a role or grant removes the cap immediately; spend already recorded for the month is not adjusted, and in-flight requests complete normally.
 
 ---
 
 **As a** tenant admin,  
-**I want to** define quota roles (e.g. "engineer", "agent") and assign principals to them,  
-**So that** I can apply a shared budget policy to a range of principals without configuring each one individually.
+**I want to** assign monthly budget caps to OIDC roles (e.g. "engineer", "agent") and set individual per-principal budget overrides on grants,  
+**So that** I can apply a shared budget policy to a class of principals and add individual exceptions without configuring each one separately.
 
 **Acceptance Criteria:**
-- [ ] Admin can create, update, and delete named quota roles within their tenant.
-- [ ] Each quota role defines a `monthly_budget_usd` that applies individually to every principal assigned to the role (not a shared pool).
-- [ ] Admin can assign any principal to a quota role.
-- [ ] Admin can set a principal-level quota override that takes precedence over the role quota for that principal.
-- [ ] Budget enforcement at request time follows: individual quota (if set) → role quota (if assigned) → no limit.
-- [ ] Removing a principal's individual override reverts them to their role quota.
+- [ ] Admin can set a `budget` (monthly limit USD, reset cadence) on any OIDC role for their tenant; all principals whose OIDC token carries that role inherit the role's budget limit.
+- [ ] Admin can set a `budget` on any individual grant for a principal; an individual grant budget raises the effective limit when it exceeds the role budget (MAX resolution).
+- [ ] Budget assignment is part of the role/grant record — no separate quota object or table.
+- [ ] Effective budget resolution follows MAX across all categories: the principal's effective limit is the highest budget limit configured across all their OIDC roles and individual grants. Grants never reduce a principal's effective limit below their role budget.
+- [ ] Spend accumulates against every applicable category simultaneously (per-role counter, per-grant counter). Each category has its own reporting and reset schedule.
+- [ ] Removing a budget from a role or grant removes that category's contribution to the effective limit immediately; the MAX across remaining categories becomes the new effective limit.
 
 ---
 
@@ -118,7 +118,7 @@ The inference gateway writes one `InferenceUsageRecord` to PostgreSQL per reques
 - [ ] The existing `/model-gateway/my-usage` page displays accurate dollar costs for the authenticated principal once the pricing pipeline is live (no `$0.00` placeholders).
 - [ ] Cost is broken down by virtual model.
 - [ ] A time-series chart shows spend over the selected period.
-- [ ] If the principal has a budget set and their current spend meets or exceeds it, a notification banner is visible on the page. The backend computes and returns `spend_limit_reached: bool` on the quota API; the frontend renders the banner when true.
+- [ ] If the principal has a budget set and their current spend meets or exceeds it, a notification banner is visible on the page. The backend computes and returns `spend_limit_reached: bool` on the budget API; the frontend renders the banner when true.
 
 ---
 
@@ -158,11 +158,13 @@ The feature is delivered in three layers:
 A background sync worker pulls model pricing from LiteLLM's `model_prices_and_context_window.json` on a daily schedule. Prices are written to a dedicated `model_pricing` table keyed by `(provider, model_id)` — decoupled from the routing table `virtual_model_routes`. The sync always refreshes the synced price columns across all four pricing dimensions (input, output, cache read, cache write); it never clears or overwrites the nullable override columns. Platform admins may set nullable override columns for any of the four dimensions on any `model_pricing` row. At inference request time the gateway resolves each effective price in order: override (if non-null) → synced price → `$0.00` with `price_unknown` flag. The four effective prices and the `price_unknown` flag are written directly onto each `inference_usage` record at request time — each record is a self-contained audit entry. A `StaticPricingCache` implementation already exists; this layer replaces `NewNopPricingCache()` with a real, database-backed, periodically-refreshed implementation.
 
 **2. Budget Enforcement**  
-Principals may be subject to a monthly budget cap via two mechanisms: a principal-level `PrincipalQuota` record, or membership in a `QuotaRole`. A quota role defines a `monthly_budget_usd` that applies individually to each member principal — it is not a shared spending pool. A principal-level quota always takes precedence over a role quota. The quota tables (`principal_quotas`, `quota_roles`, `principal_quota_role_memberships`) live in the **policy-service** database alongside grants and roles — budget limits are a policy concern, not a gateway concern.
+Principals may be subject to a monthly budget cap via two mechanisms: a `budget` field on their OIDC role mapping (`policy_role_scopes`) and/or a `budget` field on an individual grant (`policy_grants`). Both carry `{ monthly_limit_usd, reset_cadence }` as an inline JSONB object — parallel to `scopes` on the same record. A principal's effective budget is the MAX across all budget assignments (OIDC roles and individual grants), consistent with how scopes resolve as UNION. Grants never restrict below a role's budget. `budget: null` on a record means no budget is assigned for that category.
 
-Budget enforcement is OPA-native. Quota limits and role memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` alongside grants and roles. The `orbit.budget` Rego module evaluates the allow/deny decision: it resolves the effective limit (individual → role → no limit) and compares it against the injected current spend. The inference gateway reads current monthly spend from Redis (a counter keyed by `quota:{principal_id}:{year_month}`), injects it into the OPA input document, and evaluates `data.orbit.budget.budget_allow` via the policy evaluator's `CheckBudget` method. If the result is `false`, the request is rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`. The resolution order and enforcement logic live entirely in Rego — adding or changing enforcement rules requires no Go service changes.
+Budget enforcement is OPA-native. Budget assignments are compiled into each tenant's OPA bundle as `data.budgets`, keyed by `principal_id`. The compiler pre-computes `effective_limit_usd` (MAX across all categories) and includes a `categories` array for per-source spend counter construction. The `orbit.budget` Rego module evaluates the allow/deny decision: it compares the injected current spend against `effective_limit_usd`. The inference gateway reads current monthly spend from Redis (counters keyed by `budget:{principal_id}:role:{role_name}:{period}` and `budget:{principal_id}:grant:{grant_id}:{period}`), injects it into the OPA input document, and evaluates `data.orbit.budget.budget_allow` via the policy evaluator's `CheckBudget` method. If the result is `false`, the request is rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`. The resolution logic and enforcement rules live entirely in Rego — adding or changing enforcement rules requires no Go service changes.
 
-A quota API endpoint returns `spend_limit_reached: bool` alongside `monthly_budget_usd` and `current_spend_usd`; `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly with no client-side threshold logic. Redis is not the source of truth for spend — it is a fast read layer over `inference_usage`; on cache miss it is rehydrated using `SELECT SUM(estimated_cost_usd) FROM inference_usage WHERE DATE_TRUNC('month', created_at) = current_month`. Records where `estimated_cost_usd = 0` due to an unknown price contribute zero to the counter; `price_unknown` records are not backfilled into the budget retrospectively. Monthly spend is computed using `DATE_TRUNC('month', created_at)` — no mutable counter is reset at midnight. Cost is attributed to the month in which the request completes. Budget checks are fail-open: if OPA or Redis is unreachable, the request proceeds and the event is logged. This is a fixed platform behaviour and is not configurable per tenant.
+Spend is written to every applicable category counter simultaneously so that per-category reporting, alerting, and reset tracking are all maintained independently.
+
+A budget API endpoint returns `spend_limit_reached: bool` alongside `monthly_budget_usd` (the effective limit) and `current_spend_usd`; `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly with no client-side threshold logic. Redis is not the source of truth for spend — it is a fast read layer over `inference_usage`; on cache miss it is rehydrated using `SELECT SUM(estimated_cost_usd) FROM inference_usage WHERE DATE_TRUNC('month', created_at) = current_month`. Records where `estimated_cost_usd = 0` due to an unknown price contribute zero to the counter; `price_unknown` records are not backfilled into the budget retrospectively. Monthly spend is computed using `DATE_TRUNC('month', created_at)` — no mutable counter is reset at midnight. Cost is attributed to the month in which the request completes. Budget checks are fail-open: if OPA or Redis is unreachable, the request proceeds and the event is logged. This is a fixed platform behaviour and is not configurable per tenant.
 
 **3. Frontend Dashboards**  
 Role-appropriate views surface cost data from the existing analytics endpoints. No new API surface is required for the core dashboards — the existing `/v1/analytics`, `/v1/analytics/me`, and `/v1/analytics/principals` endpoints already return the needed aggregations. The frontend gap is that these views do not yet exist.
@@ -196,10 +198,10 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 #### Tenant Admin — Budget Management Flow
 
-1. Admin navigates to **Policy → Quotas** (`/policy/quotas`) in the Orbit UI.
-2. Views all principals in their tenant with their current monthly spend, effective budget cap (individual or role), and utilisation progress bar.
-3. Navigates to **Roles** tab to create, edit, and delete quota roles (e.g. "engineer", "agent") and assign principals to them.
-4. Clicks a principal → can set or edit an individual quota override (`monthly_budget_usd`) or remove the override to revert the principal to their role quota.
+1. Admin navigates to **Policy → Roles** (`/policy/roles`) to set a monthly budget cap on an OIDC role (e.g. "engineer" → $50/month).
+2. Admin navigates to **Policy → Grants** (`/policy/grants`) to set a monthly budget cap on an individual grant, raising the effective limit for that principal above their role budget.
+3. Budget configuration is part of the role/grant editing UX — no separate Quotas page.
+4. Admin can view per-principal spend, effective budget limit, and utilisation from the **Model Gateway → Analytics → Principals** tab.
 
 #### Developer / Agent Operator Flow
 
@@ -213,12 +215,12 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - **`model_pricing` table**: New global pricing catalog keyed by `(provider, model_id)`. Contains four synced columns (`synced_input_cost_per_1m`, `synced_output_cost_per_1m`, `synced_cache_read_cost_per_1m`, `synced_cache_write_cost_per_1m`) written by the sync worker, and four nullable override columns (same names, `override_` prefix) set by platform admins. Decoupled from `virtual_model_routes`.
 - **DB-backed PricingCache**: Replaces `NewNopPricingCache()`. Loaded from `model_pricing` at startup, refreshed every 5 minutes in the background. Resolves each of the four effective prices via override-first COALESCE. Read by `service.go` at request dispatch.
 - **Effective prices on `inference_usage`**: Four `effective_*_cost_per_1m` columns and a `price_unknown` flag are written onto each `inference_usage` record at request time. Every record is a self-contained audit entry — no join required to reconstruct what was charged.
-- **Quota Store**: Three tables (`principal_quotas`, `quota_roles`, `principal_quota_role_memberships`) owned by the **policy-service** database. Budget limits and role memberships are compiled into each tenant's OPA bundle as `data/quotas/data.json` — same pipeline as grants and roles. Redis counter (`quota:{principal_id}:{year_month}`) is the fast spend read layer; rehydrated from `inference_usage` on miss using `DATE_TRUNC('month', created_at)` aggregation.
-- **OPA Budget Module (`orbit.budget`)**: A `budget.rego` policy module compiled into every tenant bundle. Evaluates `budget_allow` and `spend_limit_reached` by comparing injected `current_spend_usd` against quota data in `data.quotas`. Resolution order (`individual quota → role quota → no limit`) is implemented in Rego. Enforced via the policy evaluator's `CheckBudget` method in the inference gateway.
+- **Budget Store**: A nullable `budget JSONB` column on `policy_role_scopes` and `policy_grants`. Budget limits are compiled into each tenant's OPA bundle as `data.budgets` — same pipeline as grants and roles. Redis counters (`budget:{principal_id}:role:{role_name}:{period}` and `budget:{principal_id}:grant:{grant_id}:{period}`) are the fast spend read layer; rehydrated from `inference_usage` on miss using `DATE_TRUNC('month', created_at)` aggregation.
+- **OPA Budget Module (`orbit.budget`)**: A `budget.rego` policy module compiled into every tenant bundle. Evaluates `budget_allow` by comparing injected `current_spend_usd` against `data.budgets[principal_id].effective_limit_usd` (pre-computed MAX at bundle compile time). Enforced via the policy evaluator's `CheckBudget` method in the inference gateway.
 - **Budget Check Gate**: A step in `Service.{ChatCompletion, AnthropicMessages, Embed, ...}` that reads current spend from Redis, injects it into OPA input, and evaluates `orbit.budget.budget_allow`. Rejects with HTTP 429 and `error_code = "BUDGET_EXCEEDED"` if the result is `false`. Recorded with `status = "policy_denied"`. Fails open on OPA or Redis unavailability.
-- **Quota API**: Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly to show or hide the banner — no client-side threshold logic.
+- **Budget API**: Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is derived from the OPA evaluation result. The frontend uses this flag directly to show or hide the banner — no client-side threshold logic.
 - **Cost Dashboards (Frontend)**: Three surfaces: (1) new `/model-gateway/platform-usage` page for platform operators (cross-tenant aggregate + per-tenant breakdown, default 30-day range); (2) enhancements to the existing `/model-gateway/analytics` page for tenant admins (Principals tab with per-principal spend leaderboard, default 30-day range); (3) enhancements to the existing `/model-gateway/my-usage` page for developers (accurate cost data + budget alert banner).
-- **Budget Management UI**: New `/policy/quotas` page in the Policy section. Principals tab lists all principals with effective quota, current spend, and utilisation progress bar (individual or role quota indicated). Roles tab manages quota role definitions and principal assignments. Individual override set/clear available on the principal detail view.
+- **Budget Management UI**: Budget configuration is part of the existing **Policy → Roles** and **Policy → Grants** pages — no separate Quotas page. The Roles edit form gains a `Monthly budget (USD)` field with a `reset_cadence` selector. The Grant edit form gains the same fields. Per-principal spend and effective budget utilisation is visible from the **Model Gateway → Analytics → Principals** tab.
 - **Provider Catalog pricing enhancements**: The existing Provider Catalog tab gains an **Effective Price** column (override indicator / synced indicator / price-unknown warning) and a sync status banner on the Catalog page. The detail overlay surfaces read-only sync metadata, override price inputs with a clear action, and mirrors the enable/disable toggle. A price-over-time chart sourced from `inference_usage` is included as an experimental feature delivered as a dedicated atomic commit — only models with actual usage data appear.
 
 ---
@@ -232,13 +234,15 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Effective prices (`effective_*_cost_per_1m`) and `price_unknown` flag written onto each `inference_usage` record at request time, providing a self-contained audit trail.
 - Price resolution order at request time: platform admin override → synced catalog price → `$0.00` with `price_unknown` flag.
 - Per-principal monthly budget caps with hard-block enforcement (HTTP 429, `BUDGET_EXCEEDED`).
-- Quota roles: named roles with a `monthly_budget_usd` applied individually per member principal. Individual overrides take precedence over role quotas.
-- Server-computed `spend_limit_reached` flag on the quota API (`current_spend_usd >= monthly_budget_usd`); shown as a banner on `/model-gateway/my-usage` when true.
+- Budget assignment via a `budget JSONB` field inline on OIDC role mappings (`policy_role_scopes`) and individual grants (`policy_grants`). `budget: null` means no limit.
+- Effective budget resolution uses MAX across all applicable OIDC role and grant budget assignments. Grants never reduce a principal's effective limit below their role budget.
+- Spend accumulated against all applicable category counters simultaneously for per-category reporting and reset tracking.
+- Server-computed `spend_limit_reached` flag on the budget API (`current_spend_usd >= effective_limit_usd`); shown as a banner on `/model-gateway/my-usage` when true.
 - Monthly calendar reset of budget state using `DATE_TRUNC('month', created_at)` — no mutable counter.
 - Cost attributed to the month in which the request completes.
 - New `/model-gateway/platform-usage` page for platform operators: aggregate and per-tenant spend breakdown by model, provider, and time.
 - Enhancements to existing `/model-gateway/analytics` page for tenant admins: Principals tab with per-principal spend leaderboard.
-- New `/policy/quotas` page for tenant admins: budget cap management per principal and role, with utilisation progress bars.
+- Budget configuration on existing Policy → Roles and Policy → Grants pages: inline `budget` field on role/grant edit forms.
 - Enhancements to existing `/model-gateway/my-usage` page for developers: accurate cost data and budget limit banner.
 
 ### Out of Scope
@@ -275,27 +279,24 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - [ ] The active `PricingCache` implementation is database-backed and periodically refreshed; `NewNopPricingCache()` is no longer wired in production.
 - [ ] `estimated_cost_usd` is non-zero for all models present in the pricing catalog on successful requests.
 - [ ] Records where price is unknown at write time are written with `estimated_cost_usd = 0` and a `price_unknown` flag.
-- [ ] A `principal_quotas` table stores individual per-principal budget overrides (`monthly_budget_usd`).
-- [ ] A `quota_roles` table stores named quota roles (`name`, `monthly_budget_usd`) scoped to a tenant.
-- [ ] A `principal_quota_role_memberships` join table assigns principals to quota roles.
-- [ ] Effective quota resolution at request time: individual quota (if set) → role quota (if assigned) → no limit.
-- [ ] Budget check reads a Redis counter (`quota:{principal_id}:{year_month}`) before routing; counter is rehydrated from `SELECT SUM(estimated_cost_usd) ... WHERE DATE_TRUNC('month', created_at) = current_month` on cache miss. No mutable counter is reset at month boundary.
-- [ ] Requests from a principal whose monthly spend ≥ effective `monthly_budget_usd` are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`.
+- [ ] A nullable `budget JSONB` column exists on `policy_role_scopes` and `policy_grants`. `budget: null` means no limit for that category.
+- [ ] Budget schema on a role/grant record: `{ monthly_limit_usd: number, reset_cadence: "monthly" }`.
+- [ ] Effective budget resolution uses MAX across all applicable OIDC role and individual grant budget assignments. Grants never reduce a principal's effective limit below their role budget. A principal with no budget assignments has no limit.
+- [ ] Spend accumulates against all applicable category counters simultaneously. Per-category Redis counters keyed by `budget:{principal_id}:role:{role_name}:{period}` and `budget:{principal_id}:grant:{grant_id}:{period}`.
+- [ ] Budget check reads per-category Redis counters before routing; counters are rehydrated from `SELECT SUM(estimated_cost_usd) ... WHERE DATE_TRUNC('month', created_at) = current_month` on cache miss. No mutable counter is reset at month boundary.
+- [ ] Requests from a principal whose monthly spend ≥ `effective_limit_usd` are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"`, recorded with `status = "policy_denied"`.
 - [ ] Cost is attributed to the month in which the request completes (when `estimated_cost_usd` is written), not when it starts.
 - [ ] Monthly spend resets naturally via the `DATE_TRUNC` aggregation — no explicit reset job required.
-- [ ] Tenant admin can create, update, and delete quota roles for their tenant via API (requires `platform:quotas:write` scope, tenant-scoped).
-- [ ] Tenant admin can assign and remove principals from quota roles via API (requires `platform:quotas:write` scope, tenant-scoped).
-- [ ] Tenant admin can set, update, and delete individual principal quota overrides for principals in their tenant via API (requires `platform:quotas:write` scope, tenant-scoped). Platform operators may manage quotas across tenants.
+- [ ] Tenant admin can set or clear a `budget` on any role or grant via the existing role/grant edit API (requires `platform:budgets:write` scope, tenant-scoped). Platform operators may manage budgets across tenants.
 - [ ] Platform operator cost dashboard exists at `/model-gateway/platform-usage` (aggregate and per-tenant spend breakdown by model, provider, and time; default range 30 days). Requires `platform:catalog:write` scope.
-- [ ] Existing `/model-gateway/analytics` page is enhanced with a Principals tab showing per-principal spend leaderboard for tenant admins (default range 30 days). Requires `platform:analytics:read` scope.
-- [ ] New `/policy/quotas` page exists for tenant admins: Principals tab (effective quota, spend, utilisation per principal), Roles tab (create/edit/delete roles, assign principals). Requires `platform:quotas:read`/`write` scope.
-- [ ] A quota API endpoint returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is computed server-side as `current_spend_usd >= monthly_budget_usd`.
+- [ ] Existing `/model-gateway/analytics` page is enhanced with a Principals tab showing per-principal spend leaderboard and effective budget for tenant admins (default range 30 days). Requires `platform:analytics:read` scope.
+- [ ] A budget API endpoint returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached: bool }` for the authenticated principal. `spend_limit_reached` is computed server-side via OPA `CheckBudget`.
 - [ ] Existing `/model-gateway/my-usage` page displays accurate dollar costs (no `$0.00` placeholders) and shows a budget limit banner when `spend_limit_reached` is true.
 
 - [ ] Provider Catalog tab gains an Effective Price column with synced/override/unknown indicators; model rows are clickable and open a detail overlay with sync metadata, override inputs (all four dimensions), clear action, and mirrored enable/disable toggle.
 
 **Should Have (P1):**
-- [ ] Budget utilization progress bar on the `/policy/quotas` per-principal view.
+- [ ] Budget utilisation progress bar on the Analytics → Principals view showing spend vs effective limit per principal.
 - [ ] Pricing sync status banner on the Catalog page header (last sync time, models updated, error count) with expandable run log.
 **Nice to Have (P2):**
 - [ ] A "price unknown" report in the admin UI listing models with no pricing data.
@@ -310,7 +311,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 **Security:**
 - Principals may only view their own cost data; tenant admins may view and manage within their own tenant only; platform operators may view across tenants.
-- Budget quota administration (principal quotas and quota roles) requires `platform:quotas:write` scope; reads require `platform:quotas:read`. All quota API operations are tenant-scoped — a tenant admin cannot read or write quotas for principals outside their own tenant.
+- Budget administration (setting/clearing a budget on roles and grants) requires `platform:budgets:write` scope; reads require `platform:budgets:read`. All budget API operations are tenant-scoped — a tenant admin cannot read or write budgets for principals outside their own tenant.
 - Pricing override administration requires `platform:catalog:write` scope.
 - Budget check must be evaluated inside the trust boundary of the inference gateway — never client-supplied.
 
@@ -461,19 +462,21 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - Verify `estimated_cost_usd > 0` on test requests for all supported providers.
 
 **Phase 2: Budget Enforcement** (Target: TBD)
-- Migrate `principal_quotas`, `quota_roles`, and `principal_quota_role_memberships` tables to policy-service database.
-- Implement quota repository and CRUD API routes in policy-service under `platform:quotas:read`/`write` scopes.
-- Extend policy-service bundle compiler to include `data/quotas/data.json` in every tenant bundle; recompile on every quota write.
-- Implement `policy/budget.rego` (`orbit.budget` module) with OPA-native resolution: individual quota → role quota → no limit.
-- Add `CheckBudget` method to `platform/policy.Evaluator` interface and in-process engine.
-- Rewrite inference gateway budget check: read spend from Redis, inject into OPA input, evaluate `orbit.budget.budget_allow`.
-- Remove `QuotaCache`, `QuotaRepository`, and inference-gateway quota handlers.
-- Add quota status API endpoint (`spend_limit_reached`, `current_spend_usd`, `monthly_budget_usd`) to policy-service.
+- Modify migration `20260609000001` in place: drop `quota_roles`, `principal_quota_role_memberships`, `principal_quotas`; add nullable `budget JSONB` to `policy_role_scopes` and `policy_grants`.
+- Update `UpsertRole` and grant write operations to explicitly preserve the `budget` field when only scopes are being updated.
+- Extend policy-service bundle compiler: replace `data/quotas/data.json` with `data.budgets` document keyed by `principal_id`; pre-compute `effective_limit_usd` (MAX) and include `categories` array at compile time; recompile on every role or grant write.
+- Rewrite `policy/budget.rego` (`orbit.budget` module) for the new `data.budgets` shape: compare `current_spend_usd` against `data.budgets[principal_id].effective_limit_usd`.
+- Add `CheckBudget` method to `platform/policy.Evaluator` interface and in-process engine (already present — update implementation for new bundle shape).
+- Rewrite inference gateway budget check: read all per-category Redis counters for the principal, inject total into OPA input, evaluate `orbit.budget.budget_allow`.
+- Write spend to all per-category Redis counters simultaneously on each usage write.
+- Remove old `quota_roles`, `principal_quota_role_memberships`, `principal_quotas` tables and their handlers; remove quota CRUD API routes.
+- Add budget status API endpoint (`spend_limit_reached`, `current_spend_usd`, `monthly_budget_usd`) — the effective values derived from `data.budgets` in the OPA bundle.
+- Execute full `quota` → `budget` terminology rename across all surviving files (see `BUDGET-REDESIGN.md` Removal & Rename Plan for file-by-file detail).
 
 **Phase 3: Frontend Dashboards** (Target: TBD)
 - New `/model-gateway/platform-usage` page (platform operator: aggregate + per-tenant spend breakdown, by model, provider, time; default 30-day range).
-- Enhance `/model-gateway/analytics` with Principals tab (per-principal spend leaderboard for tenant admins; default 30-day range).
-- New `/policy/quotas` page: Principals tab (effective quota, spend, utilisation progress bar per principal; individual/role source indicated), Roles tab (create/edit/delete quota roles, assign principals, manage overrides).
+- Enhance `/model-gateway/analytics` with Principals tab (per-principal spend leaderboard for tenant admins, with effective budget column; default 30-day range).
+- Budget configuration fields (`Monthly budget (USD)`, `Reset cadence`) added to existing Policy → Roles and Policy → Grants edit forms.
 - Enhance `/model-gateway/my-usage` with accurate cost data and budget limit banner.
 - Provider Catalog tab: Effective Price column (synced/override/unknown indicators) and clickable row detail overlay (sync metadata, override inputs for all four dimensions, clear action, mirrored enable/disable toggle).
 - Catalog page header: sync status banner (last sync time, models updated, error count, expandable run log).
@@ -497,6 +500,8 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - [ADR-0039](../adr/0039-virtual-model-catalog-and-platform-routing.md) - Virtual model catalog; budget controls deferral decision
 - [ADR-0040](../adr/0040-inference-usage-logs.md) - Inference usage logs and PAT attribution
 - [ADR-0043](../adr/0043-inference-analytics.md) - Analytics endpoints and aggregation design
+- [LLM Cost Tracking ADR](../adr/2026-06-05-llm-cost-tracking.md) - Pricing pipeline, budget storage, and enforcement decisions (Decisions 1–4 accepted; Decision 5 superseded by [Budget Model Redesign ADR](../adr/2026-06-10-budget-model-redesign.md))
+- [Budget Model Redesign ADR](../adr/2026-06-10-budget-model-redesign.md) - Inline budget JSONB on roles/grants, MAX resolution, per-category spend accumulation
 
 ### Glossary
 
@@ -505,14 +510,13 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - **`effective_*_cost_per_1m` columns:** Four columns added to `inference_usage` recording the prices actually used to compute `estimated_cost_usd` for that request. Together with `price_unknown`, they make each record a self-contained audit entry.
 - **`virtual_model_routes`:** Database table mapping a virtual model to ordered provider targets. Pricing columns on this table are superseded by `model_pricing`.
 - **`PricingCache`:** The in-process interface in `internal/inferencegw/pricing.go` that the service layer calls to resolve model prices. Currently wired to a no-op implementation; to be replaced with a DB-backed implementation that resolves override → synced → unknown across all four dimensions.
-- **`PrincipalQuota`:** A per-principal budget override record storing `monthly_budget_usd`. Takes precedence over any role quota. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.principal_quotas`.
-- **`QuotaRole`:** A named quota policy (e.g. "engineer", "agent") storing `monthly_budget_usd`, scoped to a tenant. Applied individually to each member principal — not a shared spending pool. Owned by the policy-service database; compiled into the tenant's OPA bundle as `data.quotas.roles` and `data.quotas.memberships`.
-- **Effective quota:** The quota that applies to a principal at enforcement time, resolved by the `orbit.budget` Rego module: individual `PrincipalQuota` (if set) → `QuotaRole` membership (if assigned) → no limit.
-- **Redis quota counter:** A key `quota:{principal_id}:{year_month}` incremented on each inference usage write by the `estimated_cost_usd` of that request. The fast read layer for budget checks; rehydrated from `SELECT SUM(estimated_cost_usd) FROM inference_usage WHERE DATE_TRUNC(...)` on miss. Records where `estimated_cost_usd = 0` (price unknown) contribute zero to the counter. Not the source of truth.
-- **`orbit.budget` Rego module:** The OPA policy module compiled into every tenant bundle. Evaluates `budget_allow` and `spend_limit_reached` by comparing injected `current_spend_usd` against `data.quotas` bundle data. The enforcement logic and resolution order live entirely in Rego.
-- **Fail-open:** Fixed platform behaviour when the quota store is unreachable — the request proceeds rather than is blocked, and the event is logged. Not configurable per tenant.
-- **Hard block:** Enforcement mode where requests are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"` (`status = "policy_denied"`) once a principal's monthly spend meets or exceeds their effective budget cap.
-- **`spend_limit_reached`:** A boolean flag returned by the quota API, derived from the OPA evaluation of `data.orbit.budget.budget_allow`. It indicates whether the principal's current monthly spend has triggered the budget enforcement policy and further requests will be disallowed. The specific logic is defined in the `orbit.budget` Rego module — not a hardcoded client-side comparison. The frontend uses this flag to show or hide the budget limit banner with no client-side logic.
+- **Budget assignment:** A `budget: { monthly_limit_usd, reset_cadence }` object stored inline on a `policy_role_scopes` or `policy_grants` record, parallel to `scopes`. `budget: null` means no limit for that category. Budget assignments are the source of truth for per-principal spend limits; compiled into the tenant's OPA bundle as `data.budgets`.
+- **Effective budget:** The `effective_limit_usd` value pre-computed at bundle compile time as the MAX across all applicable budget assignments (OIDC role budgets and individual grant budgets) for a principal. Grants never reduce a principal's effective limit below a role budget.
+- **Budget category counter:** A per-source-per-principal Redis counter. Roles use `budget:{principal_id}:role:{role_name}:{period}`; grants use `budget:{principal_id}:grant:{grant_id}:{period}`. Spend is written to all applicable category counters simultaneously on each inference request. Each category has its own reporting and reset tracking.
+- **`orbit.budget` Rego module:** The OPA policy module compiled into every tenant bundle. Evaluates `budget_allow` by comparing injected `current_spend_usd` against `data.budgets[principal_id].effective_limit_usd`. The enforcement logic lives entirely in Rego.
+- **Fail-open:** Fixed platform behaviour when the budget store is unreachable — the request proceeds rather than is blocked, and the event is logged. Not configurable per tenant.
+- **Hard block:** Enforcement mode where requests are rejected with HTTP 429 and `error_code = "BUDGET_EXCEEDED"` (`status = "policy_denied"`) once a principal's monthly spend meets or exceeds their effective budget limit.
+- **`spend_limit_reached`:** A boolean flag returned by the budget API, derived from the OPA evaluation of `data.orbit.budget.budget_allow`. It indicates whether the principal's current monthly spend has triggered the budget enforcement policy and further requests will be disallowed. The specific logic is defined in the `orbit.budget` Rego module — not a hardcoded client-side comparison. The frontend uses this flag to show or hide the budget limit banner with no client-side logic.
 - **`price_unknown` flag:** Indicator on an `inference_usage` record that no price was available at write time, causing `estimated_cost_usd = 0`. These records contribute zero to budget enforcement counters and are not retroactively recomputed.
 
 ---

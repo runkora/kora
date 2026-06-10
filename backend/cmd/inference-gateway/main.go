@@ -181,8 +181,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	)
 	go pricingSyncWorker.Start(ctx)
 
-	quotaCounter := inferencegw.NewRedisQuotaCounter(redis, usageRepo, logger)
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, quotaCounter, logger)
+	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
@@ -255,9 +255,9 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
-		// GET /v1/usage/quota is personal — any authenticated caller may check
-		// their own quota. Listed before /v1/usage so the more-specific path wins.
-		{PathPrefix: "/v1/usage/quota", Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/budget is personal — any authenticated caller may check
+		// their own budget. Listed before /v1/usage so the more-specific path wins.
+		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 	}
 }

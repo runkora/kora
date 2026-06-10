@@ -1,6 +1,6 @@
 # LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles
 
-**Status:** Proposed  
+**Status:** Proposed (Decision 5 superseded by [Budget Model Redesign ADR](2026-06-10-budget-model-redesign.md) 2026-06-10)  
 **Date:** 2026-06-05  
 **Deciders:** Platform Engineering  
 **Technical Story:** [PRD: LLM Cost Tracking](../prd/llm-cost-tracking.md)
@@ -328,6 +328,8 @@ WHERE principal_id = $1
 
 ## Decision 5: Quota Model — Roles and Resolution Order
 
+> **Superseded 2026-06-10.** See [Budget Model Redesign ADR](2026-06-10-budget-model-redesign.md). The three-table quota model below was replaced with inline `budget JSONB` on `policy_role_scopes` and `policy_grants`, MAX resolution, and per-category Redis spend counters. Decisions 1–4 remain accepted.
+
 ### Considered Options
 
 #### Option A: Per-principal quotas only
@@ -601,4 +603,4 @@ See PRD Phase 3 milestones.
 
 **Why is the budget limit state a server-computed flag rather than a client-side calculation?** The frontend should not contain business logic. If the definition of "limit reached" ever changes — for example, if a grace amount or grace period is introduced — a client-side calculation would require updates in every frontend surface. The backend computes `spend_limit_reached = current_spend_usd >= monthly_budget_usd` and returns it on the quota API. The frontend reads the flag and renders the banner. There is no configurable alert threshold percentage — the limit and the banner are the same concept at the same boundary.
 
-**Last Updated:** 2026-06-09
+**Last Updated:** 2026-06-10 (Decision 5 superseded by Budget Model Redesign ADR)

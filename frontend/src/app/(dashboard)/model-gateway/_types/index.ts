@@ -160,11 +160,11 @@ export interface AnalyticsPrincipalsPageResponse {
   limit: number;
 }
 
-// ── Quota ─────────────────────────────────────────────────────────────────────
+// ── Budget ─────────────────────────────────────────────────────────────────────
 //
-// Mirrors QuotaStatus in backend/internal/inferencegw/models.go.
+// Mirrors BudgetStatus in backend/internal/inferencegw/models.go.
 
-export interface QuotaStatus {
+export interface BudgetStatus {
   monthly_budget_usd: number;
   current_spend_usd: number;
   spend_limit_reached: boolean;

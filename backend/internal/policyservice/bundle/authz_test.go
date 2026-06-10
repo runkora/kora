@@ -64,7 +64,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -223,7 +223,7 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
