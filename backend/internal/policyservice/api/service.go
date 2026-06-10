@@ -128,6 +128,24 @@ func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error
 	return s.grantRepo.GetByID(ctx, id)
 }
 
+// UpdateGrantBudget replaces the budget assignment on an existing grant in
+// place. The grant ID is preserved so the period's spend-attribution counters
+// remain attached. A nil budget removes the assignment.
+func (s *Service) UpdateGrantBudget(ctx context.Context, id, tenantID string, budget *grants.BudgetAssignment) (*grants.Grant, error) {
+	if err := s.grantRepo.UpdateBudget(ctx, id, tenantID, budget); err != nil {
+		return nil, err
+	}
+	g, err := s.grantRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
+	return g, nil
+}
+
 func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) error {
 	if err := s.grantRepo.Delete(ctx, id, tenantID); err != nil {
 		return err

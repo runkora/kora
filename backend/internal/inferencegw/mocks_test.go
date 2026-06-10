@@ -30,6 +30,7 @@ type mockInferenceUsageRepository struct {
 	analyticsErr   error
 	principalsResp AnalyticsPrincipalsResponse
 	principalsErr  error
+	periodSpends   []PrincipalPeriodSpend
 	lastFilter     InferenceUsageFilter // captured on each List call
 	lastAnalytics  AnalyticsFilter      // captured on each GetAnalytics call
 }
@@ -113,6 +114,10 @@ func (m *mockInferenceUsageRepository) GetMonthlySpend(_ context.Context, _, _ s
 	return 0, nil
 }
 
+func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
+	return m.periodSpends, nil
+}
+
 // ── shared test helpers ────────────────────────────────────────────────────────
 
 // f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
@@ -171,19 +176,34 @@ func (m *mockPricingCatalogRepository) LoadAll(_ context.Context) ([]PricingCata
 var _ SpendCounter = (*mockSpendCounter)(nil)
 
 type mockSpendCounter struct {
-	spend       float64
-	getSpendErr error
-	incrErr     error
+	spend            float64
+	categorySpends   []float64
+	getSpendErr      error
+	incrErr          error
+	lastCategories   []policy.BudgetCategory
+	roleAttributions map[string][]string
 }
 
-func (m *mockSpendCounter) GetSpend(_ context.Context, _, _ string, _ []policy.BudgetCategory) (float64, error) {
+func (m *mockSpendCounter) GetSpend(_ context.Context, _, _ string) (float64, error) {
 	return m.spend, m.getSpendErr
 }
 
-func (m *mockSpendCounter) IncrementSpend(_ context.Context, _, _ string, _ []policy.BudgetCategory, amount float64) error {
+func (m *mockSpendCounter) IncrementSpend(_ context.Context, _, _ string, categories []policy.BudgetCategory, amount float64) error {
 	if m.incrErr != nil {
 		return m.incrErr
 	}
+	m.lastCategories = categories
 	m.spend += amount
 	return nil
+}
+
+func (m *mockSpendCounter) GetCategorySpends(_ context.Context, _ string, categories []policy.BudgetCategory) ([]float64, error) {
+	if m.categorySpends != nil {
+		return m.categorySpends, nil
+	}
+	return make([]float64, len(categories)), nil
+}
+
+func (m *mockSpendCounter) ListActiveRoleAttributions(_ context.Context) (map[string][]string, error) {
+	return m.roleAttributions, nil
 }

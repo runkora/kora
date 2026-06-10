@@ -31,6 +31,8 @@ type stubEvaluator struct {
 	budgetErr error
 	// lastBudgetSpend captures the currentSpendUSD passed to CheckBudget.
 	lastBudgetSpend float64
+	// lastBudgetRoles captures the roles passed to CheckBudget.
+	lastBudgetRoles []string
 	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
 	budgetCategories []policy.BudgetCategory
 	// budgetCategoriesErr, when non-nil, is returned by GetBudgetCategories.
@@ -39,6 +41,9 @@ type stubEvaluator struct {
 	roleBudgets []policy.BudgetCategory
 	// lastRoleBudgetRoles captures the roleNames passed to GetRoleBudgets.
 	lastRoleBudgetRoles []string
+	// allBudgets and allRoleBudgets are returned by ListBudgets.
+	allBudgets     map[string]policy.PrincipalBudget
+	allRoleBudgets map[string]policy.RoleBudget
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -76,8 +81,9 @@ func (s *stubEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, spend float64) (policy.BudgetResult, error) {
+func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, roles []string, spend float64) (policy.BudgetResult, error) {
 	s.lastBudgetSpend = spend
+	s.lastBudgetRoles = roles
 	if s.budgetErr != nil {
 		return policy.BudgetResult{}, s.budgetErr
 	}
@@ -99,6 +105,10 @@ func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]p
 func (s *stubEvaluator) GetRoleBudgets(_ context.Context, _ string, roleNames []string) ([]policy.BudgetCategory, error) {
 	s.lastRoleBudgetRoles = roleNames
 	return s.roleBudgets, nil
+}
+
+func (s *stubEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return s.allBudgets, s.allRoleBudgets, nil
 }
 
 func (s *stubEvaluator) Start(_ context.Context) {}
@@ -419,25 +429,21 @@ func TestGetPersonalBudget_OPAError_FailsOpen(t *testing.T) {
 	}
 }
 
-func TestGetPersonalBudget_CategoriesPassedToCounter(t *testing.T) {
+func TestGetPersonalBudget_JWTRolesPassedToCheckBudget(t *testing.T) {
 	t.Parallel()
-	// GetBudgetCategories returns two categories; verify GetSpend receives them
-	// (indirectly: the mock counter sums correctly regardless of categories,
-	// so we verify that the spend value flows through unchanged).
-	cats := []policy.BudgetCategory{
-		{Source: "role", ID: "eng", ResetCadence: "monthly"},
-		{Source: "grant", ID: "g1", ResetCadence: "monthly"},
-	}
-	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 80, budgetCategories: cats}
+	// Role budgets are resolved inside OPA against the caller's JWT roles —
+	// verify the roles extracted from claims reach CheckBudget.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spend: 30.0}
 	svc := newBudgetService(eval, counter)
 
-	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	status, err := svc.GetPersonalBudget(ctxWithRoles(t, "eng", "power-user"), "tenant-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if eval.lastBudgetSpend != 30.0 {
-		t.Errorf("CheckBudget received spend = %v, want 30.0", eval.lastBudgetSpend)
+	want := []string{"eng", "power-user"}
+	if len(eval.lastBudgetRoles) != 2 || eval.lastBudgetRoles[0] != want[0] || eval.lastBudgetRoles[1] != want[1] {
+		t.Errorf("CheckBudget received roles = %v, want %v", eval.lastBudgetRoles, want)
 	}
 	if status.CurrentSpendUSD != 30.0 {
 		t.Errorf("CurrentSpendUSD = %v, want 30.0", status.CurrentSpendUSD)
@@ -447,75 +453,125 @@ func TestGetPersonalBudget_CategoriesPassedToCounter(t *testing.T) {
 	}
 }
 
-func TestGetPersonalBudget_GetBudgetCategoriesError_FailsOpen(t *testing.T) {
+func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
 	t.Parallel()
-	// GetBudgetCategories errors → categories treated as nil, spend still read via legacy path.
-	eval := &stubEvaluator{
-		budgetHasLimit:      true,
-		budgetEffectiveUSD:  50,
-		budgetCategoriesErr: errors.New("OPA unavailable"),
-	}
-	counter := &mockSpendCounter{spend: 20.0}
-	svc := newBudgetService(eval, counter)
-
-	// Must not error: categories error is fail-open.
-	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
-	if err != nil {
-		t.Fatalf("categories error should not propagate, got: %v", err)
-	}
-	// Spend still flows through (legacy path, nil categories).
-	if eval.lastBudgetSpend != 20.0 {
-		t.Errorf("CheckBudget received spend = %v, want 20.0", eval.lastBudgetSpend)
-	}
-	_ = status
-}
-
-func TestGetPersonalBudget_RoleCategoriesMergedFromJWT(t *testing.T) {
-	t.Parallel()
-	// JWT carries "eng" role. GetRoleBudgets returns one role category.
-	// GetBudgetCategories returns one grant category.
-	// mergeRoleCategories should append the role category so the counter
-	// receives both. The mock counter sums correctly regardless of categories,
-	// so we verify that GetRoleBudgets was called with the extracted role names.
-	roleCat := policy.BudgetCategory{Source: "role", ID: "eng", ResetCadence: "monthly"}
-	eval := &stubEvaluator{
-		budgetHasLimit:     true,
-		budgetEffectiveUSD: 100,
-		budgetCategories: []policy.BudgetCategory{
-			{Source: "grant", ID: "g1", ResetCadence: "monthly"},
-		},
-		roleBudgets: []policy.BudgetCategory{roleCat},
-	}
-	counter := &mockSpendCounter{spend: 30.0}
-	svc := newBudgetService(eval, counter)
-
-	// Context carries claims with role "eng".
-	ctx := ctxWithRoles(t, "eng")
-	status, err := svc.GetPersonalBudget(ctx, "tenant-1", "user-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(eval.lastRoleBudgetRoles) != 1 || eval.lastRoleBudgetRoles[0] != "eng" {
-		t.Errorf("GetRoleBudgets called with roles = %v, want [eng]", eval.lastRoleBudgetRoles)
-	}
-	if status.CurrentSpendUSD != 30.0 {
-		t.Errorf("CurrentSpendUSD = %v, want 30.0", status.CurrentSpendUSD)
-	}
-}
-
-func TestGetPersonalBudget_NoRolesInJWT_SkipsGetRoleBudgets(t *testing.T) {
-	t.Parallel()
-	// JWT has no roles claim. GetRoleBudgets must not be called.
+	// JWT has no roles claim — CheckBudget receives no roles (grant budgets only).
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spend: 10.0}
 	svc := newBudgetService(eval, counter)
 
-	// ctxWithClaims produces claims with no roles.
 	_, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if eval.lastRoleBudgetRoles != nil {
-		t.Errorf("GetRoleBudgets should not be called when no roles in JWT, got roles = %v", eval.lastRoleBudgetRoles)
+	if len(eval.lastBudgetRoles) != 0 {
+		t.Errorf("CheckBudget should receive no roles when JWT has none, got %v", eval.lastBudgetRoles)
+	}
+}
+
+func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
+	t.Parallel()
+	// Three principals:
+	//   pid-role  — role budget $50 (via attribution counter), spend $50 → blocked, utilisation 1.0
+	//   pid-grant — grant budget $80 from the bundle, spend $40 → utilisation 0.5
+	//   pid-free  — no budget, spend $10 → has_limit=false, listed after budgeted principals
+	eval := &stubEvaluator{
+		allBudgets: map[string]policy.PrincipalBudget{
+			"pid-grant": {
+				Categories: []policy.BudgetCategory{
+					{Source: "grant", ID: "g1", ResetCadence: "monthly", MonthlyLimitUSD: 80},
+				},
+				EffectiveLimitUSD: 80,
+			},
+		},
+		allRoleBudgets: map[string]policy.RoleBudget{
+			"engineer": {MonthlyLimitUSD: 50, ResetCadence: "monthly"},
+		},
+	}
+	counter := &mockSpendCounter{
+		roleAttributions: map[string][]string{"pid-role": {"engineer"}},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends: []PrincipalPeriodSpend{
+			{PrincipalID: "pid-grant", PrincipalType: "HUMAN", SpendUSD: 40},
+			{PrincipalID: "pid-role", PrincipalType: "HUMAN", SpendUSD: 50},
+			{PrincipalID: "pid-free", PrincipalType: "AGENT", SpendUSD: 10},
+		},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 3 {
+		t.Fatalf("got %d principals, want 3: %+v", len(resp.Data), resp.Data)
+	}
+
+	first := resp.Data[0]
+	if first.PrincipalID != "pid-role" || !first.SpendLimitReached || first.EffectiveLimitUSD != 50 {
+		t.Errorf("first row = %+v, want pid-role blocked at limit 50", first)
+	}
+	if len(first.Categories) != 1 || first.Categories[0].Source != "role" || first.Categories[0].ID != "engineer" {
+		t.Errorf("pid-role categories = %+v, want one role:engineer category", first.Categories)
+	}
+
+	second := resp.Data[1]
+	if second.PrincipalID != "pid-grant" || second.SpendLimitReached || second.EffectiveLimitUSD != 80 {
+		t.Errorf("second row = %+v, want pid-grant under limit 80", second)
+	}
+
+	third := resp.Data[2]
+	if third.PrincipalID != "pid-free" || third.HasLimit || third.CurrentSpendUSD != 10 {
+		t.Errorf("third row = %+v, want pid-free without limit, spend 10", third)
+	}
+}
+
+func TestListBudgetPrincipals_RoleCounterForRemovedBudgetIgnored(t *testing.T) {
+	t.Parallel()
+	// An attribution counter exists for a role whose budget has since been
+	// removed — the principal must not be reported as budgeted.
+	eval := &stubEvaluator{allRoleBudgets: map[string]policy.RoleBudget{}}
+	counter := &mockSpendCounter{
+		roleAttributions: map[string][]string{"pid-1": {"engineer"}},
+	}
+	usage := &mockInferenceUsageRepository{}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 0 {
+		t.Errorf("got %d principals, want 0 (stale role counter ignored): %+v", len(resp.Data), resp.Data)
+	}
+}
+
+func TestIncrementSpend_RoleCategoriesMergedForAttribution(t *testing.T) {
+	t.Parallel()
+	// Attribution counters: grant categories from the bundle plus role
+	// categories resolved from the JWT roles must all reach IncrementSpend.
+	roleCat := policy.BudgetCategory{Source: "role", ID: "eng", ResetCadence: "monthly"}
+	grantCat := policy.BudgetCategory{Source: "grant", ID: "g1", ResetCadence: "monthly"}
+	eval := &stubEvaluator{
+		budgetCategories: []policy.BudgetCategory{grantCat},
+		roleBudgets:      []policy.BudgetCategory{roleCat},
+	}
+	counter := &mockSpendCounter{}
+	svc := newBudgetService(eval, counter)
+
+	svc.incrementSpend(ctxWithRoles(t, "eng"), "tenant-1", "user-1", 1.25)
+
+	if len(eval.lastRoleBudgetRoles) != 1 || eval.lastRoleBudgetRoles[0] != "eng" {
+		t.Errorf("GetRoleBudgets called with roles = %v, want [eng]", eval.lastRoleBudgetRoles)
+	}
+	if len(counter.lastCategories) != 2 {
+		t.Fatalf("IncrementSpend received %d categories, want 2 (grant + role)", len(counter.lastCategories))
+	}
+	if counter.lastCategories[0] != grantCat || counter.lastCategories[1] != roleCat {
+		t.Errorf("IncrementSpend categories = %v, want [%v %v]", counter.lastCategories, grantCat, roleCat)
+	}
+	if counter.spend != 1.25 {
+		t.Errorf("counter spend = %v, want 1.25", counter.spend)
 	}
 }

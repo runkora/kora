@@ -33,9 +33,15 @@ type stubRedisOps struct {
 
 	expireErr error
 
-	// observability: record what was Set during priming.
+	// scanKeys is returned (in a single page) by Scan.
+	scanKeys []string
+	scanErr  error
+
+	// observability: record what was Set during priming and which keys
+	// were incremented, in order.
 	setKeyCapture   string
 	setValueCapture string
+	incrKeys        []string
 }
 
 func (s *stubRedisOps) Get(_ context.Context, _ string) *redis.StringCmd {
@@ -76,13 +82,24 @@ func (s *stubRedisOps) Set(_ context.Context, key string, value any, _ time.Dura
 	return cmd
 }
 
-func (s *stubRedisOps) IncrByFloat(_ context.Context, _ string, _ float64) *redis.FloatCmd {
+func (s *stubRedisOps) IncrByFloat(_ context.Context, key string, _ float64) *redis.FloatCmd {
 	cmd := redis.NewFloatCmd(context.Background())
 	if s.incrErr != nil {
 		cmd.SetErr(s.incrErr)
-	} else {
-		cmd.SetVal(s.incrVal)
+		return cmd
 	}
+	s.incrKeys = append(s.incrKeys, key)
+	cmd.SetVal(s.incrVal)
+	return cmd
+}
+
+func (s *stubRedisOps) Scan(_ context.Context, _ uint64, _ string, _ int64) *redis.ScanCmd {
+	cmd := redis.NewScanCmd(context.Background(), nil)
+	if s.scanErr != nil {
+		cmd.SetErr(s.scanErr)
+		return cmd
+	}
+	cmd.SetVal(s.scanKeys, 0)
 	return cmd
 }
 
@@ -123,6 +140,9 @@ func (s *stubUsageRepo) GetAnalytics(_ context.Context, _ AnalyticsFilter) (Anal
 func (s *stubUsageRepo) ListPrincipalUsage(_ context.Context, _ AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error) {
 	return AnalyticsPrincipalsResponse{}, nil
 }
+func (s *stubUsageRepo) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
+	return nil, nil
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -134,33 +154,33 @@ func newBudgetCounter(rdb redisOps, usage InferenceUsageRepository) *RedisBudget
 	}
 }
 
-// noCats is a convenience nil slice meaning "no configured categories" (legacy path).
+// noCats is a convenience nil slice meaning "no configured budget categories".
 var noCats []policy.BudgetCategory
 
 func roleCat(name string) policy.BudgetCategory {
 	return policy.BudgetCategory{Source: "role", ID: name, ResetCadence: "monthly"}
 }
 
-// ── legacyBudgetKey (no-category fallback) ────────────────────────────────────
+// ── canonicalBudgetKey ────────────────────────────────────────────────────────
 
-func TestLegacyBudgetKey_Format(t *testing.T) {
+func TestCanonicalBudgetKey_Format(t *testing.T) {
 	t.Parallel()
 	ts := time.Date(2026, 6, 10, 14, 30, 0, 0, time.UTC)
-	got := legacyBudgetKey("pid-abc", ts)
+	got := canonicalBudgetKey("pid-abc", ts)
 	want := "budget:pid-abc:2026-06"
 	if got != want {
-		t.Errorf("legacyBudgetKey = %q, want %q", got, want)
+		t.Errorf("canonicalBudgetKey = %q, want %q", got, want)
 	}
 }
 
-func TestLegacyBudgetKey_UsesUTCMonth(t *testing.T) {
+func TestCanonicalBudgetKey_UsesUTCMonth(t *testing.T) {
 	t.Parallel()
 	loc := time.FixedZone("UTC+2", 2*60*60)
 	ts := time.Date(2026, 7, 1, 1, 0, 0, 0, loc) // 2026-07-01 01:00 +02:00 = 2026-06-30 23:00 UTC
-	got := legacyBudgetKey("pid-1", ts)
+	got := canonicalBudgetKey("pid-1", ts)
 	want := "budget:pid-1:2026-06"
 	if got != want {
-		t.Errorf("legacyBudgetKey with non-UTC zone = %q, want %q (must use UTC month)", got, want)
+		t.Errorf("canonicalBudgetKey with non-UTC zone = %q, want %q (must use UTC month)", got, want)
 	}
 }
 
@@ -188,14 +208,14 @@ func TestCategoryKey_Grant(t *testing.T) {
 	}
 }
 
-// ── GetSpend: legacy path (no categories) ────────────────────────────────────
+// ── GetSpend (canonical counter) ─────────────────────────────────────────────
 
-func TestGetSpend_Legacy_RedisHit(t *testing.T) {
+func TestGetSpend_RedisHit(t *testing.T) {
 	t.Parallel()
 	rdb := &stubRedisOps{getVal: "42.5"}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", noCats)
+	got, err := c.GetSpend(context.Background(), "t1", "pid-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,39 +224,47 @@ func TestGetSpend_Legacy_RedisHit(t *testing.T) {
 	}
 }
 
-func TestGetSpend_Legacy_CacheMiss_ReturnsDBValue(t *testing.T) {
+func TestGetSpend_CacheMiss_RehydratesFromDB(t *testing.T) {
 	t.Parallel()
 	rdb := &stubRedisOps{getErr: redis.Nil}
 	usage := &stubUsageRepo{monthlySpend: 99.0}
 	c := newBudgetCounter(rdb, usage)
 
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", noCats)
+	got, err := c.GetSpend(context.Background(), "t1", "pid-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != 99.0 {
 		t.Errorf("spend = %v, want 99.0", got)
 	}
+	// The canonical key is primed with the DB value.
+	wantKey := canonicalBudgetKey("pid-1", time.Now().UTC())
+	if rdb.setKeyCapture != wantKey {
+		t.Errorf("primed key = %q, want %q", rdb.setKeyCapture, wantKey)
+	}
+	if rdb.setValueCapture != "99" {
+		t.Errorf("primed value = %q, want \"99\"", rdb.setValueCapture)
+	}
 }
 
-func TestGetSpend_Legacy_RedisError(t *testing.T) {
+func TestGetSpend_RedisError(t *testing.T) {
 	t.Parallel()
 	rdb := &stubRedisOps{getErr: errors.New("connection refused")}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	_, err := c.GetSpend(context.Background(), "t1", "pid-1", noCats)
+	_, err := c.GetSpend(context.Background(), "t1", "pid-1")
 	if err == nil {
 		t.Fatal("expected error for non-nil Redis error, got nil")
 	}
 }
 
-func TestGetSpend_Legacy_CacheMiss_SetFailure_StillReturnsValue(t *testing.T) {
+func TestGetSpend_CacheMiss_SetFailure_StillReturnsValue(t *testing.T) {
 	t.Parallel()
 	rdb := &stubRedisOps{getErr: redis.Nil, setErr: errors.New("redis full")}
 	usage := &stubUsageRepo{monthlySpend: 10.0}
 	c := newBudgetCounter(rdb, usage)
 
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", noCats)
+	got, err := c.GetSpend(context.Background(), "t1", "pid-1")
 	if err != nil {
 		t.Fatalf("Set failure should not bubble up; got: %v", err)
 	}
@@ -245,115 +273,69 @@ func TestGetSpend_Legacy_CacheMiss_SetFailure_StillReturnsValue(t *testing.T) {
 	}
 }
 
-// ── GetSpend: per-category path ───────────────────────────────────────────────
+func TestGetSpend_CacheMiss_DBError_Propagates(t *testing.T) {
+	t.Parallel()
+	rdb := &stubRedisOps{getErr: redis.Nil}
+	usage := &stubUsageRepo{err: errors.New("db down")}
+	c := newBudgetCounter(rdb, usage)
 
-func TestGetSpend_CategoryPath_SumsAllHits(t *testing.T) {
+	_, err := c.GetSpend(context.Background(), "t1", "pid-1")
+	if err == nil {
+		t.Fatal("expected rehydration error, got nil")
+	}
+}
+
+// ── GetCategorySpends ────────────────────────────────────────────────────────
+
+func TestGetCategorySpends_AlignedToInput(t *testing.T) {
 	t.Parallel()
 	cats := []policy.BudgetCategory{
-		{Source: "role", ID: "eng", ResetCadence: "monthly"},
+		roleCat("eng"),
 		{Source: "grant", ID: "g1", ResetCadence: "monthly"},
 	}
 	now := time.Now().UTC()
 	k0 := categoryKey("pid-1", cats[0], now)
-	k1 := categoryKey("pid-1", cats[1], now)
 	rdb := &stubRedisOps{
-		mgetVals: map[string]any{k0: "30.0", k1: "20.0"},
+		mgetVals: map[string]any{k0: "30.5"}, // grant key absent → 0
 	}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", cats)
+	got, err := c.GetCategorySpends(context.Background(), "pid-1", cats)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != 50.0 {
-		t.Errorf("spend = %v, want 50.0 (30+20)", got)
+	if len(got) != 2 || got[0] != 30.5 || got[1] != 0 {
+		t.Errorf("category spends = %v, want [30.5 0]", got)
 	}
 }
 
-func TestGetSpend_CategoryPath_MGetError(t *testing.T) {
+func TestGetCategorySpends_NoCategories_NilResult(t *testing.T) {
 	t.Parallel()
-	cats := []policy.BudgetCategory{roleCat("eng")}
+	c := newBudgetCounter(&stubRedisOps{}, &stubUsageRepo{})
+
+	got, err := c.GetCategorySpends(context.Background(), "pid-1", noCats)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for no categories, got %v", got)
+	}
+}
+
+func TestGetCategorySpends_MGetError(t *testing.T) {
+	t.Parallel()
 	rdb := &stubRedisOps{mgetErr: errors.New("redis unavailable")}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	_, err := c.GetSpend(context.Background(), "t1", "pid-1", cats)
+	_, err := c.GetCategorySpends(context.Background(), "pid-1", []policy.BudgetCategory{roleCat("eng")})
 	if err == nil {
 		t.Fatal("expected error on MGET failure, got nil")
 	}
 }
 
-func TestGetSpend_CategoryPath_PartialMiss_SumsHitAndRehydratesRest(t *testing.T) {
-	t.Parallel()
-	// Two categories: key[0] is a Redis hit (25.0), key[1] is absent.
-	// DB returns 40.0 aggregate. residual = max(0, 40.0 - 25.0) = 15.0.
-	// Total = 25.0 (hit) + 15.0 (residual for the miss) = 40.0.
-	// The miss key is seeded with 15.0 (the residual, not the full DB value).
-	cats := []policy.BudgetCategory{
-		{Source: "role", ID: "eng", ResetCadence: "monthly"},
-		{Source: "grant", ID: "g1", ResetCadence: "monthly"},
-	}
-	now := time.Now().UTC()
-	k0 := categoryKey("pid-1", cats[0], now)
-	k1 := categoryKey("pid-1", cats[1], now)
-	_ = k0
-	rdb := &stubRedisOps{
-		mgetVals: map[string]any{k0: "25.0"}, // k1 is absent (nil)
-	}
-	usage := &stubUsageRepo{monthlySpend: 40.0}
-	c := newBudgetCounter(rdb, usage)
+// ── IncrementSpend ────────────────────────────────────────────────────────────
 
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", cats)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := 40.0 // 25.0 (hit) + 15.0 (residual: 40 - 25)
-	if got != want {
-		t.Errorf("spend = %v, want %v", got, want)
-	}
-	// The missing key (k1) is seeded with the residual (15.0), not the full DB value.
-	if rdb.setKeyCapture != k1 {
-		t.Errorf("seeded key = %q, want %q", rdb.setKeyCapture, k1)
-	}
-	if rdb.setValueCapture != "15" {
-		t.Errorf("seeded value = %q, want \"15\" (residual = db - hits)", rdb.setValueCapture)
-	}
-}
-
-func TestGetSpend_CategoryPath_AllMiss_RehydratesFromDB(t *testing.T) {
-	t.Parallel()
-	// Both category keys are absent. DB returns 55.0.
-	// misses[0] is seeded with 55.0; misses[1] is seeded with 0.
-	// Total = 55.0 (one DB call; second miss not added to total).
-	cats := []policy.BudgetCategory{
-		roleCat("eng"),
-		{Source: "grant", ID: "g2", ResetCadence: "monthly"},
-	}
-	rdb := &stubRedisOps{mgetVals: nil} // all nil
-	usage := &stubUsageRepo{monthlySpend: 55.0}
-	c := newBudgetCounter(rdb, usage)
-
-	got, err := c.GetSpend(context.Background(), "t1", "pid-1", cats)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Only misses[0] contributes to total; misses[1] is zero-seeded and not added.
-	if got != 55.0 {
-		t.Errorf("spend = %v, want 55.0", got)
-	}
-	// The last Set call is the zero-seed for misses[1].
-	now := time.Now().UTC()
-	wantKey := categoryKey("pid-1", cats[1], now)
-	if rdb.setKeyCapture != wantKey {
-		t.Errorf("last seeded key = %q, want %q (second miss zero-seed)", rdb.setKeyCapture, wantKey)
-	}
-	if rdb.setValueCapture != "0" {
-		t.Errorf("zero-seed value = %q, want \"0\"", rdb.setValueCapture)
-	}
-}
-
-// ── IncrementSpend: legacy path (no categories) ──────────────────────────────
-
-func TestIncrementSpend_Legacy_NewKey_ExpiresCalled(t *testing.T) {
+func TestIncrementSpend_NoCategories_WritesCanonicalOnly(t *testing.T) {
 	t.Parallel()
 	rdb := &stubRedisOps{incrVal: 5.0}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
@@ -361,39 +343,13 @@ func TestIncrementSpend_Legacy_NewKey_ExpiresCalled(t *testing.T) {
 	if err := c.IncrementSpend(context.Background(), "t1", "pid-1", noCats, 5.0); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestIncrementSpend_Legacy_IncrError(t *testing.T) {
-	t.Parallel()
-	rdb := &stubRedisOps{incrErr: errors.New("redis unavailable")}
-	c := newBudgetCounter(rdb, &stubUsageRepo{})
-
-	err := c.IncrementSpend(context.Background(), "t1", "pid-1", noCats, 5.0)
-	if err == nil {
-		t.Fatal("expected error from INCRBYFLOAT failure, got nil")
+	wantKey := canonicalBudgetKey("pid-1", time.Now().UTC())
+	if len(rdb.incrKeys) != 1 || rdb.incrKeys[0] != wantKey {
+		t.Errorf("incremented keys = %v, want [%q]", rdb.incrKeys, wantKey)
 	}
 }
 
-// TestIncrementSpend_Legacy_TTLError_NonFatal is removed: the TTL check was
-// replaced by an unconditional Expire call (ADR: 35 days from last write).
-// Expire errors are still non-fatal — see TestIncrementSpend_Legacy_ExpireError_NonFatal.
-
-func TestIncrementSpend_Legacy_ExpireError_NonFatal(t *testing.T) {
-	t.Parallel()
-	rdb := &stubRedisOps{
-		incrVal:   5.0,
-		expireErr: errors.New("expire failed"),
-	}
-	c := newBudgetCounter(rdb, &stubUsageRepo{})
-
-	if err := c.IncrementSpend(context.Background(), "t1", "pid-1", noCats, 5.0); err != nil {
-		t.Errorf("Expire error should not propagate, got: %v", err)
-	}
-}
-
-// ── IncrementSpend: per-category path ────────────────────────────────────────
-
-func TestIncrementSpend_CategoryPath_IncrementsEachKey(t *testing.T) {
+func TestIncrementSpend_WithCategories_WritesCanonicalAndEachCategory(t *testing.T) {
 	t.Parallel()
 	cats := []policy.BudgetCategory{
 		roleCat("eng"),
@@ -405,16 +361,42 @@ func TestIncrementSpend_CategoryPath_IncrementsEachKey(t *testing.T) {
 	if err := c.IncrementSpend(context.Background(), "t1", "pid-1", cats, 10.0); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	now := time.Now().UTC()
+	want := []string{
+		canonicalBudgetKey("pid-1", now),
+		categoryKey("pid-1", cats[0], now),
+		categoryKey("pid-1", cats[1], now),
+	}
+	if len(rdb.incrKeys) != len(want) {
+		t.Fatalf("incremented %d keys, want %d: %v", len(rdb.incrKeys), len(want), rdb.incrKeys)
+	}
+	for i, k := range want {
+		if rdb.incrKeys[i] != k {
+			t.Errorf("incrKeys[%d] = %q, want %q", i, rdb.incrKeys[i], k)
+		}
+	}
 }
 
-func TestIncrementSpend_CategoryPath_IncrError_Propagates(t *testing.T) {
+func TestIncrementSpend_IncrError_Propagates(t *testing.T) {
 	t.Parallel()
-	cats := []policy.BudgetCategory{roleCat("eng")}
-	rdb := &stubRedisOps{incrErr: errors.New("redis down")}
+	rdb := &stubRedisOps{incrErr: errors.New("redis unavailable")}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	err := c.IncrementSpend(context.Background(), "t1", "pid-1", cats, 5.0)
+	err := c.IncrementSpend(context.Background(), "t1", "pid-1", noCats, 5.0)
 	if err == nil {
-		t.Fatal("expected error, got nil")
+		t.Fatal("expected error from INCRBYFLOAT failure, got nil")
+	}
+}
+
+func TestIncrementSpend_ExpireError_NonFatal(t *testing.T) {
+	t.Parallel()
+	rdb := &stubRedisOps{
+		incrVal:   5.0,
+		expireErr: errors.New("expire failed"),
+	}
+	c := newBudgetCounter(rdb, &stubUsageRepo{})
+
+	if err := c.IncrementSpend(context.Background(), "t1", "pid-1", noCats, 5.0); err != nil {
+		t.Errorf("Expire error should not propagate, got: %v", err)
 	}
 }

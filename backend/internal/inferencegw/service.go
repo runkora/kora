@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -674,10 +675,11 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 const spanStatusBudgetExceeded = "budget exceeded"
 
 // checkBudget evaluates the orbit.budget OPA rules via the policy evaluator.
-// It reads the principal's current-month spend from Redis, then delegates the
-// allow/deny decision to OPA (which evaluates role and grant budget data
-// from the compiled bundle). Fails open on any infrastructure error so that
-// Redis or OPA unavailability never blocks inference traffic.
+// It reads the principal's canonical current-period spend from Redis, then
+// delegates the allow/deny decision to OPA. Grant budget limits come from the
+// compiled bundle; role budget limits are resolved by OPA against the caller's
+// JWT roles passed in the input. Fails open on any infrastructure error so
+// that Redis or OPA unavailability never blocks inference traffic.
 //
 // Note: enforcement is soft — check and increment are not atomic. Concurrent
 // requests near the limit may both pass and briefly overspend before the counter
@@ -695,14 +697,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	)
 	defer span.End()
 
-	categories, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
-	if err != nil {
-		// Fail open: GetBudgetCategories already fails open, but be explicit.
-		categories = nil
-	}
-	categories = s.mergeRoleCategories(ctx, p.TenantID, categories)
-
-	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID, categories)
+	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -713,7 +708,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		return ctx, nil
 	}
 
-	allow, err := s.policy.CheckBudget(ctx, p.TenantID, p.PrincipalID, spend)
+	allow, err := s.policy.CheckBudget(ctx, p.TenantID, p.PrincipalID, rolesFromContext(ctx), spend)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "OPA budget check failed"},
@@ -737,9 +732,10 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	return ctx, nil
 }
 
-// incrementSpend best-effort increments the Redis spend counter after a
-// successful usage write. Logs on failure but never returns an error — a
-// counter increment failure must not affect the caller's control flow.
+// incrementSpend best-effort increments the canonical spend counter and the
+// per-category attribution counters after a successful usage write. Logs on
+// failure but never returns an error — a counter increment failure must not
+// affect the caller's control flow.
 func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID string, amount float64) {
 	if s.budgetCounter == nil {
 		return
@@ -758,8 +754,10 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 }
 
 // mergeRoleCategories appends role-budget categories from the caller's JWT claims
-// to the existing grant categories. Role membership is IDP-asserted in the JWT —
-// the bundle compiler cannot pre-resolve it — so the gateway does this at request time.
+// to the existing grant categories, for spend attribution counters only —
+// enforcement reads the canonical counter and resolves role limits inside OPA.
+// Role membership is IDP-asserted in the JWT — the bundle compiler cannot
+// pre-resolve it — so the gateway does this at request time.
 // Fails open: errors from GetRoleBudgets are logged and the original categories are returned unchanged.
 func (s *Service) mergeRoleCategories(ctx context.Context, tenantID string, categories []policy.BudgetCategory) []policy.BudgetCategory {
 	claims, ok := token.ClaimsFromContext(ctx)
@@ -778,8 +776,10 @@ func (s *Service) mergeRoleCategories(ctx context.Context, tenantID string, cate
 }
 
 // GetPersonalBudget returns the effective budget status for the given principal.
-// It reads the current spend from Redis and delegates the budget evaluation to
-// OPA via CheckBudget, which evaluates the bundle data for group and individual limits.
+// It reads the canonical current-period spend from Redis and delegates the budget
+// evaluation to OPA via CheckBudget — grant limits from bundle data, role limits
+// resolved against the caller's JWT roles. This is the same path enforcement
+// takes, so the reported status always agrees with what the gateway will block.
 // Fails open on Redis or OPA errors: returns an empty BudgetStatus (no limit, no spend)
 // rather than propagating infrastructure errors to the caller.
 func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID string) (BudgetStatus, error) {
@@ -787,13 +787,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		return BudgetStatus{}, nil
 	}
 
-	categories, err := s.policy.GetBudgetCategories(ctx, tenantID, principalID)
-	if err != nil {
-		categories = nil
-	}
-	categories = s.mergeRoleCategories(ctx, tenantID, categories)
-
-	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID, categories)
+	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -803,7 +797,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		return BudgetStatus{}, nil
 	}
 
-	result, err := s.policy.CheckBudget(ctx, tenantID, principalID, spend)
+	result, err := s.policy.CheckBudget(ctx, tenantID, principalID, rolesFromContext(ctx), spend)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "OPA budget check failed"},
@@ -819,6 +813,183 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		HasLimit:          result.HasLimit,
 		MonthlyBudgetUSD:  result.EffectiveBudgetUSD,
 	}, nil
+}
+
+// ListBudgetPrincipals returns per-principal budget status for the tenant:
+// every principal with a budget assignment (grant budgets from the compiled
+// bundle, role budgets attributed via their active spend counters) plus every
+// principal with spend this period (HasLimit=false when unbudgeted).
+//
+// Role-budget attribution is best-effort: a principal who holds a budgeted
+// OIDC role but has made no requests this period has no attribution counter
+// yet and appears without that category until their next request. Zero spend
+// means zero budget risk, so this does not affect enforcement.
+func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (BudgetPrincipalsResponse, error) {
+	now := time.Now().UTC()
+	resp := BudgetPrincipalsResponse{
+		Period: now.Format("2006-01"),
+		Data:   []BudgetPrincipalStatus{},
+	}
+
+	// Grant budgets and role budget definitions from the compiled bundle.
+	// ListBudgets fails open (empty maps) on bundle unavailability.
+	principalBudgets, roleBudgets, err := s.policy.ListBudgets(ctx, tenantID)
+	if err != nil {
+		principalBudgets, roleBudgets = nil, nil
+	}
+
+	// Per-principal period spend — the DB is authoritative.
+	spenders, err := s.usage.GetMonthlySpendByPrincipal(ctx, tenantID, now)
+	if err != nil {
+		return resp, fmt.Errorf("list budget principals: %w", err)
+	}
+
+	// Active role-budget holders, discovered from attribution counters.
+	var roleHolders map[string][]string
+	if s.budgetCounter != nil {
+		roleHolders, err = s.budgetCounter.ListActiveRoleAttributions(ctx)
+		if err != nil {
+			s.logger.Warn(ctx, "budget.role_attributions_unavailable",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			roleHolders = nil
+		}
+	}
+
+	// Union of all principals that appear in any source.
+	pids := make(map[string]struct{})
+	spendByPid := make(map[string]PrincipalPeriodSpend, len(spenders))
+	for _, sp := range spenders {
+		pids[sp.PrincipalID] = struct{}{}
+		spendByPid[sp.PrincipalID] = sp
+	}
+	for pid := range principalBudgets {
+		pids[pid] = struct{}{}
+	}
+	for pid, held := range roleHolders {
+		for _, role := range held {
+			if _, ok := roleBudgets[role]; ok {
+				pids[pid] = struct{}{}
+				break
+			}
+		}
+	}
+
+	for pid := range pids {
+		cats := budgetCategoriesFor(pid, principalBudgets, roleHolders, roleBudgets)
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid]))
+	}
+
+	sortBudgetPrincipals(resp.Data)
+	return resp, nil
+}
+
+// budgetCategoriesFor collects every budget category applicable to the
+// principal: grant categories from the bundle plus role categories for the
+// budgeted roles the principal has exercised this period.
+func budgetCategoriesFor(
+	pid string,
+	principalBudgets map[string]policy.PrincipalBudget,
+	roleHolders map[string][]string,
+	roleBudgets map[string]policy.RoleBudget,
+) []policy.BudgetCategory {
+	var cats []policy.BudgetCategory
+	if pb, ok := principalBudgets[pid]; ok {
+		cats = append(cats, pb.Categories...)
+	}
+	for _, role := range roleHolders[pid] {
+		rb, ok := roleBudgets[role]
+		if !ok {
+			continue // counter for a role whose budget has since been removed
+		}
+		cats = append(cats, policy.BudgetCategory{
+			Source:          "role",
+			ID:              role,
+			ResetCadence:    rb.ResetCadence,
+			MonthlyLimitUSD: rb.MonthlyLimitUSD,
+		})
+	}
+	return cats
+}
+
+// buildBudgetPrincipalRow assembles a single listing row: MAX effective limit,
+// per-category attributed spend (best-effort), and the blocked flag.
+func (s *Service) buildBudgetPrincipalRow(
+	ctx context.Context,
+	pid string,
+	cats []policy.BudgetCategory,
+	sp PrincipalPeriodSpend,
+) BudgetPrincipalStatus {
+	var effective float64
+	for _, cat := range cats {
+		if cat.MonthlyLimitUSD > effective {
+			effective = cat.MonthlyLimitUSD
+		}
+	}
+
+	var catSpends []float64
+	if s.budgetCounter != nil && len(cats) > 0 {
+		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, pid, cats); csErr == nil {
+			catSpends = cs
+		}
+	}
+	catStatuses := make([]BudgetCategoryStatus, len(cats))
+	for i, cat := range cats {
+		st := BudgetCategoryStatus{
+			Source:          cat.Source,
+			ID:              cat.ID,
+			MonthlyLimitUSD: cat.MonthlyLimitUSD,
+			ResetCadence:    cat.ResetCadence,
+		}
+		if i < len(catSpends) {
+			st.SpendUSD = catSpends[i]
+		}
+		catStatuses[i] = st
+	}
+
+	hasLimit := len(cats) > 0
+	row := BudgetPrincipalStatus{
+		PrincipalID:       pid,
+		PrincipalType:     sp.PrincipalType,
+		Categories:        catStatuses,
+		EffectiveLimitUSD: effective,
+		CurrentSpendUSD:   sp.SpendUSD,
+		HasLimit:          hasLimit,
+		SpendLimitReached: hasLimit && sp.SpendUSD >= effective,
+	}
+	if !sp.LastActiveAt.IsZero() {
+		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
+	}
+	return row
+}
+
+// sortBudgetPrincipals orders budgeted principals first by utilization
+// descending, then unbudgeted principals by spend descending.
+func sortBudgetPrincipals(data []BudgetPrincipalStatus) {
+	sort.Slice(data, func(i, j int) bool {
+		a, b := data[i], data[j]
+		if a.HasLimit != b.HasLimit {
+			return a.HasLimit
+		}
+		if a.HasLimit {
+			au, bu := utilization(a), utilization(b)
+			if au != bu {
+				return au > bu
+			}
+		}
+		if a.CurrentSpendUSD != b.CurrentSpendUSD {
+			return a.CurrentSpendUSD > b.CurrentSpendUSD
+		}
+		return a.PrincipalID < b.PrincipalID
+	})
+}
+
+// utilization is the spend-to-limit ratio used for sorting the budgets listing.
+func utilization(s BudgetPrincipalStatus) float64 {
+	if s.EffectiveLimitUSD <= 0 {
+		return 0
+	}
+	return s.CurrentSpendUSD / s.EffectiveLimitUSD
 }
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
@@ -851,6 +1022,17 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 		IdentitySource: string(claims.Orbit.IdentitySource),
 		TokenID:        tokenID,
 	}, nil
+}
+
+// rolesFromContext extracts the caller's OIDC roles from the verified
+// PlatformClaims stored in context by AuthMiddleware. Returns nil when no
+// claims are present (e.g. internal callers), which OPA treats as "no roles".
+func rolesFromContext(ctx context.Context) []string {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return nil
+	}
+	return extractRolesFromClaims(claims)
 }
 
 // extractRolesFromClaims reads the comma-separated roles claim from the platform JWT.

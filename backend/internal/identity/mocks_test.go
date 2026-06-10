@@ -345,7 +345,7 @@ func (m *mockPolicyEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesIn
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _, _ string, _ float64) (policy.BudgetResult, error) {
+func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _, _ string, _ []string, _ float64) (policy.BudgetResult, error) {
 	return policy.BudgetResult{Allow: true}, nil
 }
 
@@ -355,6 +355,10 @@ func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _ string
 
 func (m *mockPolicyEvaluator) GetRoleBudgets(_ context.Context, _ string, _ []string) ([]policy.BudgetCategory, error) {
 	return nil, nil
+}
+
+func (m *mockPolicyEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (m *mockPolicyEvaluator) Start(_ context.Context) {}

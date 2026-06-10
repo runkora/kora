@@ -10,7 +10,7 @@ type BudgetResult =
 export async function fetchPersonalBudgetFromGateway(accessToken: string): Promise<BudgetResult> {
   let res: Response;
   try {
-    res = await fetch(`${config.inferenceGatewayUrl}/v1/usage/budget`, {
+    res = await fetch(`${config.inferenceGatewayUrl}/usage/budget`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),

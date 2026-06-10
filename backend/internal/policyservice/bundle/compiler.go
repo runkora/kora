@@ -45,7 +45,7 @@ var budgetRego string
 // platform:grants:write without requiring a prior grant to exist.
 // Exported so the API layer can use the same set without duplication.
 var DefaultRoleScopes = map[string][]string{
-	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:analytics:read", "platform:budgets:read"},
+	"tenant-admin":   {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
 	"platform-admin": {"platform:grants:read", "platform:grants:write", "platform:roles:read", "platform:roles:write", "agents:types:read", "agents:types:write", "agents:runs:read", "agents:runs:write", "platform:tenants:manage", "platform:catalog:read", "platform:catalog:write", "platform:analytics:read", "platform:budgets:read", "platform:budgets:write"},
 }
 
@@ -171,10 +171,10 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 	doc := make(map[string]principalBudget)
 
 	// For each grant-holding principal, collect all applicable budget categories.
+	// All principal types carry enforceable budgets — agents and services
+	// authenticate with platform tokens bearing their principal ID, so the
+	// same enforcement path applies to them as to humans.
 	for _, g := range tenantGrants {
-		if g.PrincipalType != grants.PrincipalTypeHuman {
-			continue
-		}
 		pb, exists := doc[g.PrincipalID]
 		if !exists {
 			pb = principalBudget{}
@@ -195,9 +195,9 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 
 	// Role-level budgets: we can't resolve which principals hold which OIDC roles
 	// from inside the policy service (roles are asserted by the IDP at login time).
-	// Principals with only role-based budgets and no grants will be absent from
-	// the budgets map. The Rego default (budget_allow := true) handles them
-	// fail-open until per-principal grant budgets are assigned.
+	// Role budgets are compiled into data/role_budgets/data.json (buildRoleBudgets)
+	// and resolved per request by budget.rego against input.principal.roles —
+	// the caller's JWT roles, supplied by the inference gateway at check time.
 
 	// Compute effective_limit_usd (MAX) for each principal with grant budgets.
 	for pid, pb := range doc {

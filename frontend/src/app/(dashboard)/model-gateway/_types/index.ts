@@ -171,6 +171,33 @@ export interface BudgetStatus {
   has_limit: boolean;
 }
 
+// Mirrors BudgetCategoryStatus / BudgetPrincipalStatus / BudgetPrincipalsResponse
+// in backend/internal/inferencegw/models.go (GET /v1/budgets/principals).
+
+export interface BudgetCategoryStatus {
+  source: 'role' | 'grant';
+  id: string;
+  monthly_limit_usd: number;
+  reset_cadence: string;
+  spend_usd: number;
+}
+
+export interface BudgetPrincipalStatus {
+  principal_id: string;
+  principal_type?: string;
+  categories: BudgetCategoryStatus[];
+  effective_limit_usd: number;
+  current_spend_usd: number;
+  has_limit: boolean;
+  spend_limit_reached: boolean;
+  last_active_at?: string;
+}
+
+export interface BudgetPrincipalsResponse {
+  period: string;
+  data: BudgetPrincipalStatus[];
+}
+
 // ── Value-type unions ─────────────────────────────────────────────────────────
 
 export type ModelStatus = 'available' | 'unavailable';

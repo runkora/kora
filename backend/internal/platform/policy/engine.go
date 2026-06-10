@@ -30,6 +30,7 @@ const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
 const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
 const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
 const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
+const allBudgetsQuery = "x := data.budgets"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
@@ -40,6 +41,7 @@ type tenantBundle struct {
 	budgetQuery      rego.PreparedEvalQuery
 	categoriesQuery  rego.PreparedEvalQuery
 	roleBudgetsQuery rego.PreparedEvalQuery
+	allBudgetsQuery  rego.PreparedEvalQuery
 	loadedAt         time.Time
 	revision         string
 }
@@ -216,6 +218,15 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare role budgets rego eval: %w", err)
 	}
 
+	ab := rego.New(
+		rego.Query(allBudgetsQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	abq, err := ab.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare all budgets rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
 		query:            pq,
@@ -225,6 +236,7 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		budgetQuery:      bqq,
 		categoriesQuery:  cqq,
 		roleBudgetsQuery: rbqq,
+		allBudgetsQuery:  abq,
 		loadedAt:         time.Now().UTC(),
 		revision:         revision,
 	}
@@ -380,14 +392,17 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 
 // CheckBudget evaluates the orbit.budget rules for the principal. Implements Evaluator.
 // Fails open (allow=true, hasLimit=false) when the tenant bundle is unavailable.
-func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, currentSpendUSD float64) (BudgetResult, error) {
+func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, roles []string, currentSpendUSD float64) (BudgetResult, error) {
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil || tb == nil {
 		return BudgetResult{Allow: true}, nil // fail open: no bundle available
 	}
 
+	if roles == nil {
+		roles = []string{}
+	}
 	input := BudgetCheckInput{
-		Principal:       budgetPrincipal{ID: principalID, TenantID: tenantID},
+		Principal:       budgetPrincipal{ID: principalID, TenantID: tenantID, Roles: roles},
 		CurrentSpendUSD: currentSpendUSD,
 	}
 
@@ -462,7 +477,12 @@ func (e *engine) GetBudgetCategories(ctx context.Context, tenantID, principalID 
 		if source == "" || id == "" {
 			continue
 		}
-		cats = append(cats, BudgetCategory{Source: source, ID: id, ResetCadence: cadence})
+		cats = append(cats, BudgetCategory{
+			Source:          source,
+			ID:              id,
+			ResetCadence:    cadence,
+			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+		})
 	}
 	return cats, nil
 }
@@ -508,12 +528,100 @@ func (e *engine) GetRoleBudgets(ctx context.Context, tenantID string, roleNames 
 		}
 		cadence, _ := m["reset_cadence"].(string)
 		cats = append(cats, BudgetCategory{
-			Source:       "role",
-			ID:           role,
-			ResetCadence: cadence,
+			Source:          "role",
+			ID:              role,
+			ResetCadence:    cadence,
+			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
 		})
 	}
 	return cats, nil
+}
+
+// ListBudgets returns every budget assignment in the tenant's compiled bundle.
+// Implements Evaluator. Fails open: returns empty maps when the bundle is
+// unavailable or evaluation fails.
+func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error) {
+	principals := make(map[string]PrincipalBudget)
+	roleBudgets := make(map[string]RoleBudget)
+
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return principals, roleBudgets, nil
+	}
+
+	for pid, raw := range evalToMap(ctx, tb.allBudgetsQuery) {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		principals[pid] = parsePrincipalBudget(entry)
+	}
+
+	for role, raw := range evalToMap(ctx, tb.roleBudgetsQuery) {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		cadence, _ := m["reset_cadence"].(string)
+		roleBudgets[role] = RoleBudget{
+			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+			ResetCadence:    cadence,
+		}
+	}
+
+	return principals, roleBudgets, nil
+}
+
+// evalToMap evaluates a prepared query whose single binding "x" is an object,
+// returning nil (fail open) on any evaluation error or shape mismatch.
+func evalToMap(ctx context.Context, q rego.PreparedEvalQuery) map[string]any {
+	rs, err := q.Eval(ctx)
+	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil
+	}
+	m, _ := rs[0].Bindings["x"].(map[string]any)
+	return m
+}
+
+// parsePrincipalBudget converts one data.budgets entry into a PrincipalBudget.
+func parsePrincipalBudget(entry map[string]any) PrincipalBudget {
+	pb := PrincipalBudget{EffectiveLimitUSD: toFloat(entry["effective_limit_usd"])}
+	cats, ok := entry["categories"].([]any)
+	if !ok {
+		return pb
+	}
+	for _, c := range cats {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		source, _ := m["source"].(string)
+		id, _ := m["id"].(string)
+		cadence, _ := m["reset_cadence"].(string)
+		if source == "" || id == "" {
+			continue
+		}
+		pb.Categories = append(pb.Categories, BudgetCategory{
+			Source:          source,
+			ID:              id,
+			ResetCadence:    cadence,
+			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+		})
+	}
+	return pb
+}
+
+// toFloat extracts a float64 from an OPA result value, which arrives as
+// either float64 or json.Number depending on the evaluation path.
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	}
+	return 0
 }
 
 func evalGrantDetailResult(rs rego.ResultSet) []GrantDetail {

@@ -20,6 +20,13 @@ type createGrantRequest struct {
 	Budget        *budgetAssignmentRequest `json:"budget,omitempty"`
 }
 
+// updateGrantBudgetRequest is the request body for PATCH /policy/grants/{id}.
+// Only the budget is mutable in place — scopes are immutable on grants by
+// design. A null budget removes the assignment.
+type updateGrantBudgetRequest struct {
+	Budget *budgetAssignmentRequest `json:"budget"`
+}
+
 // upsertRoleRequest is the request body for PUT /policy/roles.
 type upsertRoleRequest struct {
 	TenantID string                   `json:"tenant_id"`

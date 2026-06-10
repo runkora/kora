@@ -29,10 +29,13 @@ type Evaluator interface {
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
 	// CheckBudget evaluates the orbit.budget rules for the principal.
-	// currentSpendUSD is the sum of all per-category Redis counters for the
+	// currentSpendUSD is the canonical per-principal spend counter for the
 	// current period, read by the inference gateway before this call.
+	// roles are the caller's OIDC roles from the verified JWT — role budget
+	// limits are resolved against them at evaluation time, since the bundle
+	// compiler cannot pre-resolve IDP-asserted role membership.
 	// Fails open (allow=true, err=nil) when the bundle is unavailable.
-	CheckBudget(ctx context.Context, tenantID, principalID string, currentSpendUSD float64) (BudgetResult, error)
+	CheckBudget(ctx context.Context, tenantID, principalID string, roles []string, currentSpendUSD float64) (BudgetResult, error)
 
 	// GetBudgetCategories returns the applicable budget categories for the
 	// principal from the compiled OPA bundle (data.budgets[principal_id].categories).
@@ -48,6 +51,13 @@ type Evaluator interface {
 	// on any bundle or evaluation error. Roles with no budget entry are silently skipped.
 	GetRoleBudgets(ctx context.Context, tenantID string, roleNames []string) ([]BudgetCategory, error)
 
+	// ListBudgets returns every budget assignment in the tenant's compiled
+	// bundle: per-principal grant budgets (data.budgets) and role budget
+	// definitions (data.role_budgets). Role membership is not resolvable here —
+	// callers attribute role budgets to principals from request-time data.
+	// Fails open: returns empty maps on any bundle or evaluation error.
+	ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error)
+
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
 }
@@ -61,6 +71,20 @@ type BudgetCategory struct {
 	ID string
 	// ResetCadence is "monthly", "quarterly", or "yearly".
 	ResetCadence string
+	// MonthlyLimitUSD is the limit carried by this assignment.
+	MonthlyLimitUSD float64
+}
+
+// PrincipalBudget is a principal's compiled grant-budget entry from data.budgets.
+type PrincipalBudget struct {
+	Categories        []BudgetCategory
+	EffectiveLimitUSD float64
+}
+
+// RoleBudget is a role's budget definition from data.role_budgets.
+type RoleBudget struct {
+	MonthlyLimitUSD float64
+	ResetCadence    string
 }
 
 // ScopesExplainResult holds the scope breakdown by source.
@@ -133,8 +157,9 @@ type BudgetCheckInput struct {
 }
 
 type budgetPrincipal struct {
-	ID       string `json:"id"`
-	TenantID string `json:"tenant_id"`
+	ID       string   `json:"id"`
+	TenantID string   `json:"tenant_id"`
+	Roles    []string `json:"roles"`
 }
 
 // BudgetResult is returned by CheckBudget.

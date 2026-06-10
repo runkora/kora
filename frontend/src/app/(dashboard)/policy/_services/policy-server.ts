@@ -5,6 +5,7 @@ import type {
   StatsResponse,
   GrantsListResponse,
   Grant,
+  BudgetAssignment,
   CreateGrantRequest,
   RolesListResponse,
   RoleEntry,
@@ -154,6 +155,17 @@ export async function createGrant(
 export async function deleteGrant(accessToken: string, id: string): Promise<Result<void>> {
   return policyServiceFetch(`/grants/${encodeURIComponent(id)}`, accessToken, {
     method: 'DELETE',
+  });
+}
+
+export async function updateGrantBudget(
+  accessToken: string,
+  id: string,
+  budget: BudgetAssignment | null,
+): Promise<Result<Grant>> {
+  return policyServiceFetch(`/grants/${encodeURIComponent(id)}`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ budget }),
   });
 }
 

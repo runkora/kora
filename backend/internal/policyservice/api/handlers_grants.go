@@ -86,6 +86,58 @@ func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, g)
 }
 
+func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
+	var req updateGrantBudgetRequest
+	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+
+	var budget *grants.BudgetAssignment
+	if req.Budget != nil {
+		if req.Budget.MonthlyLimitUSD <= 0 {
+			platformapi.ErrorResponse(ctx, w, c.logger,
+				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+					"budget.monthly_limit_usd must be greater than zero", nil), nil)
+			return
+		}
+		budget = &grants.BudgetAssignment{
+			MonthlyLimitUSD: req.Budget.MonthlyLimitUSD,
+			ResetCadence:    req.Budget.ResetCadence,
+		}
+		if budget.ResetCadence == "" {
+			budget.ResetCadence = "monthly"
+		}
+	}
+
+	// Fetch first to enforce tenant ownership before mutating.
+	g, err := c.svc.GetGrant(ctx, r.PathValue("id"))
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
+		return
+	}
+
+	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
+		return
+	}
+
+	updated, err := c.svc.UpdateGrantBudget(ctx, g.ID, g.TenantID, budget)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
+		return
+	}
+
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, updated)
+}
+
 func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

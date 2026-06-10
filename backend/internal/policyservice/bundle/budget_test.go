@@ -56,8 +56,16 @@ func compileAndPrepareBudgetQuery(t *testing.T, grantList []*grants.Grant, roleL
 
 func evalBudget(t *testing.T, pq rego.PreparedEvalQuery, principalID string, currentSpendUSD float64) (allow bool, limitReached bool, hasLimit bool, effectiveBudget float64) {
 	t.Helper()
+	return evalBudgetWithRoles(t, pq, principalID, nil, currentSpendUSD)
+}
+
+func evalBudgetWithRoles(t *testing.T, pq rego.PreparedEvalQuery, principalID string, principalRoles []string, currentSpendUSD float64) (allow bool, limitReached bool, hasLimit bool, effectiveBudget float64) {
+	t.Helper()
+	if principalRoles == nil {
+		principalRoles = []string{}
+	}
 	input := map[string]any{
-		"principal":         map[string]any{"id": principalID},
+		"principal":         map[string]any{"id": principalID, "roles": principalRoles},
 		"current_spend_usd": currentSpendUSD,
 	}
 	rs, err := pq.Eval(context.Background(), rego.EvalInput(input))
@@ -232,6 +240,101 @@ func TestBudgetAllow_EffectiveBudgetUSDPopulated(t *testing.T) {
 	}
 	if effectiveBudget != 75.50 {
 		t.Errorf("effective_budget_usd = %v, want 75.50", effectiveBudget)
+	}
+}
+
+// roleEntryWithBudget builds a role entry carrying a budget assignment.
+func roleEntryWithBudget(role string, monthlyLimitUSD float64) *roles.RoleEntry {
+	return &roles.RoleEntry{
+		TenantID: testTenantID,
+		Role:     role,
+		Scopes:   []string{"inference:invoke"},
+		Budget: &roles.BudgetAssignment{
+			MonthlyLimitUSD: monthlyLimitUSD,
+			ResetCadence:    "monthly",
+		},
+	}
+}
+
+func TestBudgetAllow_RoleOnlyBudget_Enforced(t *testing.T) {
+	// Principal has no grant budget — only an OIDC role budget, resolved
+	// against input.principal.roles. has_limit must be true and the limit
+	// must enforce with >= semantics.
+	pq := compileAndPrepareBudgetQuery(t, nil, []*roles.RoleEntry{roleEntryWithBudget("engineer", 50)})
+
+	allow, _, hasLimit, effectiveBudget := evalBudgetWithRoles(t, pq, "pid-1", []string{"engineer"}, 49.99)
+	if !allow {
+		t.Error("budget_allow = false under role limit, want true")
+	}
+	if !hasLimit {
+		t.Error("has_limit = false for role-only budget, want true")
+	}
+	if effectiveBudget != 50 {
+		t.Errorf("effective_budget_usd = %v, want 50 (role budget)", effectiveBudget)
+	}
+
+	allow, limitReached, _, _ := evalBudgetWithRoles(t, pq, "pid-1", []string{"engineer"}, 50)
+	if allow {
+		t.Error("budget_allow = true at spend == role limit, want false (>= semantics)")
+	}
+	if !limitReached {
+		t.Error("spend_limit_reached = false at spend == role limit, want true")
+	}
+}
+
+func TestBudgetAllow_RoleAndGrant_MAXAcrossSources(t *testing.T) {
+	// Role budget $50, grant budget $80 → effective = MAX = 80.
+	pq := compileAndPrepareBudgetQuery(t,
+		[]*grants.Grant{humanGrantWithBudget("pid-1", "grant-1", 80)},
+		[]*roles.RoleEntry{roleEntryWithBudget("engineer", 50)},
+	)
+
+	allow, _, hasLimit, effectiveBudget := evalBudgetWithRoles(t, pq, "pid-1", []string{"engineer"}, 65)
+	if !allow {
+		t.Error("budget_allow = false at spend 65 with effective limit 80, want true")
+	}
+	if !hasLimit {
+		t.Error("has_limit = false, want true")
+	}
+	if effectiveBudget != 80 {
+		t.Errorf("effective_budget_usd = %v, want 80 (MAX of role 50, grant 80)", effectiveBudget)
+	}
+
+	allow, _, _, _ = evalBudgetWithRoles(t, pq, "pid-1", []string{"engineer"}, 80)
+	if allow {
+		t.Error("budget_allow = true at spend == effective limit 80, want false")
+	}
+}
+
+func TestBudgetAllow_RoleWithoutBudget_FailsOpen(t *testing.T) {
+	// Caller holds a role that has no budget configured — fail-open.
+	pq := compileAndPrepareBudgetQuery(t, nil, []*roles.RoleEntry{
+		{TenantID: testTenantID, Role: "analyst", Scopes: []string{"inference:invoke"}},
+	})
+
+	allow, _, hasLimit, effectiveBudget := evalBudgetWithRoles(t, pq, "pid-1", []string{"analyst"}, 9999)
+	if !allow {
+		t.Error("budget_allow = false for role without budget, want true (fail-open)")
+	}
+	if hasLimit {
+		t.Error("has_limit = true for role without budget, want false")
+	}
+	if effectiveBudget != 0 {
+		t.Errorf("effective_budget_usd = %v, want 0", effectiveBudget)
+	}
+}
+
+func TestBudgetAllow_RoleBudget_OnlyHeldRolesApply(t *testing.T) {
+	// A role budget exists for "engineer", but the caller holds only "analyst" —
+	// the engineer budget must not apply.
+	pq := compileAndPrepareBudgetQuery(t, nil, []*roles.RoleEntry{roleEntryWithBudget("engineer", 50)})
+
+	allow, _, hasLimit, _ := evalBudgetWithRoles(t, pq, "pid-1", []string{"analyst"}, 9999)
+	if !allow {
+		t.Error("budget_allow = false for non-held role budget, want true")
+	}
+	if hasLimit {
+		t.Error("has_limit = true for non-held role budget, want false")
 	}
 }
 

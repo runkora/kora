@@ -47,6 +47,11 @@ type InferenceUsageRepository interface {
 	// within the calendar month that contains the provided time value.
 	// Returns 0.0 with no error when no records exist for the period.
 	GetMonthlySpend(ctx context.Context, tenantID, principalID string, month time.Time) (float64, error)
+
+	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
+	// tenant within the calendar month that contains the provided time value.
+	// Principals with no usage in the period are absent from the result.
+	GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -640,6 +645,37 @@ func (r *PostgresInferenceUsageRepository) GetMonthlySpend(ctx context.Context, 
 		return 0, fmt.Errorf("get monthly spend: %w", err)
 	}
 	return total, nil
+}
+
+// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
+// tenant within the calendar month containing the provided time value.
+func (r *PostgresInferenceUsageRepository) GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error) {
+	const q = `
+		SELECT principal_id,
+		       MAX(principal_type) AS principal_type,
+		       COALESCE(SUM(estimated_cost_usd), 0) AS spend_usd,
+		       MAX(created_at) AS last_active_at
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
+		GROUP BY principal_id
+		ORDER BY spend_usd DESC`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, month.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get monthly spend by principal: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PrincipalPeriodSpend
+	for rows.Next() {
+		var ps PrincipalPeriodSpend
+		if err := rows.Scan(&ps.PrincipalID, &ps.PrincipalType, &ps.SpendUSD, &ps.LastActiveAt); err != nil {
+			return nil, fmt.Errorf("scan principal period spend: %w", err)
+		}
+		out = append(out, ps)
+	}
+	return out, rows.Err()
 }
 
 // granularityToTrunc maps the analytics granularity parameter to the

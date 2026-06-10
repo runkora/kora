@@ -292,3 +292,41 @@ type BudgetStatus struct {
 	SpendLimitReached bool    `json:"spend_limit_reached"`
 	HasLimit          bool    `json:"has_limit"`
 }
+
+// BudgetCategoryStatus is a single budget assignment source with its attributed
+// spend for the current period. Part of the budgets principals listing.
+type BudgetCategoryStatus struct {
+	Source          string  `json:"source"` // "role" or "grant"
+	ID              string  `json:"id"`     // role name or grant UUID
+	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
+	ResetCadence    string  `json:"reset_cadence"`
+	SpendUSD        float64 `json:"spend_usd"`
+}
+
+// BudgetPrincipalStatus is one principal's row in the budgets principals listing:
+// every applicable budget category, the effective (MAX) limit, and current spend.
+// Principals with period spend but no budget appear with HasLimit=false.
+type BudgetPrincipalStatus struct {
+	PrincipalID       string                 `json:"principal_id"`
+	PrincipalType     string                 `json:"principal_type,omitempty"`
+	Categories        []BudgetCategoryStatus `json:"categories"`
+	EffectiveLimitUSD float64                `json:"effective_limit_usd"`
+	CurrentSpendUSD   float64                `json:"current_spend_usd"`
+	HasLimit          bool                   `json:"has_limit"`
+	SpendLimitReached bool                   `json:"spend_limit_reached"`
+	LastActiveAt      string                 `json:"last_active_at,omitempty"` // RFC3339
+}
+
+// BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.
+type BudgetPrincipalsResponse struct {
+	Period string                  `json:"period"` // e.g. "2026-06"
+	Data   []BudgetPrincipalStatus `json:"data"`
+}
+
+// PrincipalPeriodSpend is a per-principal calendar-month spend aggregate.
+type PrincipalPeriodSpend struct {
+	PrincipalID   string
+	PrincipalType string
+	SpendUSD      float64
+	LastActiveAt  time.Time
+}

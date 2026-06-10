@@ -566,7 +566,7 @@ func (allowAllEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*po
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (allowAllEvaluator) CheckBudget(context.Context, string, string, float64) (policy.BudgetResult, error) {
+func (allowAllEvaluator) CheckBudget(context.Context, string, string, []string, float64) (policy.BudgetResult, error) {
 	return policy.BudgetResult{Allow: true}, nil
 }
 
@@ -576,6 +576,10 @@ func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string) ([
 
 func (allowAllEvaluator) GetRoleBudgets(context.Context, string, []string) ([]policy.BudgetCategory, error) {
 	return nil, nil
+}
+
+func (allowAllEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (allowAllEvaluator) Start(context.Context) {}

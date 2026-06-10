@@ -92,6 +92,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/stats?tenant_id=                           Aggregate counts for dashboard overview
 //	POST   /policy/grants                                     Create a grant
 //	GET    /policy/grants/{id}                                Get a grant by ID
+//	PATCH  /policy/grants/{id}                                Update a grant's budget in place
 //	DELETE /policy/grants/{id}                                Delete a grant
 //	GET    /policy/grants?tenant_id=&principal_id=            List grants for a principal or tenant
 //	GET    /policy/vocabulary                                 List scope vocabulary
@@ -109,6 +110,7 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /effective-scopes", c.handleEffectiveScopes)
 	mux.Handle("POST /grants", c.handleCreateGrant)
 	mux.Handle("GET /grants/{id}", c.handleGetGrant)
+	mux.Handle("PATCH /grants/{id}", c.handleUpdateGrantBudget)
 	mux.Handle("DELETE /grants/{id}", c.handleDeleteGrant)
 	mux.Handle("GET /grants", c.handleListGrants)
 	mux.Handle("GET /vocabulary", c.handleListVocabulary)

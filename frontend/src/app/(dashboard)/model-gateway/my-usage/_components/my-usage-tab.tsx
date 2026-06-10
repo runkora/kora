@@ -13,16 +13,18 @@ interface MyUsageTabProps {
   initialBudget: BudgetStatus | null;
 }
 
-function BudgetBanner({ quota }: { quota: BudgetStatus }) {
-  if (!quota.has_limit) return null;
+function BudgetBanner({ budget }: { budget: BudgetStatus }) {
+  if (!budget.has_limit) return null;
 
   const pct =
-    quota.monthly_budget_usd > 0 ? (quota.current_spend_usd / quota.monthly_budget_usd) * 100 : 0;
-  const variant = quota.spend_limit_reached ? 'error' : pct >= 80 ? 'degraded' : 'healthy';
+    budget.monthly_budget_usd > 0
+      ? (budget.current_spend_usd / budget.monthly_budget_usd) * 100
+      : 0;
+  const variant = budget.spend_limit_reached ? 'error' : pct >= 80 ? 'degraded' : 'healthy';
 
   return (
     <Stack gap="snug">
-      {quota.spend_limit_reached && (
+      {budget.spend_limit_reached && (
         <Alert variant="error">
           Monthly budget reached — inference requests are blocked until the next billing cycle or
           your limit is raised.
@@ -34,12 +36,12 @@ function BudgetBanner({ quota }: { quota: BudgetStatus }) {
             Monthly budget
           </Text>
           <Text size="supporting" color="foreground" mono>
-            {fmtCost(quota.current_spend_usd)} / {fmtCost(quota.monthly_budget_usd)}
+            {fmtCost(budget.current_spend_usd)} / {fmtCost(budget.monthly_budget_usd)}
           </Text>
         </Stack>
         <Progress
-          value={quota.current_spend_usd}
-          max={quota.monthly_budget_usd}
+          value={budget.current_spend_usd}
+          max={budget.monthly_budget_usd}
           label="Monthly budget utilisation"
           variant={variant}
           showValue
@@ -80,7 +82,7 @@ export function MyUsageTab({ pats, initialBudget }: MyUsageTabProps) {
 
   return (
     <Stack gap="comfortable">
-      {initialBudget && <BudgetBanner quota={initialBudget} />}
+      {initialBudget && <BudgetBanner budget={initialBudget} />}
       <AnalyticsDashboard
         title="My Usage"
         description="Your personal inference activity — spend, tokens, and request volume."

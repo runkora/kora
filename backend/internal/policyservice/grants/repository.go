@@ -65,6 +65,12 @@ type Repository interface {
 	// The second return value is the total count of matching rows before paging.
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error)
 
+	// UpdateBudget replaces the budget assignment on a grant in place, leaving
+	// the grant ID (and therefore its spend-attribution counters) intact.
+	// A nil budget removes the assignment. Returns ErrGrantNotFound if the
+	// grant does not exist within the tenant.
+	UpdateBudget(ctx context.Context, id, tenantID string, budget *BudgetAssignment) error
+
 	// Delete removes a grant by ID within a tenant. Returns ErrGrantNotFound if it does not exist.
 	Delete(ctx context.Context, id, tenantID string) error
 
@@ -162,6 +168,28 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 	}
 	defer rows.Close()
 	return r.collectGrantsWithTotal(rows)
+}
+
+func (r *postgresRepository) UpdateBudget(ctx context.Context, id, tenantID string, budget *BudgetAssignment) error {
+	var budgetJSON []byte
+	if budget != nil {
+		var err error
+		budgetJSON, err = json.Marshal(budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE policy_grants SET budget = $3 WHERE id = $1 AND tenant_id = $2
+	`, id, tenantID, budgetJSON)
+	if err != nil {
+		return fmt.Errorf("update grant budget: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrGrantNotFound
+	}
+	return nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {

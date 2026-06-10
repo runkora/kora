@@ -259,6 +259,9 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
+		// GET /v1/budgets/principals is the tenant-wide budget status listing.
+		// The platform:budgets:* scopes are declared by the policy-service.
+		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
 }
 

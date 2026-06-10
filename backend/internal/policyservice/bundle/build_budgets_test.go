@@ -87,11 +87,16 @@ func TestBuildBudgets_NilBudgetGrantExcluded(t *testing.T) {
 	}
 }
 
-func TestBuildBudgets_AgentGrantExcluded(t *testing.T) {
-	// Agent grants must not appear in the budget map.
+func TestBuildBudgets_AgentGrantIncluded(t *testing.T) {
+	// All principal types carry enforceable budgets — agent grants must
+	// appear in the budget map exactly like human grants.
 	doc := buildBudgets([]*grants.Grant{agentGrantWithBudget("agent-1", "grant-1", 100)}, nil)
-	if _, ok := doc["agent-1"]; ok {
-		t.Error("agent principal should be absent from budget map")
+	pb, ok := doc["agent-1"]
+	if !ok {
+		t.Fatal("agent principal should be present in budget map")
+	}
+	if pb.EffectiveLimitUSD != 100 {
+		t.Errorf("effective_limit_usd = %v, want 100", pb.EffectiveLimitUSD)
 	}
 }
 
@@ -133,8 +138,10 @@ func TestBuildBudgets_MultiplePrincipalsIndependent(t *testing.T) {
 }
 
 func TestBuildBudgets_RoleEntriesIgnored(t *testing.T) {
-	// Role entries are not yet resolved to principals — the map must remain empty
-	// when only roles (no grants) have budgets.
+	// Role entries are not resolved to principals at compile time — role budgets
+	// live in data/role_budgets and are matched against input.principal.roles by
+	// budget.rego at request time. The per-principal map must remain empty when
+	// only roles (no grants) have budgets.
 	roleWithBudget := &roles.RoleEntry{
 		TenantID: "test-tenant",
 		Role:     "power-user",
