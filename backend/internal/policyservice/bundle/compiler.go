@@ -116,7 +116,38 @@ type gatewayConfigDocument struct {
 	FrontendHost string `json:"frontend_host"`
 }
 
-// principalBudget holds the resolved budget data for a single principal.
+// roleBudgetEntry is a single role's budget configuration in the flat role_budgets map.
+// The gateway reads this at request time to construct role-budget categories from JWT claims.
+type roleBudgetEntry struct {
+	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
+	ResetCadence    string  `json:"reset_cadence"`
+}
+
+// roleBudgetsDocument is the JSON structure of data/role_budgets/data.json.
+// The map key is the OIDC role name. Only roles with a configured budget appear.
+type roleBudgetsDocument struct {
+	RoleBudgets map[string]roleBudgetEntry `json:"role_budgets"`
+}
+
+// buildRoleBudgets computes data/role_budgets/data.json from the tenant's role entries.
+// Only roles with a non-nil budget are included.
+func buildRoleBudgets(roleEntries []*roles.RoleEntry) roleBudgetsDocument {
+	doc := roleBudgetsDocument{RoleBudgets: make(map[string]roleBudgetEntry)}
+	for _, e := range roleEntries {
+		if e.Budget == nil {
+			continue
+		}
+		if _, reserved := DefaultRoleScopes[e.Role]; reserved {
+			continue // platform-admin / tenant-admin cannot carry budget here
+		}
+		doc.RoleBudgets[e.Role] = roleBudgetEntry{
+			MonthlyLimitUSD: e.Budget.MonthlyLimitUSD,
+			ResetCadence:    e.Budget.ResetCadence,
+		}
+	}
+	return doc
+}
+
 type principalBudget struct {
 	Categories        []budgetCategory `json:"categories"`
 	EffectiveLimitUSD float64          `json:"effective_limit_usd"`
@@ -376,6 +407,13 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
 
+	// Build role_budgets data document (flat role_name → budget map for gateway role enforcement).
+	roleBudgetsDoc := buildRoleBudgets(roleEntries)
+	roleBudgetsJSON, err := json.Marshal(roleBudgetsDoc)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal role budgets: %w", err)
+	}
+
 	// Build budgets data document (per-principal budget assignments for orbit.budget).
 	// effective_limit_usd is pre-computed as MAX across all applicable categories.
 	budgetsDoc := buildBudgets(tenantGrants, roleEntries)
@@ -387,7 +425,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets"},
+		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets", "role_budgets"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -408,6 +446,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		{"routes/data.json", routesJSON},
 		{"config/data.json", cfgJSON},
 		{"budgets/data.json", budgetsJSON},
+		{"role_budgets/data.json", roleBudgetsJSON},
 	})
 	if err != nil {
 		return nil, "", err

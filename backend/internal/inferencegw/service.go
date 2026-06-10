@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -694,7 +695,14 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	)
 	defer span.End()
 
-	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
+	categories, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		// Fail open: GetBudgetCategories already fails open, but be explicit.
+		categories = nil
+	}
+	categories = s.mergeRoleCategories(ctx, p.TenantID, categories)
+
+	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID, categories)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -736,12 +744,37 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	if s.budgetCounter == nil {
 		return
 	}
-	if err := s.budgetCounter.IncrementSpend(ctx, tenantID, principalID, amount); err != nil {
+	categories, err := s.policy.GetBudgetCategories(ctx, tenantID, principalID)
+	if err != nil {
+		categories = nil
+	}
+	categories = s.mergeRoleCategories(ctx, tenantID, categories)
+	if err := s.budgetCounter.IncrementSpend(ctx, tenantID, principalID, categories, amount); err != nil {
 		s.logger.Warn(ctx, "budget.counter_increment_failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},
 		)
 	}
+}
+
+// mergeRoleCategories appends role-budget categories from the caller's JWT claims
+// to the existing grant categories. Role membership is IDP-asserted in the JWT —
+// the bundle compiler cannot pre-resolve it — so the gateway does this at request time.
+// Fails open: errors from GetRoleBudgets are logged and the original categories are returned unchanged.
+func (s *Service) mergeRoleCategories(ctx context.Context, tenantID string, categories []policy.BudgetCategory) []policy.BudgetCategory {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return categories
+	}
+	roles := extractRolesFromClaims(claims)
+	if len(roles) == 0 {
+		return categories
+	}
+	roleCats, err := s.policy.GetRoleBudgets(ctx, tenantID, roles)
+	if err != nil || len(roleCats) == 0 {
+		return categories
+	}
+	return append(categories, roleCats...)
 }
 
 // GetPersonalBudget returns the effective budget status for the given principal.
@@ -754,7 +787,13 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		return BudgetStatus{}, nil
 	}
 
-	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID)
+	categories, err := s.policy.GetBudgetCategories(ctx, tenantID, principalID)
+	if err != nil {
+		categories = nil
+	}
+	categories = s.mergeRoleCategories(ctx, tenantID, categories)
+
+	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID, categories)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -812,6 +851,26 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 		IdentitySource: string(claims.Orbit.IdentitySource),
 		TokenID:        tokenID,
 	}, nil
+}
+
+// extractRolesFromClaims reads the comma-separated roles claim from the platform JWT.
+// Returns an empty slice when no roles claim is present.
+func extractRolesFromClaims(claims *token.PlatformClaims) []string {
+	if claims.Orbit.Claims == nil {
+		return nil
+	}
+	raw, ok := claims.Orbit.Claims["roles"]
+	if !ok || raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	roles := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			roles = append(roles, trimmed)
+		}
+	}
+	return roles
 }
 
 // resolvedPricing holds the effective costs and price_unknown flag for a single

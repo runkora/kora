@@ -45,7 +45,15 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes)
+	var budget *grants.BudgetAssignment
+	if req.Budget != nil {
+		budget = &grants.BudgetAssignment{
+			MonthlyLimitUSD: req.Budget.MonthlyLimitUSD,
+			ResetCadence:    req.Budget.ResetCadence,
+		}
+	}
+
+	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return

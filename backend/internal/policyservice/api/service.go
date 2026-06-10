@@ -90,7 +90,7 @@ func (s *Service) GatewayBundleHandler() http.HandlerFunc {
 	return s.bundleSrv.ServeGatewayHTTP
 }
 
-func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string) (*grants.Grant, error) {
+func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string, budget *grants.BudgetAssignment) (*grants.Grant, error) {
 	switch principalType {
 	case grants.PrincipalTypeAgent, grants.PrincipalTypeHuman, grants.PrincipalTypePAT, grants.PrincipalTypeService:
 	default:
@@ -112,6 +112,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		PrincipalType: principalType,
 		PrincipalID:   principalID,
 		Scopes:        scopes,
+		Budget:        budget,
 	}
 	if err := s.grantRepo.Create(ctx, g); err != nil {
 		return nil, fmt.Errorf("create grant: %w", err)
@@ -380,7 +381,7 @@ var reservedRoleScopes = bundle.DefaultRoleScopes
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
 // All scopes must exist in the vocabulary. Reserved platform admin roles cannot
 // be modified.
-func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string) (*roles.RoleEntry, error) {
+func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
 	if reservedRoles[role] {
 		return nil, &ReservedRoleError{Role: role}
 	}
@@ -393,7 +394,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 			return nil, &ScopeVocabularyError{Scope: scope}
 		}
 	}
-	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes}
+	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes, Budget: budget}
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
 	}

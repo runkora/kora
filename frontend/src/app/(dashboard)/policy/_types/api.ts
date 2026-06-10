@@ -4,6 +4,13 @@
 // policy-gateway (PDP). Feature-local — NOT in shared/api.ts.
 // Only promote to shared when another feature module needs them.
 
+// ── Budget ───────────────────────────────────────────────────────────────────
+
+export interface BudgetAssignment {
+  monthly_limit_usd: number;
+  reset_cadence: string;
+}
+
 // ── Grants ───────────────────────────────────────────────────────────────────
 
 export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
@@ -14,6 +21,7 @@ export interface Grant {
   principal_type: PrincipalType;
   principal_id: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
   created_at: string;
 }
 
@@ -29,6 +37,7 @@ export interface CreateGrantRequest {
   principal_type: PrincipalType;
   principal_id: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
 }
 
 // ── Roles ────────────────────────────────────────────────────────────────────
@@ -38,6 +47,7 @@ export interface RoleEntry {
   tenant_id: string;
   role: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
   created_at: string;
 }
 
@@ -49,6 +59,7 @@ export interface UpsertRoleRequest {
   tenant_id?: string;
   role: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
 }
 
 // ── Vocabulary ───────────────────────────────────────────────────────────────

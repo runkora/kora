@@ -28,6 +28,8 @@ const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
 const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
 const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
 const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
+const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
+const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
@@ -36,6 +38,8 @@ type tenantBundle struct {
 	grantDetailQuery rego.PreparedEvalQuery
 	roleDetailQuery  rego.PreparedEvalQuery
 	budgetQuery      rego.PreparedEvalQuery
+	categoriesQuery  rego.PreparedEvalQuery
+	roleBudgetsQuery rego.PreparedEvalQuery
 	loadedAt         time.Time
 	revision         string
 }
@@ -194,6 +198,24 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare budget rego eval: %w", err)
 	}
 
+	cq := rego.New(
+		rego.Query(budgetCategoriesQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	cqq, err := cq.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare budget categories rego eval: %w", err)
+	}
+
+	rbq := rego.New(
+		rego.Query(roleBudgetsQuery),
+		rego.ParsedBundle(tenantID, &b),
+	)
+	rbqq, err := rbq.PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare role budgets rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
 		query:            pq,
@@ -201,6 +223,8 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		grantDetailQuery: gdq,
 		roleDetailQuery:  rdq,
 		budgetQuery:      bqq,
+		categoriesQuery:  cqq,
+		roleBudgetsQuery: rbqq,
 		loadedAt:         time.Now().UTC(),
 		revision:         revision,
 	}
@@ -397,6 +421,99 @@ func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, 
 	}
 
 	return result, nil
+}
+
+// GetBudgetCategories returns the applicable budget categories for the principal
+// from data.budgets[principal_id].categories in the compiled bundle.
+// Returns nil, nil when the principal has no budget entry (no limit configured).
+// Fails open on any error.
+func (e *engine) GetBudgetCategories(ctx context.Context, tenantID, principalID string) ([]BudgetCategory, error) {
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return nil, nil
+	}
+
+	rs, err := tb.categoriesQuery.Eval(ctx, rego.EvalInput(map[string]any{
+		"principal_id": principalID,
+	}))
+	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil, nil
+	}
+
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return nil, nil
+	}
+
+	rawSlice, ok := raw.([]any)
+	if !ok {
+		return nil, nil
+	}
+
+	cats := make([]BudgetCategory, 0, len(rawSlice))
+	for _, v := range rawSlice {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		source, _ := m["source"].(string)
+		id, _ := m["id"].(string)
+		cadence, _ := m["reset_cadence"].(string)
+		if source == "" || id == "" {
+			continue
+		}
+		cats = append(cats, BudgetCategory{Source: source, ID: id, ResetCadence: cadence})
+	}
+	return cats, nil
+}
+
+// GetRoleBudgets returns the budget categories for the given OIDC role names
+// from data.role_budgets.role_budgets in the compiled bundle.
+// Only roles with a configured budget are included; unknown roles are silently skipped.
+// Returns nil, nil when no bundle is available or on any evaluation error (fail open).
+func (e *engine) GetRoleBudgets(ctx context.Context, tenantID string, roleNames []string) ([]BudgetCategory, error) {
+	if len(roleNames) == 0 {
+		return nil, nil
+	}
+
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return nil, nil
+	}
+
+	rs, err := tb.roleBudgetsQuery.Eval(ctx)
+	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil, nil
+	}
+
+	raw, ok := rs[0].Bindings["x"]
+	if !ok {
+		return nil, nil
+	}
+
+	roleBudgetMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+
+	cats := make([]BudgetCategory, 0, len(roleNames))
+	for _, role := range roleNames {
+		entry, exists := roleBudgetMap[role]
+		if !exists {
+			continue
+		}
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		cadence, _ := m["reset_cadence"].(string)
+		cats = append(cats, BudgetCategory{
+			Source:       "role",
+			ID:           role,
+			ResetCadence: cadence,
+		})
+	}
+	return cats, nil
 }
 
 func evalGrantDetailResult(rs rego.ResultSet) []GrantDetail {

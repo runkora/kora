@@ -271,9 +271,16 @@ function RoleCardGrid({
             </CardContent>
 
             <CardFooter compact justify="between">
-              <Text size="caption" color="subtle">
-                {scopes.length} {scopes.length === 1 ? 'scope' : 'scopes'}
-              </Text>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="subtle">
+                  {scopes.length} {scopes.length === 1 ? 'scope' : 'scopes'}
+                </Text>
+                {role.budget && (
+                  <Text size="caption" color="muted">
+                    ${role.budget.monthly_limit_usd.toFixed(2)}/mo
+                  </Text>
+                )}
+              </Stack>
               {!isReserved && (
                 <Stack direction="horizontal" align="center" gap="snug">
                   {role.created_at && (
@@ -358,6 +365,20 @@ function RoleTable({
             ))}
           </Stack>
         ),
+      },
+      {
+        id: 'budget',
+        header: 'Budget',
+        cell: (r) =>
+          r.budget ? (
+            <Text size="caption" color="muted">
+              ${r.budget.monthly_limit_usd.toFixed(2)}/mo
+            </Text>
+          ) : (
+            <Text size="caption" color="subtle">
+              —
+            </Text>
+          ),
       },
       {
         id: 'created',
@@ -456,6 +477,10 @@ function UpsertRoleModal({
   const [roleName, setRoleName] = useState(editingRole?.role ?? '');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
   const [scopeSearch, setScopeSearch] = useState('');
+  const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole?.budget);
+  const [monthlyLimitUSD, setMonthlyLimitUSD] = useState(
+    editingRole?.budget ? String(editingRole.budget.monthly_limit_usd) : '',
+  );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -463,9 +488,14 @@ function UpsertRoleModal({
     if (!roleName || selectedScopes.length === 0) return;
     setSubmitting(true);
     setSubmitError(null);
+    const budget =
+      budgetEnabled && monthlyLimitUSD
+        ? { monthly_limit_usd: parseFloat(monthlyLimitUSD), reset_cadence: 'monthly' }
+        : null;
     const result = await upsertRoleAction({
       role: roleName,
       scopes: selectedScopes,
+      budget,
     });
     if (result.ok) {
       onSaved();
@@ -473,7 +503,7 @@ function UpsertRoleModal({
       setSubmitError(result.message);
     }
     setSubmitting(false);
-  }, [roleName, selectedScopes, onSaved]);
+  }, [roleName, selectedScopes, budgetEnabled, monthlyLimitUSD, onSaved]);
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -520,6 +550,38 @@ function UpsertRoleModal({
               search={scopeSearch}
               onSearchChange={setScopeSearch}
             />
+          </Stack>
+
+          {/* Budget */}
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" weight="emphasis">
+                Monthly Budget
+              </Text>
+              <Button
+                variant={budgetEnabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setBudgetEnabled((v) => !v)}
+              >
+                {budgetEnabled ? 'Enabled' : 'Set limit'}
+              </Button>
+            </Stack>
+            {budgetEnabled && (
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="muted">
+                  $
+                </Text>
+                <Input
+                  type="number"
+                  placeholder="e.g. 50"
+                  value={monthlyLimitUSD}
+                  onChange={(e) => setMonthlyLimitUSD(e.target.value)}
+                />
+                <Text size="caption" color="muted">
+                  / month
+                </Text>
+              </Stack>
+            )}
           </Stack>
 
           {submitError && (

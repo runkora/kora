@@ -45,7 +45,15 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes)
+	var budget *roles.BudgetAssignment
+	if req.Budget != nil {
+		budget = &roles.BudgetAssignment{
+			MonthlyLimitUSD: req.Budget.MonthlyLimitUSD,
+			ResetCadence:    req.Budget.ResetCadence,
+		}
+	}
+
+	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return

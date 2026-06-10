@@ -17,34 +17,50 @@ import (
 // all Check and Query calls are pure in-process evaluation — no network hop.
 type Evaluator interface {
 	// Check returns whether the principal may perform action on resource.
-	// Lazily loads the tenant bundle on first call; subsequent calls are
-	// pure in-process OPA evaluation.
 	Check(ctx context.Context, input CheckInput) (Result, error)
 
 	// Query filters candidates to those the principal may access.
-	// Uses the same in-process bundle; no OPA round-trip per candidate.
 	Query(ctx context.Context, input QueryInput) ([]string, error)
 
-	// Scopes returns the complete set of scopes the principal holds
-	// (grants + role-derived scopes). Used by the policy gateway to project
-	// permissions into the frontend session.
+	// Scopes returns the complete set of scopes the principal holds.
 	Scopes(ctx context.Context, input ScopesInput) ([]string, error)
 
-	// ScopesExplain returns the principal's scopes broken down by source
-	// (grants with IDs, roles with names). Used by the admin dashboard's
-	// evaluate page for permission inspection.
+	// ScopesExplain returns the principal's scopes broken down by source.
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
 	// CheckBudget evaluates the orbit.budget rules for the principal.
-	// currentSpendUSD is the principal's spend for the current calendar month,
-	// typically read from Redis immediately before this call.
-	// Returns allow=true when the principal has no configured limit or has not
-	// yet reached it. Fails open (allow=true, err=nil) when the bundle is
-	// unavailable so that Redis/OPA infrastructure issues never block inference.
+	// currentSpendUSD is the sum of all per-category Redis counters for the
+	// current period, read by the inference gateway before this call.
+	// Fails open (allow=true, err=nil) when the bundle is unavailable.
 	CheckBudget(ctx context.Context, tenantID, principalID string, currentSpendUSD float64) (BudgetResult, error)
+
+	// GetBudgetCategories returns the applicable budget categories for the
+	// principal from the compiled OPA bundle (data.budgets[principal_id].categories).
+	// Returns nil, nil when the principal has no budget configured (no limit).
+	// Fails open: returns nil, nil on any bundle or evaluation error.
+	GetBudgetCategories(ctx context.Context, tenantID, principalID string) ([]BudgetCategory, error)
+
+	// GetRoleBudgets returns the budget categories for the given OIDC role names
+	// from the compiled OPA bundle (data.role_budgets). This is called at request
+	// time by the gateway, which knows the caller's JWT roles but the bundle compiler
+	// cannot pre-resolve (OIDC role membership is IDP-asserted, not stored in the DB).
+	// Only roles that have a budget configured are returned. Fails open: returns nil, nil
+	// on any bundle or evaluation error. Roles with no budget entry are silently skipped.
+	GetRoleBudgets(ctx context.Context, tenantID string, roleNames []string) ([]BudgetCategory, error)
 
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
+}
+
+// BudgetCategory is a single budget assignment source (role or grant).
+// Mirrors the budgetCategory type in the bundle compiler.
+type BudgetCategory struct {
+	// Source is "role" or "grant".
+	Source string
+	// ID is the role name (for source="role") or grant UUID (for source="grant").
+	ID string
+	// ResetCadence is "monthly", "quarterly", or "yearly".
+	ResetCadence string
 }
 
 // ScopesExplainResult holds the scope breakdown by source.
@@ -73,18 +89,12 @@ type ScopesInput struct {
 
 // CheckInput is the input to a single allow/deny decision.
 type CheckInput struct {
-	// Claims are the validated platform JWT claims for the principal.
-	Claims *token.PlatformClaims
-	// Delegation is the parsed delegation token, nil if not present.
-	Delegation *DelegationClaims
-	// ResourceType is the resource type, e.g. "inference".
+	Claims       *token.PlatformClaims
+	Delegation   *DelegationClaims
 	ResourceType string
-	// PathSegments qualify the resource, e.g. ["anthropic", "claude-sonnet-4-6"].
 	PathSegments []string
-	// Action is the operation being performed, e.g. "invoke".
-	Action string
-	// Attributes are optional resource metadata passed to OPA for ABAC decisions.
-	Attributes map[string]string
+	Action       string
+	Attributes   map[string]string
 }
 
 // QueryInput is the input to a batch allow/deny across a resource catalog.
@@ -98,7 +108,6 @@ type QueryInput struct {
 
 // Candidate is a single resource in a Query catalog.
 type Candidate struct {
-	// ID is the opaque identifier returned in the allowed list.
 	ID           string
 	PathSegments []string
 	Attributes   map[string]string
@@ -106,20 +115,14 @@ type Candidate struct {
 
 // Result is the outcome of a Check call.
 type Result struct {
-	Allow bool
-	// Reason is a coarse "allow" or deny-reason string. Safe to return to
-	// callers in API responses — must not contain sensitive policy internals
-	// or materialized grant details.
+	Allow  bool
 	Reason string
 }
 
 // DelegationClaims holds parsed delegation token fields.
 type DelegationClaims struct {
-	// Sub is the delegating human (delegator_id in OPA input).
-	Sub string
-	// ActSub is the agent acting on behalf of the delegator.
+	Sub    string
 	ActSub string
-	// Scopes are the scopes granted for this delegation session.
 	Scopes []string
 }
 
@@ -134,17 +137,10 @@ type budgetPrincipal struct {
 	TenantID string `json:"tenant_id"`
 }
 
-// BudgetResult is returned by CheckBudget. It carries the OPA decision and,
-// when a limit is configured for the principal, the effective budget value.
+// BudgetResult is returned by CheckBudget.
 type BudgetResult struct {
-	// Allow is true when the principal may continue spending (below limit or no limit).
-	Allow bool
-	// HasLimit is true when a spend limit is configured for this principal (via
-	// an individual grant or OIDC role budget assignment). False when OPA has no configured
-	// limit for the principal.
-	HasLimit bool
-	// EffectiveBudgetUSD is the active monthly budget in USD, populated only when
-	// HasLimit is true. Zero when HasLimit is false.
+	Allow              bool
+	HasLimit           bool
 	EffectiveBudgetUSD float64
 }
 

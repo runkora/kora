@@ -349,6 +349,14 @@ func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _, _ string, _ floa
 	return policy.BudgetResult{Allow: true}, nil
 }
 
+func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+
+func (m *mockPolicyEvaluator) GetRoleBudgets(_ context.Context, _ string, _ []string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+
 func (m *mockPolicyEvaluator) Start(_ context.Context) {}
 
 // ── OIDC test server ──────────────────────────────────────────────────────────

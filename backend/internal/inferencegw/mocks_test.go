@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // errTestInternal is a sentinel used in tests to simulate unexpected repository errors.
@@ -174,11 +176,11 @@ type mockSpendCounter struct {
 	incrErr     error
 }
 
-func (m *mockSpendCounter) GetSpend(_ context.Context, _, _ string) (float64, error) {
+func (m *mockSpendCounter) GetSpend(_ context.Context, _, _ string, _ []policy.BudgetCategory) (float64, error) {
 	return m.spend, m.getSpendErr
 }
 
-func (m *mockSpendCounter) IncrementSpend(_ context.Context, _, _ string, amount float64) error {
+func (m *mockSpendCounter) IncrementSpend(_ context.Context, _, _ string, _ []policy.BudgetCategory, amount float64) error {
 	if m.incrErr != nil {
 		return m.incrErr
 	}

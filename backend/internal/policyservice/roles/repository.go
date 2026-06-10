@@ -82,15 +82,26 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
 
+	var budgetJSON []byte
+	if entry.Budget != nil {
+		var err error
+		budgetJSON, err = json.Marshal(entry.Budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
 	// RETURNING ensures we get the actual stored id and created_at — on conflict
 	// the original row's id and created_at are preserved, not the new values.
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, created_at)
-		VALUES ($1, $2, $3, $4, now())
+		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at)
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (tenant_id, role)
-		DO UPDATE SET scopes = EXCLUDED.scopes
+		DO UPDATE SET
+			scopes = EXCLUDED.scopes,
+			budget = COALESCE(EXCLUDED.budget, policy_role_scopes.budget)
 		RETURNING id, created_at
-	`, entry.ID, entry.TenantID, entry.Role, scopesJSON)
+	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON)
 
 	if err := row.Scan(&entry.ID, &entry.CreatedAt); err != nil {
 		return fmt.Errorf("upsert role: %w", err)

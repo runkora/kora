@@ -100,10 +100,18 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
 
+	var budgetJSON []byte
+	if g.Budget != nil {
+		budgetJSON, err = json.Marshal(g.Budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, g.CreatedAt)
+		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create grant: %w", err)
 	}

@@ -440,9 +440,16 @@ function GrantCardGrid({
             </CardContent>
 
             <CardFooter compact justify="between">
-              <Text size="caption" color="subtle">
-                {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
-              </Text>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="subtle">
+                  {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
+                </Text>
+                {grant.budget && (
+                  <Text size="caption" color="muted">
+                    ${grant.budget.monthly_limit_usd.toFixed(2)}/mo
+                  </Text>
+                )}
+              </Stack>
               <Stack direction="horizontal" align="center" gap="snug">
                 <Text size="caption" color="subtle">
                   Created {fmtDate(grant.created_at)}
@@ -556,6 +563,20 @@ function GrantTable({
             ))}
           </Stack>
         ),
+      },
+      {
+        id: 'budget',
+        header: 'Budget',
+        cell: (g) =>
+          g.budget ? (
+            <Text size="caption" color="muted">
+              ${g.budget.monthly_limit_usd.toFixed(2)}/mo
+            </Text>
+          ) : (
+            <Text size="caption" color="subtle">
+              —
+            </Text>
+          ),
       },
       {
         id: 'created',
@@ -717,6 +738,8 @@ function CreateGrantModal({
   const [principalId, setPrincipalId] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [monthlyLimitUSD, setMonthlyLimitUSD] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -725,21 +748,28 @@ function CreateGrantModal({
     if (!trimmedId || selectedScopes.length === 0) return;
     setSubmitting(true);
     setSubmitError(null);
+    const budget =
+      budgetEnabled && monthlyLimitUSD
+        ? { monthly_limit_usd: parseFloat(monthlyLimitUSD), reset_cadence: 'monthly' }
+        : null;
     const result = await createGrantAction({
       principal_type: principalType,
       principal_id: trimmedId,
       scopes: selectedScopes,
+      budget,
     });
     if (result.ok) {
       setPrincipalId('');
       setSelectedScopes([]);
       setScopeSearch('');
+      setBudgetEnabled(false);
+      setMonthlyLimitUSD('');
       onCreated();
     } else {
       setSubmitError(result.message);
     }
     setSubmitting(false);
-  }, [principalType, principalId, selectedScopes, onCreated]);
+  }, [principalType, principalId, selectedScopes, budgetEnabled, monthlyLimitUSD, onCreated]);
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -811,6 +841,38 @@ function CreateGrantModal({
               search={scopeSearch}
               onSearchChange={setScopeSearch}
             />
+          </Stack>
+
+          {/* Budget */}
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" weight="emphasis">
+                Monthly Budget
+              </Text>
+              <Button
+                variant={budgetEnabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setBudgetEnabled((v) => !v)}
+              >
+                {budgetEnabled ? 'Enabled' : 'Set limit'}
+              </Button>
+            </Stack>
+            {budgetEnabled && (
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="muted">
+                  $
+                </Text>
+                <Input
+                  type="number"
+                  placeholder="e.g. 50"
+                  value={monthlyLimitUSD}
+                  onChange={(e) => setMonthlyLimitUSD(e.target.value)}
+                />
+                <Text size="caption" color="muted">
+                  / month
+                </Text>
+              </Stack>
+            )}
           </Stack>
 
           {submitError && (

@@ -570,6 +570,14 @@ func (allowAllEvaluator) CheckBudget(context.Context, string, string, float64) (
 	return policy.BudgetResult{Allow: true}, nil
 }
 
+func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+
+func (allowAllEvaluator) GetRoleBudgets(context.Context, string, []string) ([]policy.BudgetCategory, error) {
+	return nil, nil
+}
+
 func (allowAllEvaluator) Start(context.Context) {}
 
 // testServiceFacade wraps AgentTypeService + RunService to expose the same method set
