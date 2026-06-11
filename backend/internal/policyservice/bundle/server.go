@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
+	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -22,21 +24,23 @@ var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 // On startup it compiles all tenants' bundles from the current DB state.
 // On every grant or role write the policy service recompiles the affected tenant's bundle.
 type Server struct {
-	compiler  *Compiler
-	grantRepo grants.Repository
-	vocabRepo vocabulary.Repository
-	roleRepo  roles.Repository
-	logger    logging.Logger
+	compiler         *Compiler
+	grantRepo        grants.Repository
+	vocabRepo        vocabulary.Repository
+	roleRepo         roles.Repository
+	tenantBudgetRepo tenantbudget.Repository
+	logger           logging.Logger
 }
 
 // NewServer creates a bundle Server wired to the provided repositories.
-func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, logger logging.Logger) *Server {
+func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabulary.Repository, roleRepo roles.Repository, tenantBudgetRepo tenantbudget.Repository, logger logging.Logger) *Server {
 	return &Server{
-		compiler:  compiler,
-		grantRepo: grantRepo,
-		vocabRepo: vocabRepo,
-		roleRepo:  roleRepo,
-		logger:    logger,
+		compiler:         compiler,
+		grantRepo:        grantRepo,
+		vocabRepo:        vocabRepo,
+		roleRepo:         roleRepo,
+		tenantBudgetRepo: tenantBudgetRepo,
+		logger:           logger,
 	}
 }
 
@@ -167,7 +171,12 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		return fmt.Errorf("list role scopes for tenant %s: %w", tenantID, err)
 	}
 
-	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries, roleEntries)
+	tb, err := s.tenantBudgetRepo.Get(ctx, tenantID)
+	if err != nil && !errors.Is(err, tenantbudget.ErrTenantBudgetNotFound) {
+		return fmt.Errorf("get tenant budget for tenant %s: %w", tenantID, err)
+	}
+
+	_, err = s.compiler.Compile(tenantID, tenantGrants, vocabEntries, roleEntries, tb)
 	return err
 }
 

@@ -17,6 +17,7 @@ type k8sProvisioner interface {
 	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
+	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error)
@@ -56,6 +57,8 @@ type CreateAgentTypeRequest struct {
 	GrantScopes             []string       `json:"grant_scopes"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 	ModelID                 *string        `json:"model_id"`
+	// Budget is applied to the agent's policy grant (nil = no budget).
+	Budget *AgentBudget `json:"budget"`
 }
 
 type UpdateAgentTypeRequest struct {
@@ -68,6 +71,9 @@ type UpdateAgentTypeRequest struct {
 	ModelID                 *string         `json:"model_id"`
 	ToolScopes              []string        `json:"tool_scopes"`
 	GrantScopes             []string        `json:"grant_scopes"`
+	// Budget updates the agent's grant budget. nil = unchanged; both limits
+	// zero = remove the budget.
+	Budget *AgentBudget `json:"budget"`
 }
 
 type StartRunRequest struct {

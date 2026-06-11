@@ -264,7 +264,7 @@ func (s *Service) ChatCompletion(
 		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
@@ -444,7 +444,7 @@ func (s *Service) ChatCompletionStream(
 			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
@@ -674,15 +674,89 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 
 const spanStatusBudgetExceeded = "budget exceeded"
 
-// checkBudget evaluates the orbit.budget OPA rules via the policy evaluator.
-// It reads the principal's canonical current-period spend from Redis, then
-// delegates the allow/deny decision to OPA. Grant budget limits come from the
-// compiled bundle; role budget limits are resolved by OPA against the caller's
-// JWT roles passed in the input. Fails open on any infrastructure error so
+// writeUsage stamps request-context attribution (run identity, JWT roles)
+// onto the record and persists it. Every usage write goes through here so the
+// run_id and principal_roles columns — the durable sources for run and
+// role-pool counter rehydration — are never missed.
+func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
+	rec.RunID = runIDFromContext(ctx)
+	rec.PrincipalRoles = rolesFromContext(ctx)
+	return s.usage.Create(ctx, rec)
+}
+
+// budgetScopesFor derives the caller's applicable ceiling configuration: which
+// canonical counters to read/write (windows, pools, tenant, run) and the
+// attribution categories. Limits come from bundle data; role membership and
+// run identity come from request context. Every lookup fails open.
+func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes, []policy.BudgetCategory, []string) {
+	roles := rolesFromContext(ctx)
+
+	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		grantCats = nil
+	}
+	roleCats, err := s.policy.GetRoleBudgets(ctx, p.TenantID, roles)
+	if err != nil {
+		roleCats = nil
+	}
+	tenantBudget, err := s.policy.GetTenantBudget(ctx, p.TenantID)
+	if err != nil {
+		tenantBudget = nil
+	}
+
+	windowSet := map[string]struct{}{}
+	var perRunLimit float64
+	for _, c := range grantCats {
+		if c.LimitUSD > 0 {
+			windowSet[c.ResetCadence] = struct{}{}
+		}
+		if c.PerRunLimitUSD > perRunLimit {
+			perRunLimit = c.PerRunLimitUSD
+		}
+	}
+	pools := map[string]string{}
+	for _, c := range roleCats {
+		if c.LimitUSD <= 0 {
+			continue
+		}
+		if c.Pooled {
+			pools[c.ID] = c.ResetCadence
+		} else {
+			windowSet[c.ResetCadence] = struct{}{}
+		}
+	}
+	windows := make([]string, 0, len(windowSet))
+	for w := range windowSet {
+		windows = append(windows, w)
+	}
+	sort.Strings(windows)
+
+	scopes := SpendScopes{
+		TenantID:         p.TenantID,
+		PrincipalID:      p.PrincipalID,
+		PrincipalWindows: windows,
+		PoolWindows:      pools,
+	}
+	if tenantBudget != nil {
+		scopes.TenantWindow = tenantBudget.ResetCadence
+	}
+	// Read the run counter only when a per-run ceiling exists; the write path
+	// sets RunID unconditionally so per-run cost is always attributed.
+	if runID := runIDFromContext(ctx); runID != "" && perRunLimit > 0 {
+		scopes.RunID = runID
+	}
+
+	return scopes, append(grantCats, roleCats...), roles
+}
+
+// checkBudget evaluates the orbit.budget hierarchical ceilings via the policy
+// evaluator. It reads every applicable canonical counter (principal windows,
+// role pools, tenant cap, run), then delegates the decision to OPA, which
+// denies if ANY ceiling is met. Fails open on any infrastructure error so
 // that Redis or OPA unavailability never blocks inference traffic.
 //
 // Note: enforcement is soft — check and increment are not atomic. Concurrent
-// requests near the limit may both pass and briefly overspend before the counter
+// requests near a limit may both pass and briefly overspend before the counter
 // catches up. This is acceptable for cost-cap (not hard billing) use cases.
 func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
 	if s.budgetCounter == nil {
@@ -697,7 +771,9 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	)
 	defer span.End()
 
-	spend, err := s.budgetCounter.GetSpend(ctx, p.TenantID, p.PrincipalID)
+	scopes, _, roles := s.budgetScopesFor(ctx, p)
+
+	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -708,7 +784,13 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		return ctx, nil
 	}
 
-	allow, err := s.policy.CheckBudget(ctx, p.TenantID, p.PrincipalID, rolesFromContext(ctx), spend)
+	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
+		PrincipalID:   p.PrincipalID,
+		PrincipalType: p.PrincipalType,
+		Roles:         roles,
+		RunID:         scopes.RunID,
+		Spends:        spends,
+	})
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "OPA budget check failed"},
@@ -719,12 +801,20 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 		return ctx, nil
 	}
 
-	if !allow.Allow {
-		s.logger.Info(ctx, "budget.hard_block",
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-			logging.Field{Key: "tenant_id", Value: p.TenantID},
-			logging.Field{Key: "spend_usd", Value: spend},
-		)
+	if !result.Allow {
+		fields := []logging.Field{
+			{Key: "principal_id", Value: p.PrincipalID},
+			{Key: "tenant_id", Value: p.TenantID},
+		}
+		for _, c := range result.Ceilings {
+			if c.Reached() {
+				fields = append(fields, logging.Field{
+					Key:   "breached_" + c.Scope,
+					Value: fmt.Sprintf("%s %s: %.4f/%.4f", c.ID, c.Window, c.SpendUSD, c.LimitUSD),
+				})
+			}
+		}
+		s.logger.Info(ctx, "budget.hard_block", fields...)
 		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
 		return ctx, ErrBudgetExceeded
 	}
@@ -732,20 +822,19 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 	return ctx, nil
 }
 
-// incrementSpend best-effort increments the canonical spend counter and the
-// per-category attribution counters after a successful usage write. Logs on
+// incrementSpend best-effort increments every applicable canonical counter
+// and the per-category attribution counters after a usage write. Logs on
 // failure but never returns an error — a counter increment failure must not
 // affect the caller's control flow.
 func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID string, amount float64) {
 	if s.budgetCounter == nil {
 		return
 	}
-	categories, err := s.policy.GetBudgetCategories(ctx, tenantID, principalID)
-	if err != nil {
-		categories = nil
-	}
-	categories = s.mergeRoleCategories(ctx, tenantID, categories)
-	if err := s.budgetCounter.IncrementSpend(ctx, tenantID, principalID, categories, amount); err != nil {
+	scopes, categories, _ := s.budgetScopesFor(ctx, principal{TenantID: tenantID, PrincipalID: principalID})
+	// Write the run counter whenever run identity exists, even without a
+	// configured per-run ceiling — it keeps per-run cost warm and auditable.
+	scopes.RunID = runIDFromContext(ctx)
+	if err := s.budgetCounter.IncrementSpends(ctx, scopes, categories, amount); err != nil {
 		s.logger.Warn(ctx, "budget.counter_increment_failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},
@@ -753,41 +842,23 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	}
 }
 
-// mergeRoleCategories appends role-budget categories from the caller's JWT claims
-// to the existing grant categories, for spend attribution counters only —
-// enforcement reads the canonical counter and resolves role limits inside OPA.
-// Role membership is IDP-asserted in the JWT — the bundle compiler cannot
-// pre-resolve it — so the gateway does this at request time.
-// Fails open: errors from GetRoleBudgets are logged and the original categories are returned unchanged.
-func (s *Service) mergeRoleCategories(ctx context.Context, tenantID string, categories []policy.BudgetCategory) []policy.BudgetCategory {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		return categories
-	}
-	roles := extractRolesFromClaims(claims)
-	if len(roles) == 0 {
-		return categories
-	}
-	roleCats, err := s.policy.GetRoleBudgets(ctx, tenantID, roles)
-	if err != nil || len(roleCats) == 0 {
-		return categories
-	}
-	return append(categories, roleCats...)
-}
-
-// GetPersonalBudget returns the effective budget status for the given principal.
-// It reads the canonical current-period spend from Redis and delegates the budget
-// evaluation to OPA via CheckBudget — grant limits from bundle data, role limits
-// resolved against the caller's JWT roles. This is the same path enforcement
-// takes, so the reported status always agrees with what the gateway will block.
-// Fails open on Redis or OPA errors: returns an empty BudgetStatus (no limit, no spend)
-// rather than propagating infrastructure errors to the caller.
+// GetPersonalBudget returns the caller's budget status: every applicable
+// ceiling with its limit and current spend. This is the same gather + evaluate
+// path enforcement takes, so the reported status always agrees with what the
+// gateway will block. Fails open on Redis or OPA errors: returns an empty
+// BudgetStatus rather than propagating infrastructure errors to the caller.
 func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID string) (BudgetStatus, error) {
 	if s.budgetCounter == nil {
 		return BudgetStatus{}, nil
 	}
 
-	spend, err := s.budgetCounter.GetSpend(ctx, tenantID, principalID)
+	p := principal{TenantID: tenantID, PrincipalID: principalID}
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
+		p.PrincipalType = string(claims.Orbit.PrincipalType)
+	}
+	scopes, _, roles := s.budgetScopesFor(ctx, p)
+
+	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
@@ -797,7 +868,13 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		return BudgetStatus{}, nil
 	}
 
-	result, err := s.policy.CheckBudget(ctx, tenantID, principalID, rolesFromContext(ctx), spend)
+	result, err := s.policy.CheckBudget(ctx, tenantID, policy.BudgetCheckRequest{
+		PrincipalID:   principalID,
+		PrincipalType: p.PrincipalType,
+		Roles:         roles,
+		RunID:         scopes.RunID,
+		Spends:        spends,
+	})
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "OPA budget check failed"},
@@ -807,12 +884,26 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		return BudgetStatus{}, nil
 	}
 
-	return BudgetStatus{
-		CurrentSpendUSD:   spend,
-		SpendLimitReached: !result.Allow,
+	status := BudgetStatus{
 		HasLimit:          result.HasLimit,
-		MonthlyBudgetUSD:  result.EffectiveBudgetUSD,
-	}, nil
+		SpendLimitReached: !result.Allow,
+	}
+	for _, c := range result.Ceilings {
+		status.Ceilings = append(status.Ceilings, BudgetCeilingStatus{
+			Scope:    c.Scope,
+			ID:       c.ID,
+			Window:   c.Window,
+			LimitUSD: c.LimitUSD,
+			SpendUSD: c.SpendUSD,
+			Reached:  c.Reached(),
+		})
+		// Mirror the principal-monthly ceiling into the legacy single-bar fields.
+		if c.Scope == "principal" && c.Window == "monthly" {
+			status.MonthlyBudgetUSD = c.LimitUSD
+			status.CurrentSpendUSD = c.SpendUSD
+		}
+	}
+	return status, nil
 }
 
 // ListBudgetPrincipals returns per-principal budget status for the tenant:
@@ -836,6 +927,23 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	principalBudgets, roleBudgets, err := s.policy.ListBudgets(ctx, tenantID)
 	if err != nil {
 		principalBudgets, roleBudgets = nil, nil
+	}
+
+	// Tenant rollup cap with its period spend (DB-authoritative).
+	if tb, tbErr := s.policy.GetTenantBudget(ctx, tenantID); tbErr == nil && tb != nil {
+		capSpend, spErr := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
+		if spErr != nil {
+			s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
+				logging.Field{Key: "error", Value: spErr.Error()},
+			)
+		} else {
+			resp.TenantCap = &TenantCapStatus{
+				LimitUSD:     tb.LimitUSD,
+				ResetCadence: tb.ResetCadence,
+				SpendUSD:     capSpend,
+				Reached:      capSpend >= tb.LimitUSD,
+			}
+		}
 	}
 
 	// Per-principal period spend — the DB is authoritative.
@@ -903,17 +1011,21 @@ func budgetCategoriesFor(
 			continue // counter for a role whose budget has since been removed
 		}
 		cats = append(cats, policy.BudgetCategory{
-			Source:          "role",
-			ID:              role,
-			ResetCadence:    rb.ResetCadence,
-			MonthlyLimitUSD: rb.MonthlyLimitUSD,
+			Source:       "role",
+			ID:           role,
+			ResetCadence: rb.ResetCadence,
+			LimitUSD:     rb.LimitUSD,
+			Pooled:       rb.Pooled,
 		})
 	}
 	return cats
 }
 
-// buildBudgetPrincipalRow assembles a single listing row: MAX effective limit,
-// per-category attributed spend (best-effort), and the blocked flag.
+// buildBudgetPrincipalRow assembles a single listing row. The listing is a
+// monthly-period lens: the effective limit and blocked flag reflect the
+// monthly-window ceilings (MAX across per-member assignments); weekly, pooled,
+// and per-run assignments are visible in the per-category breakdown with
+// their own windows.
 func (s *Service) buildBudgetPrincipalRow(
 	ctx context.Context,
 	pid string,
@@ -921,9 +1033,16 @@ func (s *Service) buildBudgetPrincipalRow(
 	sp PrincipalPeriodSpend,
 ) BudgetPrincipalStatus {
 	var effective float64
+	hasLimit := false
 	for _, cat := range cats {
-		if cat.MonthlyLimitUSD > effective {
-			effective = cat.MonthlyLimitUSD
+		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
+			hasLimit = true
+		}
+		if cat.Pooled {
+			continue // pools are shared ceilings, never part of the per-member MAX
+		}
+		if cat.ResetCadence == "monthly" && cat.LimitUSD > effective {
+			effective = cat.LimitUSD
 		}
 	}
 
@@ -936,10 +1055,12 @@ func (s *Service) buildBudgetPrincipalRow(
 	catStatuses := make([]BudgetCategoryStatus, len(cats))
 	for i, cat := range cats {
 		st := BudgetCategoryStatus{
-			Source:          cat.Source,
-			ID:              cat.ID,
-			MonthlyLimitUSD: cat.MonthlyLimitUSD,
-			ResetCadence:    cat.ResetCadence,
+			Source:         cat.Source,
+			ID:             cat.ID,
+			LimitUSD:       cat.LimitUSD,
+			ResetCadence:   cat.ResetCadence,
+			PerRunLimitUSD: cat.PerRunLimitUSD,
+			Pooled:         cat.Pooled,
 		}
 		if i < len(catSpends) {
 			st.SpendUSD = catSpends[i]
@@ -947,7 +1068,6 @@ func (s *Service) buildBudgetPrincipalRow(
 		catStatuses[i] = st
 	}
 
-	hasLimit := len(cats) > 0
 	row := BudgetPrincipalStatus{
 		PrincipalID:       pid,
 		PrincipalType:     sp.PrincipalType,
@@ -955,7 +1075,7 @@ func (s *Service) buildBudgetPrincipalRow(
 		EffectiveLimitUSD: effective,
 		CurrentSpendUSD:   sp.SpendUSD,
 		HasLimit:          hasLimit,
-		SpendLimitReached: hasLimit && sp.SpendUSD >= effective,
+		SpendLimitReached: effective > 0 && sp.SpendUSD >= effective,
 	}
 	if !sp.LastActiveAt.IsZero() {
 		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
@@ -1134,7 +1254,7 @@ func (s *Service) writeFailedUsage(
 		CreatedAt:       time.Now().UTC(),
 	}
 
-	if err := s.usage.Create(ctx, rec); err != nil {
+	if err := s.writeUsage(ctx, rec); err != nil {
 		s.logger.Error(ctx, "failed to write failed inference usage record",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -1367,7 +1487,7 @@ func (s *Service) Embeddings(
 		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
@@ -1488,7 +1608,7 @@ func (s *Service) Responses(
 		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
@@ -1632,7 +1752,7 @@ func (s *Service) ResponsesStream(
 			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
@@ -1834,7 +1954,7 @@ func (s *Service) AnthropicMessages(
 		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
@@ -1996,7 +2116,7 @@ func (s *Service) AnthropicMessagesStream(
 			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming anthropic usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},

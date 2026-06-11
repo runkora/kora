@@ -110,7 +110,19 @@ func (m *mockInferenceUsageRepository) ListPrincipalUsage(_ context.Context, _ A
 	return m.principalsResp, nil
 }
 
-func (m *mockInferenceUsageRepository) GetMonthlySpend(_ context.Context, _, _ string, _ time.Time) (float64, error) {
+func (m *mockInferenceUsageRepository) GetSpendSince(_ context.Context, _, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetTenantSpendSince(_ context.Context, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetPoolSpendSince(_ context.Context, _, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetRunSpend(_ context.Context, _, _ string) (float64, error) {
 	return 0, nil
 }
 
@@ -176,24 +188,32 @@ func (m *mockPricingCatalogRepository) LoadAll(_ context.Context) ([]PricingCata
 var _ SpendCounter = (*mockSpendCounter)(nil)
 
 type mockSpendCounter struct {
-	spend            float64
+	spends           policy.BudgetSpends
 	categorySpends   []float64
 	getSpendErr      error
 	incrErr          error
+	lastScopes       SpendScopes
+	lastIncrScopes   SpendScopes
 	lastCategories   []policy.BudgetCategory
+	incremented      float64
 	roleAttributions map[string][]string
 }
 
-func (m *mockSpendCounter) GetSpend(_ context.Context, _, _ string) (float64, error) {
-	return m.spend, m.getSpendErr
+func (m *mockSpendCounter) GetSpends(_ context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
+	m.lastScopes = scopes
+	if m.getSpendErr != nil {
+		return policy.BudgetSpends{}, m.getSpendErr
+	}
+	return m.spends, nil
 }
 
-func (m *mockSpendCounter) IncrementSpend(_ context.Context, _, _ string, categories []policy.BudgetCategory, amount float64) error {
+func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
 	if m.incrErr != nil {
 		return m.incrErr
 	}
+	m.lastIncrScopes = scopes
 	m.lastCategories = categories
-	m.spend += amount
+	m.incremented += amount
 	return nil
 }
 

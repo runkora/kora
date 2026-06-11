@@ -19,11 +19,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// BudgetAssignment is the inline budget configuration on a role or grant.
+// BudgetAssignment is the inline budget configuration on a role.
 // A nil pointer means "no budget configured for this category".
+// Pooled=false (default): per-member allowance — every principal asserting the
+// role gets LimitUSD per window. Pooled=true: one shared pot — all members'
+// spend accumulates against a single counter.
 type BudgetAssignment struct {
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	Pooled       bool    `json:"pooled,omitempty"`
 }
 
 // RoleEntry maps an OIDC role name to platform scopes within a tenant.

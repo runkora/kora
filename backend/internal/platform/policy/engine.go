@@ -27,23 +27,25 @@ const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data
 const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
 const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
 const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
-const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"effective_budget_usd\": data.orbit.budget.effective_budget_usd}"
+const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"ceilings\": data.orbit.budget.ceilings}"
 const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
 const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 const allBudgetsQuery = "x := data.budgets"
+const tenantBudgetQuery = "x := data.tenant_budget.tenant_budget"
 
 // tenantBundle holds compiled PreparedEvalQueries for a single tenant.
 type tenantBundle struct {
-	query            rego.PreparedEvalQuery
-	scopesQuery      rego.PreparedEvalQuery
-	grantDetailQuery rego.PreparedEvalQuery
-	roleDetailQuery  rego.PreparedEvalQuery
-	budgetQuery      rego.PreparedEvalQuery
-	categoriesQuery  rego.PreparedEvalQuery
-	roleBudgetsQuery rego.PreparedEvalQuery
-	allBudgetsQuery  rego.PreparedEvalQuery
-	loadedAt         time.Time
-	revision         string
+	query             rego.PreparedEvalQuery
+	scopesQuery       rego.PreparedEvalQuery
+	grantDetailQuery  rego.PreparedEvalQuery
+	roleDetailQuery   rego.PreparedEvalQuery
+	budgetQuery       rego.PreparedEvalQuery
+	categoriesQuery   rego.PreparedEvalQuery
+	roleBudgetsQuery  rego.PreparedEvalQuery
+	allBudgetsQuery   rego.PreparedEvalQuery
+	tenantBudgetQuery rego.PreparedEvalQuery
+	loadedAt          time.Time
+	revision          string
 }
 
 // engine manages per-tenant OPA bundle loading and policy evaluation.
@@ -227,18 +229,27 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		return fmt.Errorf("prepare all budgets rego eval: %w", err)
 	}
 
+	tbq, err := rego.New(
+		rego.Query(tenantBudgetQuery),
+		rego.ParsedBundle(tenantID, &b),
+	).PrepareForEval(ctx)
+	if err != nil {
+		return fmt.Errorf("prepare tenant budget rego eval: %w", err)
+	}
+
 	e.mu.Lock()
 	e.bundles[tenantID] = &tenantBundle{
-		query:            pq,
-		scopesQuery:      sq,
-		grantDetailQuery: gdq,
-		roleDetailQuery:  rdq,
-		budgetQuery:      bqq,
-		categoriesQuery:  cqq,
-		roleBudgetsQuery: rbqq,
-		allBudgetsQuery:  abq,
-		loadedAt:         time.Now().UTC(),
-		revision:         revision,
+		query:             pq,
+		scopesQuery:       sq,
+		grantDetailQuery:  gdq,
+		roleDetailQuery:   rdq,
+		budgetQuery:       bqq,
+		categoriesQuery:   cqq,
+		roleBudgetsQuery:  rbqq,
+		allBudgetsQuery:   abq,
+		tenantBudgetQuery: tbq,
+		loadedAt:          time.Now().UTC(),
+		revision:          revision,
 	}
 	e.mu.Unlock()
 
@@ -390,20 +401,38 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	}, nil
 }
 
-// CheckBudget evaluates the orbit.budget rules for the principal. Implements Evaluator.
-// Fails open (allow=true, hasLimit=false) when the tenant bundle is unavailable.
-func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, roles []string, currentSpendUSD float64) (BudgetResult, error) {
+// CheckBudget evaluates the orbit.budget hierarchical ceiling rules.
+// Implements Evaluator. Fails open (allow=true, hasLimit=false) when the
+// tenant bundle is unavailable or evaluation fails.
+func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error) {
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil || tb == nil {
 		return BudgetResult{Allow: true}, nil // fail open: no bundle available
 	}
 
+	roles := req.Roles
 	if roles == nil {
 		roles = []string{}
 	}
+	spends := req.Spends
+	if spends.Principal == nil {
+		spends.Principal = map[string]float64{}
+	}
+	if spends.RolePools == nil {
+		spends.RolePools = map[string]float64{}
+	}
+	if spends.Tenant == nil {
+		spends.Tenant = map[string]float64{}
+	}
 	input := BudgetCheckInput{
-		Principal:       budgetPrincipal{ID: principalID, TenantID: tenantID, Roles: roles},
-		CurrentSpendUSD: currentSpendUSD,
+		Principal: budgetPrincipal{
+			ID:       req.PrincipalID,
+			TenantID: tenantID,
+			Type:     req.PrincipalType,
+			Roles:    roles,
+			RunID:    req.RunID,
+		},
+		Spends: spends,
 	}
 
 	rs, err := tb.budgetQuery.Eval(ctx, rego.EvalInput(input))
@@ -424,18 +453,50 @@ func (e *engine) CheckBudget(ctx context.Context, tenantID, principalID string, 
 	hasLimit, _ := decision["has_limit"].(bool)
 	result := BudgetResult{Allow: allow, HasLimit: hasLimit}
 
-	if hasLimit {
-		switch v := decision["effective_budget_usd"].(type) {
-		case float64:
-			result.EffectiveBudgetUSD = v
-		case json.Number:
-			if f, err := v.Float64(); err == nil {
-				result.EffectiveBudgetUSD = f
+	if rawCeilings, ok := decision["ceilings"].([]any); ok {
+		for _, raw := range rawCeilings {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
 			}
+			scope, _ := m["scope"].(string)
+			id, _ := m["id"].(string)
+			window, _ := m["window"].(string)
+			result.Ceilings = append(result.Ceilings, BudgetCeiling{
+				Scope:    scope,
+				ID:       id,
+				Window:   window,
+				LimitUSD: toFloat(m["limit_usd"]),
+				SpendUSD: toFloat(m["spend_usd"]),
+			})
 		}
 	}
 
 	return result, nil
+}
+
+// GetTenantBudget returns the tenant rollup cap from the compiled bundle, or
+// nil when none is configured. Implements Evaluator. Fails open on any error.
+func (e *engine) GetTenantBudget(ctx context.Context, tenantID string) (*TenantBudget, error) {
+	tb, err := e.bundleForTenant(ctx, tenantID)
+	if err != nil || tb == nil {
+		return nil, nil
+	}
+
+	rs, err := tb.tenantBudgetQuery.Eval(ctx)
+	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil, nil
+	}
+	m, ok := rs[0].Bindings["x"].(map[string]any)
+	if !ok {
+		return nil, nil // null = no cap configured
+	}
+	cadence, _ := m["reset_cadence"].(string)
+	limit := toFloat(m["limit_usd"])
+	if limit <= 0 {
+		return nil, nil
+	}
+	return &TenantBudget{LimitUSD: limit, ResetCadence: cadence}, nil
 }
 
 // GetBudgetCategories returns the applicable budget categories for the principal
@@ -478,10 +539,11 @@ func (e *engine) GetBudgetCategories(ctx context.Context, tenantID, principalID 
 			continue
 		}
 		cats = append(cats, BudgetCategory{
-			Source:          source,
-			ID:              id,
-			ResetCadence:    cadence,
-			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+			Source:         source,
+			ID:             id,
+			ResetCadence:   cadence,
+			LimitUSD:       toFloat(m["limit_usd"]),
+			PerRunLimitUSD: toFloat(m["per_run_limit_usd"]),
 		})
 	}
 	return cats, nil
@@ -527,11 +589,13 @@ func (e *engine) GetRoleBudgets(ctx context.Context, tenantID string, roleNames 
 			continue
 		}
 		cadence, _ := m["reset_cadence"].(string)
+		pooled, _ := m["pooled"].(bool)
 		cats = append(cats, BudgetCategory{
-			Source:          "role",
-			ID:              role,
-			ResetCadence:    cadence,
-			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+			Source:       "role",
+			ID:           role,
+			ResetCadence: cadence,
+			LimitUSD:     toFloat(m["limit_usd"]),
+			Pooled:       pooled,
 		})
 	}
 	return cats, nil
@@ -563,9 +627,11 @@ func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]P
 			continue
 		}
 		cadence, _ := m["reset_cadence"].(string)
+		pooled, _ := m["pooled"].(bool)
 		roleBudgets[role] = RoleBudget{
-			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
-			ResetCadence:    cadence,
+			LimitUSD:     toFloat(m["limit_usd"]),
+			ResetCadence: cadence,
+			Pooled:       pooled,
 		}
 	}
 
@@ -585,7 +651,15 @@ func evalToMap(ctx context.Context, q rego.PreparedEvalQuery) map[string]any {
 
 // parsePrincipalBudget converts one data.budgets entry into a PrincipalBudget.
 func parsePrincipalBudget(entry map[string]any) PrincipalBudget {
-	pb := PrincipalBudget{EffectiveLimitUSD: toFloat(entry["effective_limit_usd"])}
+	pb := PrincipalBudget{
+		EffectiveLimits:         map[string]float64{},
+		EffectivePerRunLimitUSD: toFloat(entry["effective_per_run_limit_usd"]),
+	}
+	if limits, ok := entry["effective_limits"].(map[string]any); ok {
+		for w, l := range limits {
+			pb.EffectiveLimits[w] = toFloat(l)
+		}
+	}
 	cats, ok := entry["categories"].([]any)
 	if !ok {
 		return pb
@@ -602,10 +676,11 @@ func parsePrincipalBudget(entry map[string]any) PrincipalBudget {
 			continue
 		}
 		pb.Categories = append(pb.Categories, BudgetCategory{
-			Source:          source,
-			ID:              id,
-			ResetCadence:    cadence,
-			MonthlyLimitUSD: toFloat(m["monthly_limit_usd"]),
+			Source:         source,
+			ID:             id,
+			ResetCadence:   cadence,
+			LimitUSD:       toFloat(m["limit_usd"]),
+			PerRunLimitUSD: toFloat(m["per_run_limit_usd"]),
 		})
 	}
 	return pb

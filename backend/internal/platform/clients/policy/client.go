@@ -23,13 +23,23 @@ const (
 	clientTimeout = 10 * time.Second
 )
 
+// BudgetAssignment is the inline budget configuration carried by a grant.
+// LimitUSD is the per-window (weekly/monthly) ceiling; PerRunLimitUSD is the
+// windowless per-run ceiling for agent runs.
+type BudgetAssignment struct {
+	LimitUSD       float64 `json:"limit_usd,omitempty"`
+	ResetCadence   string  `json:"reset_cadence,omitempty"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+}
+
 // Grant is the subset of a policy_grant used by this client.
 type Grant struct {
-	ID            string   `json:"id"`
-	TenantID      string   `json:"tenant_id"`
-	PrincipalType string   `json:"principal_type"`
-	PrincipalID   string   `json:"principal_id"`
-	Scopes        []string `json:"scopes"`
+	ID            string            `json:"id"`
+	TenantID      string            `json:"tenant_id"`
+	PrincipalType string            `json:"principal_type"`
+	PrincipalID   string            `json:"principal_id"`
+	Scopes        []string          `json:"scopes"`
+	Budget        *BudgetAssignment `json:"budget,omitempty"`
 }
 
 // TokenFunc is a function that returns a Bearer token for authenticating
@@ -59,20 +69,23 @@ func (c *Client) bearerToken(ctx context.Context) (string, error) {
 }
 
 type createGrantRequest struct {
-	TenantID      string   `json:"tenant_id"`
-	PrincipalType string   `json:"principal_type"`
-	PrincipalID   string   `json:"principal_id"`
-	Scopes        []string `json:"scopes"`
+	TenantID      string            `json:"tenant_id"`
+	PrincipalType string            `json:"principal_type"`
+	PrincipalID   string            `json:"principal_id"`
+	Scopes        []string          `json:"scopes"`
+	Budget        *BudgetAssignment `json:"budget,omitempty"`
 }
 
 // CreateGrant creates a grant for (principalType, principalID) → scopes within
-// the given tenant. Returns the created grant ID.
-func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string) (string, error) {
+// the given tenant, optionally carrying a budget assignment (nil = none).
+// Returns the created grant ID.
+func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *BudgetAssignment) (string, error) {
 	body, err := c.EncodeJSON(createGrantRequest{
 		TenantID:      tenantID,
 		PrincipalType: principalType,
 		PrincipalID:   principalID,
 		Scopes:        scopes,
+		Budget:        budget,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode grant request: %w", err)

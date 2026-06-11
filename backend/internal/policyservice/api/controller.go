@@ -94,6 +94,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/grants/{id}                                Get a grant by ID
 //	PATCH  /policy/grants/{id}                                Update a grant's budget in place
 //	DELETE /policy/grants/{id}                                Delete a grant
+//	PUT    /policy/tenant-budget                              Set the tenant's rollup spending cap
+//	GET    /policy/tenant-budget?tenant_id=                   Get the tenant's cap
+//	DELETE /policy/tenant-budget?tenant_id=                   Remove the tenant's cap
 //	GET    /policy/grants?tenant_id=&principal_id=            List grants for a principal or tenant
 //	GET    /policy/vocabulary                                 List scope vocabulary
 //	GET    /policy/vocabulary/{scope}                         Get a single scope entry
@@ -113,6 +116,9 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("PATCH /grants/{id}", c.handleUpdateGrantBudget)
 	mux.Handle("DELETE /grants/{id}", c.handleDeleteGrant)
 	mux.Handle("GET /grants", c.handleListGrants)
+	mux.Handle("PUT /tenant-budget", c.handleUpsertTenantBudget)
+	mux.Handle("GET /tenant-budget", c.handleGetTenantBudget)
+	mux.Handle("DELETE /tenant-budget", c.handleDeleteTenantBudget)
 	mux.Handle("GET /vocabulary", c.handleListVocabulary)
 	mux.Handle("GET /vocabulary/{scope}", c.handleGetScope)
 	mux.Handle("PUT /roles", c.handleUpsertRole)

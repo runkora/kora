@@ -25,6 +25,10 @@ type Notifier interface {
 	// fromState is "active" if the subprocess exited mid-turn, "idle" if it
 	// exited cleanly after a completed turn (e.g. idle timeout).
 	CompleteRun(ctx context.Context, runID string, fromState string, failed bool) error
+	// ExhaustRun transitions a run from fromState to the terminal
+	// budget_exhausted state — the gateway rejected its LLM calls with
+	// BUDGET_EXCEEDED; the run did nothing wrong, its budget ended.
+	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns its gRPC endpoint ("podIP:port").
 	ProvisionSandbox(ctx context.Context, runID string) (string, error)
@@ -38,6 +42,7 @@ func (NoopNotifier) Notify(_ context.Context, _ string, _ Event) error          
 func (NoopNotifier) IdleRun(_ context.Context, _ string) error                       { return nil }
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
+func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
 func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (string, error)    { return "", nil }
 
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
@@ -122,6 +127,10 @@ func (n *HTTPNotifier) CompleteRun(ctx context.Context, runID string, fromState 
 		toState = "failed"
 	}
 	return n.postRunState(ctx, runID, fromState, toState)
+}
+
+func (n *HTTPNotifier) ExhaustRun(ctx context.Context, runID string, fromState string) error {
+	return n.postRunState(ctx, runID, fromState, "budget_exhausted")
 }
 
 func (n *HTTPNotifier) postRunState(ctx context.Context, runID, from, to string) error {

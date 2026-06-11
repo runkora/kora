@@ -2,7 +2,6 @@ package inferencegw
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,30 +13,50 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const budgetKeyTTL = 35 * 24 * time.Hour
+const (
+	budgetKeyTTL = 35 * 24 * time.Hour
+	// runKeyTTL outlives any plausible run; refreshed on every write so
+	// long-lived runs never lose their counter mid-run.
+	runKeyTTL = 7 * 24 * time.Hour
+)
 
-// SpendCounter tracks per-principal monthly spend in Redis.
+// SpendScopes describes which canonical counters apply to one request — the
+// product of the caller's configured ceilings (from bundle data + JWT roles)
+// and the request's identity context.
+type SpendScopes struct {
+	TenantID    string
+	PrincipalID string
+	// PrincipalWindows are the windows ("weekly"/"monthly") with configured
+	// principal ceilings. The monthly counter is always written on increment
+	// regardless (it feeds reporting), but only listed windows are read.
+	PrincipalWindows []string
+	// TenantWindow is the tenant cap's window ("" = no cap configured).
+	TenantWindow string
+	// PoolWindows maps pooled role name → its window, for the pooled role
+	// budgets the caller's JWT asserts.
+	PoolWindows map[string]string
+	// RunID is the request's run identity ("" = none).
+	RunID string
+}
+
+// SpendCounter tracks canonical and attribution spend counters in Redis.
 // All methods fail open: errors are returned so callers can log and continue.
 type SpendCounter interface {
-	// GetSpend returns the principal's canonical current-period spend.
-	// On a cache miss it rehydrates from the usage repository and primes Redis.
-	GetSpend(ctx context.Context, tenantID, principalID string) (float64, error)
+	// GetSpends reads every canonical counter named by scopes, rehydrating
+	// misses from the usage repository (the DB is authoritative).
+	GetSpends(ctx context.Context, scopes SpendScopes) (policy.BudgetSpends, error)
 
-	// IncrementSpend adds amount to the canonical counter and to each
-	// applicable per-category attribution counter.
-	IncrementSpend(ctx context.Context, tenantID, principalID string, categories []policy.BudgetCategory, amount float64) error
+	// IncrementSpends adds amount to every applicable canonical counter
+	// (principal windows, tenant, pools, run) and to each per-category
+	// attribution counter.
+	IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error
 
 	// GetCategorySpends returns the attributed spend per category, aligned to
-	// the input slice. Missing counters read as 0 (a category with no traffic
-	// this period has no key).
+	// the input slice. Missing counters read as 0.
 	GetCategorySpends(ctx context.Context, principalID string, categories []policy.BudgetCategory) ([]float64, error)
 
 	// ListActiveRoleAttributions returns principal ID → role names that have a
-	// role attribution counter for the current monthly period. This is how the
-	// budgets listing discovers which principals hold budgeted OIDC roles: role
-	// membership is IDP-asserted per request, so the attribution counters written
-	// on inference traffic are the only durable record of it. Principals with no
-	// requests this period are absent.
+	// role attribution counter for the current monthly period.
 	ListActiveRoleAttributions(ctx context.Context) (map[string][]string, error)
 }
 
@@ -53,24 +72,18 @@ type redisOps interface {
 
 // RedisBudgetCounter implements SpendCounter using Redis INCRBYFLOAT.
 //
-// Key layout:
+// Key layout (see docs/adr/2026-06-10-hierarchical-budget-enforcement.md):
 //
-//	budget:{principal_id}:{period}                      canonical — read for enforcement, always written
-//	budget:{principal_id}:role:{role_name}:{period}     attribution only — written, never used for enforcement
-//	budget:{principal_id}:grant:{grant_id}:{period}     attribution only
+//	budget:{principal_id}:{period}                  canonical principal, per window
+//	budget:tenant:{tenant_id}:{period}              tenant rollup (all principals)
+//	budget:rolepool:{tenant_id}:{role}:{period}     shared role pool
+//	budget:run:{run_id}                             per-run (TTL 7d, refresh on write)
+//	budget:{principal_id}:{source}:{id}:{period}    attribution (never enforced)
 //
-// The canonical counter holds the principal's full period spend and is the
-// single value compared against the effective budget limit. Category counters
-// each also carry the full spend of the requests made while that category
-// applied — they exist for per-source reporting, never for enforcement
-// arithmetic (summing them would multiply-count spend, since every category
-// is incremented on every request).
-//
-// Period format is cadence-dependent: "2026-06" (monthly), "2026-Q2"
-// (quarterly), "2026" (yearly). The canonical counter is always monthly —
-// non-monthly cadences are reserved and not yet enforced. TenantID is absent:
-// principal IDs are UUIDs globally unique across tenants, so cross-tenant
-// collision is impossible.
+// Period strings are window-specific and collision-free: "2026-06" (monthly),
+// "2026-W24" (ISO week, UTC). Principal IDs are globally unique UUIDs/URIs, so
+// principal keys omit the tenant; role names are tenant-scoped, so pool keys
+// include it.
 type RedisBudgetCounter struct {
 	rdb    redisOps
 	usage  InferenceUsageRepository
@@ -82,20 +95,14 @@ func NewRedisBudgetCounter(rc *storage.RedisClient, usage InferenceUsageReposito
 	return &RedisBudgetCounter{rdb: rc.Client(), usage: usage, logger: logger}
 }
 
-// canonicalBudgetKey is the per-principal enforcement counter key.
-func canonicalBudgetKey(principalID string, t time.Time) string {
-	return fmt.Sprintf("budget:%s:%s", principalID, t.UTC().Format("2006-01"))
-}
-
-// categoryKey builds the per-category attribution key for a single budget assignment.
-func categoryKey(principalID string, cat policy.BudgetCategory, t time.Time) string {
-	period := periodForCadence(cat.ResetCadence, t)
-	return fmt.Sprintf("budget:%s:%s:%s:%s", principalID, cat.Source, cat.ID, period)
-}
+// ── periods and keys ─────────────────────────────────────────────────────────
 
 func periodForCadence(cadence string, t time.Time) string {
 	u := t.UTC()
 	switch cadence {
+	case "weekly":
+		y, w := u.ISOWeek()
+		return fmt.Sprintf("%d-W%02d", y, w)
 	case "quarterly":
 		q := (int(u.Month())-1)/3 + 1
 		return fmt.Sprintf("%d-Q%d", u.Year(), q)
@@ -106,36 +113,142 @@ func periodForCadence(cadence string, t time.Time) string {
 	}
 }
 
-// GetSpend returns the canonical current-period spend for the principal.
-// On a cache miss it rehydrates from the usage repository (the DB is
-// authoritative; Redis is a fast read layer).
-func (c *RedisBudgetCounter) GetSpend(ctx context.Context, tenantID, principalID string) (float64, error) {
+// periodStart returns the UTC start of the window containing t.
+func periodStart(window string, t time.Time) time.Time {
+	u := t.UTC()
+	if window == "weekly" {
+		// ISO week starts Monday. Weekday() is 0=Sunday … 6=Saturday.
+		offset := (int(u.Weekday()) + 6) % 7
+		day := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+		return day.AddDate(0, 0, -offset)
+	}
+	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
+func principalKey(principalID, window string, t time.Time) string {
+	return fmt.Sprintf("budget:%s:%s", principalID, periodForCadence(window, t))
+}
+
+func tenantKey(tenantID, window string, t time.Time) string {
+	return fmt.Sprintf("budget:tenant:%s:%s", tenantID, periodForCadence(window, t))
+}
+
+func poolKey(tenantID, role, window string, t time.Time) string {
+	return fmt.Sprintf("budget:rolepool:%s:%s:%s", tenantID, role, periodForCadence(window, t))
+}
+
+func runKey(runID string) string {
+	return fmt.Sprintf("budget:run:%s", runID)
+}
+
+// categoryKey builds the per-category attribution key for a single budget assignment.
+func categoryKey(principalID string, cat policy.BudgetCategory, t time.Time) string {
+	period := periodForCadence(cat.ResetCadence, t)
+	return fmt.Sprintf("budget:%s:%s:%s:%s", principalID, cat.Source, cat.ID, period)
+}
+
+// ── reads ────────────────────────────────────────────────────────────────────
+
+// spendRead pairs a Redis key with the rehydration query for a miss.
+type spendRead struct {
+	key       string
+	rehydrate func(ctx context.Context) (float64, error)
+	assign    func(spends *policy.BudgetSpends, v float64)
+}
+
+// GetSpends reads every canonical counter named by scopes in one MGET,
+// rehydrating misses from the usage repository and priming Redis.
+func (c *RedisBudgetCounter) GetSpends(ctx context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
 	now := time.Now().UTC()
-	key := canonicalBudgetKey(principalID, now)
+	spends := policy.BudgetSpends{
+		Principal: map[string]float64{},
+		RolePools: map[string]float64{},
+		Tenant:    map[string]float64{},
+	}
 
-	raw, err := c.rdb.Get(ctx, key).Result()
-	if err == nil {
-		v, parseErr := strconv.ParseFloat(raw, 64)
-		if parseErr != nil {
-			return 0, fmt.Errorf("budget counter parse %q: %w", key, parseErr)
+	var reads []spendRead
+	for _, w := range scopes.PrincipalWindows {
+		window := w
+		reads = append(reads, spendRead{
+			key: principalKey(scopes.PrincipalID, window, now),
+			rehydrate: func(ctx context.Context) (float64, error) {
+				return c.usage.GetSpendSince(ctx, scopes.TenantID, scopes.PrincipalID, periodStart(window, now))
+			},
+			assign: func(s *policy.BudgetSpends, v float64) { s.Principal[window] = v },
+		})
+	}
+	if scopes.TenantWindow != "" {
+		window := scopes.TenantWindow
+		reads = append(reads, spendRead{
+			key: tenantKey(scopes.TenantID, window, now),
+			rehydrate: func(ctx context.Context) (float64, error) {
+				return c.usage.GetTenantSpendSince(ctx, scopes.TenantID, periodStart(window, now))
+			},
+			assign: func(s *policy.BudgetSpends, v float64) { s.Tenant[window] = v },
+		})
+	}
+	for poolRole, w := range scopes.PoolWindows {
+		role, window := poolRole, w
+		reads = append(reads, spendRead{
+			key: poolKey(scopes.TenantID, role, window, now),
+			rehydrate: func(ctx context.Context) (float64, error) {
+				return c.usage.GetPoolSpendSince(ctx, scopes.TenantID, role, periodStart(window, now))
+			},
+			assign: func(s *policy.BudgetSpends, v float64) { s.RolePools[role] = v },
+		})
+	}
+	if scopes.RunID != "" {
+		reads = append(reads, spendRead{
+			key: runKey(scopes.RunID),
+			rehydrate: func(ctx context.Context) (float64, error) {
+				return c.usage.GetRunSpend(ctx, scopes.TenantID, scopes.RunID)
+			},
+			assign: func(s *policy.BudgetSpends, v float64) { s.Run = v },
+		})
+	}
+
+	if len(reads) == 0 {
+		return spends, nil
+	}
+
+	keys := make([]string, len(reads))
+	for i, r := range reads {
+		keys[i] = r.key
+	}
+	vals, err := c.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return spends, fmt.Errorf("budget counter mget: %w", err)
+	}
+
+	for i, r := range reads {
+		var v float64
+		if s, ok := vals[i].(string); ok {
+			parsed, parseErr := strconv.ParseFloat(s, 64)
+			if parseErr != nil {
+				return spends, fmt.Errorf("budget counter parse %q: %w", r.key, parseErr)
+			}
+			v = parsed
+		} else {
+			// Miss: the DB is authoritative — rehydrate and prime the key.
+			v, err = r.rehydrate(ctx)
+			if err != nil {
+				return spends, fmt.Errorf("budget counter rehydrate %q: %w", r.key, err)
+			}
+			ttl := budgetKeyTTL
+			if r.key == runKey(scopes.RunID) {
+				ttl = runKeyTTL
+			}
+			if setErr := c.rdb.Set(ctx, r.key, v, ttl).Err(); setErr != nil {
+				c.logger.Warn(ctx, "budget counter set failed during rehydration",
+					logging.Field{Key: "key", Value: r.key},
+					logging.Field{Key: "error", Value: setErr.Error()},
+				)
+			}
 		}
-		return v, nil
-	}
-	if !errors.Is(err, redis.Nil) {
-		return 0, fmt.Errorf("budget counter get %q: %w", key, err)
+		r.assign(&spends, v)
 	}
 
-	total, dbErr := c.usage.GetMonthlySpend(ctx, tenantID, principalID, now)
-	if dbErr != nil {
-		return 0, fmt.Errorf("budget counter rehydrate: %w", dbErr)
-	}
-	if setErr := c.rdb.Set(ctx, key, total, budgetKeyTTL).Err(); setErr != nil {
-		c.logger.Warn(ctx, "budget counter set failed during rehydration",
-			logging.Field{Key: "key", Value: key},
-			logging.Field{Key: "error", Value: setErr.Error()},
-		)
-	}
-	return total, nil
+	return spends, nil
 }
 
 // GetCategorySpends returns the attributed spend for each category, aligned to
@@ -203,31 +316,58 @@ func (c *RedisBudgetCounter) ListActiveRoleAttributions(ctx context.Context) (ma
 	return out, nil
 }
 
-// IncrementSpend increments the canonical counter and each applicable
-// per-category attribution counter, ensuring every key carries a TTL.
-func (c *RedisBudgetCounter) IncrementSpend(ctx context.Context, tenantID, principalID string, categories []policy.BudgetCategory, amount float64) error {
+// ── writes ───────────────────────────────────────────────────────────────────
+
+// IncrementSpends adds amount to every applicable canonical counter and the
+// attribution counters, ensuring every key carries a TTL. The monthly
+// principal counter is always written so reporting and late-added budgets
+// have a warm baseline.
+func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
 	now := time.Now().UTC()
 
-	if err := c.incrementKey(ctx, canonicalBudgetKey(principalID, now), amount); err != nil {
-		return err
+	windows := map[string]struct{}{"monthly": {}}
+	for _, w := range scopes.PrincipalWindows {
+		windows[w] = struct{}{}
+	}
+	for w := range windows {
+		if err := c.incrementKey(ctx, principalKey(scopes.PrincipalID, w, now), amount, budgetKeyTTL); err != nil {
+			return err
+		}
+	}
+
+	if scopes.TenantWindow != "" {
+		if err := c.incrementKey(ctx, tenantKey(scopes.TenantID, scopes.TenantWindow, now), amount, budgetKeyTTL); err != nil {
+			return err
+		}
+	}
+
+	for role, w := range scopes.PoolWindows {
+		if err := c.incrementKey(ctx, poolKey(scopes.TenantID, role, w, now), amount, budgetKeyTTL); err != nil {
+			return err
+		}
+	}
+
+	if scopes.RunID != "" {
+		if err := c.incrementKey(ctx, runKey(scopes.RunID), amount, runKeyTTL); err != nil {
+			return err
+		}
 	}
 
 	for _, cat := range categories {
-		key := categoryKey(principalID, cat, now)
-		if err := c.incrementKey(ctx, key, amount); err != nil {
+		if err := c.incrementKey(ctx, categoryKey(scopes.PrincipalID, cat, now), amount, budgetKeyTTL); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *RedisBudgetCounter) incrementKey(ctx context.Context, key string, amount float64) error {
+func (c *RedisBudgetCounter) incrementKey(ctx context.Context, key string, amount float64, ttl time.Duration) error {
 	if _, err := c.rdb.IncrByFloat(ctx, key, amount).Result(); err != nil {
 		return fmt.Errorf("budget counter incr %q: %w", key, err)
 	}
 
-	// Refresh TTL on every write (35 days from last write, per ADR).
-	if expErr := c.rdb.Expire(ctx, key, budgetKeyTTL).Err(); expErr != nil {
+	// Refresh TTL on every write (per ADR).
+	if expErr := c.rdb.Expire(ctx, key, ttl).Err(); expErr != nil {
 		c.logger.Warn(ctx, "budget counter expire failed",
 			logging.Field{Key: "key", Value: key},
 			logging.Field{Key: "error", Value: expErr.Error()},

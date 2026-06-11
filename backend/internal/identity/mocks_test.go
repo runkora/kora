@@ -17,6 +17,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
+	clientpolicy "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 )
@@ -305,7 +306,7 @@ type mockPolicyClient struct {
 	deleteGrantErr error
 }
 
-func (m *mockPolicyClient) CreateGrant(_ context.Context, _, _, _ string, _ []string) (string, error) {
+func (m *mockPolicyClient) CreateGrant(_ context.Context, _, _, _ string, _ []string, _ *clientpolicy.BudgetAssignment) (string, error) {
 	if m.createGrantErr != nil {
 		return "", m.createGrantErr
 	}
@@ -345,8 +346,12 @@ func (m *mockPolicyEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesIn
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _, _ string, _ []string, _ float64) (policy.BudgetResult, error) {
+func (m *mockPolicyEvaluator) CheckBudget(_ context.Context, _ string, _ policy.BudgetCheckRequest) (policy.BudgetResult, error) {
 	return policy.BudgetResult{Allow: true}, nil
+}
+
+func (m *mockPolicyEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.TenantBudget, error) {
+	return nil, nil
 }
 
 func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {

@@ -424,6 +424,10 @@ func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
 	return nil
 }
 
+func (m *mockK8s) GetAgentBudget(_ context.Context, _ AgentType, _ string) (*AgentBudget, error) {
+	return nil, nil
+}
+
 func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) error {
 	return nil
 }
@@ -566,8 +570,12 @@ func (allowAllEvaluator) ScopesExplain(context.Context, policy.ScopesInput) (*po
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (allowAllEvaluator) CheckBudget(context.Context, string, string, []string, float64) (policy.BudgetResult, error) {
+func (allowAllEvaluator) CheckBudget(context.Context, string, policy.BudgetCheckRequest) (policy.BudgetResult, error) {
 	return policy.BudgetResult{Allow: true}, nil
+}
+
+func (allowAllEvaluator) GetTenantBudget(context.Context, string) (*policy.TenantBudget, error) {
+	return nil, nil
 }
 
 func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {

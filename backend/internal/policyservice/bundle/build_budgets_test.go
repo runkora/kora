@@ -9,17 +9,14 @@ import (
 
 // These tests exercise buildBudgets directly (internal package test).
 
-func grantWithBudget(principalID, grantID string, monthlyLimit float64) *grants.Grant {
+func grantWithBudget(principalID, grantID string, limit float64, cadence string) *grants.Grant {
 	return &grants.Grant{
 		ID:            grantID,
 		TenantID:      "test-tenant",
 		PrincipalType: grants.PrincipalTypeHuman,
 		PrincipalID:   principalID,
 		Scopes:        []string{"inference:invoke"},
-		Budget: &grants.BudgetAssignment{
-			MonthlyLimitUSD: monthlyLimit,
-			ResetCadence:    "monthly",
-		},
+		Budget:        &grants.BudgetAssignment{LimitUSD: limit, ResetCadence: cadence},
 	}
 }
 
@@ -33,20 +30,6 @@ func grantNoBudget(principalID, grantID string) *grants.Grant {
 	}
 }
 
-func agentGrantWithBudget(principalID, grantID string, monthlyLimit float64) *grants.Grant {
-	return &grants.Grant{
-		ID:            grantID,
-		TenantID:      "test-tenant",
-		PrincipalType: grants.PrincipalTypeAgent,
-		PrincipalID:   principalID,
-		Scopes:        []string{"inference:invoke"},
-		Budget: &grants.BudgetAssignment{
-			MonthlyLimitUSD: monthlyLimit,
-			ResetCadence:    "monthly",
-		},
-	}
-}
-
 func TestBuildBudgets_EmptyInputs(t *testing.T) {
 	doc := buildBudgets(nil, nil)
 	if len(doc) != 0 {
@@ -54,86 +37,71 @@ func TestBuildBudgets_EmptyInputs(t *testing.T) {
 	}
 }
 
-func TestBuildBudgets_SingleGrantWithBudget(t *testing.T) {
-	doc := buildBudgets([]*grants.Grant{grantWithBudget("pid-1", "grant-1", 100)}, nil)
+func TestBuildBudgets_PerWindowEffectiveLimits(t *testing.T) {
+	doc := buildBudgets([]*grants.Grant{
+		grantWithBudget("pid-1", "g-month-a", 50, "monthly"),
+		grantWithBudget("pid-1", "g-month-b", 200, "monthly"),
+		grantWithBudget("pid-1", "g-week", 20, "weekly"),
+	}, nil)
 
 	pb, ok := doc["pid-1"]
 	if !ok {
 		t.Fatal("principal pid-1 not in budget map")
 	}
-	if len(pb.Categories) != 1 {
-		t.Errorf("categories len = %d, want 1", len(pb.Categories))
+	if pb.EffectiveLimits["monthly"] != 200 {
+		t.Errorf("monthly effective = %v, want 200 (MAX of 50, 200)", pb.EffectiveLimits["monthly"])
 	}
-	if pb.EffectiveLimitUSD != 100 {
-		t.Errorf("effective_limit_usd = %v, want 100", pb.EffectiveLimitUSD)
+	if pb.EffectiveLimits["weekly"] != 20 {
+		t.Errorf("weekly effective = %v, want 20", pb.EffectiveLimits["weekly"])
 	}
-	if pb.Categories[0].Source != "grant" {
-		t.Errorf("source = %q, want %q", pb.Categories[0].Source, "grant")
-	}
-	if pb.Categories[0].ID != "grant-1" {
-		t.Errorf("id = %q, want %q", pb.Categories[0].ID, "grant-1")
-	}
-	if pb.Categories[0].MonthlyLimitUSD != 100 {
-		t.Errorf("monthly_limit_usd = %v, want 100", pb.Categories[0].MonthlyLimitUSD)
+	if len(pb.Categories) != 3 {
+		t.Errorf("categories len = %d, want 3", len(pb.Categories))
 	}
 }
 
-func TestBuildBudgets_NilBudgetGrantExcluded(t *testing.T) {
-	// A human grant with Budget == nil contributes no category and the principal
-	// should be pruned from the map entirely.
-	doc := buildBudgets([]*grants.Grant{grantNoBudget("pid-1", "grant-1")}, nil)
-	if _, ok := doc["pid-1"]; ok {
-		t.Error("principal with nil-budget grant should be absent from budget map")
-	}
-}
+func TestBuildBudgets_PerRunEffectiveLimit(t *testing.T) {
+	g1 := grantWithBudget("agent-1", "g1", 0, "monthly")
+	g1.PrincipalType = grants.PrincipalTypeAgent
+	g1.Budget = &grants.BudgetAssignment{PerRunLimitUSD: 5, ResetCadence: "monthly"}
+	g2 := grantWithBudget("agent-1", "g2", 0, "monthly")
+	g2.PrincipalType = grants.PrincipalTypeAgent
+	g2.Budget = &grants.BudgetAssignment{PerRunLimitUSD: 8, ResetCadence: "monthly"}
 
-func TestBuildBudgets_AgentGrantIncluded(t *testing.T) {
-	// All principal types carry enforceable budgets — agent grants must
-	// appear in the budget map exactly like human grants.
-	doc := buildBudgets([]*grants.Grant{agentGrantWithBudget("agent-1", "grant-1", 100)}, nil)
+	doc := buildBudgets([]*grants.Grant{g1, g2}, nil)
+
 	pb, ok := doc["agent-1"]
 	if !ok {
-		t.Fatal("agent principal should be present in budget map")
+		t.Fatal("agent-1 not in budget map")
 	}
-	if pb.EffectiveLimitUSD != 100 {
-		t.Errorf("effective_limit_usd = %v, want 100", pb.EffectiveLimitUSD)
+	if pb.EffectivePerRunLimitUSD != 8 {
+		t.Errorf("per-run effective = %v, want 8 (MAX of 5, 8)", pb.EffectivePerRunLimitUSD)
 	}
-}
-
-func TestBuildBudgets_MAXResolution(t *testing.T) {
-	// Two grants for the same principal: $50 and $200.
-	// effective_limit_usd must be MAX = 200.
-	doc := buildBudgets([]*grants.Grant{
-		grantWithBudget("pid-1", "grant-a", 50),
-		grantWithBudget("pid-1", "grant-b", 200),
-	}, nil)
-
-	pb, ok := doc["pid-1"]
-	if !ok {
-		t.Fatal("principal pid-1 not in budget map")
-	}
-	if pb.EffectiveLimitUSD != 200 {
-		t.Errorf("effective_limit_usd = %v, want 200 (MAX of 50, 200)", pb.EffectiveLimitUSD)
-	}
-	if len(pb.Categories) != 2 {
-		t.Errorf("categories len = %d, want 2", len(pb.Categories))
+	// Per-run-only grants must not leave a zero-valued window entry.
+	if len(pb.EffectiveLimits) != 0 {
+		t.Errorf("effective_limits = %v, want empty for per-run-only grants", pb.EffectiveLimits)
 	}
 }
 
-func TestBuildBudgets_MultiplePrincipalsIndependent(t *testing.T) {
+func TestBuildBudgets_UnknownCadenceNormalizedToMonthly(t *testing.T) {
+	doc := buildBudgets([]*grants.Grant{grantWithBudget("pid-1", "g1", 75, "fortnightly")}, nil)
+
+	pb := doc["pid-1"]
+	if pb.EffectiveLimits["monthly"] != 75 {
+		t.Errorf("unknown cadence must normalize to monthly, got %v", pb.EffectiveLimits)
+	}
+}
+
+func TestBuildBudgets_NoBudgetGrantsPruned(t *testing.T) {
 	doc := buildBudgets([]*grants.Grant{
-		grantWithBudget("pid-a", "grant-1", 100),
-		grantWithBudget("pid-b", "grant-2", 200),
+		grantWithBudget("pid-1", "grant-1", 75, "monthly"),
+		grantNoBudget("pid-2", "grant-2"),
 	}, nil)
 
-	if len(doc) != 2 {
-		t.Errorf("len = %d, want 2", len(doc))
+	if _, ok := doc["pid-1"]; !ok {
+		t.Error("pid-1 should be in budget map")
 	}
-	if doc["pid-a"].EffectiveLimitUSD != 100 {
-		t.Errorf("pid-a effective = %v, want 100", doc["pid-a"].EffectiveLimitUSD)
-	}
-	if doc["pid-b"].EffectiveLimitUSD != 200 {
-		t.Errorf("pid-b effective = %v, want 200", doc["pid-b"].EffectiveLimitUSD)
+	if _, ok := doc["pid-2"]; ok {
+		t.Error("pid-2 with nil budget should be absent from map")
 	}
 }
 
@@ -146,28 +114,33 @@ func TestBuildBudgets_RoleEntriesIgnored(t *testing.T) {
 		TenantID: "test-tenant",
 		Role:     "power-user",
 		Scopes:   []string{"inference:invoke"},
-		Budget: &roles.BudgetAssignment{
-			MonthlyLimitUSD: 500,
-			ResetCadence:    "monthly",
-		},
+		Budget:   &roles.BudgetAssignment{LimitUSD: 500, ResetCadence: "monthly"},
 	}
 	doc := buildBudgets(nil, []*roles.RoleEntry{roleWithBudget})
 	if len(doc) != 0 {
-		t.Errorf("len = %d, want 0 (role-only budgets not yet resolved)", len(doc))
+		t.Errorf("len = %d, want 0 (role-only budgets not in per-principal map)", len(doc))
 	}
 }
 
-func TestBuildBudgets_MixedGrantsOnePrincipalHasBudget(t *testing.T) {
-	// pid-1 has a budget; pid-2 has only a nil-budget grant → pruned.
-	doc := buildBudgets([]*grants.Grant{
-		grantWithBudget("pid-1", "grant-1", 75),
-		grantNoBudget("pid-2", "grant-2"),
-	}, nil)
+func TestBuildRoleBudgets_PooledAndCadence(t *testing.T) {
+	doc := buildRoleBudgets([]*roles.RoleEntry{
+		{TenantID: "t", Role: "engineering", Scopes: []string{"s"}, Budget: &roles.BudgetAssignment{LimitUSD: 500, ResetCadence: "weekly", Pooled: true}},
+		{TenantID: "t", Role: "analyst", Scopes: []string{"s"}, Budget: &roles.BudgetAssignment{LimitUSD: 50, ResetCadence: "monthly"}},
+		{TenantID: "t", Role: "no-budget", Scopes: []string{"s"}},
+		{TenantID: "t", Role: "platform-admin", Scopes: []string{"s"}, Budget: &roles.BudgetAssignment{LimitUSD: 1, ResetCadence: "monthly"}},
+	})
 
-	if _, ok := doc["pid-1"]; !ok {
-		t.Error("pid-1 should be in budget map")
+	eng := doc.RoleBudgets["engineering"]
+	if !eng.Pooled || eng.LimitUSD != 500 || eng.ResetCadence != "weekly" {
+		t.Errorf("engineering = %+v, want pooled weekly 500", eng)
 	}
-	if _, ok := doc["pid-2"]; ok {
-		t.Error("pid-2 with nil budget should be pruned from map")
+	if doc.RoleBudgets["analyst"].Pooled {
+		t.Error("analyst must be per-member (pooled=false)")
+	}
+	if _, ok := doc.RoleBudgets["no-budget"]; ok {
+		t.Error("role without budget must be absent")
+	}
+	if _, ok := doc.RoleBudgets["platform-admin"]; ok {
+		t.Error("reserved roles cannot carry budgets")
 	}
 }

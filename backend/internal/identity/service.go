@@ -32,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/platform/api"
+	clientpolicy "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -61,7 +62,7 @@ type tenantOIDCState struct {
 // PolicyClient abstracts grant management calls to the policy service.
 // Implemented by platform/clients/policy.Client in production.
 type PolicyClient interface {
-	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string) (string, error)
+	CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *clientpolicy.BudgetAssignment) (string, error)
 	DeleteGrant(ctx context.Context, grantID string) error
 }
 

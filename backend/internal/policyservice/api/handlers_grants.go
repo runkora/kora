@@ -45,12 +45,10 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var budget *grants.BudgetAssignment
-	if req.Budget != nil {
-		budget = &grants.BudgetAssignment{
-			MonthlyLimitUSD: req.Budget.MonthlyLimitUSD,
-			ResetCadence:    req.Budget.ResetCadence,
-		}
+	budget, apiErr := grantBudgetFromRequest(req.Budget)
+	if apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
 	}
 
 	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget)
@@ -60,6 +58,37 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, g)
+}
+
+// grantBudgetFromRequest validates and maps a budget request body onto a grant
+// budget assignment. A grant budget carries a per-window limit, a per-run
+// limit, or both; pooling is a role-only concept.
+func grantBudgetFromRequest(req *budgetAssignmentRequest) (*grants.BudgetAssignment, *platformapi.APIError) {
+	if req == nil {
+		return nil, nil
+	}
+	if req.Pooled {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget.pooled is not valid on grants — pools are configured on roles", nil)
+	}
+	if req.LimitUSD < 0 || req.PerRunLimitUSD < 0 {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget limits must not be negative", nil)
+	}
+	if req.LimitUSD == 0 && req.PerRunLimitUSD == 0 {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget requires limit_usd or per_run_limit_usd greater than zero", nil)
+	}
+	cadence, ok := normalizeCadence(req.ResetCadence)
+	if !ok {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget.reset_cadence must be 'weekly' or 'monthly'", nil)
+	}
+	return &grants.BudgetAssignment{
+		LimitUSD:       req.LimitUSD,
+		ResetCadence:   cadence,
+		PerRunLimitUSD: req.PerRunLimitUSD,
+	}, nil
 }
 
 func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
@@ -99,21 +128,10 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var budget *grants.BudgetAssignment
-	if req.Budget != nil {
-		if req.Budget.MonthlyLimitUSD <= 0 {
-			platformapi.ErrorResponse(ctx, w, c.logger,
-				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
-					"budget.monthly_limit_usd must be greater than zero", nil), nil)
-			return
-		}
-		budget = &grants.BudgetAssignment{
-			MonthlyLimitUSD: req.Budget.MonthlyLimitUSD,
-			ResetCadence:    req.Budget.ResetCadence,
-		}
-		if budget.ResetCadence == "" {
-			budget.ResetCadence = "monthly"
-		}
+	budget, apiErr := grantBudgetFromRequest(req.Budget)
+	if apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
 	}
 
 	// Fetch first to enforce tenant ownership before mutating.

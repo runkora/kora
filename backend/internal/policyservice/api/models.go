@@ -6,9 +6,34 @@ import (
 )
 
 // budgetAssignmentRequest is the inline budget configuration on a grant or role.
+// limit_usd is the per-window ceiling; reset_cadence is "weekly" or "monthly"
+// (default monthly). pooled is accepted on roles only; per_run_limit_usd on
+// grants only.
 type budgetAssignmentRequest struct {
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
+	LimitUSD       float64 `json:"limit_usd"`
+	ResetCadence   string  `json:"reset_cadence"`
+	Pooled         bool    `json:"pooled"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd"`
+}
+
+// tenantBudgetRequest is the request body for PUT /policy/tenant-budget.
+type tenantBudgetRequest struct {
+	TenantID     string  `json:"tenant_id,omitempty"`
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+}
+
+// normalizeCadence validates and defaults the reset cadence.
+// Returns ("", false) for unsupported cadences.
+func normalizeCadence(c string) (string, bool) {
+	switch c {
+	case "", "monthly":
+		return "monthly", true
+	case "weekly":
+		return "weekly", true
+	default:
+		return "", false
+	}
 }
 
 // createGrantRequest is the request body for POST /policy/grants.

@@ -304,6 +304,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/v1/… → /v1/… with the run identity in
+			// context, ahead of all routing and enforcement. See
+			// docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+			mw.NewMiddleware(inferencegw.StripRunPrefix),
 		),
 		controllers...,
 	)

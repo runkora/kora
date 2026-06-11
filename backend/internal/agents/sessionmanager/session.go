@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -36,6 +37,7 @@ type session struct {
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
+	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -282,6 +284,15 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 				disarmIdle()
 			}
 
+			// A budget_exhausted run_error marks the session so teardown
+			// transitions the run to budget_exhausted instead of failed.
+			if ev.Type == EventTypeRunError {
+				var p RunErrorPayload
+				if json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted" {
+					s.budgetExhausted.Store(true)
+				}
+			}
+
 			reg.persistAndPush(ctx, cfg.RunID, ev, eventRepo)
 
 		case <-idleTimerC:
@@ -379,22 +390,30 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	reg.mu.Unlock()
 
 	failed := !s.intentionalClose.Load()
+	budgetExhausted := failed && s.budgetExhausted.Load()
 	reg.logger.Info(bgCtx, "Session drain complete",
 		logging.Field{Key: "run_id", Value: cfg.RunID},
 		logging.Field{Key: "failed", Value: failed},
+		logging.Field{Key: "budget_exhausted", Value: budgetExhausted},
 	)
-	if failed {
+	if failed && !budgetExhausted {
 		reg.emitRunError(bgCtx, cfg.RunID, "subprocess_exit", "Agent process exited unexpectedly")
 	}
 	fromState := "active"
 	if s.isIdle.Load() {
 		fromState = "idle"
 	}
-	if err := reg.notifier.CompleteRun(bgCtx, cfg.RunID, fromState, failed); err != nil {
+	var notifyErr error
+	if budgetExhausted {
+		notifyErr = reg.notifier.ExhaustRun(bgCtx, cfg.RunID, fromState)
+	} else {
+		notifyErr = reg.notifier.CompleteRun(bgCtx, cfg.RunID, fromState, failed)
+	}
+	if notifyErr != nil {
 		reg.logger.Warn(bgCtx, "Failed to notify run completion",
 			logging.Field{Key: "run_id", Value: cfg.RunID},
 			logging.Field{Key: "failed", Value: failed},
-			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "error", Value: notifyErr.Error()},
 		)
 	}
 	close(s.done)

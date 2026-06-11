@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -99,6 +101,15 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	if model == "" {
 		model = c.cfg.ClaudeDefaultModel
 	}
+	extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
+	// Run identity travels as a base-URL path prefix: point this subprocess at
+	// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
+	// budgets. Transparent to the agent runtime; the inherited pod-level value
+	// is stripped in buildRunEnv. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+	if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
+		extraEnv = append(extraEnv,
+			fmt.Sprintf("ANTHROPIC_BASE_URL=%s/run/%s", strings.TrimRight(base, "/"), req.RunID))
+	}
 	runner := NewClaudeRunner(ClaudeRunnerConfig{
 		BinaryPath:        c.cfg.ClaudeBinaryPath,
 		WrapperPath:       c.cfg.ClaudeWrapperPath,
@@ -108,7 +119,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Bare:              c.cfg.ClaudeBare,
 		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 		RunID:             req.RunID,
-		ExtraEnv:          []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))},
+		ExtraEnv:          extraEnv,
 		Logger:            c.logger,
 	})
 

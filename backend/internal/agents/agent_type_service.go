@@ -104,6 +104,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		GrantScopes:             grantScopes,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
+		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
 	}
 
@@ -227,6 +228,18 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		}
 		return nil, err
 	}
+
+	// Enrich with the budget carried by the agent's grant — the grant is the
+	// source of truth for budget configuration. Best-effort: a policy-service
+	// hiccup must not fail the read.
+	if budget, budgetErr := s.k8s.GetAgentBudget(ctx, *at, s.cfg.TenantNamespaceFn(at.TenantID)); budgetErr == nil {
+		at.Budget = budget
+	} else {
+		s.logger.Warn(ctx, "agent budget enrichment failed",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "error", Value: budgetErr.Error()},
+		)
+	}
 	return at, nil
 }
 
@@ -270,9 +283,10 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes change (e.g. model update).
-	// Run in background so the update response is not delayed by a policy-service round-trip.
-	if req.GrantScopes != nil {
+	// Re-reconcile the policy-service grant when grant scopes or budget change
+	// (e.g. model or budget update). Run in background so the update response
+	// is not delayed by a policy-service round-trip.
+	if req.GrantScopes != nil || req.Budget != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
@@ -337,6 +351,9 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.GrantScopes != nil {
 		at.GrantScopes = req.GrantScopes
+	}
+	if req.Budget != nil {
+		at.Budget = req.Budget
 	}
 }
 

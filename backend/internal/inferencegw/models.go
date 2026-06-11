@@ -117,6 +117,11 @@ type InferenceUsageRecord struct {
 	FailureDetails               *FailureDetails  `json:"failure_details"`
 	LatencyMS                    int              `json:"latency_ms"`
 	CreatedAt                    time.Time        `json:"created_at"`
+	// RunID is the agent run this request belonged to ("" for non-run traffic).
+	RunID string `json:"run_id,omitempty"`
+	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
+	// the durable record behind role-pool counter rehydration.
+	PrincipalRoles []string `json:"principal_roles,omitempty"`
 }
 
 // FailureDetails holds structured provider error context for non-success
@@ -283,24 +288,46 @@ var (
 	ErrBudgetExceeded        = errors.New("budget exceeded")
 )
 
+// BudgetCeilingStatus is one applicable spending ceiling with its current spend.
+type BudgetCeilingStatus struct {
+	Scope    string  `json:"scope"`  // "principal", "role_pool", "tenant", "run"
+	ID       string  `json:"id"`     // principal/role/tenant/run identifier
+	Window   string  `json:"window"` // "weekly", "monthly", or "run"
+	LimitUSD float64 `json:"limit_usd"`
+	SpendUSD float64 `json:"spend_usd"`
+	Reached  bool    `json:"reached"`
+}
+
 // BudgetStatus is returned by the personal budget endpoint and the GetPersonalBudget
-// service method. HasLimit indicates whether a spend limit is configured for the
-// principal (via individual grant or OIDC role budget assignment) as reported by OPA.
+// service method. Ceilings lists every spending ceiling that applies to the
+// caller; the monthly_budget_usd / current_spend_usd pair mirrors the
+// principal-monthly ceiling for compatibility with single-bar displays.
 type BudgetStatus struct {
-	MonthlyBudgetUSD  float64 `json:"monthly_budget_usd"`
-	CurrentSpendUSD   float64 `json:"current_spend_usd"`
-	SpendLimitReached bool    `json:"spend_limit_reached"`
-	HasLimit          bool    `json:"has_limit"`
+	MonthlyBudgetUSD  float64               `json:"monthly_budget_usd"`
+	CurrentSpendUSD   float64               `json:"current_spend_usd"`
+	SpendLimitReached bool                  `json:"spend_limit_reached"`
+	HasLimit          bool                  `json:"has_limit"`
+	Ceilings          []BudgetCeilingStatus `json:"ceilings,omitempty"`
 }
 
 // BudgetCategoryStatus is a single budget assignment source with its attributed
 // spend for the current period. Part of the budgets principals listing.
 type BudgetCategoryStatus struct {
-	Source          string  `json:"source"` // "role" or "grant"
-	ID              string  `json:"id"`     // role name or grant UUID
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
-	SpendUSD        float64 `json:"spend_usd"`
+	Source         string  `json:"source"` // "role" or "grant"
+	ID             string  `json:"id"`     // role name or grant UUID
+	LimitUSD       float64 `json:"limit_usd"`
+	ResetCadence   string  `json:"reset_cadence"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+	Pooled         bool    `json:"pooled,omitempty"`
+	SpendUSD       float64 `json:"spend_usd"`
+}
+
+// TenantCapStatus is the tenant rollup cap with its current period spend.
+type TenantCapStatus struct {
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	SpendUSD     float64 `json:"spend_usd"`
+	Reached      bool    `json:"reached"`
 }
 
 // BudgetPrincipalStatus is one principal's row in the budgets principals listing:
@@ -319,8 +346,9 @@ type BudgetPrincipalStatus struct {
 
 // BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.
 type BudgetPrincipalsResponse struct {
-	Period string                  `json:"period"` // e.g. "2026-06"
-	Data   []BudgetPrincipalStatus `json:"data"`
+	Period    string                  `json:"period"` // e.g. "2026-06"
+	TenantCap *TenantCapStatus        `json:"tenant_cap,omitempty"`
+	Data      []BudgetPrincipalStatus `json:"data"`
 }
 
 // PrincipalPeriodSpend is a per-principal calendar-month spend aggregate.

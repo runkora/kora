@@ -25,11 +25,15 @@ const (
 	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
-// BudgetAssignment is the inline budget configuration on a role or grant.
+// BudgetAssignment is the inline budget configuration on a grant.
 // A nil pointer means "no budget configured for this category".
+// LimitUSD is the per-window (weekly/monthly) ceiling; PerRunLimitUSD is the
+// windowless per-run ceiling for AGENT/SERVICE principals. Either or both may
+// be set; at least one must be > 0.
 type BudgetAssignment struct {
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
+	LimitUSD       float64 `json:"limit_usd,omitempty"`
+	ResetCadence   string  `json:"reset_cadence"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
 }
 
 // Grant asserts that a named principal within a tenant holds a set of

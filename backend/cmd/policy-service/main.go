@@ -24,6 +24,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -61,6 +62,7 @@ func realMain() error {
 	grantRepo := grants.NewPostgresRepository(db.Pool())
 	vocabRepo := vocabulary.NewPostgresRepository(db.Pool())
 	roleRepo := roles.NewPostgresRepository(db.Pool())
+	tenantBudgetRepo := tenantbudget.NewPostgresRepository(db.Pool())
 	routeStore := routes.NewStore()
 
 	bundleCfg := bundle.Config{
@@ -70,7 +72,7 @@ func realMain() error {
 		FrontendHost: psc.Current.Bundle.FrontendHost,
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, logger)
 
 	// Pre-compile bundles for all tenants that have grants.
 	if tenantIDs, err := grantRepo.ListDistinctTenants(ctx); err == nil {
@@ -83,7 +85,7 @@ func realMain() error {
 	bundleSrv.BootstrapGateway(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	svc := api.NewService(grantRepo, vocabRepo, roleRepo, bundleSrv, routeStore, logger)
+	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
 
 	// Self-register the policy service's own routes and platform scope vocabulary.
 	// Direct call — no HTTP round-trip needed since the service owns the store.
@@ -93,6 +95,9 @@ func realMain() error {
 		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "GET", RequiredScope: "platform:budgets:read"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
@@ -142,6 +147,9 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/grants", Method: "POST", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/grants", Method: "DELETE", RequiredScope: "platform:grants:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "GET", RequiredScope: "platform:budgets:read"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
+		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},

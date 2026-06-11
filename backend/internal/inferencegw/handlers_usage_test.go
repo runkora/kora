@@ -450,7 +450,7 @@ func TestHandleGetPersonalBudget_NoLimit(t *testing.T) {
 	t.Parallel()
 	// OPA allows (no limit configured for this principal).
 	eval := &stubEvaluator{budgetHasLimit: false}
-	counter := &mockSpendCounter{spend: 0}
+	counter := &mockSpendCounter{}
 	c := newPersonalBudgetController(t, eval, counter)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
@@ -480,7 +480,7 @@ func TestHandleGetPersonalBudget_UnderLimit(t *testing.T) {
 	t.Parallel()
 	// OPA allows — spend is below the configured limit; limit details populated.
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 100}
-	counter := &mockSpendCounter{spend: 42.5}
+	counter := &mockSpendCounter{spends: monthlySpends(42.5)}
 	c := newPersonalBudgetController(t, eval, counter)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
@@ -514,7 +514,7 @@ func TestHandleGetPersonalBudget_LimitReached(t *testing.T) {
 	// OPA denies — spend has hit or exceeded the limit.
 	deny := false
 	eval := &stubEvaluator{checkAllow: &deny, budgetHasLimit: true, budgetEffectiveUSD: 50}
-	counter := &mockSpendCounter{spend: 50.0}
+	counter := &mockSpendCounter{spends: monthlySpends(50.0)}
 	c := newPersonalBudgetController(t, eval, counter)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)

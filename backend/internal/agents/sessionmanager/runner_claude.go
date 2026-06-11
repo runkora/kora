@@ -149,15 +149,25 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 
 // buildRunEnv constructs the subprocess environment from the inherited base env
 // plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
-// by the per-run isolation values. Stripping is necessary because on Linux
-// getenv() returns the first match — any pre-existing HOME= or TMPDIR= would
-// shadow our values if they appeared earlier in the slice. See docs/adr/2026-06-04-per-session-home-isolation.md.
+// by the per-run isolation values. Any key set in ExtraEnv is also stripped
+// from the inherited env. Stripping is necessary because on Linux getenv()
+// returns the first match — a pre-existing HOME=, TMPDIR=, or e.g.
+// ANTHROPIC_BASE_URL= would shadow the per-run values if it appeared earlier
+// in the slice. See docs/adr/2026-06-04-per-session-home-isolation.md.
 func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
+	overridden := map[string]bool{"HOME": true, "TMPDIR": true}
+	for _, e := range r.cfg.ExtraEnv {
+		if k, _, ok := strings.Cut(e, "="); ok {
+			overridden[k] = true
+		}
+	}
+
 	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
 	for _, e := range baseEnv {
-		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
-			env = append(env, e)
+		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
+			continue
 		}
+		env = append(env, e)
 	}
 	for _, e := range r.cfg.ExtraEnv {
 		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
@@ -165,6 +175,13 @@ func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []s
 		}
 	}
 	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
+}
+
+// isBudgetExceededMessage recognizes the inference gateway's 429
+// BUDGET_EXCEEDED rejection surfaced through the agent runtime's error result.
+func isBudgetExceededMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "budget_exceeded") || strings.Contains(lower, "budget exceeded")
 }
 
 // Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
@@ -445,7 +462,13 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "claude_error", Message: msg})
+		code := "claude_error"
+		if isBudgetExceededMessage(msg) {
+			// The inference gateway rejected the run's LLM calls with 429
+			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
+			code = "budget_exhausted"
+		}
+		r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
 		return
 	}
 

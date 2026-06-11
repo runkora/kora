@@ -441,15 +441,24 @@ func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, nam
 }
 
 // ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
-// principal toward exactly one grant containing at.GrantScopes.
+// principal toward exactly one grant containing at.GrantScopes and, when
+// at.Budget is set, the desired budget assignment.
 //
 // Reconcile logic:
-//   - Keep the first existing grant whose scopes exactly match at.GrantScopes.
-//   - Delete all other grants for this principal (duplicates + stale scope sets).
-//   - If no matching grant was kept, create one.
+//   - Keep the first existing grant whose scopes (and, when a budget is
+//     specified, budget) exactly match the desired state.
+//   - Delete all other grants for this principal (duplicates + stale state).
+//   - If no matching grant was kept, create one — carrying the desired budget,
+//     or preserving the previous grant's budget when none was specified.
 //
-// This handles first-time provisioning, scope updates, and deduplication in a
-// single idempotent call.
+// Budget semantics: at.Budget == nil means "leave the budget as it is";
+// at.Budget with both limits zero means "remove the budget". Budget changes
+// recreate the grant (the agent path holds platform:grants:write, not
+// platform:budgets:write) — per-grant attribution counters restart, while
+// enforcement counters (principal/tenant/run) are unaffected.
+//
+// This handles first-time provisioning, scope and budget updates, and
+// deduplication in a single idempotent call.
 // Skipped silently when policyClient is nil (local dev without policy service).
 func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, namespace string) error {
 	if p.policyClient == nil {
@@ -473,10 +482,16 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
-	// Walk existing grants: keep the first with correct scopes, delete the rest.
+	// Walk existing grants: keep the first matching the desired state, delete
+	// the rest. Remember any existing budget so an unspecified desired budget
+	// survives a scope-driven recreate.
 	var keepID string
+	var existingBudget *policyclient.BudgetAssignment
 	for _, g := range existing {
-		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) {
+		if existingBudget == nil && g.Budget != nil {
+			existingBudget = g.Budget
+		}
+		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) && budgetMatches(at.Budget, g.Budget) {
 			keepID = g.ID
 			continue
 		}
@@ -501,7 +516,11 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes); err != nil {
+	createBudget := clientBudget(at.Budget)
+	if at.Budget == nil {
+		createBudget = existingBudget // preserve through scope-driven recreates
+	}
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes, createBudget); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
@@ -511,6 +530,62 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		logging.Field{Key: "tenant_id", Value: grantTenantID},
 	)
 	return nil
+}
+
+// GetAgentBudget returns the budget currently carried by the agent's grant,
+// or nil when no grant or budget exists. Used to enrich agent type reads —
+// the grant is the source of truth for budget configuration.
+func (p *K8sProvisioner) GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error) {
+	if p.policyClient == nil {
+		return nil, nil
+	}
+	grants, err := p.policyClient.ListGrants(ctx, at.TenantID, "AGENT", p.agentSpiffeID(at, namespace))
+	if err != nil {
+		return nil, fmt.Errorf("list agent grants: %w", err)
+	}
+	for _, g := range grants {
+		if g.Budget != nil {
+			return &AgentBudget{
+				LimitUSD:       g.Budget.LimitUSD,
+				ResetCadence:   g.Budget.ResetCadence,
+				PerRunLimitUSD: g.Budget.PerRunLimitUSD,
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+// clientBudget converts the desired AgentBudget to the policy client shape.
+// Returns nil for "no budget" (nil input or both limits zero).
+func clientBudget(b *AgentBudget) *policyclient.BudgetAssignment {
+	if b == nil || (b.LimitUSD <= 0 && b.PerRunLimitUSD <= 0) {
+		return nil
+	}
+	cadence := b.ResetCadence
+	if cadence == "" {
+		cadence = "monthly"
+	}
+	return &policyclient.BudgetAssignment{
+		LimitUSD:       b.LimitUSD,
+		ResetCadence:   cadence,
+		PerRunLimitUSD: b.PerRunLimitUSD,
+	}
+}
+
+// budgetMatches reports whether an existing grant's budget satisfies the
+// desired agent budget. A nil desired budget matches anything (unspecified);
+// a zero desired budget matches only grants with no budget.
+func budgetMatches(desired *AgentBudget, actual *policyclient.BudgetAssignment) bool {
+	if desired == nil {
+		return true
+	}
+	want := clientBudget(desired)
+	if want == nil || actual == nil {
+		return want == nil && actual == nil
+	}
+	return want.LimitUSD == actual.LimitUSD &&
+		want.ResetCadence == actual.ResetCadence &&
+		want.PerRunLimitUSD == actual.PerRunLimitUSD
 }
 
 // scopeSetsEqual returns true when a and b contain the same elements (order-independent).

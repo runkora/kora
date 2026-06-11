@@ -28,14 +28,13 @@ type Evaluator interface {
 	// ScopesExplain returns the principal's scopes broken down by source.
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
-	// CheckBudget evaluates the orbit.budget rules for the principal.
-	// currentSpendUSD is the canonical per-principal spend counter for the
-	// current period, read by the inference gateway before this call.
-	// roles are the caller's OIDC roles from the verified JWT — role budget
-	// limits are resolved against them at evaluation time, since the bundle
-	// compiler cannot pre-resolve IDP-asserted role membership.
+	// CheckBudget evaluates the orbit.budget hierarchical ceiling rules for
+	// the caller. The request carries verified identity context (principal,
+	// type, JWT roles, run identity) and the spends the gateway read from the
+	// canonical counters; OPA resolves the applicable ceilings from bundle
+	// data and denies if any is met.
 	// Fails open (allow=true, err=nil) when the bundle is unavailable.
-	CheckBudget(ctx context.Context, tenantID, principalID string, roles []string, currentSpendUSD float64) (BudgetResult, error)
+	CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error)
 
 	// GetBudgetCategories returns the applicable budget categories for the
 	// principal from the compiled OPA bundle (data.budgets[principal_id].categories).
@@ -58,6 +57,10 @@ type Evaluator interface {
 	// Fails open: returns empty maps on any bundle or evaluation error.
 	ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error)
 
+	// GetTenantBudget returns the tenant's rollup cap from the compiled bundle,
+	// or nil when none is configured. Fails open: returns nil on any error.
+	GetTenantBudget(ctx context.Context, tenantID string) (*TenantBudget, error)
+
 	// Start begins background bundle polling. Call once at service startup.
 	Start(ctx context.Context)
 }
@@ -69,23 +72,72 @@ type BudgetCategory struct {
 	Source string
 	// ID is the role name (for source="role") or grant UUID (for source="grant").
 	ID string
-	// ResetCadence is "monthly", "quarterly", or "yearly".
+	// ResetCadence is "weekly" or "monthly".
 	ResetCadence string
-	// MonthlyLimitUSD is the limit carried by this assignment.
-	MonthlyLimitUSD float64
+	// LimitUSD is the per-window limit carried by this assignment (0 = none).
+	LimitUSD float64
+	// PerRunLimitUSD is the windowless per-run limit (grants only; 0 = none).
+	PerRunLimitUSD float64
+	// Pooled marks a shared-pot role budget (roles only).
+	Pooled bool
 }
 
 // PrincipalBudget is a principal's compiled grant-budget entry from data.budgets.
 type PrincipalBudget struct {
-	Categories        []BudgetCategory
-	EffectiveLimitUSD float64
+	Categories []BudgetCategory
+	// EffectiveLimits maps window ("weekly"/"monthly") → MAX grant limit.
+	EffectiveLimits map[string]float64
+	// EffectivePerRunLimitUSD is MAX across grant per-run limits (0 = none).
+	EffectivePerRunLimitUSD float64
 }
 
 // RoleBudget is a role's budget definition from data.role_budgets.
 type RoleBudget struct {
-	MonthlyLimitUSD float64
-	ResetCadence    string
+	LimitUSD     float64
+	ResetCadence string
+	Pooled       bool
 }
+
+// TenantBudget is the tenant rollup cap from data.tenant_budget.
+type TenantBudget struct {
+	LimitUSD     float64
+	ResetCadence string
+}
+
+// BudgetSpends carries the canonical counter readings for one budget check.
+// Missing keys mean "counter not read" and leave the corresponding ceiling
+// rules undefined in OPA (fail open).
+type BudgetSpends struct {
+	// Run is the current run's spend (meaningful only with RunID set).
+	Run float64 `json:"run"`
+	// Principal maps window → the principal's spend in that window.
+	Principal map[string]float64 `json:"principal"`
+	// RolePools maps role name → the shared pool's spend.
+	RolePools map[string]float64 `json:"role_pools"`
+	// Tenant maps window → the tenant's rollup spend in that window.
+	Tenant map[string]float64 `json:"tenant"`
+}
+
+// BudgetCheckRequest is the gateway-side input to CheckBudget.
+type BudgetCheckRequest struct {
+	PrincipalID   string
+	PrincipalType string
+	Roles         []string
+	RunID         string
+	Spends        BudgetSpends
+}
+
+// BudgetCeiling is one applicable ceiling reported by the budget evaluation.
+type BudgetCeiling struct {
+	Scope    string  `json:"scope"`  // "principal", "role_pool", "tenant", "run"
+	ID       string  `json:"id"`     // principal/role/tenant/run identifier
+	Window   string  `json:"window"` // "weekly", "monthly", or "run"
+	LimitUSD float64 `json:"limit_usd"`
+	SpendUSD float64 `json:"spend_usd"`
+}
+
+// Reached reports whether this ceiling is met or exceeded.
+func (c BudgetCeiling) Reached() bool { return c.SpendUSD >= c.LimitUSD }
 
 // ScopesExplainResult holds the scope breakdown by source.
 type ScopesExplainResult struct {
@@ -152,21 +204,24 @@ type DelegationClaims struct {
 
 // BudgetCheckInput is the OPA input shape for the orbit.budget module.
 type BudgetCheckInput struct {
-	Principal       budgetPrincipal `json:"principal"`
-	CurrentSpendUSD float64         `json:"current_spend_usd"`
+	Principal budgetPrincipal `json:"principal"`
+	Spends    BudgetSpends    `json:"spends"`
 }
 
 type budgetPrincipal struct {
 	ID       string   `json:"id"`
 	TenantID string   `json:"tenant_id"`
+	Type     string   `json:"type"`
 	Roles    []string `json:"roles"`
+	RunID    string   `json:"run_id"`
 }
 
 // BudgetResult is returned by CheckBudget.
 type BudgetResult struct {
-	Allow              bool
-	HasLimit           bool
-	EffectiveBudgetUSD float64
+	Allow    bool
+	HasLimit bool
+	// Ceilings is every ceiling that applied to the caller, with limits and spends.
+	Ceilings []BudgetCeiling
 }
 
 // NewEvaluator returns an Evaluator backed by in-process OPA.

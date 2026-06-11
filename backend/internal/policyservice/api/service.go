@@ -15,6 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -42,12 +43,13 @@ const gatewayRecompileDebounce = 1 * time.Second
 // Service orchestrates grant, role, vocabulary, and bundle management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
-	grantRepo  grants.Repository
-	vocabRepo  vocabulary.Repository
-	roleRepo   roles.Repository
-	bundleSrv  *bundle.Server
-	routeStore *routes.Store
-	logger     logging.Logger
+	grantRepo        grants.Repository
+	vocabRepo        vocabulary.Repository
+	roleRepo         roles.Repository
+	tenantBudgetRepo tenantbudget.Repository
+	bundleSrv        *bundle.Server
+	routeStore       *routes.Store
+	logger           logging.Logger
 
 	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
 	recompileMu     sync.Mutex
@@ -62,19 +64,21 @@ func NewService(
 	grantRepo grants.Repository,
 	vocabRepo vocabulary.Repository,
 	roleRepo roles.Repository,
+	tenantBudgetRepo tenantbudget.Repository,
 	bundleSrv *bundle.Server,
 	routeStore *routes.Store,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		grantRepo:       grantRepo,
-		vocabRepo:       vocabRepo,
-		roleRepo:        roleRepo,
-		bundleSrv:       bundleSrv,
-		routeStore:      routeStore,
-		logger:          logger,
-		recompileTimers: make(map[string]*time.Timer),
-		lastWriteAt:     make(map[string]time.Time),
+		grantRepo:        grantRepo,
+		vocabRepo:        vocabRepo,
+		roleRepo:         roleRepo,
+		tenantBudgetRepo: tenantBudgetRepo,
+		bundleSrv:        bundleSrv,
+		routeStore:       routeStore,
+		logger:           logger,
+		recompileTimers:  make(map[string]*time.Timer),
+		lastWriteAt:      make(map[string]time.Time),
 	}
 }
 
@@ -126,6 +130,34 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 
 func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error) {
 	return s.grantRepo.GetByID(ctx, id)
+}
+
+// UpsertTenantBudget creates or replaces the tenant's rollup spending cap and
+// schedules a bundle recompile so enforcement picks it up.
+func (s *Service) UpsertTenantBudget(ctx context.Context, tenantID string, limitUSD float64, cadence string) (*tenantbudget.TenantBudget, error) {
+	tb := &tenantbudget.TenantBudget{TenantID: tenantID, LimitUSD: limitUSD, ResetCadence: cadence}
+	if err := s.tenantBudgetRepo.Upsert(ctx, tb); err != nil {
+		return nil, err
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	return tb, nil
+}
+
+// GetTenantBudget returns the tenant's rollup spending cap.
+func (s *Service) GetTenantBudget(ctx context.Context, tenantID string) (*tenantbudget.TenantBudget, error) {
+	return s.tenantBudgetRepo.Get(ctx, tenantID)
+}
+
+// DeleteTenantBudget removes the tenant's rollup spending cap and schedules a
+// bundle recompile.
+func (s *Service) DeleteTenantBudget(ctx context.Context, tenantID string) error {
+	if err := s.tenantBudgetRepo.Delete(ctx, tenantID); err != nil {
+		return err
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	return nil
 }
 
 // UpdateGrantBudget replaces the budget assignment on an existing grant in

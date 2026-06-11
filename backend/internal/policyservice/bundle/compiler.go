@@ -28,6 +28,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -118,9 +119,12 @@ type gatewayConfigDocument struct {
 
 // roleBudgetEntry is a single role's budget configuration in the flat role_budgets map.
 // The gateway reads this at request time to construct role-budget categories from JWT claims.
+// Pooled budgets are shared pots (one counter for all members) and never merge
+// into the per-principal MAX; per-member budgets apply to each member individually.
 type roleBudgetEntry struct {
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	Pooled       bool    `json:"pooled"`
 }
 
 // roleBudgetsDocument is the JSON structure of data/role_budgets/data.json.
@@ -141,29 +145,45 @@ func buildRoleBudgets(roleEntries []*roles.RoleEntry) roleBudgetsDocument {
 			continue // platform-admin / tenant-admin cannot carry budget here
 		}
 		doc.RoleBudgets[e.Role] = roleBudgetEntry{
-			MonthlyLimitUSD: e.Budget.MonthlyLimitUSD,
-			ResetCadence:    e.Budget.ResetCadence,
+			LimitUSD:     e.Budget.LimitUSD,
+			ResetCadence: normalizeCadence(e.Budget.ResetCadence),
+			Pooled:       e.Budget.Pooled,
 		}
 	}
 	return doc
 }
 
 type principalBudget struct {
-	Categories        []budgetCategory `json:"categories"`
-	EffectiveLimitUSD float64          `json:"effective_limit_usd"`
+	// EffectiveLimits maps window ("weekly"/"monthly") → MAX limit across the
+	// principal's grant assignments carrying that cadence.
+	EffectiveLimits map[string]float64 `json:"effective_limits"`
+	// EffectivePerRunLimitUSD is MAX across the principal's grant assignments
+	// carrying a per-run limit. 0 = no per-run ceiling.
+	EffectivePerRunLimitUSD float64          `json:"effective_per_run_limit_usd,omitempty"`
+	Categories              []budgetCategory `json:"categories"`
 }
 
 // budgetCategory is a single budget assignment source (role or grant).
 type budgetCategory struct {
-	Source          string  `json:"source"` // "role" or "grant"
-	ID              string  `json:"id"`     // role name or grant ID
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
-	ResetCadence    string  `json:"reset_cadence"`
+	Source         string  `json:"source"` // "role" or "grant"
+	ID             string  `json:"id"`     // role name or grant ID
+	LimitUSD       float64 `json:"limit_usd"`
+	ResetCadence   string  `json:"reset_cadence"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+}
+
+// normalizeCadence maps unknown cadences to monthly (quarterly/yearly reserved).
+func normalizeCadence(c string) string {
+	if c == "weekly" {
+		return "weekly"
+	}
+	return "monthly"
 }
 
 // buildBudgets computes the data/budgets/data.json document from the current
-// role entries and grants. effective_limit_usd is MAX across all applicable
-// assignments for each principal (consistent with UNION for scopes).
+// grants. Per-window effective limits are MAX across all assignments carrying
+// that cadence (consistent with UNION for scopes); the per-run effective limit
+// is MAX across assignments carrying one.
 //
 // The returned map serializes directly to {"<principal_id>": {...}} so that
 // OPA mounts it at data.budgets and budget.rego can read data.budgets[id].
@@ -175,19 +195,27 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 	// authenticate with platform tokens bearing their principal ID, so the
 	// same enforcement path applies to them as to humans.
 	for _, g := range tenantGrants {
+		if g.Budget == nil {
+			continue
+		}
 		pb, exists := doc[g.PrincipalID]
 		if !exists {
-			pb = principalBudget{}
+			pb = principalBudget{EffectiveLimits: make(map[string]float64)}
 		}
 
-		// Grant-level budget.
-		if g.Budget != nil {
-			pb.Categories = append(pb.Categories, budgetCategory{
-				Source:          "grant",
-				ID:              g.ID,
-				MonthlyLimitUSD: g.Budget.MonthlyLimitUSD,
-				ResetCadence:    g.Budget.ResetCadence,
-			})
+		cadence := normalizeCadence(g.Budget.ResetCadence)
+		pb.Categories = append(pb.Categories, budgetCategory{
+			Source:         "grant",
+			ID:             g.ID,
+			LimitUSD:       g.Budget.LimitUSD,
+			ResetCadence:   cadence,
+			PerRunLimitUSD: g.Budget.PerRunLimitUSD,
+		})
+		if g.Budget.LimitUSD > pb.EffectiveLimits[cadence] {
+			pb.EffectiveLimits[cadence] = g.Budget.LimitUSD
+		}
+		if g.Budget.PerRunLimitUSD > pb.EffectivePerRunLimitUSD {
+			pb.EffectivePerRunLimitUSD = g.Budget.PerRunLimitUSD
 		}
 
 		doc[g.PrincipalID] = pb
@@ -199,26 +227,41 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 	// and resolved per request by budget.rego against input.principal.roles —
 	// the caller's JWT roles, supplied by the inference gateway at check time.
 
-	// Compute effective_limit_usd (MAX) for each principal with grant budgets.
+	// Drop zero-valued window entries (per-run-only grants) so OPA does not see
+	// a "0 limit" ceiling.
 	for pid, pb := range doc {
-		var maxLimit float64
-		for _, c := range pb.Categories {
-			if c.MonthlyLimitUSD > maxLimit {
-				maxLimit = c.MonthlyLimitUSD
+		for w, l := range pb.EffectiveLimits {
+			if l <= 0 {
+				delete(pb.EffectiveLimits, w)
 			}
 		}
-		pb.EffectiveLimitUSD = maxLimit
 		doc[pid] = pb
 	}
 
-	// Remove principals that ended up with no categories (no budget set).
-	for pid, pb := range doc {
-		if len(pb.Categories) == 0 {
-			delete(doc, pid)
-		}
-	}
-
 	return doc
+}
+
+// tenantBudgetEntry is the tenant rollup cap in data/tenant_budget/data.json.
+type tenantBudgetEntry struct {
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+}
+
+// tenantBudgetDocument is the JSON structure of data/tenant_budget/data.json.
+// TenantBudget is nil (JSON null) when the tenant has no cap configured.
+type tenantBudgetDocument struct {
+	TenantBudget *tenantBudgetEntry `json:"tenant_budget"`
+}
+
+// buildTenantBudget computes data/tenant_budget/data.json.
+func buildTenantBudget(tb *tenantbudget.TenantBudget) tenantBudgetDocument {
+	if tb == nil || tb.LimitUSD <= 0 {
+		return tenantBudgetDocument{}
+	}
+	return tenantBudgetDocument{TenantBudget: &tenantBudgetEntry{
+		LimitUSD:     tb.LimitUSD,
+		ResetCadence: normalizeCadence(tb.ResetCadence),
+	}}
 }
 
 type manifest struct {
@@ -262,11 +305,12 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 }
 
 // Compile builds the OPA bundle for a single tenant from the provided grants,
-// vocabulary entries, and role→scope mappings. The result is cached
-// and replaces any prior bundle for that tenant. Returns the compiled bundle bytes.
-func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry) (*CachedBundle, error) {
+// vocabulary entries, role→scope mappings, and tenant budget cap (nil when
+// none is configured). The result is cached and replaces any prior bundle for
+// that tenant. Returns the compiled bundle bytes.
+func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget) (*CachedBundle, error) {
 	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantRoutes, c.cfg)
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, tenantRoutes, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -336,8 +380,28 @@ func (c *Compiler) CompileGateway(
 	return cached, nil
 }
 
+// marshalBudgetDocs builds and marshals the budget data documents:
+// data/budgets (per-principal grant budgets), data/role_budgets (flat
+// role → budget map for request-time role enforcement), and
+// data/tenant_budget (rollup cap; null when unconfigured).
+func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget) (budgetsJSON, roleBudgetsJSON, tenantBudgetJSON []byte, err error) {
+	budgetsJSON, err = json.Marshal(buildBudgets(tenantGrants, roleEntries))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("marshal budgets: %w", err)
+	}
+	roleBudgetsJSON, err = json.Marshal(buildRoleBudgets(roleEntries))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("marshal role budgets: %w", err)
+	}
+	tenantBudgetJSON, err = json.Marshal(buildTenantBudget(tenantBudget))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("marshal tenant budget: %w", err)
+	}
+	return budgetsJSON, roleBudgetsJSON, tenantBudgetJSON, nil
+}
+
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
 	// Build grants data document
@@ -407,25 +471,16 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", fmt.Errorf("marshal config: %w", err)
 	}
 
-	// Build role_budgets data document (flat role_name → budget map for gateway role enforcement).
-	roleBudgetsDoc := buildRoleBudgets(roleEntries)
-	roleBudgetsJSON, err := json.Marshal(roleBudgetsDoc)
+	// Build the three budget data documents (role_budgets, budgets, tenant_budget).
+	budgetsJSON, roleBudgetsJSON, tenantBudgetJSON, err := marshalBudgetDocs(tenantGrants, roleEntries, tenantBudget)
 	if err != nil {
-		return nil, "", fmt.Errorf("marshal role budgets: %w", err)
-	}
-
-	// Build budgets data document (per-principal budget assignments for orbit.budget).
-	// effective_limit_usd is pre-computed as MAX across all applicable categories.
-	budgetsDoc := buildBudgets(tenantGrants, roleEntries)
-	budgetsJSON, err := json.Marshal(budgetsDoc)
-	if err != nil {
-		return nil, "", fmt.Errorf("marshal budgets: %w", err)
+		return nil, "", err
 	}
 
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets", "role_budgets"},
+		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -447,6 +502,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		{"config/data.json", cfgJSON},
 		{"budgets/data.json", budgetsJSON},
 		{"role_budgets/data.json", roleBudgetsJSON},
+		{"tenant_budget/data.json", tenantBudgetJSON},
 	})
 	if err != nil {
 		return nil, "", err

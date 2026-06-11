@@ -25,14 +25,12 @@ type stubEvaluator struct {
 	checkAllow *bool
 	// budgetHasLimit controls whether CheckBudget reports a configured limit.
 	budgetHasLimit bool
-	// budgetEffectiveUSD is the effective_limit_usd returned by CheckBudget.
+	// budgetEffectiveUSD is the monthly principal ceiling limit reported by CheckBudget.
 	budgetEffectiveUSD float64
 	// budgetErr, when non-nil, is returned by CheckBudget.
 	budgetErr error
-	// lastBudgetSpend captures the currentSpendUSD passed to CheckBudget.
-	lastBudgetSpend float64
-	// lastBudgetRoles captures the roles passed to CheckBudget.
-	lastBudgetRoles []string
+	// lastBudgetReq captures the request passed to CheckBudget (nil = not called).
+	lastBudgetReq *policy.BudgetCheckRequest
 	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
 	budgetCategories []policy.BudgetCategory
 	// budgetCategoriesErr, when non-nil, is returned by GetBudgetCategories.
@@ -44,6 +42,8 @@ type stubEvaluator struct {
 	// allBudgets and allRoleBudgets are returned by ListBudgets.
 	allBudgets     map[string]policy.PrincipalBudget
 	allRoleBudgets map[string]policy.RoleBudget
+	// tenantBudget is returned by GetTenantBudget.
+	tenantBudget *policy.TenantBudget
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -81,9 +81,8 @@ func (s *stubEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (
 	return &policy.ScopesExplainResult{}, nil
 }
 
-func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, roles []string, spend float64) (policy.BudgetResult, error) {
-	s.lastBudgetSpend = spend
-	s.lastBudgetRoles = roles
+func (s *stubEvaluator) CheckBudget(_ context.Context, _ string, req policy.BudgetCheckRequest) (policy.BudgetResult, error) {
+	s.lastBudgetReq = &req
 	if s.budgetErr != nil {
 		return policy.BudgetResult{}, s.budgetErr
 	}
@@ -91,11 +90,21 @@ func (s *stubEvaluator) CheckBudget(_ context.Context, _, _ string, roles []stri
 	if s.checkAllow != nil {
 		allow = *s.checkAllow
 	}
-	return policy.BudgetResult{
-		Allow:              allow,
-		HasLimit:           s.budgetHasLimit,
-		EffectiveBudgetUSD: s.budgetEffectiveUSD,
-	}, nil
+	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit}
+	if s.budgetHasLimit {
+		res.Ceilings = []policy.BudgetCeiling{{
+			Scope:    "principal",
+			ID:       req.PrincipalID,
+			Window:   "monthly",
+			LimitUSD: s.budgetEffectiveUSD,
+			SpendUSD: req.Spends.Principal["monthly"],
+		}}
+	}
+	return res, nil
+}
+
+func (s *stubEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.TenantBudget, error) {
+	return s.tenantBudget, nil
 }
 
 func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
@@ -374,22 +383,29 @@ func newBudgetService(eval *stubEvaluator, counter SpendCounter) *Service {
 	return NewService(eval, buildTestRouter(nil), NewNopPricingCache(), nil, counter, logging.NewLoggerWithOutput(io.Discard))
 }
 
+func monthlySpends(usd float64) policy.BudgetSpends {
+	return policy.BudgetSpends{Principal: map[string]float64{"monthly": usd}}
+}
+
 func TestGetPersonalBudget_SpendThreadedIntoCheckBudget(t *testing.T) {
 	t.Parallel()
-	// Verify the spend returned by the counter is the exact value passed to CheckBudget.
+	// Verify the spends read from the counter are the exact values passed to CheckBudget.
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
-	counter := &mockSpendCounter{spend: 42.5}
+	counter := &mockSpendCounter{spends: monthlySpends(42.5)}
 	svc := newBudgetService(eval, counter)
 
 	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if eval.lastBudgetSpend != 42.5 {
-		t.Errorf("CheckBudget received spend = %v, want 42.5 (from counter)", eval.lastBudgetSpend)
+	if eval.lastBudgetReq == nil || eval.lastBudgetReq.Spends.Principal["monthly"] != 42.5 {
+		t.Errorf("CheckBudget received spends = %+v, want monthly 42.5 (from counter)", eval.lastBudgetReq)
 	}
 	if status.CurrentSpendUSD != 42.5 {
 		t.Errorf("CurrentSpendUSD = %v, want 42.5", status.CurrentSpendUSD)
+	}
+	if len(status.Ceilings) != 1 || status.Ceilings[0].Window != "monthly" || status.Ceilings[0].LimitUSD != 50 {
+		t.Errorf("Ceilings = %+v, want one monthly ceiling of 50", status.Ceilings)
 	}
 }
 
@@ -407,9 +423,9 @@ func TestGetPersonalBudget_CounterError_FailsOpen(t *testing.T) {
 	if status.HasLimit || status.SpendLimitReached || status.CurrentSpendUSD != 0 {
 		t.Errorf("fail-open should return empty status, got: %+v", status)
 	}
-	// CheckBudget must not have been called when GetSpend failed.
-	if eval.lastBudgetSpend != 0 {
-		t.Error("CheckBudget should not be called when GetSpend errors")
+	// CheckBudget must not have been called when GetSpends failed.
+	if eval.lastBudgetReq != nil {
+		t.Error("CheckBudget should not be called when GetSpends errors")
 	}
 }
 
@@ -417,7 +433,7 @@ func TestGetPersonalBudget_OPAError_FailsOpen(t *testing.T) {
 	t.Parallel()
 	// OPA error → fail-open: empty BudgetStatus, no error returned.
 	eval := &stubEvaluator{budgetErr: errors.New("OPA unavailable")}
-	counter := &mockSpendCounter{spend: 10.0}
+	counter := &mockSpendCounter{spends: monthlySpends(10)}
 	svc := newBudgetService(eval, counter)
 
 	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
@@ -434,16 +450,20 @@ func TestGetPersonalBudget_JWTRolesPassedToCheckBudget(t *testing.T) {
 	// Role budgets are resolved inside OPA against the caller's JWT roles —
 	// verify the roles extracted from claims reach CheckBudget.
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
-	counter := &mockSpendCounter{spend: 30.0}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
 	svc := newBudgetService(eval, counter)
 
 	status, err := svc.GetPersonalBudget(ctxWithRoles(t, "eng", "power-user"), "tenant-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	got := eval.lastBudgetReq.Roles
 	want := []string{"eng", "power-user"}
-	if len(eval.lastBudgetRoles) != 2 || eval.lastBudgetRoles[0] != want[0] || eval.lastBudgetRoles[1] != want[1] {
-		t.Errorf("CheckBudget received roles = %v, want %v", eval.lastBudgetRoles, want)
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("CheckBudget received roles = %v, want %v", got, want)
 	}
 	if status.CurrentSpendUSD != 30.0 {
 		t.Errorf("CurrentSpendUSD = %v, want 30.0", status.CurrentSpendUSD)
@@ -457,15 +477,56 @@ func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
 	t.Parallel()
 	// JWT has no roles claim — CheckBudget receives no roles (grant budgets only).
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
-	counter := &mockSpendCounter{spend: 10.0}
+	counter := &mockSpendCounter{spends: monthlySpends(10)}
 	svc := newBudgetService(eval, counter)
 
 	_, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(eval.lastBudgetRoles) != 0 {
-		t.Errorf("CheckBudget should receive no roles when JWT has none, got %v", eval.lastBudgetRoles)
+	if eval.lastBudgetReq == nil || len(eval.lastBudgetReq.Roles) != 0 {
+		t.Errorf("CheckBudget should receive no roles when JWT has none, got %+v", eval.lastBudgetReq)
+	}
+}
+
+func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
+	t.Parallel()
+	// Grant budgets (weekly + monthly + per-run), a pooled role, a per-member
+	// role, and a tenant cap — verify the counter is asked for exactly the
+	// right scopes.
+	eval := &stubEvaluator{
+		budgetCategories: []policy.BudgetCategory{
+			{Source: "grant", ID: "g-week", ResetCadence: "weekly", LimitUSD: 20},
+			{Source: "grant", ID: "g-run", ResetCadence: "monthly", PerRunLimitUSD: 5},
+		},
+		roleBudgets: []policy.BudgetCategory{
+			{Source: "role", ID: "engineering", ResetCadence: "monthly", LimitUSD: 500, Pooled: true},
+			{Source: "role", ID: "engineer", ResetCadence: "monthly", LimitUSD: 50},
+		},
+		tenantBudget: &policy.TenantBudget{LimitUSD: 2000, ResetCadence: "monthly"},
+	}
+	counter := &mockSpendCounter{}
+	svc := newBudgetService(eval, counter)
+
+	_, err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
+		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := counter.lastScopes
+	if len(sc.PrincipalWindows) != 2 || sc.PrincipalWindows[0] != "monthly" || sc.PrincipalWindows[1] != "weekly" {
+		t.Errorf("PrincipalWindows = %v, want [monthly weekly]", sc.PrincipalWindows)
+	}
+	if sc.TenantWindow != "monthly" {
+		t.Errorf("TenantWindow = %q, want monthly", sc.TenantWindow)
+	}
+	if len(sc.PoolWindows) != 1 || sc.PoolWindows["engineering"] != "monthly" {
+		t.Errorf("PoolWindows = %v, want engineering→monthly", sc.PoolWindows)
+	}
+	if sc.RunID != "" {
+		t.Errorf("RunID = %q, want empty (no run context on this request)", sc.RunID)
 	}
 }
 
@@ -479,13 +540,13 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 		allBudgets: map[string]policy.PrincipalBudget{
 			"pid-grant": {
 				Categories: []policy.BudgetCategory{
-					{Source: "grant", ID: "g1", ResetCadence: "monthly", MonthlyLimitUSD: 80},
+					{Source: "grant", ID: "g1", ResetCadence: "monthly", LimitUSD: 80},
 				},
-				EffectiveLimitUSD: 80,
+				EffectiveLimits: map[string]float64{"monthly": 80},
 			},
 		},
 		allRoleBudgets: map[string]policy.RoleBudget{
-			"engineer": {MonthlyLimitUSD: 50, ResetCadence: "monthly"},
+			"engineer": {LimitUSD: 50, ResetCadence: "monthly"},
 		},
 	}
 	counter := &mockSpendCounter{
@@ -571,7 +632,7 @@ func TestIncrementSpend_RoleCategoriesMergedForAttribution(t *testing.T) {
 	if counter.lastCategories[0] != grantCat || counter.lastCategories[1] != roleCat {
 		t.Errorf("IncrementSpend categories = %v, want [%v %v]", counter.lastCategories, grantCat, roleCat)
 	}
-	if counter.spend != 1.25 {
-		t.Errorf("counter spend = %v, want 1.25", counter.spend)
+	if counter.incremented != 1.25 {
+		t.Errorf("counter incremented = %v, want 1.25", counter.incremented)
 	}
 }
