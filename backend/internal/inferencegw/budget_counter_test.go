@@ -32,9 +32,6 @@ type stubRedisOps struct {
 
 	expireErr error
 
-	scanKeys []string
-	scanErr  error
-
 	// observability
 	setKeys   []string
 	setValues []string
@@ -100,16 +97,6 @@ func (s *stubRedisOps) Expire(_ context.Context, _ string, _ time.Duration) *red
 	return cmd
 }
 
-func (s *stubRedisOps) Scan(_ context.Context, _ uint64, _ string, _ int64) *redis.ScanCmd {
-	cmd := redis.NewScanCmd(context.Background(), nil)
-	if s.scanErr != nil {
-		cmd.SetErr(s.scanErr)
-		return cmd
-	}
-	cmd.SetVal(s.scanKeys, 0)
-	return cmd
-}
-
 // ── stubUsageRepo ─────────────────────────────────────────────────────────────
 
 type stubUsageRepo struct {
@@ -153,6 +140,9 @@ func (s *stubUsageRepo) ListPrincipalUsage(_ context.Context, _ AnalyticsPrincip
 	return AnalyticsPrincipalsResponse{}, nil
 }
 func (s *stubUsageRepo) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
+	return nil, nil
+}
+func (s *stubUsageRepo) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
 	return nil, nil
 }
 

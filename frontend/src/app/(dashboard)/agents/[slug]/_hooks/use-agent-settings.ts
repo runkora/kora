@@ -147,6 +147,14 @@ export function useAgentSettings() {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       const trimmedSystemPrompt = systemPrompt.trim();
+      // Only send `budget` when it changed from the loaded baseline. Omitting it
+      // means "leave unchanged"; sending both-zero means "remove". Always
+      // sending zeros would wipe the agent's budget whenever the form loaded
+      // with empty fields — including when budget enrichment failed on read.
+      const budgetChanged =
+        budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
+        budgetCadence !== savedBaseline.budgetCadence ||
+        budgetPerRunUSD !== savedBaseline.budgetPerRunUSD;
       const result = await updateAgentType(agent.id, {
         name: trimmedName,
         description: trimmedDescription,
@@ -156,13 +164,15 @@ export function useAgentSettings() {
         model_id: modelId,
         grant_scopes: grantScopes,
         tool_scopes: toolScopes,
-        // Budget is always sent: empty fields → both limits zero → the
-        // backend removes the budget from the agent's grant.
-        budget: {
-          reset_cadence: budgetCadence,
-          limit_usd: budgetLimitUSD ? parseFloat(budgetLimitUSD) : 0,
-          per_run_limit_usd: budgetPerRunUSD ? parseFloat(budgetPerRunUSD) : 0,
-        },
+        ...(budgetChanged
+          ? {
+              budget: {
+                reset_cadence: budgetCadence,
+                limit_usd: budgetLimitUSD ? parseFloat(budgetLimitUSD) : 0,
+                per_run_limit_usd: budgetPerRunUSD ? parseFloat(budgetPerRunUSD) : 0,
+              },
+            }
+          : {}),
       });
       setSaving(false);
       if (result.error) {
@@ -199,6 +209,7 @@ export function useAgentSettings() {
       budgetLimitUSD,
       budgetCadence,
       budgetPerRunUSD,
+      savedBaseline,
     ],
   );
 

@@ -164,6 +164,46 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 	return result.Grants, nil
 }
 
+// UpdateGrantBudget replaces the budget on an existing grant in place
+// (PATCH /policy/grants/{id}), preserving the grant ID and its scopes. A nil
+// budget removes the assignment. Returns ErrGrantNotFound if it does not exist.
+func (c *Client) UpdateGrantBudget(ctx context.Context, grantID string, budget *BudgetAssignment) error {
+	body, err := c.EncodeJSON(struct {
+		Budget *BudgetAssignment `json:"budget"`
+	}{Budget: budget})
+	if err != nil {
+		return fmt.Errorf("encode update grant budget request: %w", err)
+	}
+
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return fmt.Errorf("get bearer token for update grant budget request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.serviceURL+"/api/v1/policy/grants/"+grantID, body)
+	if err != nil {
+		return fmt.Errorf("build update grant budget request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.UpdateGrantBudget", req)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return ErrGrantNotFound
+	default:
+		return c.HandleErrorResponse(span, resp, fmt.Errorf("update grant budget failed: status %d", resp.StatusCode))
+	}
+}
+
 // DeleteGrant removes a grant by ID within the given tenant.
 func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 	tok, err := c.bearerToken(ctx)

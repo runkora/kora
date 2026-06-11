@@ -65,6 +65,14 @@ type InferenceUsageRepository interface {
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
 	GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error)
+
+	// GetActiveRoleHolders returns principal ID → distinct OIDC role names for
+	// principals that made requests in the tenant since the given instant. The
+	// roles come from the principal_roles column recorded at request time — the
+	// authoritative, tenant-scoped record of which IDP-asserted roles each
+	// principal exercised. Used to attribute role budgets in the budgets
+	// listing (the policy service cannot resolve IDP role membership).
+	GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -711,6 +719,35 @@ func (r *PostgresInferenceUsageRepository) GetRunSpend(ctx context.Context, tena
 		return 0, fmt.Errorf("get run spend: %w", err)
 	}
 	return total, nil
+}
+
+// GetActiveRoleHolders returns principal ID → distinct roles for principals
+// active in the tenant since the given instant, read from principal_roles.
+func (r *PostgresInferenceUsageRepository) GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error) {
+	const q = `
+		SELECT principal_id, ARRAY_AGG(DISTINCT role) AS roles
+		FROM inference_usage, unnest(principal_roles) AS role
+		WHERE tenant_id = $1
+		  AND created_at >= $2
+		  AND principal_roles IS NOT NULL
+		GROUP BY principal_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get active role holders: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]string)
+	for rows.Next() {
+		var pid string
+		var roles []string
+		if err := rows.Scan(&pid, &roles); err != nil {
+			return nil, fmt.Errorf("scan active role holder: %w", err)
+		}
+		out[pid] = roles
+	}
+	return out, rows.Err()
 }
 
 // GetMonthlySpendByPrincipal returns per-principal spend aggregates for the

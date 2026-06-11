@@ -31,6 +31,7 @@ function runStatusBadge(row: RunRow) {
     completing: 'degraded',
     completed: 'idle',
     failed: 'error',
+    budget_exhausted: 'error',
   };
   const labelMap: Record<string, string> = {
     pending: 'Pending',
@@ -40,6 +41,7 @@ function runStatusBadge(row: RunRow) {
     completing: 'Completing',
     completed: 'Completed',
     failed: 'Failed',
+    budget_exhausted: 'Budget exhausted',
   };
   return (
     <StatusBadge

@@ -29,7 +29,7 @@ import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtWindowSuffix } from '@orbit/utils';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
@@ -278,7 +278,7 @@ function RoleCardGrid({
                 </Text>
                 {role.budget && (
                   <Text size="caption" color="muted">
-                    ${(role.budget.limit_usd ?? 0).toFixed(2)}
+                    {fmtUsd(role.budget.limit_usd ?? 0)}
                     {fmtWindowSuffix(role.budget.reset_cadence)}
                     {role.budget.pooled ? ' · pool' : ''}
                   </Text>
@@ -375,7 +375,7 @@ function RoleTable({
         cell: (r) =>
           r.budget ? (
             <Text size="caption" color="muted">
-              ${(r.budget.limit_usd ?? 0).toFixed(2)}
+              {fmtUsd(r.budget.limit_usd ?? 0)}
               {fmtWindowSuffix(r.budget.reset_cadence)}
               {r.budget.pooled ? ' · pool' : ''}
             </Text>

@@ -952,16 +952,17 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 		return resp, fmt.Errorf("list budget principals: %w", err)
 	}
 
-	// Active role-budget holders, discovered from attribution counters.
-	var roleHolders map[string][]string
-	if s.budgetCounter != nil {
-		roleHolders, err = s.budgetCounter.ListActiveRoleAttributions(ctx)
-		if err != nil {
-			s.logger.Warn(ctx, "budget.role_attributions_unavailable",
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			roleHolders = nil
-		}
+	// Active role-budget holders: which principals exercised which OIDC roles
+	// this period, read tenant-scoped from inference_usage.principal_roles.
+	// (The policy service can't resolve IDP role membership; the usage log is
+	// the authoritative record.) Lookback spans the longest live window so
+	// weekly and monthly role budgets are both covered.
+	roleHolders, err := s.usage.GetActiveRoleHolders(ctx, tenantID, periodStart("monthly", now))
+	if err != nil {
+		s.logger.Warn(ctx, "budget.role_holders_unavailable",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		roleHolders = nil
 	}
 
 	// Union of all principals that appear in any source.
@@ -1021,39 +1022,56 @@ func budgetCategoriesFor(
 	return cats
 }
 
-// buildBudgetPrincipalRow assembles a single listing row. The listing is a
-// monthly-period lens: the effective limit and blocked flag reflect the
-// monthly-window ceilings (MAX across per-member assignments); weekly, pooled,
-// and per-run assignments are visible in the per-category breakdown with
-// their own windows.
+// buildBudgetPrincipalRow assembles a single listing row. EffectiveLimitUSD is
+// the MAX per-member window limit across all cadences (so a weekly-only
+// principal still shows a non-zero limit). SpendLimitReached is true when the
+// monthly canonical spend meets the monthly limit OR any non-monthly window
+// category's attributed spend meets its own limit — so a weekly-blocked
+// principal is reported blocked, not "OK". Pooled and per-run assignments are
+// shown in the per-category breakdown with their own windows.
 func (s *Service) buildBudgetPrincipalRow(
 	ctx context.Context,
 	pid string,
 	cats []policy.BudgetCategory,
 	sp PrincipalPeriodSpend,
 ) BudgetPrincipalStatus {
-	var effective float64
-	hasLimit := false
-	for _, cat := range cats {
-		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
-			hasLimit = true
-		}
-		if cat.Pooled {
-			continue // pools are shared ceilings, never part of the per-member MAX
-		}
-		if cat.ResetCadence == "monthly" && cat.LimitUSD > effective {
-			effective = cat.LimitUSD
-		}
-	}
-
 	var catSpends []float64
 	if s.budgetCounter != nil && len(cats) > 0 {
 		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, pid, cats); csErr == nil {
 			catSpends = cs
 		}
 	}
-	catStatuses := make([]BudgetCategoryStatus, len(cats))
+
+	catStatuses, effective, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD)
+
+	row := BudgetPrincipalStatus{
+		PrincipalID:       pid,
+		PrincipalType:     principalTypeFor(pid, sp.PrincipalType),
+		Categories:        catStatuses,
+		EffectiveLimitUSD: effective,
+		CurrentSpendUSD:   sp.SpendUSD,
+		HasLimit:          hasLimit,
+		SpendLimitReached: reached,
+	}
+	if !sp.LastActiveAt.IsZero() {
+		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
+	}
+	return row
+}
+
+// summarizeBudgetCategories builds the per-category status rows and the
+// headline fields: effective (MAX per-member limit across all window cadences),
+// hasLimit, and reached (monthly canonical spend ≥ monthly limit, OR any
+// non-monthly per-member category's attributed spend ≥ its own limit).
+// catSpends is aligned to cats (attributed spend per category); monthlySpend is
+// the canonical month-to-date principal spend.
+func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend float64) (statuses []BudgetCategoryStatus, effective float64, hasLimit, reached bool) {
+	statuses = make([]BudgetCategoryStatus, len(cats))
+	var monthlyLimit float64
 	for i, cat := range cats {
+		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
+			hasLimit = true
+		}
 		st := BudgetCategoryStatus{
 			Source:         cat.Source,
 			ID:             cat.ID,
@@ -1065,22 +1083,41 @@ func (s *Service) buildBudgetPrincipalRow(
 		if i < len(catSpends) {
 			st.SpendUSD = catSpends[i]
 		}
-		catStatuses[i] = st
-	}
+		statuses[i] = st
 
-	row := BudgetPrincipalStatus{
-		PrincipalID:       pid,
-		PrincipalType:     sp.PrincipalType,
-		Categories:        catStatuses,
-		EffectiveLimitUSD: effective,
-		CurrentSpendUSD:   sp.SpendUSD,
-		HasLimit:          hasLimit,
-		SpendLimitReached: effective > 0 && sp.SpendUSD >= effective,
+		if cat.Pooled {
+			continue // pools are shared ceilings, never part of the per-member MAX
+		}
+		if cat.LimitUSD > effective {
+			effective = cat.LimitUSD
+		}
+		if cat.ResetCadence == "monthly" {
+			if cat.LimitUSD > monthlyLimit {
+				monthlyLimit = cat.LimitUSD
+			}
+		} else if cat.LimitUSD > 0 && st.SpendUSD >= cat.LimitUSD {
+			reached = true // a non-monthly per-member ceiling is exhausted
+		}
 	}
-	if !sp.LastActiveAt.IsZero() {
-		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
+	if monthlyLimit > 0 && monthlySpend >= monthlyLimit {
+		reached = true
 	}
-	return row
+	return statuses, effective, hasLimit, reached
+}
+
+// principalTypeFor returns the recorded principal type, or — for synthesized
+// rows (a budgeted principal with no spend this period, so no usage row to read
+// the type from) — infers it from the principal ID: SPIFFE IDs are agents,
+// everything else is treated as human. PAT credentials never appear as a
+// principal here (PAT usage attributes to the human).
+func principalTypeFor(pid, recorded string) string {
+	if recorded != "" {
+		return recorded
+	}
+	if strings.HasPrefix(pid, "spiffe://") {
+		return "AGENT"
+	}
+	return "HUMAN"
 }
 
 // sortBudgetPrincipals orders budgeted principals first by utilization

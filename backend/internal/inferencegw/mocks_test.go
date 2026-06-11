@@ -18,21 +18,22 @@ var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
 // ── mockInferenceUsageRepository ──────────────────────────────────────────────
 
 type mockInferenceUsageRepository struct {
-	mu             sync.Mutex
-	records        []InferenceUsageRecord
-	hasNextPage    bool
-	createErr      error
-	listErr        error
-	getErr         error
-	statsResult    []TokenUsageStat
-	statsErr       error
-	analyticsResp  AnalyticsResponse
-	analyticsErr   error
-	principalsResp AnalyticsPrincipalsResponse
-	principalsErr  error
-	periodSpends   []PrincipalPeriodSpend
-	lastFilter     InferenceUsageFilter // captured on each List call
-	lastAnalytics  AnalyticsFilter      // captured on each GetAnalytics call
+	mu                sync.Mutex
+	records           []InferenceUsageRecord
+	hasNextPage       bool
+	createErr         error
+	listErr           error
+	getErr            error
+	statsResult       []TokenUsageStat
+	statsErr          error
+	analyticsResp     AnalyticsResponse
+	analyticsErr      error
+	principalsResp    AnalyticsPrincipalsResponse
+	principalsErr     error
+	periodSpends      []PrincipalPeriodSpend
+	activeRoleHolders map[string][]string
+	lastFilter        InferenceUsageFilter // captured on each List call
+	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {
@@ -130,6 +131,10 @@ func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Cont
 	return m.periodSpends, nil
 }
 
+func (m *mockInferenceUsageRepository) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
+	return m.activeRoleHolders, nil
+}
+
 // ── shared test helpers ────────────────────────────────────────────────────────
 
 // f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
@@ -188,15 +193,14 @@ func (m *mockPricingCatalogRepository) LoadAll(_ context.Context) ([]PricingCata
 var _ SpendCounter = (*mockSpendCounter)(nil)
 
 type mockSpendCounter struct {
-	spends           policy.BudgetSpends
-	categorySpends   []float64
-	getSpendErr      error
-	incrErr          error
-	lastScopes       SpendScopes
-	lastIncrScopes   SpendScopes
-	lastCategories   []policy.BudgetCategory
-	incremented      float64
-	roleAttributions map[string][]string
+	spends         policy.BudgetSpends
+	categorySpends []float64
+	getSpendErr    error
+	incrErr        error
+	lastScopes     SpendScopes
+	lastIncrScopes SpendScopes
+	lastCategories []policy.BudgetCategory
+	incremented    float64
 }
 
 func (m *mockSpendCounter) GetSpends(_ context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
@@ -222,8 +226,4 @@ func (m *mockSpendCounter) GetCategorySpends(_ context.Context, _ string, catego
 		return m.categorySpends, nil
 	}
 	return make([]float64, len(categories)), nil
-}
-
-func (m *mockSpendCounter) ListActiveRoleAttributions(_ context.Context) (map[string][]string, error) {
-	return m.roleAttributions, nil
 }

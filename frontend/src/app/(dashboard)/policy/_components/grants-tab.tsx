@@ -34,17 +34,17 @@ import type { BudgetAssignment, Grant, PrincipalType } from '../_types';
 function budgetSummary(budget: BudgetAssignment): string {
   const parts: string[] = [];
   if (budget.limit_usd) {
-    parts.push(`$${budget.limit_usd.toFixed(2)}${fmtWindowSuffix(budget.reset_cadence)}`);
+    parts.push(`${fmtUsd(budget.limit_usd)}${fmtWindowSuffix(budget.reset_cadence)}`);
   }
   if (budget.per_run_limit_usd) {
-    parts.push(`$${budget.per_run_limit_usd.toFixed(2)}/run`);
+    parts.push(`${fmtUsd(budget.per_run_limit_usd)}/run`);
   }
   return parts.join(' · ');
 }
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtWindowSuffix } from '@orbit/utils';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';

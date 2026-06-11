@@ -549,15 +549,14 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 			"engineer": {LimitUSD: 50, ResetCadence: "monthly"},
 		},
 	}
-	counter := &mockSpendCounter{
-		roleAttributions: map[string][]string{"pid-role": {"engineer"}},
-	}
+	counter := &mockSpendCounter{}
 	usage := &mockInferenceUsageRepository{
 		periodSpends: []PrincipalPeriodSpend{
 			{PrincipalID: "pid-grant", PrincipalType: "HUMAN", SpendUSD: 40},
 			{PrincipalID: "pid-role", PrincipalType: "HUMAN", SpendUSD: 50},
 			{PrincipalID: "pid-free", PrincipalType: "AGENT", SpendUSD: 10},
 		},
+		activeRoleHolders: map[string][]string{"pid-role": {"engineer"}},
 	}
 	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
 
@@ -588,15 +587,52 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 	}
 }
 
+func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T) {
+	t.Parallel()
+	// An agent with only a WEEKLY grant budget ($20), exhausted ($20 attributed),
+	// and no usage row this month (so principal_type is unrecorded). It must be
+	// reported blocked with a non-zero effective limit and inferred type AGENT.
+	pid := "spiffe://orbit.test/tenant/t/agent/coder"
+	eval := &stubEvaluator{
+		allBudgets: map[string]policy.PrincipalBudget{
+			pid: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g1", ResetCadence: "weekly", LimitUSD: 20}},
+				EffectiveLimits: map[string]float64{"weekly": 20},
+			},
+		},
+	}
+	counter := &mockSpendCounter{categorySpends: []float64{20}} // weekly category fully spent
+	usage := &mockInferenceUsageRepository{}                    // no monthly spend row → type unrecorded
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("got %d rows, want 1: %+v", len(resp.Data), resp.Data)
+	}
+	row := resp.Data[0]
+	if row.EffectiveLimitUSD != 20 {
+		t.Errorf("effective limit = %v, want 20 (weekly limit, not monthly-only zero)", row.EffectiveLimitUSD)
+	}
+	if !row.SpendLimitReached {
+		t.Error("weekly ceiling exhausted must report SpendLimitReached=true")
+	}
+	if row.PrincipalType != "AGENT" {
+		t.Errorf("principal type = %q, want AGENT (inferred from SPIFFE id)", row.PrincipalType)
+	}
+}
+
 func TestListBudgetPrincipals_RoleCounterForRemovedBudgetIgnored(t *testing.T) {
 	t.Parallel()
 	// An attribution counter exists for a role whose budget has since been
 	// removed — the principal must not be reported as budgeted.
 	eval := &stubEvaluator{allRoleBudgets: map[string]policy.RoleBudget{}}
-	counter := &mockSpendCounter{
-		roleAttributions: map[string][]string{"pid-1": {"engineer"}},
+	counter := &mockSpendCounter{}
+	usage := &mockInferenceUsageRepository{
+		activeRoleHolders: map[string][]string{"pid-1": {"engineer"}},
 	}
-	usage := &mockInferenceUsageRepository{}
 	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
 
 	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")

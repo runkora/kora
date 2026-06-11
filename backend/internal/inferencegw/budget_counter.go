@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -54,10 +53,6 @@ type SpendCounter interface {
 	// GetCategorySpends returns the attributed spend per category, aligned to
 	// the input slice. Missing counters read as 0.
 	GetCategorySpends(ctx context.Context, principalID string, categories []policy.BudgetCategory) ([]float64, error)
-
-	// ListActiveRoleAttributions returns principal ID → role names that have a
-	// role attribution counter for the current monthly period.
-	ListActiveRoleAttributions(ctx context.Context) (map[string][]string, error)
 }
 
 // redisOps is the narrow set of Redis commands used by RedisBudgetCounter.
@@ -67,7 +62,6 @@ type redisOps interface {
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
 	IncrByFloat(ctx context.Context, key string, value float64) *redis.FloatCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
-	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 }
 
 // RedisBudgetCounter implements SpendCounter using Redis INCRBYFLOAT.
@@ -281,39 +275,6 @@ func (c *RedisBudgetCounter) GetCategorySpends(ctx context.Context, principalID 
 		spends[i] = f
 	}
 	return spends, nil
-}
-
-// ListActiveRoleAttributions scans for role attribution counters in the
-// current monthly period and returns principal ID → role names. The scan is
-// O(budget keyspace) — keys ≈ principals × categories — which is acceptable at
-// current scale; revisit if key cardinality grows.
-func (c *RedisBudgetCounter) ListActiveRoleAttributions(ctx context.Context) (map[string][]string, error) {
-	period := time.Now().UTC().Format("2006-01")
-	pattern := "budget:*:role:*:" + period
-
-	out := make(map[string][]string)
-	var cursor uint64
-	for {
-		keys, next, err := c.rdb.Scan(ctx, cursor, pattern, 200).Result()
-		if err != nil {
-			return nil, fmt.Errorf("budget counter scan: %w", err)
-		}
-		for _, k := range keys {
-			// budget:{principal_id}:role:{role_name}:{period}
-			trimmed := strings.TrimPrefix(k, "budget:")
-			trimmed = strings.TrimSuffix(trimmed, ":"+period)
-			parts := strings.SplitN(trimmed, ":role:", 2)
-			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-				continue
-			}
-			out[parts[0]] = append(out[parts[0]], parts[1])
-		}
-		cursor = next
-		if cursor == 0 {
-			break
-		}
-	}
-	return out, nil
 }
 
 // ── writes ───────────────────────────────────────────────────────────────────

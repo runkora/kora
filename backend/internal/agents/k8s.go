@@ -482,17 +482,15 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
-	// Walk existing grants: keep the first matching the desired state, delete
-	// the rest. Remember any existing budget so an unspecified desired budget
-	// survives a scope-driven recreate.
+	// Walk existing grants: keep the first whose SCOPES match (budget is
+	// reconciled separately), delete the rest. Remember the kept grant's budget
+	// so an unspecified desired budget survives.
 	var keepID string
-	var existingBudget *policyclient.BudgetAssignment
+	var keptBudget *policyclient.BudgetAssignment
 	for _, g := range existing {
-		if existingBudget == nil && g.Budget != nil {
-			existingBudget = g.Budget
-		}
-		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) && budgetMatches(at.Budget, g.Budget) {
+		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) {
 			keepID = g.ID
+			keptBudget = g.Budget
 			continue
 		}
 		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
@@ -508,7 +506,23 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		}
 	}
 
+	// A scope-matching grant exists: reconcile only the budget, in place. This
+	// avoids a delete+create window that would briefly leave the agent with no
+	// authorization, and preserves the grant ID (and its attribution counters).
+	// at.Budget == nil means "leave budget unchanged".
 	if keepID != "" {
+		if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
+			if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "update agent grant budget")
+				return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
+			}
+			p.logger.Info(ctx, "agent grant budget updated",
+				logging.Field{Key: "principal_id", Value: principalID},
+				logging.Field{Key: "grant_id", Value: keepID},
+			)
+			return nil
+		}
 		p.logger.Info(ctx, "agent grant up to date",
 			logging.Field{Key: "principal_id", Value: principalID},
 			logging.Field{Key: "grant_id", Value: keepID},
@@ -516,9 +530,11 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return nil
 	}
 
+	// No scope-matching grant: create one, carrying the desired budget (or, when
+	// unspecified, preserving the budget of a grant we just deleted).
 	createBudget := clientBudget(at.Budget)
 	if at.Budget == nil {
-		createBudget = existingBudget // preserve through scope-driven recreates
+		createBudget = firstBudget(existing)
 	}
 	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes, createBudget); err != nil {
 		span.RecordError(err)
@@ -529,6 +545,16 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		logging.Field{Key: "principal_id", Value: principalID},
 		logging.Field{Key: "tenant_id", Value: grantTenantID},
 	)
+	return nil
+}
+
+// firstBudget returns the budget of the first grant carrying one, or nil.
+func firstBudget(grants []policyclient.Grant) *policyclient.BudgetAssignment {
+	for _, g := range grants {
+		if g.Budget != nil {
+			return g.Budget
+		}
+	}
 	return nil
 }
 

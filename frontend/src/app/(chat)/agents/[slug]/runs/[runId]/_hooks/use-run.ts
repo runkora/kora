@@ -366,7 +366,12 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       // Flush any in-progress turn when the run goes idle (e.g. after an interrupt).
       // This ensures the interrupted turn is committed before any follow-up human
       // message is appended, and clears the streaming/busy indicators.
-      if (payload.state === 'idle' || payload.state === 'completed' || payload.state === 'failed') {
+      if (
+        payload.state === 'idle' ||
+        payload.state === 'completed' ||
+        payload.state === 'failed' ||
+        payload.state === 'budget_exhausted'
+      ) {
         flushInProgress();
       }
       setRunState(payload.state);
