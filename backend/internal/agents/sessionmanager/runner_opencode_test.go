@@ -501,3 +501,40 @@ func TestOpenCodeSendToolResult_NotSupported(t *testing.T) {
 		t.Errorf("SendToolResult = %v, want ErrNotSupported", err)
 	}
 }
+
+// ── Resume (SessionID + NewResumeRunner) ──────────────────────────────────────
+
+func TestOpenCode_SessionID_EmptyBeforeStart(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	if got := r.SessionID(); got != "" {
+		t.Errorf("SessionID() before Start = %q, want empty", got)
+	}
+}
+
+func TestOpenCode_NewResumeRunner_NilWhenNoSessionID(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	if got := r.NewResumeRunner(); got != nil {
+		t.Errorf("NewResumeRunner() with no session_id = %v, want nil", got)
+	}
+}
+
+func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.sessionID = "sess_abc"
+	resumed := r.NewResumeRunner()
+	if resumed == nil {
+		t.Fatal("NewResumeRunner() = nil, want non-nil")
+	}
+	rr, ok := resumed.(*OpenCodeRunner)
+	if !ok {
+		t.Fatalf("NewResumeRunner() returned %T, want *OpenCodeRunner", resumed)
+	}
+	if rr.cfg.ResumeSessionID != "sess_abc" {
+		t.Errorf("resume runner ResumeSessionID = %q, want sess_abc", rr.cfg.ResumeSessionID)
+	}
+	// SessionID() on the new runner returns "" until Start sets r.sessionID; this is
+	// the contract the session layer relies on (ID becomes available again post-Start).
+	if got := rr.SessionID(); got != "" {
+		t.Errorf("resume runner SessionID() before Start = %q, want empty", got)
+	}
+}

@@ -366,3 +366,62 @@ func TestCodexSendToolResult_NotSupported(t *testing.T) {
 		t.Errorf("SendToolResult = %v, want ErrNotSupported", err)
 	}
 }
+
+// ── Resume (SessionID + NewResumeRunner) ──────────────────────────────────────
+
+func TestCodex_SessionID_EmptyBeforeFirstTurn(t *testing.T) {
+	r := newTestCodexRunner()
+	if got := r.SessionID(); got != "" {
+		t.Errorf("SessionID() before first turn = %q, want empty", got)
+	}
+}
+
+func TestCodex_CaptureThreadIDFromNotification(t *testing.T) {
+	r := newTestCodexRunner()
+	r.handleNotification(t.Context(), codexMsg{
+		Method: "turn/started",
+		Params: mustMarshal(map[string]string{"threadId": "thr_abc"}),
+	})
+	if got := r.SessionID(); got != "thr_abc" {
+		t.Errorf("SessionID() after turn/started = %q, want thr_abc", got)
+	}
+}
+
+func TestCodex_ThreadIDStableOnceCaptured(t *testing.T) {
+	r := newTestCodexRunner()
+	r.handleNotification(t.Context(), codexMsg{
+		Method: "turn/started",
+		Params: mustMarshal(map[string]string{"threadId": "thr_first"}),
+	})
+	// A later notification with a different threadId must not overwrite the captured one.
+	r.handleNotification(t.Context(), codexMsg{
+		Method: "turn/completed",
+		Params: mustMarshal(map[string]any{"threadId": "thr_other", "usage": map[string]int{}}),
+	})
+	if got := r.SessionID(); got != "thr_first" {
+		t.Errorf("SessionID() = %q, want thr_first (must not change once captured)", got)
+	}
+}
+
+func TestCodex_NewResumeRunner_NilWhenNoThreadID(t *testing.T) {
+	r := newTestCodexRunner()
+	if got := r.NewResumeRunner(); got != nil {
+		t.Errorf("NewResumeRunner() with no thread_id = %v, want nil", got)
+	}
+}
+
+func TestCodex_NewResumeRunner_CarriesThreadID(t *testing.T) {
+	r := newTestCodexRunner()
+	r.threadID.Store("thr_xyz")
+	resumed := r.NewResumeRunner()
+	if resumed == nil {
+		t.Fatal("NewResumeRunner() = nil, want non-nil")
+	}
+	rr, ok := resumed.(*CodexRunner)
+	if !ok {
+		t.Fatalf("NewResumeRunner() returned %T, want *CodexRunner", resumed)
+	}
+	if rr.cfg.ResumeThreadID != "thr_xyz" {
+		t.Errorf("resume runner ResumeThreadID = %q, want thr_xyz", rr.cfg.ResumeThreadID)
+	}
+}
