@@ -23,13 +23,23 @@ const (
 	clientTimeout = 10 * time.Second
 )
 
+// BudgetAssignment is the inline budget configuration carried by a grant.
+// LimitUSD is the per-window (weekly/monthly) ceiling; PerRunLimitUSD is the
+// windowless per-run ceiling for agent runs.
+type BudgetAssignment struct {
+	LimitUSD       float64 `json:"limit_usd,omitempty"`
+	ResetCadence   string  `json:"reset_cadence,omitempty"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+}
+
 // Grant is the subset of a policy_grant used by this client.
 type Grant struct {
-	ID            string   `json:"id"`
-	TenantID      string   `json:"tenant_id"`
-	PrincipalType string   `json:"principal_type"`
-	PrincipalID   string   `json:"principal_id"`
-	Scopes        []string `json:"scopes"`
+	ID            string            `json:"id"`
+	TenantID      string            `json:"tenant_id"`
+	PrincipalType string            `json:"principal_type"`
+	PrincipalID   string            `json:"principal_id"`
+	Scopes        []string          `json:"scopes"`
+	Budget        *BudgetAssignment `json:"budget,omitempty"`
 }
 
 // TokenFunc is a function that returns a Bearer token for authenticating
@@ -59,20 +69,23 @@ func (c *Client) bearerToken(ctx context.Context) (string, error) {
 }
 
 type createGrantRequest struct {
-	TenantID      string   `json:"tenant_id"`
-	PrincipalType string   `json:"principal_type"`
-	PrincipalID   string   `json:"principal_id"`
-	Scopes        []string `json:"scopes"`
+	TenantID      string            `json:"tenant_id"`
+	PrincipalType string            `json:"principal_type"`
+	PrincipalID   string            `json:"principal_id"`
+	Scopes        []string          `json:"scopes"`
+	Budget        *BudgetAssignment `json:"budget,omitempty"`
 }
 
 // CreateGrant creates a grant for (principalType, principalID) → scopes within
-// the given tenant. Returns the created grant ID.
-func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string) (string, error) {
+// the given tenant, optionally carrying a budget assignment (nil = none).
+// Returns the created grant ID.
+func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, principalID string, scopes []string, budget *BudgetAssignment) (string, error) {
 	body, err := c.EncodeJSON(createGrantRequest{
 		TenantID:      tenantID,
 		PrincipalType: principalType,
 		PrincipalID:   principalID,
 		Scopes:        scopes,
+		Budget:        budget,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode grant request: %w", err)
@@ -149,6 +162,46 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 		return nil, fmt.Errorf("decode list grants response: %w", err)
 	}
 	return result.Grants, nil
+}
+
+// UpdateGrantBudget replaces the budget on an existing grant in place
+// (PATCH /policy/grants/{id}), preserving the grant ID and its scopes. A nil
+// budget removes the assignment. Returns ErrGrantNotFound if it does not exist.
+func (c *Client) UpdateGrantBudget(ctx context.Context, grantID string, budget *BudgetAssignment) error {
+	body, err := c.EncodeJSON(struct {
+		Budget *BudgetAssignment `json:"budget"`
+	}{Budget: budget})
+	if err != nil {
+		return fmt.Errorf("encode update grant budget request: %w", err)
+	}
+
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return fmt.Errorf("get bearer token for update grant budget request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.serviceURL+"/api/v1/policy/grants/"+grantID, body)
+	if err != nil {
+		return fmt.Errorf("build update grant budget request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.UpdateGrantBudget", req)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return ErrGrantNotFound
+	default:
+		return c.HandleErrorResponse(span, resp, fmt.Errorf("update grant budget failed: status %d", resp.StatusCode))
+	}
 }
 
 // DeleteGrant removes a grant by ID within the given tenant.

@@ -2,8 +2,15 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"time"
+
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
+
+// errTestInternal is a sentinel used in tests to simulate unexpected repository errors.
+var errTestInternal = errors.New("internal test error")
 
 // Compile-time interface satisfaction check.
 var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
@@ -11,20 +18,26 @@ var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
 // ── mockInferenceUsageRepository ──────────────────────────────────────────────
 
 type mockInferenceUsageRepository struct {
-	mu             sync.Mutex
-	records        []InferenceUsageRecord
-	hasNextPage    bool
-	createErr      error
-	listErr        error
-	getErr         error
-	statsResult    []TokenUsageStat
-	statsErr       error
-	analyticsResp  AnalyticsResponse
-	analyticsErr   error
-	principalsResp AnalyticsPrincipalsResponse
-	principalsErr  error
-	lastFilter     InferenceUsageFilter // captured on each List call
-	lastAnalytics  AnalyticsFilter      // captured on each GetAnalytics call
+	mu                sync.Mutex
+	records           []InferenceUsageRecord
+	hasNextPage       bool
+	createErr         error
+	listErr           error
+	getErr            error
+	statsResult       []TokenUsageStat
+	statsErr          error
+	analyticsResp     AnalyticsResponse
+	analyticsErr      error
+	principalsResp    AnalyticsPrincipalsResponse
+	principalsErr     error
+	periodSpends      []PrincipalPeriodSpend
+	windowSpends      map[string]float64
+	activeRoleHolders map[string][]string
+	runSpend          float64
+	runTokens         int64
+	runUsageErr       error
+	lastFilter        InferenceUsageFilter // captured on each List call
+	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {
@@ -102,9 +115,127 @@ func (m *mockInferenceUsageRepository) ListPrincipalUsage(_ context.Context, _ A
 	return m.principalsResp, nil
 }
 
+func (m *mockInferenceUsageRepository) GetSpendSince(_ context.Context, _, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetTenantSpendSince(_ context.Context, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetPoolSpendSince(_ context.Context, _, _ string, _ time.Time) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetRunSpend(_ context.Context, _, _ string) (float64, error) {
+	return 0, nil
+}
+
+func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ string) (float64, int64, error) {
+	return m.runSpend, m.runTokens, m.runUsageErr
+}
+
+func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
+	return m.periodSpends, nil
+}
+
+func (m *mockInferenceUsageRepository) GetSpendByPrincipalSince(_ context.Context, _ string, _ time.Time) (map[string]float64, error) {
+	return m.windowSpends, nil
+}
+
+func (m *mockInferenceUsageRepository) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
+	return m.activeRoleHolders, nil
+}
+
 // ── shared test helpers ────────────────────────────────────────────────────────
 
-// strPtr returns a pointer to s. Used to populate *string filter fields.
+// f64Ptr returns a pointer to f. Used to populate *float64 pricing override fields.
 //
 //go:fix inline
-func strPtr(s string) *string { return new(s) }
+func f64Ptr(f float64) *float64 { return new(f) }
+
+// ── mockPricingCatalogRepository ─────────────────────────────────────────────
+
+var _ PricingCatalogRepository = (*mockPricingCatalogRepository)(nil)
+
+type mockPricingCatalogRepository struct {
+	setOverrideErr   error
+	clearOverrideErr error
+	loadAllResult    []PricingCatalogEntry
+	loadAllErr       error
+	upsertSyncedErr  error
+
+	// captured args
+	lastSetProvider   ProviderName
+	lastSetModelID    string
+	lastSetInput      *float64
+	lastSetOutput     *float64
+	lastSetCacheRead  *float64
+	lastSetCacheWrite *float64
+	lastClearProvider ProviderName
+	lastClearModelID  string
+}
+
+func (m *mockPricingCatalogRepository) UpsertSynced(_ context.Context, _ []ModelPriceEntry) error {
+	return m.upsertSyncedErr
+}
+
+func (m *mockPricingCatalogRepository) SetOverride(_ context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
+	m.lastSetProvider = provider
+	m.lastSetModelID = modelID
+	m.lastSetInput = input
+	m.lastSetOutput = output
+	m.lastSetCacheRead = cacheRead
+	m.lastSetCacheWrite = cacheWrite
+	return m.setOverrideErr
+}
+
+func (m *mockPricingCatalogRepository) ClearOverride(_ context.Context, provider ProviderName, modelID string) error {
+	m.lastClearProvider = provider
+	m.lastClearModelID = modelID
+	return m.clearOverrideErr
+}
+
+func (m *mockPricingCatalogRepository) LoadAll(_ context.Context) ([]PricingCatalogEntry, error) {
+	return m.loadAllResult, m.loadAllErr
+}
+
+// ── mockSpendCounter ──────────────────────────────────────────────────────────
+
+var _ SpendCounter = (*mockSpendCounter)(nil)
+
+type mockSpendCounter struct {
+	spends         policy.BudgetSpends
+	categorySpends []float64
+	getSpendErr    error
+	incrErr        error
+	lastScopes     SpendScopes
+	lastIncrScopes SpendScopes
+	lastCategories []policy.BudgetCategory
+	incremented    float64
+}
+
+func (m *mockSpendCounter) GetSpends(_ context.Context, scopes SpendScopes) (policy.BudgetSpends, error) {
+	m.lastScopes = scopes
+	if m.getSpendErr != nil {
+		return policy.BudgetSpends{}, m.getSpendErr
+	}
+	return m.spends, nil
+}
+
+func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+	if m.incrErr != nil {
+		return m.incrErr
+	}
+	m.lastIncrScopes = scopes
+	m.lastCategories = categories
+	m.incremented += amount
+	return nil
+}
+
+func (m *mockSpendCounter) GetCategorySpends(_ context.Context, _ string, categories []policy.BudgetCategory) ([]float64, error) {
+	if m.categorySpends != nil {
+		return m.categorySpends, nil
+	}
+	return make([]float64, len(categories)), nil
+}

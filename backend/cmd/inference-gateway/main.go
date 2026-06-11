@@ -37,15 +37,16 @@ func main() {
 	logger := initLogger()
 	logger.Info(ctx, "Inference gateway starting", logging.Field{Key: "version", Value: igc.Current.App.Version})
 
-	db, err := initStorage(ctx, logger)
+	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1) //nolint:gocritic
 	}
 	defer db.Close()
+	defer redis.Close()
 
-	server, err := initServer(ctx, logger, db)
+	server, err := initServer(ctx, logger, db, redis)
 	if err != nil {
 		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
 		shutdownObservability()
@@ -82,23 +83,30 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-// initStorage initializes only PostgreSQL — the inference gateway does not use Redis.
-func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
+// initStorage initializes PostgreSQL and Redis.
+func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *storage.RedisClient, error) {
 	cfg, err := storage.LoadStorageConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	db, err := storage.New(ctx, &cfg.Postgres, logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	logger.Info(ctx, "Database initialized successfully")
 
-	return db, nil
+	rc, err := storage.NewRedis(ctx, &cfg.Redis, logger)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+
+	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB) ([]api.Controller, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────
 	// Register factories for every supported provider. Each factory reads its
 	// own env vars via LoadConfig — a nil result means the provider is disabled.
@@ -132,6 +140,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 	catalogRepo := inferencegw.NewPostgresCatalogRepository(db.Pool())
+	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
 	catalog := inferencegw.NewCatalogStore(catalogRepo, router)
 
 	// Load the virtual model catalog into the routing engine before accepting
@@ -161,12 +170,24 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB)
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	initScopeRegistration(ctx, logger, router)
 
-	svc := inferencegw.NewService(pol, router, inferencegw.NewNopPricingCache(), usageRepo, logger)
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
+	go pricingCache.Start(ctx)
+
+	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
+		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),
+		pricingCatalogRepo,
+		igc.Current.Pricing.SyncInterval(),
+		logger,
+	)
+	go pricingSyncWorker.Start(ctx)
+
+	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	return []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
-		inferencegw.NewCatalogController(catalog, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}, nil
 }
 
@@ -234,7 +255,17 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
+		// GET /v1/usage/budget is personal — any authenticated caller may check
+		// their own budget. Listed before /v1/usage so the more-specific path wins.
+		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/run/{id} is the run chat usage meter — any authenticated
+		// caller in the tenant; spend is tenant-scoped in the query. More-specific
+		// than /v1/usage, so listed before it.
+		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
+		// GET /v1/budgets/principals is the tenant-wide budget status listing.
+		// The platform:budgets:* scopes are declared by the policy-service.
+		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
 }
 
@@ -262,10 +293,10 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, err := initControllers(ctx, logger, db)
+	controllers, err := initControllers(ctx, logger, db, redis)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +308,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) (*ht
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/v1/… → /v1/… with the run identity in
+			// context, ahead of all routing and enforcement. See
+			// docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+			mw.NewMiddleware(inferencegw.StripRunPrefix),
 		),
 		controllers...,
 	)

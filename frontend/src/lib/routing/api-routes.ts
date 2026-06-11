@@ -52,6 +52,16 @@ export const ApiRoute = {
   },
 
   /**
+   * `/api/identity/users`
+   *
+   * Returns all users in the caller's tenant. Does not require the
+   * analytics scope — safe to call from admin pages.
+   */
+  identityUsers: {
+    GET: (): `${typeof API_BASE}/identity/users` => `${API_BASE}/identity/users`,
+  },
+
+  /**
    * `/api/auth/logout`
    *
    * Revokes the Orbit tokens server-side (best-effort) and destroys the
@@ -290,6 +300,45 @@ export const ApiRoute = {
     events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
       `${API_BASE}/agents/runs/${runId}/events`,
   },
+
+  /**
+   * `/api/usage/budget`
+   *
+   * GET — returns the caller's current monthly budget status (spend vs limit).
+   *       Returns `{ monthly_budget_usd, current_spend_usd, spend_limit_reached, has_limit }`.
+   */
+  usageBudget: {
+    GET: (): `${typeof API_BASE}/usage/budget` => `${API_BASE}/usage/budget`,
+  },
+
+  /**
+   * `/api/catalog/pricing`
+   *
+   * GET — returns all model_pricing rows with synced, override, and effective
+   *       price columns. Requires `platform:catalog:read` scope.
+   */
+  catalogPricing: {
+    GET: (): `${typeof API_BASE}/catalog/pricing` => `${API_BASE}/catalog/pricing`,
+  },
+
+  /**
+   * `/api/catalog/pricing/[provider]/[modelId]/override`
+   *
+   * PUT    — set one or more pricing override columns for a provider/model pair.
+   * DELETE — clear all pricing overrides (revert to synced prices).
+   */
+  catalogPricingOverride: {
+    PUT: (
+      provider: string,
+      modelId: string,
+    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
+      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+    DELETE: (
+      provider: string,
+      modelId: string,
+    ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
+      `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
+  },
 } as const;
 
 /**
@@ -301,6 +350,7 @@ export const ApiRoute = {
 export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['health']['GET']>
   | ReturnType<(typeof ApiRoute)['identityHealth']['GET']>
+  | ReturnType<(typeof ApiRoute)['identityUsers']['GET']>
   | ReturnType<(typeof ApiRoute)['logout']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['POST']>
   | ReturnType<(typeof ApiRoute)['session']['GET']>
@@ -319,6 +369,10 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
+  | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
+  | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>
+  | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['DELETE']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['list']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['create']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['detail']>
@@ -330,4 +384,4 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
-  | string; // analyticsMe and analytics routes include dynamic query strings
+  | string; // analyticsMe, analytics, analyticsPrincipals include dynamic query strings

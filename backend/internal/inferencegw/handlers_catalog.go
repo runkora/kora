@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,13 +29,17 @@ import (
 //	GET    /provider-models             list discovered provider models with override status
 //	POST   /provider-models/refresh     trigger a live provider model discovery sweep
 //	PUT    /provider-models/{provider}/{modelId}  enable or disable a provider model
+//	GET    /pricing                     list all model_pricing rows with synced/override/effective columns
+//	PUT    /pricing/{provider}/{modelId}/override  set one or more pricing override columns
+//	DELETE /pricing/{provider}/{modelId}/override  clear all pricing overrides (revert to synced)
 type CatalogController struct {
-	store    *CatalogStore
-	verifier *token.Verifier
-	eval     policy.Evaluator
-	routes   []routescopes.RouteScope
-	basePath string
-	logger   logging.Logger
+	store          *CatalogStore
+	pricingCatalog PricingCatalogRepository
+	verifier       *token.Verifier
+	eval           policy.Evaluator
+	routes         []routescopes.RouteScope
+	basePath       string
+	logger         logging.Logger
 }
 
 // NewCatalogController constructs a CatalogController.
@@ -45,8 +50,8 @@ type CatalogController struct {
 // prefix entries in that table. basePath must match the server's BasePath
 // (e.g. "/v1") so the middleware can reconstruct absolute paths after
 // http.StripPrefix.
-func NewCatalogController(store *CatalogStore, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
-	return &CatalogController{store: store, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewCatalogController(store *CatalogStore, pricingCatalog PricingCatalogRepository, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *CatalogController {
+	return &CatalogController{store: store, pricingCatalog: pricingCatalog, verifier: verifier, eval: eval, routes: routes, basePath: basePath, logger: logger}
 }
 
 func (c *CatalogController) GroupedBy() string { return "/catalog" }
@@ -67,6 +72,9 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 	mux.Handle("GET /provider-models", c.handleListProviderModels)
 	mux.Handle("POST /provider-models/refresh", c.handleRefreshProviderModels)
 	mux.Handle("PUT /provider-models/{provider}/{modelId}", c.handleSetProviderModelEnabled)
+	mux.Handle("GET /pricing", c.handleListPricing)
+	mux.Handle("PUT /pricing/{provider}/{modelId}/override", c.handleSetPricingOverride)
+	mux.Handle("DELETE /pricing/{provider}/{modelId}/override", c.handleClearPricingOverride)
 }
 
 // ─── JSON wire types ──────────────────────────────────────────────────────────
@@ -85,14 +93,12 @@ type virtualModelJSON struct {
 }
 
 type routeJSON struct {
-	ID              string  `json:"id"`
-	Provider        string  `json:"provider"`
-	ModelID         string  `json:"model_id"`
-	Priority        int     `json:"priority"`
-	Weight          int     `json:"weight"`
-	InputCostPer1M  float64 `json:"input_cost_per_1m"`
-	OutputCostPer1M float64 `json:"output_cost_per_1m"`
-	Enabled         bool    `json:"enabled"`
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	ModelID  string `json:"model_id"`
+	Priority int    `json:"priority"`
+	Weight   int    `json:"weight"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // virtualModelRequest is the shared request body for create and update operations.
@@ -107,14 +113,12 @@ type virtualModelRequest struct {
 }
 
 type routeInput struct {
-	ID              string  `json:"id"`
-	Provider        string  `json:"provider"`
-	ModelID         string  `json:"model_id"`
-	Priority        int     `json:"priority"`
-	Weight          int     `json:"weight"`
-	InputCostPer1M  float64 `json:"input_cost_per_1m"`
-	OutputCostPer1M float64 `json:"output_cost_per_1m"`
-	Enabled         bool    `json:"enabled"`
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	ModelID  string `json:"model_id"`
+	Priority int    `json:"priority"`
+	Weight   int    `json:"weight"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type setProviderModelEnabledRequest struct {
@@ -122,16 +126,17 @@ type setProviderModelEnabledRequest struct {
 }
 
 type providerModelJSON struct {
-	Provider         string   `json:"provider"`
-	ModelID          string   `json:"model_id"`
-	DisplayName      string   `json:"display_name"`
-	Family           string   `json:"family"`
-	Capabilities     []string `json:"capabilities"`
-	Aliases          []string `json:"aliases"`
-	InputModalities  []string `json:"input_modalities"`
-	OutputModalities []string `json:"output_modalities"`
-	Dialects         []string `json:"dialects"`
-	Enabled          bool     `json:"enabled"`
+	Provider         string            `json:"provider"`
+	ModelID          string            `json:"model_id"`
+	DisplayName      string            `json:"display_name"`
+	Family           string            `json:"family"`
+	Capabilities     []string          `json:"capabilities"`
+	Aliases          []string          `json:"aliases"`
+	InputModalities  []string          `json:"input_modalities"`
+	OutputModalities []string          `json:"output_modalities"`
+	Dialects         []string          `json:"dialects"`
+	Enabled          bool              `json:"enabled"`
+	Pricing          *pricingEntryJSON `json:"pricing,omitempty"`
 }
 
 // ─── Virtual model handlers ───────────────────────────────────────────────────
@@ -269,10 +274,43 @@ func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *h
 
 // ─── Provider model handlers ──────────────────────────────────────────────────
 
+// buildPricingMap loads all pricing catalog entries and returns a map keyed by
+// "provider/modelID". Returns (nil, err) on load failure so the caller can log
+// and decide how to proceed.
+func (c *CatalogController) buildPricingMap(ctx context.Context) (map[string]*pricingEntryJSON, error) {
+	entries, err := c.pricingCatalog.LoadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]*pricingEntryJSON, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		m[string(e.Provider)+"/"+e.ModelID] = toPricingEntryJSON(e)
+	}
+	return m, nil
+}
+
+// lookupPricing returns the pricing entry for a provider+modelID pair from the
+// map built by buildPricingMap. For Bedrock, it applies two-pass normalisation:
+//  1. Strip region prefix + version suffix via normalisePricingModelID.
+//  2. If still no match and the ID ends in "-instruct", strip that suffix and
+//     retry — handles AWS aliases like "qwen.qwen3-coder-480b-a35b-instruct"
+//     whose DB entry is stored as "qwen.qwen3-coder-480b-a35b".
+func lookupPricing(pricingMap map[string]*pricingEntryJSON, provider ProviderName, modelID string) *pricingEntryJSON {
+	key := string(provider) + "/" + normalisePricingModelID(provider, modelID)
+	if p, ok := pricingMap[key]; ok {
+		return p
+	}
+	if provider == ProviderBedrock && bedrockInstructSuffix.MatchString(key) {
+		fallbackKey := bedrockInstructSuffix.ReplaceAllString(key, "")
+		return pricingMap[fallbackKey]
+	}
+	return nil
+}
+
 func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get admin overrides from DB to compute effective enabled status.
 	overrides, err := c.store.ListProviderModelOverrides(ctx)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list provider overrides", nil), err)
@@ -283,6 +321,16 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		if !o.Enabled {
 			disabledSet[string(o.Provider)+"/"+o.ModelID] = true
 		}
+	}
+
+	// Build a pricing map keyed by "provider/modelID" so we can embed pricing
+	// data directly on each provider model — the frontend doesn't need to join.
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing catalog for provider models — returning models without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
 	}
 
 	// Merge with live discovery cache. The cache is warmed at startup via
@@ -318,6 +366,7 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Enabled:          !disabledSet[string(m.Provider)+"/"+m.ModelID],
+			Pricing:          lookupPricing(pricingMap, m.Provider, m.ModelID),
 		})
 	}
 
@@ -368,14 +417,12 @@ func toVirtualModelJSON(vm VirtualModel) virtualModelJSON {
 	routes := make([]routeJSON, len(vm.Routes))
 	for i, r := range vm.Routes {
 		routes[i] = routeJSON{
-			ID:              r.ID,
-			Provider:        string(r.Provider),
-			ModelID:         r.ModelID,
-			Priority:        r.Priority,
-			Weight:          r.Weight,
-			InputCostPer1M:  r.InputCostPer1M,
-			OutputCostPer1M: r.OutputCostPer1M,
-			Enabled:         r.Enabled,
+			ID:       r.ID,
+			Provider: string(r.Provider),
+			ModelID:  r.ModelID,
+			Priority: r.Priority,
+			Weight:   r.Weight,
+			Enabled:  r.Enabled,
 		}
 	}
 	return virtualModelJSON{
@@ -396,15 +443,13 @@ func toVirtualModelRoutes(vmID string, inputs []routeInput) []VirtualModelRoute 
 	routes := make([]VirtualModelRoute, len(inputs))
 	for i, r := range inputs {
 		routes[i] = VirtualModelRoute{
-			ID:              r.ID, // preserved when provided; callers assign a new UUID if empty
-			VirtualModelID:  vmID,
-			Provider:        ProviderName(r.Provider),
-			ModelID:         r.ModelID,
-			Priority:        r.Priority,
-			Weight:          r.Weight,
-			InputCostPer1M:  r.InputCostPer1M,
-			OutputCostPer1M: r.OutputCostPer1M,
-			Enabled:         r.Enabled,
+			ID:             r.ID,
+			VirtualModelID: vmID,
+			Provider:       ProviderName(r.Provider),
+			ModelID:        r.ModelID,
+			Priority:       r.Priority,
+			Weight:         r.Weight,
+			Enabled:        r.Enabled,
 		}
 	}
 	return routes
@@ -475,11 +520,140 @@ func validateRouteInput(i int, r routeInput) error {
 	if r.Weight < 0 || r.Weight > 100 {
 		return fmt.Errorf("route[%d].weight must be between 0 and 100 (got %d)", i, r.Weight)
 	}
-	if r.InputCostPer1M < 0 {
-		return fmt.Errorf("route[%d].input_cost_per_1m must be non-negative (got %v)", i, r.InputCostPer1M)
-	}
-	if r.OutputCostPer1M < 0 {
-		return fmt.Errorf("route[%d].output_cost_per_1m must be non-negative (got %v)", i, r.OutputCostPer1M)
-	}
 	return nil
+}
+
+// ─── Pricing handlers ─────────────────────────────────────────────────────────
+
+type pricingEntryJSON struct {
+	Provider           string   `json:"provider"`
+	ModelID            string   `json:"model_id"`
+	SyncedInput        float64  `json:"synced_input_cost_per_1m"`
+	SyncedOutput       float64  `json:"synced_output_cost_per_1m"`
+	SyncedCacheRead    float64  `json:"synced_cache_read_cost_per_1m"`
+	SyncedCacheWrite   float64  `json:"synced_cache_write_cost_per_1m"`
+	OverrideInput      *float64 `json:"override_input_cost_per_1m"`
+	OverrideOutput     *float64 `json:"override_output_cost_per_1m"`
+	OverrideCacheRead  *float64 `json:"override_cache_read_cost_per_1m"`
+	OverrideCacheWrite *float64 `json:"override_cache_write_cost_per_1m"`
+	EffectiveInput     float64  `json:"effective_input_cost_per_1m"`
+	EffectiveOutput    float64  `json:"effective_output_cost_per_1m"`
+	HasOverride        bool     `json:"has_override"`
+	LastSyncedAt       string   `json:"last_synced_at"` // RFC3339
+}
+
+// toPricingEntryJSON converts a PricingCatalogEntry to its JSON wire type.
+// Uses the canonical EffectiveInput/Output methods so override logic is not duplicated.
+func toPricingEntryJSON(e *PricingCatalogEntry) *pricingEntryJSON {
+	hasOverride := e.OverrideInput != nil || e.OverrideOutput != nil ||
+		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
+	return &pricingEntryJSON{
+		Provider:           string(e.Provider),
+		ModelID:            e.ModelID,
+		SyncedInput:        e.SyncedInput,
+		SyncedOutput:       e.SyncedOutput,
+		SyncedCacheRead:    e.SyncedCacheRead,
+		SyncedCacheWrite:   e.SyncedCacheWrite,
+		OverrideInput:      e.OverrideInput,
+		OverrideOutput:     e.OverrideOutput,
+		OverrideCacheRead:  e.OverrideCacheRead,
+		OverrideCacheWrite: e.OverrideCacheWrite,
+		EffectiveInput:     e.EffectiveInput(),
+		EffectiveOutput:    e.EffectiveOutput(),
+		HasOverride:        hasOverride,
+		LastSyncedAt:       e.LastSyncedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+// handleListPricing returns the full model_pricing table for platform admins.
+// Each entry exposes both synced and override columns alongside computed
+// effective prices so the frontend can display accurate pricing data without
+// additional joins.
+func (c *CatalogController) handleListPricing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	entries, err := c.pricingCatalog.LoadAll(ctx)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to load pricing catalog", nil), err)
+		return
+	}
+
+	items := make([]pricingEntryJSON, len(entries))
+	for i := range entries {
+		items[i] = *toPricingEntryJSON(&entries[i])
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
+}
+
+type setPricingOverrideRequest struct {
+	InputCostPer1M      *float64 `json:"input_cost_per_1m"`
+	OutputCostPer1M     *float64 `json:"output_cost_per_1m"`
+	CacheReadCostPer1M  *float64 `json:"cache_read_cost_per_1m"`
+	CacheWriteCostPer1M *float64 `json:"cache_write_cost_per_1m"`
+}
+
+// handleSetPricingOverride sets one or more pricing override columns for a
+// (provider, modelId) pair. At least one field must be non-null.
+func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	provider := ProviderName(r.PathValue("provider"))
+	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
+
+	if !isValidProvider(provider) {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
+		return
+	}
+
+	var req setPricingOverrideRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+
+	if req.InputCostPer1M == nil && req.OutputCostPer1M == nil && req.CacheReadCostPer1M == nil && req.CacheWriteCostPer1M == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "at least one override field must be provided", nil), nil)
+		return
+	}
+
+	for _, v := range []*float64{req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M} {
+		if v != nil && *v < 0 {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "override prices must be non-negative", nil), nil)
+			return
+		}
+	}
+
+	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
+		if errors.Is(err, ErrModelPricingNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("model_pricing_not_found", "no pricing entry found for this provider/model pair", nil), nil)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to set pricing override", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// handleClearPricingOverride resets all pricing override columns to NULL for
+// the given (provider, modelId) pair, reverting to synced prices.
+func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	provider := ProviderName(r.PathValue("provider"))
+	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
+
+	if !isValidProvider(provider) {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be one of: bedrock, vertexai, azure", nil), nil)
+		return
+	}
+
+	if err := c.pricingCatalog.ClearOverride(ctx, provider, modelID); err != nil {
+		if errors.Is(err, ErrModelPricingNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("model_pricing_not_found", "no pricing entry found for this provider/model pair", nil), nil)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to clear pricing override", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }

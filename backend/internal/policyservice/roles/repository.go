@@ -19,13 +19,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// BudgetAssignment is the inline budget configuration on a role.
+// A nil pointer means "no budget configured for this category".
+// Pooled=false (default): per-member allowance — every principal asserting the
+// role gets LimitUSD per window. Pooled=true: one shared pot — all members'
+// spend accumulates against a single counter.
+type BudgetAssignment struct {
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	Pooled       bool    `json:"pooled,omitempty"`
+}
+
 // RoleEntry maps an OIDC role name to platform scopes within a tenant.
 type RoleEntry struct {
-	ID        string    `json:"id"`
-	TenantID  string    `json:"tenant_id"`
-	Role      string    `json:"role"`
-	Scopes    []string  `json:"scopes"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string            `json:"id"`
+	TenantID  string            `json:"tenant_id"`
+	Role      string            `json:"role"`
+	Scopes    []string          `json:"scopes"`
+	Budget    *BudgetAssignment `json:"budget,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
 }
 
 // ErrRoleNotFound is returned when no mapping exists for the given role.
@@ -74,15 +86,26 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
 
+	var budgetJSON []byte
+	if entry.Budget != nil {
+		var err error
+		budgetJSON, err = json.Marshal(entry.Budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
 	// RETURNING ensures we get the actual stored id and created_at — on conflict
 	// the original row's id and created_at are preserved, not the new values.
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, created_at)
-		VALUES ($1, $2, $3, $4, now())
+		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at)
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (tenant_id, role)
-		DO UPDATE SET scopes = EXCLUDED.scopes
+		DO UPDATE SET
+			scopes = EXCLUDED.scopes,
+			budget = COALESCE(EXCLUDED.budget, policy_role_scopes.budget)
 		RETURNING id, created_at
-	`, entry.ID, entry.TenantID, entry.Role, scopesJSON)
+	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON)
 
 	if err := row.Scan(&entry.ID, &entry.CreatedAt); err != nil {
 		return fmt.Errorf("upsert role: %w", err)
@@ -92,14 +115,14 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 
 func (r *postgresRepository) GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, role, scopes, created_at
+		SELECT id, tenant_id, role, scopes, budget, created_at
 		FROM policy_role_scopes WHERE tenant_id = $1 AND role = $2
 	`, tenantID, role)
 	return r.scanEntry(row)
 }
 
 func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*RoleEntry, error) {
-	query := `SELECT id, tenant_id, role, scopes, created_at
+	query := `SELECT id, tenant_id, role, scopes, budget, created_at
 		FROM policy_role_scopes WHERE tenant_id = $1 ORDER BY role`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
@@ -166,7 +189,8 @@ type scanner interface {
 func (r *postgresRepository) scanEntry(s scanner) (*RoleEntry, error) {
 	var e RoleEntry
 	var scopesJSON []byte
-	err := s.Scan(&e.ID, &e.TenantID, &e.Role, &scopesJSON, &e.CreatedAt)
+	var budgetJSON []byte
+	err := s.Scan(&e.ID, &e.TenantID, &e.Role, &scopesJSON, &budgetJSON, &e.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrRoleNotFound
 	}
@@ -175,6 +199,13 @@ func (r *postgresRepository) scanEntry(s scanner) (*RoleEntry, error) {
 	}
 	if err := json.Unmarshal(scopesJSON, &e.Scopes); err != nil {
 		return nil, fmt.Errorf("unmarshal scopes: %w", err)
+	}
+	if len(budgetJSON) > 0 && string(budgetJSON) != "null" {
+		var b BudgetAssignment
+		if err := json.Unmarshal(budgetJSON, &b); err != nil {
+			return nil, fmt.Errorf("unmarshal budget: %w", err)
+		}
+		e.Budget = &b
 	}
 	return &e, nil
 }

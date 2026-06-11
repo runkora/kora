@@ -25,15 +25,27 @@ const (
 	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
+// BudgetAssignment is the inline budget configuration on a grant.
+// A nil pointer means "no budget configured for this category".
+// LimitUSD is the per-window (weekly/monthly) ceiling; PerRunLimitUSD is the
+// windowless per-run ceiling for AGENT/SERVICE principals. Either or both may
+// be set; at least one must be > 0.
+type BudgetAssignment struct {
+	LimitUSD       float64 `json:"limit_usd,omitempty"`
+	ResetCadence   string  `json:"reset_cadence"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+}
+
 // Grant asserts that a named principal within a tenant holds a set of
 // OAuth-style permission scopes. Cross-tenant grants do not exist.
 type Grant struct {
-	ID            string        `json:"id"`
-	TenantID      string        `json:"tenant_id"`
-	PrincipalType PrincipalType `json:"principal_type"`
-	PrincipalID   string        `json:"principal_id"`
-	Scopes        []string      `json:"scopes"`
-	CreatedAt     time.Time     `json:"created_at"`
+	ID            string            `json:"id"`
+	TenantID      string            `json:"tenant_id"`
+	PrincipalType PrincipalType     `json:"principal_type"`
+	PrincipalID   string            `json:"principal_id"`
+	Scopes        []string          `json:"scopes"`
+	Budget        *BudgetAssignment `json:"budget,omitempty"`
+	CreatedAt     time.Time         `json:"created_at"`
 }
 
 // ErrGrantNotFound is returned when a grant with the given ID does not exist.
@@ -56,6 +68,12 @@ type Repository interface {
 	// Use limit=0 for unbounded (e.g. bundle compilation).
 	// The second return value is the total count of matching rows before paging.
 	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error)
+
+	// UpdateBudget replaces the budget assignment on a grant in place, leaving
+	// the grant ID (and therefore its spend-attribution counters) intact.
+	// A nil budget removes the assignment. Returns ErrGrantNotFound if the
+	// grant does not exist within the tenant.
+	UpdateBudget(ctx context.Context, id, tenantID string, budget *BudgetAssignment) error
 
 	// Delete removes a grant by ID within a tenant. Returns ErrGrantNotFound if it does not exist.
 	Delete(ctx context.Context, id, tenantID string) error
@@ -92,10 +110,18 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
 
+	var budgetJSON []byte
+	if g.Budget != nil {
+		budgetJSON, err = json.Marshal(g.Budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, g.CreatedAt)
+		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create grant: %w", err)
 	}
@@ -104,7 +130,7 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at
 		FROM policy_grants WHERE id = $1
 	`, id)
 	return r.scanGrant(row)
@@ -112,7 +138,7 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, er
 
 func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at,
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at,
 		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1 AND principal_type = $2 AND principal_id = $3
@@ -131,7 +157,7 @@ func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID strin
 
 func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
-		SELECT id, tenant_id, principal_type, principal_id, scopes, created_at,
+		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at,
 		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
 		WHERE tenant_id = $1
@@ -146,6 +172,28 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 	}
 	defer rows.Close()
 	return r.collectGrantsWithTotal(rows)
+}
+
+func (r *postgresRepository) UpdateBudget(ctx context.Context, id, tenantID string, budget *BudgetAssignment) error {
+	var budgetJSON []byte
+	if budget != nil {
+		var err error
+		budgetJSON, err = json.Marshal(budget)
+		if err != nil {
+			return fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE policy_grants SET budget = $3 WHERE id = $1 AND tenant_id = $2
+	`, id, tenantID, budgetJSON)
+	if err != nil {
+		return fmt.Errorf("update grant budget: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrGrantNotFound
+	}
+	return nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {
@@ -221,8 +269,9 @@ func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {
 	var g Grant
 	var principalType string
 	var scopesJSON []byte
+	var budgetJSON []byte
 
-	err := row.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &g.CreatedAt)
+	err := row.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrGrantNotFound
 	}
@@ -234,6 +283,13 @@ func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {
 	if err := json.Unmarshal(scopesJSON, &g.Scopes); err != nil {
 		return nil, fmt.Errorf("unmarshal scopes: %w", err)
 	}
+	if len(budgetJSON) > 0 && string(budgetJSON) != "null" {
+		var b BudgetAssignment
+		if err := json.Unmarshal(budgetJSON, &b); err != nil {
+			return nil, fmt.Errorf("unmarshal budget: %w", err)
+		}
+		g.Budget = &b
+	}
 	return &g, nil
 }
 
@@ -244,12 +300,20 @@ func (r *postgresRepository) collectGrantsWithTotal(rows pgx.Rows) ([]*Grant, in
 		var g Grant
 		var principalType string
 		var scopesJSON []byte
-		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &g.CreatedAt, &total); err != nil {
+		var budgetJSON []byte
+		if err := rows.Scan(&g.ID, &g.TenantID, &principalType, &g.PrincipalID, &scopesJSON, &budgetJSON, &g.CreatedAt, &total); err != nil {
 			return nil, 0, fmt.Errorf("scan grant row: %w", err)
 		}
 		g.PrincipalType = PrincipalType(principalType)
 		if err := json.Unmarshal(scopesJSON, &g.Scopes); err != nil {
 			return nil, 0, fmt.Errorf("unmarshal scopes: %w", err)
+		}
+		if len(budgetJSON) > 0 && string(budgetJSON) != "null" {
+			var b BudgetAssignment
+			if err := json.Unmarshal(budgetJSON, &b); err != nil {
+				return nil, 0, fmt.Errorf("unmarshal budget: %w", err)
+			}
+			g.Budget = &b
 		}
 		gs = append(gs, &g)
 	}

@@ -19,6 +19,10 @@ observability:
 pricing:
   # How often the pricing cache refreshes (seconds). 3600 = 1 hour.
   refreshIntervalSecs: 3600
+  # How often the pricing sync worker fetches upstream prices (seconds). 86400 = 24 hours.
+  syncIntervalSecs: 86400
+  # Upstream URL for LiteLLM's community-maintained pricing JSON.
+  sourceURL: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"

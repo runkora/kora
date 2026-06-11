@@ -12,6 +12,7 @@ import { ContextStrip } from './context-strip';
 import { ChatThread } from './chat-thread';
 import { CanvasPanel } from './canvas-panel';
 import { ConnectionBanner } from './connection-banner';
+import { BudgetBanner } from './budget-banner';
 import { InputArea } from './input-area';
 
 // Global keyframes and data-attribute CSS for the run chat.
@@ -60,6 +61,7 @@ function RunPageLayout() {
       <style>{RUN_CSS}</style>
       <RunTopbar />
       <ConnectionBanner />
+      <BudgetBanner />
       <ContextStrip />
       {/* Layout body: chat + canvas side by side */}
       <Stack direction="horizontal" grow style={{ overflow: 'hidden', minHeight: 0 }}>

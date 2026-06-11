@@ -96,6 +96,12 @@ export function AgentSettingsTab() {
     setToolScopesSearch,
     persistMemory,
     setPersistMemory,
+    budgetLimitUSD,
+    setBudgetLimitUSD,
+    budgetCadence,
+    setBudgetCadence,
+    budgetPerRunUSD,
+    setBudgetPerRunUSD,
     models,
     modelsLoading,
     modelGroups,
@@ -335,6 +341,79 @@ export function AgentSettingsTab() {
                   style={{ maxWidth: '8rem' }}
                 />
               </FormField>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader
+              leadingIcon="dollar-sign"
+              title="Budget"
+              description="Spending ceilings on this agent's policy grant — enforced by the inference gateway. Clear both fields to remove the budget."
+              divider
+            />
+            <CardContent padded>
+              <Stack gap="comfortable">
+                <FormField
+                  id="settings-budget-limit"
+                  label="Window limit"
+                  hint="Maximum spend per week or month across all runs."
+                >
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <Text size="caption" color="muted">
+                      $
+                    </Text>
+                    <Input
+                      id="settings-budget-limit"
+                      type="number"
+                      min={0}
+                      placeholder="e.g. 100"
+                      value={budgetLimitUSD}
+                      onChange={(e) => {
+                        setBudgetLimitUSD(e.target.value);
+                        setSaveSuccess(false);
+                      }}
+                    />
+                    <Stack minWidth="form-field-sm">
+                      <NativeSelect
+                        value={budgetCadence}
+                        onChange={(e) => {
+                          setBudgetCadence(e.target.value);
+                          setSaveSuccess(false);
+                        }}
+                        aria-label="Budget reset window"
+                      >
+                        <option value="monthly">per month</option>
+                        <option value="weekly">per week</option>
+                      </NativeSelect>
+                    </Stack>
+                  </Stack>
+                </FormField>
+                <FormField
+                  id="settings-budget-per-run"
+                  label="Per-run limit"
+                  hint="Maximum spend in a single run; every new run starts fresh. Runs that hit it end in the budget_exhausted state."
+                >
+                  <Stack direction="horizontal" align="center" gap="snug">
+                    <Text size="caption" color="muted">
+                      $
+                    </Text>
+                    <Input
+                      id="settings-budget-per-run"
+                      type="number"
+                      min={0}
+                      placeholder="e.g. 5"
+                      value={budgetPerRunUSD}
+                      onChange={(e) => {
+                        setBudgetPerRunUSD(e.target.value);
+                        setSaveSuccess(false);
+                      }}
+                    />
+                    <Text size="caption" color="muted">
+                      / run
+                    </Text>
+                  </Stack>
+                </FormField>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>

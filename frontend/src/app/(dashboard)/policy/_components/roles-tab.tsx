@@ -17,6 +17,7 @@ import {
   Input,
   Modal,
   ModalBody,
+  NativeSelect,
   ModalFooter,
   ModalHeader,
   Stack,
@@ -28,7 +29,7 @@ import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate } from '@orbit/utils';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
@@ -271,9 +272,18 @@ function RoleCardGrid({
             </CardContent>
 
             <CardFooter compact justify="between">
-              <Text size="caption" color="subtle">
-                {scopes.length} {scopes.length === 1 ? 'scope' : 'scopes'}
-              </Text>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="subtle">
+                  {scopes.length} {scopes.length === 1 ? 'scope' : 'scopes'}
+                </Text>
+                {role.budget && (
+                  <Text size="caption" color="muted">
+                    {fmtUsd(role.budget.limit_usd ?? 0)}
+                    {fmtWindowSuffix(role.budget.reset_cadence)}
+                    {role.budget.pooled ? ' · pool' : ''}
+                  </Text>
+                )}
+              </Stack>
               {!isReserved && (
                 <Stack direction="horizontal" align="center" gap="snug">
                   {role.created_at && (
@@ -358,6 +368,22 @@ function RoleTable({
             ))}
           </Stack>
         ),
+      },
+      {
+        id: 'budget',
+        header: 'Budget',
+        cell: (r) =>
+          r.budget ? (
+            <Text size="caption" color="muted">
+              {fmtUsd(r.budget.limit_usd ?? 0)}
+              {fmtWindowSuffix(r.budget.reset_cadence)}
+              {r.budget.pooled ? ' · pool' : ''}
+            </Text>
+          ) : (
+            <Text size="caption" color="subtle">
+              —
+            </Text>
+          ),
       },
       {
         id: 'created',
@@ -456,6 +482,12 @@ function UpsertRoleModal({
   const [roleName, setRoleName] = useState(editingRole?.role ?? '');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
   const [scopeSearch, setScopeSearch] = useState('');
+  const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole?.budget);
+  const [limitUSD, setLimitUSD] = useState(
+    editingRole?.budget?.limit_usd ? String(editingRole.budget.limit_usd) : '',
+  );
+  const [cadence, setCadence] = useState(editingRole?.budget?.reset_cadence ?? 'monthly');
+  const [pooled, setPooled] = useState(editingRole?.budget?.pooled ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -463,9 +495,14 @@ function UpsertRoleModal({
     if (!roleName || selectedScopes.length === 0) return;
     setSubmitting(true);
     setSubmitError(null);
+    const budget =
+      budgetEnabled && limitUSD
+        ? { limit_usd: parseFloat(limitUSD), reset_cadence: cadence, pooled }
+        : null;
     const result = await upsertRoleAction({
       role: roleName,
       scopes: selectedScopes,
+      budget,
     });
     if (result.ok) {
       onSaved();
@@ -473,7 +510,7 @@ function UpsertRoleModal({
       setSubmitError(result.message);
     }
     setSubmitting(false);
-  }, [roleName, selectedScopes, onSaved]);
+  }, [roleName, selectedScopes, budgetEnabled, limitUSD, cadence, pooled, onSaved]);
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -520,6 +557,61 @@ function UpsertRoleModal({
               search={scopeSearch}
               onSearchChange={setScopeSearch}
             />
+          </Stack>
+
+          {/* Budget */}
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" weight="emphasis">
+                Budget
+              </Text>
+              <Button
+                variant={budgetEnabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setBudgetEnabled((v) => !v)}
+              >
+                {budgetEnabled ? 'Enabled' : 'Set limit'}
+              </Button>
+            </Stack>
+            {budgetEnabled && (
+              <Stack gap="snug">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <Text size="caption" color="muted">
+                    $
+                  </Text>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 50"
+                    value={limitUSD}
+                    onChange={(e) => setLimitUSD(e.target.value)}
+                  />
+                  <Stack minWidth="form-field-sm">
+                    <NativeSelect
+                      value={cadence}
+                      onChange={(e) => setCadence(e.target.value)}
+                      aria-label="Reset window"
+                    >
+                      <option value="monthly">per month</option>
+                      <option value="weekly">per week</option>
+                    </NativeSelect>
+                  </Stack>
+                </Stack>
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="muted">
+                    {pooled
+                      ? 'Pooled: one shared pot for all members.'
+                      : 'Per member: each principal with this role gets this limit.'}
+                  </Text>
+                  <Button
+                    variant={pooled ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPooled((v) => !v)}
+                  >
+                    {pooled ? 'Pooled' : 'Per member'}
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
           </Stack>
 
           {submitError && (

@@ -42,6 +42,49 @@ type InferenceUsageRepository interface {
 	// estimated cost descending, with offset-based pagination.
 	// filter.TenantID must be non-empty.
 	ListPrincipalUsage(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error)
+
+	// GetSpendSince returns the principal's total estimated_cost_usd from the
+	// given instant onward. Used for canonical counter rehydration; pass the
+	// window's period start. Returns 0.0 with no error for empty periods.
+	GetSpendSince(ctx context.Context, tenantID, principalID string, since time.Time) (float64, error)
+
+	// GetTenantSpendSince returns the tenant's total spend (all principals)
+	// from the given instant onward. Rehydrates the tenant cap counter.
+	GetTenantSpendSince(ctx context.Context, tenantID string, since time.Time) (float64, error)
+
+	// GetPoolSpendSince returns the total spend of all principals that
+	// exercised the given role from the given instant onward. Rehydrates the
+	// role-pool counter via the principal_roles column.
+	GetPoolSpendSince(ctx context.Context, tenantID, role string, since time.Time) (float64, error)
+
+	// GetRunSpend returns the total spend recorded against a run.
+	// Rehydrates the per-run counter via the run_id column.
+	GetRunSpend(ctx context.Context, tenantID, runID string) (float64, error)
+
+	// GetRunUsage returns the total spend and token count recorded against a
+	// run, tenant-scoped. Powers the run chat usage meter (display only — the
+	// per-run counter remains the enforcement source). Returns zeros, no error,
+	// for a run with no recorded usage.
+	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
+
+	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
+	// tenant within the calendar month that contains the provided time value.
+	// Principals with no usage in the period are absent from the result.
+	GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error)
+
+	// GetSpendByPrincipalSince returns principal ID → total spend from the
+	// given instant onward. Used to report true window spend for non-monthly
+	// budget windows in the budgets listing (PAT usage rows already attribute
+	// to the human principal at write time).
+	GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error)
+
+	// GetActiveRoleHolders returns principal ID → distinct OIDC role names for
+	// principals that made requests in the tenant since the given instant. The
+	// roles come from the principal_roles column recorded at request time — the
+	// authoritative, tenant-scoped record of which IDP-asserted roles each
+	// principal exercised. Used to attribute role budgets in the budgets
+	// listing (the policy service cannot resolve IDP role membership).
+	GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -65,14 +108,21 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 			prompt_tokens, completion_tokens, total_tokens,
 			cache_read_input_tokens, cache_creation_input_tokens,
 			estimated_cost_usd,
-			status, retry_count, error_code, failure_details, latency_ms, created_at
+			price_unknown,
+			effective_input_cost_per_1m, effective_output_cost_per_1m,
+			effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
+			status, retry_count, error_code, failure_details, latency_ms, created_at,
+			run_id, principal_roles
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10,
 			$11, $12, $13, $14,
 			$15, $16,
 			$17,
-			$18, $19, $20, $21, $22, $23
+			$18,
+			$19, $20, $21, $22,
+			$23, $24, $25, $26, $27, $28,
+			$29, $30
 		)`
 
 	var provider *string
@@ -102,7 +152,11 @@ func (r *PostgresInferenceUsageRepository) Create(ctx context.Context, rec Infer
 		rec.PromptTokens, rec.CompletionTokens, rec.TotalTokens,
 		rec.CacheReadInputTokens, rec.CacheCreationInputTokens,
 		rec.EstimatedCostUSD,
+		rec.PriceUnknown,
+		rec.EffectiveInputCostPer1M, rec.EffectiveOutputCostPer1M,
+		rec.EffectiveCacheReadCostPer1M, rec.EffectiveCacheWriteCostPer1M,
 		string(rec.Status), rec.RetryCount, rec.ErrorCode, failureDetailsJSON, rec.LatencyMS, rec.CreatedAt,
+		nullableText(rec.RunID), rec.PrincipalRoles,
 	)
 	if err != nil {
 		return fmt.Errorf("inference usage create: %w", err)
@@ -118,6 +172,9 @@ func (r *PostgresInferenceUsageRepository) Get(ctx context.Context, tenantID, id
 		       prompt_tokens, completion_tokens, total_tokens,
 		       cache_read_input_tokens, cache_creation_input_tokens,
 		       estimated_cost_usd,
+		       price_unknown,
+		       effective_input_cost_per_1m, effective_output_cost_per_1m,
+		       effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
 		       status, retry_count, error_code, failure_details, latency_ms, created_at
 		FROM inference_usage
 		WHERE id = $1 AND tenant_id = $2`
@@ -164,6 +221,9 @@ func (r *PostgresInferenceUsageRepository) List(ctx context.Context, filter Infe
 		       prompt_tokens, completion_tokens, total_tokens,
 		       cache_read_input_tokens, cache_creation_input_tokens,
 		       estimated_cost_usd,
+		       price_unknown,
+		       effective_input_cost_per_1m, effective_output_cost_per_1m,
+		       effective_cache_read_cost_per_1m, effective_cache_write_cost_per_1m,
 		       status, retry_count, error_code, failure_details, latency_ms, created_at
 		FROM inference_usage
 		%s
@@ -550,6 +610,10 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 	const dataQ = `
 		SELECT
 		    principal_id,
+		    -- PAT-authenticated requests record the human as the principal with
+		    -- the PAT only in token_id; normalize the type so a user whose usage
+		    -- arrives via PATs is still reported as HUMAN.
+		    MAX(CASE WHEN principal_type = 'PAT' THEN 'HUMAN' ELSE principal_type END) AS principal_type,
 		    COUNT(*)                                                                AS request_count,
 		    COALESCE(SUM(total_tokens), 0)                                         AS total_tokens,
 		    COALESCE(SUM(prompt_tokens), 0)                                        AS prompt_tokens,
@@ -580,7 +644,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		var s PrincipalUsageSummary
 		var lastActive time.Time
 		if err := rows.Scan(
-			&s.PrincipalID,
+			&s.PrincipalID, &s.PrincipalType,
 			&s.RequestCount, &s.TotalTokens, &s.PromptTokens, &s.CompletionTokens, &s.CacheReadTokens, &s.CacheCreationTokens,
 			&s.EstimatedCostUSD,
 			&s.ErrorRate, &s.AvgLatencyMS, &lastActive,
@@ -603,6 +667,182 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		Page:  page,
 		Limit: limit,
 	}, nil
+}
+
+// GetSpendSince returns the principal's total estimated_cost_usd from the
+// given instant onward.
+func (r *PostgresInferenceUsageRepository) GetSpendSince(ctx context.Context, tenantID, principalID string, since time.Time) (float64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND principal_id = $2
+		  AND created_at >= $3`
+
+	var total float64
+	if err := r.pool.QueryRow(ctx, q, tenantID, principalID, since.UTC()).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get spend since: %w", err)
+	}
+	return total, nil
+}
+
+// GetTenantSpendSince returns the tenant's total spend from the given instant onward.
+func (r *PostgresInferenceUsageRepository) GetTenantSpendSince(ctx context.Context, tenantID string, since time.Time) (float64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2`
+
+	var total float64
+	if err := r.pool.QueryRow(ctx, q, tenantID, since.UTC()).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get tenant spend since: %w", err)
+	}
+	return total, nil
+}
+
+// GetPoolSpendSince returns the total spend of all principals that exercised
+// the given role from the given instant onward (via the principal_roles column).
+func (r *PostgresInferenceUsageRepository) GetPoolSpendSince(ctx context.Context, tenantID, role string, since time.Time) (float64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND $2 = ANY(principal_roles)
+		  AND created_at >= $3`
+
+	var total float64
+	if err := r.pool.QueryRow(ctx, q, tenantID, role, since.UTC()).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get pool spend since: %w", err)
+	}
+	return total, nil
+}
+
+// GetRunSpend returns the total spend recorded against a run.
+func (r *PostgresInferenceUsageRepository) GetRunSpend(ctx context.Context, tenantID, runID string) (float64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND run_id = $2`
+
+	var total float64
+	if err := r.pool.QueryRow(ctx, q, tenantID, runID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get run spend: %w", err)
+	}
+	return total, nil
+}
+
+// GetRunUsage returns the total spend and token count recorded against a run,
+// tenant-scoped. Single query so the run chat meter reads spend and tokens in
+// one round-trip.
+func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tenantID, runID string) (float64, int64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0),
+		       COALESCE(SUM(total_tokens), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND run_id = $2`
+
+	var (
+		spend  float64
+		tokens int64
+	)
+	if err := r.pool.QueryRow(ctx, q, tenantID, runID).Scan(&spend, &tokens); err != nil {
+		return 0, 0, fmt.Errorf("get run usage: %w", err)
+	}
+	return spend, tokens, nil
+}
+
+// GetSpendByPrincipalSince returns principal ID → total spend from the given
+// instant onward, tenant-scoped.
+func (r *PostgresInferenceUsageRepository) GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error) {
+	const q = `
+		SELECT principal_id, COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2
+		GROUP BY principal_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get spend by principal since: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]float64)
+	for rows.Next() {
+		var pid string
+		var spend float64
+		if err := rows.Scan(&pid, &spend); err != nil {
+			return nil, fmt.Errorf("scan spend by principal: %w", err)
+		}
+		out[pid] = spend
+	}
+	return out, rows.Err()
+}
+
+// GetActiveRoleHolders returns principal ID → distinct roles for principals
+// active in the tenant since the given instant, read from principal_roles.
+func (r *PostgresInferenceUsageRepository) GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error) {
+	const q = `
+		SELECT principal_id, ARRAY_AGG(DISTINCT role) AS roles
+		FROM inference_usage, unnest(principal_roles) AS role
+		WHERE tenant_id = $1
+		  AND created_at >= $2
+		  AND principal_roles IS NOT NULL
+		GROUP BY principal_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get active role holders: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]string)
+	for rows.Next() {
+		var pid string
+		var roles []string
+		if err := rows.Scan(&pid, &roles); err != nil {
+			return nil, fmt.Errorf("scan active role holder: %w", err)
+		}
+		out[pid] = roles
+	}
+	return out, rows.Err()
+}
+
+// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
+// tenant within the calendar month containing the provided time value.
+func (r *PostgresInferenceUsageRepository) GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error) {
+	const q = `
+		SELECT principal_id,
+		       -- PAT usage attributes to the underlying human principal; the PAT
+		       -- is the credential, not the principal. Normalize so mixed
+		       -- session/PAT usage reports as HUMAN.
+		       MAX(CASE WHEN principal_type = 'PAT' THEN 'HUMAN' ELSE principal_type END) AS principal_type,
+		       COALESCE(SUM(estimated_cost_usd), 0) AS spend_usd,
+		       MAX(created_at) AS last_active_at
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
+		GROUP BY principal_id
+		ORDER BY spend_usd DESC`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, month.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get monthly spend by principal: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PrincipalPeriodSpend
+	for rows.Next() {
+		var ps PrincipalPeriodSpend
+		if err := rows.Scan(&ps.PrincipalID, &ps.PrincipalType, &ps.SpendUSD, &ps.LastActiveAt); err != nil {
+			return nil, fmt.Errorf("scan principal period spend: %w", err)
+		}
+		out = append(out, ps)
+	}
+	return out, rows.Err()
 }
 
 // granularityToTrunc maps the analytics granularity parameter to the
@@ -640,6 +880,9 @@ func scanUsageRecord(row scannable) (InferenceUsageRecord, error) {
 		&rec.PromptTokens, &rec.CompletionTokens, &rec.TotalTokens,
 		&rec.CacheReadInputTokens, &rec.CacheCreationInputTokens,
 		&rec.EstimatedCostUSD,
+		&rec.PriceUnknown,
+		&rec.EffectiveInputCostPer1M, &rec.EffectiveOutputCostPer1M,
+		&rec.EffectiveCacheReadCostPer1M, &rec.EffectiveCacheWriteCostPer1M,
 		&status, &rec.RetryCount, &rec.ErrorCode, &failureDetailsRaw, &rec.LatencyMS, &rec.CreatedAt,
 	)
 	if err != nil {

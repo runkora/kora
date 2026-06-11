@@ -343,6 +343,155 @@ func TestDispatch_Result_NonSuccess_EmitsRunError(t *testing.T) {
 	}
 }
 
+// ── budget exhaustion classification ─────────────────────────────────────────
+
+func TestDispatch_Result_BudgetTruncatedSuccess_EmitsBudgetExhausted(t *testing.T) {
+	r := newTestRunner()
+	r.budgetHit = true
+	r.textBuf.WriteString("partial work before the budget hit")
+
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:       "result",
+		Subtype:    "success",
+		StopReason: "stop_sequence",
+	})
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeMessageComplete {
+		t.Errorf("event[0] type = %q, want message_complete (partial content preserved)", evs[0].Type)
+	}
+	if evs[1].Type != EventTypeRunError {
+		t.Fatalf("event[1] type = %q, want run_error", evs[1].Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[1].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "budget_exhausted" {
+		t.Errorf("code = %q, want budget_exhausted", payload.Code)
+	}
+	if r.budgetHit {
+		t.Error("budgetHit should be reset at turn boundary")
+	}
+	// No message_stop: the session must tear down, not idle.
+	select {
+	case ev := <-r.events:
+		t.Errorf("unexpected extra event %q after run_error", ev.Type)
+	default:
+	}
+}
+
+func TestDispatch_Result_BudgetTruncatedEmptySuccess_BudgetWinsOverEmptyResponse(t *testing.T) {
+	r := newTestRunner()
+	r.budgetHit = true
+	// textBuf empty — without the budget flag this would classify as empty_response.
+
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:       "result",
+		Subtype:    "success",
+		StopReason: "stop_sequence",
+	})
+
+	evs := drainN(t, r.events, 1)
+	if evs[0].Type != EventTypeRunError {
+		t.Fatalf("event type = %q, want run_error", evs[0].Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "budget_exhausted" {
+		t.Errorf("code = %q, want budget_exhausted (not empty_response)", payload.Code)
+	}
+}
+
+func TestDispatch_Result_BudgetHitButEndTurn_NormalCompletion(t *testing.T) {
+	r := newTestRunner()
+	r.budgetHit = true // transient: retries recovered and the turn finished naturally
+	r.textBuf.WriteString("finished fine")
+
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:       "result",
+		Subtype:    "success",
+		StopReason: "end_turn",
+	})
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeMessageComplete || evs[1].Type != EventTypeMessageStop {
+		t.Errorf("events = [%q, %q], want [message_complete, message_stop]", evs[0].Type, evs[1].Type)
+	}
+	if r.budgetHit {
+		t.Error("budgetHit should be reset at turn boundary even on natural completion")
+	}
+}
+
+func TestDispatch_Result_ErrorWithBudgetFlag_ClassifiesBudgetExhausted(t *testing.T) {
+	r := newTestRunner()
+	r.budgetHit = true
+
+	// The error message itself does not contain the budget signature — only
+	// the api_retry events (sniffed into budgetHit) carried it.
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:    "result",
+		Subtype: "error",
+		Result:  "request failed after 10 retries",
+	})
+
+	evs := drainN(t, r.events, 1)
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "budget_exhausted" {
+		t.Errorf("code = %q, want budget_exhausted", payload.Code)
+	}
+}
+
+func TestDispatch_Result_SuccessWithBudgetErrorInResult_EmitsBudgetExhausted(t *testing.T) {
+	// Live-observed shape (run 79ccbfdf): the gateway 403s with BUDGET_EXCEEDED,
+	// Claude Code does not retry and reports the dead turn as subtype=SUCCESS
+	// with the API error in Result. Without folding Result into classification
+	// this fell through to the empty_response branch.
+	r := newTestRunner()
+
+	r.dispatch(context.Background(), claudeOutputWrapper{
+		Type:       "result",
+		Subtype:    "success",
+		StopReason: "stop_sequence",
+		Result:     "Failed to authenticate. API Error: 403 budget exceeded — a spending ceiling for this principal or run has been reached",
+	})
+
+	evs := drainN(t, r.events, 1)
+	if evs[0].Type != EventTypeRunError {
+		t.Fatalf("event type = %q, want run_error", evs[0].Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "budget_exhausted" {
+		t.Errorf("code = %q, want budget_exhausted (not empty_response)", payload.Code)
+	}
+	// No message_stop — the session must tear down, not idle.
+	select {
+	case ev := <-r.events:
+		t.Errorf("unexpected extra event %q after run_error", ev.Type)
+	default:
+	}
+}
+
+func TestIsBudgetExceededMessage_RawApiRetryLine(t *testing.T) {
+	// Representative raw stream-json system event carrying the gateway's 429 body.
+	line := `{"type":"system","subtype":"api_retry","session_id":"s1","attempt":3,` +
+		`"error":"API Error: 429 {\"code\":\"BUDGET_EXCEEDED\",\"message\":\"monthly budget exceeded\"}"}`
+	if !isBudgetExceededMessage(line) {
+		t.Error("expected raw api_retry line with BUDGET_EXCEEDED body to match")
+	}
+	if isBudgetExceededMessage(`{"type":"system","subtype":"api_retry","error":"API Error: 429 Too many requests"}`) {
+		t.Error("generic 429 throttle must NOT match — only budget rejections")
+	}
+}
+
 // ── transform (full pipeline) ─────────────────────────────────────────────────
 
 func TestTransform_TextDeltasAccumulateToMessageComplete(t *testing.T) {

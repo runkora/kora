@@ -64,7 +64,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -223,7 +223,7 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 	}
 
 	compiler := bundle.NewCompiler(cfg, routeStore)
-	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles)
+	cached, err := compiler.Compile(testTenantID, opts.grants, opts.vocab, opts.roles, nil)
 	if err != nil {
 		t.Fatalf("compile bundle: %v", err)
 	}
@@ -716,6 +716,32 @@ func TestAuthz_Layer1_NoRouteMatch(t *testing.T) {
 	allow, _ := evalLayer1(t, pq, "GET", "/api/v1/unknown/endpoint", nil)
 	if allow {
 		t.Error("expected deny for unregistered route")
+	}
+}
+
+// Run identity travels as a "/run/{run_id}" path prefix (hierarchical budget
+// ADR). The Envoy/Layer-1 route matcher must strip it so a run-scoped inference
+// call resolves to the same route as the unprefixed path — otherwise the agent
+// pod's OPA sidecar denies it with no_route_match before it reaches the gateway.
+func TestAuthz_Layer1_RunPrefixStrippedForRouteMatching(t *testing.T) {
+	pq := compileAndPrepare(t, bundleOpts{
+		routes: []routes.RouteScope{
+			{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
+		},
+	})
+
+	// A run-prefixed inference path must match the same route as /v1/messages.
+	// reason != no_route_match confirms the prefix was stripped before matching
+	// (no JWT here, so it proceeds to deny:invalid_token once the route matched).
+	_, reason := evalLayer1(t, pq, "POST", "/run/abc-123/v1/messages?beta=true", nil)
+	if reason == "deny:no_route_match" {
+		t.Error("run-prefixed path should match the /v1/messages route after prefix stripping")
+	}
+
+	// The unprefixed path still matches (no regression for non-agent callers).
+	_, plain := evalLayer1(t, pq, "POST", "/v1/messages", nil)
+	if plain == "deny:no_route_match" {
+		t.Error("unprefixed /v1/messages must still match its route")
 	}
 }
 

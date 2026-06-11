@@ -20,6 +20,8 @@ import { fmtDate } from '@orbit/utils';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
+import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import { AgentBudgetCard } from './agent-budget-card';
 
 const PROMPT_PREVIEW_LENGTH = 300;
 
@@ -39,6 +41,7 @@ function runStatusBadge(row: RunRow) {
     completing: 'degraded',
     completed: 'idle',
     failed: 'error',
+    budget_exhausted: 'error',
   };
   const labelMap: Record<string, string> = {
     pending: 'Pending',
@@ -47,6 +50,7 @@ function runStatusBadge(row: RunRow) {
     completing: 'Completing',
     completed: 'Completed',
     failed: 'Failed',
+    budget_exhausted: 'Budget exhausted',
   };
   return (
     <StatusBadge
@@ -58,7 +62,12 @@ function runStatusBadge(row: RunRow) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AgentOverviewTab() {
+interface AgentOverviewTabProps {
+  budget: BudgetPrincipalStatus | null;
+  tenantCap: TenantCapStatus | null;
+}
+
+export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   const { agent, runs } = useAgentDetailContext();
   const [promptExpanded, setPromptExpanded] = useState(false);
 
@@ -238,8 +247,11 @@ export function AgentOverviewTab() {
           </Card>
         </Stack>
 
-        {/* Right column: tool scopes + grant scopes + metadata */}
+        {/* Right column: budget + tool scopes + grant scopes + metadata */}
         <Stack gap="comfortable" style={{ flexShrink: 0, flexBasis: '300px' }}>
+          {/* Budget usage — the agent's grant ceilings joined with live spend */}
+          <AgentBudgetCard budget={budget} tenantCap={tenantCap} />
+
           {/* Tool scopes */}
           <Card>
             <CardHeader compact title="Tool Scopes" divider />

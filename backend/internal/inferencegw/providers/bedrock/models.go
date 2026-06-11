@@ -14,7 +14,7 @@ import (
 // ListInferenceProfiles API — the set varies by region and expands over time.
 var knownRegionPrefixes = []string{
 	"apac.", "au.", "global.",
-	"us.", "eu.", "ap.", // US/EU/APAC cross-region prefixes
+	"us.", "eu.", "ap.", "jp.", // US/EU/APAC/JP cross-region prefixes
 }
 
 // knownNamespacePrefixes are the provider namespace segments embedded in

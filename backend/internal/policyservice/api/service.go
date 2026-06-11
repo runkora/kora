@@ -15,6 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 )
 
@@ -39,15 +40,16 @@ const recompileDebounce = 500 * time.Millisecond
 // the gateway bundle loads all tenant data and is more expensive to compile.
 const gatewayRecompileDebounce = 1 * time.Second
 
-// Service orchestrates grant, role, and vocabulary management, including the
+// Service orchestrates grant, role, vocabulary, and bundle management, including the
 // bundle recompilation side-effect triggered on every write.
 type Service struct {
-	grantRepo  grants.Repository
-	vocabRepo  vocabulary.Repository
-	roleRepo   roles.Repository
-	bundleSrv  *bundle.Server
-	routeStore *routes.Store
-	logger     logging.Logger
+	grantRepo        grants.Repository
+	vocabRepo        vocabulary.Repository
+	roleRepo         roles.Repository
+	tenantBudgetRepo tenantbudget.Repository
+	bundleSrv        *bundle.Server
+	routeStore       *routes.Store
+	logger           logging.Logger
 
 	// recompileMu protects recompileTimers and lastWriteAt from concurrent map access.
 	recompileMu     sync.Mutex
@@ -62,19 +64,21 @@ func NewService(
 	grantRepo grants.Repository,
 	vocabRepo vocabulary.Repository,
 	roleRepo roles.Repository,
+	tenantBudgetRepo tenantbudget.Repository,
 	bundleSrv *bundle.Server,
 	routeStore *routes.Store,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		grantRepo:       grantRepo,
-		vocabRepo:       vocabRepo,
-		roleRepo:        roleRepo,
-		bundleSrv:       bundleSrv,
-		routeStore:      routeStore,
-		logger:          logger,
-		recompileTimers: make(map[string]*time.Timer),
-		lastWriteAt:     make(map[string]time.Time),
+		grantRepo:        grantRepo,
+		vocabRepo:        vocabRepo,
+		roleRepo:         roleRepo,
+		tenantBudgetRepo: tenantBudgetRepo,
+		bundleSrv:        bundleSrv,
+		routeStore:       routeStore,
+		logger:           logger,
+		recompileTimers:  make(map[string]*time.Timer),
+		lastWriteAt:      make(map[string]time.Time),
 	}
 }
 
@@ -90,7 +94,7 @@ func (s *Service) GatewayBundleHandler() http.HandlerFunc {
 	return s.bundleSrv.ServeGatewayHTTP
 }
 
-func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string) (*grants.Grant, error) {
+func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopes []string, budget *grants.BudgetAssignment) (*grants.Grant, error) {
 	switch principalType {
 	case grants.PrincipalTypeAgent, grants.PrincipalTypeHuman, grants.PrincipalTypePAT, grants.PrincipalTypeService:
 	default:
@@ -112,6 +116,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		PrincipalType: principalType,
 		PrincipalID:   principalID,
 		Scopes:        scopes,
+		Budget:        budget,
 	}
 	if err := s.grantRepo.Create(ctx, g); err != nil {
 		return nil, fmt.Errorf("create grant: %w", err)
@@ -125,6 +130,52 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 
 func (s *Service) GetGrant(ctx context.Context, id string) (*grants.Grant, error) {
 	return s.grantRepo.GetByID(ctx, id)
+}
+
+// UpsertTenantBudget creates or replaces the tenant's rollup spending cap and
+// schedules a bundle recompile so enforcement picks it up.
+func (s *Service) UpsertTenantBudget(ctx context.Context, tenantID string, limitUSD float64, cadence string) (*tenantbudget.TenantBudget, error) {
+	tb := &tenantbudget.TenantBudget{TenantID: tenantID, LimitUSD: limitUSD, ResetCadence: cadence}
+	if err := s.tenantBudgetRepo.Upsert(ctx, tb); err != nil {
+		return nil, err
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	return tb, nil
+}
+
+// GetTenantBudget returns the tenant's rollup spending cap.
+func (s *Service) GetTenantBudget(ctx context.Context, tenantID string) (*tenantbudget.TenantBudget, error) {
+	return s.tenantBudgetRepo.Get(ctx, tenantID)
+}
+
+// DeleteTenantBudget removes the tenant's rollup spending cap and schedules a
+// bundle recompile.
+func (s *Service) DeleteTenantBudget(ctx context.Context, tenantID string) error {
+	if err := s.tenantBudgetRepo.Delete(ctx, tenantID); err != nil {
+		return err
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	return nil
+}
+
+// UpdateGrantBudget replaces the budget assignment on an existing grant in
+// place. The grant ID is preserved so the period's spend-attribution counters
+// remain attached. A nil budget removes the assignment.
+func (s *Service) UpdateGrantBudget(ctx context.Context, id, tenantID string, budget *grants.BudgetAssignment) (*grants.Grant, error) {
+	if err := s.grantRepo.UpdateBudget(ctx, id, tenantID, budget); err != nil {
+		return nil, err
+	}
+	g, err := s.grantRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
+	return g, nil
 }
 
 func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) error {
@@ -380,7 +431,7 @@ var reservedRoleScopes = bundle.DefaultRoleScopes
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
 // All scopes must exist in the vocabulary. Reserved platform admin roles cannot
 // be modified.
-func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string) (*roles.RoleEntry, error) {
+func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
 	if reservedRoles[role] {
 		return nil, &ReservedRoleError{Role: role}
 	}
@@ -393,7 +444,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 			return nil, &ScopeVocabularyError{Scope: scope}
 		}
 	}
-	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes}
+	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes, Budget: budget}
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("upsert role: %w", err)
 	}

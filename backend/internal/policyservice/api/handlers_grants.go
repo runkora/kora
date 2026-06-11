@@ -45,13 +45,50 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes)
+	budget, apiErr := grantBudgetFromRequest(req.Budget)
+	if apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
 		return
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, g)
+}
+
+// grantBudgetFromRequest validates and maps a budget request body onto a grant
+// budget assignment. A grant budget carries a per-window limit, a per-run
+// limit, or both; pooling is a role-only concept.
+func grantBudgetFromRequest(req *budgetAssignmentRequest) (*grants.BudgetAssignment, *platformapi.APIError) {
+	if req == nil {
+		return nil, nil
+	}
+	if req.Pooled {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget.pooled is not valid on grants — pools are configured on roles", nil)
+	}
+	if req.LimitUSD < 0 || req.PerRunLimitUSD < 0 {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget limits must not be negative", nil)
+	}
+	if req.LimitUSD == 0 && req.PerRunLimitUSD == 0 {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget requires limit_usd or per_run_limit_usd greater than zero", nil)
+	}
+	cadence, ok := normalizeCadence(req.ResetCadence)
+	if !ok {
+		return nil, platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+			"budget.reset_cadence must be 'weekly' or 'monthly'", nil)
+	}
+	return &grants.BudgetAssignment{
+		LimitUSD:       req.LimitUSD,
+		ResetCadence:   cadence,
+		PerRunLimitUSD: req.PerRunLimitUSD,
+	}, nil
 }
 
 func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +113,47 @@ func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, g)
+}
+
+func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
+		return
+	}
+
+	var req updateGrantBudgetRequest
+	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+
+	budget, apiErr := grantBudgetFromRequest(req.Budget)
+	if apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	// Fetch first to enforce tenant ownership before mutating.
+	g, err := c.svc.GetGrant(ctx, r.PathValue("id"))
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
+		return
+	}
+
+	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
+		return
+	}
+
+	updated, err := c.svc.UpdateGrantBudget(ctx, g.ID, g.TenantID, budget)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)
+		return
+	}
+
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, updated)
 }
 
 func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {

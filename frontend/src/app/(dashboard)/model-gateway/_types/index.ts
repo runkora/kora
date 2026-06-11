@@ -134,6 +134,7 @@ export type AnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
 // Mirrors PrincipalUsageSummary in backend/internal/inferencegw/models.go.
 export interface PrincipalUsageSummary {
   principal_id: string;
+  principal_type: string;
   request_count: number;
   total_tokens: number;
   prompt_tokens: number;
@@ -157,6 +158,80 @@ export interface AnalyticsPrincipalsPageResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+// ── Budget ─────────────────────────────────────────────────────────────────────
+//
+// Mirrors BudgetStatus in backend/internal/inferencegw/models.go.
+
+export interface BudgetCeilingStatus {
+  scope: 'principal' | 'role_pool' | 'tenant' | 'run';
+  id: string;
+  window: 'weekly' | 'monthly' | 'run';
+  limit_usd: number;
+  spend_usd: number;
+  reached: boolean;
+}
+
+export interface BudgetStatus {
+  monthly_budget_usd: number;
+  current_spend_usd: number;
+  spend_limit_reached: boolean;
+  has_limit: boolean;
+  ceilings?: BudgetCeilingStatus[];
+}
+
+// Mirrors BudgetCategoryStatus / BudgetPrincipalStatus / BudgetPrincipalsResponse
+// in backend/internal/inferencegw/models.go (GET /v1/budgets/principals).
+
+export interface BudgetCategoryStatus {
+  source: 'role' | 'grant';
+  id: string;
+  limit_usd: number;
+  reset_cadence: string;
+  per_run_limit_usd?: number;
+  pooled?: boolean;
+  spend_usd: number;
+}
+
+export interface BudgetPrincipalStatus {
+  principal_id: string;
+  principal_type?: string;
+  categories: BudgetCategoryStatus[];
+  effective_limit_usd: number;
+  current_spend_usd: number;
+  has_limit: boolean;
+  spend_limit_reached: boolean;
+  last_active_at?: string;
+}
+
+export interface TenantCapStatus {
+  limit_usd: number;
+  reset_cadence: string;
+  spend_usd: number;
+  reached: boolean;
+}
+
+export interface BudgetPrincipalsResponse {
+  period: string;
+  tenant_cap?: TenantCapStatus;
+  data: BudgetPrincipalStatus[];
+}
+
+/** Identity attribution for a principal, resolved from the tenant user list. */
+export interface PrincipalIdentity {
+  email: string | null;
+  display_name: string | null;
+}
+
+/** Budgets listing row enriched with identity attribution (BFF/RSC-side). */
+export interface BudgetPrincipalRow extends BudgetPrincipalStatus, PrincipalIdentity {}
+
+/** Budgets listing payload with identity-enriched rows. */
+export interface BudgetPrincipalsView {
+  period: string;
+  tenant_cap?: TenantCapStatus;
+  data: BudgetPrincipalRow[];
 }
 
 // ── Value-type unions ─────────────────────────────────────────────────────────

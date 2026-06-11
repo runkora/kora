@@ -18,6 +18,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  NativeSelect,
   Stack,
   Text,
   PageSectionHeader,
@@ -27,11 +28,23 @@ import type {
   PATAttributionEntry,
   PATGrantAttribution,
 } from '../../model-gateway/_services/tokens-server';
-import type { Grant, PrincipalType } from '../_types';
+import type { BudgetAssignment, Grant, PrincipalType } from '../_types';
+
+// budgetSummary renders "$50.00/mo · $5.00/run" for a grant budget.
+function budgetSummary(budget: BudgetAssignment): string {
+  const parts: string[] = [];
+  if (budget.limit_usd) {
+    parts.push(`${fmtUsd(budget.limit_usd)}${fmtWindowSuffix(budget.reset_cadence)}`);
+  }
+  if (budget.per_run_limit_usd) {
+    parts.push(`${fmtUsd(budget.per_run_limit_usd)}/run`);
+  }
+  return parts.join(' · ');
+}
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate } from '@orbit/utils';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
@@ -440,9 +453,16 @@ function GrantCardGrid({
             </CardContent>
 
             <CardFooter compact justify="between">
-              <Text size="caption" color="subtle">
-                {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
-              </Text>
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="subtle">
+                  {grant.scopes.length} {grant.scopes.length === 1 ? 'scope' : 'scopes'}
+                </Text>
+                {grant.budget && (
+                  <Text size="caption" color="muted">
+                    {budgetSummary(grant.budget)}
+                  </Text>
+                )}
+              </Stack>
               <Stack direction="horizontal" align="center" gap="snug">
                 <Text size="caption" color="subtle">
                   Created {fmtDate(grant.created_at)}
@@ -556,6 +576,20 @@ function GrantTable({
             ))}
           </Stack>
         ),
+      },
+      {
+        id: 'budget',
+        header: 'Budget',
+        cell: (g) =>
+          g.budget ? (
+            <Text size="caption" color="muted">
+              {budgetSummary(g.budget)}
+            </Text>
+          ) : (
+            <Text size="caption" color="subtle">
+              —
+            </Text>
+          ),
       },
       {
         id: 'created',
@@ -717,6 +751,10 @@ function CreateGrantModal({
   const [principalId, setPrincipalId] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [limitUSD, setLimitUSD] = useState('');
+  const [cadence, setCadence] = useState('monthly');
+  const [perRunUSD, setPerRunUSD] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -725,21 +763,42 @@ function CreateGrantModal({
     if (!trimmedId || selectedScopes.length === 0) return;
     setSubmitting(true);
     setSubmitError(null);
+    const budget =
+      budgetEnabled && (limitUSD || perRunUSD)
+        ? {
+            reset_cadence: cadence,
+            ...(limitUSD ? { limit_usd: parseFloat(limitUSD) } : {}),
+            ...(perRunUSD ? { per_run_limit_usd: parseFloat(perRunUSD) } : {}),
+          }
+        : null;
     const result = await createGrantAction({
       principal_type: principalType,
       principal_id: trimmedId,
       scopes: selectedScopes,
+      budget,
     });
     if (result.ok) {
       setPrincipalId('');
       setSelectedScopes([]);
       setScopeSearch('');
+      setBudgetEnabled(false);
+      setLimitUSD('');
+      setPerRunUSD('');
       onCreated();
     } else {
       setSubmitError(result.message);
     }
     setSubmitting(false);
-  }, [principalType, principalId, selectedScopes, onCreated]);
+  }, [
+    principalType,
+    principalId,
+    selectedScopes,
+    budgetEnabled,
+    limitUSD,
+    cadence,
+    perRunUSD,
+    onCreated,
+  ]);
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -811,6 +870,61 @@ function CreateGrantModal({
               search={scopeSearch}
               onSearchChange={setScopeSearch}
             />
+          </Stack>
+
+          {/* Budget */}
+          <Stack gap="tight">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="caption" weight="emphasis">
+                Budget
+              </Text>
+              <Button
+                variant={budgetEnabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setBudgetEnabled((v) => !v)}
+              >
+                {budgetEnabled ? 'Enabled' : 'Set limit'}
+              </Button>
+            </Stack>
+            {budgetEnabled && (
+              <Stack gap="snug">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <Text size="caption" color="muted">
+                    $
+                  </Text>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 50"
+                    value={limitUSD}
+                    onChange={(e) => setLimitUSD(e.target.value)}
+                  />
+                  <Stack minWidth="form-field-sm">
+                    <NativeSelect
+                      value={cadence}
+                      onChange={(e) => setCadence(e.target.value)}
+                      aria-label="Reset window"
+                    >
+                      <option value="monthly">per month</option>
+                      <option value="weekly">per week</option>
+                    </NativeSelect>
+                  </Stack>
+                </Stack>
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <Text size="caption" color="muted">
+                    $
+                  </Text>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 5"
+                    value={perRunUSD}
+                    onChange={(e) => setPerRunUSD(e.target.value)}
+                  />
+                  <Text size="caption" color="muted">
+                    / run (agents)
+                  </Text>
+                </Stack>
+              </Stack>
+            )}
           </Stack>
 
           {submitError && (

@@ -17,6 +17,7 @@ import {
   Input,
   NativeSelect,
   Stack,
+  Text,
   Textarea,
 } from '@orbit/terra';
 import { ScopePicker } from '@orbit/components';
@@ -89,6 +90,9 @@ export function CreateAgentForm() {
   const [modelId, setModelId] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState('10');
+  const [budgetLimitUSD, setBudgetLimitUSD] = useState('');
+  const [budgetCadence, setBudgetCadence] = useState('monthly');
+  const [budgetPerRunUSD, setBudgetPerRunUSD] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
@@ -176,6 +180,14 @@ export function CreateAgentForm() {
           tool_scopes: toolScopes,
           grant_scopes: grantScopes,
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
+          budget:
+            budgetLimitUSD || budgetPerRunUSD
+              ? {
+                  reset_cadence: budgetCadence,
+                  ...(budgetLimitUSD ? { limit_usd: parseFloat(budgetLimitUSD) } : {}),
+                  ...(budgetPerRunUSD ? { per_run_limit_usd: parseFloat(budgetPerRunUSD) } : {}),
+                }
+              : undefined,
         });
         if (result.error) {
           setError(result.error);
@@ -196,6 +208,9 @@ export function CreateAgentForm() {
       slug,
       description,
       framework,
+      budgetLimitUSD,
+      budgetCadence,
+      budgetPerRunUSD,
       modelId,
       systemPrompt,
       grantScopes,
@@ -398,6 +413,71 @@ export function CreateAgentForm() {
               onChange={(e) => setMaxConcurrentRuns(e.target.value)}
             />
           </FormField>
+        </CardContent>
+      </Card>
+
+      {/* Budget section — applied to the agent's policy grant. */}
+      <Card>
+        <CardHeader
+          leadingIcon="dollar-sign"
+          title="Budget"
+          description="Spending ceilings enforced by the inference gateway. The agent is blocked when any ceiling is met; per-run limits reset with every new run."
+          divider
+        />
+        <CardContent padded>
+          <Stack gap="comfortable">
+            <FormField
+              id="agent-budget-limit"
+              label="Window limit"
+              hint="Maximum spend per week or month across all of this agent's runs. Leave empty for no window limit."
+            >
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="muted">
+                  $
+                </Text>
+                <Input
+                  id="agent-budget-limit"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 100"
+                  value={budgetLimitUSD}
+                  onChange={(e) => setBudgetLimitUSD(e.target.value)}
+                />
+                <Stack minWidth="form-field-sm">
+                  <NativeSelect
+                    value={budgetCadence}
+                    onChange={(e) => setBudgetCadence(e.target.value)}
+                    aria-label="Budget reset window"
+                  >
+                    <option value="monthly">per month</option>
+                    <option value="weekly">per week</option>
+                  </NativeSelect>
+                </Stack>
+              </Stack>
+            </FormField>
+            <FormField
+              id="agent-budget-per-run"
+              label="Per-run limit"
+              hint="Maximum spend in a single run; every new run starts fresh. Leave empty for no per-run limit."
+            >
+              <Stack direction="horizontal" align="center" gap="snug">
+                <Text size="caption" color="muted">
+                  $
+                </Text>
+                <Input
+                  id="agent-budget-per-run"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 5"
+                  value={budgetPerRunUSD}
+                  onChange={(e) => setBudgetPerRunUSD(e.target.value)}
+                />
+                <Text size="caption" color="muted">
+                  / run
+                </Text>
+              </Stack>
+            </FormField>
+          </Stack>
         </CardContent>
       </Card>
 

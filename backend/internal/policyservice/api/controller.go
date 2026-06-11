@@ -89,28 +89,36 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //
 // Route map:
 //
-//	GET    /policy/stats?tenant_id=                 Aggregate counts for dashboard overview
-//	POST   /policy/grants                           Create a grant
-//	GET    /policy/grants/{id}                      Get a grant by ID
-//	DELETE /policy/grants/{id}                      Delete a grant
-//	GET    /policy/grants?tenant_id=&principal_id=  List grants for a principal or tenant
-//	GET    /policy/vocabulary                       List scope vocabulary
-//	GET    /policy/vocabulary/{scope}               Get a single scope entry
-//	PUT    /policy/roles                            Create or replace a role→scope mapping
-//	GET    /policy/roles?tenant_id=                 List role→scope mappings for a tenant
-//	GET    /policy/roles/{role}?tenant_id=          Get a single role→scope mapping
-//	DELETE /policy/roles/{role}?tenant_id=          Remove a role→scope mapping
-//	GET    /policy/routes                           List all registered route→scope mappings
-//	POST   /policy/routes/register                  Register route→scope mappings (SYSTEM or SERVICE principal)
-//	GET    /policy/bundles/{tenant_id}              Serve OPA bundle (polling endpoint)
-//	GET    /policy/effective-scopes                 Return the caller's full effective scope set
+//	GET    /policy/stats?tenant_id=                           Aggregate counts for dashboard overview
+//	POST   /policy/grants                                     Create a grant
+//	GET    /policy/grants/{id}                                Get a grant by ID
+//	PATCH  /policy/grants/{id}                                Update a grant's budget in place
+//	DELETE /policy/grants/{id}                                Delete a grant
+//	PUT    /policy/tenant-budget                              Set the tenant's rollup spending cap
+//	GET    /policy/tenant-budget?tenant_id=                   Get the tenant's cap
+//	DELETE /policy/tenant-budget?tenant_id=                   Remove the tenant's cap
+//	GET    /policy/grants?tenant_id=&principal_id=            List grants for a principal or tenant
+//	GET    /policy/vocabulary                                 List scope vocabulary
+//	GET    /policy/vocabulary/{scope}                         Get a single scope entry
+//	PUT    /policy/roles                                      Create or replace a role→scope mapping
+//	GET    /policy/roles?tenant_id=                           List role→scope mappings for a tenant
+//	GET    /policy/roles/{role}?tenant_id=                    Get a single role→scope mapping
+//	DELETE /policy/roles/{role}?tenant_id=                    Remove a role→scope mapping
+//	GET    /policy/routes                                     List all registered route→scope mappings
+//	POST   /policy/routes/register                            Register route→scope mappings (SYSTEM or SERVICE principal)
+//	GET    /policy/bundles/{tenant_id}                        Serve OPA bundle (polling endpoint)
+//	GET    /policy/effective-scopes                           Return the caller's full effective scope set
 func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /stats", c.handleStats)
 	mux.Handle("GET /effective-scopes", c.handleEffectiveScopes)
 	mux.Handle("POST /grants", c.handleCreateGrant)
 	mux.Handle("GET /grants/{id}", c.handleGetGrant)
+	mux.Handle("PATCH /grants/{id}", c.handleUpdateGrantBudget)
 	mux.Handle("DELETE /grants/{id}", c.handleDeleteGrant)
 	mux.Handle("GET /grants", c.handleListGrants)
+	mux.Handle("PUT /tenant-budget", c.handleUpsertTenantBudget)
+	mux.Handle("GET /tenant-budget", c.handleGetTenantBudget)
+	mux.Handle("DELETE /tenant-budget", c.handleDeleteTenantBudget)
 	mux.Handle("GET /vocabulary", c.handleListVocabulary)
 	mux.Handle("GET /vocabulary/{scope}", c.handleGetScope)
 	mux.Handle("PUT /roles", c.handleUpsertRole)

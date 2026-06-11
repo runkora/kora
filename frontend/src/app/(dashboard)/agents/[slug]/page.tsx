@@ -2,6 +2,8 @@
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAgentDetailFromBFF } from './_services/agent-detail-server';
+import { fetchBudgetPrincipalsFromGateway } from '../../model-gateway/_services/budgets-server';
+import type { BudgetPrincipalStatus, TenantCapStatus } from '../../model-gateway/_types';
 import { AgentDetailShell } from './_components/agent-detail-shell';
 
 interface AgentDetailPageProps {
@@ -14,6 +16,22 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
   const result = isSessionValid(session)
     ? await fetchAgentDetailFromBFF(slug, session.accessToken, session.tenantId)
     : null;
+
+  // The agent's budget usage comes from the budgets listing — its grant
+  // ceilings joined with live spend. Best-effort: viewers without
+  // platform:budgets:read simply see no budget card.
+  let budget: BudgetPrincipalStatus | null = null;
+  let tenantCap: TenantCapStatus | null = null;
+  if (isSessionValid(session)) {
+    const budgets = await fetchBudgetPrincipalsFromGateway(session.accessToken);
+    if (budgets.ok) {
+      budget =
+        budgets.data.data.find(
+          (p) => p.principal_type === 'AGENT' && p.principal_id.endsWith(`/agent/${slug}`),
+        ) ?? null;
+      tenantCap = budgets.data.tenant_cap ?? null;
+    }
+  }
 
   const initialAgent = result?.ok ? result.agent : null;
   const initialRuns = result?.ok ? result.runs : [];
@@ -33,6 +51,8 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
       initialRuns={initialRuns}
       initialError={initialError}
       initialStatus={initialStatus}
+      budget={budget}
+      tenantCap={tenantCap}
     />
   );
 }

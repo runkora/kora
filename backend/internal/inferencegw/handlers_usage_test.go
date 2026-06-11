@@ -432,3 +432,231 @@ func TestBuildFilter_TokenIDWithTenantAndPrincipal(t *testing.T) {
 	}
 	_ = where
 }
+
+// ── GET /usage/budget ──────────────────────────────────────────────────────────
+
+func newPersonalBudgetController(t *testing.T, eval *stubEvaluator, counter SpendCounter) *Controller {
+	t.Helper()
+	svc := &Service{
+		policy:        eval,
+		usage:         newMockUsageRepo(),
+		budgetCounter: counter,
+		logger:        logging.NewLoggerWithOutput(io.Discard),
+	}
+	return &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+}
+
+func TestHandleGetPersonalBudget_NoLimit(t *testing.T) {
+	t.Parallel()
+	// OPA allows (no limit configured for this principal).
+	eval := &stubEvaluator{budgetHasLimit: false}
+	counter := &mockSpendCounter{}
+	c := newPersonalBudgetController(t, eval, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false")
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (no budget configured)")
+	}
+	if status.CurrentSpendUSD != 0 {
+		t.Errorf("CurrentSpendUSD = %v, want 0", status.CurrentSpendUSD)
+	}
+}
+
+func TestHandleGetPersonalBudget_UnderLimit(t *testing.T) {
+	t.Parallel()
+	// OPA allows — spend is below the configured limit; limit details populated.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 100}
+	counter := &mockSpendCounter{spends: monthlySpends(42.5)}
+	c := newPersonalBudgetController(t, eval, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.CurrentSpendUSD != 42.5 {
+		t.Errorf("CurrentSpendUSD = %v, want 42.5", status.CurrentSpendUSD)
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false")
+	}
+	if !status.HasLimit {
+		t.Error("HasLimit = false, want true")
+	}
+	if status.MonthlyBudgetUSD != 100 {
+		t.Errorf("MonthlyBudgetUSD = %v, want 100", status.MonthlyBudgetUSD)
+	}
+}
+
+func TestHandleGetPersonalBudget_LimitReached(t *testing.T) {
+	t.Parallel()
+	// OPA denies — spend has hit or exceeded the limit.
+	deny := false
+	eval := &stubEvaluator{checkAllow: &deny, budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(50.0)}
+	c := newPersonalBudgetController(t, eval, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !status.SpendLimitReached {
+		t.Error("SpendLimitReached = false, want true")
+	}
+	if status.CurrentSpendUSD != 50.0 {
+		t.Errorf("CurrentSpendUSD = %v, want 50.0", status.CurrentSpendUSD)
+	}
+	if !status.HasLimit {
+		t.Error("HasLimit = false, want true")
+	}
+	if status.MonthlyBudgetUSD != 50 {
+		t.Errorf("MonthlyBudgetUSD = %v, want 50", status.MonthlyBudgetUSD)
+	}
+}
+
+func TestHandleGetPersonalBudget_SpendCounterError(t *testing.T) {
+	t.Parallel()
+	// Counter error → GetPersonalBudget fails open: 200 with empty BudgetStatus.
+	eval := &stubEvaluator{}
+	counter := &mockSpendCounter{getSpendErr: errTestInternal}
+	c := newPersonalBudgetController(t, eval, counter)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (fail-open on counter error)", w.Code, http.StatusOK)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (fail-open → no limit info)")
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false (fail-open)")
+	}
+	if status.CurrentSpendUSD != 0 {
+		t.Errorf("CurrentSpendUSD = %v, want 0 (fail-open)", status.CurrentSpendUSD)
+	}
+}
+
+func TestHandleGetPersonalBudget_MissingClaims(t *testing.T) {
+	t.Parallel()
+	c := newPersonalBudgetController(t, &stubEvaluator{}, &mockSpendCounter{})
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil) // no claims
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHandleGetPersonalBudget_NilCounter(t *testing.T) {
+	t.Parallel()
+	// When no spend counter is wired (nil), GetPersonalBudget returns an empty
+	// BudgetStatus with no error — effectively "no budget configured".
+	c := newPersonalBudgetController(t, &stubEvaluator{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/budget", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetPersonalBudget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var status BudgetStatus
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.HasLimit {
+		t.Error("HasLimit = true, want false (nil counter → no budget)")
+	}
+	if status.SpendLimitReached {
+		t.Error("SpendLimitReached = true, want false (nil counter → no budget)")
+	}
+}
+
+// ── GET /usage/run/{runID} ─────────────────────────────────────────────────────
+
+func TestHandleGetRunUsage(t *testing.T) {
+	t.Parallel()
+	usage := newMockUsageRepo()
+	usage.runSpend = 1.25
+	usage.runTokens = 4096
+	svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
+	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
+	req.SetPathValue("runID", "run-123")
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetRunUsage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var got RunUsage
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.RunID != "run-123" {
+		t.Errorf("RunID = %q, want run-123", got.RunID)
+	}
+	if got.SpendUSD != 1.25 {
+		t.Errorf("SpendUSD = %v, want 1.25", got.SpendUSD)
+	}
+	if got.TotalTokens != 4096 {
+		t.Errorf("TotalTokens = %v, want 4096", got.TotalTokens)
+	}
+}
+
+func TestHandleGetRunUsage_MissingClaims(t *testing.T) {
+	t.Parallel()
+	svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
+	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
+	req.SetPathValue("runID", "run-123")
+	w := httptest.NewRecorder()
+	c.handleGetRunUsage(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusUnauthorized, w.Body)
+	}
+}

@@ -26,6 +26,20 @@ const (
 
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
+// AgentBudget is the spending configuration applied to the agent's policy
+// grant. Not persisted by orbit-agents — the grant is the source of truth
+// (budgets live in policy, one place); this struct carries the desired value
+// through create/update and the current value on reads. Both limits zero =
+// remove the budget.
+type AgentBudget struct {
+	// LimitUSD is the per-window ceiling (0 = none).
+	LimitUSD float64 `json:"limit_usd,omitempty"`
+	// ResetCadence is "weekly" or "monthly" (default monthly).
+	ResetCadence string `json:"reset_cadence,omitempty"`
+	// PerRunLimitUSD is the windowless per-run ceiling (0 = none).
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+}
+
 type AgentType struct {
 	ID                      string         `json:"id"`
 	TenantID                string         `json:"tenant_id"`
@@ -41,6 +55,10 @@ type AgentType struct {
 	CreatedAt               time.Time      `json:"created_at"`
 	UpdatedAt               time.Time      `json:"updated_at"`
 	ModelID                 *string        `json:"model_id,omitempty"`
+	// Budget mirrors the budget on the agent's policy grant. Transient: never
+	// written to the agent_types table; populated on detail reads and carried
+	// as the desired state during grant reconciliation.
+	Budget *AgentBudget `json:"budget,omitempty"`
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -55,6 +73,11 @@ const (
 	RunStateCompleting RunState = "completing" // subprocess exited cleanly; snapshot in progress
 	RunStateCompleted  RunState = "completed"  // snapshot done; resources released
 	RunStateFailed     RunState = "failed"     // unrecoverable error; subprocess crashed or failed to start
+	// RunStateBudgetExhausted is terminal: the run hit an applicable budget
+	// ceiling and the gateway started rejecting its LLM calls with
+	// BUDGET_EXCEEDED. Distinct from failed — the run did nothing wrong; its
+	// budget ended. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+	RunStateBudgetExhausted RunState = "budget_exhausted"
 )
 
 // Run is the durable unit of work. It outlives browser connections and persists

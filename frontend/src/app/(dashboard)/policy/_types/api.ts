@@ -4,6 +4,26 @@
 // policy-gateway (PDP). Feature-local — NOT in shared/api.ts.
 // Only promote to shared when another feature module needs them.
 
+// ── Budget ───────────────────────────────────────────────────────────────────
+
+export interface BudgetAssignment {
+  /** Per-window ceiling in USD. Omitted/0 on per-run-only grant budgets. */
+  limit_usd?: number;
+  /** "weekly" or "monthly". */
+  reset_cadence: string;
+  /** Roles only: true = one shared pot for all members; false = per-member. */
+  pooled?: boolean;
+  /** Grants only: windowless per-run ceiling for agent runs. */
+  per_run_limit_usd?: number;
+}
+
+export interface TenantBudget {
+  tenant_id: string;
+  limit_usd: number;
+  reset_cadence: string;
+  updated_at?: string;
+}
+
 // ── Grants ───────────────────────────────────────────────────────────────────
 
 export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
@@ -14,6 +34,7 @@ export interface Grant {
   principal_type: PrincipalType;
   principal_id: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
   created_at: string;
 }
 
@@ -29,6 +50,7 @@ export interface CreateGrantRequest {
   principal_type: PrincipalType;
   principal_id: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
 }
 
 // ── Roles ────────────────────────────────────────────────────────────────────
@@ -38,6 +60,7 @@ export interface RoleEntry {
   tenant_id: string;
   role: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
   created_at: string;
 }
 
@@ -49,6 +72,7 @@ export interface UpsertRoleRequest {
   tenant_id?: string;
   role: string;
   scopes: string[];
+  budget?: BudgetAssignment | null;
 }
 
 // ── Vocabulary ───────────────────────────────────────────────────────────────

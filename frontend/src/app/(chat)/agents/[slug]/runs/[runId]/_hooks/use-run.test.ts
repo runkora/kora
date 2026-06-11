@@ -73,6 +73,11 @@ describe('useRun — manual reconnect', () => {
           agent_type: { name: 'Test', model_id: 'm' },
         }),
       ),
+      // The hook also refreshes the run usage meter on mount and on turn
+      // completion — handle it so MSW does not error on the request.
+      http.get('/api/agents/runs/:runId/usage', () =>
+        HttpResponse.json({ run_id: 'run-1', spend_usd: 0, total_tokens: 0 }),
+      ),
     );
   });
 

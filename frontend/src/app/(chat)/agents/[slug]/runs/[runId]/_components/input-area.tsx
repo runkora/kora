@@ -125,7 +125,8 @@ export function InputArea() {
   const { agentName, runState, isBusy, addHumanMessage, interruptRun } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
-  const isEnded = runState === 'completed' || runState === 'failed';
+  const isEnded =
+    runState === 'completed' || runState === 'failed' || runState === 'budget_exhausted';
   const isDisabled = isEnded || isBusy;
   const canSend = !!value.trim() && !isDisabled;
   // Only show Stop when the run is actually interruptible. The backend rejects an
@@ -179,11 +180,13 @@ export function InputArea() {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              isEnded
-                ? `${agentName} run has ended`
-                : isBusy
-                  ? `${agentName} is thinking…`
-                  : `Reply to ${agentName}…`
+              runState === 'budget_exhausted'
+                ? `${agentName} run stopped — budget exhausted`
+                : isEnded
+                  ? `${agentName} run has ended`
+                  : isBusy
+                    ? `${agentName} is thinking…`
+                    : `Reply to ${agentName}…`
             }
             disabled={isDisabled}
             rows={2}

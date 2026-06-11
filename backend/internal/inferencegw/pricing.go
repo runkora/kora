@@ -51,7 +51,7 @@ func NewNopPricingCache() *StaticPricingCache {
 func (c *StaticPricingCache) Start(_ context.Context) {}
 
 func (c *StaticPricingCache) Price(provider ProviderName, modelID string) (ModelPricing, bool) {
-	p, ok := c.entries[string(provider)+"/"+modelID]
+	p, ok := c.entries[string(provider)+"/"+normalisePricingModelID(provider, modelID)]
 	return p, ok
 }
 

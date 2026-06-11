@@ -1,6 +1,6 @@
 'use client';
 
-import { Heading, NativeSelect, Stack } from '@orbit/terra';
+import { NativeSelect, Stack, Tabs, TabsContent, TabsList, TabsTrigger } from '@orbit/terra';
 import type { ModelRow } from '../../_types';
 import { useAnalyticsContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
@@ -33,24 +33,30 @@ export function AnalyticsTab({ models }: AnalyticsTabProps) {
     ) : undefined;
 
   return (
-    <Stack gap="comfortable">
-      <AnalyticsDashboard
-        title="Analytics"
-        description="Tenant-wide inference analytics — spend, tokens, and request volume across all principals."
-        data={data}
-        status={status}
-        error={error}
-        days={days}
-        granularity={granularity}
-        onSetDays={setDays}
-        onSetGranularity={setGranularity}
-        filterSlot={filterSlot}
-      />
+    <Tabs defaultValue="overview">
+      <TabsList>
+        <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="principals">Principals</TabsTrigger>
+      </TabsList>
 
-      <Stack gap="snug">
-        <Heading variant="section">Users</Heading>
+      <TabsContent value="overview">
+        <AnalyticsDashboard
+          title="Analytics"
+          description="Tenant-wide inference analytics — spend, tokens, and request volume across all principals."
+          data={data}
+          status={status}
+          error={error}
+          days={days}
+          granularity={granularity}
+          onSetDays={setDays}
+          onSetGranularity={setGranularity}
+          filterSlot={filterSlot}
+        />
+      </TabsContent>
+
+      <TabsContent value="principals">
         <AnalyticsPrincipalsTable key={days} days={days} />
-      </Stack>
-    </Stack>
+      </TabsContent>
+    </Tabs>
   );
 }

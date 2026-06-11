@@ -3,9 +3,11 @@ package inferencegw
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/golang-jwt/jwt/v5"
@@ -21,6 +23,27 @@ type stubEvaluator struct {
 	allowedCandidateIDs map[string]bool
 	// checkAllow controls the result of Check. When nil, Check always allows.
 	checkAllow *bool
+	// budgetHasLimit controls whether CheckBudget reports a configured limit.
+	budgetHasLimit bool
+	// budgetEffectiveUSD is the monthly principal ceiling limit reported by CheckBudget.
+	budgetEffectiveUSD float64
+	// budgetErr, when non-nil, is returned by CheckBudget.
+	budgetErr error
+	// lastBudgetReq captures the request passed to CheckBudget (nil = not called).
+	lastBudgetReq *policy.BudgetCheckRequest
+	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
+	budgetCategories []policy.BudgetCategory
+	// budgetCategoriesErr, when non-nil, is returned by GetBudgetCategories.
+	budgetCategoriesErr error
+	// roleBudgets is returned by GetRoleBudgets. nil means no role budgets configured.
+	roleBudgets []policy.BudgetCategory
+	// lastRoleBudgetRoles captures the roleNames passed to GetRoleBudgets.
+	lastRoleBudgetRoles []string
+	// allBudgets and allRoleBudgets are returned by ListBudgets.
+	allBudgets     map[string]policy.PrincipalBudget
+	allRoleBudgets map[string]policy.RoleBudget
+	// tenantBudget is returned by GetTenantBudget.
+	tenantBudget *policy.TenantBudget
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -58,6 +81,45 @@ func (s *stubEvaluator) ScopesExplain(_ context.Context, _ policy.ScopesInput) (
 	return &policy.ScopesExplainResult{}, nil
 }
 
+func (s *stubEvaluator) CheckBudget(_ context.Context, _ string, req policy.BudgetCheckRequest) (policy.BudgetResult, error) {
+	s.lastBudgetReq = &req
+	if s.budgetErr != nil {
+		return policy.BudgetResult{}, s.budgetErr
+	}
+	allow := true
+	if s.checkAllow != nil {
+		allow = *s.checkAllow
+	}
+	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit}
+	if s.budgetHasLimit {
+		res.Ceilings = []policy.BudgetCeiling{{
+			Scope:    "principal",
+			ID:       req.PrincipalID,
+			Window:   "monthly",
+			LimitUSD: s.budgetEffectiveUSD,
+			SpendUSD: req.Spends.Principal["monthly"],
+		}}
+	}
+	return res, nil
+}
+
+func (s *stubEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.TenantBudget, error) {
+	return s.tenantBudget, nil
+}
+
+func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+	return s.budgetCategories, s.budgetCategoriesErr
+}
+
+func (s *stubEvaluator) GetRoleBudgets(_ context.Context, _ string, roleNames []string) ([]policy.BudgetCategory, error) {
+	s.lastRoleBudgetRoles = roleNames
+	return s.roleBudgets, nil
+}
+
+func (s *stubEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return s.allBudgets, s.allRoleBudgets, nil
+}
+
 func (s *stubEvaluator) Start(_ context.Context) {}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -75,6 +137,13 @@ func testClaims(tenantID string) *token.PlatformClaims {
 func ctxWithClaims(t *testing.T) context.Context {
 	t.Helper()
 	return token.WithClaims(context.Background(), testClaims("tenant-1"))
+}
+
+func ctxWithRoles(t *testing.T, roles ...string) context.Context {
+	t.Helper()
+	c := testClaims("tenant-1")
+	c.Orbit.Claims = map[string]string{"roles": strings.Join(roles, ",")}
+	return token.WithClaims(context.Background(), c)
 }
 
 func buildTestRouter(vms []VirtualModel) *RoutingEngine {
@@ -102,6 +171,7 @@ func TestCheckModelPolicy_FailsClosed_UnknownModel(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "totally-unknown-model")
@@ -122,6 +192,7 @@ func TestCheckModelPolicy_VirtualModelAllowed(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
@@ -140,6 +211,7 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 		&stubEvaluator{checkAllow: &deny},
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
 		nil,
 		nil,
 	)
@@ -180,6 +252,7 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 		NewNopPricingCache(),
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	targets := []RouteTarget{
@@ -217,6 +290,7 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{}}, // nothing allowed
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
 		nil,
 		nil,
 	)
@@ -300,5 +374,309 @@ func TestExtractFailureDetails_EmptyConnectorError(t *testing.T) {
 	err := &ConnectorError{Provider: ProviderBedrock}
 	if got := extractFailureDetails(err); got != nil {
 		t.Errorf("expected nil when all fields empty, got %+v", got)
+	}
+}
+
+// ─── GetPersonalBudget — service-level ──────────────────────────────────────
+
+func newBudgetService(eval *stubEvaluator, counter SpendCounter) *Service {
+	return NewService(eval, buildTestRouter(nil), NewNopPricingCache(), nil, counter, logging.NewLoggerWithOutput(io.Discard))
+}
+
+func monthlySpends(usd float64) policy.BudgetSpends {
+	return policy.BudgetSpends{Principal: map[string]float64{"monthly": usd}}
+}
+
+func TestGetPersonalBudget_SpendThreadedIntoCheckBudget(t *testing.T) {
+	t.Parallel()
+	// Verify the spends read from the counter are the exact values passed to CheckBudget.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(42.5)}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil || eval.lastBudgetReq.Spends.Principal["monthly"] != 42.5 {
+		t.Errorf("CheckBudget received spends = %+v, want monthly 42.5 (from counter)", eval.lastBudgetReq)
+	}
+	if status.CurrentSpendUSD != 42.5 {
+		t.Errorf("CurrentSpendUSD = %v, want 42.5", status.CurrentSpendUSD)
+	}
+	if len(status.Ceilings) != 1 || status.Ceilings[0].Window != "monthly" || status.Ceilings[0].LimitUSD != 50 {
+		t.Errorf("Ceilings = %+v, want one monthly ceiling of 50", status.Ceilings)
+	}
+}
+
+func TestGetPersonalBudget_CounterError_FailsOpen(t *testing.T) {
+	t.Parallel()
+	// Counter error → fail-open: empty BudgetStatus, no error returned.
+	eval := &stubEvaluator{}
+	counter := &mockSpendCounter{getSpendErr: errors.New("redis down")}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("counter error should not propagate, got: %v", err)
+	}
+	if status.HasLimit || status.SpendLimitReached || status.CurrentSpendUSD != 0 {
+		t.Errorf("fail-open should return empty status, got: %+v", status)
+	}
+	// CheckBudget must not have been called when GetSpends failed.
+	if eval.lastBudgetReq != nil {
+		t.Error("CheckBudget should not be called when GetSpends errors")
+	}
+}
+
+func TestGetPersonalBudget_OPAError_FailsOpen(t *testing.T) {
+	t.Parallel()
+	// OPA error → fail-open: empty BudgetStatus, no error returned.
+	eval := &stubEvaluator{budgetErr: errors.New("OPA unavailable")}
+	counter := &mockSpendCounter{spends: monthlySpends(10)}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("OPA error should not propagate, got: %v", err)
+	}
+	if status.HasLimit || status.SpendLimitReached || status.CurrentSpendUSD != 0 {
+		t.Errorf("fail-open should return empty status, got: %+v", status)
+	}
+}
+
+func TestGetPersonalBudget_JWTRolesPassedToCheckBudget(t *testing.T) {
+	t.Parallel()
+	// Role budgets are resolved inside OPA against the caller's JWT roles —
+	// verify the roles extracted from claims reach CheckBudget.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
+	svc := newBudgetService(eval, counter)
+
+	status, err := svc.GetPersonalBudget(ctxWithRoles(t, "eng", "power-user"), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	got := eval.lastBudgetReq.Roles
+	want := []string{"eng", "power-user"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("CheckBudget received roles = %v, want %v", got, want)
+	}
+	if status.CurrentSpendUSD != 30.0 {
+		t.Errorf("CurrentSpendUSD = %v, want 30.0", status.CurrentSpendUSD)
+	}
+	if !status.HasLimit {
+		t.Error("HasLimit should be true")
+	}
+}
+
+func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
+	t.Parallel()
+	// JWT has no roles claim — CheckBudget receives no roles (grant budgets only).
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(10)}
+	svc := newBudgetService(eval, counter)
+
+	_, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil || len(eval.lastBudgetReq.Roles) != 0 {
+		t.Errorf("CheckBudget should receive no roles when JWT has none, got %+v", eval.lastBudgetReq)
+	}
+}
+
+func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
+	t.Parallel()
+	// Grant budgets (weekly + monthly + per-run), a pooled role, a per-member
+	// role, and a tenant cap — verify the counter is asked for exactly the
+	// right scopes.
+	eval := &stubEvaluator{
+		budgetCategories: []policy.BudgetCategory{
+			{Source: "grant", ID: "g-week", ResetCadence: "weekly", LimitUSD: 20},
+			{Source: "grant", ID: "g-run", ResetCadence: "monthly", PerRunLimitUSD: 5},
+		},
+		roleBudgets: []policy.BudgetCategory{
+			{Source: "role", ID: "engineering", ResetCadence: "monthly", LimitUSD: 500, Pooled: true},
+			{Source: "role", ID: "engineer", ResetCadence: "monthly", LimitUSD: 50},
+		},
+		tenantBudget: &policy.TenantBudget{LimitUSD: 2000, ResetCadence: "monthly"},
+	}
+	counter := &mockSpendCounter{}
+	svc := newBudgetService(eval, counter)
+
+	_, err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
+		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := counter.lastScopes
+	if len(sc.PrincipalWindows) != 2 || sc.PrincipalWindows[0] != "monthly" || sc.PrincipalWindows[1] != "weekly" {
+		t.Errorf("PrincipalWindows = %v, want [monthly weekly]", sc.PrincipalWindows)
+	}
+	if sc.TenantWindow != "monthly" {
+		t.Errorf("TenantWindow = %q, want monthly", sc.TenantWindow)
+	}
+	if len(sc.PoolWindows) != 1 || sc.PoolWindows["engineering"] != "monthly" {
+		t.Errorf("PoolWindows = %v, want engineering→monthly", sc.PoolWindows)
+	}
+	if sc.RunID != "" {
+		t.Errorf("RunID = %q, want empty (no run context on this request)", sc.RunID)
+	}
+}
+
+func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
+	t.Parallel()
+	// Three principals:
+	//   pid-role  — role budget $50 (via attribution counter), spend $50 → blocked, utilisation 1.0
+	//   pid-grant — grant budget $80 from the bundle, spend $40 → utilisation 0.5
+	//   pid-free  — no budget, spend $10 → has_limit=false, listed after budgeted principals
+	eval := &stubEvaluator{
+		allBudgets: map[string]policy.PrincipalBudget{
+			"pid-grant": {
+				Categories: []policy.BudgetCategory{
+					{Source: "grant", ID: "g1", ResetCadence: "monthly", LimitUSD: 80},
+				},
+				EffectiveLimits: map[string]float64{"monthly": 80},
+			},
+		},
+		allRoleBudgets: map[string]policy.RoleBudget{
+			"engineer": {LimitUSD: 50, ResetCadence: "monthly"},
+		},
+	}
+	counter := &mockSpendCounter{}
+	usage := &mockInferenceUsageRepository{
+		periodSpends: []PrincipalPeriodSpend{
+			{PrincipalID: "pid-grant", PrincipalType: "HUMAN", SpendUSD: 40},
+			{PrincipalID: "pid-role", PrincipalType: "HUMAN", SpendUSD: 50},
+			{PrincipalID: "pid-free", PrincipalType: "AGENT", SpendUSD: 10},
+		},
+		activeRoleHolders: map[string][]string{"pid-role": {"engineer"}},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 3 {
+		t.Fatalf("got %d principals, want 3: %+v", len(resp.Data), resp.Data)
+	}
+
+	first := resp.Data[0]
+	if first.PrincipalID != "pid-role" || !first.SpendLimitReached || first.EffectiveLimitUSD != 50 {
+		t.Errorf("first row = %+v, want pid-role blocked at limit 50", first)
+	}
+	if len(first.Categories) != 1 || first.Categories[0].Source != "role" || first.Categories[0].ID != "engineer" {
+		t.Errorf("pid-role categories = %+v, want one role:engineer category", first.Categories)
+	}
+
+	second := resp.Data[1]
+	if second.PrincipalID != "pid-grant" || second.SpendLimitReached || second.EffectiveLimitUSD != 80 {
+		t.Errorf("second row = %+v, want pid-grant under limit 80", second)
+	}
+
+	third := resp.Data[2]
+	if third.PrincipalID != "pid-free" || third.HasLimit || third.CurrentSpendUSD != 10 {
+		t.Errorf("third row = %+v, want pid-free without limit, spend 10", third)
+	}
+}
+
+func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T) {
+	t.Parallel()
+	// An agent with only a WEEKLY grant budget ($20), exhausted per the usage
+	// log's ISO-week spend, and no usage row this month (so principal_type is
+	// unrecorded). It must be reported blocked with a non-zero effective limit
+	// and inferred type AGENT. The attribution counter is deliberately stale
+	// (zero) — weekly spend must come from the usage log, matching enforcement,
+	// so a freshly re-windowed assignment never reads as zero usage.
+	pid := "spiffe://orbit.test/tenant/t/agent/coder"
+	eval := &stubEvaluator{
+		allBudgets: map[string]policy.PrincipalBudget{
+			pid: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g1", ResetCadence: "weekly", LimitUSD: 20}},
+				EffectiveLimits: map[string]float64{"weekly": 20},
+			},
+		},
+	}
+	counter := &mockSpendCounter{categorySpends: []float64{0}} // stale attribution counter
+	usage := &mockInferenceUsageRepository{
+		windowSpends: map[string]float64{pid: 20}, // true ISO-week spend
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("got %d rows, want 1: %+v", len(resp.Data), resp.Data)
+	}
+	row := resp.Data[0]
+	if row.EffectiveLimitUSD != 20 {
+		t.Errorf("effective limit = %v, want 20 (weekly limit, not monthly-only zero)", row.EffectiveLimitUSD)
+	}
+	if !row.SpendLimitReached {
+		t.Error("weekly ceiling exhausted must report SpendLimitReached=true")
+	}
+	if len(row.Categories) != 1 || row.Categories[0].SpendUSD != 20 {
+		t.Errorf("weekly category = %+v, want spend_usd 20 from the usage log (not the stale counter)", row.Categories)
+	}
+	if row.PrincipalType != "AGENT" {
+		t.Errorf("principal type = %q, want AGENT (inferred from SPIFFE id)", row.PrincipalType)
+	}
+}
+
+func TestListBudgetPrincipals_RoleCounterForRemovedBudgetIgnored(t *testing.T) {
+	t.Parallel()
+	// An attribution counter exists for a role whose budget has since been
+	// removed — the principal must not be reported as budgeted.
+	eval := &stubEvaluator{allRoleBudgets: map[string]policy.RoleBudget{}}
+	counter := &mockSpendCounter{}
+	usage := &mockInferenceUsageRepository{
+		activeRoleHolders: map[string][]string{"pid-1": {"engineer"}},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 0 {
+		t.Errorf("got %d principals, want 0 (stale role counter ignored): %+v", len(resp.Data), resp.Data)
+	}
+}
+
+func TestIncrementSpend_RoleCategoriesMergedForAttribution(t *testing.T) {
+	t.Parallel()
+	// Attribution counters: grant categories from the bundle plus role
+	// categories resolved from the JWT roles must all reach IncrementSpend.
+	roleCat := policy.BudgetCategory{Source: "role", ID: "eng", ResetCadence: "monthly"}
+	grantCat := policy.BudgetCategory{Source: "grant", ID: "g1", ResetCadence: "monthly"}
+	eval := &stubEvaluator{
+		budgetCategories: []policy.BudgetCategory{grantCat},
+		roleBudgets:      []policy.BudgetCategory{roleCat},
+	}
+	counter := &mockSpendCounter{}
+	svc := newBudgetService(eval, counter)
+
+	svc.incrementSpend(ctxWithRoles(t, "eng"), "tenant-1", "user-1", 1.25)
+
+	if len(eval.lastRoleBudgetRoles) != 1 || eval.lastRoleBudgetRoles[0] != "eng" {
+		t.Errorf("GetRoleBudgets called with roles = %v, want [eng]", eval.lastRoleBudgetRoles)
+	}
+	if len(counter.lastCategories) != 2 {
+		t.Fatalf("IncrementSpend received %d categories, want 2 (grant + role)", len(counter.lastCategories))
+	}
+	if counter.lastCategories[0] != grantCat || counter.lastCategories[1] != roleCat {
+		t.Errorf("IncrementSpend categories = %v, want [%v %v]", counter.lastCategories, grantCat, roleCat)
+	}
+	if counter.incremented != 1.25 {
+		t.Errorf("counter incremented = %v, want 1.25", counter.incremented)
 	}
 }

@@ -59,6 +59,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) — `Accepted` · 2026-04-27
 - [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — `Accepted` · 2026-05-03
 - [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) — `Accepted` · 2026-06-05
+- [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) — `Accepted (Decision 5 superseded 2026-06-10)` · 2026-06-05
+- [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) — `Proposed` · 2026-06-10
 
 ### Agents Control Plane & Execution
 
@@ -169,3 +171,5 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted | 0062 |
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
+| 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
+| 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |

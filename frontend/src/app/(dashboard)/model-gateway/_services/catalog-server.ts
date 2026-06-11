@@ -62,6 +62,24 @@ export interface ProviderModel {
   output_modalities: string[];
   dialects: string[];
   enabled: boolean;
+  pricing?: PricingEntryWire;
+}
+
+export interface PricingEntryWire {
+  provider: string;
+  model_id: string;
+  synced_input_cost_per_1m: number;
+  synced_output_cost_per_1m: number;
+  synced_cache_read_cost_per_1m: number;
+  synced_cache_write_cost_per_1m: number;
+  override_input_cost_per_1m: number | null;
+  override_output_cost_per_1m: number | null;
+  override_cache_read_cost_per_1m: number | null;
+  override_cache_write_cost_per_1m: number | null;
+  effective_input_cost_per_1m: number;
+  effective_output_cost_per_1m: number;
+  has_override: boolean;
+  last_synced_at: string; // RFC3339
 }
 
 // ── Internal fetch helper ────────────────────────────────────────────────────
@@ -124,4 +142,10 @@ export async function fetchProviderModels(
   accessToken: string,
 ): Promise<Result<{ data: ProviderModel[] }>> {
   return catalogFetch('/provider-models', accessToken);
+}
+
+export async function fetchPricing(
+  accessToken: string,
+): Promise<Result<{ data: PricingEntryWire[] }>> {
+  return catalogFetch('/pricing', accessToken);
 }

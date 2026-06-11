@@ -244,7 +244,22 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 	profilesByBase := c.listSystemProfiles(ctx)
 	models := mergeModels(activeFMs, excludedFMs, profilesByBase)
 	mantleModels, mantleIDs := c.listMantleModels(ctx)
-	models = append(models, mantleModels...)
+
+	// Deduplicate Mantle models against the merged list. Mantle returns bare
+	// IDs (e.g. "moonshotai.kimi-k2.5") while mergeModels already produced the
+	// routable profile-prefixed form (e.g. "us.moonshotai.kimi-k2.5"). Build a
+	// set of stripped IDs already present, then only append Mantle models whose
+	// bare ID is genuinely absent.
+	strippedSeen := make(map[string]bool, len(models))
+	for _, m := range models {
+		strippedSeen[stripRegionPrefix(m.ModelID)] = true
+	}
+	for _, m := range mantleModels {
+		if !strippedSeen[stripRegionPrefix(m.ModelID)] {
+			models = append(models, m)
+			strippedSeen[stripRegionPrefix(m.ModelID)] = true
+		}
+	}
 
 	registry := make(map[string]backendID, len(models))
 	for _, m := range models {

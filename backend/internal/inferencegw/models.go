@@ -77,40 +77,51 @@ type ChatCompletionRequest struct {
 type UsageStatus string
 
 const (
-	UsageStatusSuccess       UsageStatus = "success"
-	UsageStatusProviderError UsageStatus = "provider_error"
-	UsageStatusPolicyDenied  UsageStatus = "policy_denied"
-	UsageStatusAuthError     UsageStatus = "auth_error"
-	UsageStatusTimeout       UsageStatus = "timeout"
-	UsageStatusRoutingFailed UsageStatus = "routing_failed"
-	UsageStatusCanceled      UsageStatus = "canceled"
+	UsageStatusSuccess        UsageStatus = "success"
+	UsageStatusProviderError  UsageStatus = "provider_error"
+	UsageStatusPolicyDenied   UsageStatus = "policy_denied"
+	UsageStatusBudgetExceeded UsageStatus = "budget_exceeded"
+	UsageStatusAuthError      UsageStatus = "auth_error"
+	UsageStatusTimeout        UsageStatus = "timeout"
+	UsageStatusRoutingFailed  UsageStatus = "routing_failed"
+	UsageStatusCanceled       UsageStatus = "canceled"
 )
 
 // InferenceUsageRecord is a completed inference event written to the database.
 type InferenceUsageRecord struct {
-	ID                       string           `json:"id"`
-	TenantID                 string           `json:"tenant_id"`
-	PrincipalID              string           `json:"principal_id"`
-	PrincipalType            string           `json:"principal_type"`
-	TokenID                  *string          `json:"token_id"`
-	APIDialect               APIDialect       `json:"api_dialect"`
-	Provider                 *ProviderName    `json:"provider"`
-	VirtualModelID           *string          `json:"virtual_model_id"` // consumer-facing "{family}/{name}"; NULL for pre-migration rows
-	ModelID                  string           `json:"model_id"`
-	ModelFamily              *string          `json:"model_family"`
-	RoutingStrategy          *RoutingStrategy `json:"routing_strategy"`
-	PromptTokens             int              `json:"prompt_tokens"`
-	CompletionTokens         int              `json:"completion_tokens"`
-	TotalTokens              int              `json:"total_tokens"`
-	CacheReadInputTokens     int              `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int              `json:"cache_creation_input_tokens"`
-	EstimatedCostUSD         float64          `json:"estimated_cost_usd"`
-	Status                   UsageStatus      `json:"status"`
-	RetryCount               int              `json:"retry_count"`
-	ErrorCode                *string          `json:"error_code"`
-	FailureDetails           *FailureDetails  `json:"failure_details"`
-	LatencyMS                int              `json:"latency_ms"`
-	CreatedAt                time.Time        `json:"created_at"`
+	ID                           string           `json:"id"`
+	TenantID                     string           `json:"tenant_id"`
+	PrincipalID                  string           `json:"principal_id"`
+	PrincipalType                string           `json:"principal_type"`
+	TokenID                      *string          `json:"token_id"`
+	APIDialect                   APIDialect       `json:"api_dialect"`
+	Provider                     *ProviderName    `json:"provider"`
+	VirtualModelID               *string          `json:"virtual_model_id"` // consumer-facing "{family}/{name}"; NULL for pre-migration rows
+	ModelID                      string           `json:"model_id"`
+	ModelFamily                  *string          `json:"model_family"`
+	RoutingStrategy              *RoutingStrategy `json:"routing_strategy"`
+	PromptTokens                 int              `json:"prompt_tokens"`
+	CompletionTokens             int              `json:"completion_tokens"`
+	TotalTokens                  int              `json:"total_tokens"`
+	CacheReadInputTokens         int              `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens     int              `json:"cache_creation_input_tokens"`
+	EstimatedCostUSD             float64          `json:"estimated_cost_usd"`
+	PriceUnknown                 bool             `json:"price_unknown"`
+	EffectiveInputCostPer1M      float64          `json:"effective_input_cost_per_1m"`
+	EffectiveOutputCostPer1M     float64          `json:"effective_output_cost_per_1m"`
+	EffectiveCacheReadCostPer1M  float64          `json:"effective_cache_read_cost_per_1m"`
+	EffectiveCacheWriteCostPer1M float64          `json:"effective_cache_write_cost_per_1m"`
+	Status                       UsageStatus      `json:"status"`
+	RetryCount                   int              `json:"retry_count"`
+	ErrorCode                    *string          `json:"error_code"`
+	FailureDetails               *FailureDetails  `json:"failure_details"`
+	LatencyMS                    int              `json:"latency_ms"`
+	CreatedAt                    time.Time        `json:"created_at"`
+	// RunID is the agent run this request belonged to ("" for non-run traffic).
+	RunID string `json:"run_id,omitempty"`
+	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
+	// the durable record behind role-pool counter rehydration.
+	PrincipalRoles []string `json:"principal_roles,omitempty"`
 }
 
 // FailureDetails holds structured provider error context for non-success
@@ -231,6 +242,7 @@ type AnalyticsResponse struct {
 // over the analytics window. Returned by GET /v1/analytics/principals.
 type PrincipalUsageSummary struct {
 	PrincipalID         string  `json:"principal_id"`
+	PrincipalType       string  `json:"principal_type"`
 	RequestCount        int64   `json:"request_count"`
 	TotalTokens         int64   `json:"total_tokens"`
 	PromptTokens        int64   `json:"prompt_tokens"`
@@ -272,4 +284,87 @@ var (
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")
 	ErrNoCatalog             = errors.New("virtual model catalog not loaded")
+	ErrModelPricingNotFound  = errors.New("model pricing not found")
+	ErrBudgetExceeded        = errors.New("budget exceeded")
 )
+
+// BudgetCeilingStatus is one applicable spending ceiling with its current spend.
+type BudgetCeilingStatus struct {
+	Scope    string  `json:"scope"`  // "principal", "role_pool", "tenant", "run"
+	ID       string  `json:"id"`     // principal/role/tenant/run identifier
+	Window   string  `json:"window"` // "weekly", "monthly", or "run"
+	LimitUSD float64 `json:"limit_usd"`
+	SpendUSD float64 `json:"spend_usd"`
+	Reached  bool    `json:"reached"`
+}
+
+// BudgetStatus is returned by the personal budget endpoint and the GetPersonalBudget
+// service method. Ceilings lists every spending ceiling that applies to the
+// caller; the monthly_budget_usd / current_spend_usd pair mirrors the
+// principal-monthly ceiling for compatibility with single-bar displays.
+type BudgetStatus struct {
+	MonthlyBudgetUSD  float64               `json:"monthly_budget_usd"`
+	CurrentSpendUSD   float64               `json:"current_spend_usd"`
+	SpendLimitReached bool                  `json:"spend_limit_reached"`
+	HasLimit          bool                  `json:"has_limit"`
+	Ceilings          []BudgetCeilingStatus `json:"ceilings,omitempty"`
+}
+
+// RunUsage is the spend and token total recorded against a single agent run,
+// returned by GET /v1/usage/run/{runID} for the run chat usage meter. The
+// per-run budget ceiling is not included — the run view already holds it from
+// the agent's grant (agent_type.budget.per_run_limit_usd).
+type RunUsage struct {
+	RunID       string  `json:"run_id"`
+	SpendUSD    float64 `json:"spend_usd"`
+	TotalTokens int64   `json:"total_tokens"`
+}
+
+// BudgetCategoryStatus is a single budget assignment source with its attributed
+// spend for the current period. Part of the budgets principals listing.
+type BudgetCategoryStatus struct {
+	Source         string  `json:"source"` // "role" or "grant"
+	ID             string  `json:"id"`     // role name or grant UUID
+	LimitUSD       float64 `json:"limit_usd"`
+	ResetCadence   string  `json:"reset_cadence"`
+	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
+	Pooled         bool    `json:"pooled,omitempty"`
+	SpendUSD       float64 `json:"spend_usd"`
+}
+
+// TenantCapStatus is the tenant rollup cap with its current period spend.
+type TenantCapStatus struct {
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	SpendUSD     float64 `json:"spend_usd"`
+	Reached      bool    `json:"reached"`
+}
+
+// BudgetPrincipalStatus is one principal's row in the budgets principals listing:
+// every applicable budget category, the effective (MAX) limit, and current spend.
+// Principals with period spend but no budget appear with HasLimit=false.
+type BudgetPrincipalStatus struct {
+	PrincipalID       string                 `json:"principal_id"`
+	PrincipalType     string                 `json:"principal_type,omitempty"`
+	Categories        []BudgetCategoryStatus `json:"categories"`
+	EffectiveLimitUSD float64                `json:"effective_limit_usd"`
+	CurrentSpendUSD   float64                `json:"current_spend_usd"`
+	HasLimit          bool                   `json:"has_limit"`
+	SpendLimitReached bool                   `json:"spend_limit_reached"`
+	LastActiveAt      string                 `json:"last_active_at,omitempty"` // RFC3339
+}
+
+// BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.
+type BudgetPrincipalsResponse struct {
+	Period    string                  `json:"period"` // e.g. "2026-06"
+	TenantCap *TenantCapStatus        `json:"tenant_cap,omitempty"`
+	Data      []BudgetPrincipalStatus `json:"data"`
+}
+
+// PrincipalPeriodSpend is a per-principal calendar-month spend aggregate.
+type PrincipalPeriodSpend struct {
+	PrincipalID   string
+	PrincipalType string
+	SpendUSD      float64
+	LastActiveAt  time.Time
+}

@@ -45,6 +45,26 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 type PricingConfig struct {
 	// RefreshIntervalSecs is how often the pricing cache refreshes.
 	RefreshIntervalSecs int `yaml:"refreshIntervalSecs"`
+	// SyncIntervalSecs is how often the pricing sync worker fetches upstream prices.
+	SyncIntervalSecs int `yaml:"syncIntervalSecs"`
+	// SourceURL is the upstream URL for the LiteLLM pricing JSON.
+	SourceURL string `yaml:"sourceURL"`
+}
+
+// RefreshInterval returns the configured cache refresh interval, defaulting to 1 hour.
+func (c *PricingConfig) RefreshInterval() time.Duration {
+	if c.RefreshIntervalSecs <= 0 {
+		return time.Hour
+	}
+	return time.Duration(c.RefreshIntervalSecs) * time.Second
+}
+
+// SyncInterval returns the configured sync interval, defaulting to 24 hours.
+func (c *PricingConfig) SyncInterval() time.Duration {
+	if c.SyncIntervalSecs <= 0 {
+		return 24 * time.Hour
+	}
+	return time.Duration(c.SyncIntervalSecs) * time.Second
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

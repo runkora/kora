@@ -45,7 +45,35 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes)
+	var budget *roles.BudgetAssignment
+	if req.Budget != nil {
+		if req.Budget.LimitUSD <= 0 {
+			platformapi.ErrorResponse(ctx, w, c.logger,
+				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+					"budget.limit_usd must be greater than zero", nil), nil)
+			return
+		}
+		if req.Budget.PerRunLimitUSD != 0 {
+			platformapi.ErrorResponse(ctx, w, c.logger,
+				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+					"budget.per_run_limit_usd is not valid on roles — set it on the agent's grant", nil), nil)
+			return
+		}
+		cadence, okCadence := normalizeCadence(req.Budget.ResetCadence)
+		if !okCadence {
+			platformapi.ErrorResponse(ctx, w, c.logger,
+				platformapi.ValidationError(platformapi.ErrCodeInvalidField,
+					"budget.reset_cadence must be 'weekly' or 'monthly'", nil), nil)
+			return
+		}
+		budget = &roles.BudgetAssignment{
+			LimitUSD:     req.Budget.LimitUSD,
+			ResetCadence: cadence,
+			Pooled:       req.Budget.Pooled,
+		}
+	}
+
+	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)
 		return

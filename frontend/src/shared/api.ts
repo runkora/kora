@@ -137,7 +137,8 @@ export type RunState =
   | 'idle'
   | 'completing'
   | 'completed'
-  | 'failed';
+  | 'failed'
+  | 'budget_exhausted';
 
 /**
  * An AgentType defines the configuration template for a class of agents.
@@ -159,6 +160,21 @@ export interface AgentType {
   updated_at: string;
   /** Optional model identifier, e.g. "anthropic/claude-sonnet-4-6". */
   model_id?: string;
+  /** Budget on the agent's policy grant. Present on detail reads when configured. */
+  budget?: AgentBudget;
+}
+
+/**
+ * Spending configuration applied to the agent's policy grant.
+ * Mirrors Go: agents.AgentBudget. Both limits zero/absent = no budget.
+ */
+export interface AgentBudget {
+  /** Per-window ceiling in USD (0/absent = none). */
+  limit_usd?: number;
+  /** "weekly" or "monthly" (default monthly). */
+  reset_cadence?: string;
+  /** Per-run ceiling in USD for agent runs (0/absent = none). */
+  per_run_limit_usd?: number;
 }
 
 /**
@@ -203,6 +219,8 @@ export interface CreateAgentTypeRequest {
   grant_scopes?: string[];
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
+  /** Budget applied to the agent's policy grant. */
+  budget?: AgentBudget;
 }
 
 /** Request body for POST /api/agents/types/:typeId/runs. */
@@ -221,4 +239,6 @@ export interface UpdateAgentTypeRequest {
   model_id?: string;
   tool_scopes?: string[];
   grant_scopes?: string[];
+  /** Budget update: omit = unchanged; both limits zero = remove. */
+  budget?: AgentBudget;
 }

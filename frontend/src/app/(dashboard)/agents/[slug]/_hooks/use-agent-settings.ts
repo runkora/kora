@@ -55,6 +55,13 @@ export function useAgentSettings() {
   );
   const [modelId, setModelId] = useState(agent?.modelId ?? 'anthropic/claude-sonnet-4-6');
   const [toolScopes, setToolScopes] = useState<string[]>(agent?.toolScopes ?? []);
+  const [budgetLimitUSD, setBudgetLimitUSD] = useState(
+    agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
+  );
+  const [budgetCadence, setBudgetCadence] = useState(agent?.budget?.reset_cadence ?? 'monthly');
+  const [budgetPerRunUSD, setBudgetPerRunUSD] = useState(
+    agent?.budget?.per_run_limit_usd ? String(agent.budget.per_run_limit_usd) : '',
+  );
   const [toolScopesSearch, setToolScopesSearch] = useState('');
   const [persistMemory, setPersistMemory] = useState(false);
 
@@ -67,6 +74,9 @@ export function useAgentSettings() {
     maxConcurrentRuns: String(agent?.maxConcurrentRunsPerPod ?? 10),
     modelId: agent?.modelId ?? 'anthropic/claude-sonnet-4-6',
     toolScopes: agent?.toolScopes ?? ([] as string[]),
+    budgetLimitUSD: agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
+    budgetCadence: agent?.budget?.reset_cadence ?? 'monthly',
+    budgetPerRunUSD: agent?.budget?.per_run_limit_usd ? String(agent.budget.per_run_limit_usd) : '',
   });
 
   // ── Model data ──────────────────────────────────────────────────────────────
@@ -107,7 +117,10 @@ export function useAgentSettings() {
     maxConcurrentRuns !== savedBaseline.maxConcurrentRuns ||
     modelId !== savedBaseline.modelId ||
     JSON.stringify(toolScopes.slice().sort()) !==
-      JSON.stringify(savedBaseline.toolScopes.slice().sort());
+      JSON.stringify(savedBaseline.toolScopes.slice().sort()) ||
+    budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
+    budgetCadence !== savedBaseline.budgetCadence ||
+    budgetPerRunUSD !== savedBaseline.budgetPerRunUSD;
 
   // ── Save / status ───────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -134,6 +147,14 @@ export function useAgentSettings() {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       const trimmedSystemPrompt = systemPrompt.trim();
+      // Only send `budget` when it changed from the loaded baseline. Omitting it
+      // means "leave unchanged"; sending both-zero means "remove". Always
+      // sending zeros would wipe the agent's budget whenever the form loaded
+      // with empty fields — including when budget enrichment failed on read.
+      const budgetChanged =
+        budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
+        budgetCadence !== savedBaseline.budgetCadence ||
+        budgetPerRunUSD !== savedBaseline.budgetPerRunUSD;
       const result = await updateAgentType(agent.id, {
         name: trimmedName,
         description: trimmedDescription,
@@ -143,6 +164,15 @@ export function useAgentSettings() {
         model_id: modelId,
         grant_scopes: grantScopes,
         tool_scopes: toolScopes,
+        ...(budgetChanged
+          ? {
+              budget: {
+                reset_cadence: budgetCadence,
+                limit_usd: budgetLimitUSD ? parseFloat(budgetLimitUSD) : 0,
+                per_run_limit_usd: budgetPerRunUSD ? parseFloat(budgetPerRunUSD) : 0,
+              },
+            }
+          : {}),
       });
       setSaving(false);
       if (result.error) {
@@ -157,6 +187,9 @@ export function useAgentSettings() {
           maxConcurrentRuns,
           modelId,
           toolScopes,
+          budgetLimitUSD,
+          budgetCadence,
+          budgetPerRunUSD,
         });
         setSaveSuccess(true);
         if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
@@ -173,6 +206,10 @@ export function useAgentSettings() {
       modelId,
       grantScopes,
       toolScopes,
+      budgetLimitUSD,
+      budgetCadence,
+      budgetPerRunUSD,
+      savedBaseline,
     ],
   );
 
@@ -185,6 +222,9 @@ export function useAgentSettings() {
     setMaxConcurrentRuns(savedBaseline.maxConcurrentRuns);
     setModelId(savedBaseline.modelId);
     setToolScopes(savedBaseline.toolScopes);
+    setBudgetLimitUSD(savedBaseline.budgetLimitUSD);
+    setBudgetCadence(savedBaseline.budgetCadence);
+    setBudgetPerRunUSD(savedBaseline.budgetPerRunUSD);
     setSaveError(null);
   }, [agent, savedBaseline]);
 
@@ -227,6 +267,12 @@ export function useAgentSettings() {
     setToolScopesSearch,
     persistMemory,
     setPersistMemory,
+    budgetLimitUSD,
+    setBudgetLimitUSD,
+    budgetCadence,
+    setBudgetCadence,
+    budgetPerRunUSD,
+    setBudgetPerRunUSD,
     // model data
     models,
     modelsLoading,

@@ -6,10 +6,8 @@ import {
   Button,
   DragCard,
   Icon,
-  Field,
   Grid,
   Input,
-  Label,
   NativeSelect,
   Output,
   Separator,
@@ -18,6 +16,7 @@ import {
   Text,
   Toggle,
 } from '@orbit/terra';
+import { fmtCost } from '@orbit/utils';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
 
@@ -222,8 +221,21 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                   <NativeSelect
                     value={route.modelId}
                     onChange={(e) => {
+                      const modelId = e.target.value;
+                      const pm = providerModels.find(
+                        (m) => m.provider === route.provider && m.modelId === modelId,
+                      );
                       const updated = model.routes.map((r, i) =>
-                        i === idx ? { ...r, modelId: e.target.value } : r,
+                        i === idx
+                          ? {
+                              ...r,
+                              modelId,
+                              inputCostPer1M:
+                                pm?.pricing?.effective_input_cost_per_1m ?? r.inputCostPer1M,
+                              outputCostPer1M:
+                                pm?.pricing?.effective_output_cost_per_1m ?? r.outputCostPer1M,
+                            }
+                          : r,
                       );
                       onChange({ ...model, routes: updated });
                     }}
@@ -258,48 +270,39 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                   />
                 )}
 
-                <Grid cols={2} gap="snug">
-                  <Field>
-                    <Label>
-                      <Text size="caption" color="muted">
-                        Input /1M
-                      </Text>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={route.inputCostPer1M}
-                      step="0.01"
-                      min="0"
-                      onChange={(e) => {
-                        const updated = model.routes.map((r, i) =>
-                          i === idx ? { ...r, inputCostPer1M: parseFloat(e.target.value) || 0 } : r,
-                        );
-                        onChange({ ...model, routes: updated });
-                      }}
-                    />
-                  </Field>
-                  <Field>
-                    <Label>
-                      <Text size="caption" color="muted">
-                        Output /1M
-                      </Text>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={route.outputCostPer1M}
-                      step="0.01"
-                      min="0"
-                      onChange={(e) => {
-                        const updated = model.routes.map((r, i) =>
-                          i === idx
-                            ? { ...r, outputCostPer1M: parseFloat(e.target.value) || 0 }
-                            : r,
-                        );
-                        onChange({ ...model, routes: updated });
-                      }}
-                    />
-                  </Field>
-                </Grid>
+                {/* Synced pricing display */}
+                {(() => {
+                  const pm = route.modelId
+                    ? providerModels.find(
+                        (m) => m.provider === route.provider && m.modelId === route.modelId,
+                      )
+                    : undefined;
+                  const pricing = pm?.pricing;
+                  return (
+                    <Grid cols={2} gap="snug">
+                      <Stack gap="tight">
+                        <Text size="caption" color="muted">
+                          Input /1M
+                        </Text>
+                        <Output field>
+                          <Text size="caption" mono color={pricing ? 'foreground' : 'subtle'}>
+                            {pricing ? fmtCost(pricing.effective_input_cost_per_1m) : '—'}
+                          </Text>
+                        </Output>
+                      </Stack>
+                      <Stack gap="tight">
+                        <Text size="caption" color="muted">
+                          Output /1M
+                        </Text>
+                        <Output field>
+                          <Text size="caption" mono color={pricing ? 'foreground' : 'subtle'}>
+                            {pricing ? fmtCost(pricing.effective_output_cost_per_1m) : '—'}
+                          </Text>
+                        </Output>
+                      </Stack>
+                    </Grid>
+                  );
+                })()}
               </Stack>
 
               {/* Right column: weight (weighted only) + toggle + delete */}

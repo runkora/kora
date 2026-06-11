@@ -93,6 +93,12 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
     icon: 'bar-chart',
     requiredScope: 'platform:analytics:read',
   },
+  {
+    label: 'Budgets',
+    href: APP_ROUTES.modelGateway.budgets,
+    icon: 'dollar-sign',
+    requiredScope: 'platform:budgets:read',
+  },
   { label: 'Logs', href: APP_ROUTES.modelGateway.logs, icon: 'activity' },
   { label: 'API Keys', href: APP_ROUTES.modelGateway.keys, icon: 'key' },
   { label: 'Setup', href: APP_ROUTES.modelGateway.setup, icon: 'wrench' },

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -41,11 +43,12 @@ type principal struct {
 // Auth is handled upstream by AuthMiddleware — the service reads
 // the verified principal from context, never from raw headers.
 type Service struct {
-	policy  policy.Evaluator
-	router  *RoutingEngine
-	pricing PricingCache
-	usage   InferenceUsageRepository
-	logger  logging.Logger
+	policy        policy.Evaluator
+	router        *RoutingEngine
+	pricing       PricingCache
+	usage         InferenceUsageRepository
+	budgetCounter SpendCounter
+	logger        logging.Logger
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -54,14 +57,16 @@ func NewService(
 	router *RoutingEngine,
 	pricing PricingCache,
 	usage InferenceUsageRepository,
+	budgetCounter SpendCounter,
 	logger logging.Logger,
 ) *Service {
 	return &Service{
-		policy:  pol,
-		router:  router,
-		pricing: pricing,
-		usage:   usage,
-		logger:  logger,
+		policy:        pol,
+		router:        router,
+		pricing:       pricing,
+		usage:         usage,
+		budgetCounter: budgetCounter,
+		logger:        logger,
 	}
 }
 
@@ -178,6 +183,14 @@ func (s *Service) ChatCompletion(
 		return nil, err
 	}
 
+	// ── 2b. Budget check ─────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	// ── 3. Route request ──────────────────────────────────────────────────────
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
@@ -220,37 +233,44 @@ func (s *Service) ChatCompletion(
 	}
 	cacheReadTokens := int(resp.Usage.PromptTokensDetails.CachedTokens)
 
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:                   uuid.NewString(),
-		TenantID:             p.TenantID,
-		PrincipalID:          p.PrincipalID,
-		PrincipalType:        p.PrincipalType,
-		TokenID:              nullableText(p.TokenID),
-		APIDialect:           DialectOpenAI,
-		Provider:             &usedTarget.Provider,
-		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
-		ModelID:              usedTarget.ModelID,
-		ModelFamily:          nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:      &strategy,
-		PromptTokens:         promptTokens,
-		CompletionTokens:     completionTokens,
-		TotalTokens:          totalTokens,
-		CacheReadInputTokens: cacheReadTokens,
-		EstimatedCostUSD:     estimatedCost,
-		Status:               UsageStatusSuccess,
-		RetryCount:           retryCount,
-		LatencyMS:            latencyMS,
-		CreatedAt:            start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectOpenAI,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  totalTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -302,6 +322,15 @@ func (s *Service) ChatCompletionStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	// ── 2b. Budget check ─────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -384,37 +413,44 @@ func (s *Service) ChatCompletionStream(
 
 		span.SetStatus(codes.Ok, "")
 
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:                   uuid.NewString(),
-			TenantID:             p.TenantID,
-			PrincipalID:          p.PrincipalID,
-			PrincipalType:        p.PrincipalType,
-			TokenID:              nullableText(p.TokenID),
-			APIDialect:           DialectOpenAI,
-			Provider:             &capturedTarget.Provider,
-			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
-			ModelID:              capturedTarget.ModelID,
-			ModelFamily:          nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:      &capturedStrategy,
-			PromptTokens:         promptTokens,
-			CompletionTokens:     completionTokens,
-			TotalTokens:          totalTokens,
-			CacheReadInputTokens: cacheReadTokens,
-			EstimatedCostUSD:     estimatedCost,
-			Status:               UsageStatusSuccess,
-			RetryCount:           streamRetryCount,
-			LatencyMS:            latencyMS,
-			CreatedAt:            start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectOpenAI,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 promptTokens,
+			CompletionTokens:             completionTokens,
+			TotalTokens:                  totalTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 
@@ -636,6 +672,514 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 	return filtered, nil
 }
 
+const spanStatusBudgetExceeded = "budget exceeded"
+
+// writeUsage stamps request-context attribution (run identity, JWT roles)
+// onto the record and persists it. Every usage write goes through here so the
+// run_id and principal_roles columns — the durable sources for run and
+// role-pool counter rehydration — are never missed.
+func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
+	rec.RunID = runIDFromContext(ctx)
+	rec.PrincipalRoles = rolesFromContext(ctx)
+	return s.usage.Create(ctx, rec)
+}
+
+// budgetScopesFor derives the caller's applicable ceiling configuration: which
+// canonical counters to read/write (windows, pools, tenant, run) and the
+// attribution categories. Limits come from bundle data; role membership and
+// run identity come from request context. Every lookup fails open.
+func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes, []policy.BudgetCategory, []string) {
+	roles := rolesFromContext(ctx)
+
+	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
+	if err != nil {
+		grantCats = nil
+	}
+	roleCats, err := s.policy.GetRoleBudgets(ctx, p.TenantID, roles)
+	if err != nil {
+		roleCats = nil
+	}
+	tenantBudget, err := s.policy.GetTenantBudget(ctx, p.TenantID)
+	if err != nil {
+		tenantBudget = nil
+	}
+
+	windowSet := map[string]struct{}{}
+	var perRunLimit float64
+	for _, c := range grantCats {
+		if c.LimitUSD > 0 {
+			windowSet[c.ResetCadence] = struct{}{}
+		}
+		if c.PerRunLimitUSD > perRunLimit {
+			perRunLimit = c.PerRunLimitUSD
+		}
+	}
+	pools := map[string]string{}
+	for _, c := range roleCats {
+		if c.LimitUSD <= 0 {
+			continue
+		}
+		if c.Pooled {
+			pools[c.ID] = c.ResetCadence
+		} else {
+			windowSet[c.ResetCadence] = struct{}{}
+		}
+	}
+	windows := make([]string, 0, len(windowSet))
+	for w := range windowSet {
+		windows = append(windows, w)
+	}
+	sort.Strings(windows)
+
+	scopes := SpendScopes{
+		TenantID:         p.TenantID,
+		PrincipalID:      p.PrincipalID,
+		PrincipalWindows: windows,
+		PoolWindows:      pools,
+	}
+	if tenantBudget != nil {
+		scopes.TenantWindow = tenantBudget.ResetCadence
+	}
+	// Read the run counter only when a per-run ceiling exists; the write path
+	// sets RunID unconditionally so per-run cost is always attributed.
+	if runID := runIDFromContext(ctx); runID != "" && perRunLimit > 0 {
+		scopes.RunID = runID
+	}
+
+	return scopes, append(grantCats, roleCats...), roles
+}
+
+// checkBudget evaluates the orbit.budget hierarchical ceilings via the policy
+// evaluator. It reads every applicable canonical counter (principal windows,
+// role pools, tenant cap, run), then delegates the decision to OPA, which
+// denies if ANY ceiling is met. Fails open on any infrastructure error so
+// that Redis or OPA unavailability never blocks inference traffic.
+//
+// Note: enforcement is soft — check and increment are not atomic. Concurrent
+// requests near a limit may both pass and briefly overspend before the counter
+// catches up. This is acceptable for cost-cap (not hard billing) use cases.
+func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context, error) {
+	if s.budgetCounter == nil {
+		return ctx, nil
+	}
+
+	ctx, span := tracer.Start(ctx, "budget.quota_check",
+		trace.WithAttributes(
+			attribute.String("tenant_id", p.TenantID),
+			attribute.String("principal_id", p.PrincipalID),
+		),
+	)
+	defer span.End()
+
+	scopes, _, roles := s.budgetScopesFor(ctx, p)
+
+	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "spend counter get failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.RecordError(err)
+		return ctx, nil
+	}
+
+	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
+		PrincipalID:   p.PrincipalID,
+		PrincipalType: p.PrincipalType,
+		Roles:         roles,
+		RunID:         scopes.RunID,
+		Spends:        spends,
+	})
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "OPA budget check failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: p.PrincipalID},
+		)
+		span.RecordError(err)
+		return ctx, nil
+	}
+
+	if !result.Allow {
+		fields := []logging.Field{
+			{Key: "principal_id", Value: p.PrincipalID},
+			{Key: "tenant_id", Value: p.TenantID},
+		}
+		for _, c := range result.Ceilings {
+			if c.Reached() {
+				fields = append(fields, logging.Field{
+					Key:   "breached_" + c.Scope,
+					Value: fmt.Sprintf("%s %s: %.4f/%.4f", c.ID, c.Window, c.SpendUSD, c.LimitUSD),
+				})
+			}
+		}
+		s.logger.Info(ctx, "budget.hard_block", fields...)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		return ctx, ErrBudgetExceeded
+	}
+
+	return ctx, nil
+}
+
+// incrementSpend best-effort increments every applicable canonical counter
+// and the per-category attribution counters after a usage write. Logs on
+// failure but never returns an error — a counter increment failure must not
+// affect the caller's control flow.
+func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID string, amount float64) {
+	if s.budgetCounter == nil {
+		return
+	}
+	scopes, categories, _ := s.budgetScopesFor(ctx, principal{TenantID: tenantID, PrincipalID: principalID})
+	// Write the run counter whenever run identity exists, even without a
+	// configured per-run ceiling — it keeps per-run cost warm and auditable.
+	scopes.RunID = runIDFromContext(ctx)
+	if err := s.budgetCounter.IncrementSpends(ctx, scopes, categories, amount); err != nil {
+		s.logger.Warn(ctx, "budget.counter_increment_failed",
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+	}
+}
+
+// GetPersonalBudget returns the caller's budget status: every applicable
+// ceiling with its limit and current spend. This is the same gather + evaluate
+// path enforcement takes, so the reported status always agrees with what the
+// gateway will block. Fails open on Redis or OPA errors: returns an empty
+// BudgetStatus rather than propagating infrastructure errors to the caller.
+func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID string) (BudgetStatus, error) {
+	if s.budgetCounter == nil {
+		return BudgetStatus{}, nil
+	}
+
+	p := principal{TenantID: tenantID, PrincipalID: principalID}
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
+		p.PrincipalType = string(claims.Orbit.PrincipalType)
+	}
+	scopes, _, roles := s.budgetScopesFor(ctx, p)
+
+	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "spend counter get failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+		return BudgetStatus{}, nil
+	}
+
+	result, err := s.policy.CheckBudget(ctx, tenantID, policy.BudgetCheckRequest{
+		PrincipalID:   principalID,
+		PrincipalType: p.PrincipalType,
+		Roles:         roles,
+		RunID:         scopes.RunID,
+		Spends:        spends,
+	})
+	if err != nil {
+		s.logger.Warn(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: "OPA budget check failed"},
+			logging.Field{Key: "error", Value: err.Error()},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+		return BudgetStatus{}, nil
+	}
+
+	status := BudgetStatus{
+		HasLimit:          result.HasLimit,
+		SpendLimitReached: !result.Allow,
+	}
+	for _, c := range result.Ceilings {
+		status.Ceilings = append(status.Ceilings, BudgetCeilingStatus{
+			Scope:    c.Scope,
+			ID:       c.ID,
+			Window:   c.Window,
+			LimitUSD: c.LimitUSD,
+			SpendUSD: c.SpendUSD,
+			Reached:  c.Reached(),
+		})
+		// Mirror the principal-monthly ceiling into the legacy single-bar fields.
+		if c.Scope == "principal" && c.Window == "monthly" {
+			status.MonthlyBudgetUSD = c.LimitUSD
+			status.CurrentSpendUSD = c.SpendUSD
+		}
+	}
+	return status, nil
+}
+
+// GetRunUsage returns the spend and token total recorded against a run for the
+// run chat usage meter, tenant-scoped. Display-only: it reads from the durable
+// usage log (the authoritative per-run record) rather than the enforcement
+// counter, so it stays correct after counter TTL expiry. Returns a zero-value
+// status (not an error) when no usage repository is configured.
+func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunUsage, error) {
+	if s.usage == nil {
+		return RunUsage{RunID: runID}, nil
+	}
+	spend, tokens, err := s.usage.GetRunUsage(ctx, tenantID, runID)
+	if err != nil {
+		return RunUsage{}, fmt.Errorf("get run usage: %w", err)
+	}
+	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
+}
+
+// ListBudgetPrincipals returns per-principal budget status for the tenant:
+// every principal with a budget assignment (grant budgets from the compiled
+// bundle, role budgets attributed via their active spend counters) plus every
+// principal with spend this period (HasLimit=false when unbudgeted).
+//
+// Role-budget attribution is best-effort: a principal who holds a budgeted
+// OIDC role but has made no requests this period has no attribution counter
+// yet and appears without that category until their next request. Zero spend
+// means zero budget risk, so this does not affect enforcement.
+func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (BudgetPrincipalsResponse, error) {
+	now := time.Now().UTC()
+	resp := BudgetPrincipalsResponse{
+		Period: now.Format("2006-01"),
+		Data:   []BudgetPrincipalStatus{},
+	}
+
+	// Grant budgets and role budget definitions from the compiled bundle.
+	// ListBudgets fails open (empty maps) on bundle unavailability.
+	principalBudgets, roleBudgets, err := s.policy.ListBudgets(ctx, tenantID)
+	if err != nil {
+		principalBudgets, roleBudgets = nil, nil
+	}
+
+	// Tenant rollup cap with its period spend (DB-authoritative).
+	if tb, tbErr := s.policy.GetTenantBudget(ctx, tenantID); tbErr == nil && tb != nil {
+		capSpend, spErr := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
+		if spErr != nil {
+			s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
+				logging.Field{Key: "error", Value: spErr.Error()},
+			)
+		} else {
+			resp.TenantCap = &TenantCapStatus{
+				LimitUSD:     tb.LimitUSD,
+				ResetCadence: tb.ResetCadence,
+				SpendUSD:     capSpend,
+				Reached:      capSpend >= tb.LimitUSD,
+			}
+		}
+	}
+
+	// Per-principal period spend — the DB is authoritative.
+	spenders, err := s.usage.GetMonthlySpendByPrincipal(ctx, tenantID, now)
+	if err != nil {
+		return resp, fmt.Errorf("list budget principals: %w", err)
+	}
+
+	// True ISO-week spend per principal, so weekly categories report the same
+	// window spend enforcement evaluates — not the attribution counter, which
+	// starts at zero whenever an assignment (or its period key) is new and made
+	// a fresh weekly budget look like the principal's usage had been reset.
+	weeklySpendByPid, wkErr := s.usage.GetSpendByPrincipalSince(ctx, tenantID, periodStart("weekly", now))
+	if wkErr != nil {
+		s.logger.Warn(ctx, "budget.weekly_spend_unavailable",
+			logging.Field{Key: "error", Value: wkErr.Error()},
+		)
+		weeklySpendByPid = nil
+	}
+
+	// Active role-budget holders: which principals exercised which OIDC roles
+	// this period, read tenant-scoped from inference_usage.principal_roles.
+	// (The policy service can't resolve IDP role membership; the usage log is
+	// the authoritative record.) Lookback spans the longest live window so
+	// weekly and monthly role budgets are both covered.
+	roleHolders, err := s.usage.GetActiveRoleHolders(ctx, tenantID, periodStart("monthly", now))
+	if err != nil {
+		s.logger.Warn(ctx, "budget.role_holders_unavailable",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		roleHolders = nil
+	}
+
+	// Union of all principals that appear in any source.
+	pids := make(map[string]struct{})
+	spendByPid := make(map[string]PrincipalPeriodSpend, len(spenders))
+	for _, sp := range spenders {
+		pids[sp.PrincipalID] = struct{}{}
+		spendByPid[sp.PrincipalID] = sp
+	}
+	for pid := range principalBudgets {
+		pids[pid] = struct{}{}
+	}
+	for pid, held := range roleHolders {
+		for _, role := range held {
+			if _, ok := roleBudgets[role]; ok {
+				pids[pid] = struct{}{}
+				break
+			}
+		}
+	}
+
+	for pid := range pids {
+		cats := budgetCategoriesFor(pid, principalBudgets, roleHolders, roleBudgets)
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid], weeklySpendByPid[pid]))
+	}
+
+	sortBudgetPrincipals(resp.Data)
+	return resp, nil
+}
+
+// budgetCategoriesFor collects every budget category applicable to the
+// principal: grant categories from the bundle plus role categories for the
+// budgeted roles the principal has exercised this period.
+func budgetCategoriesFor(
+	pid string,
+	principalBudgets map[string]policy.PrincipalBudget,
+	roleHolders map[string][]string,
+	roleBudgets map[string]policy.RoleBudget,
+) []policy.BudgetCategory {
+	var cats []policy.BudgetCategory
+	if pb, ok := principalBudgets[pid]; ok {
+		cats = append(cats, pb.Categories...)
+	}
+	for _, role := range roleHolders[pid] {
+		rb, ok := roleBudgets[role]
+		if !ok {
+			continue // counter for a role whose budget has since been removed
+		}
+		cats = append(cats, policy.BudgetCategory{
+			Source:       "role",
+			ID:           role,
+			ResetCadence: rb.ResetCadence,
+			LimitUSD:     rb.LimitUSD,
+			Pooled:       rb.Pooled,
+		})
+	}
+	return cats
+}
+
+// buildBudgetPrincipalRow assembles a single listing row. EffectiveLimitUSD is
+// the MAX per-member window limit across all cadences (so a weekly-only
+// principal still shows a non-zero limit). SpendLimitReached is true when the
+// monthly canonical spend meets the monthly limit OR any non-monthly window
+// category's attributed spend meets its own limit — so a weekly-blocked
+// principal is reported blocked, not "OK". Pooled and per-run assignments are
+// shown in the per-category breakdown with their own windows.
+func (s *Service) buildBudgetPrincipalRow(
+	ctx context.Context,
+	pid string,
+	cats []policy.BudgetCategory,
+	sp PrincipalPeriodSpend,
+	weeklySpend float64,
+) BudgetPrincipalStatus {
+	var catSpends []float64
+	if s.budgetCounter != nil && len(cats) > 0 {
+		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, pid, cats); csErr == nil {
+			catSpends = cs
+		}
+	}
+
+	catStatuses, effective, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
+
+	row := BudgetPrincipalStatus{
+		PrincipalID:       pid,
+		PrincipalType:     principalTypeFor(pid, sp.PrincipalType),
+		Categories:        catStatuses,
+		EffectiveLimitUSD: effective,
+		CurrentSpendUSD:   sp.SpendUSD,
+		HasLimit:          hasLimit,
+		SpendLimitReached: reached,
+	}
+	if !sp.LastActiveAt.IsZero() {
+		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
+	}
+	return row
+}
+
+// summarizeBudgetCategories builds the per-category status rows and the
+// headline fields: effective (MAX per-member limit across all window cadences),
+// hasLimit, and reached (any per-member category's window spend ≥ its limit).
+//
+// Per-member category spend is the principal's canonical window spend
+// (monthlySpend / weeklySpend) — the same number enforcement evaluates — so a
+// freshly created or re-windowed assignment never reads as zero usage. Pooled
+// categories keep the attribution counter: it records the member's own
+// contribution to the shared pot (the pool's total lives on the role surface).
+func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend, weeklySpend float64) (statuses []BudgetCategoryStatus, effective float64, hasLimit, reached bool) {
+	statuses = make([]BudgetCategoryStatus, len(cats))
+	for i, cat := range cats {
+		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
+			hasLimit = true
+		}
+		st := BudgetCategoryStatus{
+			Source:         cat.Source,
+			ID:             cat.ID,
+			LimitUSD:       cat.LimitUSD,
+			ResetCadence:   cat.ResetCadence,
+			PerRunLimitUSD: cat.PerRunLimitUSD,
+			Pooled:         cat.Pooled,
+		}
+		if i < len(catSpends) {
+			st.SpendUSD = catSpends[i]
+		}
+		if !cat.Pooled {
+			if cat.ResetCadence == "weekly" {
+				st.SpendUSD = weeklySpend
+			} else {
+				st.SpendUSD = monthlySpend
+			}
+		}
+		statuses[i] = st
+
+		if cat.Pooled {
+			continue // pools are shared ceilings, never part of the per-member MAX
+		}
+		if cat.LimitUSD > effective {
+			effective = cat.LimitUSD
+		}
+		if cat.LimitUSD > 0 && st.SpendUSD >= cat.LimitUSD {
+			reached = true // this per-member window ceiling is exhausted
+		}
+	}
+	return statuses, effective, hasLimit, reached
+}
+
+// principalTypeFor returns the recorded principal type, or — for synthesized
+// rows (a budgeted principal with no spend this period, so no usage row to read
+// the type from) — infers it from the principal ID: SPIFFE IDs are agents,
+// everything else is treated as human. PAT credentials never appear as a
+// principal here (PAT usage attributes to the human).
+func principalTypeFor(pid, recorded string) string {
+	if recorded != "" {
+		return recorded
+	}
+	if strings.HasPrefix(pid, "spiffe://") {
+		return "AGENT"
+	}
+	return "HUMAN"
+}
+
+// sortBudgetPrincipals orders budgeted principals first by utilization
+// descending, then unbudgeted principals by spend descending.
+func sortBudgetPrincipals(data []BudgetPrincipalStatus) {
+	sort.Slice(data, func(i, j int) bool {
+		a, b := data[i], data[j]
+		if a.HasLimit != b.HasLimit {
+			return a.HasLimit
+		}
+		if a.HasLimit {
+			au, bu := utilization(a), utilization(b)
+			if au != bu {
+				return au > bu
+			}
+		}
+		if a.CurrentSpendUSD != b.CurrentSpendUSD {
+			return a.CurrentSpendUSD > b.CurrentSpendUSD
+		}
+		return a.PrincipalID < b.PrincipalID
+	})
+}
+
+// utilization is the spend-to-limit ratio used for sorting the budgets listing.
+func utilization(s BudgetPrincipalStatus) float64 {
+	if s.EffectiveLimitUSD <= 0 {
+		return 0
+	}
+	return s.CurrentSpendUSD / s.EffectiveLimitUSD
+}
+
 // principalFromClaims reads the verified PlatformClaims stored in context by
 // AuthMiddleware and extracts the principal identity fields.
 //
@@ -666,6 +1210,79 @@ func principalFromClaims(ctx context.Context) (principal, error) {
 		IdentitySource: string(claims.Orbit.IdentitySource),
 		TokenID:        tokenID,
 	}, nil
+}
+
+// rolesFromContext extracts the caller's OIDC roles from the verified
+// PlatformClaims stored in context by AuthMiddleware. Returns nil when no
+// claims are present (e.g. internal callers), which OPA treats as "no roles".
+func rolesFromContext(ctx context.Context) []string {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return nil
+	}
+	return extractRolesFromClaims(claims)
+}
+
+// extractRolesFromClaims reads the comma-separated roles claim from the platform JWT.
+// Returns an empty slice when no roles claim is present.
+func extractRolesFromClaims(claims *token.PlatformClaims) []string {
+	if claims.Orbit.Claims == nil {
+		return nil
+	}
+	raw, ok := claims.Orbit.Claims["roles"]
+	if !ok || raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	roles := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			roles = append(roles, trimmed)
+		}
+	}
+	return roles
+}
+
+// resolvedPricing holds the effective costs and price_unknown flag for a single
+// inference request. It is the output of resolvePricing and written directly
+// onto the InferenceUsageRecord.
+type resolvedPricing struct {
+	inputCostPer1M      float64
+	outputCostPer1M     float64
+	cacheReadCostPer1M  float64
+	cacheWriteCostPer1M float64
+	priceUnknown        bool
+}
+
+// resolvePricing looks up the effective price for a provider+model pair from
+// the PricingCache. When the model is not in the catalog it returns
+// priceUnknown=true and all-zero costs.
+func (s *Service) resolvePricing(provider ProviderName, modelID string) resolvedPricing {
+	p, ok := s.pricing.Price(provider, modelID)
+	if !ok {
+		return resolvedPricing{priceUnknown: true}
+	}
+	return resolvedPricing{
+		inputCostPer1M:      p.InputCostPerMillion,
+		outputCostPer1M:     p.OutputCostPerMillion,
+		cacheReadCostPer1M:  p.CacheReadCostPerMillion,
+		cacheWriteCostPer1M: p.CacheWriteCostPerMillion,
+	}
+}
+
+// estimatedCostUSD computes the USD cost from token counts and resolved prices,
+// applying industry-standard cache fallbacks when explicit cache prices are zero.
+func (rp resolvedPricing) estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens int) float64 {
+	if rp.priceUnknown {
+		return 0
+	}
+	m := ModelPricing{
+		InputCostPerMillion:      rp.inputCostPer1M,
+		OutputCostPerMillion:     rp.outputCostPer1M,
+		CacheReadCostPerMillion:  rp.cacheReadCostPer1M,
+		CacheWriteCostPerMillion: rp.cacheWriteCostPer1M,
+	}
+	return m.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens)
 }
 
 func (s *Service) writeFailedUsage(
@@ -705,7 +1322,7 @@ func (s *Service) writeFailedUsage(
 		CreatedAt:       time.Now().UTC(),
 	}
 
-	if err := s.usage.Create(ctx, rec); err != nil {
+	if err := s.writeUsage(ctx, rec); err != nil {
 		s.logger.Error(ctx, "failed to write failed inference usage record",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -875,6 +1492,13 @@ func (s *Service) Embeddings(
 		return nil, err
 	}
 
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -901,36 +1525,43 @@ func (s *Service) Embeddings(
 	}
 
 	promptTokens := int(resp.Usage.PromptTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, 0, 0, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, 0, 0, 0)
 
 	rec := InferenceUsageRecord{
-		ID:               uuid.NewString(),
-		TenantID:         p.TenantID,
-		PrincipalID:      p.PrincipalID,
-		PrincipalType:    p.PrincipalType,
-		TokenID:          nullableText(p.TokenID),
-		APIDialect:       DialectOpenAI,
-		Provider:         &usedTarget.Provider,
-		VirtualModelID:   nullableText(usedTarget.VirtualModelID),
-		ModelID:          usedTarget.ModelID,
-		ModelFamily:      nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:  &strategy,
-		PromptTokens:     promptTokens,
-		CompletionTokens: 0,
-		TotalTokens:      promptTokens,
-		EstimatedCostUSD: estimatedCost,
-		Status:           UsageStatusSuccess,
-		RetryCount:       retryCount,
-		LatencyMS:        latencyMS,
-		CreatedAt:        start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectOpenAI,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             0,
+		TotalTokens:                  promptTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -975,6 +1606,13 @@ func (s *Service) Responses(
 		return nil, err
 	}
 
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -1007,37 +1645,44 @@ func (s *Service) Responses(
 		totalTokens = promptTokens + completionTokens
 	}
 	cacheReadTokens := int(resp.Usage.InputTokensDetails.CachedTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, 0)
 
 	rec := InferenceUsageRecord{
-		ID:                   uuid.NewString(),
-		TenantID:             p.TenantID,
-		PrincipalID:          p.PrincipalID,
-		PrincipalType:        p.PrincipalType,
-		TokenID:              nullableText(p.TokenID),
-		APIDialect:           DialectResponses,
-		Provider:             &usedTarget.Provider,
-		VirtualModelID:       nullableText(usedTarget.VirtualModelID),
-		ModelID:              usedTarget.ModelID,
-		ModelFamily:          nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:      &strategy,
-		PromptTokens:         promptTokens,
-		CompletionTokens:     completionTokens,
-		TotalTokens:          totalTokens,
-		CacheReadInputTokens: cacheReadTokens,
-		EstimatedCostUSD:     estimatedCost,
-		Status:               UsageStatusSuccess,
-		RetryCount:           retryCount,
-		LatencyMS:            latencyMS,
-		CreatedAt:            start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectResponses,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  totalTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -1081,6 +1726,14 @@ func (s *Service) ResponsesStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectResponses, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1136,37 +1789,44 @@ func (s *Service) ResponsesStream(
 		span.SetStatus(codes.Ok, "")
 
 		totalTokens := inputTokens + outputTokens
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, cacheReadTokens, 0)
 
 		rec := InferenceUsageRecord{
-			ID:                   uuid.NewString(),
-			TenantID:             p.TenantID,
-			PrincipalID:          p.PrincipalID,
-			PrincipalType:        p.PrincipalType,
-			TokenID:              nullableText(p.TokenID),
-			APIDialect:           DialectResponses,
-			Provider:             &capturedTarget.Provider,
-			VirtualModelID:       nullableText(capturedTarget.VirtualModelID),
-			ModelID:              capturedTarget.ModelID,
-			ModelFamily:          nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:      &capturedStrategy,
-			PromptTokens:         inputTokens,
-			CompletionTokens:     outputTokens,
-			TotalTokens:          totalTokens,
-			CacheReadInputTokens: cacheReadTokens,
-			EstimatedCostUSD:     estimatedCost,
-			Status:               UsageStatusSuccess,
-			RetryCount:           streamRetryCount,
-			LatencyMS:            latencyMS,
-			CreatedAt:            start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectResponses,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 inputTokens,
+			CompletionTokens:             outputTokens,
+			TotalTokens:                  totalTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming inference usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 
@@ -1283,6 +1943,14 @@ func (s *Service) AnthropicMessages(
 		return nil, err
 	}
 
+	// ── Budget check ─────────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
 	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
 	if err != nil {
 		span.RecordError(err)
@@ -1322,38 +1990,45 @@ func (s *Service) AnthropicMessages(
 	completionTokens := int(msg.Usage.OutputTokens)
 	cacheReadTokens := int(msg.Usage.CacheReadInputTokens)
 	cacheCreationTokens := int(msg.Usage.CacheCreationInputTokens)
-	pricing := usedTarget.Pricing
-	estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 	rec := InferenceUsageRecord{
-		ID:                       uuid.NewString(),
-		TenantID:                 p.TenantID,
-		PrincipalID:              p.PrincipalID,
-		PrincipalType:            p.PrincipalType,
-		TokenID:                  nullableText(p.TokenID),
-		APIDialect:               DialectAnthropic,
-		Provider:                 &usedTarget.Provider,
-		VirtualModelID:           nullableText(usedTarget.VirtualModelID),
-		ModelID:                  usedTarget.ModelID,
-		ModelFamily:              nullableText(usedTarget.ModelFamily),
-		RoutingStrategy:          &strategy,
-		PromptTokens:             promptTokens,
-		CompletionTokens:         completionTokens,
-		TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
-		CacheReadInputTokens:     cacheReadTokens,
-		CacheCreationInputTokens: cacheCreationTokens,
-		EstimatedCostUSD:         estimatedCost,
-		Status:                   UsageStatusSuccess,
-		RetryCount:               retryCount,
-		LatencyMS:                latencyMS,
-		CreatedAt:                start.UTC(),
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      nullableText(p.TokenID),
+		APIDialect:                   DialectAnthropic,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               nullableText(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  nullableText(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 promptTokens,
+		CompletionTokens:             completionTokens,
+		TotalTokens:                  promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+		CacheReadInputTokens:         cacheReadTokens,
+		CacheCreationInputTokens:     cacheCreationTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
 	}
 
-	if writeErr := s.usage.Create(ctx, rec); writeErr != nil {
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 
 	span.SetStatus(codes.Ok, "")
@@ -1398,6 +2073,15 @@ func (s *Service) AnthropicMessagesStream(
 		span.SetStatus(codes.Error, ErrPolicyDenied.Error())
 		span.End()
 		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusPolicyDenied, "POLICY_DENIED", nil, 0)
+		return nil, err
+	}
+
+	// ── Budget check ─────────────────────────────────────────────────────────
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		span.End()
+		s.writeFailedUsage(ctx, p, routeReq, DialectAnthropic, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
 		return nil, err
 	}
 
@@ -1468,38 +2152,45 @@ func (s *Service) AnthropicMessagesStream(
 		completionTokens := int(accumulated.Usage.OutputTokens)
 		cacheReadTokens := int(accumulated.Usage.CacheReadInputTokens)
 		cacheCreationTokens := int(accumulated.Usage.CacheCreationInputTokens)
-		pricing := capturedTarget.Pricing
-		estimatedCost := pricing.EstimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
+		pricing := s.resolvePricing(capturedTarget.Provider, capturedTarget.ModelID)
+		estimatedCost := pricing.estimatedCostUSD(promptTokens, completionTokens, cacheReadTokens, cacheCreationTokens)
 
 		rec := InferenceUsageRecord{
-			ID:                       uuid.NewString(),
-			TenantID:                 p.TenantID,
-			PrincipalID:              p.PrincipalID,
-			PrincipalType:            p.PrincipalType,
-			TokenID:                  nullableText(p.TokenID),
-			APIDialect:               DialectAnthropic,
-			Provider:                 &capturedTarget.Provider,
-			VirtualModelID:           nullableText(capturedTarget.VirtualModelID),
-			ModelID:                  capturedTarget.ModelID,
-			ModelFamily:              nullableText(capturedTarget.ModelFamily),
-			RoutingStrategy:          &capturedStrategy,
-			PromptTokens:             promptTokens,
-			CompletionTokens:         completionTokens,
-			TotalTokens:              promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
-			CacheReadInputTokens:     cacheReadTokens,
-			CacheCreationInputTokens: cacheCreationTokens,
-			EstimatedCostUSD:         estimatedCost,
-			Status:                   UsageStatusSuccess,
-			RetryCount:               streamRetryCount,
-			LatencyMS:                latencyMS,
-			CreatedAt:                start.UTC(),
+			ID:                           uuid.NewString(),
+			TenantID:                     p.TenantID,
+			PrincipalID:                  p.PrincipalID,
+			PrincipalType:                p.PrincipalType,
+			TokenID:                      nullableText(p.TokenID),
+			APIDialect:                   DialectAnthropic,
+			Provider:                     &capturedTarget.Provider,
+			VirtualModelID:               nullableText(capturedTarget.VirtualModelID),
+			ModelID:                      capturedTarget.ModelID,
+			ModelFamily:                  nullableText(capturedTarget.ModelFamily),
+			RoutingStrategy:              &capturedStrategy,
+			PromptTokens:                 promptTokens,
+			CompletionTokens:             completionTokens,
+			TotalTokens:                  promptTokens + completionTokens + cacheReadTokens + cacheCreationTokens,
+			CacheReadInputTokens:         cacheReadTokens,
+			CacheCreationInputTokens:     cacheCreationTokens,
+			EstimatedCostUSD:             estimatedCost,
+			PriceUnknown:                 pricing.priceUnknown,
+			EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+			EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+			EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+			EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+			Status:                       UsageStatusSuccess,
+			RetryCount:                   streamRetryCount,
+			LatencyMS:                    latencyMS,
+			CreatedAt:                    start.UTC(),
 		}
 
-		if writeErr := s.usage.Create(writeCtx, rec); writeErr != nil {
+		if writeErr := s.writeUsage(writeCtx, rec); writeErr != nil {
 			s.logger.Error(writeCtx, "failed to write streaming anthropic usage record",
 				logging.Field{Key: "error", Value: writeErr.Error()},
 				logging.Field{Key: "usage_id", Value: rec.ID},
 			)
+		} else {
+			s.incrementSpend(writeCtx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 		}
 	}()
 

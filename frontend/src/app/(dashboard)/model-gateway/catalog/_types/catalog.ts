@@ -41,4 +41,23 @@ export interface ProviderModel {
   outputModalities: string[];
   dialects: string[];
   enabled: boolean;
+  pricing?: PricingEntry;
+}
+
+// Mirrors pricingEntryJSON in backend/internal/inferencegw/handlers_catalog.go.
+export interface PricingEntry {
+  provider: string;
+  model_id: string;
+  synced_input_cost_per_1m: number;
+  synced_output_cost_per_1m: number;
+  synced_cache_read_cost_per_1m: number;
+  synced_cache_write_cost_per_1m: number;
+  override_input_cost_per_1m: number | null;
+  override_output_cost_per_1m: number | null;
+  override_cache_read_cost_per_1m: number | null;
+  override_cache_write_cost_per_1m: number | null;
+  effective_input_cost_per_1m: number;
+  effective_output_cost_per_1m: number;
+  has_override: boolean;
+  last_synced_at: string; // RFC3339
 }

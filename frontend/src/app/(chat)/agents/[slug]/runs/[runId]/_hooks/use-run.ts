@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
   RunChatState,
   Turn,
@@ -95,6 +95,11 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
+  // Live run-usage meter. spentUsd/tokensUsed refresh as turns complete;
+  // perRunLimitUsd comes from the agent's grant and is fixed for the run.
+  const [spentUsd, setSpentUsd] = useState(0);
+  const [tokensUsed, setTokensUsed] = useState(0);
+  const [perRunLimitUsd, setPerRunLimitUsd] = useState<number | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   // Bumped to force the SSE effect to re-run on manual reconnect.
   const [reconnectKey, setReconnectKey] = useState(0);
@@ -110,7 +115,50 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // Tracks optimistically-added human messages so the echoed SSE event is skipped.
   const pendingHumanMessages = useRef<string[]>([]);
 
-  // Fetch initial run + agent type metadata.
+  // Refresh the live run-usage meter from the gateway (spend + tokens). Stable
+  // per runId so it can be called from both the mount effect and the SSE
+  // event handlers without re-subscribing the stream.
+  const loadUsage = useCallback(() => {
+    if (!runId) return;
+    void fetch(`/api/agents/runs/${runId}/usage`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { spend_usd?: number; total_tokens?: number } | null) => {
+        if (!body) return;
+        if (typeof body.spend_usd === 'number') setSpentUsd(body.spend_usd);
+        if (typeof body.total_tokens === 'number') setTokensUsed(body.total_tokens);
+      })
+      .catch(() => undefined);
+  }, [runId]);
+
+  // Throttled wrapper around loadUsage for the high-frequency stream events. A
+  // single agent turn spans many LLM calls (each tool cycle is its own gateway
+  // request that writes a usage row), so spend climbs at every call boundary —
+  // not just at turn end. The stream fires bursts of events (text deltas, a
+  // cluster of tool_use blocks) so we coalesce: refresh at most once per
+  // window, with a trailing call so the last burst is never dropped.
+  const usageRefreshRef = useRef<{ last: number; timer: ReturnType<typeof setTimeout> | null }>({
+    last: 0,
+    timer: null,
+  });
+  const scheduleUsageRefresh = useCallback(() => {
+    const MIN_INTERVAL_MS = 1500;
+    const t = usageRefreshRef.current;
+    const now = Date.now();
+    const wait = t.last + MIN_INTERVAL_MS - now;
+    if (wait <= 0) {
+      t.last = now;
+      loadUsage();
+    } else if (t.timer === null) {
+      t.timer = setTimeout(() => {
+        t.timer = null;
+        t.last = Date.now();
+        loadUsage();
+      }, wait);
+    }
+  }, [loadUsage]);
+
+  // Fetch initial run + agent type metadata, the per-run budget ceiling, and
+  // the opening usage snapshot.
   useEffect(() => {
     if (!runId) return;
     void fetch(`/api/agents/runs/${runId}`)
@@ -118,7 +166,11 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       .then(
         (body: {
           data?: { state: RunState };
-          agent_type?: { name?: string; model_id?: string };
+          agent_type?: {
+            name?: string;
+            model_id?: string;
+            budget?: { per_run_limit_usd?: number };
+          };
         }) => {
           if (body.data?.state) {
             setRunState(body.data.state);
@@ -126,11 +178,14 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           if (body.agent_type) {
             setAgentName(body.agent_type.name ?? 'Agent');
             setModel(body.agent_type.model_id ?? '');
+            const limit = body.agent_type.budget?.per_run_limit_usd;
+            setPerRunLimitUsd(typeof limit === 'number' && limit > 0 ? limit : null);
           }
         },
       )
       .catch(() => undefined);
-  }, [runId]);
+    loadUsage();
+  }, [runId, loadUsage]);
 
   // Subscribe to the SSE event stream for this run.
   useEffect(() => {
@@ -139,6 +194,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // The initial state is 'connecting'; reconnect() resets it before bumping
     // reconnectKey, so we don't need to setConnectionStatus here.
     const es = new EventSource(`/api/agents/runs/${runId}/events`);
+    // Capture the throttle state object for the cleanup below — the ref's
+    // .current is mutated but never reassigned, so this stays the live object.
+    const usageRefresh = usageRefreshRef.current;
 
     // EventSource auto-reconnects on transient drops using the Last-Event-ID
     // protocol. `onopen` fires both on first connect and on a successful
@@ -288,6 +346,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         },
       };
       updateInProgress((turn) => ({ ...turn, elements: [...turn.elements, toolEl] }), true);
+      // A tool_use block means the model just finished an LLM call (its usage
+      // row is now written) — refresh the meter so spend climbs mid-turn.
+      scheduleUsageRefresh();
     });
 
     es.addEventListener('tool_result', (e: MessageEvent) => {
@@ -354,6 +415,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       }
 
       flushInProgress();
+      // Turn complete — refresh the meter (throttled; the terminal/idle
+      // run_state handler does a final exact true-up).
+      scheduleUsageRefresh();
     });
 
     es.addEventListener('message_stop', () => {
@@ -366,8 +430,16 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       // Flush any in-progress turn when the run goes idle (e.g. after an interrupt).
       // This ensures the interrupted turn is committed before any follow-up human
       // message is appended, and clears the streaming/busy indicators.
-      if (payload.state === 'idle' || payload.state === 'completed' || payload.state === 'failed') {
+      if (
+        payload.state === 'idle' ||
+        payload.state === 'completed' ||
+        payload.state === 'failed' ||
+        payload.state === 'budget_exhausted'
+      ) {
         flushInProgress();
+        // Final true-up of the usage meter when the run settles (terminal or
+        // idle between turns) — catches any spend the last turn added.
+        loadUsage();
       }
       setRunState(payload.state);
     });
@@ -415,10 +487,16 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         cancelAnimationFrame(rafHandleRef.current);
         rafHandleRef.current = null;
       }
+      if (usageRefresh.timer !== null) {
+        clearTimeout(usageRefresh.timer);
+        usageRefresh.timer = null;
+      }
     };
     // reconnectKey is in the dep array so calling reconnect() (which bumps it)
-    // tears down the current EventSource and opens a fresh one.
-  }, [runId, reconnectKey]);
+    // tears down the current EventSource and opens a fresh one. loadUsage /
+    // scheduleUsageRefresh are stable per runId, so they never re-subscribe the
+    // stream on their own.
+  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh]);
 
   function reconnect(): void {
     // Clear accumulated turns before opening a fresh EventSource. The new
@@ -488,6 +566,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     isPending,
     isBusy: runState === 'starting' || runState === 'active',
     connectionStatus,
+    spentUsd,
+    perRunLimitUsd,
+    tokensUsed,
     contextFiles: [],
     canvasState,
     views: {},

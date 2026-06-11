@@ -315,6 +315,13 @@ export function DataTable<TData>({
     [columnDefs],
   );
 
+  // ── Stable row model factories ──────────────────────────────────────────────
+  // Called once via refs — never recreated per render.
+  const coreRowModelRef = React.useRef<ReturnType<typeof getCoreRowModel> | null>(null);
+  if (!coreRowModelRef.current) coreRowModelRef.current = getCoreRowModel();
+  const sortedRowModelRef = React.useRef<ReturnType<typeof getSortedRowModel> | null>(null);
+  if (!sortedRowModelRef.current) sortedRowModelRef.current = getSortedRowModel();
+
   // ── TanStack table instance ─────────────────────────────────────────────────
   // TanStack Table returns new function references each render by design; this is
   // a known React Compiler incompatibility accepted for `DataTable` only.
@@ -325,12 +332,10 @@ export function DataTable<TData>({
     state: { sorting, columnVisibility },
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    // Filtering is performed above in the pre-filter useMemo.
+    getCoreRowModel: coreRowModelRef.current,
+    getSortedRowModel: sortedRowModelRef.current,
     manualFiltering: true,
-    // Allow cycling back to unsorted state: null → asc → desc → null.
-    enableSortingRemoval: true,
+    enableSortingRemoval: false,
   });
 
   // ── Fast column-def lookup ──────────────────────────────────────────────────
@@ -341,18 +346,22 @@ export function DataTable<TData>({
     return m;
   }, [columnDefs]);
 
-  // ── Sort cycling: null → asc → desc → null ──────────────────────────────────
-
-  function handleSort(columnId: string) {
-    const col = table.getColumn(columnId);
-    if (!col) return;
-    const current = col.getIsSorted();
-    if (current === false)
-      col.toggleSorting(false); // → asc
-    else if (current === 'asc')
-      col.toggleSorting(true); // → desc
-    else col.clearSorting(); // → null
-  }
+  // ── Sort cycling: asc ↔ desc ───────────────────────────────────────────────
+  // Two-state toggle: asc on first click, desc on second, back to asc on third.
+  // No "null/unsorted" state: for most data sets the natural API order is the
+  // same as ascending, so the null state is visually indistinguishable from asc
+  // and reads as "the sort button is broken."
+  // Uses a functional setSorting update to avoid stale-closure issues.
+  const handleSort = React.useCallback(
+    (columnId: string) => {
+      setSorting((prev) => {
+        const existing = prev.find((s) => s.id === columnId);
+        if (!existing) return [{ id: columnId, desc: false }]; // unsorted → asc
+        return [{ id: columnId, desc: !existing.desc }]; // asc ↔ desc
+      });
+    },
+    [setSorting],
+  );
 
   // ── Client filter handlers ──────────────────────────────────────────────────
 

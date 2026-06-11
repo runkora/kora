@@ -348,7 +348,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	}
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
 
-	if to == RunStateCompleted || to == RunStateFailed {
+	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
 		run, err := s.repo.GetRun(ctx, runID)
 		if err != nil {
 			s.logger.Warn(ctx, "get run for sandbox cleanup failed",
