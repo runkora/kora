@@ -61,10 +61,22 @@ type InferenceUsageRepository interface {
 	// Rehydrates the per-run counter via the run_id column.
 	GetRunSpend(ctx context.Context, tenantID, runID string) (float64, error)
 
+	// GetRunUsage returns the total spend and token count recorded against a
+	// run, tenant-scoped. Powers the run chat usage meter (display only — the
+	// per-run counter remains the enforcement source). Returns zeros, no error,
+	// for a run with no recorded usage.
+	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
+
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
 	GetMonthlySpendByPrincipal(ctx context.Context, tenantID string, month time.Time) ([]PrincipalPeriodSpend, error)
+
+	// GetSpendByPrincipalSince returns principal ID → total spend from the
+	// given instant onward. Used to report true window spend for non-monthly
+	// budget windows in the budgets listing (PAT usage rows already attribute
+	// to the human principal at write time).
+	GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error)
 
 	// GetActiveRoleHolders returns principal ID → distinct OIDC role names for
 	// principals that made requests in the tenant since the given instant. The
@@ -719,6 +731,55 @@ func (r *PostgresInferenceUsageRepository) GetRunSpend(ctx context.Context, tena
 		return 0, fmt.Errorf("get run spend: %w", err)
 	}
 	return total, nil
+}
+
+// GetRunUsage returns the total spend and token count recorded against a run,
+// tenant-scoped. Single query so the run chat meter reads spend and tokens in
+// one round-trip.
+func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tenantID, runID string) (float64, int64, error) {
+	const q = `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0),
+		       COALESCE(SUM(total_tokens), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND run_id = $2`
+
+	var (
+		spend  float64
+		tokens int64
+	)
+	if err := r.pool.QueryRow(ctx, q, tenantID, runID).Scan(&spend, &tokens); err != nil {
+		return 0, 0, fmt.Errorf("get run usage: %w", err)
+	}
+	return spend, tokens, nil
+}
+
+// GetSpendByPrincipalSince returns principal ID → total spend from the given
+// instant onward, tenant-scoped.
+func (r *PostgresInferenceUsageRepository) GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error) {
+	const q = `
+		SELECT principal_id, COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND created_at >= $2
+		GROUP BY principal_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("get spend by principal since: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]float64)
+	for rows.Next() {
+		var pid string
+		var spend float64
+		if err := rows.Scan(&pid, &spend); err != nil {
+			return nil, fmt.Errorf("scan spend by principal: %w", err)
+		}
+		out[pid] = spend
+	}
+	return out, rows.Err()
 }
 
 // GetActiveRoleHolders returns principal ID → distinct roles for principals

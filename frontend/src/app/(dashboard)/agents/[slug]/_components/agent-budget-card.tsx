@@ -39,15 +39,9 @@ export function AgentBudgetCard({ budget, tenantCap }: AgentBudgetCardProps) {
             )}
 
             {windowCategories.map((cat) => {
-              // Monthly ceilings enforce against the principal's canonical
-              // monthly spend; the per-category attribution counter only
-              // accumulates from when the assignment was created. Weekly
-              // ceilings fall back to the attribution counter (best available
-              // in the listing).
-              const spend =
-                cat.reset_cadence === 'monthly'
-                  ? (budget?.current_spend_usd ?? cat.spend_usd)
-                  : cat.spend_usd;
+              // cat.spend_usd is the principal's canonical window spend — the
+              // same number enforcement evaluates (weekly and monthly alike).
+              const spend = cat.spend_usd;
               const pct = cat.limit_usd > 0 ? (spend / cat.limit_usd) * 100 : 0;
               const variant = spend >= cat.limit_usd ? 'error' : pct >= 80 ? 'degraded' : 'healthy';
               return (

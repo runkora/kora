@@ -589,9 +589,12 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 
 func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T) {
 	t.Parallel()
-	// An agent with only a WEEKLY grant budget ($20), exhausted ($20 attributed),
-	// and no usage row this month (so principal_type is unrecorded). It must be
-	// reported blocked with a non-zero effective limit and inferred type AGENT.
+	// An agent with only a WEEKLY grant budget ($20), exhausted per the usage
+	// log's ISO-week spend, and no usage row this month (so principal_type is
+	// unrecorded). It must be reported blocked with a non-zero effective limit
+	// and inferred type AGENT. The attribution counter is deliberately stale
+	// (zero) — weekly spend must come from the usage log, matching enforcement,
+	// so a freshly re-windowed assignment never reads as zero usage.
 	pid := "spiffe://orbit.test/tenant/t/agent/coder"
 	eval := &stubEvaluator{
 		allBudgets: map[string]policy.PrincipalBudget{
@@ -601,8 +604,10 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 			},
 		},
 	}
-	counter := &mockSpendCounter{categorySpends: []float64{20}} // weekly category fully spent
-	usage := &mockInferenceUsageRepository{}                    // no monthly spend row → type unrecorded
+	counter := &mockSpendCounter{categorySpends: []float64{0}} // stale attribution counter
+	usage := &mockInferenceUsageRepository{
+		windowSpends: map[string]float64{pid: 20}, // true ISO-week spend
+	}
 	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
 
 	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
@@ -618,6 +623,9 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	}
 	if !row.SpendLimitReached {
 		t.Error("weekly ceiling exhausted must report SpendLimitReached=true")
+	}
+	if len(row.Categories) != 1 || row.Categories[0].SpendUSD != 20 {
+		t.Errorf("weekly category = %+v, want spend_usd 20 from the usage log (not the stale counter)", row.Categories)
 	}
 	if row.PrincipalType != "AGENT" {
 		t.Errorf("principal type = %q, want AGENT (inferred from SPIFFE id)", row.PrincipalType)

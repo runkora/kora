@@ -226,6 +226,36 @@ func (c *Controller) handleGetPersonalBudget(w http.ResponseWriter, r *http.Requ
 	api.JSON(ctx, w, c.logger, http.StatusOK, status)
 }
 
+// handleGetRunUsage handles GET /v1/usage/run/{runID}.
+// Returns the spend and token total recorded against a single run, scoped to
+// the caller's verified tenant — powers the run chat usage meter. Any
+// authenticated caller in the tenant may read it (the run chat view is already
+// tenant-scoped); the query filters by the verified tenant, so a caller can
+// never read another tenant's run usage.
+func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	runID := r.PathValue("runID")
+	if runID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "run id is required", nil), nil)
+		return
+	}
+
+	usage, err := c.svc.GetRunUsage(ctx, claims.Orbit.TenantID, runID)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get run usage", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
+}
+
 // handleUsageStats handles GET /v1/usage/stats.
 // Returns per-PAT aggregates (request_count, last_used) for the authenticated principal.
 func (c *Controller) handleUsageStats(w http.ResponseWriter, r *http.Request) {

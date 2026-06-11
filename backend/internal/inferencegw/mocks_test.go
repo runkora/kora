@@ -31,7 +31,11 @@ type mockInferenceUsageRepository struct {
 	principalsResp    AnalyticsPrincipalsResponse
 	principalsErr     error
 	periodSpends      []PrincipalPeriodSpend
+	windowSpends      map[string]float64
 	activeRoleHolders map[string][]string
+	runSpend          float64
+	runTokens         int64
+	runUsageErr       error
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 }
@@ -127,8 +131,16 @@ func (m *mockInferenceUsageRepository) GetRunSpend(_ context.Context, _, _ strin
 	return 0, nil
 }
 
+func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ string) (float64, int64, error) {
+	return m.runSpend, m.runTokens, m.runUsageErr
+}
+
 func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
 	return m.periodSpends, nil
+}
+
+func (m *mockInferenceUsageRepository) GetSpendByPrincipalSince(_ context.Context, _ string, _ time.Time) (map[string]float64, error) {
+	return m.windowSpends, nil
 }
 
 func (m *mockInferenceUsageRepository) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {

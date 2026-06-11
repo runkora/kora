@@ -77,6 +77,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /models                List available models
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
+//	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
 //	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
@@ -90,6 +91,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage/budget", c.handleGetPersonalBudget)
+	mux.Handle("GET /usage/run/{runID}", c.handleGetRunUsage)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)
@@ -126,7 +128,12 @@ func inferenceErrorResponse(err error) *api.APIError {
 	case errors.Is(err, ErrTokenParseFailed):
 		return api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil)
 	case errors.Is(err, ErrBudgetExceeded):
-		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: "monthly budget exceeded", StatusCode: 429}
+		// 403, not 429: budget exhaustion is not transient — the ceiling holds
+		// until the window resets or an admin raises it. Agent runtimes
+		// (Claude Code, Codex, OpenCode) auto-retry 429 with minutes of
+		// backoff, leaving runs spinning on doomed calls; none retry 403, so
+		// the first rejection is final and the run can settle immediately.
+		return &api.APIError{Code: "BUDGET_EXCEEDED", Message: "budget exceeded — a spending ceiling for this principal or run has been reached", StatusCode: 403}
 	case errors.Is(err, ErrPolicyDenied):
 		return api.ForbiddenError("policy_denied", "access denied by policy", nil)
 	case errors.Is(err, ErrProviderNotConfigured):

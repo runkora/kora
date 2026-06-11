@@ -26,7 +26,13 @@ export async function fetchAgentDetailFromBFF(
       return { ok: false, status: 404, message: 'Agent not found' };
     }
 
-    const agent = toAgentTypeRow(found);
+    // The list endpoint does not enrich budget (one policy-service call per
+    // row); only the detail read carries the grant's budget. Fetch it so the
+    // settings form and overview show the configured budget. Best-effort —
+    // fall back to the list record if the detail read fails.
+    const detail = await client.get<AgentType>(`/api/v1/agent-types/${found.id}`).catch(() => null);
+
+    const agent = toAgentTypeRow(detail ?? found);
 
     const runsUpstream = await client.get<{ runs: Run[] }>(
       `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}`,

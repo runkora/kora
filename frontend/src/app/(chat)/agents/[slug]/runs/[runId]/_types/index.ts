@@ -132,4 +132,10 @@ export interface RunChatState {
   contextFiles: string[];
   canvasState: CanvasState;
   views: Record<string, CanvasView>;
+  /** Live USD spent on this run; grows as turns complete. */
+  spentUsd: number;
+  /** Per-run budget ceiling in USD (from the agent's grant); null when unset. */
+  perRunLimitUsd: number | null;
+  /** Total tokens consumed by this run so far. */
+  tokensUsed: number;
 }

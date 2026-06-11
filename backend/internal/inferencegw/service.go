@@ -906,6 +906,22 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 	return status, nil
 }
 
+// GetRunUsage returns the spend and token total recorded against a run for the
+// run chat usage meter, tenant-scoped. Display-only: it reads from the durable
+// usage log (the authoritative per-run record) rather than the enforcement
+// counter, so it stays correct after counter TTL expiry. Returns a zero-value
+// status (not an error) when no usage repository is configured.
+func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunUsage, error) {
+	if s.usage == nil {
+		return RunUsage{RunID: runID}, nil
+	}
+	spend, tokens, err := s.usage.GetRunUsage(ctx, tenantID, runID)
+	if err != nil {
+		return RunUsage{}, fmt.Errorf("get run usage: %w", err)
+	}
+	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
+}
+
 // ListBudgetPrincipals returns per-principal budget status for the tenant:
 // every principal with a budget assignment (grant budgets from the compiled
 // bundle, role budgets attributed via their active spend counters) plus every
@@ -952,6 +968,18 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 		return resp, fmt.Errorf("list budget principals: %w", err)
 	}
 
+	// True ISO-week spend per principal, so weekly categories report the same
+	// window spend enforcement evaluates — not the attribution counter, which
+	// starts at zero whenever an assignment (or its period key) is new and made
+	// a fresh weekly budget look like the principal's usage had been reset.
+	weeklySpendByPid, wkErr := s.usage.GetSpendByPrincipalSince(ctx, tenantID, periodStart("weekly", now))
+	if wkErr != nil {
+		s.logger.Warn(ctx, "budget.weekly_spend_unavailable",
+			logging.Field{Key: "error", Value: wkErr.Error()},
+		)
+		weeklySpendByPid = nil
+	}
+
 	// Active role-budget holders: which principals exercised which OIDC roles
 	// this period, read tenant-scoped from inference_usage.principal_roles.
 	// (The policy service can't resolve IDP role membership; the usage log is
@@ -986,7 +1014,7 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 
 	for pid := range pids {
 		cats := budgetCategoriesFor(pid, principalBudgets, roleHolders, roleBudgets)
-		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid]))
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid], weeklySpendByPid[pid]))
 	}
 
 	sortBudgetPrincipals(resp.Data)
@@ -1034,6 +1062,7 @@ func (s *Service) buildBudgetPrincipalRow(
 	pid string,
 	cats []policy.BudgetCategory,
 	sp PrincipalPeriodSpend,
+	weeklySpend float64,
 ) BudgetPrincipalStatus {
 	var catSpends []float64
 	if s.budgetCounter != nil && len(cats) > 0 {
@@ -1042,7 +1071,7 @@ func (s *Service) buildBudgetPrincipalRow(
 		}
 	}
 
-	catStatuses, effective, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD)
+	catStatuses, effective, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
 
 	row := BudgetPrincipalStatus{
 		PrincipalID:       pid,
@@ -1061,13 +1090,15 @@ func (s *Service) buildBudgetPrincipalRow(
 
 // summarizeBudgetCategories builds the per-category status rows and the
 // headline fields: effective (MAX per-member limit across all window cadences),
-// hasLimit, and reached (monthly canonical spend ≥ monthly limit, OR any
-// non-monthly per-member category's attributed spend ≥ its own limit).
-// catSpends is aligned to cats (attributed spend per category); monthlySpend is
-// the canonical month-to-date principal spend.
-func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend float64) (statuses []BudgetCategoryStatus, effective float64, hasLimit, reached bool) {
+// hasLimit, and reached (any per-member category's window spend ≥ its limit).
+//
+// Per-member category spend is the principal's canonical window spend
+// (monthlySpend / weeklySpend) — the same number enforcement evaluates — so a
+// freshly created or re-windowed assignment never reads as zero usage. Pooled
+// categories keep the attribution counter: it records the member's own
+// contribution to the shared pot (the pool's total lives on the role surface).
+func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend, weeklySpend float64) (statuses []BudgetCategoryStatus, effective float64, hasLimit, reached bool) {
 	statuses = make([]BudgetCategoryStatus, len(cats))
-	var monthlyLimit float64
 	for i, cat := range cats {
 		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
 			hasLimit = true
@@ -1083,6 +1114,13 @@ func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64
 		if i < len(catSpends) {
 			st.SpendUSD = catSpends[i]
 		}
+		if !cat.Pooled {
+			if cat.ResetCadence == "weekly" {
+				st.SpendUSD = weeklySpend
+			} else {
+				st.SpendUSD = monthlySpend
+			}
+		}
 		statuses[i] = st
 
 		if cat.Pooled {
@@ -1091,16 +1129,9 @@ func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64
 		if cat.LimitUSD > effective {
 			effective = cat.LimitUSD
 		}
-		if cat.ResetCadence == "monthly" {
-			if cat.LimitUSD > monthlyLimit {
-				monthlyLimit = cat.LimitUSD
-			}
-		} else if cat.LimitUSD > 0 && st.SpendUSD >= cat.LimitUSD {
-			reached = true // a non-monthly per-member ceiling is exhausted
+		if cat.LimitUSD > 0 && st.SpendUSD >= cat.LimitUSD {
+			reached = true // this per-member window ceiling is exhausted
 		}
-	}
-	if monthlyLimit > 0 && monthlySpend >= monthlyLimit {
-		reached = true
 	}
 	return statuses, effective, hasLimit, reached
 }

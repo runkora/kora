@@ -123,6 +123,10 @@ func (s *stubUsageRepo) GetRunSpend(_ context.Context, _, _ string) (float64, er
 	return s.runSpend, s.err
 }
 
+func (s *stubUsageRepo) GetRunUsage(_ context.Context, _, _ string) (float64, int64, error) {
+	return s.runSpend, 0, s.err
+}
+
 func (s *stubUsageRepo) Create(_ context.Context, _ InferenceUsageRecord) error { return nil }
 func (s *stubUsageRepo) List(_ context.Context, _ InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
 	return nil, false, nil
@@ -140,6 +144,9 @@ func (s *stubUsageRepo) ListPrincipalUsage(_ context.Context, _ AnalyticsPrincip
 	return AnalyticsPrincipalsResponse{}, nil
 }
 func (s *stubUsageRepo) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
+	return nil, nil
+}
+func (s *stubUsageRepo) GetSpendByPrincipalSince(_ context.Context, _ string, _ time.Time) (map[string]float64, error) {
 	return nil, nil
 }
 func (s *stubUsageRepo) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {

@@ -258,6 +258,10 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
+		// GET /v1/usage/run/{id} is the run chat usage meter — any authenticated
+		// caller in the tenant; spend is tenant-scoped in the query. More-specific
+		// than /v1/usage, so listed before it.
+		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 		// GET /v1/budgets/principals is the tenant-wide budget status listing.
 		// The platform:budgets:* scopes are declared by the policy-service.

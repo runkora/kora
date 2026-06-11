@@ -310,6 +310,16 @@ type BudgetStatus struct {
 	Ceilings          []BudgetCeilingStatus `json:"ceilings,omitempty"`
 }
 
+// RunUsage is the spend and token total recorded against a single agent run,
+// returned by GET /v1/usage/run/{runID} for the run chat usage meter. The
+// per-run budget ceiling is not included — the run view already holds it from
+// the agent's grant (agent_type.budget.per_run_limit_usd).
+type RunUsage struct {
+	RunID       string  `json:"run_id"`
+	SpendUSD    float64 `json:"spend_usd"`
+	TotalTokens int64   `json:"total_tokens"`
+}
+
 // BudgetCategoryStatus is a single budget assignment source with its attributed
 // spend for the current period. Part of the budgets principals listing.
 type BudgetCategoryStatus struct {

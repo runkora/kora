@@ -611,3 +611,52 @@ func TestHandleGetPersonalBudget_NilCounter(t *testing.T) {
 		t.Error("SpendLimitReached = true, want false (nil counter → no budget)")
 	}
 }
+
+// ── GET /usage/run/{runID} ─────────────────────────────────────────────────────
+
+func TestHandleGetRunUsage(t *testing.T) {
+	t.Parallel()
+	usage := newMockUsageRepo()
+	usage.runSpend = 1.25
+	usage.runTokens = 4096
+	svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
+	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
+	req.SetPathValue("runID", "run-123")
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
+	w := httptest.NewRecorder()
+	c.handleGetRunUsage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
+	}
+	var got RunUsage
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.RunID != "run-123" {
+		t.Errorf("RunID = %q, want run-123", got.RunID)
+	}
+	if got.SpendUSD != 1.25 {
+		t.Errorf("SpendUSD = %v, want 1.25", got.SpendUSD)
+	}
+	if got.TotalTokens != 4096 {
+		t.Errorf("TotalTokens = %v, want 4096", got.TotalTokens)
+	}
+}
+
+func TestHandleGetRunUsage_MissingClaims(t *testing.T) {
+	t.Parallel()
+	svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
+	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/run/run-123", nil)
+	req.SetPathValue("runID", "run-123")
+	w := httptest.NewRecorder()
+	c.handleGetRunUsage(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusUnauthorized, w.Body)
+	}
+}

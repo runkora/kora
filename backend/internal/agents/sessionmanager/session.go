@@ -285,11 +285,22 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig) {
 			}
 
 			// A budget_exhausted run_error marks the session so teardown
-			// transitions the run to budget_exhausted instead of failed.
+			// transitions the run to budget_exhausted instead of failed —
+			// and closes the session immediately: every further LLM call for
+			// this run will be rejected, so idling would strand the run. When
+			// the subprocess exits on its own after a budget error this just
+			// accelerates the same teardown.
 			if ev.Type == EventTypeRunError {
 				var p RunErrorPayload
 				if json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted" {
 					s.budgetExhausted.Store(true)
+					reg.persistAndPush(ctx, cfg.RunID, ev, eventRepo)
+					reg.logger.Info(ctx, "Session budget exhausted — closing",
+						logging.Field{Key: "run_id", Value: cfg.RunID},
+					)
+					s.cancel()
+					_ = s.runner.Close()
+					return
 				}
 			}
 

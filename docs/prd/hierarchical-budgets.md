@@ -127,7 +127,7 @@ A pool counter can only be rebuilt after a Redis loss if usage rows record which
 ### Agent control plane (orbit-agents + session-manager)
 
 - Session-manager runner sets the per-subprocess base-URL env with the `/run/{run_id}` path prefix (replacing the inherited pod-level value, same strip-and-replace pattern as `HOME`). Transparent to the agent runtime; sidecar token injection unchanged.
-- On `429 BUDGET_EXCEEDED` surfacing from the subprocess, emit `run_error` with code `budget_exhausted`; orbit-agents transitions the run to a terminal `budget_exhausted` state instead of `failed`.
+- On `BUDGET_EXCEEDED` (gateway 403 — non-retryable so runtimes fail fast instead of retry-storming) surfacing from the subprocess, emit `run_error` with code `budget_exhausted`; the session closes immediately and orbit-agents transitions the run to a terminal `budget_exhausted` state instead of `failed`.
 
 ### UI (Budgets page)
 

@@ -85,6 +85,7 @@ type ClaudeRunner struct {
 	textBuf           strings.Builder // accumulates text_delta chunks; reset per turn
 	thinkingBuf       strings.Builder // accumulates thinking_delta chunks; reset per turn
 	textBlockEmitted  bool            // true if ≥1 text_block was emitted this turn
+	budgetHit         bool            // true if a BUDGET_EXCEEDED rejection was seen this turn; reset per turn
 	capturedSessionID string          // set once from the system/init event
 	sessionIDMu       sync.Mutex      // protects capturedSessionID
 	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
@@ -392,6 +393,16 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 		if err := json.Unmarshal(line, &wrapper); err != nil {
 			continue
 		}
+		// Defense-in-depth: if a runtime ever retries the gateway's 403
+		// BUDGET_EXCEEDED (or surfaces it through a system event), sniff the
+		// raw line — handleResult uses the flag to classify the truncated
+		// turn as budget_exhausted instead of letting the session idle or
+		// fail. The primary detection path is the error result: 403 is
+		// non-retryable, so the runtime fails the turn immediately with the
+		// budget message in w.Result.
+		if wrapper.Type == "system" && isBudgetExceededMessage(string(line)) {
+			r.budgetHit = true
+		}
 		r.dispatch(ctx, wrapper)
 	}
 
@@ -448,6 +459,15 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 // A non-success result emits run_error unless the runner was explicitly interrupted,
 // in which case the error is suppressed because the runner will restart via --resume.
 func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) {
+	// Turn boundary: consume the budget flag set by the readLoop sniffer and
+	// fold in the result text — Claude Code reports a turn killed by the
+	// gateway's 403 BUDGET_EXCEEDED as subtype=success with the API error in
+	// w.Result ("API Error: 403 budget exceeded …"), so the result text is
+	// the primary signal. A turn that finishes naturally (end_turn) must not
+	// poison the next turn's classification.
+	budgetHit := r.budgetHit || isBudgetExceededMessage(w.Result)
+	r.budgetHit = false
+
 	if w.Subtype != "success" {
 		if r.interrupted.Load() {
 			return // SIGINT caused the non-success exit — runner will restart via --resume
@@ -463,12 +483,24 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 			logging.Field{Key: "result", Value: msg},
 		)
 		code := "claude_error"
-		if isBudgetExceededMessage(msg) {
-			// The inference gateway rejected the run's LLM calls with 429
+		if budgetHit || isBudgetExceededMessage(msg) {
+			// The inference gateway rejected the run's LLM calls with 403
 			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
 			code = "budget_exhausted"
 		}
 		r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
+		return
+	}
+
+	// Fallback: a runtime that swallowed budget rejections mid-turn and still
+	// reported the truncated turn as a success (stop_sequence or similar).
+	// Without this check the truncated turn looks complete and the session
+	// idles, stranding a run that can no longer make any LLM call.
+	if budgetHit && w.StopReason != "end_turn" {
+		if r.interrupted.Load() {
+			return // SIGINT mid-storm — runner restarts via --resume; next turn reclassifies
+		}
+		r.emitBudgetExhaustedTurn(ctx, w)
 		return
 	}
 
@@ -507,6 +539,32 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	r.thinkingBuf.Reset()
 	r.textBlockEmitted = false
 	r.emit(EventTypeMessageStop, nil)
+}
+
+// emitBudgetExhaustedTurn ends a budget-truncated turn: flushes any content the
+// turn produced before the rejections (so it survives in the transcript), then
+// emits run_error budget_exhausted. message_stop is deliberately NOT emitted —
+// it would arm the idle timer and the session must tear down instead (the
+// drain loop closes it on this run_error and transitions the run).
+func (r *ClaudeRunner) emitBudgetExhaustedTurn(ctx context.Context, w claudeOutputWrapper) {
+	r.cfg.Logger.Error(ctx, "Claude turn truncated by budget rejection",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "stop_reason", Value: w.StopReason},
+		logging.Field{Key: "text_len", Value: r.textBuf.Len()},
+	)
+	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{
+			Text:     r.textBuf.String(),
+			Thinking: r.thinkingBuf.String(),
+		})
+		r.textBuf.Reset()
+		r.thinkingBuf.Reset()
+		r.textBlockEmitted = false
+	}
+	r.emit(EventTypeRunError, RunErrorPayload{
+		Code:    "budget_exhausted",
+		Message: "The run's LLM calls were rejected with BUDGET_EXCEEDED — a budget ceiling was reached and the turn was cut short after retries.",
+	})
 }
 
 // handleStreamEvent accumulates text and thinking deltas for message_complete

@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { Stack, Text, Button, Badge, StatusDot } from '@orbit/terra';
+import { fmtUsd, fmtTokens } from '@orbit/utils';
 import { useRunContext } from '../_context/run-context';
 
 function OrbitalMark({ size = 9 }: { size?: number }) {
@@ -45,7 +46,18 @@ function CanvasIcon() {
 }
 
 export function RunTopbar() {
-  const { slug, agentName, model, runId, runState, canvasState, openCanvas } = useRunContext();
+  const {
+    slug,
+    agentName,
+    model,
+    runId,
+    runState,
+    canvasState,
+    openCanvas,
+    spentUsd,
+    perRunLimitUsd,
+    tokensUsed,
+  } = useRunContext();
 
   const canvasIsOpen = canvasState.isOpen;
   const hasCanvasTabs = canvasState.tabs.length > 0;
@@ -69,6 +81,20 @@ export function RunTopbar() {
         : runState === 'idle'
           ? 'degraded'
           : 'idle';
+
+  // Run usage meter. perRunLimitUsd is null when the agent has no per-run
+  // budget — then there is no ceiling to fill, so the bar is hidden and only
+  // the running spend/token totals show.
+  const limit = perRunLimitUsd;
+  const exhausted = runState === 'budget_exhausted';
+  const budgetPct = limit !== null && limit > 0 ? Math.min(100, (spentUsd / limit) * 100) : 0;
+  const overBudget = exhausted || (limit !== null && spentUsd >= limit);
+  const budgetBarColor = overBudget
+    ? 'var(--chat-error)'
+    : budgetPct >= 80
+      ? 'var(--chat-degraded)'
+      : 'var(--color-accent)';
+  const budgetTextColor = overBudget ? 'var(--chat-error)' : 'var(--color-subtle)';
 
   return (
     <Stack
@@ -148,31 +174,54 @@ export function RunTopbar() {
 
       <Stack grow />
 
-      {/* Context meter */}
+      {/* Run usage meter: spend vs per-run budget (when set) + token total */}
       <Stack direction="horizontal" align="center" style={{ gap: 7 }}>
-        <Stack
-          style={{
-            width: 52,
-            height: 2,
-            background: 'var(--color-border-subtle)',
-            borderRadius: 2,
-            overflow: 'hidden',
-          }}
-        >
-          <Stack
-            style={{
-              height: '100%',
-              width: '21%',
-              background: 'var(--color-accent)',
-              borderRadius: 2,
-            }}
-          />
-        </Stack>
+        {limit !== null ? (
+          <>
+            <Stack
+              style={{
+                width: 52,
+                height: 2,
+                background: 'var(--color-border-subtle)',
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}
+              title={`Run spend vs per-run budget — ${fmtUsd(spentUsd)} of ${fmtUsd(limit)}`}
+            >
+              <Stack
+                style={{
+                  height: '100%',
+                  width: `${budgetPct}%`,
+                  background: budgetBarColor,
+                  borderRadius: 2,
+                  transition: 'width 0.3s ease, background 0.3s ease',
+                }}
+              />
+            </Stack>
+            <Text
+              as="span"
+              style={{ fontSize: 12, color: budgetTextColor, fontFamily: 'var(--font-mono)' }}
+            >
+              {fmtUsd(spentUsd)} / {fmtUsd(limit)}
+            </Text>
+          </>
+        ) : (
+          spentUsd > 0 && (
+            <Text
+              as="span"
+              style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
+              title="Run spend"
+            >
+              {fmtUsd(spentUsd)}
+            </Text>
+          )
+        )}
         <Text
           as="span"
           style={{ fontSize: 12, color: 'var(--color-subtle)', fontFamily: 'var(--font-mono)' }}
+          title="Tokens used this run"
         >
-          42k
+          {tokensUsed > 0 ? `${fmtTokens(tokensUsed)} tok` : '—'}
         </Text>
       </Stack>
 

@@ -92,7 +92,9 @@ Deny rules (any):
 
 ### 7. Run lifecycle on exhaustion
 
-When the subprocess surfaces `BUDGET_EXCEEDED` (gateway 429), the runner emits `run_error` with code `budget_exhausted`; orbit-agents transitions the run to a new terminal state `budget_exhausted` (distinct from `failed` — the run did nothing wrong; its budget ended).
+When the subprocess surfaces `BUDGET_EXCEEDED` (gateway **403**), the runner emits `run_error` with code `budget_exhausted`; the session-manager closes the session immediately and orbit-agents transitions the run to a new terminal state `budget_exhausted` (distinct from `failed` — the run did nothing wrong; its budget ended).
+
+> **Why 403, not 429.** Budget exhaustion is not transient: the ceiling holds until the window resets or an admin raises it. Agent runtimes (Claude Code, Codex, OpenCode) auto-retry 429 with minutes of exponential backoff — observed live as a ~3-minute storm of doomed calls before the runtime gave up, sometimes reporting the truncated turn as a *success*, which left the run idle instead of `budget_exhausted`. None of the runtimes retry 403, so the first rejection is final: the turn fails immediately with the budget message in the error result, and classification is deterministic.
 
 ---
 

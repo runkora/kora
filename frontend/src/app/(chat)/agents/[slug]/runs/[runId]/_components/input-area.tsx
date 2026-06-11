@@ -180,11 +180,13 @@ export function InputArea() {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              isEnded
-                ? `${agentName} run has ended`
-                : isBusy
-                  ? `${agentName} is thinking…`
-                  : `Reply to ${agentName}…`
+              runState === 'budget_exhausted'
+                ? `${agentName} run stopped — budget exhausted`
+                : isEnded
+                  ? `${agentName} run has ended`
+                  : isBusy
+                    ? `${agentName} is thinking…`
+                    : `Reply to ${agentName}…`
             }
             disabled={isDisabled}
             rows={2}
