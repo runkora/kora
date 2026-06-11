@@ -22,11 +22,17 @@ import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
+import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 import { AgentRunsTab } from './agent-runs-tab';
 import { AgentSettingsTab } from './agent-settings-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
-export function AgentDetailPage() {
+interface AgentDetailPageProps {
+  budget: BudgetPrincipalStatus | null;
+  tenantCap: TenantCapStatus | null;
+}
+
+export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
   const { agent, status, error, deleteAgent } = useAgentDetailContext();
   const router = useRouter();
 
@@ -180,7 +186,7 @@ export function AgentDetailPage() {
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <AgentOverviewTab />
+          <AgentOverviewTab budget={budget} tenantCap={tenantCap} />
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />

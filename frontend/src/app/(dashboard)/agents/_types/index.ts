@@ -3,7 +3,7 @@
 // AgentTypeRow and RunRow are the shapes consumed by all UI components.
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
-import type { AgentType, Run, AgentTypeState, RunState } from '@orbit/shared/api';
+import type { AgentType, AgentBudget, Run, AgentTypeState, RunState } from '@orbit/shared/api';
 
 export type { AgentTypeState, RunState };
 
@@ -25,6 +25,8 @@ export interface AgentTypeRow {
   updatedAt: string;
   /** Model identifier, e.g. "anthropic/claude-sonnet-4-6". */
   modelId: string;
+  /** Budget on the agent's policy grant (present on detail reads when configured). */
+  budget: AgentBudget | null;
 }
 
 export interface RunRow {
@@ -69,6 +71,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     createdAt: a.created_at,
     updatedAt: a.updated_at,
     modelId: a.model_id ?? 'anthropic/claude-sonnet-4-6',
+    budget: a.budget ?? null,
   };
 }
 

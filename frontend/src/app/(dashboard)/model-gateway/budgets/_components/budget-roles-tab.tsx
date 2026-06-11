@@ -16,7 +16,7 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtUsd } from '@orbit/utils';
+import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { upsertRoleAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
@@ -57,14 +57,22 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       },
       {
         id: 'budget',
-        header: 'Monthly Budget',
+        header: 'Budget',
         sortable: true,
-        sortAccessor: (r) => r.budget?.monthly_limit_usd ?? 0,
+        sortAccessor: (r) => r.budget?.limit_usd ?? 0,
         cell: (r) =>
           r.budget ? (
-            <Text size="caption" mono>
-              {fmtUsd(r.budget.monthly_limit_usd)}/mo
-            </Text>
+            <Stack direction="horizontal" align="center" gap="tight">
+              <Text size="caption" mono>
+                {fmtUsd(r.budget.limit_usd ?? 0)}
+                {fmtWindowSuffix(r.budget.reset_cadence)}
+              </Text>
+              {r.budget.pooled && (
+                <Badge variant="elevated" size="sm">
+                  pool
+                </Badge>
+              )}
+            </Stack>
           ) : (
             <Text size="caption" color="subtle">
               —
@@ -110,7 +118,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
     <Stack gap="comfortable">
       <PageSectionHeader
         title="Role Budgets"
-        description="Monthly limits carried by OIDC roles. Applies to every principal asserting the role."
+        description="Weekly or monthly limits carried by OIDC roles — per-member allowances or shared pools."
       />
 
       <Callout>
@@ -137,6 +145,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         <BudgetEditModal
           key={editing.id}
           open
+          kind="role"
           subject={editing.role}
           initialBudget={editing.budget}
           onClose={() => setEditing(null)}

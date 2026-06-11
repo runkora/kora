@@ -3,19 +3,26 @@
 
 import { Alert, Icon, Stack, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@orbit/terra';
 import type { Grant, RoleEntry } from '../../../policy/_types/api';
-import type { BudgetPrincipalsResponse } from '../../_types';
+import type { BudgetPrincipalsView, PrincipalIdentity } from '../../_types';
 import { BudgetPrincipalsTab } from './budget-principals-tab';
 import { BudgetRolesTab } from './budget-roles-tab';
 import { BudgetGrantsTab } from './budget-grants-tab';
 
 interface BudgetsShellProps {
-  principals: BudgetPrincipalsResponse | null;
+  principals: BudgetPrincipalsView | null;
   roles: RoleEntry[];
   grants: Grant[];
+  identities: Record<string, PrincipalIdentity>;
   initialError: string | null;
 }
 
-export function BudgetsShell({ principals, roles, grants, initialError }: BudgetsShellProps) {
+export function BudgetsShell({
+  principals,
+  roles,
+  grants,
+  identities,
+  initialError,
+}: BudgetsShellProps) {
   return (
     <Stack gap="comfortable">
       {initialError && (
@@ -43,7 +50,7 @@ export function BudgetsShell({ principals, roles, grants, initialError }: Budget
         </TabsContent>
 
         <TabsContent value="grants">
-          <BudgetGrantsTab grants={grants} />
+          <BudgetGrantsTab grants={grants} identities={identities} />
         </TabsContent>
       </Tabs>
     </Stack>

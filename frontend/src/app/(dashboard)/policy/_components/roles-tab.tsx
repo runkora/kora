@@ -17,6 +17,7 @@ import {
   Input,
   Modal,
   ModalBody,
+  NativeSelect,
   ModalFooter,
   ModalHeader,
   Stack,
@@ -28,7 +29,7 @@ import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate } from '@orbit/utils';
+import { fmtDate, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChip } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
@@ -277,7 +278,9 @@ function RoleCardGrid({
                 </Text>
                 {role.budget && (
                   <Text size="caption" color="muted">
-                    ${role.budget.monthly_limit_usd.toFixed(2)}/mo
+                    ${(role.budget.limit_usd ?? 0).toFixed(2)}
+                    {fmtWindowSuffix(role.budget.reset_cadence)}
+                    {role.budget.pooled ? ' · pool' : ''}
                   </Text>
                 )}
               </Stack>
@@ -372,7 +375,9 @@ function RoleTable({
         cell: (r) =>
           r.budget ? (
             <Text size="caption" color="muted">
-              ${r.budget.monthly_limit_usd.toFixed(2)}/mo
+              ${(r.budget.limit_usd ?? 0).toFixed(2)}
+              {fmtWindowSuffix(r.budget.reset_cadence)}
+              {r.budget.pooled ? ' · pool' : ''}
             </Text>
           ) : (
             <Text size="caption" color="subtle">
@@ -478,9 +483,11 @@ function UpsertRoleModal({
   const [selectedScopes, setSelectedScopes] = useState<string[]>([...(editingRole?.scopes ?? [])]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [budgetEnabled, setBudgetEnabled] = useState(!!editingRole?.budget);
-  const [monthlyLimitUSD, setMonthlyLimitUSD] = useState(
-    editingRole?.budget ? String(editingRole.budget.monthly_limit_usd) : '',
+  const [limitUSD, setLimitUSD] = useState(
+    editingRole?.budget?.limit_usd ? String(editingRole.budget.limit_usd) : '',
   );
+  const [cadence, setCadence] = useState(editingRole?.budget?.reset_cadence ?? 'monthly');
+  const [pooled, setPooled] = useState(editingRole?.budget?.pooled ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -489,8 +496,8 @@ function UpsertRoleModal({
     setSubmitting(true);
     setSubmitError(null);
     const budget =
-      budgetEnabled && monthlyLimitUSD
-        ? { monthly_limit_usd: parseFloat(monthlyLimitUSD), reset_cadence: 'monthly' }
+      budgetEnabled && limitUSD
+        ? { limit_usd: parseFloat(limitUSD), reset_cadence: cadence, pooled }
         : null;
     const result = await upsertRoleAction({
       role: roleName,
@@ -503,7 +510,7 @@ function UpsertRoleModal({
       setSubmitError(result.message);
     }
     setSubmitting(false);
-  }, [roleName, selectedScopes, budgetEnabled, monthlyLimitUSD, onSaved]);
+  }, [roleName, selectedScopes, budgetEnabled, limitUSD, cadence, pooled, onSaved]);
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -556,7 +563,7 @@ function UpsertRoleModal({
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <Text size="caption" weight="emphasis">
-                Monthly Budget
+                Budget
               </Text>
               <Button
                 variant={budgetEnabled ? 'default' : 'outline'}
@@ -567,19 +574,42 @@ function UpsertRoleModal({
               </Button>
             </Stack>
             {budgetEnabled && (
-              <Stack direction="horizontal" align="center" gap="snug">
-                <Text size="caption" color="muted">
-                  $
-                </Text>
-                <Input
-                  type="number"
-                  placeholder="e.g. 50"
-                  value={monthlyLimitUSD}
-                  onChange={(e) => setMonthlyLimitUSD(e.target.value)}
-                />
-                <Text size="caption" color="muted">
-                  / month
-                </Text>
+              <Stack gap="snug">
+                <Stack direction="horizontal" align="center" gap="snug">
+                  <Text size="caption" color="muted">
+                    $
+                  </Text>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 50"
+                    value={limitUSD}
+                    onChange={(e) => setLimitUSD(e.target.value)}
+                  />
+                  <Stack minWidth="form-field-sm">
+                    <NativeSelect
+                      value={cadence}
+                      onChange={(e) => setCadence(e.target.value)}
+                      aria-label="Reset window"
+                    >
+                      <option value="monthly">per month</option>
+                      <option value="weekly">per week</option>
+                    </NativeSelect>
+                  </Stack>
+                </Stack>
+                <Stack direction="horizontal" align="center" justify="between">
+                  <Text size="caption" color="muted">
+                    {pooled
+                      ? 'Pooled: one shared pot for all members.'
+                      : 'Per member: each principal with this role gets this limit.'}
+                  </Text>
+                  <Button
+                    variant={pooled ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPooled((v) => !v)}
+                  >
+                    {pooled ? 'Pooled' : 'Per member'}
+                  </Button>
+                </Stack>
               </Stack>
             )}
           </Stack>

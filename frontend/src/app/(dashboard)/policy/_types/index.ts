@@ -5,6 +5,8 @@
 
 export type {
   PrincipalType,
+  BudgetAssignment,
+  TenantBudget,
   Grant,
   GrantsListResponse,
   CreateGrantRequest,

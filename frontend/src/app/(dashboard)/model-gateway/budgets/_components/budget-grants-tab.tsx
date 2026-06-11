@@ -16,16 +16,19 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtUsd } from '@orbit/utils';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { updateGrantBudgetAction } from '../../../policy/_actions/grants';
 import type { Grant } from '../../../policy/_types/api';
+import type { PrincipalIdentity } from '../../_types';
 import { BudgetEditModal } from './budget-edit-modal';
+import { principalDisplay } from './principal-display';
 
 interface BudgetGrantsTabProps {
   grants: Grant[];
+  identities: Record<string, PrincipalIdentity>;
 }
 
-export function BudgetGrantsTab({ grants }: BudgetGrantsTabProps) {
+export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
   const router = useRouter();
   const { scopes: sessionScopes } = usePermissions();
   const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
@@ -38,27 +41,49 @@ export function BudgetGrantsTab({ grants }: BudgetGrantsTabProps) {
         header: 'Principal',
         locked: true,
         sortable: true,
-        sortAccessor: (g) => g.principal_id,
-        cell: (g) => (
-          <Stack direction="horizontal" align="center" gap="tight">
-            <Text size="caption" mono weight="emphasis">
-              {g.principal_id}
-            </Text>
-            <Badge variant="secondary" size="sm">
-              {g.principal_type.toLowerCase()}
-            </Badge>
-          </Stack>
-        ),
+        sortAccessor: (g) =>
+          principalDisplay(g.principal_id, g.principal_type, identities[g.principal_id]).primary,
+        cell: (g) => {
+          const display = principalDisplay(
+            g.principal_id,
+            g.principal_type,
+            identities[g.principal_id],
+          );
+          return (
+            <Stack gap="tight">
+              <Stack direction="horizontal" align="center" gap="tight">
+                <Text size="caption" weight="emphasis">
+                  {display.primary}
+                </Text>
+                <Badge variant="secondary" size="sm">
+                  {g.principal_type.toLowerCase()}
+                </Badge>
+              </Stack>
+              {display.secondary && (
+                <Text size="caption" color="subtle" mono>
+                  {display.secondary}
+                </Text>
+              )}
+            </Stack>
+          );
+        },
       },
       {
         id: 'budget',
-        header: 'Monthly Budget',
+        header: 'Budget',
         sortable: true,
-        sortAccessor: (g) => g.budget?.monthly_limit_usd ?? 0,
+        sortAccessor: (g) => g.budget?.limit_usd ?? 0,
         cell: (g) =>
           g.budget ? (
             <Text size="caption" mono>
-              {fmtUsd(g.budget.monthly_limit_usd)}/mo
+              {[
+                g.budget.limit_usd
+                  ? `${fmtUsd(g.budget.limit_usd)}${fmtWindowSuffix(g.budget.reset_cadence)}`
+                  : null,
+                g.budget.per_run_limit_usd ? `${fmtUsd(g.budget.per_run_limit_usd)}/run` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
           ) : (
             <Text size="caption" color="subtle">
@@ -109,14 +134,14 @@ export function BudgetGrantsTab({ grants }: BudgetGrantsTabProps) {
         },
       },
     ],
-    [canWrite],
+    [canWrite, identities],
   );
 
   return (
     <Stack gap="comfortable">
       <PageSectionHeader
         title="Grant Budgets"
-        description="Monthly limits carried by individual grants — humans, agents, and services."
+        description="Window and per-run limits carried by individual grants — humans, agents, and services."
       />
 
       <Callout>
@@ -132,9 +157,18 @@ export function BudgetGrantsTab({ grants }: BudgetGrantsTabProps) {
         getRowKey={(g) => g.id}
         noun="grants"
         searchPlaceholder="Search principals…"
-        searchFn={(g, q) =>
-          g.principal_id.toLowerCase().includes(q) || g.principal_type.toLowerCase().includes(q)
-        }
+        searchFn={(g, q) => {
+          const display = principalDisplay(
+            g.principal_id,
+            g.principal_type,
+            identities[g.principal_id],
+          );
+          return (
+            g.principal_id.toLowerCase().includes(q) ||
+            display.primary.toLowerCase().includes(q) ||
+            g.principal_type.toLowerCase().includes(q)
+          );
+        }}
         defaultSortId="budget"
         defaultSortDir="desc"
         emptyMessage="No grants configured. Create grants on the Policy → Grants page."
@@ -145,7 +179,14 @@ export function BudgetGrantsTab({ grants }: BudgetGrantsTabProps) {
         <BudgetEditModal
           key={editing.id}
           open
-          subject={editing.principal_id}
+          kind="grant"
+          subject={
+            principalDisplay(
+              editing.principal_id,
+              editing.principal_type,
+              identities[editing.principal_id],
+            ).primary
+          }
           initialBudget={editing.budget}
           onClose={() => setEditing(null)}
           onSave={async (budget) => {

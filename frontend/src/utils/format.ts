@@ -153,8 +153,16 @@ export function fmtTokens(n: number): string {
  * Use for period/monthly/quarterly totals where sub-cent precision is not
  * meaningful. For per-request micro-costs use fmtCost instead.
  */
-export function fmtUsd(usd: number): string {
+export function fmtUsd(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined || Number.isNaN(usd)) return '—';
   return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Suffix for a budget reset window: "weekly" → "/wk", anything else → "/mo".
+ */
+export function fmtWindowSuffix(cadence: string): string {
+  return cadence === 'weekly' ? '/wk' : '/mo';
 }
 
 // ── Expiry check ──────────────────────────────────────────────────────────────

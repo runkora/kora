@@ -7,8 +7,21 @@
 // ── Budget ───────────────────────────────────────────────────────────────────
 
 export interface BudgetAssignment {
-  monthly_limit_usd: number;
+  /** Per-window ceiling in USD. Omitted/0 on per-run-only grant budgets. */
+  limit_usd?: number;
+  /** "weekly" or "monthly". */
   reset_cadence: string;
+  /** Roles only: true = one shared pot for all members; false = per-member. */
+  pooled?: boolean;
+  /** Grants only: windowless per-run ceiling for agent runs. */
+  per_run_limit_usd?: number;
+}
+
+export interface TenantBudget {
+  tenant_id: string;
+  limit_usd: number;
+  reset_cadence: string;
+  updated_at?: string;
 }
 
 // ── Grants ───────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import type {
   GrantsListResponse,
   Grant,
   BudgetAssignment,
+  TenantBudget,
   CreateGrantRequest,
   RolesListResponse,
   RoleEntry,
@@ -167,6 +168,41 @@ export async function updateGrantBudget(
     method: 'PATCH',
     body: JSON.stringify({ budget }),
   });
+}
+
+export async function fetchTenantBudget(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<TenantBudget>> {
+  return policyServiceFetch(
+    `/tenant-budget?tenant_id=${encodeURIComponent(tenantId)}`,
+    accessToken,
+  );
+}
+
+export async function upsertTenantBudget(
+  accessToken: string,
+  tenantId: string,
+  limitUsd: number,
+  resetCadence: string,
+): Promise<Result<TenantBudget>> {
+  return policyServiceFetch('/tenant-budget', accessToken, {
+    method: 'PUT',
+    body: JSON.stringify({ tenant_id: tenantId, limit_usd: limitUsd, reset_cadence: resetCadence }),
+  });
+}
+
+export async function deleteTenantBudget(
+  accessToken: string,
+  tenantId: string,
+): Promise<Result<void>> {
+  return policyServiceFetch(
+    `/tenant-budget?tenant_id=${encodeURIComponent(tenantId)}`,
+    accessToken,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 export async function fetchRoles(

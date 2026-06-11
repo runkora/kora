@@ -62,7 +62,7 @@ export function RunTopbar() {
 
   const isLive = runState === 'active' || runState === 'starting' || runState === 'completing';
   const dotStatus =
-    runState === 'failed'
+    runState === 'failed' || runState === 'budget_exhausted'
       ? 'error'
       : isLive
         ? 'healthy'

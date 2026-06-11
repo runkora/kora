@@ -9,7 +9,8 @@ export type RunState =
   | 'idle'
   | 'completing'
   | 'completed'
-  | 'failed';
+  | 'failed'
+  | 'budget_exhausted';
 
 export type ToolIconName =
   | 'square-terminal'

@@ -15,18 +15,37 @@ import {
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
-import { fmtDate, fmtUsd } from '@orbit/utils';
-import type { BudgetPrincipalStatus, BudgetPrincipalsResponse } from '../../_types';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
+import { TenantCapCard } from './tenant-cap-card';
+import { principalDisplay } from './principal-display';
 
 const NEAR_LIMIT_THRESHOLD = 0.8;
 
-function utilisation(p: BudgetPrincipalStatus): number {
+function utilisation(p: BudgetPrincipalRow): number {
   if (!p.has_limit || p.effective_limit_usd <= 0) return 0;
   return p.current_spend_usd / p.effective_limit_usd;
 }
 
+// chipLabel renders one budget source: "role:eng · $12.00 / $50.00/wk · pool".
+function chipLabel(cat: BudgetCategoryStatus): string {
+  const parts = [`${cat.source}:${cat.id}`];
+  if (cat.limit_usd > 0) {
+    parts.push(
+      `${fmtUsd(cat.spend_usd)} / ${fmtUsd(cat.limit_usd)}${fmtWindowSuffix(cat.reset_cadence)}`,
+    );
+  }
+  if (cat.per_run_limit_usd) {
+    parts.push(`${fmtUsd(cat.per_run_limit_usd)}/run`);
+  }
+  if (cat.pooled) {
+    parts.push('pool');
+  }
+  return parts.join(' · ');
+}
+
 interface BudgetPrincipalsTabProps {
-  principals: BudgetPrincipalsResponse | null;
+  principals: BudgetPrincipalsView | null;
 }
 
 export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
@@ -44,26 +63,36 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
     };
   }, [rows]);
 
-  const columns = useMemo<DataTableColumn<BudgetPrincipalStatus>[]>(
+  const columns = useMemo<DataTableColumn<BudgetPrincipalRow>[]>(
     () => [
       {
         id: 'principal',
         header: 'Principal',
         locked: true,
         sortable: true,
-        sortAccessor: (p) => p.principal_id,
-        cell: (p) => (
-          <Stack direction="horizontal" align="center" gap="tight">
-            <Text size="caption" mono weight="emphasis">
-              {p.principal_id}
-            </Text>
-            {p.principal_type && (
-              <Badge variant="secondary" size="sm">
-                {p.principal_type.toLowerCase()}
-              </Badge>
-            )}
-          </Stack>
-        ),
+        sortAccessor: (p) => principalDisplay(p.principal_id, p.principal_type, p).primary,
+        cell: (p) => {
+          const display = principalDisplay(p.principal_id, p.principal_type, p);
+          return (
+            <Stack gap="tight">
+              <Stack direction="horizontal" align="center" gap="tight">
+                <Text size="caption" weight="emphasis">
+                  {display.primary}
+                </Text>
+                {p.principal_type && (
+                  <Badge variant="secondary" size="sm">
+                    {p.principal_type.toLowerCase()}
+                  </Badge>
+                )}
+              </Stack>
+              {display.secondary && (
+                <Text size="caption" color="subtle" mono>
+                  {display.secondary}
+                </Text>
+              )}
+            </Stack>
+          );
+        },
       },
       {
         id: 'sources',
@@ -73,7 +102,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
             <Stack direction="horizontal" gap="tight" wrap>
               {p.categories.map((cat) => (
                 <Badge key={`${cat.source}:${cat.id}`} variant="elevated" size="sm">
-                  {cat.source}:{cat.id} · {fmtUsd(cat.spend_usd)} / {fmtUsd(cat.monthly_limit_usd)}
+                  {chipLabel(cat)}
                 </Badge>
               ))}
             </Stack>
@@ -182,6 +211,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         description={`Spend against budget for the current period${principals ? ` (${principals.period})` : ''}.`}
       />
 
+      <TenantCapCard cap={principals?.tenant_cap ?? null} />
+
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
         <MetricCard
           icon={<Icon name="dollar-sign" />}
@@ -224,6 +255,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
           searchPlaceholder="Search principals…"
           searchFn={(p, q) =>
             p.principal_id.toLowerCase().includes(q) ||
+            (p.display_name?.toLowerCase().includes(q) ?? false) ||
+            (p.email?.toLowerCase().includes(q) ?? false) ||
             p.categories.some((c) => c.id.toLowerCase().includes(q))
           }
           defaultSortId="utilisation"
