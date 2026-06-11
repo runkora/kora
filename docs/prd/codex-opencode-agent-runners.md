@@ -57,7 +57,6 @@ Additionally, `CreateSessionRequest` does not carry the framework value at all. 
 ### Non-Goals
 
 - Human-in-the-loop (HITL) tool results for Codex or OpenCode — neither framework supports pausing for user input mid-turn.
-- Workspace resume for Codex or OpenCode (scoped to future work, same as Claude Code).
 - OpenCode per-turn CLI mode (`opencode run --format json`) — ACP mode is implemented; the per-turn mode is not needed.
 - Codex WebSocket transport and advanced memory features — these are explicitly marked experimental in the Codex codebase; the runner uses stdio or Unix socket transport only.
 - Changes to the agent type definition UI or API — framework selection already works; this PRD is the backend execution layer.
@@ -138,7 +137,7 @@ This model is structurally identical to Claude Code's: one long-lived process pe
 
 #### LLM Routing via the Responses API
 
-Codex routes all outbound LLM calls through the OpenAI Responses API (`POST /v1/responses`). The Orbit inference gateway already supports the Responses API via `DialectResponses` (ADR-0045). Routing Codex through the gateway requires a single environment variable:
+Codex routes all outbound LLM calls through the OpenAI Responses API (`POST /v1/responses`). The Orbit inference gateway already supports the Responses API via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Routing Codex through the gateway requires a single environment variable:
 
 ```
 OPENAI_BASE_URL=http://inference-gateway.orbit-system.svc.cluster.local
@@ -408,7 +407,7 @@ All binary paths default to the binary name (resolved via `PATH`) so local devel
 
 ### Container Image Changes
 
-The session-manager container image (`node:22-alpine` base per ADR-0049) requires both binaries to be available at runtime.
+The session-manager container image (`node:22-alpine` base per [agent-cli-framework-and-transform-layer](../adr/2026-05-11-agent-cli-framework-and-transform-layer.md)) requires both binaries to be available at runtime.
 
 **Codex:**  
 Codex ships musl-only Linux binaries (`codex-x86_64-unknown-linux-musl`, `codex-aarch64-unknown-linux-musl`) — there is no glibc variant. These are statically linked and run on Alpine without modification. The binary is downloaded directly from the GitHub release assets and copied into the image.
@@ -427,7 +426,7 @@ A single container image can support all three frameworks, which keeps the State
 - `runner_codex.go` — persistent app-server runner for Codex with JSON-RPC 2.0 streaming
 - `runner_opencode.go` — ACP stdio runner for OpenCode with JSON-RPC 2.0 streaming
 - Framework dispatch in `handleCreateSession`
-- `Framework` field added to `CreateSessionRequest` in both the sessionmanager client package and the sessionmanager server package (two independent structs — see ADR-0061)
+- `Framework` field added to `CreateSessionRequest` in both the sessionmanager client package and the sessionmanager server package (two independent structs — see [codex-agent-runner](../adr/2026-06-04-codex-agent-runner.md))
 - `at.Framework` propagated from `agents/service.go` into `CreateSessionRequest`
 - `CodexBinaryPath`, `CodexDefaultModel`, `OpenCodeBinaryPath`, `OpenCodeDefaultModel`, and `InferenceGatewayURL` added to `ControllerConfig`
 - Container image updated to include both binaries
@@ -437,7 +436,6 @@ A single container image can support all three frameworks, which keeps the State
 
 - Changes to run_events schema, SSE relay, or frontend event rendering
 - Human-in-the-loop tool results for either framework
-- Workspace resume (deferred, same as Claude Code)
 - OpenCode per-turn CLI mode (`opencode run --format json`)
 - Agent type definition UI or API changes
 - Codex structured output (`--output-schema`) support
@@ -551,7 +549,7 @@ All questions have been resolved. No open questions remain.
 | OQ-4 | Does Codex ship a musl-linked static binary compatible with Alpine? | Yes. Codex ships musl-only Linux binaries (`x86_64` and `aarch64`). No glibc variant exists. No base image change required. |
 | OQ-5 | Exact JSONL method/notification names for `codex app-server`; readiness signal | Handshake: `initialize` request/response. Turn start: `turn/start`. Text delta: `item/agentMessage/delta`. Reasoning: `item/reasoning/textDelta`. Turn complete: `turn/completed`. Failures: `error` notification (no `turn/failed`). Approval: `item/commandExecution/requestApproval` (runner auto-approves). |
 | OQ-6 | What environment variable routes OpenCode's LLM calls through the inference gateway? | No env var — must write `opencode.json` config file with `provider.{name}.options.baseURL`. The runner writes the URL directly from `OpenCodeRunnerConfig.InferenceGatewayURL` (no `${ENV_VAR}` template expansion needed). Runner returns error if `InferenceGatewayURL` is empty. |
-| ~~OQ-original~~ | What environment variable routes Codex's LLM calls through the inference gateway? | `OPENAI_BASE_URL` — Codex's `codex-api` crate uses this to override `POST /v1/responses` target. Inference gateway handles Responses API via `DialectResponses` (ADR-0045). No gateway changes required. |
+| ~~OQ-original~~ | What environment variable routes Codex's LLM calls through the inference gateway? | `OPENAI_BASE_URL` — Codex's `codex-api` crate uses this to override `POST /v1/responses` target. Inference gateway handles Responses API via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). No gateway changes required. |
 
 ---
 
@@ -654,9 +652,9 @@ All questions have been resolved. No open questions remain.
 ### Related Documents
 
 - [Agent Control Plane PRD](./agent-control-plane.md) — parent PRD; this work delivers Phase 4 of that document
-- [ADR-0045](../adr/0045-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing via `OPENAI_BASE_URL`
-- [ADR-0049](../adr/0049-agent-cli-framework-and-transform-layer.md) — transform layer interface and Claude Code subprocess model
-- [ADR-0054](../adr/0054-agent-event-streaming-protocol.md) — Orbit standard event format consumed by the frontend
+- [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing via `OPENAI_BASE_URL`
+- [agent-cli-framework-and-transform-layer](../adr/2026-05-11-agent-cli-framework-and-transform-layer.md) — transform layer interface and Claude Code subprocess model
+- [agent-event-streaming-protocol](../adr/2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by the frontend
 
 ### Codex App-Server Wire Protocol Reference
 
@@ -741,7 +739,7 @@ Runner always responds: `{ "result": { "outcome": { "outcome": "selected", "opti
 | Transform layer | Per-framework adapter within the session-manager that wraps a CLI subprocess and normalises its output to the Orbit event format |
 | Runner | The Go implementation of the `Runner` interface for a specific CLI framework |
 | Codex app-server | The `codex app-server` subcommand that exposes Codex's internal turn-processing engine over a JSONL bidirectional channel (stdio or Unix socket) |
-| Responses API | OpenAI's `POST /v1/responses` streaming API; used by Codex for all outbound LLM calls; supported by the Orbit inference gateway via `DialectResponses` (ADR-0045) |
+| Responses API | OpenAI's `POST /v1/responses` streaming API; used by Codex for all outbound LLM calls; supported by the Orbit inference gateway via `DialectResponses` (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)) |
 | ACP | Agent Client Protocol — OpenCode's JSON-RPC 2.0 stdio mode (`opencode acp`), used for programmatic integration with editors and runners |
 | ACP read loop | Background goroutine in the OpenCode runner that reads JSON-RPC notifications from the subprocess's stdout and translates them to Orbit events |
 | Auto-approve | Pattern used by both Codex and OpenCode runners — always approves tool permission requests from the subprocess, equivalent to `--dangerously-skip-permissions` in Claude Code |

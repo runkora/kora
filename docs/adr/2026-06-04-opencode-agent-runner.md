@@ -1,9 +1,9 @@
-# 62. OpenCode Agent Runner
+# OpenCode Agent Runner
 
 **Status:** Accepted  
-**Date:** 2026-05-22  
+**Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
-**Technical Story:** ADR-0049 implemented the Claude Code runner and explicitly deferred OpenCode. This ADR documents the subprocess model, ACP wire protocol, LLM routing, and event mapping for the OpenCode runner.
+**Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred OpenCode. This ADR documents the subprocess model, ACP wire protocol, LLM routing, and event mapping for the OpenCode runner.
 
 ---
 
@@ -11,7 +11,7 @@
 
 The `AgentFramework` enum in `agents/models.go` includes `opencode`, but no runner implementation exists. `handleCreateSession` silently falls through to `NewClaudeRunner()` for all framework values. The PRD (`docs/prd/codex-opencode-agent-runners.md`) documents the research spike that resolved all open questions before this ADR was written.
 
-The framework dispatch wiring (threading `Framework` through `CreateSessionRequest` and `handleCreateSession`) is shared with the Codex runner and documented in ADR-0061. **ADR-0061 must be implemented before or together with this ADR — the dispatch wiring is a prerequisite.**
+The framework dispatch wiring (threading `Framework` through `CreateSessionRequest` and `handleCreateSession`) is shared with the Codex runner and documented in [codex-agent-runner](2026-06-04-codex-agent-runner.md). **The Codex ADR must be implemented before or together with this ADR — the dispatch wiring is a prerequisite.**
 
 ### Transport choice
 
@@ -194,7 +194,7 @@ Turn end is signalled by the **`session/prompt` response** (not a notification).
 
 ## LLM Routing
 
-OpenCode does not honour `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` env vars. Base URL is configured per-provider in `opencode.json`. The runner receives the inference gateway URL via `OpenCodeRunnerConfig.InferenceGatewayURL` (sourced from `ControllerConfig`, see Framework Dispatch Wiring in ADR-0061) and writes it **directly** into `opencode.json` at session start — no `${ENV_VAR}` template expansion needed:
+OpenCode does not honour `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` env vars. Base URL is configured per-provider in `opencode.json`. The runner receives the inference gateway URL via `OpenCodeRunnerConfig.InferenceGatewayURL` (sourced from `ControllerConfig`, see Framework Dispatch Wiring in [codex-agent-runner](2026-06-04-codex-agent-runner.md)) and writes it **directly** into `opencode.json` at session start — no `${ENV_VAR}` template expansion needed:
 
 ```json
 {
@@ -223,14 +223,20 @@ type Runner interface {
     Send(ctx context.Context, text string) error
     SendToolResult(ctx context.Context, toolUseID, content string) error
     Events() <-chan Event
+    Interrupt() error
     Close() error
+    SessionID() string
+    NewResumeRunner() Runner
 }
 ```
 
-- `Start(ctx, workDir)` — validates env, writes `opencode.json`, spawns subprocess, synchronously completes `initialize` + `session/new` handshake, starts read loop goroutine, returns.
+- `Start(ctx, workDir)` — validates env, writes `opencode.json`, spawns subprocess, synchronously completes `initialize` + `session/new` handshake, starts read loop goroutine, returns. If `ResumeSessionID` is set on the config, the handshake instead is `initialize` + `session/load {sessionId}` after asserting the agent advertised the `loadSession` capability on initialize.
 - `Send(ctx, text)` — writes `session/prompt` request; returns immediately. Events flow via read loop goroutine.
 - `SendToolResult` — returns `ErrNotSupported` (package-level sentinel in `runner.go`); OpenCode handles tool execution internally.
 - `Events()` — returns the event channel; populated by the read loop goroutine. Buffer size: `make(chan Event, 64)`.
+- `Interrupt()` — sends `SIGINT` to the subprocess. The session layer's interrupt fallback then calls `NewResumeRunner` to restart with `session/load`. (ACP also defines a `cancel` notification; SIGINT is preferred for v1 to match the cross-runner convention.)
+- `SessionID()` — returns the captured `sessionId`. Set after `session/new` (fresh session) or carried in via `ResumeSessionID` (resumed session).
+- `NewResumeRunner()` — returns a fresh `*OpenCodeRunner` whose config carries `ResumeSessionID = SessionID()`. Returns `nil` if `Start` failed before `session/new` completed; the session layer treats `nil` as "fall back to idle without resume".
 - `Close()` — sends `session/close` notification, closes stdin, waits for process exit, closes event channel.
 
 ```go
@@ -240,6 +246,7 @@ type OpenCodeRunnerConfig struct {
     InferenceGatewayURL string // written directly into opencode.json at session start
     Logger              logging.Logger
     RunID               string
+    ResumeSessionID     string // when set, Start issues session/load instead of session/new
 }
 ```
 
@@ -250,7 +257,15 @@ OpenCodeBinaryPath   string // defaults to "opencode" (resolved via PATH)
 OpenCodeDefaultModel string // used when CreateSessionRequest.Model is empty
 ```
 
-`InferenceGatewayURL` is defined once by ADR-0061 and shared by both runners — it is not added again here.
+`InferenceGatewayURL` is defined once by the [codex-agent-runner](2026-06-04-codex-agent-runner.md) ADR and shared by both runners — it is not added again here.
+
+### Resume Semantics
+
+ACP defines `session/load` as: "Loads an existing session to resume a previous conversation. The agent should restore the session context and conversation history; connect to the specified MCP servers; **stream the entire conversation history back to the client via notifications**." OpenCode advertises this capability — its `acp/agent.ts` exposes `loadSession`, `resumeSession`, and `forkSession` as first-class methods.
+
+When `Start` is invoked with `ResumeSessionID` set, it parses the `initialize` response's `agentCapabilities.loadSession` flag and fails fast if the agent has flipped it off. Otherwise it issues `session/load {sessionId, cwd, mcpServers}` and the existing `handleSessionUpdate` path consumes the replayed notifications transparently — no transcript-rebuild logic in the runner itself.
+
+When the session layer SIGINTs the subprocess and the subprocess exits, `session.completeDrain` calls `NewResumeRunner().Start(ctx, workDir)`, the new subprocess loads the prior session, and the next user message lands on the restored thread.
 
 ---
 
@@ -296,10 +311,10 @@ No base image change is required.
 
 ## Related Decisions
 
-- [ADR-0049](0049-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; OpenCode was explicitly deferred here
-- [ADR-0061](0061-codex-agent-runner.md) — Codex runner; documents the shared framework dispatch wiring changes; must be implemented first
-- [ADR-0054](0054-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
-- [ADR-0055](0055-agent-workspace-model.md) — Workspace directory; `opencode.json` is written here before process start
+- [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; OpenCode was explicitly deferred here
+- [codex-agent-runner](2026-06-04-codex-agent-runner.md) — Codex runner; documents the shared framework dispatch wiring changes; must be implemented first
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace directory; `opencode.json` is written here before process start
 
 ---
 

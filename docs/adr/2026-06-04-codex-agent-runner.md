@@ -1,9 +1,9 @@
-# 61. Codex Agent Runner
+# Codex Agent Runner
 
 **Status:** Accepted  
-**Date:** 2026-05-22  
+**Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
-**Technical Story:** ADR-0049 implemented the Claude Code runner and explicitly deferred Codex. This ADR documents the subprocess model, wire protocol, transform layer design, and framework dispatch wiring for the Codex runner.
+**Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred Codex. This ADR documents the subprocess model, wire protocol, transform layer design, and framework dispatch wiring for the Codex runner.
 
 ---
 
@@ -86,7 +86,7 @@ There is no `turn/failed` notification — all failures arrive as `"error"` noti
 
 ## LLM Routing
 
-Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (ADR-0045). The runner injects `OPENAI_BASE_URL` into the subprocess environment via `ExtraEnv` — the same mechanism used to inject `WORKSPACE` for Claude Code:
+Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)). The runner injects `OPENAI_BASE_URL` into the subprocess environment via `ExtraEnv` — the same mechanism used to inject `WORKSPACE` for Claude Code:
 
 ```go
 ExtraEnv: []string{
@@ -108,14 +108,20 @@ type Runner interface {
     Send(ctx context.Context, text string) error
     SendToolResult(ctx context.Context, toolUseID, content string) error
     Events() <-chan Event
+    Interrupt() error
     Close() error
+    SessionID() string
+    NewResumeRunner() Runner
 }
 ```
 
-- `Start(ctx, workDir)` — spawns `codex app-server --transport stdio`, then **synchronously** performs the `initialize` handshake: writes the request, reads the response from stdout (30-second deadline), and returns an error if the handshake fails or times out. Once the handshake succeeds, starts the JSONL read loop goroutine and returns. The synchronous handshake means session creation fails fast if the binary is missing or incompatible.
+- `Start(ctx, workDir)` — spawns `codex app-server --transport stdio`, then **synchronously** performs the `initialize` handshake: writes the request, reads the response from stdout (30-second deadline), and returns an error if the handshake fails or times out. Once the handshake succeeds, starts the JSONL read loop goroutine and returns. The synchronous handshake means session creation fails fast if the binary is missing or incompatible. If `ResumeThreadID` is set on the config, additionally issues `thread/resume {threadId}` after `initialize`.
 - `Send(ctx, text)` — writes a `turn/start` request to stdin; returns immediately. Deltas flow via the read loop goroutine.
 - `SendToolResult` — returns `ErrNotSupported` (a package-level sentinel defined in `runner.go` alongside the `Runner` interface); Codex handles tool execution internally.
 - `Events()` — returns the event channel; populated by the JSONL read loop goroutine. Channel buffer size matches Claude Code: `make(chan Event, 64)`.
+- `Interrupt()` — sends `SIGINT` to the subprocess. Codex's app-server treats SIGINT as a turn-cancel signal and typically exits afterwards; the session layer's interrupt fallback then calls `NewResumeRunner` to restart with `thread/resume`.
+- `SessionID()` — returns the captured `thread_id`. The runner extracts it from any notification carrying the `threadId` field (`turn/started`, `turn/completed`, etc.); the first occurrence pins the value. Returns empty string until the first turn has begun.
+- `NewResumeRunner()` — returns a fresh `*CodexRunner` whose config carries `ResumeThreadID = SessionID()`. Returns `nil` if no thread ID has been captured (e.g. the subprocess died before the first `turn/started` notification); the session layer treats `nil` as "fall back to idle without resume" — see the SessionID-empty branch in `session.completeDrain`.
 - `Close()` — closes stdin (EOF causes app-server to exit cleanly), waits for process exit, closes the event channel.
 
 ```go
@@ -125,8 +131,15 @@ type CodexRunnerConfig struct {
     InferenceGatewayURL string // injected as OPENAI_BASE_URL into the subprocess env
     Logger              logging.Logger
     RunID               string
+    ResumeThreadID      string // when set, Start issues thread/resume instead of starting fresh
 }
 ```
+
+### Resume Semantics
+
+Codex's app-server v2 protocol provides `thread/resume`, which loads a thread by ID and restores all prior turns into the in-memory state machine. The runner uses only the stable `threadId` field; the optional `history` / `path` / `runtimeWorkspaceRoots` fields are marked `experimental` upstream and are not used.
+
+When the session layer SIGINTs the subprocess (user interrupt or reaper) and the subprocess exits, `session.completeDrain` calls `NewResumeRunner().Start(ctx, workDir)`. The new subprocess re-runs `initialize`, then issues `thread/resume {threadId}`, and the next user message lands on the restored thread — matching Claude's `--resume` behaviour.
 
 ---
 
@@ -138,7 +151,7 @@ Codex ships **musl-only** Linux binaries (`codex-x86_64-unknown-linux-musl`, `co
 
 ## Framework Dispatch Wiring
 
-Three files require changes to thread the framework value from orbit-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (ADR-0062) and are documented together here since they are implemented as a single unit.
+Three files require changes to thread the framework value from orbit-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (see [opencode-agent-runner](2026-06-04-opencode-agent-runner.md)) and are documented together here since they are implemented as a single unit.
 
 ### `internal/platform/clients/sessionmanager/client.go`
 
@@ -240,10 +253,10 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 ## Related Decisions
 
-- [ADR-0045](0045-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing
-- [ADR-0049](0049-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; Codex was explicitly deferred here
-- [ADR-0062](0062-opencode-agent-runner.md) — OpenCode runner; shares the framework dispatch wiring changes documented above
-- [ADR-0054](0054-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing
+- [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; Codex was explicitly deferred here
+- [opencode-agent-runner](2026-06-04-opencode-agent-runner.md) — OpenCode runner; shares the framework dispatch wiring changes documented above
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
 
 ---
 
