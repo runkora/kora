@@ -112,10 +112,26 @@ _principal_roles := [] if {
 
 _required_scope := input.required_scope if not _is_envoy
 
+# Run identity travels as a "/run/{run_id}" path prefix (hierarchical budget ADR);
+# the inference gateway strips it (StripRunPrefix) before its own routing. Mirror
+# that here so the prefix is transparent to Layer-1 route→scope matching: a
+# run-scoped request resolves to the same route (and scope) as the unprefixed
+# path. Stripping is safe — the stripped path matches the same route, so no scope
+# is bypassed; it only avoids a spurious "no route matched" deny.
+_route_path := input.attributes.request.http.path if {
+	not startswith(input.attributes.request.http.path, "/run/")
+}
+
+_route_path := m[0][1] if {
+	startswith(input.attributes.request.http.path, "/run/")
+	m := regex.find_all_string_submatch_n(`^/run/[^/]+(/.*)$`, input.attributes.request.http.path, 1)
+	count(m) == 1
+}
+
 _required_scope := route.required_scope if {
 	_is_envoy
 	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
+	startswith(_route_path, route.path_prefix)
 	route.method == input.attributes.request.http.method
 }
 
@@ -124,7 +140,7 @@ _required_scope := route.required_scope if {
 _has_exact_method_route if {
 	_is_envoy
 	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
+	startswith(_route_path, route.path_prefix)
 	route.method == input.attributes.request.http.method
 }
 
@@ -132,7 +148,7 @@ _required_scope := route.required_scope if {
 	_is_envoy
 	not _has_exact_method_route
 	some route in data.routes.route_scopes
-	startswith(input.attributes.request.http.path, route.path_prefix)
+	startswith(_route_path, route.path_prefix)
 	route.method == "*"
 }
 
