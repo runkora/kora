@@ -135,8 +135,8 @@ func TestOverridesForSlug(t *testing.T) {
 	}
 
 	tests := []struct {
-		slug   string
-		want   []resourceOverride // expected slice in order
+		slug string
+		want []resourceOverride // expected slice in order
 	}{
 		// Wildcard must come before slug-specific so slug-specific wins (last-write wins).
 		{"coder", []resourceOverride{{name: "*", value: "3"}, {name: "coder", value: "5"}}},
