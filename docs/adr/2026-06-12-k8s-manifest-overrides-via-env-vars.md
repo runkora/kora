@@ -125,6 +125,17 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 | Valid key, valid path, compatible value | Override applied; resource provisioned |
 | Valid key, path not in K8s schema (unknown field) | `sjson` writes a new JSON key; `json.Unmarshal` drops unknown fields — override is silently a no-op. Operator should verify with `kubectl get -o yaml`. |
 | Valid key, path exists, incompatible value type | `json.Unmarshal` returns a type error; `ensure*` returns an error; provisioning fails with a structured error message |
+| Identity/linkage fields overridden inconsistently | **Silent relational breakage** — see warning below. |
+
+> **Warning — identity and linkage fields:** Certain fields wire provisioned resources together and must remain consistent across the set. Overriding one without updating all related resources will silently break provisioning or runtime behaviour:
+>
+> - `metadata.name` / `metadata.namespace` — the StatefulSet, Service, HPA, PDB, and ServiceAccount are all named after the agent slug and reference each other by that name. Changing the name on any one resource orphans the rest.
+> - `spec.serviceName` (StatefulSet) — must match the headless Service name for DNS-based pod addressing.
+> - `spec.serviceAccountName` (StatefulSet pod template) — must match the ServiceAccount name.
+> - `spec.scaleTargetRef.name` (HPA) — must match the StatefulSet name.
+> - `spec.selector.matchLabels` / `spec.selector` — must be consistent between StatefulSet and Service.
+>
+> Orbit does not validate cross-resource consistency of overrides. Operators overriding these fields are responsible for updating all related resources in the same deployment.
 
 ---
 

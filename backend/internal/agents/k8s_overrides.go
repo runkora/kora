@@ -55,15 +55,19 @@ func ParseManifestOverrides(environ []string) (ManifestOverrides, []string) {
 }
 
 // overridesForSlug returns the overrides for a given agent slug from a Kind's list.
-// Overrides with name "*" match any slug; others only match their exact slug.
+// Wildcards ("*") are returned before slug-specific overrides so that slug-specific
+// values always win when the same path is set by both (applyOverrides is last-write-wins).
 func overridesForSlug(overrides []resourceOverride, slug string) []resourceOverride {
-	var matched []resourceOverride
+	var wildcards, specific []resourceOverride
 	for _, ov := range overrides {
-		if ov.name == "*" || ov.name == slug {
-			matched = append(matched, ov)
+		switch ov.name {
+		case "*":
+			wildcards = append(wildcards, ov)
+		case slug:
+			specific = append(specific, ov)
 		}
 	}
-	return matched
+	return append(wildcards, specific...)
 }
 
 // applyOverrides applies field overrides to a typed Kubernetes object via a JSON

@@ -135,24 +135,26 @@ func TestOverridesForSlug(t *testing.T) {
 	}
 
 	tests := []struct {
-		slug      string
-		wantPaths []string
+		slug   string
+		want   []resourceOverride // expected slice in order
 	}{
-		{"coder", []string{"spec.replicas", "spec.replicas"}},      // wildcard + exact
-		{"researcher", []string{"spec.replicas", "spec.replicas"}}, // wildcard + exact
-		{"other", []string{"spec.replicas"}},                       // wildcard only
-		{"", []string{"spec.replicas"}},                            // wildcard only (empty slug)
+		// Wildcard must come before slug-specific so slug-specific wins (last-write wins).
+		{"coder", []resourceOverride{{name: "*", value: "3"}, {name: "coder", value: "5"}}},
+		{"researcher", []resourceOverride{{name: "*", value: "3"}, {name: "researcher", value: "1"}}},
+		{"other", []resourceOverride{{name: "*", value: "3"}}},
+		{"", []resourceOverride{{name: "*", value: "3"}}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.slug, func(t *testing.T) {
 			got := overridesForSlug(overrides, tt.slug)
-			if len(got) != len(tt.wantPaths) {
-				t.Fatalf("overridesForSlug(%q) got %d overrides, want %d", tt.slug, len(got), len(tt.wantPaths))
+			if len(got) != len(tt.want) {
+				t.Fatalf("overridesForSlug(%q) got %d overrides, want %d", tt.slug, len(got), len(tt.want))
 			}
-			for i, wp := range tt.wantPaths {
-				if got[i].path != wp {
-					t.Errorf("override[%d].path = %q, want %q", i, got[i].path, wp)
+			for i, w := range tt.want {
+				if got[i].name != w.name || got[i].value != w.value {
+					t.Errorf("override[%d]: got {name:%q value:%q}, want {name:%q value:%q}",
+						i, got[i].name, got[i].value, w.name, w.value)
 				}
 			}
 		})
@@ -186,7 +188,7 @@ func TestApplyOverrides(t *testing.T) {
 		}
 	})
 
-	t.Run("integer value auto-detected as JSON", func(t *testing.T) {
+	t.Run("string annotation value set via metadata path", func(t *testing.T) {
 		pvc := corev1.PersistentVolumeClaim{
 			Spec: corev1.PersistentVolumeClaimSpec{
 				Resources: corev1.VolumeResourceRequirements{
@@ -196,7 +198,6 @@ func TestApplyOverrides(t *testing.T) {
 				},
 			},
 		}
-		// Annotations are a map[string]string — set a custom one
 		overrides := []resourceOverride{{name: "*", path: "metadata.annotations.custom\\.io/tag", value: "v2"}}
 		got, err := applyOverrides(pvc, overrides)
 		if err != nil {
