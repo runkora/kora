@@ -3,6 +3,7 @@ package agents
 import (
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -222,6 +223,36 @@ func TestApplyOverrides(t *testing.T) {
 		}
 		if got.Spec.StorageClassName == nil || *got.Spec.StorageClassName != sc2 {
 			t.Errorf("expected last override to win (%q), got %v", sc2, got.Spec.StorageClassName)
+		}
+	})
+
+	t.Run("JSON array of objects (tolerations)", func(t *testing.T) {
+		ss := appsv1.StatefulSet{}
+		overrides := []resourceOverride{{
+			name:  "*",
+			path:  "spec.template.spec.tolerations",
+			value: `[{"key":"workload-tier","operator":"Equal","effect":"NoSchedule","value":"orbit"}]`,
+		}}
+		got, err := applyOverrides(ss, overrides)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tols := got.Spec.Template.Spec.Tolerations
+		if len(tols) != 1 {
+			t.Fatalf("expected 1 toleration, got %d", len(tols))
+		}
+		tol := tols[0]
+		if tol.Key != "workload-tier" {
+			t.Errorf("Key: got %q, want %q", tol.Key, "workload-tier")
+		}
+		if tol.Operator != corev1.TolerationOpEqual {
+			t.Errorf("Operator: got %q, want Equal", tol.Operator)
+		}
+		if tol.Effect != corev1.TaintEffectNoSchedule {
+			t.Errorf("Effect: got %q, want NoSchedule", tol.Effect)
+		}
+		if tol.Value != "orbit" {
+			t.Errorf("Value: got %q, want %q", tol.Value, "orbit")
 		}
 	})
 }
