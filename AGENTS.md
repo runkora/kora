@@ -101,14 +101,11 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -X POST \
 **If you get `{"code":"unauthorized","message":"invalid or expired platform token"}` (token expired after ~1 hour):**
 
 ```bash
-REFRESH=$(jq -r '.refresh_token' /tmp/orbit_credentials.json) && \
-  curl -s -X POST http://localhost:8080/api/v1/identity/session \
-  -H "Content-Type: application/json" \
-  -d "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"$REFRESH\"}" \
-  | tee /tmp/orbit_credentials.json
+make auth-refresh       # local backend on :8080
+make auth-refresh-k3d   # k3d cluster (port-forwards to orbit-identity)
 ```
 
-This rotates both tokens and writes the new credentials back to `/tmp/orbit_credentials.json`. If the refresh token itself is expired, run `make auth-device` again to start a fresh session.
+Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (never refresh with raw `curl` — see `scripts/auth-refresh.sh` for why). If the refresh token itself is expired, run `make auth-device` (or `make auth-device-k3d`) to start a fresh session.
 
 **Run the full quality gate before committing:**
 
