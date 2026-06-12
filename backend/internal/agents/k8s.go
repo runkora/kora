@@ -52,6 +52,10 @@ type K8sProvisionerConfig struct {
 	// DestinationRules are created here so Istio applies them to outbound
 	// traffic from orbit-agents pods targeting agent session-managers.
 	SystemNamespace string
+	// ManifestOverrides holds per-Kind, per-slug field patches sourced from
+	// ORBIT_MANIFEST__<Kind>__<name>__<path>=<value> env vars.
+	// Applied to each provisioned resource after the default manifest is built.
+	ManifestOverrides ManifestOverrides
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of orbit-agents.
@@ -661,10 +665,15 @@ func (p *K8sProvisioner) deleteAgentGrant(ctx context.Context, at AgentType, nam
 // ── resource builders ─────────────────────────────────────────────────────────
 
 func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string) error {
-	sa := &corev1.ServiceAccount{
+	sa := corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 	}
-	_, err := p.client.CoreV1().ServiceAccounts(namespace).Create(ctx, sa, metav1.CreateOptions{})
+	var err error
+	sa, err = applyOverrides(sa, overridesForSlug(p.cfg.ManifestOverrides["ServiceAccount"], name))
+	if err != nil {
+		return fmt.Errorf("apply ServiceAccount overrides: %w", err)
+	}
+	_, err = p.client.CoreV1().ServiceAccounts(namespace).Create(ctx, &sa, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
 }
 
@@ -672,7 +681,7 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	replicas := int32(1)
 	uid := int64(100)
 	nonRoot := true
-	ss := &appsv1.StatefulSet{
+	ss := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
@@ -772,12 +781,25 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 			},
 		},
 	}
-	_, err := p.client.AppsV1().StatefulSets(namespace).Create(ctx, ss, metav1.CreateOptions{})
+
+	var err error
+	ss, err = applyOverrides(ss, overridesForSlug(p.cfg.ManifestOverrides["StatefulSet"], at.Slug))
+	if err != nil {
+		return fmt.Errorf("apply StatefulSet overrides: %w", err)
+	}
+	if pvcOverrides := overridesForSlug(p.cfg.ManifestOverrides["PersistentVolumeClaim"], at.Slug); len(pvcOverrides) > 0 && len(ss.Spec.VolumeClaimTemplates) > 0 {
+		ss.Spec.VolumeClaimTemplates[0], err = applyOverrides(ss.Spec.VolumeClaimTemplates[0], pvcOverrides)
+		if err != nil {
+			return fmt.Errorf("apply PersistentVolumeClaim overrides: %w", err)
+		}
+	}
+
+	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
 }
 
 func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string) error {
-	svc := &corev1.Service{
+	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
@@ -787,7 +809,12 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 			},
 		},
 	}
-	_, err := p.client.CoreV1().Services(namespace).Create(ctx, svc, metav1.CreateOptions{})
+	var err error
+	svc, err = applyOverrides(svc, overridesForSlug(p.cfg.ManifestOverrides["Service"], name))
+	if err != nil {
+		return fmt.Errorf("apply Service overrides: %w", err)
+	}
+	_, err = p.client.CoreV1().Services(namespace).Create(ctx, &svc, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
 }
 
@@ -800,7 +827,7 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	cpuTarget := int32(70)
 	memTarget := int32(80)
 	minReplicas := int32(1)
-	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
 			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
@@ -834,20 +861,30 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 			},
 		},
 	}
-	_, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, hpa, metav1.CreateOptions{})
+	var err error
+	hpa, err = applyOverrides(hpa, overridesForSlug(p.cfg.ManifestOverrides["HorizontalPodAutoscaler"], name))
+	if err != nil {
+		return fmt.Errorf("apply HorizontalPodAutoscaler overrides: %w", err)
+	}
+	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, &hpa, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
 }
 
 func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string) error {
 	minAvailable := intstr.FromInt32(1)
-	pdb := &policyv1.PodDisruptionBudget{
+	pdb := policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: policyv1.PodDisruptionBudgetSpec{
 			MinAvailable: &minAvailable,
 			Selector:     &metav1.LabelSelector{MatchLabels: labels},
 		},
 	}
-	_, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, pdb, metav1.CreateOptions{})
+	var err error
+	pdb, err = applyOverrides(pdb, overridesForSlug(p.cfg.ManifestOverrides["PodDisruptionBudget"], name))
+	if err != nil {
+		return fmt.Errorf("apply PodDisruptionBudget overrides: %w", err)
+	}
+	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, &pdb, metav1.CreateOptions{})
 	return ignoreAlreadyExists(err)
 }
 

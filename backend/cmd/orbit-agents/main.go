@@ -130,6 +130,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		}, logger)
 	}
 
+	manifestOverrides, malformedOverrideKeys := agents.ParseManifestOverrides(os.Environ())
+	for _, key := range malformedOverrideKeys {
+		logger.Warn(ctx, "ignoring malformed ORBIT_MANIFEST override: expected ORBIT_MANIFEST__Kind__name__path",
+			logging.Field{Key: "key", Value: key},
+		)
+	}
+
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, agents.K8sProvisionerConfig{
 		SessionManagerImage:       cfg.Agents.SessionManagerImage,
 		SandboxImage:              cfg.Agents.SandboxImage,
@@ -137,6 +144,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
 		TrustDomain:               cfg.Platform.TrustDomain,
 		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
+		ManifestOverrides:         manifestOverrides,
 	}, pc)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
