@@ -336,7 +336,21 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		},
 	}
 
-	_, err := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+	podVal, err := applyOverrides(*pod, overridesForSlug(p.cfg.ManifestOverrides["Pod"], agentTypeSlug))
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "apply Pod overrides")
+		return "", fmt.Errorf("apply Pod overrides: %w", err)
+	}
+	// Re-sync locals in case an override changed metadata.name or metadata.namespace.
+	if podVal.Name != "" {
+		podName = podVal.Name
+	}
+	if podVal.Namespace != "" {
+		namespace = podVal.Namespace
+	}
+
+	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create sandbox pod")

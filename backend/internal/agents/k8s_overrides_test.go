@@ -255,4 +255,38 @@ func TestApplyOverrides(t *testing.T) {
 			t.Errorf("Value: got %q, want %q", tol.Value, "orbit")
 		}
 	})
+
+	t.Run("sandbox Pod resource limits override", func(t *testing.T) {
+		pod := corev1.Pod{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "sandbox-exec",
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("2"),
+								corev1.ResourceMemory: resource.MustParse("4Gi"),
+							},
+						},
+					},
+				},
+			},
+		}
+		overrides := []resourceOverride{
+			{name: "*", path: "spec.containers.0.resources.limits.cpu", value: "4"},
+			{name: "*", path: "spec.containers.0.resources.limits.memory", value: "8Gi"},
+		}
+		got, err := applyOverrides(pod, overrides)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpu := got.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+		mem := got.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+		if cpu.String() != "4" {
+			t.Errorf("cpu limit: got %q, want %q", cpu.String(), "4")
+		}
+		if mem.String() != "8Gi" {
+			t.Errorf("memory limit: got %q, want %q", mem.String(), "8Gi")
+		}
+	})
 }
