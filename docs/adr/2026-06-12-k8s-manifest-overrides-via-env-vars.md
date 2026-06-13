@@ -106,7 +106,7 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 
 ### Supported Kinds
 
-`StatefulSet`, `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, `PersistentVolumeClaim` (applied to `VolumeClaimTemplates[0]` within the StatefulSet).
+`StatefulSet`, `Service`, `ServiceAccount`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, `PersistentVolumeClaim` (applied to `VolumeClaimTemplates[0]` within the StatefulSet), `Pod` (applied to sandbox pods provisioned by `ProvisionSandbox`; `<name>` is the agent type slug).
 
 ### Key files
 
