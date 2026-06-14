@@ -24,8 +24,6 @@ import {
 } from '@orbit/terra';
 import { ConfirmDialog, ScopePicker } from '@orbit/components';
 import { useAgentSettings } from '../_hooks/use-agent-settings';
-import { ConnectivityFields } from '../../_components/connectivity-fields';
-import { ConnectorsFields } from '../../_components/connectors-fields';
 
 // ── Data ───────────────────────────────────────────────────────────────────────
 
@@ -104,13 +102,6 @@ export function AgentSettingsTab() {
     setBudgetCadence,
     budgetPerRunUSD,
     setBudgetPerRunUSD,
-    connectivityMode,
-    setConnectivityMode,
-    connectivityHosts,
-    setConnectivityHosts,
-    connectors,
-    setConnectors,
-    availableConnections,
     models,
     modelsLoading,
     modelGroups,
@@ -299,50 +290,6 @@ export function AgentSettingsTab() {
               }}
               search={toolScopesSearch}
               onSearchChange={setToolScopesSearch}
-            />
-          </CardContent>
-        </Card>
-
-        {/* ── Connectivity ──────────────────────────────────────────────────── */}
-        <Card>
-          <CardHeader
-            leadingIcon="network"
-            title="Connectivity"
-            description="Where this agent's sandboxes may reach on the internet. Hosts needing credentials are configured separately as connections."
-            divider
-          />
-          <CardContent padded>
-            <ConnectivityFields
-              mode={connectivityMode}
-              hosts={connectivityHosts}
-              onModeChange={(m) => {
-                setConnectivityMode(m);
-                setSaveSuccess(false);
-              }}
-              onHostsChange={(h) => {
-                setConnectivityHosts(h);
-                setSaveSuccess(false);
-              }}
-            />
-          </CardContent>
-        </Card>
-
-        {/* ── Connectors ────────────────────────────────────────────────────── */}
-        <Card>
-          <CardHeader
-            leadingIcon="key"
-            title="Connectors"
-            description="Registered connections this agent may use. The gateway injects a scoped, short-lived credential per call — the agent never holds the secret."
-            divider
-          />
-          <CardContent padded>
-            <ConnectorsFields
-              available={availableConnections}
-              value={connectors}
-              onChange={(c) => {
-                setConnectors(c);
-                setSaveSuccess(false);
-              }}
             />
           </CardContent>
         </Card>

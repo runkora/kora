@@ -24,6 +24,7 @@ import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
 import { AgentRunsTab } from './agent-runs-tab';
+import { AgentConnectivityTab } from './agent-connectivity-tab';
 import { AgentSettingsTab } from './agent-settings-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
@@ -183,6 +184,7 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Runs</TabsTrigger>
+          <TabsTrigger value="connectivity">Connectivity</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
@@ -190,6 +192,9 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
+        </TabsContent>
+        <TabsContent value="connectivity">
+          <AgentConnectivityTab />
         </TabsContent>
         <TabsContent value="settings">
           <AgentSettingsTab />

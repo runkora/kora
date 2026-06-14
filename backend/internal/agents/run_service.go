@@ -32,14 +32,42 @@ type RunServiceConfig struct {
 // RunService is the single state machine authority for agent runs.
 // Every run state transition anywhere in the system goes through RunService.
 type RunService struct {
-	repo   RunRepository
-	atRepo AgentTypeRepository
-	sm     smClient
-	k8s    k8sProvisioner
-	pubsub *PubSub
-	authz  *Authz
-	cfg    RunServiceConfig
-	logger logging.Logger
+	repo     RunRepository
+	atRepo   AgentTypeRepository
+	sm       smClient
+	k8s      k8sProvisioner
+	pubsub   *PubSub
+	authz    *Authz
+	cfg      RunServiceConfig
+	logger   logging.Logger
+	resolver *ScopeResolver // resolves the runtime-environment brief; nil = no brief
+}
+
+// SetScopeResolver installs the resolver used to render the runtime-environment
+// brief appended to an agent's system prompt at run start. When unset, runs start
+// without the brief.
+func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
+
+// systemPromptWithBrief returns the agent's system prompt with the runtime-
+// environment brief appended (governed network + injected credentials), so the
+// agent works with its guardrails rather than around them. Best-effort: a nil
+// resolver or a resolution error yields the prompt unchanged — it never blocks a run.
+func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, runID string) string {
+	if s.resolver == nil {
+		return at.SystemPrompt
+	}
+	access, err := s.resolver.EffectiveAccess(ctx, at)
+	if err != nil {
+		s.logger.Warn(ctx, "render capabilities brief failed; starting run without it",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return at.SystemPrompt
+	}
+	if access == nil {
+		return at.SystemPrompt
+	}
+	return at.SystemPrompt + renderCapabilitiesBrief(access)
 }
 
 // NewRunService creates a RunService with the given dependencies.
@@ -144,7 +172,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		AgentTypeID:  run.AgentTypeID,
 		TenantID:     run.TenantID,
 		AllowedTools: at.ToolScopes,
-		SystemPrompt: at.SystemPrompt,
+		// The agent's own prompt plus the runtime-environment brief.
+		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID

@@ -127,17 +127,21 @@ type AgentBudget struct {
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
-	ID                      string         `json:"id"`
-	TenantID                string         `json:"tenant_id"`
-	Name                    string         `json:"name"`
-	Slug                    string         `json:"slug"`
-	Description             string         `json:"description"`
-	SystemPrompt            string         `json:"system_prompt"`
-	Framework               AgentFramework `json:"framework"`
-	ToolScopes              []string       `json:"tool_scopes"`
-	GrantScopes             []string       `json:"grant_scopes"`
-	Connectivity            Connectivity   `json:"connectivity"`
-	Connectors              []Connector    `json:"connectors,omitempty"`
+	ID           string         `json:"id"`
+	TenantID     string         `json:"tenant_id"`
+	Name         string         `json:"name"`
+	Slug         string         `json:"slug"`
+	Description  string         `json:"description"`
+	SystemPrompt string         `json:"system_prompt"`
+	Framework    AgentFramework `json:"framework"`
+	ToolScopes   []string       `json:"tool_scopes"`
+	GrantScopes  []string       `json:"grant_scopes"`
+	Connectivity Connectivity   `json:"connectivity"`
+	Connectors   []Connector    `json:"connectors,omitempty"`
+	// EnvironmentID references a tenant Environment whose egress hosts and
+	// connectors are merged into this agent's effective grant. nil = no
+	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
+	EnvironmentID           *string        `json:"environment_id,omitempty"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 	State                   AgentTypeState `json:"state"`
 	CreatedAt               time.Time      `json:"created_at"`

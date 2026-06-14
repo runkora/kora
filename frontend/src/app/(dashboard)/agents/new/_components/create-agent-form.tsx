@@ -34,6 +34,7 @@ import type {
 import { createAgentType } from '../../_services/agents-api';
 import { ConnectivityFields, textToHosts } from '../../_components/connectivity-fields';
 import { ConnectorsFields } from '../../_components/connectors-fields';
+import { EnvironmentField } from '../../_components/environment-field';
 
 // ── Framework options ─────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ export function CreateAgentForm() {
   const [budgetPerRunUSD, setBudgetPerRunUSD] = useState('');
   const [connectivityMode, setConnectivityMode] = useState<ConnectivityMode>('none');
   const [connectivityHosts, setConnectivityHosts] = useState('');
+  const [environmentId, setEnvironmentId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
@@ -205,6 +207,7 @@ export function CreateAgentForm() {
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
               : { mode: connectivityMode },
           connectors,
+          ...(environmentId ? { environment_id: environmentId } : {}),
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
             budgetLimitUSD || budgetPerRunUSD
@@ -244,6 +247,7 @@ export function CreateAgentForm() {
       connectivityMode,
       connectivityHosts,
       connectors,
+      environmentId,
       maxConcurrentRuns,
       router,
     ],
@@ -445,11 +449,14 @@ export function CreateAgentForm() {
           divider
         />
         <CardContent padded>
-          <ConnectorsFields
-            available={availableConnections}
-            value={connectors}
-            onChange={setConnectors}
-          />
+          <Stack gap="comfortable">
+            <ConnectorsFields
+              available={availableConnections}
+              value={connectors}
+              onChange={setConnectors}
+            />
+            <EnvironmentField value={environmentId} onChange={setEnvironmentId} />
+          </Stack>
         </CardContent>
       </Card>
 

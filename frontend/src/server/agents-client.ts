@@ -9,6 +9,7 @@ import 'server-only';
 
 import { config } from './config';
 import { ApiError } from './client';
+import type { EffectiveAccess, EffectiveAccessPreviewRequest } from '@orbit/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -62,4 +63,34 @@ export function agentsClient(accessToken: string) {
       request<T>(path, accessToken, { method: 'PATCH', body }),
     delete: <T>(path: string) => request<T>(path, accessToken, { method: 'DELETE' }),
   };
+}
+
+/**
+ * Fetches the resolved effective-access view for an agent type (by UUID) from
+ * orbit-agents. Returns the union of its own egress posture, its referenced
+ * environment, and connector-derived auto-egress.
+ */
+export async function fetchEffectiveAccess(
+  accessToken: string,
+  agentTypeId: string,
+): Promise<EffectiveAccess | undefined> {
+  return request<EffectiveAccess>(
+    `/api/v1/agent-types/${agentTypeId}/effective-access`,
+    accessToken,
+  );
+}
+
+/**
+ * Resolves the effective-access view for a *draft* (unsaved) connectivity
+ * config — backs the Connectivity tab's live preview as the user edits.
+ * Nothing is persisted server-side.
+ */
+export async function previewEffectiveAccess(
+  accessToken: string,
+  body: EffectiveAccessPreviewRequest,
+): Promise<EffectiveAccess | undefined> {
+  return request<EffectiveAccess>('/api/v1/agent-types/effective-access', accessToken, {
+    method: 'POST',
+    body,
+  });
 }

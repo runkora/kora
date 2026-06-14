@@ -7,13 +7,14 @@ import (
 	"os"
 	"strings"
 
+	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ConnectionCatalogEntry is one tenant-scoped connection in the read-only
 // catalog the frontend connector picker consumes. actions is derived from the
-// adapter type via adapterActions; it serializes as [] (never null) for any
-// adapter without a declared vocabulary.
+// adapter type via the shared internal/platform/connections metadata table; it
+// serializes as [] (never null) for any adapter without a declared vocabulary.
 type ConnectionCatalogEntry struct {
 	Name    string   `json:"name"`
 	Adapter string   `json:"adapter"`
@@ -22,22 +23,15 @@ type ConnectionCatalogEntry struct {
 
 // connectionRegistryEntry is the wire shape of one element of connections.json,
 // the registry the operator's ConnectionAggregator renders into the
-// orbit-tenant-connections ConfigMap. Only the fields the catalog needs are
-// modeled; the rest (base_host, secret_ref, config) are intentionally ignored
-// so this stays a non-sensitive read.
+// orbit-tenant-connections ConfigMap. Only non-sensitive fields are modeled —
+// secret_ref and config are intentionally ignored. base_host IS read: it is the
+// upstream authority (not a secret), and the grant compiler needs it to derive a
+// connector's auto-egress hosts via the shared adapter metadata table.
 type connectionRegistryEntry struct {
 	TenantID string `json:"tenant_id"`
 	Name     string `json:"name"`
 	Adapter  string `json:"adapter"`
-}
-
-// adapterActions maps an adapter type to the grantable action vocabulary the
-// connector picker offers. It is a deliberate static table rather than a
-// cross-feature lookup into internal/credentials (banned by depguard): the
-// catalog is a read-only UI affordance and the mapping is tiny and stable.
-var adapterActions = map[string][]string{
-	"github_app":  {"repo:read", "repo:write"},
-	"passthrough": {},
+	BaseHost string `json:"base_host"`
 }
 
 // ConnectionCatalog serves the read-only, tenant-filtered connection catalog
@@ -74,10 +68,28 @@ func (c *ConnectionCatalog) ListByTenant(ctx context.Context, tenantID string) (
 		out = append(out, ConnectionCatalogEntry{
 			Name:    e.Name,
 			Adapter: e.Adapter,
-			Actions: actionsForAdapter(e.Adapter),
+			Actions: platformconns.ActionNames(e.Adapter),
 		})
 	}
 	return out, nil
+}
+
+// ResolveConnection returns the adapter type and base host for the named
+// connection within tenantID, reading connections.json fresh. ok is false when
+// no such connection is registered (not yet rendered, or a typo) — callers
+// derive auto-egress only for connections that resolve, never failing grant
+// reconciliation on a missing one. A parse error is returned wrapped.
+func (c *ConnectionCatalog) ResolveConnection(ctx context.Context, tenantID, name string) (adapter, baseHost string, ok bool, err error) {
+	entries, err := c.load(ctx)
+	if err != nil {
+		return "", "", false, err
+	}
+	for _, e := range entries {
+		if e.TenantID == tenantID && e.Name == name {
+			return e.Adapter, e.BaseHost, true, nil
+		}
+	}
+	return "", "", false, nil
 }
 
 // load reads and unmarshals connections.json. An empty path or a missing file is
@@ -104,16 +116,4 @@ func (c *ConnectionCatalog) load(ctx context.Context) ([]connectionRegistryEntry
 		return nil, fmt.Errorf("parse connection registry %q: %w", c.path, err)
 	}
 	return entries, nil
-}
-
-// actionsForAdapter returns the static action vocabulary for an adapter type.
-// An unknown adapter yields an empty (non-nil) slice so the JSON field
-// serializes as [] rather than null.
-func actionsForAdapter(adapter string) []string {
-	if actions, ok := adapterActions[adapter]; ok {
-		out := make([]string, len(actions))
-		copy(out, actions)
-		return out
-	}
-	return []string{}
 }

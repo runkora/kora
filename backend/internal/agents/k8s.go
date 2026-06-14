@@ -65,7 +65,15 @@ type K8sProvisioner struct {
 	logger        logging.Logger
 	cfg           K8sProvisionerConfig
 	policyClient  *policyclient.Client
+	scopeResolver *ScopeResolver
 }
+
+// SetScopeResolver installs the resolver that compiles an agent type's full
+// effective grant scopes — its own scopes plus the egress and connectors
+// contributed by its referenced environment, plus connector auto-egress. When
+// unset, grant reconciliation falls back to the agent's own configured scopes
+// (AgentType.EffectiveGrantScopes), so a partially-wired deployment still works.
+func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = r }
 
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster
 // is true, otherwise falling back to KUBECONFIG (local development).
@@ -693,7 +701,19 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	// The reconciled scope set is the agent's capability scopes PLUS the egress
 	// scopes compiled from its connectivity posture, so egress survives every
 	// re-provision (a hand-added egress grant would be deleted as "stale" here).
+	// When a scope resolver is wired it also folds in the referenced
+	// environment's egress/connectors and each connector's adapter-declared
+	// auto-egress; without one it falls back to the agent's own scopes.
 	effectiveScopes := at.EffectiveGrantScopes()
+	if p.scopeResolver != nil {
+		resolved, rErr := p.scopeResolver.EffectiveScopes(ctx, at)
+		if rErr != nil {
+			span.RecordError(rErr)
+			span.SetStatus(codes.Error, "resolve effective scopes")
+			return fmt.Errorf("resolve effective scopes for %s: %w", principalID, rErr)
+		}
+		effectiveScopes = resolved
+	}
 
 	// Walk existing grants: keep the first whose SCOPES match (budget is
 	// reconciled separately), delete the rest. Remember the kept grant's budget

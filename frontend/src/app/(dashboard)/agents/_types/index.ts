@@ -39,6 +39,8 @@ export interface AgentTypeRow {
   modelId: string;
   /** Budget on the agent's policy grant (present on detail reads when configured). */
   budget: AgentBudget | null;
+  /** Attached environment id, or "" when none is attached. */
+  environmentId: string;
 }
 
 export interface RunRow {
@@ -86,6 +88,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     updatedAt: a.updated_at,
     modelId: a.model_id ?? 'anthropic/claude-sonnet-4-6',
     budget: a.budget ?? null,
+    environmentId: a.environment_id ?? '',
   };
 }
 

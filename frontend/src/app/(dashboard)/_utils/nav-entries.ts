@@ -21,6 +21,7 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'Dashboard', href: APP_ROUTES.home, icon: 'layout-dashboard' },
   { label: 'Agents', href: APP_ROUTES.agents.list, icon: 'bot' },
   { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
+  { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
   { label: 'Event Spine', href: APP_ROUTES.events, icon: 'activity', wip: true },
   { label: 'Credentials', href: APP_ROUTES.credentials, icon: 'key', wip: true },
 ];

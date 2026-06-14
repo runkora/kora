@@ -19,12 +19,14 @@ import (
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 )
 
 // actionUse is the single, uniform action a passthrough connection authorizes.
 // There is no credential and no per-verb distinction to draw, so every request
-// maps to connection:<name>:use.
-const actionUse = "use"
+// maps to connection:<name>:use. Sourced from the shared metadata table so the
+// classifier and the published vocabulary cannot drift.
+const actionUse = platformconns.ActionPassthroughUse
 
 // Adapter is the no-auth passthrough credential adapter. It has no
 // dependencies — there is no secret to resolve and nothing to mint.
@@ -37,11 +39,15 @@ func New() *Adapter { return &Adapter{} }
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterPassthrough }
 
 // Actions publishes the single "use" action to the connection:<name>:<action>
-// scope vocabulary.
+// scope vocabulary, delegating to the shared metadata table
+// (internal/platform/connections) so the vocabulary has one source of truth.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
-	return []credentials.ActionDeclaration{
-		{Action: actionUse, Description: "Reach the connection's host with no credential injected"},
+	metas := platformconns.Actions(platformconns.AdapterPassthrough)
+	out := make([]credentials.ActionDeclaration, len(metas))
+	for i, m := range metas {
+		out[i] = credentials.ActionDeclaration{Action: m.Action, Description: m.Description}
 	}
+	return out
 }
 
 // ClassifyAction maps every request to the uniform "use" action — a passthrough

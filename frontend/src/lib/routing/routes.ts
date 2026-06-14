@@ -38,6 +38,7 @@ export const APP_ROUTES = {
     run: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}` as const,
   },
   connections: '/connections',
+  environments: '/environments',
   events: '/events',
   credentials: '/credentials',
 

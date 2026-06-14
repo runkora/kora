@@ -47,18 +47,21 @@ type ServiceConfig struct {
 // ── Request types ─────────────────────────────────────────────────────────────
 
 type CreateAgentTypeRequest struct {
-	TenantID                string         `json:"tenant_id"`
-	Name                    string         `json:"name"`
-	Slug                    string         `json:"slug"`
-	Description             string         `json:"description"`
-	SystemPrompt            string         `json:"system_prompt"`
-	Framework               AgentFramework `json:"framework"`
-	ToolScopes              []string       `json:"tool_scopes"`
-	GrantScopes             []string       `json:"grant_scopes"`
-	Connectivity            *Connectivity  `json:"connectivity"`
-	Connectors              []Connector    `json:"connectors"`
-	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
-	ModelID                 *string        `json:"model_id"`
+	TenantID     string         `json:"tenant_id"`
+	Name         string         `json:"name"`
+	Slug         string         `json:"slug"`
+	Description  string         `json:"description"`
+	SystemPrompt string         `json:"system_prompt"`
+	Framework    AgentFramework `json:"framework"`
+	ToolScopes   []string       `json:"tool_scopes"`
+	GrantScopes  []string       `json:"grant_scopes"`
+	Connectivity *Connectivity  `json:"connectivity"`
+	Connectors   []Connector    `json:"connectors"`
+	// EnvironmentID references a tenant Environment to merge into the grant.
+	// Blank/omitted = none.
+	EnvironmentID           *string `json:"environment_id"`
+	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
+	ModelID                 *string `json:"model_id"`
 	// Budget is applied to the agent's policy grant (nil = no budget).
 	Budget *AgentBudget `json:"budget"`
 }
@@ -78,6 +81,9 @@ type UpdateAgentTypeRequest struct {
 	Budget       *AgentBudget  `json:"budget"`
 	Connectivity *Connectivity `json:"connectivity"`
 	Connectors   []Connector   `json:"connectors"`
+	// EnvironmentID changes the referenced environment. nil = unchanged; a
+	// pointer to "" detaches (no environment); a pointer to an id sets it.
+	EnvironmentID *string `json:"environment_id"`
 }
 
 type StartRunRequest struct {
@@ -89,4 +95,12 @@ type StartRunRequest struct {
 	ProvisionSandbox bool `json:"provision_sandbox"`
 	// CreatedBy is intentionally absent: the run creator is always derived from the
 	// verified platform token in ctx, never from the request body.
+}
+
+// EffectiveAccessPreviewRequest is a draft connectivity config resolved without
+// persisting — backs the live "Effective access" preview as the user edits.
+type EffectiveAccessPreviewRequest struct {
+	Connectivity  Connectivity `json:"connectivity"`
+	Connectors    []Connector  `json:"connectors"`
+	EnvironmentID *string      `json:"environment_id"`
 }

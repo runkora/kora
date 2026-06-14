@@ -113,6 +113,18 @@ func (m *mockRepository) ListAgentTypes(_ context.Context, tenantID string) ([]A
 	return out, nil
 }
 
+func (m *mockRepository) ListAgentTypesByEnvironment(_ context.Context, tenantID, environmentID string) ([]AgentType, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []AgentType
+	for _, at := range m.agentTypes {
+		if at.TenantID == tenantID && at.EnvironmentID != nil && *at.EnvironmentID == environmentID {
+			out = append(out, *at)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepository) ListAllAgentTypeSlugs(_ context.Context) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

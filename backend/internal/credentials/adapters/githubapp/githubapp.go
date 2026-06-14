@@ -26,6 +26,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -84,22 +85,25 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 
-// Action constants returned by ClassifyAction. These are the policy actions
-// that combine with the connection name to form the scope
-// "connection:<name>:<action>".
+// Action constants returned by ClassifyAction. Sourced from the shared adapter
+// metadata table so the classifier and the published vocabulary cannot drift.
+// They combine with the connection name to form "connection:<name>:<action>".
 const (
-	ActionRepoRead  = "repo:read"
-	ActionRepoWrite = "repo:write"
+	ActionRepoRead  = platformconns.ActionGitHubRepoRead
+	ActionRepoWrite = platformconns.ActionGitHubRepoWrite
 )
 
-// Actions enumerates every action ClassifyAction can return. The egress gateway
-// uses this to publish the connection:<name>:<action> scope vocabulary to the
-// policy service at startup so admins can grant against named scopes.
+// Actions enumerates every action ClassifyAction can return, delegating to the
+// shared metadata table (internal/platform/connections) so the
+// connection:<name>:<action> vocabulary the egress gateway publishes has exactly
+// one source of truth — the same table orbit-agents reads to derive auto-egress.
 func (a *Adapter) Actions() []credentials.ActionDeclaration {
-	return []credentials.ActionDeclaration{
-		{Action: ActionRepoRead, Description: "Read access to the connection's GitHub repositories (clone, fetch, REST GET/HEAD)"},
-		{Action: ActionRepoWrite, Description: "Write access to the connection's GitHub repositories (push, REST POST/PATCH/PUT/DELETE)"},
+	metas := platformconns.Actions(platformconns.AdapterGitHubApp)
+	out := make([]credentials.ActionDeclaration, len(metas))
+	for i, m := range metas {
+		out[i] = credentials.ActionDeclaration{Action: m.Action, Description: m.Description}
 	}
+	return out
 }
 
 // ClassifyAction maps a GitHub-bound HTTP request to the policy action that

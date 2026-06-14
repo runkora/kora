@@ -69,6 +69,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed` · 2026-06-06
+- [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
@@ -175,3 +176,4 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
 | 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed | 0065 |
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
+| 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |

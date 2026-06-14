@@ -159,7 +159,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	controller := agents.NewController(atSvc, runSvc, verifier, eval, agentRoutes(), cfg.Server.BasePath, logger)
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, agents.EnvironmentServiceConfig{
+		TenantNamespaceFn: cfg.TenantNamespace,
+	}, logger)
+
+	controller := agents.NewController(atSvc, runSvc, envSvc, verifier, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
 	// Read-only connection catalog (GET /api/v1/connections). Auth-only, tenant
 	// scoped from the verified token — a separate controller so it carries no
@@ -167,6 +171,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// orbit-tenant-connections ConfigMap the egress-gateway brokers from.
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
 	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
+
+	// Wire the grant scope resolver: it folds a referenced environment's egress +
+	// connectors and each connector's adapter-declared auto-egress into the agent's
+	// effective grant (env store + connection catalog back it). The agent type
+	// service uses the same env store to validate references at config time.
+	resolver := agents.NewScopeResolver(repo, catalog)
+	k8s.SetScopeResolver(resolver)
+	atSvc.SetEnvironmentLookup(repo)
+	atSvc.SetScopeResolver(resolver)
+	runSvc.SetScopeResolver(resolver)
 
 	server := apiServer.Server(
 		ctx,
@@ -224,6 +238,11 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "PATCH", RequiredScope: "agents:types:write"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "DELETE", RequiredScope: "agents:types:write"},
+		{PathPrefix: "/api/v1/environments", Method: "POST", RequiredScope: "agents:environments:write"},
+		{PathPrefix: "/api/v1/environments", Method: "GET", RequiredScope: "agents:environments:read"},
+		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
+		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
+		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
@@ -240,6 +259,8 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		{Scope: "agents:types:write", ResourceType: "agents", PathSegments: []string{"types"}, Action: "write", Description: "Create and delete agent type definitions"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
+		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list connectivity environments"},
+		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete connectivity environments"},
 	}
 	for _, slug := range slugs {
 		decls = append(decls,
