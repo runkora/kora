@@ -9,6 +9,8 @@
 
 > **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
 
+> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by Orbit. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
+
 ---
 
 ## Context
@@ -442,6 +444,88 @@ A future addition may support HTTP/80 **through the gateway** with guardrails: *
 
 ---
 
+## Amendment 3 — 2026-06-12: Connections are GitOps CRs, not a CRUD registry
+
+**Status:** Accepted — corrects **Decision** sub-point 4 (the "thin, shared connection-registration control plane … admin CRUD"), the **Implementation → Connection registration (data)** section, and **Workstream 4**.
+
+### What was wrong
+
+The original design registered a connection by **admin CRUD against a per-gateway Postgres registry** (`POST /api/v1/connections`), with the secret staged into a per-tenant Kubernetes Secret by a separate, unspecified path. Built and used, this has no human-usable front: it is a raw API call no operator makes, and it leaves secret intake as a manual side channel — the failure that motivated this amendment was a GitHub App key staged in the repo and `kubectl`-patched into a Secret. It also splits a connection's lifecycle in two — config in Postgres, secret in a k8s Secret — with nothing binding them.
+
+Three things, taken together, make the CRUD registry the wrong shape:
+
+1. **Every other per-tenant concern in Orbit is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
+2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no Orbit-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
+3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; Orbit's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
+
+### Decision: a `Connection` is a tenant-namespaced CRD; the secret is referenced, never handled
+
+```yaml
+apiVersion: orbit.io/v1alpha1
+kind: Connection
+metadata:
+  name: github
+  namespace: tenant-acme
+spec:
+  adapter: github_app
+  secretRef: orbit-conn-acme-github   # a k8s Secret in this namespace — a name, never a value
+  config:
+    app_id: "4015347"          # string
+    installation_id: 139299720 # number
+```
+
+The App private key lives only in the referenced Secret, materialised by the deployer's secret pipeline. The key is never in the CR, never in Git, never in Orbit's application layer.
+
+### The CR carries credential-source *identity* only
+
+Three other authorities already own the rest; the CR must not restate any of them:
+
+| Concern | Authority | Why it is not in the CR |
+|---|---|---|
+| grantable action vocabulary (`repo:read`, `repo:write`) | the **adapter** (`adapter.Actions()`) | code declares it; `ConnectionScopes` already publishes from the adapter, not from any CR field |
+| who may do what through the connection | the **agent grant + PDP** (`connection:<name>:<action>`) | authorization is the policy layer's job, not the credential-source definition's |
+| which repos / permissions the token can reach | **GitHub** (the installation grant) | the mint inherits the installation's scope; restating it in YAML is a drift-prone second copy |
+
+Consequently the original `scope_ceiling` field is **dropped** — it was persisted but read by no decision path (inert) — and the `repositories` / `permissions` adapter config is **dropped** — optional narrowing that duplicates GitHub's authoritative installation grant. If per-mint least-privilege narrowing is wanted later, it is derived from the agent's classified action at mint time, not from static CR config.
+
+### Enforcement: the operator aggregates the CRs; the gateway mounts the result; the registry and admin API are removed
+
+Three ways to get a tenant's connection config to the egress-gateway were considered:
+
+- **(a)** the operator reconciles CRs into the gateway's existing **Postgres registry** — rejected: it couples a control-plane reconciler to a data-plane service's private database schema, and keeps two sources of truth in sync.
+- **(b)** the gateway **watches the CRs directly** (its own informer, cluster-wide `connections`+`secrets` read, a new k8s-API secret resolver) — a clean "single source of truth," but it gives the shared, crown-jewel gateway pod Kubernetes API access it does not have today, needs a new secret resolver, and introduces a **second** mechanism for getting per-tenant material to the gateway.
+- **(c)** the **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — the gateway stays a pure data-plane pod with no Kubernetes API access. **We choose (c).**
+
+The deciding fact: the gateway **already** receives its most security-critical per-tenant material — the per-tenant CA — exactly this way. `tenant_ca_aggregator.go` watches each tenant's `orbit-tenant-ca` Secret and aggregates them into one `orbit-tenant-cas` Secret in `orbit-system` that the gateway mounts. Connections are the same class of problem (per-tenant material a shared gateway needs), so they take the same path rather than inventing a second one. (c) is also strictly less code in the risky data-plane gateway — it reuses the existing mounted-secret resolver and the CA-aggregator as a template — and it keeps the CRD Go type in `internal/operator` (the gateway, a feature package, never imports it).
+
+Mechanism:
+
+- A new **`ConnectionAggregator`** in the operator (mirroring `tenant_ca_aggregator.go`) watches `Connection` CRs across tenant namespaces and renders two `orbit-system` objects: a **connection-registry ConfigMap** (`orbit-tenant-connections` — the non-secret metadata: tenant, name, adapter, base_host, secret_ref, config) and the **connection-secrets Secret** (`orbit-tenant-connection-secrets` — each referenced Secret's material, keyed by a path the gateway's resolver expects). It re-renders on any `Connection` or referenced-Secret change.
+- The gateway **mounts** both. Its connection registry becomes a ConfigMap-backed reader (parse + `fsnotify` reload, mirroring `cabundle`), replacing the Postgres registry. The `k8sfile` secret resolver is **unchanged** — it already reads connection secrets from a mounted path.
+- On registry reload the gateway **republishes** the `connection:<name>:<action>` vocabulary via the existing `ScopePublisher` (it holds the egress-gateway service identity the policy service requires for scope registration).
+
+RBAC: the **operator** gains read/watch on `Connection` (it already has `secrets`/`configmaps`/`namespaces`); the gateway gains **nothing** — it stays mount-only. The cost — a derived ConfigMap/Secret the operator keeps in sync, rather than the CR being a single live source of truth — is the same trade the CA aggregator already makes, and connection config changes rarely.
+
+### The management UI is read-only
+
+With registration being `kubectl apply` of a CR plus a pipeline-materialised Secret, the UI has no mutation role. It is an observability surface: list reconciled connections and their health (is the referenced Secret present and valid?), show which agents are granted each connection and at what actions, a **Test Connection** action (dry-run mint — build the App JWT and request an installation token, proving the secret works without proxying a real agent call), and recent egress audit. It never writes.
+
+### What this removes and keeps
+
+- **Removed:** the Postgres connection registry (`internal/credentials/postgres.go`), the gateway admin controller and `/api/v1/connections` routes + `platform:connections:*` scopes, the gateway's Postgres dependency, and the `ScopeCeiling` / `repositories` / `permissions` fields.
+- **Added:** the `Connection` CRD Go types + manifest, the operator `ConnectionAggregator` (renders the registry ConfigMap + connection-secrets Secret), and the gateway's ConfigMap-backed registry reader (fsnotify reload).
+- **Kept (re-sourced, not rewritten):** the `Connection` domain type (now populated from the mounted registry), the adapter interface and the `github_app` + `passthrough` adapters, the `k8sfile` secret resolver, `ConnectionScopes` / `AllScopes` / `ScopePublisher` (now triggered on registry reload), and the broker / proxy / relay hot path. The agent-side connector grant (the picker that compiles `connection:<name>:<action>` onto the agent principal) is unchanged; it now lists connections sourced from the reconciled CRs.
+
+### Supersedes
+
+- **Decision** sub-point 4 ("a thin, shared connection-registration control plane … admin CRUD; it never mints and never handles a live credential") → the source of truth is the `Connection` CRD; the operator aggregates it into mounted config; there is no CRUD API.
+- **Implementation → Connection registration (data)** (the `scope_ceiling` / `adapter_config{repos,permissions}` registration record) → the CR carries identity only; ceiling and repo/permission scope are dropped.
+- **Workstream 4** ("Connection registry control plane — tenant-scoped CRUD + secret references") → `Connection` CRD + operator `ConnectionAggregator` + gateway mounts the aggregated registry/secrets; secret material via the deployer's secret pipeline.
+
+The adapters, the per-tenant CA / TLS termination, the mint/inject flows, the two-layer authorization (Amendment 1), and the transparent-egress chokepoint (Amendment 2) are unchanged.
+
+---
+
 ## Validation
 
 ### Success Metrics
@@ -482,4 +566,4 @@ A future addition may support HTTP/80 **through the gateway** with guardrails: *
 
 The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
-**Last Updated:** 2026-06-07
+**Last Updated:** 2026-06-12

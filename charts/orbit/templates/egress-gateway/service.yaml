@@ -26,3 +26,12 @@ spec:
       port: {{ .Values.egressGateway.connectPort }}
       targetPort: connect
       protocol: TCP
+    # Plain-HTTP admin/read port (health + GET /api/v1/connections). The name
+    # starts with "http" so istio renders a normal HTTP listener with no
+    # CONNECT-specific config — the frontend BFF reaches it like any service.
+    # Distinct from the CONNECT port above, which needs the EnvoyFilter to
+    # pass CONNECT through.
+    - name: http-admin
+      port: {{ .Values.egressGateway.adminPort }}
+      targetPort: admin-http
+      protocol: TCP

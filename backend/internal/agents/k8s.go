@@ -453,14 +453,29 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 		return env
 	}
 	env = append(env,
-		// Trust-store hints for the per-tenant CA root. Different runtimes
-		// honor different env vars; we set all the common ones so a tool
-		// (git/curl/Node SDK/Python requests) finds the CA wherever it
-		// looks. The file itself is mounted by sandboxVolumes below.
+		// Trust-store hints for the per-tenant CA root. Different runtimes honor
+		// different env vars; we set all the common ones so a tool finds the CA
+		// wherever it looks. The file itself is mounted by sandboxVolumes below.
+		//   SSL_CERT_FILE       — OpenSSL apps (and Go's crypto/tls)
+		//   CURL_CA_BUNDLE      — the curl CLI
+		//   NODE_EXTRA_CA_CERTS — Node.js
+		//   REQUESTS_CA_BUNDLE  — Python requests
+		//   GIT_SSL_CAINFO      — git over HTTPS (git manages CAINFO itself and
+		//     does NOT read SSL_CERT_FILE/CURL_CA_BUNDLE).
+		//   PIP_CERT            — pip (ships its own bundle, ignores
+		//     REQUESTS_CA_BUNDLE).
+		//
+		// These cover runtimes that ship their own CA bundle and ignore the OS
+		// trust store. Tools that DO fall back to the OS bundle (wget, the curl
+		// CLI, Go binaries like gh/kubectl, ruby, apt) are covered instead by
+		// mounting the CA over osTrustBundlePath in sandboxContainer — so we do
+		// not have to enumerate an env var per tool.
 		corev1.EnvVar{Name: "SSL_CERT_FILE", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "CURL_CA_BUNDLE", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "NODE_EXTRA_CA_CERTS", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "REQUESTS_CA_BUNDLE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "GIT_SSL_CAINFO", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "PIP_CERT", Value: sandboxTenantCAPath},
 	)
 	return env
 }
@@ -488,6 +503,15 @@ const egressGatewayCONNECTPort = 8085
 // sandbox container. The runtime env hints in sandboxContainerEnv all point
 // here.
 const sandboxTenantCAPath = "/var/run/orbit/tenant-ca/ca.crt"
+
+// osTrustBundlePath is the OS-wide CA bundle (Debian/Ubuntu base images) that
+// tools falling back to the system trust store read. Mounting the tenant CA
+// here makes git, wget, the curl CLI, Go binaries (gh/kubectl/helm), ruby and
+// apt trust the interception cert with no per-tool env var. The sandbox only
+// ever sees tenant-CA-signed certs (all egress is intercepted), so replacing
+// the bundle with the tenant CA alone is correct, not a downgrade — the
+// sandbox never needs to verify a real upstream certificate.
+const osTrustBundlePath = "/etc/ssl/certs/ca-certificates.crt"
 
 // tenantCAVolumeName is the projected-volume name for the tenant CA.
 const tenantCAVolumeName = "orbit-tenant-ca"
@@ -545,11 +569,24 @@ func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
 		{Name: "workspaces", MountPath: "/workspaces"},
 	}
 	if egressGatewayURL(cfg) != "" {
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      tenantCAVolumeName,
-			MountPath: "/var/run/orbit/tenant-ca",
-			ReadOnly:  true,
-		})
+		mounts = append(mounts,
+			corev1.VolumeMount{
+				Name:      tenantCAVolumeName,
+				MountPath: "/var/run/orbit/tenant-ca",
+				ReadOnly:  true,
+			},
+			// Overlay the OS trust bundle so OS-store tools (wget, curl CLI, Go
+			// binaries, ruby, apt) trust the interception cert without a per-tool
+			// env var. SubPath mounts a single file and does not auto-update on
+			// CA rotation — fine for per-run sandboxes, each of which gets the
+			// current CA at provision time.
+			corev1.VolumeMount{
+				Name:      tenantCAVolumeName,
+				MountPath: osTrustBundlePath,
+				SubPath:   "ca.crt",
+				ReadOnly:  true,
+			},
+		)
 	}
 	return corev1.Container{
 		Name:            "sandbox-exec",

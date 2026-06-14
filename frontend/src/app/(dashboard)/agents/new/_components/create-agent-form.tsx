@@ -24,9 +24,16 @@ import { ScopePicker } from '@orbit/components';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { ModelObject, ToolScopeDefinition, ConnectivityMode } from '@orbit/shared/api';
+import type {
+  ModelObject,
+  ToolScopeDefinition,
+  ConnectivityMode,
+  Connector,
+  ConnectionCatalogEntry,
+} from '@orbit/shared/api';
 import { createAgentType } from '../../_services/agents-api';
 import { ConnectivityFields, textToHosts } from '../../_components/connectivity-fields';
+import { ConnectorsFields } from '../../_components/connectors-fields';
 
 // ── Framework options ─────────────────────────────────────────────────────────
 
@@ -105,6 +112,8 @@ export function CreateAgentForm() {
   const [toolScopes, setToolScopes] = useState<string[]>([]);
   const [toolScopesSearch, setToolScopesSearch] = useState('');
   const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
 
   useEffect(() => {
     fetch(ApiRoute.models.GET(), { cache: 'no-store' })
@@ -125,6 +134,15 @@ export function CreateAgentForm() {
       .then((r) => r.json())
       .then((body: { data?: ToolScopeDefinition[] }) => {
         setAvailableToolScopes(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.connectors(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ConnectionCatalogEntry[] }) => {
+        setAvailableConnections(body.data ?? []);
       })
       .catch(() => undefined);
   }, []);
@@ -186,6 +204,7 @@ export function CreateAgentForm() {
             connectivityMode === 'whitelist'
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
               : { mode: connectivityMode },
+          connectors,
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
             budgetLimitUSD || budgetPerRunUSD
@@ -224,6 +243,7 @@ export function CreateAgentForm() {
       toolScopes,
       connectivityMode,
       connectivityHosts,
+      connectors,
       maxConcurrentRuns,
       router,
     ],
@@ -412,6 +432,23 @@ export function CreateAgentForm() {
             hosts={connectivityHosts}
             onModeChange={setConnectivityMode}
             onHostsChange={setConnectivityHosts}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Connectors section */}
+      <Card>
+        <CardHeader
+          leadingIcon="key"
+          title="Connectors"
+          description="Registered connections this agent may use. The gateway injects a scoped, short-lived credential per call — the agent never holds the secret."
+          divider
+        />
+        <CardContent padded>
+          <ConnectorsFields
+            available={availableConnections}
+            value={connectors}
+            onChange={setConnectors}
           />
         </CardContent>
       </Card>

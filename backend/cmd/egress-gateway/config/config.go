@@ -22,10 +22,17 @@ type Config struct {
 	} `yaml:"app"`
 
 	Server struct {
-		// HTTPPort is the single port the gateway binds. CONNECT requests are
-		// routed to the credential-broker pipeline; non-CONNECT requests are
-		// routed to the admin connections API.
-		HTTPPort            int    `yaml:"httpPort"`
+		// HTTPPort is the CONNECT port the gateway binds. It carries istio
+		// CONNECT-specific config (an EnvoyFilter adding CONNECT upgrade, a
+		// Service port named "http-connect", mTLS-from-sandbox filter chains),
+		// so it serves ONLY the credential-broker CONNECT pipeline. A plain
+		// HTTP GET to this port does not match the CONNECT filter chains.
+		HTTPPort int `yaml:"httpPort"`
+		// AdminHTTPPort is a separate, plain-HTTP port serving the read-only
+		// admin API (health + GET /api/v1/connections). It carries no
+		// CONNECT-specific istio config, so istio treats it like any other
+		// service port and the frontend BFF can reach it with a normal GET.
+		AdminHTTPPort       int    `yaml:"adminHTTPPort"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
@@ -55,9 +62,16 @@ type Config struct {
 
 		// ConnectionSecretRoot is the directory containing per-connection
 		// secrets. A connection's secret_ref is interpreted as a relative path
-		// under this root, e.g. secret_ref = "acme/github/app.pem" reads
-		// {ConnectionSecretRoot}/acme/github/app.pem.
+		// under this root, e.g. secret_ref = "acme.github.key" reads
+		// {ConnectionSecretRoot}/acme.github.key.
 		ConnectionSecretRoot string `yaml:"connectionSecretRoot"`
+
+		// ConnectionRegistryPath is the mounted connections.json file rendered
+		// by the operator's ConnectionAggregator into the orbit-tenant-connections
+		// ConfigMap (Amendment 3). The gateway parses it into the connection
+		// registry and hot-reloads on change. Absent/empty means no connections
+		// are brokered until the operator renders the ConfigMap.
+		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
 	} `yaml:"secrets"`
 
 	Observability struct {

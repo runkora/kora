@@ -2,10 +2,16 @@ app:
   version: "0.1.0"
 
 server:
+  # CONNECT port — credential-broker pipeline only. Carries istio
+  # CONNECT-specific config (EnvoyFilter + "http-connect" Service port).
   httpPort: 8085
+  # Admin/read HTTP port — plain HTTP, serves health + GET /api/v1/connections.
+  # Separate from the CONNECT port so istio handles it like any service port
+  # and the frontend BFF can issue a normal HTTP GET.
+  adminHTTPPort: 8086
   # Admin-API base path. Controller routes are registered RELATIVE to this
   # (e.g. "/connections"), so the absolute path is "/api/v1/connections" —
-  # matching AdminRoutes() and the Orbit admin-API convention (cf. identity).
+  # matching ReadRoutes() and the Orbit admin-API convention (cf. identity).
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
@@ -17,6 +23,7 @@ policy:
 secrets:
   tenantCARoot: "/var/run/orbit/tenant-ca"
   connectionSecretRoot: "/var/run/orbit/connection-secrets"
+  connectionRegistryPath: "/var/run/orbit/connections/connections.json"
 
 observability:
   serviceName: "egress-gateway"

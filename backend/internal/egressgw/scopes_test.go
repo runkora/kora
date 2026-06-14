@@ -12,41 +12,28 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-func TestAdminRoutes_StableSet(t *testing.T) {
-	got := AdminRoutes()
-	if len(got) == 0 {
-		t.Fatal("AdminRoutes returned empty")
+func TestAllScopes_NoConnections_PublishesReadScope(t *testing.T) {
+	registry := NewAdapterRegistry()
+	got := AllScopes(nil, registry)
+	// With no connections, AllScopes still publishes the read scope guarding
+	// the read-only connections catalog (GET /api/v1/connections) so the
+	// policy-service registration has a non-empty vocabulary bound to its route.
+	if len(got) != 1 {
+		t.Fatalf("scopes = %d, want 1 (platform:connections:read, no connections) — got %v", len(got), scopeStrings(got))
 	}
-	want := map[string]string{
-		"GET":    ScopePlatformConnectionsRead,
-		"POST":   ScopePlatformConnectionsWrite,
-		"PUT":    ScopePlatformConnectionsWrite,
-		"DELETE": ScopePlatformConnectionsWrite,
-	}
-	for _, r := range got {
-		if r.PathPrefix != "/api/v1/connections" {
-			t.Errorf("path = %q, want /api/v1/connections", r.PathPrefix)
-		}
-		if w, ok := want[r.Method]; !ok || w != r.RequiredScope {
-			t.Errorf("%s scope = %q, want %q", r.Method, r.RequiredScope, w)
-		}
+	if got[0].Scope != "platform:connections:read" {
+		t.Errorf("scope[0] = %q, want platform:connections:read", got[0].Scope)
 	}
 }
 
-func TestAllScopes_NoConnections_ReturnsAdminOnly(t *testing.T) {
-	registry := NewAdapterRegistry()
-	got := AllScopes(nil, registry)
-	if len(got) != 2 {
-		t.Fatalf("scopes = %d, want 2 admin scopes", len(got))
+func TestReadRoutes_BindsConnectionsRoute(t *testing.T) {
+	routes := ReadRoutes()
+	if len(routes) != 1 {
+		t.Fatalf("routes = %d, want 1", len(routes))
 	}
-	wantSet := map[string]bool{
-		ScopePlatformConnectionsRead:  true,
-		ScopePlatformConnectionsWrite: true,
-	}
-	for _, d := range got {
-		if !wantSet[d.Scope] {
-			t.Errorf("unexpected scope %q", d.Scope)
-		}
+	r := routes[0]
+	if r.PathPrefix != "/api/v1/connections" || r.Method != "GET" || r.RequiredScope != "platform:connections:read" {
+		t.Errorf("route = %+v, want {/api/v1/connections GET platform:connections:read}", r)
 	}
 }
 
@@ -62,18 +49,18 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	}
 	got := AllScopes(conns, registry)
 
-	// Expect admin (2) + per-connection: wildcard + repo:read + repo:write,
-	// for each of two connections = 6 + 2 admin = 8. AllScopes returns the full
-	// set sorted lexicographically by Scope; "connection:" sorts before "platform:".
+	// AllScopes prepends the read scope (platform:connections:read), then the
+	// per-connection scopes sorted lexicographically by Scope: wildcard +
+	// repo:read + repo:write, for each of two connections = 6, plus the read
+	// scope = 7 total.
 	wantScopes := []string{
+		"platform:connections:read",
 		"connection:github-prod:*",
 		"connection:github-prod:repo:read",
 		"connection:github-prod:repo:write",
 		"connection:github-staging:*",
 		"connection:github-staging:repo:read",
 		"connection:github-staging:repo:write",
-		ScopePlatformConnectionsRead,
-		ScopePlatformConnectionsWrite,
 	}
 	if len(got) != len(wantScopes) {
 		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), len(wantScopes), scopeStrings(got))

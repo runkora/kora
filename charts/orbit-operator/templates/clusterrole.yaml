@@ -33,6 +33,12 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["orbitplatforms", "orbitplatforms/status", "orbittenants", "orbittenants/status"]
     verbs: ["*"]
+  # Connection CRs — the operator reads/watches them to aggregate the
+  # egress-gateway connection registry (Amendment 3). Read-only: connections
+  # are authored via GitOps, never written by the operator.
+  - apiGroups: ["orbit.io"]
+    resources: ["connections"]
+    verbs: ["get", "list", "watch"]
   # Apps — Deployments and DaemonSets for SPIRE, Istio, and Orbit services
   - apiGroups: ["apps"]
     resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]

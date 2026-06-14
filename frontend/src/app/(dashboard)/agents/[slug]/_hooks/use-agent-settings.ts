@@ -6,7 +6,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import type { ModelObject, ToolScopeDefinition, ConnectivityMode } from '@orbit/shared/api';
+import type {
+  ModelObject,
+  ToolScopeDefinition,
+  ConnectivityMode,
+  Connector,
+  ConnectionCatalogEntry,
+} from '@orbit/shared/api';
 import { updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { hostsToText, textToHosts } from '../../_components/connectivity-fields';
@@ -40,6 +46,19 @@ export function deriveGrantScopes(modelId: string): string[] {
   return scopes;
 }
 
+/**
+ * Canonical, order-independent form of the connectors list for dirty-checking.
+ * Connectors are sorted by `connection` and each connector's `actions` are
+ * sorted, so toggling an action off then on (which reorders the arrays) does not
+ * register as a phantom unsaved change. Mirrors the `toolScopes.slice().sort()`
+ * normalization used in the dirty check.
+ */
+export function normalizeConnectors(connectors: Connector[]): Connector[] {
+  return connectors
+    .map((c) => ({ connection: c.connection, actions: c.actions.slice().sort() }))
+    .sort((a, b) => a.connection.localeCompare(b.connection));
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAgentSettings() {
@@ -71,6 +90,8 @@ export function useAgentSettings() {
   const [connectivityHosts, setConnectivityHosts] = useState(
     hostsToText(agent?.connectivity.hosts),
   );
+  const [connectors, setConnectors] = useState<Connector[]>(agent?.connectors ?? []);
+  const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
 
   // Tracks the last-saved values so isDirty resets immediately after a successful save.
   const [savedBaseline, setSavedBaseline] = useState({
@@ -86,6 +107,7 @@ export function useAgentSettings() {
     budgetPerRunUSD: agent?.budget?.per_run_limit_usd ? String(agent.budget.per_run_limit_usd) : '',
     connectivityMode: agent?.connectivity.mode ?? ('none' as ConnectivityMode),
     connectivityHosts: hostsToText(agent?.connectivity.hosts),
+    connectors: agent?.connectors ?? ([] as Connector[]),
   });
 
   // ── Model data ──────────────────────────────────────────────────────────────
@@ -117,6 +139,16 @@ export function useAgentSettings() {
       .catch(() => undefined);
   }, []);
 
+  // ── Connector catalog data ────────────────────────────────────────────────────
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.connectors(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ConnectionCatalogEntry[] }) => {
+        setAvailableConnections(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   const isDirty =
     name !== savedBaseline.name ||
@@ -131,7 +163,9 @@ export function useAgentSettings() {
       JSON.stringify(savedBaseline.toolScopes.slice().sort()) ||
     budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
     budgetCadence !== savedBaseline.budgetCadence ||
-    budgetPerRunUSD !== savedBaseline.budgetPerRunUSD;
+    budgetPerRunUSD !== savedBaseline.budgetPerRunUSD ||
+    JSON.stringify(normalizeConnectors(connectors)) !==
+      JSON.stringify(normalizeConnectors(savedBaseline.connectors));
 
   // ── Save / status ───────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -188,6 +222,7 @@ export function useAgentSettings() {
           connectivityMode === 'whitelist'
             ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
             : { mode: connectivityMode },
+        connectors,
       });
       setSaving(false);
       if (result.error) {
@@ -207,6 +242,7 @@ export function useAgentSettings() {
           budgetPerRunUSD,
           connectivityMode,
           connectivityHosts,
+          connectors,
         });
         setSaveSuccess(true);
         if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
@@ -229,6 +265,7 @@ export function useAgentSettings() {
       savedBaseline,
       connectivityMode,
       connectivityHosts,
+      connectors,
     ],
   );
 
@@ -246,6 +283,7 @@ export function useAgentSettings() {
     setBudgetPerRunUSD(savedBaseline.budgetPerRunUSD);
     setConnectivityMode(savedBaseline.connectivityMode);
     setConnectivityHosts(savedBaseline.connectivityHosts);
+    setConnectors(savedBaseline.connectors);
     setSaveError(null);
   }, [agent, savedBaseline]);
 
@@ -298,6 +336,9 @@ export function useAgentSettings() {
     setConnectivityMode,
     connectivityHosts,
     setConnectivityHosts,
+    connectors,
+    setConnectors,
+    availableConnections,
     // model data
     models,
     modelsLoading,

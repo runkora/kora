@@ -98,8 +98,18 @@ func (c Connectivity) EgressScopes() []string {
 	}
 }
 
-// AgentType defines a category of managed agent within a tenant.
-// Each active AgentType has a corresponding StatefulSet in the tenant namespace.
+// Connector attaches a registered credential connection to an agent type and the
+// actions the agent may invoke through it. It is the credential parallel to
+// Connectivity: where Connectivity compiles hosts to egress:<host>:connect, a
+// Connector compiles to connection:<connection>:<action> grants. The connection
+// itself — its adapter, secret, and scope_ceiling — is registered once at the
+// tenant level on the egress gateway; a Connector records which agents may use it
+// and for which actions.
+type Connector struct {
+	Connection string   `json:"connection"` // registered connection name, e.g. "github"
+	Actions    []string `json:"actions"`    // adapter actions, e.g. ["repo:read","repo:write"]
+}
+
 // AgentBudget is the spending configuration applied to the agent's policy
 // grant. Not persisted by orbit-agents — the grant is the source of truth
 // (budgets live in policy, one place); this struct carries the desired value
@@ -114,6 +124,8 @@ type AgentBudget struct {
 	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
 }
 
+// AgentType defines a category of managed agent within a tenant.
+// Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
 	ID                      string         `json:"id"`
 	TenantID                string         `json:"tenant_id"`
@@ -125,6 +137,7 @@ type AgentType struct {
 	ToolScopes              []string       `json:"tool_scopes"`
 	GrantScopes             []string       `json:"grant_scopes"`
 	Connectivity            Connectivity   `json:"connectivity"`
+	Connectors              []Connector    `json:"connectors,omitempty"`
 	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
 	State                   AgentTypeState `json:"state"`
 	CreatedAt               time.Time      `json:"created_at"`
@@ -136,13 +149,63 @@ type AgentType struct {
 	Budget *AgentBudget `json:"budget,omitempty"`
 }
 
+// ConnectorScopes compiles the attached connectors into the connection scope set
+// granted to the agent principal: connection:<connection>:<action> for each
+// action. Empty connection names or actions are skipped. Action strings keep
+// their own ':' (e.g. "repo:read") so the full scope is a 4-segment
+// connection:<name>:<resource>:<verb>.
+func (at AgentType) ConnectorScopes() []string {
+	scopes := make([]string, 0, len(at.Connectors))
+	for _, c := range at.Connectors {
+		name := strings.TrimSpace(c.Connection)
+		if name == "" {
+			continue
+		}
+		for _, a := range c.Actions {
+			if a = strings.TrimSpace(a); a != "" {
+				scopes = append(scopes, "connection:"+name+":"+a)
+			}
+		}
+	}
+	return scopes
+}
+
+// ValidateConnectors checks each connector names a connection and lists at least
+// one well-formed action. Connection names are single scope segments (no
+// whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not
+// whitespace or '/'. Mirrors Connectivity.Validate so a bad connector is
+// rejected at config time, not silently at grant-reconcile time.
+func ValidateConnectors(connectors []Connector) error {
+	for _, c := range connectors {
+		name := strings.TrimSpace(c.Connection)
+		if name == "" {
+			return fmt.Errorf("connector connection name must not be empty")
+		}
+		if strings.ContainsAny(name, " \t:/") {
+			return fmt.Errorf("connector connection %q is invalid: no spaces, ':' or '/'", name)
+		}
+		if len(c.Actions) == 0 {
+			return fmt.Errorf("connector %q must list at least one action", name)
+		}
+		for _, a := range c.Actions {
+			if strings.TrimSpace(a) == "" {
+				return fmt.Errorf("connector %q has an empty action", name)
+			}
+			if strings.ContainsAny(a, " \t/") {
+				return fmt.Errorf("connector %q action %q is invalid: no spaces or '/'", name, a)
+			}
+		}
+	}
+	return nil
+}
+
 // EffectiveGrantScopes is the full scope set reconciled onto the agent's policy
 // grant: its capability GrantScopes plus the egress scopes compiled from its
 // connectivity posture, de-duplicated. This is what ensureAgentGrant enforces,
 // so egress posture is durable — it survives every re-provision rather than
 // being wiped like a hand-added grant.
 func (at AgentType) EffectiveGrantScopes() []string {
-	out := make([]string, 0, len(at.GrantScopes)+len(at.Connectivity.Hosts)+1)
+	out := make([]string, 0, len(at.GrantScopes)+len(at.Connectivity.Hosts)+len(at.Connectors)+1)
 	seen := make(map[string]struct{})
 	for _, s := range at.GrantScopes {
 		if _, ok := seen[s]; !ok {
@@ -150,6 +213,11 @@ func (at AgentType) EffectiveGrantScopes() []string {
 		}
 	}
 	for _, s := range at.Connectivity.EgressScopes() {
+		if _, ok := seen[s]; !ok {
+			seen[s], out = struct{}{}, append(out, s)
+		}
+	}
+	for _, s := range at.ConnectorScopes() {
 		if _, ok := seen[s]; !ok {
 			seen[s], out = struct{}{}, append(out, s)
 		}

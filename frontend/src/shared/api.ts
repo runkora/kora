@@ -160,6 +160,29 @@ export interface Connectivity {
 }
 
 /**
+ * A connector attaches a registered credential connection to an agent type and
+ * the actions the agent may invoke through it. Compiles (server-side) to
+ * connection:<connection>:<action> grants — the credential parallel to how
+ * connectivity compiles hosts to egress:<host>:connect.
+ * Mirrors Go: agents.Connector
+ */
+export interface Connector {
+  connection: string;
+  actions: string[];
+}
+
+/**
+ * A connection available to attach as a connector, as surfaced by the egress
+ * gateway's GET /connections. `actions` is the connection's scope ceiling — the
+ * set of actions an agent may be granted through it.
+ */
+export interface ConnectionCatalogEntry {
+  name: string;
+  adapter: string;
+  actions: string[];
+}
+
+/**
  * An AgentType defines the configuration template for a class of agents.
  * Mirrors Go: agents.AgentType
  */
@@ -174,6 +197,7 @@ export interface AgentType {
   tool_scopes: string[];
   grant_scopes: string[];
   connectivity: Connectivity;
+  connectors?: Connector[];
   max_concurrent_runs_per_pod: number;
   state: AgentTypeState;
   created_at: string;
@@ -238,6 +262,7 @@ export interface CreateAgentTypeRequest {
   tool_scopes?: string[];
   grant_scopes?: string[];
   connectivity?: Connectivity;
+  connectors?: Connector[];
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
@@ -263,4 +288,5 @@ export interface UpdateAgentTypeRequest {
   /** Budget update: omit = unchanged; both limits zero = remove. */
   budget?: AgentBudget;
   connectivity?: Connectivity;
+  connectors?: Connector[];
 }

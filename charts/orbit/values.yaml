@@ -246,6 +246,12 @@ agents:
   existingSecret: "orbit-secrets"
   existingConfigMap: "orbit-config"
 
+  # ConfigMap (rendered by the operator's ConnectionAggregator) holding the
+  # connection registry — connections.json keyed under "connections.json". The
+  # same ConfigMap the egress-gateway brokers from; orbit-agents mounts it
+  # read-only to serve the read-only connection catalog (GET /api/v1/connections).
+  tenantConnectionsConfigMapName: "orbit-tenant-connections"
+
 policyService:
   image:
     repository: "ghcr.io/orbit-sh/orbit-policy-service"
@@ -319,12 +325,25 @@ egressGateway:
   # internal/operator/tenant_netpol.go's egressGatewayCONNECTPort constant.
   connectPort: 8085
 
+  # The plain-HTTP admin/read port. Serves health + GET /api/v1/connections,
+  # separate from the CONNECT port so istio handles it like any service port
+  # (the Service exposes it under an "http-*" name). The read route exists so
+  # the gateway can publish its scope vocabulary to the policy service (see
+  # connections_read_controller.go); the frontend reads the connection catalog
+  # from orbit-agents, not here. Must match
+  # cmd/egress-gateway/config/base.yaml's server.adminHTTPPort.
+  adminPort: 8086
+
   # Aggregated Secret names projected into the gateway pod. The operator
   # aggregates per-tenant material into these orbit-system Secrets so a
   # single pod can serve every tenant. See deployment.yaml for the
   # on-disk layout the gateway expects.
   tenantCASecretName: "orbit-tenant-cas"
   connectionSecretName: "orbit-tenant-connection-secrets"
+  # ConfigMap (rendered by the operator's ConnectionAggregator) holding the
+  # connection registry — connections.json keyed under "connections.json".
+  # Mounted into the gateway and parsed into its in-memory registry (Amendment 3).
+  tenantConnectionsConfigMapName: "orbit-tenant-connections"
 
   # ConfigMap and Secret whose entries are imported into the gateway
   # container's environment via envFrom. The operator-managed orbit-config

@@ -78,6 +78,17 @@ spec:
             secretName: {{ .Values.egressGateway.connectionSecretName }}
             optional: true
             defaultMode: 0o400
+        # Connection registry (Amendment 3): the operator aggregates each
+        # tenant's Connection CRs into the orbit-tenant-connections ConfigMap
+        # (one key, connections.json). The gateway mounts it and parses it into
+        # its in-memory registry, hot-reloading on change. Optional so the pod
+        # starts before any connection is applied (it brokers nothing until
+        # then). Mounted at the directory the gateway's
+        # secrets.connectionRegistryPath points at.
+        - name: tenant-connections
+          configMap:
+            name: {{ .Values.egressGateway.tenantConnectionsConfigMapName }}
+            optional: true
       containers:
         - name: orbit-egress-gateway
           image: "{{ .Values.egressGateway.image.repository }}:{{ include "orbit.egressGateway.imageTag" . }}"
@@ -106,6 +117,14 @@ spec:
             - name: connect
               containerPort: {{ .Values.egressGateway.connectPort }}
               protocol: TCP
+            # Plain-HTTP admin/read port (health + GET /api/v1/connections).
+            # Separate from the CONNECT port: it carries no CONNECT-specific
+            # istio config, so istio treats it like any service port and the
+            # frontend BFF can issue a normal HTTP GET. Must match
+            # cmd/egress-gateway/config/base.yaml's server.adminHTTPPort.
+            - name: admin-http
+              containerPort: {{ .Values.egressGateway.adminPort }}
+              protocol: TCP
           livenessProbe:
             tcpSocket:
               port: connect
@@ -131,4 +150,9 @@ spec:
               readOnly: true
             - name: connection-secrets
               mountPath: /var/run/orbit/connection-secrets
+              readOnly: true
+            # connections.json lands here as /var/run/orbit/connections/connections.json,
+            # matching cmd/egress-gateway/config/base.yaml secrets.connectionRegistryPath.
+            - name: tenant-connections
+              mountPath: /var/run/orbit/connections
               readOnly: true

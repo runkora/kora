@@ -1,0 +1,286 @@
+// ConfigMap-backed connection registry for the egress gateway (Amendment 3).
+//
+// The operator's ConnectionAggregator renders the orbit-tenant-connections
+// ConfigMap (one key, connections.json — a JSON array of registry entries) into
+// orbit-system; the gateway mounts it as a file. This file replaces the Postgres
+// registry: the gateway parses connections.json into Connection values and serves
+// the two lookups the broker + connLookup + ScopePublisher need —
+// GetByHost and ListByTenant.
+//
+// The reader mirrors cabundle.LoadEager for the load and the identity service's
+// fsnotify directory-watch for hot-reload (Kubernetes rotates the "..data"
+// symlink atomically on a ConfigMap-volume update). On reload the gateway
+// republishes its connection scope vocabulary via the OnReload hook.
+//
+// See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md,
+// "Amendment 3 — 2026-06-12".
+package credentials
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// registryEntry is the wire shape of one element of connections.json — the
+// runtime contract the operator's ConnectionAggregator renders. tenant_id equals
+// claims.Orbit.TenantID (the OrbitTenant CR name); secret_ref is a flat key the
+// k8sfile resolver reads under the connection-secret root.
+type registryEntry struct {
+	TenantID  string          `json:"tenant_id"`
+	Name      string          `json:"name"`
+	Adapter   string          `json:"adapter"`
+	BaseHost  string          `json:"base_host"`
+	SecretRef string          `json:"secret_ref"`
+	Config    json.RawMessage `json:"config,omitempty"`
+}
+
+// ConfigMapRegistry is a file-backed, hot-reloadable ConnectionRepository. It
+// loads connections.json from the mounted ConfigMap path and holds the parsed
+// connections in memory behind an RWMutex. It satisfies ConnectionRepository
+// (the shrunk GetByHost + ListByTenant surface).
+type ConfigMapRegistry struct {
+	path   string
+	logger logging.Logger
+
+	mu       sync.RWMutex
+	conns    []*Connection
+	onReload func(ctx context.Context)
+}
+
+// LoadConfigMapRegistry reads connections.json from path and returns a registry
+// holding the parsed connections. An empty path or an absent file is permitted
+// (the operator may not have rendered the ConfigMap yet) and yields an empty
+// registry that returns ErrConnectionNotFound for every host until a reload
+// populates it — mirroring cabundle.LoadEager's tolerance of a missing mount.
+func LoadConfigMapRegistry(ctx context.Context, path string, logger logging.Logger) (*ConfigMapRegistry, error) {
+	r := &ConfigMapRegistry{path: path, logger: logger}
+	conns, err := loadConnections(ctx, path, logger)
+	if err != nil {
+		return nil, err
+	}
+	r.conns = conns
+	logger.Info(ctx, "connection registry loaded",
+		logging.Field{Key: "path", Value: path},
+		logging.Field{Key: "connections", Value: len(conns)},
+	)
+	return r, nil
+}
+
+// OnReload registers a callback invoked after every successful reload (and not
+// at initial load). The gateway uses it to republish the connection scope
+// vocabulary to the policy service.
+func (r *ConfigMapRegistry) OnReload(fn func(ctx context.Context)) {
+	r.mu.Lock()
+	r.onReload = fn
+	r.mu.Unlock()
+}
+
+// GetByHost returns the connection whose base_host matches host within tenantID.
+// Host comparison is case-insensitive and ignores any :port suffix. Returns
+// ErrConnectionNotFound when no connection serves that host.
+func (r *ConfigMapRegistry) GetByHost(_ context.Context, tenantID, host string) (*Connection, error) {
+	want := normalizeHost(host)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, c := range r.conns {
+		if c.TenantID == tenantID && normalizeHost(c.BaseHost) == want {
+			return c, nil
+		}
+	}
+	return nil, ErrConnectionNotFound
+}
+
+// ListByTenant returns connections for tenantID. An empty tenantID returns ALL
+// connections across every tenant — the ScopePublisher relies on this to
+// publish the full connection:<name>:<action> vocabulary on reload.
+func (r *ConfigMapRegistry) ListByTenant(_ context.Context, tenantID string) ([]*Connection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*Connection, 0, len(r.conns))
+	for _, c := range r.conns {
+		if tenantID == "" || c.TenantID == tenantID {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// Watch watches the directory containing connections.json and reloads the
+// registry on change, mirroring the identity service's Secret/ConfigMap
+// directory-watch (Kubernetes rotates the "..data" symlink atomically). A 200ms
+// debounce coalesces event bursts. The goroutine exits when ctx is canceled.
+// Run it in a goroutine; an empty path disables the watch.
+func (r *ConfigMapRegistry) Watch(ctx context.Context) {
+	if r.path == "" {
+		return
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		r.logger.Error(ctx, "failed to create fsnotify watcher for connection registry — hot-reload disabled",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	defer func() {
+		if cerr := watcher.Close(); cerr != nil {
+			r.logger.Error(ctx, "failed to close connection registry fsnotify watcher",
+				logging.Field{Key: "error", Value: cerr.Error()},
+			)
+		}
+	}()
+
+	dir := filepath.Dir(r.path)
+	base := filepath.Base(r.path)
+	if addErr := watcher.Add(dir); addErr != nil {
+		r.logger.Error(ctx, "failed to watch connection registry directory — hot-reload disabled",
+			logging.Field{Key: "path", Value: dir},
+			logging.Field{Key: "error", Value: addErr.Error()},
+		)
+		return
+	}
+
+	r.logger.Info(ctx, "watching connection registry for changes",
+		logging.Field{Key: "path", Value: r.path},
+	)
+
+	var debounce *time.Timer
+	const debounceDelay = 200 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			if debounce != nil {
+				debounce.Stop()
+			}
+			return
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if !isRelevantRegistryEvent(event, base) {
+				continue
+			}
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(debounceDelay, func() { r.reload(ctx) })
+
+		case watchErr, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			r.logger.Error(ctx, "connection registry watcher error",
+				logging.Field{Key: "error", Value: watchErr.Error()},
+			)
+		}
+	}
+}
+
+// reload re-reads connections.json and swaps in the new set under a write lock,
+// then fires the OnReload hook. A read error keeps the current set — a transient
+// mount glitch must not blank the registry mid-flight.
+func (r *ConfigMapRegistry) reload(ctx context.Context) {
+	conns, err := loadConnections(ctx, r.path, r.logger)
+	if err != nil {
+		r.logger.Error(ctx, "connection registry reload failed — keeping current connections",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	r.mu.Lock()
+	r.conns = conns
+	hook := r.onReload
+	r.mu.Unlock()
+
+	r.logger.Info(ctx, "connection registry reloaded",
+		logging.Field{Key: "connections", Value: len(conns)},
+	)
+	if hook != nil {
+		hook(ctx)
+	}
+}
+
+// loadConnections reads and parses connections.json into Connection values. An
+// empty path or absent file yields an empty slice (not an error), matching
+// cabundle's tolerance of an unmounted secret.
+func loadConnections(ctx context.Context, path string, logger logging.Logger) ([]*Connection, error) {
+	if path == "" {
+		logger.Warn(ctx, "connection registry path is empty — no connections will be brokered")
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Warn(ctx, "connection registry file does not exist — no connections until it is mounted",
+				logging.Field{Key: "path", Value: path})
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read connection registry %q: %w", path, err)
+	}
+
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var entries []registryEntry
+	if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
+		return nil, fmt.Errorf("parse connection registry %q: %w", path, err)
+	}
+
+	conns := make([]*Connection, 0, len(entries))
+	for _, e := range entries {
+		conns = append(conns, &Connection{
+			// ID is derived (tenant|name) so the github_app adapter's token
+			// cache key — keyed on conn.ID — stays stable across reloads.
+			ID:        e.TenantID + "|" + e.Name,
+			TenantID:  e.TenantID,
+			Name:      e.Name,
+			Adapter:   AdapterType(e.Adapter),
+			BaseHost:  e.BaseHost,
+			SecretRef: e.SecretRef,
+			Config:    e.Config,
+		})
+	}
+	return conns, nil
+}
+
+// normalizeHost lowercases a host and strips any :port suffix so base_host
+// "github.com" matches a request authority "github.com:443".
+func normalizeHost(host string) string {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if stripped, _, err := net.SplitHostPort(h); err == nil {
+		return stripped
+	}
+	return h
+}
+
+// isRelevantRegistryEvent reports whether an fsnotify event on a watched
+// directory should trigger a reload. It matches either a direct write to the
+// target file (local dev) or the "..data" symlink swap Kubernetes uses for
+// ConfigMap-volume updates.
+func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
+	name := filepath.Base(event.Name)
+	if name != base && name != "..data" {
+		return false
+	}
+	return event.Has(fsnotify.Write) ||
+		event.Has(fsnotify.Create) ||
+		event.Has(fsnotify.Rename) ||
+		event.Has(fsnotify.Remove)
+}

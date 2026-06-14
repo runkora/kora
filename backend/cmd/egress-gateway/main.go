@@ -3,23 +3,28 @@
 // calls, mints just-in-time credentials, and forwards to the real upstream.
 // See docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
 //
-// Topology:
+// Topology — two listeners on two ports:
 //
-//	tool (HTTPS_PROXY=gateway)
-//	  CONNECT host:443 →  egress-gateway :8085
-//	                        method dispatcher
-//	                          CONNECT  → ConnectHandler
-//	                            terminate TLS via per-tenant CA leaf
-//	                            ProxyHandler → Broker.Authorize
-//	                              policy.Check connection:<name>:<action>
-//	                              adapter.Resolve (mint)
-//	                            inject minted credential, forward upstream
-//	                          others   → admin connections API
-//	                            POST/GET/DELETE /api/v1/connections
+//	tool (transparent CONNECT via sandbox Envoy)
+//	  CONNECT host:443 →  egress-gateway :8085 (CONNECT port)
+//	                        ConnectHandler (CONNECT only; other verbs rejected)
+//	                          terminate TLS via per-tenant CA leaf
+//	                          ProxyHandler → Broker.Authorize
+//	                            policy.Check connection:<name>:<action>
+//	                            adapter.Resolve (mint)
+//	                          inject minted credential, forward upstream
 //
-// Migrations are not run by this binary — they live in
-// backend/cmd/egress-gateway/migrations/ and are applied via `make migrate-up`
-// (operator-managed).
+//	frontend BFF
+//	  GET /api/v1/connections → egress-gateway :8086 (admin HTTP port)
+//	                              platform API server (health + read-only
+//	                              connections catalog). Plain HTTP — istio
+//	                              treats it like any service port (no CONNECT
+//	                              filter chains), unlike the CONNECT port.
+//
+// Connections are GitOps CRs (Amendment 3): the operator aggregates each
+// tenant's Connection CRs into the orbit-tenant-connections ConfigMap, which
+// the gateway mounts and parses into its in-memory registry (hot-reloaded on
+// change). There is no Postgres dependency and no admin connections API.
 package main
 
 import (
@@ -37,7 +42,6 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 
 	"github.com/clear-route/orbit/internal/credentials"
@@ -70,19 +74,18 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Egress gateway starting", logging.Field{Key: "version", Value: egc.Current.App.Version})
 
-	// ── Storage ──────────────────────────────────────────────────────────────
-	db, err := initDatabase(ctx, logger)
-	if err != nil {
-		return fmt.Errorf("init database: %w", err)
-	}
-	defer db.Close()
-
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
 
 	// ── Connection registry ──────────────────────────────────────────────────
-	connRepo := credentials.NewPostgresRepository(db.Pool())
+	// Sourced from the operator-aggregated orbit-tenant-connections ConfigMap
+	// the gateway mounts (Amendment 3), parsed + hot-reloaded from disk. No
+	// Postgres dependency.
+	connRegistry, err := credentials.LoadConfigMapRegistry(ctx, egc.Current.Secrets.ConnectionRegistryPath, logger)
+	if err != nil {
+		return fmt.Errorf("init connection registry: %w", err)
+	}
 
 	// ── Adapter registry ─────────────────────────────────────────────────────
 	// Every supported credential mechanism is registered here. A connection
@@ -109,44 +112,56 @@ func realMain() error {
 	}
 
 	// ── Broker + handlers ────────────────────────────────────────────────────
-	broker := egressgw.NewBroker(eval, connRepo, registry, logger)
+	broker := egressgw.NewBroker(eval, connRegistry, registry, logger)
 	proxyHandler := egressgw.NewProxyHandler(broker, http.DefaultTransport, logger)
-	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRepo, logger)
+	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRegistry, logger)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
-	// ── Admin API ────────────────────────────────────────────────────────────
-	adminController := egressgw.NewAdminController(connRepo, verifier, eval, egc.Current.Server.BasePath, logger)
+	// ── Scope publisher ──────────────────────────────────────────────────────
+	// Publishes the connection:<name>:<action> vocabulary from the mounted
+	// registry. There is no admin API (connections are GitOps CRs); the
+	// publisher runs at startup and on every registry reload.
+	scopeClient := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
+	scopePub := egressgw.NewScopePublisher(connRegistry, registry, scopeClient, logger)
+
+	// ── Admin/read HTTP server (health + read-only connections) ──────────────
+	// Served on its OWN plain-HTTP port (AdminHTTPPort), separate from the
+	// CONNECT port. The CONNECT port carries istio CONNECT-specific config
+	// (EnvoyFilter + "http-connect" Service port + mTLS-from-sandbox filter
+	// chains), so a plain HTTP GET there fails to match the CONNECT filter
+	// chains. This listener has no CONNECT config, so istio handles it like any
+	// service port and the frontend BFF can issue a normal HTTP GET.
+	//
+	// The only controller is the read-only connections catalog — the admin
+	// CRUD API was removed by Amendment 3 (connections are GitOps CRs). Its own
+	// Middleware() enforces auth on GET /connections; the health endpoint is
+	// wired outside the controller mux and stays open.
+	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
 	adminHTTP := apiServer.Server(
 		ctx,
-		egc.Current.Server.HTTPPort,
+		egc.Current.Server.AdminHTTPPort,
 		egc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(egc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
-		adminController,
+		connectionsReadController,
 	)
 
-	// ── Method-dispatch top-level handler ────────────────────────────────────
-	// CONNECT requests bypass the admin server's middleware (the request body
-	// of a CONNECT is a TLS stream, which logging/tracing middleware must not
-	// touch); other verbs flow through the admin server normally. CONNECT
-	// still goes through AuthMiddleware so the broker sees verified claims.
+	// ── CONNECT listener ─────────────────────────────────────────────────────
+	// The CONNECT port serves ONLY CONNECT (sandboxes only ever send CONNECT).
+	// CONNECT bypasses the admin server's middleware — the request body of a
+	// CONNECT is a TLS stream that logging/tracing middleware must not touch —
+	// but still flows through AuthMiddleware so the broker sees verified claims.
+	// ConnectHandler itself rejects any non-CONNECT verb with an error response.
 	connectChain := mw.MiddlewareChain(mw.AuthMiddleware(verifier, logger))
 	authedConnect := connectChain(connectHandler)
-	dispatcher := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodConnect {
-			authedConnect.ServeHTTP(w, r)
-			return
-		}
-		adminHTTP.Handler.ServeHTTP(w, r)
-	})
 
-	httpSrv := &http.Server{
-		Addr:    adminHTTP.Addr,
-		Handler: dispatcher,
+	connectSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", egc.Current.Server.HTTPPort),
+		Handler: authedConnect,
 		// CONNECT must support hijacking; net/http's stdlib server does this
 		// automatically. ReadHeaderTimeout protects against slowloris on the
 		// CONNECT preamble.
@@ -154,15 +169,33 @@ func realMain() error {
 	}
 
 	// ── Scope vocabulary registration ────────────────────────────────────────
-	// Publish AdminRoutes + connection scopes to the policy service. Connection
-	// CRUD that adds new scopes will need to re-register; that's a follow-up
-	// hook on the connection repository.
-	go registerScopes(ctx, connRepo, registry, logger)
+	// Publish the full connection:<name>:<action> vocabulary at startup
+	// (ListByTenant("") returns every connection in the mounted registry), and
+	// republish on every registry reload (a Connection CR / Secret change
+	// re-aggregated by the operator). Runs in a goroutine because the
+	// routescopes client retries until the identity-proxy sidecar is ready.
+	connRegistry.OnReload(func(ctx context.Context) {
+		if err := scopePub.Publish(ctx, ""); err != nil {
+			logger.Error(ctx, "scope republish after registry reload failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+	})
+	go connRegistry.Watch(ctx)
+	go func() {
+		if err := scopePub.Publish(ctx, ""); err != nil {
+			logger.Error(ctx, "startup scope registration failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	go func() {
-		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: httpSrv.Addr})
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error(ctx, "HTTP server error", logging.Field{Key: "error", Value: err.Error()})
+		logger.Info(ctx, "Starting CONNECT server", logging.Field{Key: "addr", Value: connectSrv.Addr})
+		if err := connectSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error(ctx, "CONNECT server error", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
+	go func() {
+		logger.Info(ctx, "Starting admin HTTP server", logging.Field{Key: "addr", Value: adminHTTP.Addr})
+		if err := adminHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error(ctx, "admin HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
 
@@ -171,49 +204,15 @@ func realMain() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.ShutdownTimeout())
 	defer cancel()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
+	if err := connectSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "CONNECT server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
+	if err := adminHTTP.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "admin HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
 
 	logger.Info(ctx, "Egress gateway shutdown complete")
 	return nil
-}
-
-// initDatabase creates the Postgres pool used by the connection registry.
-func initDatabase(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
-	cfg, err := storage.LoadStorageConfig()
-	if err != nil {
-		return nil, err
-	}
-	db, err := storage.New(ctx, &cfg.Postgres, logger)
-	if err != nil {
-		return nil, err
-	}
-	logger.Info(ctx, "Database initialized successfully")
-	return db, nil
-}
-
-// registerScopes publishes the gateway's admin routes + connection scope
-// vocabulary to the policy service. It runs in a goroutine because the
-// routescopes client retries until the identity-proxy sidecar is ready.
-func registerScopes(ctx context.Context, repo credentials.ConnectionRepository, registry *egressgw.AdapterRegistry, logger logging.Logger) {
-	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
-
-	conns, err := repo.ListByTenant(ctx, "")
-	if err != nil {
-		// ListByTenant("") returns an empty result by design — scope
-		// publication still proceeds with admin scopes only on first start.
-		logger.Warn(ctx, "list connections for scope registration failed",
-			logging.Field{Key: "error", Value: err.Error()})
-	}
-
-	if err := client.Register(ctx, egressgw.ServiceName, egressgw.AdminRoutes(), egressgw.AllScopes(conns, registry)); err != nil {
-		logger.Error(ctx, "scope registration failed", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
-	logger.Info(ctx, "scope vocabulary registered with policy service",
-		logging.Field{Key: "service", Value: egressgw.ServiceName},
-		logging.Field{Key: "connections", Value: len(conns)})
 }
 
 func initObservability(ctx context.Context) (func(), error) {

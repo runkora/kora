@@ -36,6 +36,18 @@ spec:
           csi:
             driver: csi.spiffe.io
             readOnly: true
+        # Connection registry: the operator aggregates each tenant's Connection
+        # CRs into the orbit-tenant-connections ConfigMap (one key,
+        # connections.json) — the same ConfigMap the egress-gateway brokers from.
+        # orbit-agents mounts it read-only to serve the read-only connection
+        # catalog (GET /api/v1/connections) the frontend connector picker uses.
+        # Optional so the pod starts before any connection is applied (the
+        # catalog is simply empty until then). Mounted at the directory
+        # agents.config.connectionRegistryPath points at.
+        - name: tenant-connections
+          configMap:
+            name: {{ .Values.agents.tenantConnectionsConfigMapName }}
+            optional: true
       containers:
         - name: orbit-agents
           image: "{{ .Values.agents.image.repository }}:{{ include "orbit.agents.imageTag" . }}"
@@ -89,4 +101,9 @@ spec:
           volumeMounts:
             - name: spire-workload-socket
               mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true
+            # connections.json lands here as /var/run/orbit/connections/connections.json,
+            # matching cmd/orbit-agents/config/base.yaml agents.connectionRegistryPath.
+            - name: tenant-connections
+              mountPath: /var/run/orbit/connections
               readOnly: true

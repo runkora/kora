@@ -198,6 +198,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
 	aggregator := operator.NewClientSecretAggregator(mgr.GetClient(), logger)
 	caAggregator := operator.NewTenantCAAggregator(mgr.GetClient(), logger)
+	connAggregator := operator.NewConnectionAggregator(mgr.GetClient(), logger)
 
 	platformReconciler := &operator.PlatformReconciler{
 		Client:      mgr.GetClient(),
@@ -219,6 +220,7 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		Registry:              registry,
 		Aggregator:            aggregator,
 		CAAggregator:          caAggregator,
+		ConnAggregator:        connAggregator,
 		Logger:                logger,
 		BundlePollingMinDelay: oc.Current.Operator.BundlePollingMinDelay,
 		BundlePollingMaxDelay: oc.Current.Operator.BundlePollingMaxDelay,

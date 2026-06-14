@@ -33,11 +33,12 @@ import (
 // See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
 type TenantReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	Registry     *TenantRegistry
-	Aggregator   *ClientSecretAggregator
-	CAAggregator *TenantCAAggregator
-	Logger       logging.Logger
+	Scheme         *runtime.Scheme
+	Registry       *TenantRegistry
+	Aggregator     *ClientSecretAggregator
+	CAAggregator   *TenantCAAggregator
+	ConnAggregator *ConnectionAggregator
+	Logger         logging.Logger
 
 	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
 	BundlePollingMinDelay int
@@ -62,7 +63,10 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if syncErr := r.Aggregator.Sync(ctx); syncErr != nil {
 				return ctrl.Result{}, syncErr
 			}
-			return ctrl.Result{}, r.CAAggregator.Sync(ctx)
+			if syncErr := r.CAAggregator.Sync(ctx); syncErr != nil {
+				return ctrl.Result{}, syncErr
+			}
+			return ctrl.Result{}, r.ConnAggregator.Sync(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
 	}
@@ -159,6 +163,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			name: "aggregated tenant CAs",
 			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
 		},
+		{
+			// Aggregated connections — each tenant's Connection CRs (and
+			// their referenced Secrets) are aggregated into the
+			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
+			// Secret in orbit-system the egress gateway mounts (Amendment 3).
+			name: "aggregated connections",
+			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
+		},
 	}
 	for _, step := range steps {
 		if err := step.run(ctx); err != nil {
@@ -198,7 +210,44 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.secretToTenants),
 		).
+		// A Connection CR change must re-aggregate the orbit-system connection
+		// registry/secrets the egress gateway mounts (Amendment 3). The
+		// Connection lives in a tenant namespace, so map it to the owning
+		// OrbitTenant's reconcile, which runs ConnAggregator.Sync.
+		Watches(
+			&Connection{},
+			handler.EnqueueRequestsFromMapFunc(r.connectionToTenants),
+		).
 		Complete(r)
+}
+
+// connectionToTenants maps a Connection event to the OrbitTenant whose
+// namespace the Connection lives in, so applying/deleting a Connection triggers
+// re-aggregation of the mounted gateway config.
+func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
+	conn, ok := obj.(*Connection)
+	if !ok {
+		return nil
+	}
+
+	list := &OrbitTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		t := &list.Items[i]
+		if tenantNamespace(t) == conn.Namespace {
+			reqs = append(reqs, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: t.Name},
+			})
+		}
+	}
+	return reqs
 }
 
 // secretToTenants maps a Secret event to the set of OrbitTenant reconcile
@@ -308,6 +357,10 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *Orbit
 	if err := r.CAAggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated tenant CAs for suspended tenant: %w", err)
+	}
+	if err := r.ConnAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated connections for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

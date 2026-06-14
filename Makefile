@@ -588,6 +588,14 @@ cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and de
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
+	@echo "$(COLOR_YELLOW)Registering tenant connections (GitHub if an App key is present)...$(COLOR_RESET)"
+	@if [ -f secrets/orbit-github-app.pem ]; then \
+		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
+		kubectl apply -f deploy/local/connections/ ; \
+		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
+	else \
+		echo "  (no secrets/orbit-github-app.pem — skipping GitHub connection; it is optional)"; \
+	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"

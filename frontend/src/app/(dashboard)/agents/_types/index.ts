@@ -10,9 +10,10 @@ import type {
   AgentTypeState,
   RunState,
   Connectivity,
+  Connector,
 } from '@orbit/shared/api';
 
-export type { AgentTypeState, RunState, Connectivity };
+export type { AgentTypeState, RunState, Connectivity, Connector };
 
 export interface AgentTypeRow {
   id: string;
@@ -28,6 +29,8 @@ export interface AgentTypeRow {
   grantScopes: string[];
   /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
   connectivity: Connectivity;
+  /** Attached credential connections + the actions granted through each. */
+  connectors: Connector[];
   maxConcurrentRunsPerPod: number;
   systemPrompt: string;
   createdAt: string;
@@ -76,6 +79,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
     connectivity: a.connectivity ?? { mode: 'none' },
+    connectors: a.connectors ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,

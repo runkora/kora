@@ -161,6 +161,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 
 	controller := agents.NewController(atSvc, runSvc, verifier, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
+	// Read-only connection catalog (GET /api/v1/connections). Auth-only, tenant
+	// scoped from the verified token — a separate controller so it carries no
+	// route→scope enforcement (the agent-types Controller does). Reads the same
+	// orbit-tenant-connections ConfigMap the egress-gateway brokers from.
+	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
+	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
+
 	server := apiServer.Server(
 		ctx,
 		cfg.Server.Port,
@@ -170,6 +177,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
+		catalogController,
 	)
 	return server, repo, atSvc, runSvc, nil
 }

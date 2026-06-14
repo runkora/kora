@@ -104,6 +104,12 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, err)
 	}
 
+	// Connectors: credential connections this agent may use, and for which
+	// actions. Compiles to connection:<name>:<action> grants alongside egress.
+	if err := ValidateConnectors(req.Connectors); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	}
+
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -115,6 +121,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
 		Connectivity:            connectivity,
+		Connectors:              req.Connectors,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -293,6 +300,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 			return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
 		}
 	}
+	if req.Connectors != nil {
+		if vErr := ValidateConnectors(req.Connectors); vErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
+		}
+	}
 	applyAgentTypeUpdates(at, req)
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
@@ -301,11 +313,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes, budget, or the
-	// connectivity posture change (egress scopes are compiled from connectivity
-	// into the grant). Run in background so the update response is not delayed
-	// by a policy-service round-trip.
-	if req.GrantScopes != nil || req.Budget != nil || req.Connectivity != nil {
+	// Re-reconcile the policy-service grant when grant scopes, budget, the
+	// connectivity posture, or the connectors change (egress + connection scopes
+	// are compiled into the grant). Run in background so the update response is not
+	// delayed by a policy-service round-trip.
+	if req.GrantScopes != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
@@ -376,6 +388,9 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.Connectivity != nil {
 		at.Connectivity = *req.Connectivity
+	}
+	if req.Connectors != nil {
+		at.Connectors = req.Connectors
 	}
 }
 

@@ -40,19 +40,26 @@ const (
 
 // Connection is a tenant-scoped registration of one external service. It names
 // the adapter, the upstream host the gateway terminates and re-originates, a
-// reference to the per-tenant secret store (never a raw secret), the ceiling of
-// actions any grant may reach, and adapter-specific configuration.
+// reference to the per-tenant secret store (never a raw secret), and
+// adapter-specific configuration.
+//
+// Since Amendment 3 a Connection is sourced from the operator-aggregated
+// registry the gateway mounts (configmap.go), not a Postgres row. The
+// scope_ceiling field is dropped — the adapter declares the grantable action
+// vocabulary and the PDP authorizes; nothing read the ceiling. ID is derived
+// (tenant|name) by the registry reader so the github_app adapter's token cache
+// key stays stable; CreatedAt/UpdatedAt are retained for API/observability shape
+// and are zero when sourced from the registry.
 type Connection struct {
-	ID           string          `json:"id"`
-	TenantID     string          `json:"tenant_id"`
-	Name         string          `json:"name"` // agent-facing, e.g. "github"
-	Adapter      AdapterType     `json:"adapter"`
-	BaseHost     string          `json:"base_host"`     // e.g. "github.com"
-	SecretRef    string          `json:"secret_ref"`    // reference, never a raw value
-	ScopeCeiling []string        `json:"scope_ceiling"` // max actions any grant may reach
-	Config       json.RawMessage `json:"config"`        // adapter-specific
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID        string          `json:"id"`
+	TenantID  string          `json:"tenant_id"`
+	Name      string          `json:"name"` // agent-facing, e.g. "github"
+	Adapter   AdapterType     `json:"adapter"`
+	BaseHost  string          `json:"base_host"`  // e.g. "github.com"
+	SecretRef string          `json:"secret_ref"` // reference, never a raw value
+	Config    json.RawMessage `json:"config"`     // adapter-specific
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // CallerIdentity is the verified identity of the agent whose run is making the
