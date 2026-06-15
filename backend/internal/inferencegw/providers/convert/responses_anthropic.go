@@ -18,6 +18,11 @@ const blockTypeToolUse = "tool_use"
 // to wire JSON — direct struct construction produces malformed Arguments output
 // because ResponseOutputItemUnion has no MarshalJSON and encoding/json cannot
 // handle the inline union sub-fields.
+//
+// Panics if either marshal step fails: ResponseFunctionToolCall contains only
+// plain string fields and a constant, so failure is a runtime fault, not a
+// recoverable condition. A silent error here would leave JSON.raw empty and
+// reintroduce the wire-format regression this helper exists to prevent.
 func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseOutputItemUnion {
 	ftc := responses.ResponseFunctionToolCall{
 		ID:        id,
@@ -26,9 +31,14 @@ func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseO
 		Arguments: arguments,
 		Status:    responses.ResponseFunctionToolCallStatusCompleted,
 	}
-	b, _ := json.Marshal(ftc)
+	b, err := json.Marshal(ftc)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: marshal ResponseFunctionToolCall: %v", err))
+	}
 	var item responses.ResponseOutputItemUnion
-	_ = json.Unmarshal(b, &item)
+	if err := json.Unmarshal(b, &item); err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: unmarshal into ResponseOutputItemUnion: %v", err))
+	}
 	return item
 }
 
