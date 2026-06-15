@@ -129,9 +129,24 @@ will cause SPIFFE SAN validation failures and mTLS peer authentication will brea
 ## Updating a Running Cluster
 
 ```bash
-make cluster-update-operator   # rebuild + redeploy orbit-operator only
-make cluster-update            # rebuild + redeploy all service images
-make cluster-update-service    # rebuild + redeploy a single service (SERVICE=identity)
+make redeploy-list               # show every service known to the redeploy dispatcher
+make redeploy-status             # show drift between cluster and local-registry images
+make redeploy SERVICE=identity   # build + push + restart a single service
+
+# Per-service shortcuts (handle Dockerfile, build args, namespace, workload kind for you):
+make redeploy-identity           # +mkcert CA layer for Dex TLS
+make redeploy-frontend
+make redeploy-operator
+make redeploy-agents
+make redeploy-inference-gateway
+make redeploy-policy-service
+make redeploy-policy-gateway
+make redeploy-identity-proxy     # sidecar — restarts injected pods
+make redeploy-session-manager TENANT=example   # statefulset in tenant namespace
+make redeploy-sandbox-exec       # build-only, picked up by next agent run
+
+# Bulk:
+make cluster-update              # rebuild every service image + restart all deployments
 ```
 
 ---

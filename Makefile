@@ -44,7 +44,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): make docker-build-frontend NEXT_PUBLIC_APP_URL=https://my.host
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake orbit-frontend
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
@@ -399,16 +399,19 @@ dev-cluster-down: ## Tear down the local k3d cluster
 	@echo "$(COLOR_YELLOW)Tearing down local k3d cluster...$(COLOR_RESET)"
 	@bash scripts/cluster/dev-cluster-down.sh
 
-# PLATFORM_SERVICES are orbit-system services owned by the operator.
-# They must be built before 'make cluster-operator' so the operator can pull them.
-PLATFORM_SERVICES := identity identity-proxy inference-gateway policy-service policy-gateway
+# Backend services that are built and pushed during cluster bring-up. Order
+# matters only for readability — they're all built serially via redeploy.sh.
+# Adding a new service is a one-line edit here plus an entry in redeploy.sh.
+REDEPLOY_PLATFORM_SERVICES := \
+	identity identity-proxy inference-gateway policy-service policy-gateway \
+	egress-gateway agents frontend operator session-manager sandbox-exec
+REDEPLOY_TENANT_SERVICES := example
 
-# TENANT_SERVICES are workload images deployed into tenant namespaces.
-# They are built during 'make cluster-deploy'.
-TENANT_SERVICES := example
+OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
 
-.PHONY: docker-build
-docker-build: docker-build-platform docker-build-tenant ## Build all service Docker images
+# ===========================================
+# Image bake (CI / multi-arch publishing)
+# ===========================================
 
 .PHONY: docker-bake-build
 docker-bake-build: ## Build images via docker buildx bake and load them into the local Docker daemon
@@ -428,30 +431,6 @@ docker-bake-push: ## Build and push images via docker buildx bake (defaults to G
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
 
-.PHONY: docker-build-platform
-docker-build-platform: ## Build platform service images (identity, identity-proxy)
-	@for svc in $(PLATFORM_SERVICES); do \
-		echo "$(COLOR_YELLOW)Building orbit-$$svc:latest...$(COLOR_RESET)"; \
-		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
-		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
-	done
-	@if [ -f secrets/mkcert-ca.pem ]; then \
-		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity for local Dex TLS trust...$(COLOR_RESET)"; \
-		printf 'FROM orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
-			docker build -t orbit-identity:latest -f - secrets/; \
-		echo "$(COLOR_GREEN)✓ orbit-identity:latest (with mkcert CA)$(COLOR_RESET)"; \
-	fi
-
-.PHONY: docker-build-tenant
-docker-build-tenant: ## Build tenant workload images (example)
-	@for svc in $(TENANT_SERVICES); do \
-		echo "$(COLOR_YELLOW)Building orbit-$$svc:latest...$(COLOR_RESET)"; \
-		docker build --build-arg SERVICE=$$svc -t orbit-$$svc:latest -f backend/Dockerfile backend/; \
-		echo "$(COLOR_GREEN)✓ orbit-$$svc:latest$(COLOR_RESET)"; \
-	done
-
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
-
 .PHONY: docker-pull-third-party
 docker-pull-third-party: ## Pull third-party sidecar images and push to local registry (OPA envoy)
 	@echo "$(COLOR_YELLOW)Pulling $(OPA_ENVOY_IMAGE)...$(COLOR_RESET)"
@@ -460,112 +439,92 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 	@docker push localhost:5001/$(OPA_ENVOY_IMAGE)
 	@echo "$(COLOR_GREEN)✓ localhost:5001/$(OPA_ENVOY_IMAGE)$(COLOR_RESET)"
 
-.PHONY: docker-push
-docker-push: docker-push-platform docker-push-tenant ## Push all service images to local registry
+# ===========================================
+# Cluster bring-up + bulk operations
+# ===========================================
 
-.PHONY: docker-push-platform
-docker-push-platform: ## Push platform service images to local registry
-	@for svc in $(PLATFORM_SERVICES); do \
-		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
-		docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
-		docker push localhost:5001/orbit-$$svc:latest; \
-		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
+# Build + push every platform image in BUILD_ONLY mode. Used by cluster-operator
+# and cluster-update — anything that needs the local registry seeded but does
+# its own restart logic later. Serial on purpose (parallel builds overload the
+# Colima VM and cascade into mesh/Postgres failures). One prune at the end
+# instead of per-service so cache pruning happens just once.
+.PHONY: redeploy-platform
+redeploy-platform: ## Build + push every platform service to the local registry (no rollout)
+	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
+		bash scripts/cluster/redeploy.sh $$svc --build-only || exit $$?; \
 	done
 	@docker image prune -f > /dev/null
 
-.PHONY: docker-push-tenant
-docker-push-tenant: ## Push tenant workload images to local registry
-	@for svc in $(TENANT_SERVICES); do \
-		echo "$(COLOR_YELLOW)Pushing orbit-$$svc to local registry...$(COLOR_RESET)"; \
-		docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
-		docker push localhost:5001/orbit-$$svc:latest; \
-		echo "$(COLOR_GREEN)✓ localhost:5001/orbit-$$svc:latest$(COLOR_RESET)"; \
+.PHONY: redeploy-tenant
+redeploy-tenant: ## Build + push every tenant service to the local registry (no rollout)
+	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
+		bash scripts/cluster/redeploy.sh $$svc --build-only || exit $$?; \
 	done
 	@docker image prune -f > /dev/null
 
-.PHONY: docker-build-operator
-docker-build-operator: ## Build the orbit-operator Docker image (uses Dockerfile.operator — bakes charts into image)
-	@echo "$(COLOR_YELLOW)Building orbit-operator:latest...$(COLOR_RESET)"
-	@docker build -t orbit-operator:latest -f Dockerfile.operator .
-	@echo "$(COLOR_GREEN)✓ orbit-operator:latest$(COLOR_RESET)"
+.PHONY: redeploy-warm
+redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to warm BuildKit caches (no rollout) — run once at start of session for fast subsequent redeploys
+	@echo "$(COLOR_GREEN)✓ All caches warm — single-service redeploys should now be fast$(COLOR_RESET)"
 
-.PHONY: docker-push-operator
-docker-push-operator: ## Push orbit-operator image to local registry
-	@echo "$(COLOR_YELLOW)Pushing orbit-operator to local registry...$(COLOR_RESET)"
-	@docker tag orbit-operator:latest localhost:5001/orbit-operator:latest
-	@docker push localhost:5001/orbit-operator:latest
-	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-operator:latest$(COLOR_RESET)"
+# redeploy-platform-bake — opt-in alternative to redeploy-platform that drives
+# `docker buildx bake` against docker-bake.{hcl,local.hcl}. Buildx (v0.22)
+# doesn't expose a --no-parallel flag, so we serialize by invoking bake
+# **once per target** in a shell loop. We still get the bake wins (per-target
+# graph dedup of mod-download + COPY layers, single tagged image set, single
+# config source), without the across-target parallelism that wedges Colima.
+# Your memory documents that parallel image builds wedge the Colima VM.
+.PHONY: redeploy-platform-bake
+redeploy-platform-bake: ## (Experimental) Build + push every platform service via docker buildx bake (serial loop — one target at a time)
+	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
+	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
+	echo "$(COLOR_YELLOW)Baking platform images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
+	for tgt in orbit-identity orbit-identity-proxy orbit-inference-gateway orbit-policy-service orbit-policy-gateway orbit-egress-gateway orbit-agents orbit-frontend orbit-operator orbit-session-manager orbit-sandbox-exec; do \
+		GIT_SHA="$$GIT_SHA" \
+			docker buildx bake \
+				-f docker-bake.hcl -f docker-bake.local.hcl \
+				--load $$tgt || exit $$?; \
+	done
+	@if [ -f secrets/mkcert-ca.pem ]; then \
+		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
+		printf 'FROM localhost:5001/orbit-identity:latest\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\n' | \
+			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
+	fi
+	@echo "$(COLOR_YELLOW)Pushing all platform images to localhost:5001...$(COLOR_RESET)"
+	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
+		docker push --quiet localhost:5001/orbit-$$svc:latest > /dev/null && \
+		echo "  ✓ orbit-$$svc"; \
+	done
 	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Platform images built and pushed via bake$(COLOR_RESET)"
 
-.PHONY: docker-build-frontend
-docker-build-frontend: ## Build the frontend Docker image (bakes NEXT_PUBLIC_APP_URL into client bundle)
-	@echo "$(COLOR_YELLOW)Building orbit-frontend:latest (NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL))...$(COLOR_RESET)"
-	@docker build -t orbit-frontend:latest \
-		--build-arg NEXT_PUBLIC_APP_URL=$(NEXT_PUBLIC_APP_URL) \
-		frontend/
-	@echo "$(COLOR_GREEN)✓ orbit-frontend:latest$(COLOR_RESET)"
-
-.PHONY: docker-push-frontend
-docker-push-frontend: docker-build-frontend ## Push the frontend image to the local k3d registry
-	@echo "$(COLOR_YELLOW)Pushing orbit-frontend to local registry...$(COLOR_RESET)"
-	@docker tag orbit-frontend:latest localhost:5001/orbit-frontend:latest
-	@docker push localhost:5001/orbit-frontend:latest
-	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-frontend:latest$(COLOR_RESET)"
+.PHONY: redeploy-tenant-bake
+redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via docker buildx bake (serial — one target at a time)
+	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
+	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
+	echo "$(COLOR_YELLOW)Baking tenant images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
+	for tgt in orbit-example; do \
+		GIT_SHA="$$GIT_SHA" \
+			docker buildx bake \
+				-f docker-bake.hcl -f docker-bake.local.hcl \
+				--load $$tgt || exit $$?; \
+	done
+	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
+		docker push --quiet localhost:5001/orbit-$$svc:latest > /dev/null && \
+		echo "  ✓ orbit-$$svc"; \
+	done
 	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Tenant images built and pushed via bake$(COLOR_RESET)"
 
-.PHONY: docker-build-agents
-docker-build-agents: ## Build the orbit-agents image
-	@echo "$(COLOR_YELLOW)Building orbit-agents:latest...$(COLOR_RESET)"
-	@cd backend && docker build --build-arg SERVICE=orbit-agents -t orbit-agents:latest .
-	@echo "$(COLOR_GREEN)✓ orbit-agents:latest$(COLOR_RESET)"
-
-.PHONY: docker-push-agents
-docker-push-agents: docker-build-agents ## Build and push orbit-agents image to local registry
-	@echo "$(COLOR_YELLOW)Pushing orbit-agents to local registry...$(COLOR_RESET)"
-	@docker tag orbit-agents:latest localhost:5001/orbit-agents:latest
-	@docker push localhost:5001/orbit-agents:latest
-	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-agents:latest$(COLOR_RESET)"
-	@docker image prune -f > /dev/null
-
-.PHONY: docker-build-session-manager
-docker-build-session-manager: ## Build the session-manager image (includes orbit-shell and orbit-runtime-mcp)
-	@echo "$(COLOR_YELLOW)Building orbit-session-manager:latest...$(COLOR_RESET)"
-	@cd backend && docker build -t orbit-session-manager:latest -f Dockerfile.session-manager .
-	@echo "$(COLOR_GREEN)✓ orbit-session-manager:latest$(COLOR_RESET)"
-
-.PHONY: docker-push-session-manager
-docker-push-session-manager: docker-build-session-manager ## Build and push session-manager image to local registry
-	@echo "$(COLOR_YELLOW)Pushing orbit-session-manager to local registry...$(COLOR_RESET)"
-	@docker tag orbit-session-manager:latest localhost:5001/orbit-session-manager:latest
-	@docker push localhost:5001/orbit-session-manager:latest
-	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-session-manager:latest$(COLOR_RESET)"
-	@docker image prune -f > /dev/null
-
-.PHONY: docker-build-sandbox-exec
-docker-build-sandbox-exec: ## Build the sandbox-exec image (gRPC exec server for sandbox pods)
-	@echo "$(COLOR_YELLOW)Building orbit-sandbox-exec:latest...$(COLOR_RESET)"
-	@cd backend && docker build -t orbit-sandbox-exec:latest -f Dockerfile.sandbox-exec .
-	@echo "$(COLOR_GREEN)✓ orbit-sandbox-exec:latest$(COLOR_RESET)"
-
-.PHONY: docker-push-sandbox-exec
-docker-push-sandbox-exec: docker-build-sandbox-exec ## Build and push sandbox-exec image to local registry
-	@echo "$(COLOR_YELLOW)Pushing orbit-sandbox-exec to local registry...$(COLOR_RESET)"
-	@docker tag orbit-sandbox-exec:latest localhost:5001/orbit-sandbox-exec:latest
-	@docker push localhost:5001/orbit-sandbox-exec:latest
-	@echo "$(COLOR_GREEN)✓ localhost:5001/orbit-sandbox-exec:latest$(COLOR_RESET)"
-	@docker image prune -f > /dev/null
-
-# cluster-restore pushes every locally-built image to the registry.
-# Run this after 'colima start' to recover from a restart without rebuilding anything.
-# Only pushes images that already exist locally — skips ones that haven't been built yet.
+# Re-push every locally-built image to the registry (no build). Recover from a
+# Colima/k3d restart without rebuilding anything.
 .PHONY: cluster-restore
 cluster-restore: ## Re-push locally-built images to the registry after a Colima/k3d restart
 	@echo "$(COLOR_YELLOW)Syncing locally-built images to local registry...$(COLOR_RESET)"
-	@for img in $(PLATFORM_SERVICES) $(TENANT_SERVICES) operator frontend agents session-manager sandbox-exec; do \
-		if docker image inspect orbit-$$img:latest > /dev/null 2>&1; then \
-			echo "  pushing orbit-$$img:latest"; \
-			docker tag orbit-$$img:latest localhost:5001/orbit-$$img:latest; \
-			docker push localhost:5001/orbit-$$img:latest > /dev/null; \
+	@for svc in $(REDEPLOY_PLATFORM_SERVICES) $(REDEPLOY_TENANT_SERVICES); do \
+		if docker image inspect orbit-$$svc:latest > /dev/null 2>&1; then \
+			echo "  pushing orbit-$$svc:latest"; \
+			docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
+			docker push localhost:5001/orbit-$$svc:latest > /dev/null; \
 		fi; \
 	done
 	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
@@ -577,7 +536,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-operator
-cluster-operator: docker-build-operator docker-push-operator docker-build-platform docker-push-platform docker-push-frontend docker-pull-third-party docker-build-agents docker-push-agents docker-build-session-manager docker-push-session-manager docker-build-sandbox-exec docker-push-sandbox-exec ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
+cluster-operator: redeploy-platform docker-pull-third-party ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
@@ -618,26 +577,8 @@ cluster-operator: docker-build-operator docker-push-operator docker-build-platfo
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
-.PHONY: cluster-update-operator
-cluster-update-operator: docker-build-operator docker-push-operator ## Rebuild and redeploy the operator (e.g. after changing reconciler logic)
-	@echo "$(COLOR_YELLOW)Upgrading Orbit operator...$(COLOR_RESET)"
-	@helm upgrade --install orbit-operator charts/orbit-operator \
-		-f deploy/local/operator-values.yaml \
-		--namespace orbit-operator \
-		--timeout 60s --wait
-	@kubectl rollout restart deployment/orbit-operator -n orbit-operator
-	@kubectl rollout status deployment/orbit-operator -n orbit-operator --timeout=60s
-	@echo "$(COLOR_GREEN)✓ orbit-operator updated$(COLOR_RESET)"
-
-.PHONY: cluster-update-frontend
-cluster-update-frontend: docker-push-frontend ## Rebuild and redeploy the frontend (e.g. after UI changes)
-	@echo "$(COLOR_YELLOW)Restarting orbit-frontend...$(COLOR_RESET)"
-	@kubectl rollout restart deployment/orbit-frontend -n orbit-system
-	@kubectl rollout status deployment/orbit-frontend -n orbit-system --timeout=120s
-	@echo "$(COLOR_GREEN)✓ orbit-frontend updated$(COLOR_RESET)"
-
 .PHONY: cluster-deploy
-cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, register tenants, and deploy workloads
+cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and deploy workloads
 	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
 	@echo "$(COLOR_YELLOW)Registering tenants (applying OrbitTenant CRs)...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/tenants/
@@ -647,6 +588,14 @@ cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, r
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
+	@echo "$(COLOR_YELLOW)Registering tenant connections (GitHub if an App key is present)...$(COLOR_RESET)"
+	@if [ -f secrets/orbit-github-app.pem ]; then \
+		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
+		kubectl apply -f deploy/local/connections/ ; \
+		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
+	else \
+		echo "  (no secrets/orbit-github-app.pem — skipping GitHub connection; it is optional)"; \
+	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
@@ -655,8 +604,8 @@ cluster-deploy: docker-build-tenant docker-push-tenant ## Build tenant images, r
 	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
-cluster-update: docker-build docker-push docker-push-frontend ## Rebuild service images and restart deployments
-	@echo "$(COLOR_YELLOW)Updating Orbit services in cluster...$(COLOR_RESET)"
+cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
+	@echo "$(COLOR_YELLOW)Restarting all Orbit deployments...$(COLOR_RESET)"
 	@kubectl rollout restart deployment -n orbit-system
 	@kubectl rollout restart deployment -n orbit-tenant-example 2>/dev/null || true
 	@echo "$(COLOR_YELLOW)Waiting for rollouts to complete...$(COLOR_RESET)"
@@ -668,19 +617,89 @@ cluster-update: docker-build docker-push docker-push-frontend ## Rebuild service
 cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
 	@bash scripts/cluster/refresh-bedrock-creds.sh
 
-.PHONY: cluster-update-service
-cluster-update-service: ## Build, push and restart a single service (usage: make cluster-update-service SERVICE=identity)
-	$(if $(SERVICE),,$(error SERVICE is required — usage: make cluster-update-service SERVICE=identity))
-	@echo "$(COLOR_YELLOW)Building orbit-$(SERVICE):latest...$(COLOR_RESET)"
-	@docker build --build-arg SERVICE=$(SERVICE) -t orbit-$(SERVICE):latest -f backend/Dockerfile backend/
-	@echo "$(COLOR_YELLOW)Pushing orbit-$(SERVICE) to local registry...$(COLOR_RESET)"
-	@docker tag orbit-$(SERVICE):latest localhost:5001/orbit-$(SERVICE):latest
-	@docker push localhost:5001/orbit-$(SERVICE):latest
-	@docker image prune -f > /dev/null
-	@echo "$(COLOR_YELLOW)Restarting orbit-$(SERVICE)...$(COLOR_RESET)"
-	@kubectl rollout restart deployment/orbit-$(SERVICE) -n orbit-system
-	@kubectl rollout status deployment/orbit-$(SERVICE) -n orbit-system --timeout=120s
-	@echo "$(COLOR_GREEN)✓ orbit-$(SERVICE) updated$(COLOR_RESET)"
+# ===========================================
+# Redeploy — single dispatcher for "I changed one service, push it"
+# ===========================================
+#
+# All targets below funnel through scripts/cluster/redeploy.sh, which holds the
+# per-service registry (Dockerfile, build context, build args, namespace,
+# workload kind/name, post-build hooks). Adding a new service is a single edit
+# in that script — Makefile just exposes shortcuts.
+#
+# Usage:
+#   make redeploy SERVICE=identity                       # build + push + rollout
+#   make redeploy SERVICE=session-manager TENANT=example # tenant-scoped
+#   make redeploy SERVICE=sandbox-exec BUILD_ONLY=1      # build + push only
+#   make redeploy SERVICE=identity NO_BUILD=1            # rollout only
+#
+# Or use the per-service shortcut targets (redeploy-identity, redeploy-frontend, …).
+
+REDEPLOY_FLAGS := \
+	$(if $(TENANT),--tenant $(TENANT)) \
+	$(if $(SLUG),--slug $(SLUG)) \
+	$(if $(BUILD_ONLY),--build-only) \
+	$(if $(NO_BUILD),--no-build)
+
+.PHONY: redeploy
+redeploy: ## Build, push, and restart a single service (usage: make redeploy SERVICE=identity [TENANT=…] [BUILD_ONLY=1] [NO_BUILD=1])
+	$(if $(SERVICE),,$(error SERVICE is required — try: make redeploy-list))
+	@bash scripts/cluster/redeploy.sh $(SERVICE) $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-list
+redeploy-list: ## List every service known to `make redeploy`
+	@bash scripts/cluster/redeploy.sh --help 2>&1 | sed -n '/^Services:/,/^Flags:/p' | sed '$$d'
+
+.PHONY: redeploy-status
+redeploy-status: ## Show drift between cluster-deployed images and the local registry
+	@bash scripts/cluster/redeploy-status.sh
+
+.PHONY: redeploy-identity
+redeploy-identity: ## Redeploy identity (rebuilds with mkcert CA layer for Dex TLS)
+	@bash scripts/cluster/redeploy.sh identity $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-identity-proxy
+redeploy-identity-proxy: ## Redeploy identity-proxy sidecar (deletes injected pods so the operator re-injects)
+	@bash scripts/cluster/redeploy.sh identity-proxy $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-inference-gateway
+redeploy-inference-gateway: ## Redeploy the inference gateway
+	@bash scripts/cluster/redeploy.sh inference-gateway $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-policy-service
+redeploy-policy-service: ## Redeploy the policy service (PDP/PAP)
+	@bash scripts/cluster/redeploy.sh policy-service $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-policy-gateway
+redeploy-policy-gateway: ## Redeploy the policy gateway (PEP)
+	@bash scripts/cluster/redeploy.sh policy-gateway $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-egress-gateway
+redeploy-egress-gateway: ## Redeploy the egress gateway (per-tenant credential broker)
+	@bash scripts/cluster/redeploy.sh egress-gateway $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-agents
+redeploy-agents: ## Redeploy orbit-agents (agent control plane)
+	@bash scripts/cluster/redeploy.sh agents $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-frontend
+redeploy-frontend: ## Redeploy the frontend
+	@bash scripts/cluster/redeploy.sh frontend $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-operator
+redeploy-operator: ## Redeploy the orbit-operator (charts are baked into the image)
+	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-example
+redeploy-example: ## Redeploy the example tenant workload (default tenant=example, override with TENANT=…)
+	@bash scripts/cluster/redeploy.sh example $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-session-manager
+redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
+	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-sandbox-exec
+redeploy-sandbox-exec: ## Build + push sandbox-exec (no rollout — picked up by next agent run)
+	@bash scripts/cluster/redeploy.sh sandbox-exec $(REDEPLOY_FLAGS)
 
 .PHONY: prune
 prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
@@ -990,34 +1009,25 @@ auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
+.PHONY: auth-refresh
+auth-refresh: ## Refresh the access token in /tmp/orbit_credentials.json (local binary on :8080)
+	@chmod +x scripts/auth-refresh.sh
+	@./scripts/auth-refresh.sh \
+		--api-base "$${ORBIT_API_BASE:-http://localhost:8080/api/v1}" \
+		--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"
+
 .PHONY: auth-refresh-k3d
 auth-refresh-k3d: ## Refresh the access token in /tmp/orbit_credentials.json (k3d cluster via port-forward)
-	@CREDS="/tmp/orbit_credentials.json"; \
-	if [ ! -f "$$CREDS" ]; then \
-		echo "$(COLOR_RED)✗ No credentials file at $$CREDS — run: make auth-device-k3d$(COLOR_RESET)"; \
-		exit 1; \
-	fi; \
-	RT=$$(jq -r '.refresh_token // ""' "$$CREDS"); \
-	if [ -z "$$RT" ]; then \
-		echo "$(COLOR_RED)✗ No refresh_token in $$CREDS — run: make auth-device-k3d$(COLOR_RESET)"; \
-		exit 1; \
-	fi; \
-	TENANT="$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
-	echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"; \
-	kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
-	PF_PID=$$!; \
-	RESP=$$(curl -sf --retry 5 --retry-connrefused --retry-delay 1 -X POST "http://localhost:6069/api/v1/identity/session" \
-		-H "Content-Type: application/json" \
-		-d "{\"grant_type\": \"refresh_token\", \"refresh_token\": \"$$RT\", \"tenant_id\": \"$$TENANT\"}"); \
-	STATUS=$$?; \
-	kill $$PF_PID 2>/dev/null || true; \
-	if [ $$STATUS -ne 0 ]; then \
-		echo "$(COLOR_RED)✗ Refresh failed — token may be expired. Run: make auth-device-k3d$(COLOR_RESET)"; \
-		exit 1; \
-	fi; \
-	echo "$$RESP" > "$$CREDS"; \
-	chmod 600 "$$CREDS"; \
-	echo "$(COLOR_GREEN)✓ Token refreshed — saved to $$CREDS$(COLOR_RESET)"
+	@chmod +x scripts/auth-refresh.sh
+	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+		PF_PID=$$!; \
+		./scripts/auth-refresh.sh \
+			--api-base "http://localhost:6069/api/v1" \
+			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+		STATUS=$$?; \
+		kill $$PF_PID 2>/dev/null || true; \
+		exit $$STATUS
 
 .PHONY: setup-tls
 setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)

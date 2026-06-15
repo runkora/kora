@@ -1,8 +1,18 @@
 package main
 
-// orbit-shell is the Bash proxy binary set as $SHELL in the agent container.
+// orbit-shell is the Bash proxy that routes the agent's command execution into the
+// per-run sandbox pod. It is wired in as Claude Code's shell via CLAUDE_CODE_SHELL.
+//
+// Wiring note: Claude Code IGNORES $SHELL and resolves its Bash-tool shell from
+// CLAUDE_CODE_SHELL, which it only honors when the path's basename is a known shell
+// (bash/zsh/fish) — any other basename (e.g. "orbit-shell") is silently rejected and
+// Claude falls back to /bin/bash. So the deploy image exposes this binary under a
+// "bash" basename symlink (/opt/orbit/shell/bash) and sets CLAUDE_CODE_SHELL to it.
+// This was validated empirically against the real claude binary.
+//
 // It checks $WORKSPACE/.sandbox/endpoint on every invocation:
-//   - absent  → exec local bash with the given args
+//   - absent  → exec the real local /bin/bash with the given args (snapshot generation
+//     and any pre-provision commands run in-pod)
 //   - present → dial the gRPC exec server in the sandbox pod and stream the command
 
 import (
@@ -109,15 +119,49 @@ func runRemote(endpoint string) {
 	os.Exit(exitCode)
 }
 
-// parseCommand extracts the argument after -c, matching bash's own convention.
+// parseCommand extracts the command string bash would run for a `-c` invocation.
+//
+// It must match bash's real option grammar, not just "the arg after -c". bash parses
+// ALL leading options first, then takes the FIRST non-option operand as the command
+// string. Claude Code invokes its shell as `bash -c -l "<command>"` (and variants like
+// `bash -c -l "SNAPSHOT_FILE=…; …"`), so the command is the first operand — NOT the arg
+// immediately after `-c`, which is the `-l` flag. Getting this wrong shipped "-l" to the
+// sandbox and produced `/bin/bash: -c: option requires an argument`.
+//
+// Returns "" when there is no `-c` (interactive or non-command invocation) so the caller
+// falls back to local bash.
 func parseCommand() string {
-	args := os.Args[1:]
-	for i, arg := range args {
-		if arg == "-c" && i+1 < len(args) {
-			return args[i+1]
-		}
-		if strings.HasPrefix(arg, "-c") {
-			return arg[2:]
+	return parseCommandArgs(os.Args[1:])
+}
+
+// parseCommandArgs is the testable core of parseCommand; args excludes argv[0].
+func parseCommandArgs(args []string) string {
+	commandMode := false
+	endOfOptions := false
+	for _, arg := range args {
+		switch {
+		case endOfOptions:
+			// First operand after `--`.
+			if commandMode {
+				return arg
+			}
+			return ""
+		case arg == "--":
+			endOfOptions = true
+		case strings.HasPrefix(arg, "--"):
+			// Long option (e.g. --norc, --login) — never the -c command flag.
+			continue
+		case strings.HasPrefix(arg, "-"):
+			// Short-option bundle (e.g. -c, -l, -lc). A 'c' selects command mode.
+			if strings.ContainsRune(arg, 'c') {
+				commandMode = true
+			}
+		default:
+			// First non-option operand: this is the command string in -c mode.
+			if commandMode {
+				return arg
+			}
+			return ""
 		}
 	}
 	return ""

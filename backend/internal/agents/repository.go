@@ -14,6 +14,10 @@ type AgentTypeRepository interface {
 	// ListAllAgentTypeSlugs returns the distinct set of agent type slugs across all tenants.
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
+	// ListAgentTypesByEnvironment returns the agent types in a tenant that
+	// reference the given environment. Used to re-reconcile their grants when the
+	// environment changes (the reference model).
+	ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error)
 	UpdateAgentType(ctx context.Context, at AgentType) error
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
 	SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error
@@ -54,10 +58,20 @@ type RunRepository interface {
 	AppendRunMessage(ctx context.Context, m RunMessage) error
 }
 
+// EnvironmentRepository is the persistence interface for environment operations.
+type EnvironmentRepository interface {
+	CreateEnvironment(ctx context.Context, env Environment) error
+	GetEnvironment(ctx context.Context, tenantID, id string) (*Environment, error)
+	ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error)
+	UpdateEnvironment(ctx context.Context, env Environment) error
+	DeleteEnvironment(ctx context.Context, tenantID, id string) error
+}
+
 // Repository is the combined persistence interface for orbit-agents.
 // It is retained for backward-compatibility; most new code should depend on
-// AgentTypeRepository or RunRepository directly.
+// AgentTypeRepository, RunRepository, or EnvironmentRepository directly.
 type Repository interface {
 	AgentTypeRepository
 	RunRepository
+	EnvironmentRepository
 }

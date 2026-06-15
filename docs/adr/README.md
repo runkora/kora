@@ -6,7 +6,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 
 **Status values:** `Proposed` (under discussion) · `Accepted` (ratified; may or may not be fully implemented) · `Deprecated` / `Superseded`.
 
-> Note: a few *Accepted* ADRs describe subsystems that are designed but **not yet implemented** — notably the credential broker (*credential-aware-outbound-gateway*) and the MCP tool gateway (*mcp-server-registration*, *scope-gated-tool-exposure*). See [the architecture overview](../architecture.md) for current implementation status.
+> Note: a few ADRs describe subsystems that are designed but **not yet implemented** — notably the credential broker (*jit-credential-brokering-egress-gateway*, which supersedes the earlier *credential-aware-outbound-gateway*) and the MCP tool gateway (*mcp-server-registration*, *scope-gated-tool-exposure*). See [the architecture overview](../architecture.md) for current implementation status.
 
 ## By subsystem
 
@@ -67,7 +67,9 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Agent Execution Flow Patterns & Delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) — `Accepted` · 2026-03-05
 - [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — `Accepted` · 2026-03-05
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
-- [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Accepted` · 2026-03-05
+- [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
+- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed` · 2026-06-06
+- [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
@@ -114,7 +116,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-02-18 | [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) | Accepted | 0006 |
 | 2026-03-03 | [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) | Accepted | 0007 |
 | 2026-03-05 | [Agent Execution Flow Patterns & Delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) | Accepted | 0009 |
-| 2026-03-05 | [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) | Accepted | 0012 |
+| 2026-03-05 | [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) | Superseded | 0012 |
 | 2026-03-05 | [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) | Accepted | 0013 |
 | 2026-03-05 | [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) | Accepted | 0014 |
 | 2026-03-05 | [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) | Accepted | 0015 |
@@ -174,5 +176,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
+| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed | 0065 |
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
+| 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |
 | 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Accepted | — |

@@ -283,6 +283,32 @@ export const ApiRoute = {
     delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
       `${API_BASE}/agents/types/${id}`,
     toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
+    connectors: (): `${typeof API_BASE}/agents/connectors` => `${API_BASE}/agents/connectors`,
+    effectiveAccess: (id: string): `${typeof API_BASE}/agents/types/${string}/effective-access` =>
+      `${API_BASE}/agents/types/${id}/effective-access`,
+    /**
+     * `/api/agents/types/effective-access`
+     *
+     * POST — resolves the effective-access view for a *draft* (unsaved)
+     * connectivity config. Backs the Connectivity tab's live preview.
+     */
+    previewEffectiveAccess: (): `${typeof API_BASE}/agents/types/effective-access` =>
+      `${API_BASE}/agents/types/effective-access`,
+  },
+
+  /**
+   * `/api/agents/environments`
+   *
+   * list/create — the tenant's environments (egress-host + connector bundles).
+   * detail/delete — full-replace (PUT) or delete a single environment by ID.
+   */
+  environments: {
+    list: (): `${typeof API_BASE}/agents/environments` => `${API_BASE}/agents/environments`,
+    create: (): `${typeof API_BASE}/agents/environments` => `${API_BASE}/agents/environments`,
+    detail: (id: string): `${typeof API_BASE}/agents/environments/${string}` =>
+      `${API_BASE}/agents/environments/${id}`,
+    delete: (id: string): `${typeof API_BASE}/agents/environments/${string}` =>
+      `${API_BASE}/agents/environments/${id}`,
   },
 
   runs: {
@@ -377,6 +403,12 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['agentTypes']['create']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['detail']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['delete']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['effectiveAccess']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['previewEffectiveAccess']>
+  | ReturnType<(typeof ApiRoute)['environments']['list']>
+  | ReturnType<(typeof ApiRoute)['environments']['create']>
+  | ReturnType<(typeof ApiRoute)['environments']['detail']>
+  | ReturnType<(typeof ApiRoute)['environments']['delete']>
   | ReturnType<(typeof ApiRoute)['runs']['list']>
   | ReturnType<(typeof ApiRoute)['runs']['listForType']>
   | ReturnType<(typeof ApiRoute)['runs']['start']>

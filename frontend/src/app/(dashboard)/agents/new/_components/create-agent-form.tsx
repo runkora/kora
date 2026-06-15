@@ -24,8 +24,17 @@ import { ScopePicker } from '@orbit/components';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
+import type {
+  ModelObject,
+  ToolScopeDefinition,
+  ConnectivityMode,
+  Connector,
+  ConnectionCatalogEntry,
+} from '@orbit/shared/api';
 import { createAgentType } from '../../_services/agents-api';
+import { ConnectivityFields, textToHosts } from '../../_components/connectivity-fields';
+import { ConnectorsFields } from '../../_components/connectors-fields';
+import { EnvironmentField } from '../../_components/environment-field';
 
 // ── Framework options ─────────────────────────────────────────────────────────
 
@@ -93,6 +102,9 @@ export function CreateAgentForm() {
   const [budgetLimitUSD, setBudgetLimitUSD] = useState('');
   const [budgetCadence, setBudgetCadence] = useState('monthly');
   const [budgetPerRunUSD, setBudgetPerRunUSD] = useState('');
+  const [connectivityMode, setConnectivityMode] = useState<ConnectivityMode>('none');
+  const [connectivityHosts, setConnectivityHosts] = useState('');
+  const [environmentId, setEnvironmentId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
@@ -102,6 +114,8 @@ export function CreateAgentForm() {
   const [toolScopes, setToolScopes] = useState<string[]>([]);
   const [toolScopesSearch, setToolScopesSearch] = useState('');
   const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
 
   useEffect(() => {
     fetch(ApiRoute.models.GET(), { cache: 'no-store' })
@@ -122,6 +136,15 @@ export function CreateAgentForm() {
       .then((r) => r.json())
       .then((body: { data?: ToolScopeDefinition[] }) => {
         setAvailableToolScopes(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.connectors(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { data?: ConnectionCatalogEntry[] }) => {
+        setAvailableConnections(body.data ?? []);
       })
       .catch(() => undefined);
   }, []);
@@ -179,6 +202,12 @@ export function CreateAgentForm() {
           system_prompt: systemPrompt.trim(),
           tool_scopes: toolScopes,
           grant_scopes: grantScopes,
+          connectivity:
+            connectivityMode === 'whitelist'
+              ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
+              : { mode: connectivityMode },
+          connectors,
+          ...(environmentId ? { environment_id: environmentId } : {}),
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
             budgetLimitUSD || budgetPerRunUSD
@@ -215,6 +244,10 @@ export function CreateAgentForm() {
       systemPrompt,
       grantScopes,
       toolScopes,
+      connectivityMode,
+      connectivityHosts,
+      connectors,
+      environmentId,
       maxConcurrentRuns,
       router,
     ],
@@ -386,6 +419,44 @@ export function CreateAgentForm() {
             search={toolScopesSearch}
             onSearchChange={setToolScopesSearch}
           />
+        </CardContent>
+      </Card>
+
+      {/* Connectivity section */}
+      <Card>
+        <CardHeader
+          leadingIcon="network"
+          title="Connectivity"
+          description="Where this agent's sandboxes may reach on the internet. Hosts needing credentials are configured separately as connections."
+          divider
+        />
+        <CardContent padded>
+          <ConnectivityFields
+            mode={connectivityMode}
+            hosts={connectivityHosts}
+            onModeChange={setConnectivityMode}
+            onHostsChange={setConnectivityHosts}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Connectors section */}
+      <Card>
+        <CardHeader
+          leadingIcon="key"
+          title="Connectors"
+          description="Registered connections this agent may use. The gateway injects a scoped, short-lived credential per call — the agent never holds the secret."
+          divider
+        />
+        <CardContent padded>
+          <Stack gap="comfortable">
+            <ConnectorsFields
+              available={availableConnections}
+              value={connectors}
+              onChange={setConnectors}
+            />
+            <EnvironmentField value={environmentId} onChange={setEnvironmentId} />
+          </Stack>
         </CardContent>
       </Card>
 

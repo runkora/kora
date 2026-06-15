@@ -19,13 +19,14 @@ import (
 
 // Controller implements the orbit-agents HTTP API.
 type Controller struct {
-	agentTypes *AgentTypeService
-	runs       *RunService
-	verifier   *token.Verifier
-	eval       policy.Evaluator
-	routes     []routescopes.RouteScope
-	basePath   string
-	logger     logging.Logger
+	agentTypes   *AgentTypeService
+	runs         *RunService
+	environments *EnvironmentService
+	verifier     *token.Verifier
+	eval         policy.Evaluator
+	routes       []routescopes.RouteScope
+	basePath     string
+	logger       logging.Logger
 }
 
 // NewController creates an orbit-agents HTTP controller.
@@ -38,6 +39,7 @@ type Controller struct {
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
+	environments *EnvironmentService,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
 	routes []routescopes.RouteScope,
@@ -45,13 +47,14 @@ func NewController(
 	logger logging.Logger,
 ) *Controller {
 	return &Controller{
-		agentTypes: agentTypes,
-		runs:       runs,
-		verifier:   verifier,
-		eval:       eval,
-		routes:     routes,
-		basePath:   basePath,
-		logger:     logger,
+		agentTypes:   agentTypes,
+		runs:         runs,
+		environments: environments,
+		verifier:     verifier,
+		eval:         eval,
+		routes:       routes,
+		basePath:     basePath,
+		logger:       logger,
 	}
 }
 
@@ -101,10 +104,17 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
 	mux.Handle("POST /api/v1/agent-types", c.handleCreateAgentType)
+	mux.Handle("POST /api/v1/agent-types/effective-access", c.handleEffectiveAccessPreview)
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)
 	mux.Handle("GET /api/v1/agent-types/{id}", c.handleGetAgentType)
+	mux.Handle("GET /api/v1/agent-types/{id}/effective-access", c.handleGetEffectiveAccess)
 	mux.Handle("PATCH /api/v1/agent-types/{id}", c.handleUpdateAgentType)
 	mux.Handle("DELETE /api/v1/agent-types/{id}", c.handleDeleteAgentType)
+	mux.Handle("POST /api/v1/environments", c.handleCreateEnvironment)
+	mux.Handle("GET /api/v1/environments", c.handleListEnvironments)
+	mux.Handle("GET /api/v1/environments/{id}", c.handleGetEnvironment)
+	mux.Handle("PUT /api/v1/environments/{id}", c.handleUpdateEnvironment)
+	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
@@ -153,6 +163,11 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrInvalidConnectivity) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to create agent type", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -193,6 +208,43 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusOK, at)
 }
 
+// handleGetEffectiveAccess returns the resolved access view (egress posture +
+// environment + connector auto-egress, combined) for an agent type. Read-scoped
+// via the /api/v1/agent-types/ GET binding (agents:types:read).
+func (c *Controller) handleGetEffectiveAccess(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	access, err := c.agentTypes.GetEffectiveAccess(ctx, r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to resolve effective access", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, access)
+}
+
+// handleEffectiveAccessPreview resolves the access view for a draft (unsaved)
+// connectivity config — backs the live preview as the user edits. Write-scoped
+// via the /api/v1/agent-types POST binding; nothing is persisted.
+func (c *Controller) handleEffectiveAccessPreview(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req EffectiveAccessPreviewRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	access, err := c.agentTypes.PreviewEffectiveAccess(ctx, req)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to preview effective access", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, access)
+}
+
 func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -207,6 +259,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrInvalidConnectivity) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

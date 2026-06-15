@@ -1,0 +1,33 @@
+# =============================================================================
+# Local dev — GitHub App connection (GitOps registration)
+# =============================================================================
+#
+# This is the code-first way to register a GitHub connection in local dev.
+# Apply it with:  make register-github-connection
+#
+# That target creates the App-private-key Secret (`github-app-key`) from
+# secrets/orbit-github-app.pem and applies this Connection CR. The operator's
+# ConnectionAggregator then reconciles both into the orbit-system registry the
+# egress gateway and orbit-agents read — no API call, no manual kubectl.
+#
+# The App private key is NEVER in this file — only a `secretRef` to the Secret.
+# `app_id` / `installation_id` are non-secret identifiers; REPLACE them with
+# your own GitHub App's values (and install that App on the org/repos you want
+# the agent to reach). The key file goes at secrets/orbit-github-app.pem.
+#
+# Namespace: orbit-tenant-example (the operator derives "orbit-tenant-{name}"
+# from the OrbitTenant CR in deploy/local/tenants/example.yaml).
+# =============================================================================
+apiVersion: orbit.io/v1alpha1
+kind: Connection
+metadata:
+  name: github
+  namespace: orbit-tenant-example
+spec:
+  adapter: github_app
+  baseHost: github.com
+  secretRef: github-app-key
+  secretKey: key.pem
+  config:
+    app_id: "4015347"          # string — your GitHub App's App ID
+    installation_id: 139299720 # number — the installation on your org/repos

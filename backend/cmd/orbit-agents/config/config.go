@@ -62,6 +62,11 @@ type Config struct {
 		SandboxGRPCPort int `yaml:"sandboxGRPCPort"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
+		// ConnectionRegistryPath is the mounted connections.json file rendered by
+		// the operator's ConnectionAggregator into the orbit-tenant-connections
+		// ConfigMap. orbit-agents reads it to serve the read-only connection
+		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
+		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -22,13 +23,15 @@ type AgentTypeServiceConfig struct {
 
 // AgentTypeService manages agent type lifecycle: creation, provisioning, updates, and deletion.
 type AgentTypeService struct {
-	repo    AgentTypeRepository
-	runRepo RunRepository
-	k8s     k8sProvisioner
-	authz   *Authz
-	cfg     AgentTypeServiceConfig
-	logger  logging.Logger
-	hook    func() // called after agent type create/delete; nil if unset
+	repo     AgentTypeRepository
+	runRepo  RunRepository
+	k8s      k8sProvisioner
+	authz    *Authz
+	cfg      AgentTypeServiceConfig
+	logger   logging.Logger
+	hook     func()            // called after agent type create/delete; nil if unset
+	envs     environmentLookup // validates environment references; nil = skip validation
+	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
 }
 
 // NewAgentTypeService creates an AgentTypeService with the given dependencies.
@@ -54,6 +57,107 @@ func NewAgentTypeService(
 // returning) after any agent type is created or deleted. Intended for scope
 // re-registration — the hook should launch its own goroutine if needed.
 func (s *AgentTypeService) SetAgentTypeHook(fn func()) { s.hook = fn }
+
+// SetEnvironmentLookup installs the environment store used to validate that an
+// agent's environment reference exists within its tenant. When unset, the
+// reference is not validated here (the database FK still guards bare existence).
+func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs = envs }
+
+// SetScopeResolver installs the resolver used to compute the effective-access
+// read model. When unset, GetEffectiveAccess degrades to the agent's own egress
+// posture (no environment or connector resolution).
+func (s *AgentTypeService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
+
+// GetEffectiveAccess returns the resolved access view for an agent type — its
+// egress posture, referenced environment, and connector auto-egress combined.
+// Tenant-scoped and authz-read-checked like GetAgentType.
+func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.GetEffectiveAccess",
+		trace.WithAttributes(attribute.String("agent_type_id", id)))
+	defer span.End()
+
+	at, err := s.repo.GetAgentType(ctx, id)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "get agent type")
+		}
+		return nil, err
+	}
+	if at.TenantID != tenantFromContext(ctx) {
+		return nil, ErrNotFound
+	}
+	if err := s.authz.checkAgentType(ctx, *at, "read"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	resolver := s.resolver
+	if resolver == nil {
+		resolver = &ScopeResolver{}
+	}
+	return resolver.EffectiveAccess(ctx, *at)
+}
+
+// PreviewEffectiveAccess resolves the access view for a draft (unsaved) config —
+// the live preview as the user edits. Tenant is derived from the verified claims;
+// nothing is persisted, and it reveals only what the caller can already resolve
+// for their own tenant.
+func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req EffectiveAccessPreviewRequest) (*EffectiveAccess, error) {
+	draft := AgentType{
+		TenantID:      tenantFromContext(ctx),
+		Connectivity:  req.Connectivity,
+		Connectors:    req.Connectors,
+		EnvironmentID: req.EnvironmentID,
+	}
+	resolver := s.resolver
+	if resolver == nil {
+		resolver = &ScopeResolver{}
+	}
+	return resolver.EffectiveAccess(ctx, draft)
+}
+
+// validateAgentTypeUpdate runs the partial-update field validations
+// (connectivity posture, connectors, environment reference). Extracted from
+// UpdateAgentType to keep that method's cyclomatic complexity in check.
+func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest) error {
+	if req.Connectivity != nil {
+		if vErr := req.Connectivity.Validate(); vErr != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
+		}
+	}
+	if req.Connectors != nil {
+		if vErr := ValidateConnectors(req.Connectors); vErr != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
+		}
+	}
+	if req.EnvironmentID != nil {
+		var envID *string
+		if strings.TrimSpace(*req.EnvironmentID) != "" {
+			envID = req.EnvironmentID
+		}
+		if vErr := s.validateEnvironmentRef(ctx, at.TenantID, envID); vErr != nil {
+			return vErr
+		}
+	}
+	return nil
+}
+
+// validateEnvironmentRef rejects an agent referencing a non-existent or
+// cross-tenant environment. A nil/blank ref or an unwired env lookup is a no-op.
+func (s *AgentTypeService) validateEnvironmentRef(ctx context.Context, tenantID string, envID *string) error {
+	if envID == nil || strings.TrimSpace(*envID) == "" || s.envs == nil {
+		return nil
+	}
+	if _, err := s.envs.GetEnvironment(ctx, tenantID, *envID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("%w: environment %q not found", ErrInvalidEnvironment, *envID)
+		}
+		return fmt.Errorf("validate environment reference: %w", err)
+	}
+	return nil
+}
 
 // CreateAgentType registers a new agent type and initiates k8s provisioning.
 // Tenant is derived from the verified claims in ctx; the request-body field is
@@ -92,6 +196,34 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		grantScopes = []string{}
 	}
 
+	// Connectivity posture: default to deny-by-default (none) when omitted.
+	connectivity := Connectivity{Mode: ConnectivityNone}
+	if req.Connectivity != nil {
+		connectivity = *req.Connectivity
+	}
+	if connectivity.Mode == "" {
+		connectivity.Mode = ConnectivityNone
+	}
+	if err := connectivity.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConnectivity, err)
+	}
+
+	// Connectors: credential connections this agent may use, and for which
+	// actions. Compiles to connection:<name>:<action> grants alongside egress.
+	if err := ValidateConnectors(req.Connectors); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	}
+
+	// Environment reference: blank = none. Validate it exists in this tenant —
+	// the FK guards bare existence but not tenant ownership.
+	var environmentID *string
+	if req.EnvironmentID != nil && strings.TrimSpace(*req.EnvironmentID) != "" {
+		environmentID = req.EnvironmentID
+	}
+	if err := s.validateEnvironmentRef(ctx, req.TenantID, environmentID); err != nil {
+		return nil, err
+	}
+
 	at := AgentType{
 		ID:                      uuid.NewString(),
 		TenantID:                req.TenantID,
@@ -102,6 +234,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Framework:               framework,
 		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
+		Connectivity:            connectivity,
+		Connectors:              req.Connectors,
+		EnvironmentID:           environmentID,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -275,6 +410,9 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if err != nil {
 		return nil, err
 	}
+	if vErr := s.validateAgentTypeUpdate(ctx, at, req); vErr != nil {
+		return nil, vErr
+	}
 	applyAgentTypeUpdates(at, req)
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
@@ -283,10 +421,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes or budget change
-	// (e.g. model or budget update). Run in background so the update response
-	// is not delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.Budget != nil {
+	// Re-reconcile the policy-service grant when grant scopes, budget, the
+	// connectivity posture, or the connectors change (egress + connection scopes
+	// are compiled into the grant). Run in background so the update response is not
+	// delayed by a policy-service round-trip.
+	if req.GrantScopes != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.EnvironmentID != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
@@ -354,6 +493,19 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.Budget != nil {
 		at.Budget = req.Budget
+	}
+	if req.Connectivity != nil {
+		at.Connectivity = *req.Connectivity
+	}
+	if req.Connectors != nil {
+		at.Connectors = req.Connectors
+	}
+	if req.EnvironmentID != nil {
+		if strings.TrimSpace(*req.EnvironmentID) == "" {
+			at.EnvironmentID = nil
+		} else {
+			at.EnvironmentID = req.EnvironmentID
+		}
 	}
 }
 

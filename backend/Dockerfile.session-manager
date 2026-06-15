@@ -12,11 +12,13 @@ ENV GONOSUMDB=github.com/clear-route/*
 ENV GONOPROXY=github.com/clear-route/*
 
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && go mod verify
 
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit ./cmd/session-manager/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
     CGO_ENABLED=0 GOOS=linux go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
@@ -34,14 +36,24 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# bash: required by Claude Code's Bash tool (it checks $SHELL and exec()s bash directly).
+# bash: the REAL /bin/bash — used for shell-snapshot generation and as orbit-shell's
+#       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
 # go:   required so Claude Code can build/run Go programs in agent workspaces.
 RUN apk add --no-cache ca-certificates bash git go
 
-# orbit-shell is the Bash proxy: routes commands locally or to a sandbox pod via gRPC.
-# Falls back to /bin/bash when no sandbox endpoint file is present.
-ENV SHELL=/usr/local/bin/orbit-shell
+# How Claude Code's Bash tool is routed into the sandbox:
+#   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
+#   - It only honors a CLAUDE_CODE_SHELL whose basename is a known shell
+#     (bash/zsh/fish); anything else (e.g. "orbit-shell") silently falls back to
+#     /bin/bash. Verified empirically — see orbit-shell's package doc.
+#   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
+#     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
+# orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
+# $WORKSPACE/.sandbox/endpoint exists, and otherwise execs the real /bin/bash
+# (snapshot generation and any pre-provision commands run locally).
+ENV SHELL=/opt/orbit/shell/bash
+ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 
 # Install claude CLI. Pin to the tested major version.
 RUN npm install -g @anthropic-ai/claude-code@2
@@ -52,6 +64,10 @@ RUN addgroup -S orbit && adduser -S orbit -G orbit
 COPY --from=builder /configs/ ./
 COPY --from=builder /orbit ./orbit
 COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
+# Expose orbit-shell under a "bash" basename so Claude Code's CLAUDE_CODE_SHELL accepts it
+# (it rejects non-shell basenames and falls back to /bin/bash). Dedicated dir, NOT on PATH,
+# so the real /bin/bash is unaffected for every other consumer in the image.
+RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/shell/bash
 COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
 COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
 

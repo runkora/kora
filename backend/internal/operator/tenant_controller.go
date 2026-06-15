@@ -33,10 +33,12 @@ import (
 // See docs/adr/2026-03-31-orbit-kubernetes-operator.md for the design.
 type TenantReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	Registry   *TenantRegistry
-	Aggregator *ClientSecretAggregator
-	Logger     logging.Logger
+	Scheme         *runtime.Scheme
+	Registry       *TenantRegistry
+	Aggregator     *ClientSecretAggregator
+	CAAggregator   *TenantCAAggregator
+	ConnAggregator *ConnectionAggregator
+	Logger         logging.Logger
 
 	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
 	BundlePollingMinDelay int
@@ -58,7 +60,13 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if syncErr := r.Registry.Sync(ctx); syncErr != nil {
 				return ctrl.Result{}, syncErr
 			}
-			return ctrl.Result{}, r.Aggregator.Sync(ctx)
+			if syncErr := r.Aggregator.Sync(ctx); syncErr != nil {
+				return ctrl.Result{}, syncErr
+			}
+			if syncErr := r.CAAggregator.Sync(ctx); syncErr != nil {
+				return ctrl.Result{}, syncErr
+			}
+			return ctrl.Result{}, r.ConnAggregator.Sync(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
 	}
@@ -101,7 +109,9 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionTrue,
 		"Ready", fmt.Sprintf("namespace %q exists with correct labels", ns))
 
-	// Step 2: rebuild the tenant registry ConfigMap.
+	// Step 2: rebuild the tenant registry ConfigMap. Tracked separately
+	// from the post-namespace ensure-steps below because it produces a
+	// dedicated Condition (RegistryUpdated).
 	if err := r.Registry.Sync(ctx); err != nil {
 		log.Error(ctx, "failed to sync tenant registry",
 			logging.Field{Key: "tenant", Value: tenant.Name},
@@ -115,30 +125,65 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	_ = r.setTenantCondition(ctx, tenant, ConditionRegistryUpdated, metav1.ConditionTrue,
 		"Synced", "orbit-tenants ConfigMap updated")
 
-	// Step 3: ensure the orbit-opa-config ConfigMap exists in the tenant namespace.
-	// The OPA injection template mounts this ConfigMap to configure the OPA sidecar
-	// with the policy-service bundle endpoint and the tenant-specific bundle path.
-	if err := r.ensureOPAConfig(ctx, tenant); err != nil {
-		log.Error(ctx, "failed to ensure OPA config",
-			logging.Field{Key: "tenant", Value: tenant.Name},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	// Steps 3-7: per-tenant resource ensure-steps. Each follows the same
+	// failure shape — log, degrade, requeue — so they're collapsed into a
+	// table rather than duplicating the boilerplate per step.
+	steps := []reconcileStep{
+		{
+			name: "OPA config",
+			run:  func(ctx context.Context) error { return r.ensureOPAConfig(ctx, tenant) },
+		},
+		{
+			// Tenant CA Secret: see
+			// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
+			// The gateway projects the aggregated form below; the sandbox
+			// projects ca.crt only into its trust store.
+			name: "tenant CA",
+			run:  func(ctx context.Context) error { return r.ensureTenantCA(ctx, tenant) },
+		},
+		{
+			// Lock sandbox egress to the per-tenant gateway. Without this
+			// the structural credential-isolation guarantee weakens to a
+			// convention — agents could dial external hosts directly.
+			name: "sandbox egress NetworkPolicy",
+			run:  func(ctx context.Context) error { return r.ensureSandboxEgressPolicy(ctx, tenant) },
+		},
+		{
+			// Aggregated OIDC client secrets — confidential tenants need
+			// their client_secret available to the identity service
+			// without a pod restart.
+			name: "aggregated client secrets",
+			run:  func(ctx context.Context) error { return r.Aggregator.Sync(ctx) },
+		},
+		{
+			// Aggregated tenant CAs — pods can only mount Secrets from
+			// their own namespace, so the per-tenant orbit-tenant-ca
+			// Secrets are aggregated into one orbit-system Secret the
+			// egress gateway projects.
+			name: "aggregated tenant CAs",
+			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
+		},
+		{
+			// Aggregated connections — each tenant's Connection CRs (and
+			// their referenced Secrets) are aggregated into the
+			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
+			// Secret in orbit-system the egress gateway mounts (Amendment 3).
+			name: "aggregated connections",
+			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
+		},
+	}
+	for _, step := range steps {
+		if err := step.run(ctx); err != nil {
+			log.Error(ctx, "failed to ensure "+step.name,
+				logging.Field{Key: "tenant", Value: tenant.Name},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
 	}
 
-	// Step 4: rebuild the aggregated OIDC client secrets Secret so that
-	// confidential tenants are served without an identity service pod restart.
-	if err := r.Aggregator.Sync(ctx); err != nil {
-		log.Error(ctx, "failed to sync aggregated client secrets",
-			logging.Field{Key: "tenant", Value: tenant.Name},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
-	}
-
-	// Step 5: mark ready and record timestamp.
+	// Step 8: mark ready and record timestamp.
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
@@ -165,7 +210,44 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.secretToTenants),
 		).
+		// A Connection CR change must re-aggregate the orbit-system connection
+		// registry/secrets the egress gateway mounts (Amendment 3). The
+		// Connection lives in a tenant namespace, so map it to the owning
+		// OrbitTenant's reconcile, which runs ConnAggregator.Sync.
+		Watches(
+			&Connection{},
+			handler.EnqueueRequestsFromMapFunc(r.connectionToTenants),
+		).
 		Complete(r)
+}
+
+// connectionToTenants maps a Connection event to the OrbitTenant whose
+// namespace the Connection lives in, so applying/deleting a Connection triggers
+// re-aggregation of the mounted gateway config.
+func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
+	conn, ok := obj.(*Connection)
+	if !ok {
+		return nil
+	}
+
+	list := &OrbitTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		t := &list.Items[i]
+		if tenantNamespace(t) == conn.Namespace {
+			reqs = append(reqs, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: t.Name},
+			})
+		}
+	}
+	return reqs
 }
 
 // secretToTenants maps a Secret event to the set of OrbitTenant reconcile
@@ -271,6 +353,14 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *Orbit
 	if err := r.Aggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated secrets for suspended tenant: %w", err)
+	}
+	if err := r.CAAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated tenant CAs for suspended tenant: %w", err)
+	}
+	if err := r.ConnAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated connections for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
@@ -420,4 +510,12 @@ func hasRequiredLabels(actual, required map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// reconcileStep is one entry in the table of post-namespace
+// ensure-/sync-steps run from Reconcile. Each step's failure is handled
+// uniformly: log, mark the tenant Degraded, requeue.
+type reconcileStep struct {
+	name string
+	run  func(ctx context.Context) error
 }

@@ -122,3 +122,37 @@ spec:
     matchExpressions:
       - key: spiffe.io/agent
         operator: Exists
+---
+# Per-run sandbox workloads: the ephemeral pods that host an agent's
+# tools (git, gh, aws, kubectl, SDKs). One per active run, attested
+# distinctly so every outbound credential mint is auditably tied to
+# the specific run that made it.
+#
+# SPIFFE ID path:
+#   spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>
+#
+# The principal extractor (internal/identity/principal_extractor.go)
+# normalizes this back to the agent URI for authorization (so OPA
+# grants on the agent apply to every run) while lifting run_id into
+# Claims for attribution. See
+# docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: orbit-tenant-sandbox
+  labels:
+    {{- include "orbit-platform.labels" . | nindent 4 }}
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/agent/{{ `{{ index .PodMeta.Labels \"orbit.io/agent-slug\" }}` }}/sandbox/{{ `{{ index .PodMeta.Labels \"orbit.io/run-id\" }}` }}"
+  namespaceSelector:
+    matchLabels:
+      orbit.io/role: tenant
+  podSelector:
+    matchLabels:
+      orbit.io/role: sandbox
+    matchExpressions:
+      - key: orbit.io/agent-slug
+        operator: Exists
+      - key: orbit.io/run-id
+        operator: Exists

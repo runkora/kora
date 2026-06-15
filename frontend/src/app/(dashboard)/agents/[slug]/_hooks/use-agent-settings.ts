@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import type { ModelObject, ToolScopeDefinition } from '@orbit/shared/api';
+import type { ModelObject, ToolScopeDefinition, Connector } from '@orbit/shared/api';
 import { updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import type { AgentTypeRow } from '../../_types';
@@ -37,6 +37,19 @@ export function deriveGrantScopes(modelId: string): string[] {
     scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
   }
   return scopes;
+}
+
+/**
+ * Canonical, order-independent form of the connectors list for dirty-checking.
+ * Connectors are sorted by `connection` and each connector's `actions` are
+ * sorted, so toggling an action off then on (which reorders the arrays) does not
+ * register as a phantom unsaved change. Mirrors the `toolScopes.slice().sort()`
+ * normalization used in the dirty check.
+ */
+export function normalizeConnectors(connectors: Connector[]): Connector[] {
+  return connectors
+    .map((c) => ({ connection: c.connection, actions: c.actions.slice().sort() }))
+    .sort((a, b) => a.connection.localeCompare(b.connection));
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────

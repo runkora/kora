@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: orbit-egress-gateway
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.egressGateway.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "orbit.egressGateway.selectorLabels" . | nindent 4 }}
+  ports:
+    # Port name MUST start with "http-" so Istio renders an HTTP Connection
+    # Manager listener — both sandbox-side outbound and gateway-side inbound.
+    # An EnvoyFilter (egress-gateway/envoyfilter.yaml) then patches the HCM on
+    # both sides to enable HTTP/1.1 CONNECT pass-through (upgrade_configs +
+    # connect_matcher route), so the sandbox's istio-proxy forwards CONNECT
+    # requests intact (carrying the platform Bearer token injected by the
+    # sandbox's identity-proxy) to the gateway's istio-proxy, which forwards
+    # them to our application as a normal HTTP CONNECT — where ConnectHandler
+    # hijacks the conn and runs TLS termination.
+    #
+    # If this is "tcp-*" Istio renders a TCP listener with no HCM and CONNECT
+    # cannot flow at all. If this is "http-*" *without* the EnvoyFilter, the
+    # HCM rejects the unknown CONNECT method with 404. Both are needed.
+    - name: http-connect
+      port: {{ .Values.egressGateway.connectPort }}
+      targetPort: connect
+      protocol: TCP
+    # Plain-HTTP admin/read port (health + GET /api/v1/connections). The name
+    # starts with "http" so istio renders a normal HTTP listener with no
+    # CONNECT-specific config — the frontend BFF reaches it like any service.
+    # Distinct from the CONNECT port above, which needs the EnvoyFilter to
+    # pass CONNECT through.
+    - name: http-admin
+      port: {{ .Values.egressGateway.adminPort }}
+      targetPort: admin-http
+      protocol: TCP

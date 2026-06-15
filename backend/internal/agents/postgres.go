@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -19,6 +20,14 @@ var ErrConflict = errors.New("conflict")
 
 // ErrSlugTaken is returned when a slug is already in use within a tenant.
 var ErrSlugTaken = errors.New("slug already taken")
+
+// ErrInvalidConnectivity is returned when an agent type's connectivity posture
+// is malformed (bad mode or whitelist host). Handlers map it to a 400.
+var ErrInvalidConnectivity = errors.New("invalid connectivity")
+
+// ErrInvalidConnector is returned when an agent type's connector attachment is
+// malformed (empty connection name or action). Handlers map it to a 400.
+var ErrInvalidConnector = errors.New("invalid connector")
 
 // ErrRunNotAcceptingMessages is returned when a message is sent to a run that is not in a state that accepts messages.
 var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
@@ -40,12 +49,20 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 		at.ID = uuid.NewString()
 	}
 	now := time.Now().UTC()
+	connectivityJSON, mErr := json.Marshal(at.Connectivity)
+	if mErr != nil {
+		return fmt.Errorf("marshal connectivity: %w", mErr)
+	}
+	connectorsJSON, mErr := json.Marshal(at.Connectors)
+	if mErr != nil {
+		return fmt.Errorf("marshal connectors: %w", mErr)
+	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17)`,
 		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now,
+		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.EnvironmentID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -58,21 +75,21 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
 		FROM agent_types WHERE id = $1`, id)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
 		FROM agent_types WHERE tenant_id = $1 AND slug = $2`, tenantID, slug)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
 		FROM agent_types WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types: %w", err)
@@ -91,11 +108,19 @@ func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string
 }
 
 func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) error {
+	connectivityJSON, mErr := json.Marshal(at.Connectivity)
+	if mErr != nil {
+		return fmt.Errorf("marshal connectivity: %w", mErr)
+	}
+	connectorsJSON, mErr := json.Marshal(at.Connectors)
+	if mErr != nil {
+		return fmt.Errorf("marshal connectors: %w", mErr)
+	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10
-		WHERE id=$11`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), at.ID,
+		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10, connectivity=$11::jsonb, connectors=$12::jsonb, environment_id=$13
+		WHERE id=$14`,
+		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.EnvironmentID, at.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update agent_type: %w", err)
@@ -413,9 +438,10 @@ type scanner interface {
 func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
 	var state, framework string
+	var connectivityJSON, connectorsJSON []byte
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt,
+		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.EnvironmentID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -425,6 +451,16 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	}
 	at.State = AgentTypeState(state)
 	at.Framework = AgentFramework(framework)
+	if len(connectivityJSON) > 0 {
+		if uErr := json.Unmarshal(connectivityJSON, &at.Connectivity); uErr != nil {
+			return nil, fmt.Errorf("unmarshal connectivity: %w", uErr)
+		}
+	}
+	if len(connectorsJSON) > 0 {
+		if uErr := json.Unmarshal(connectorsJSON, &at.Connectors); uErr != nil {
+			return nil, fmt.Errorf("unmarshal connectors: %w", uErr)
+		}
+	}
 	return &at, nil
 }
 

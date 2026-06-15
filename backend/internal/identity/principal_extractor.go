@@ -82,14 +82,25 @@ func parseXFCCSpiffeURI(xfcc string) (string, error) {
 
 // principalFromSpiffeID constructs a Principal from a SPIFFE URI.
 //
-// Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md:
+// Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md
+// and docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md:
 //
-//	Agent:   spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
-//	Service: spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
-//	System:  spiffe://orbit.{instance-id}/system/{component-name}
+//	Agent:        spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}
+//	Per-run sandbox:
+//	              spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
+//	Service:      spiffe://orbit.{instance-id}/tenant/{tenant-id}/service/{service-id}
+//	System:       spiffe://orbit.{instance-id}/system/{component-name}
 //
-// The full URI is stored as the principal ID and in Claims["spiffe_id"] so
-// that policy rules can match on it directly (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md).
+// Per-run sandbox SVIDs are normalized to the agent principal for
+// authorization (so an agent's existing grants apply to all of its runs)
+// while the run_id is lifted into Claims for attribution and audit. This is
+// the "authorize as agent, attribute as run" model from the credential-broker
+// ADR — it lets any human with the agent's scope drive any run, with every
+// outbound call auditably tied to the specific run that made it.
+//
+// The full URI is stored in Claims["spiffe_id"] so policy rules and audit can
+// always recover it; the principal ID is the agent URI (sandbox segment
+// stripped) so OPA grant matching uses one identity per agent across runs.
 func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	if !strings.HasPrefix(spiffeID, "spiffe://") {
 		return nil, fmt.Errorf("not a SPIFFE URI: %q", spiffeID)
@@ -105,11 +116,13 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	trustDomain := withoutScheme[:slashIdx]
 	path := withoutScheme[slashIdx:] // e.g. /tenant/platform-team/agent/ci-deploy-bot
 
-	// Parse tenant and principal type/ID from docs/adr/2026-03-05-spiffe-spire-workload-attestation.md path structure:
+	// Parse tenant and principal type/ID from the path structure:
 	// /tenant/{tenant-id}/agent/{agent-id}
+	// /tenant/{tenant-id}/agent/{agent-id}/sandbox/{run-id}
 	// /tenant/{tenant-id}/service/{service-id}
 	// /system/{component-name}
-	var tenantID, displayName string
+	var tenantID, displayName, runID string
+	var agentURI string // the URI used as the principal ID — strips /sandbox/{run-id} when present
 	var principalType PrincipalType
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -121,6 +134,14 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		principalType = PrincipalTypeSystem
 		displayName = segments[1]
 		// System principals have no tenant
+	case len(segments) >= 6 && segments[0] == "tenant" && segments[2] == "agent" && segments[4] == "sandbox":
+		// Per-run sandbox: /tenant/{id}/agent/{slug}/sandbox/{run-id}
+		// Authorize as the agent (strip sandbox suffix); attribute as the run.
+		principalType = PrincipalTypeAgent
+		tenantID = strings.TrimPrefix(segments[1], "orbit-tenant-")
+		displayName = segments[3]
+		runID = segments[5]
+		agentURI = "spiffe://" + trustDomain + "/tenant/" + segments[1] + "/agent/" + segments[3]
 	case len(segments) >= 4 && segments[0] == "tenant":
 		// Tenant-scoped principals: /tenant/{id}/agent|service/{name}
 		// K8s namespaces are prefixed with "orbit-tenant-" (e.g. "orbit-tenant-example").
@@ -140,18 +161,29 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		return nil, fmt.Errorf("malformed SPIFFE path: expected /tenant/{id}/agent|service/{name} or /system/{name}, got %q", path)
 	}
 
+	// Use the agent URI as the stable principal ID for sandbox SVIDs so OPA
+	// grants on the agent apply to every run; for all other shapes use the
+	// full SVID (which already is the agent/service URI).
+	principalID := spiffeID
+	if agentURI != "" {
+		principalID = agentURI
+	}
+
+	claims := map[string]string{
+		"spiffe_id":    spiffeID,
+		"trust_domain": trustDomain,
+		"spiffe_path":  path,
+	}
+	if runID != "" {
+		claims["run_id"] = runID
+	}
+
 	return &Principal{
-		// Use the full SPIFFE URI as the stable principal ID so that
-		// policy rules can match on it directly.
-		ID:             spiffeID,
+		ID:             principalID,
 		Type:           principalType,
 		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceAttested,
-		Claims: map[string]string{
-			"spiffe_id":    spiffeID,
-			"trust_domain": trustDomain,
-			"spiffe_path":  path,
-		},
+		Claims:         claims,
 	}, nil
 }

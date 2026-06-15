@@ -141,6 +141,84 @@ export type RunState =
   | 'budget_exhausted';
 
 /**
+ * An agent type's outbound egress posture — the reachability gate for its
+ * sandboxes. Mirrors Go: agents.ConnectivityMode.
+ *   none      — no external egress (deny-by-default)
+ *   whitelist — egress only to the listed host patterns
+ *   open      — egress to any host
+ */
+export type ConnectivityMode = 'none' | 'whitelist' | 'open';
+
+/**
+ * Connectivity posture. `hosts` is consulted only in whitelist mode and holds
+ * host patterns (exact, "*", or "*.suffix"), IPv4/DNS only.
+ * Mirrors Go: agents.Connectivity
+ */
+export interface Connectivity {
+  mode: ConnectivityMode;
+  hosts?: string[];
+}
+
+/**
+ * A connector attaches a registered credential connection to an agent type and
+ * the actions the agent may invoke through it. Compiles (server-side) to
+ * connection:<connection>:<action> grants — the credential parallel to how
+ * connectivity compiles hosts to egress:<host>:connect.
+ * Mirrors Go: agents.Connector
+ */
+export interface Connector {
+  connection: string;
+  actions: string[];
+}
+
+/**
+ * A connection available to attach as a connector, as surfaced by the egress
+ * gateway's GET /connections. `actions` is the connection's scope ceiling — the
+ * set of actions an agent may be granted through it.
+ */
+export interface ConnectionCatalogEntry {
+  name: string;
+  adapter: string;
+  actions: string[];
+}
+
+/**
+ * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
+ * credential connectors an agent type can reference. Attaching an environment to
+ * an agent type folds its hosts and connectors into the agent's effective
+ * egress + connection grants.
+ * Mirrors Go: agents.Environment
+ */
+export interface Environment {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string;
+  /** Egress host patterns this environment grants (exact, "*", or "*.suffix"). */
+  egress_hosts: string[];
+  /** Credential connectors this environment grants. */
+  connectors: Connector[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Top-level response from GET /api/v1/environments. */
+export interface EnvironmentsListResponse {
+  environments: Environment[];
+}
+
+/**
+ * Request body for POST/PUT /api/v1/environments. PUT is a FULL replace — every
+ * field is sent.
+ */
+export interface EnvironmentRequest {
+  name: string;
+  description: string;
+  egress_hosts: string[];
+  connectors: Connector[];
+}
+
+/**
  * An AgentType defines the configuration template for a class of agents.
  * Mirrors Go: agents.AgentType
  */
@@ -154,6 +232,8 @@ export interface AgentType {
   framework: AgentFramework;
   tool_scopes: string[];
   grant_scopes: string[];
+  connectivity: Connectivity;
+  connectors?: Connector[];
   max_concurrent_runs_per_pod: number;
   state: AgentTypeState;
   created_at: string;
@@ -162,6 +242,8 @@ export interface AgentType {
   model_id?: string;
   /** Budget on the agent's policy grant. Present on detail reads when configured. */
   budget?: AgentBudget;
+  /** Optional environment this agent type references (its hosts + connectors are folded in). */
+  environment_id?: string | null;
 }
 
 /**
@@ -217,16 +299,66 @@ export interface CreateAgentTypeRequest {
   framework?: AgentFramework;
   tool_scopes?: string[];
   grant_scopes?: string[];
+  connectivity?: Connectivity;
+  connectors?: Connector[];
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
+  /** Environment to attach (UUID). Omit/empty for none. */
+  environment_id?: string;
 }
 
 /** Request body for POST /api/agents/types/:typeId/runs. */
 export interface StartRunRequest {
   task?: string;
   provision_sandbox?: boolean;
+}
+
+/**
+ * Per-connector auto-egress entry — the hosts a connection's adapter implies.
+ * Mirrors Go: agents.ConnectorEgress.
+ */
+export interface ConnectorEgress {
+  connection: string;
+  adapter: string;
+  hosts: string[];
+}
+
+/**
+ * The resolved, read-only view of what an agent type can actually reach, as
+ * returned by GET /api/v1/agent-types/:id/effective-access. Folds together the
+ * agent's own egress posture, its referenced environment, and the auto-egress
+ * implied by its connectors. Mirrors Go: agents.EffectiveAccess.
+ */
+export interface EffectiveAccess {
+  /** true = open egress (reaches any host); `hosts` is empty in this case. */
+  open: boolean;
+  /** Hosts from the agent's own whitelist posture. */
+  own_hosts: string[];
+  environment_id?: string;
+  environment_name?: string;
+  /** Hosts contributed by the referenced environment. */
+  environment_hosts: string[];
+  /** Per-connector auto-egress, grouped by connection. */
+  connector_egress: ConnectorEgress[];
+  /** Effective connectors (own + environment), with their granted actions. */
+  connectors: Connector[];
+  /** Deduplicated, sorted union of all reachable hosts (empty when open). */
+  hosts: string[];
+}
+
+/**
+ * Request body for POST /api/v1/agent-types/effective-access — the live-preview
+ * endpoint. Resolves the effective-access view for a *draft* (unsaved)
+ * connectivity config so the resolved panel can update as the user edits.
+ * Mirrors Go: agents.EffectiveAccessPreviewRequest.
+ */
+export interface EffectiveAccessPreviewRequest {
+  connectivity: Connectivity;
+  connectors: Connector[];
+  /** Environment to fold in (UUID). Omit/null/"" for none. */
+  environment_id?: string | null;
 }
 
 /** Request body for PATCH /api/agents/types/:id. */
@@ -241,4 +373,8 @@ export interface UpdateAgentTypeRequest {
   grant_scopes?: string[];
   /** Budget update: omit = unchanged; both limits zero = remove. */
   budget?: AgentBudget;
+  connectivity?: Connectivity;
+  connectors?: Connector[];
+  /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
+  environment_id?: string;
 }

@@ -32,6 +32,34 @@ func (e *ScopeVocabularyError) Error() string {
 	return fmt.Sprintf("scope %q is not in the scope vocabulary", e.Scope)
 }
 
+// isStructurallyValidEgressScope reports whether scope is a well-formed egress
+// connectivity-posture scope. Egress scopes name a destination HOST (data, not
+// a catalog capability), so the grant path validates them structurally instead
+// of against the bounded scope vocabulary. Accepted shapes (see ADR
+// 2026-06-06-jit-credential-brokering-egress-gateway, Amendment 2026-06-07):
+//
+//	egress:connect              open — any host (no host segment)
+//	egress:<host>:connect       exact host, or wildcard "*" / "*.suffix"
+//
+// The host segment must be non-empty and free of whitespace, "/", and ":" — a
+// colon would denote an IPv6 literal (a v1 non-goal) or a malformed scope. The
+// host's DNS validity is not enforced here: a host that never matches simply
+// authorizes nothing, and the rego matcher (_host_matches) is the runtime gate.
+func isStructurallyValidEgressScope(scope string) bool {
+	if scope == "egress:connect" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(scope, "egress:")
+	if !ok {
+		return false
+	}
+	host, ok := strings.CutSuffix(rest, ":connect")
+	if !ok {
+		return false
+	}
+	return host != "" && !strings.ContainsAny(host, " \t:/")
+}
+
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
 // writes within this window are coalesced into a single recompilation.
 const recompileDebounce = 500 * time.Millisecond
@@ -102,6 +130,15 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 	}
 
 	for _, scope := range scopes {
+		// Egress connectivity-posture scopes (egress:<host>:connect) name a
+		// destination HOST — open-ended data, not a bounded catalog capability —
+		// so they are validated structurally rather than against the scope
+		// vocabulary (there is no finite set of hostnames to pre-register).
+		// See ADR 2026-06-06-jit-credential-brokering-egress-gateway
+		// (Amendment 2026-06-07).
+		if isStructurallyValidEgressScope(scope) {
+			continue
+		}
 		exists, err := s.vocabRepo.Exists(ctx, scope)
 		if err != nil {
 			return nil, fmt.Errorf("vocabulary check: %w", err)

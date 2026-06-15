@@ -28,5 +28,6 @@ agents:
   sandboxImage: orbit-registry:5001/orbit-sandbox-exec:latest
   sandboxGRPCPort: 50051
   maxConcurrentRunsPerPod: 10
+  connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   sessionManager:
     postgresSSLMode: require

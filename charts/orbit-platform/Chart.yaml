@@ -6,7 +6,7 @@ description: >
   SPIRE and Istio are installed as SEPARATE Helm releases, driven by the
   orbit-operator, configured entirely from the OrbitPlatform CR.
 type: application
-version: 0.3.0
+version: 0.3.1
 appVersion: "0.1.0"
 
 keywords:

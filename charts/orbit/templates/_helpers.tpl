@@ -197,6 +197,31 @@ app: orbit-policy-gateway
 {{- end }}
 
 {{/*
+Egress Gateway labels.
+Per-tenant credential broker that hijacks CONNECT requests from sandbox pods,
+terminates upstream TLS with a per-tenant CA leaf, mints just-in-time
+upstream credentials, and forwards to the real upstream. See
+docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md.
+*/}}
+{{- define "orbit.egressGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-egress-gateway
+app.kubernetes.io/component: egress-gateway
+{{- end }}
+
+{{- define "orbit.egressGateway.selectorLabels" -}}
+app: orbit-egress-gateway
+{{- end }}
+
+{{- define "orbit.egressGateway.imageTag" -}}
+{{- .Values.egressGateway.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "orbit.egressGateway.imagePullPolicy" -}}
+{{- .Values.egressGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
 OPA Gateway labels.
 Standalone OPA pod that enforces authz_gateway.rego on the Istio IngressGateway
 via ext_authz (ADR-0044).

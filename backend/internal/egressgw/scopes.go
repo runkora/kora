@@ -1,0 +1,166 @@
+package egressgw
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+// ServiceName is the service identity the egress gateway uses when registering
+// scopes with the policy service. The platform token must carry this subject for
+// the registration to be accepted under SERVICE-principal rules.
+const ServiceName = "egress-gateway"
+
+// readConnectionsScope is the scope guarding the read-only connections catalog
+// (GET /api/v1/connections). It is declared and bound to the route so the
+// policy service accepts the registration with a non-empty routes list and
+// publishes the scope into the vocabulary. The read controller itself stays
+// AuthMiddleware-only (no scope-enforcement middleware) — registering the route
+// is only to satisfy the policy service and publish the connection vocabulary.
+const readConnectionsScope = "platform:connections:read"
+
+// ReadRoutes returns the route→scope binding for the gateway's read-only admin
+// API. It binds GET /api/v1/connections to readConnectionsScope so the
+// policy-service registration carries a non-empty routes list (an empty routes
+// list is rejected with 400 missing_required_field). This non-empty route is
+// the sole reason connections_read_controller.go is retained — see its doc.
+func ReadRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/connections", Method: "GET", RequiredScope: readConnectionsScope},
+	}
+}
+
+// ReadScope returns the scope declaration for the read-only connections catalog.
+func ReadScope() routescopes.ScopeDeclaration {
+	return routescopes.ScopeDeclaration{
+		Scope:        readConnectionsScope,
+		ResourceType: "platform",
+		PathSegments: []string{"connections"},
+		Action:       "read",
+		Description:  "Read the egress-gateway connection catalog",
+	}
+}
+
+// ConnectionScopes builds the per-connection scope vocabulary for the policy
+// service from the supplied connections and their registered adapters.
+//
+// For each connection it emits one ScopeDeclaration per action the connection's
+// adapter can classify, plus a wildcard "connection:<name>:*" entry that an
+// admin can grant to bestow every action at once. The returned list is sorted
+// by Scope so registration is order-stable across calls.
+//
+// Connections whose adapter is not in the registry are silently skipped — the
+// broker will reject calls to those connections at request time with
+// ErrUnsupportedAdapter, so it is correct to omit their scopes from the
+// vocabulary rather than register dangling entries.
+func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
+	if registry == nil {
+		return nil
+	}
+
+	decls := make([]routescopes.ScopeDeclaration, 0, len(conns)*3) //nolint:mnd // initial capacity hint, not magic
+	seen := make(map[string]struct{})
+
+	for _, conn := range conns {
+		if conn == nil {
+			continue
+		}
+		adapter, ok := registry.Lookup(conn.Adapter)
+		if !ok {
+			continue
+		}
+
+		// Wildcard scope: "connection:<name>:*" covers every action.
+		if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
+			Scope:        fmt.Sprintf("connection:%s:*", conn.Name),
+			ResourceType: "connection",
+			PathSegments: []string{conn.Name},
+			Action:       "*",
+			Description:  fmt.Sprintf("Use the %q connection for any action", conn.Name),
+		}); fresh {
+			decls = append(decls, d)
+		}
+
+		for _, action := range adapter.Actions() {
+			if d, fresh := dedupe(seen, routescopes.ScopeDeclaration{
+				Scope:        fmt.Sprintf("connection:%s:%s", conn.Name, action.Action),
+				ResourceType: "connection",
+				PathSegments: []string{conn.Name},
+				Action:       action.Action,
+				Description:  fmt.Sprintf("%s — %s", conn.Name, action.Description),
+			}); fresh {
+				decls = append(decls, d)
+			}
+		}
+	}
+
+	sort.Slice(decls, func(i, j int) bool { return decls[i].Scope < decls[j].Scope })
+	return decls
+}
+
+// AllScopes is the full set of scope declarations the gateway publishes: the
+// platform:connections:read scope guarding the read-only connections catalog,
+// plus the per-connection connection:<name>:<action> scopes for every
+// connection in conns. The read scope is always published (it guards a static
+// route); the connection scopes vary with the mounted registry.
+func AllScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
+	return append([]routescopes.ScopeDeclaration{ReadScope()}, ConnectionScopes(conns, registry)...)
+}
+
+// dedupe returns the declaration if its Scope has not been emitted yet,
+// recording the scope in seen. fresh is false on a duplicate.
+func dedupe(seen map[string]struct{}, d routescopes.ScopeDeclaration) (routescopes.ScopeDeclaration, bool) {
+	if _, ok := seen[d.Scope]; ok {
+		return routescopes.ScopeDeclaration{}, false
+	}
+	seen[d.Scope] = struct{}{}
+	return d, true
+}
+
+// ScopePublisher (re)publishes the gateway's connection scope vocabulary to the
+// policy service: the connection:<name>:<action> scopes for the registered
+// connections.
+//
+// Since Amendment 3 it is driven by the mounted connection registry, not an
+// admin API:
+//   - at startup, Publish(ctx, "") registers the vocabulary for every connection
+//     across all tenants (ListByTenant("") returns ALL);
+//   - on a registry reload (a Connection CR / Secret change re-aggregated by the
+//     operator), the gateway calls Publish(ctx, "") again to republish.
+//
+// Scopes are upserted by the policy service, so republishing never disturbs an
+// unaffected entry.
+type ScopePublisher struct {
+	repo     credentials.ConnectionRepository
+	registry *AdapterRegistry
+	client   *routescopes.Client
+	logger   logging.Logger
+}
+
+// NewScopePublisher constructs a ScopePublisher.
+func NewScopePublisher(repo credentials.ConnectionRepository, registry *AdapterRegistry, client *routescopes.Client, logger logging.Logger) *ScopePublisher {
+	return &ScopePublisher{repo: repo, registry: registry, client: client, logger: logger}
+}
+
+// Publish lists tenantID's connections (tenantID == "" lists ALL) and registers
+// their connection:<name>:<action> scopes with the policy service. The
+// routescopes client retries until the identity-proxy sidecar is ready, so
+// callers run it in a goroutine.
+func (p *ScopePublisher) Publish(ctx context.Context, tenantID string) error {
+	conns, err := p.repo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("list connections: %w", err)
+	}
+	if err := p.client.Register(ctx, ServiceName, ReadRoutes(), AllScopes(conns, p.registry)); err != nil {
+		return fmt.Errorf("register scopes: %w", err)
+	}
+	p.logger.Info(ctx, "connection scope vocabulary registered with policy service",
+		logging.Field{Key: "service", Value: ServiceName},
+		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "connections", Value: len(conns)})
+	return nil
+}

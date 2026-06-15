@@ -1,7 +1,13 @@
 // ── Agent detail — client-side BFF calls ──────────────────────────────────────
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { AgentType, Run, UpdateAgentTypeRequest } from '@orbit/shared/api';
+import type {
+  AgentType,
+  EffectiveAccess,
+  EffectiveAccessPreviewRequest,
+  Run,
+  UpdateAgentTypeRequest,
+} from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
@@ -26,6 +32,57 @@ export async function fetchAgentDetail(
   }
   const body = (await res.json()) as { data: AgentType };
   return { agentType: toAgentTypeRow(body.data), error: null };
+}
+
+// ── fetchEffectiveAccess ──────────────────────────────────────────────────────
+
+export async function fetchEffectiveAccess(
+  id: string,
+): Promise<{ access: EffectiveAccess | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.effectiveAccess(id), { cache: 'no-store' });
+  } catch {
+    return { access: null, error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      access: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const body = (await res.json()) as { data: EffectiveAccess };
+  return { access: body.data, error: null };
+}
+
+// ── previewEffectiveAccess ────────────────────────────────────────────────────
+
+// Resolves the effective-access view for a *draft* (unsaved) connectivity config
+// — backs the Connectivity tab's live preview as the user edits.
+export async function previewEffectiveAccess(
+  body: EffectiveAccessPreviewRequest,
+): Promise<{ access: EffectiveAccess | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.previewEffectiveAccess(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+  } catch {
+    return { access: null, error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      access: null,
+      error: (errBody as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const okBody = (await res.json()) as { data: EffectiveAccess };
+  return { access: okBody.data, error: null };
 }
 
 // ── deleteAgentType ───────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ target "backend-images" {
       { service = "inference-gateway" },
       { service = "policy-service" },
       { service = "policy-gateway" },
+      { service = "egress-gateway" },
       { service = "example" },
     ]
   }

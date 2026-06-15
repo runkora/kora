@@ -28,6 +28,7 @@ import (
 
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/ports"
 )
 
 var k8sTracer = otel.Tracer("orbit.agents.k8s")
@@ -51,6 +52,8 @@ type K8sProvisionerConfig struct {
 	// SystemNamespace is the namespace where orbit-agents runs.
 	// DestinationRules are created here so Istio applies them to outbound
 	// traffic from orbit-agents pods targeting agent session-managers.
+	// Also used to derive the egress-gateway service URL for sandbox
+	// HTTPS_PROXY (the gateway always lives in this namespace).
 	SystemNamespace string
 	// ManifestOverrides holds per-Kind, per-slug field patches sourced from
 	// ORBIT_MANIFEST__<Kind>__<name>__<path>=<value> env vars.
@@ -67,7 +70,15 @@ type K8sProvisioner struct {
 	logger        logging.Logger
 	cfg           K8sProvisionerConfig
 	policyClient  *policyclient.Client
+	scopeResolver *ScopeResolver
 }
+
+// SetScopeResolver installs the resolver that compiles an agent type's full
+// effective grant scopes — its own scopes plus the egress and connectors
+// contributed by its referenced environment, plus connector auto-egress. When
+// unset, grant reconciliation falls back to the agent's own configured scopes
+// (AgentType.EffectiveGrantScopes), so a partially-wired deployment still works.
+func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = r }
 
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster
 // is true, otherwise falling back to KUBECONFIG (local development).
@@ -264,23 +275,59 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// {volumeName}-{statefulSetName}-{ordinal}
 	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
 
+	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
+	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
+	//     tenant NetworkPolicy locking egress to the gateway.
+	//   - orbit.io/run-id, orbit.io/agent-slug: matched by the
+	//     orbit-tenant-sandbox ClusterSPIFFEID template (Phase 4b) so the
+	//     pod is attested as
+	//     spiffe://<td>/tenant/<ns>/agent/<slug>/sandbox/<run-id>.
+	//     The principal extractor (internal/identity/principal_extractor.go)
+	//     normalizes this back to the agent principal for authorization
+	//     while lifting run_id into claims for attribution.
+	//
+	// We deliberately NO LONGER set orbit.io/skip-injection: per
+	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
+	// sandbox rejoins the mesh — the operator pod webhook adds the
+	// identity-proxy + opa-policy + spire injection templates, giving the
+	// sandbox the same outbound enforcement chain as the agent StatefulSet
+	// pod. Without injection the credential broker would be unreachable.
 	labels := map[string]string{
-		"orbit.io/role":           "sandbox",
-		"orbit.io/run-id":         run.ID,
-		"orbit.io/skip-injection": "true",
+		"orbit.io/role":       "sandbox",
+		"orbit.io/run-id":     run.ID,
+		"orbit.io/agent-slug": agentTypeSlug,
+	}
+
+	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
+	// outbound traffic on its own (orbit-shell connects directly via plain
+	// TCP); however the sandbox pod ALSO hosts the agent's tooling
+	// (git/curl/SDKs) which need outbound HTTPS through the broker. Istio
+	// injection is therefore required — see comment on the labels block.
+	annotations := map[string]string{
+		// Exclude the gRPC port from the inbound mesh so orbit-shell still
+		// connects over plain TCP, matching the existing pre-injection
+		// behavior. Outbound to the egress-gateway intentionally STAYS in
+		// the mesh — the sandbox's identity-proxy ext_proc filter must see
+		// the CONNECT and inject the platform Bearer token, which is the
+		// gateway's only signal of caller identity. The CONNECT method is
+		// passed through HCM via the egress-gateway EnvoyFilter
+		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
+		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
+		// Hold every other container until istio-proxy is ready. Without
+		// this, identity-proxy starts immediately and times out after 60s
+		// waiting for Envoy — which istio-proxy is the LAST container
+		// kubelet starts (it follows the largest image, sandbox-exec, whose
+		// pull alone can take ~50s on a cold node). Same wiring the
+		// session-manager StatefulSet pod uses.
+		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
 	}
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-			Labels:    labels,
-			Annotations: map[string]string{
-				// No sidecars — sandbox-exec is a pure gRPC server with no outbound
-				// calls. The session-manager's Envoy excludes port 50051 so orbit-shell
-				// connects directly via plain TCP without mTLS.
-				"sidecar.istio.io/inject": "false",
-			},
+			Name:        podName,
+			Namespace:   namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -288,51 +335,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 				RunAsUser:    &uid,
 				RunAsNonRoot: &nonRoot,
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "workspaces",
-					VolumeSource: corev1.VolumeSource{
-						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: workspacesPVC,
-						},
-					},
-				},
-			},
-			Containers: []corev1.Container{
-				{
-					Name:            "sandbox-exec",
-					Image:           p.cfg.SandboxImage,
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Ports: []corev1.ContainerPort{
-						{Name: "grpc", ContainerPort: p.cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
-					},
-					Env: []corev1.EnvVar{
-						{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", p.cfg.SandboxGRPCPort)},
-					},
-					VolumeMounts: []corev1.VolumeMount{
-						{Name: "workspaces", MountPath: "/workspaces"},
-					},
-					ReadinessProbe: &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							TCPSocket: &corev1.TCPSocketAction{
-								Port: intstr.FromInt32(p.cfg.SandboxGRPCPort),
-							},
-						},
-						InitialDelaySeconds: 2,
-						PeriodSeconds:       3,
-					},
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("100m"),
-							corev1.ResourceMemory: resource.MustParse("256Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("4Gi"),
-						},
-					},
-				},
-			},
+			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
+			Containers: []corev1.Container{sandboxContainer(p.cfg)},
 		},
 	}
 
@@ -443,6 +447,222 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 	return podIP, nil
 }
 
+// sandboxContainerEnv builds the env block for the sandbox-exec container.
+//
+// SANDBOX_EXEC_PORT is consumed by sandbox-exec itself.
+//
+// Egress is TRANSPARENT — the sandbox has NO proxy env. The sandbox Envoy
+// rewrites the agent's raw outbound TLS into a CONNECT to the per-tenant egress
+// gateway and runs OPA posture + platform-JWT injection on it; see
+// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md (Amendment 2)
+// and charts/orbit/templates/egress-gateway/transparent-egress.yaml. We
+// deliberately do NOT set HTTPS_PROXY: it was agent-cooperative (a hostile
+// agent ignores it and uses a raw socket), so it was never an enforcement
+// boundary. The interception now happens below the agent, at Envoy.
+//
+// SSL_CERT_FILE / CURL_CA_BUNDLE / NODE_EXTRA_CA_CERTS / REQUESTS_CA_BUNDLE
+// point common runtimes at the per-tenant CA root mounted at
+// sandboxTenantCAPath. The gateway presents a leaf for whatever upstream the
+// tool dialed, signed by this CA — without this hint, every TLS handshake
+// would fail because the leaves chain to a CA that's not in the system trust
+// store.
+//
+// When SystemNamespace is empty (defensive — should never happen in
+// production) the CA env is omitted so the sandbox simply has no governed
+// egress.
+func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
+	}
+	// egressGatewayURL is empty only when SystemNamespace is unset; in that
+	// case there is no gateway and no per-tenant CA to trust.
+	if egressGatewayURL(cfg) == "" {
+		return env
+	}
+	env = append(env,
+		// Trust-store hints for the per-tenant CA root. Different runtimes honor
+		// different env vars; we set all the common ones so a tool finds the CA
+		// wherever it looks. The file itself is mounted by sandboxVolumes below.
+		//   SSL_CERT_FILE       — OpenSSL apps (and Go's crypto/tls)
+		//   CURL_CA_BUNDLE      — the curl CLI
+		//   NODE_EXTRA_CA_CERTS — Node.js
+		//   REQUESTS_CA_BUNDLE  — Python requests
+		//   GIT_SSL_CAINFO      — git over HTTPS (git manages CAINFO itself and
+		//     does NOT read SSL_CERT_FILE/CURL_CA_BUNDLE).
+		//   PIP_CERT            — pip (ships its own bundle, ignores
+		//     REQUESTS_CA_BUNDLE).
+		//
+		// These cover runtimes that ship their own CA bundle and ignore the OS
+		// trust store. Tools that DO fall back to the OS bundle (wget, the curl
+		// CLI, Go binaries like gh/kubectl, ruby, apt) are covered instead by
+		// mounting the CA over osTrustBundlePath in sandboxContainer — so we do
+		// not have to enumerate an env var per tool.
+		corev1.EnvVar{Name: "SSL_CERT_FILE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "CURL_CA_BUNDLE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "NODE_EXTRA_CA_CERTS", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "REQUESTS_CA_BUNDLE", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "GIT_SSL_CAINFO", Value: sandboxTenantCAPath},
+		corev1.EnvVar{Name: "PIP_CERT", Value: sandboxTenantCAPath},
+		// gh refuses to run without a token, yet the agent never holds a real one:
+		// the egress gateway injects a short-lived GitHub credential on the wire and
+		// strips this header. A non-empty, obviously-non-functional placeholder lets
+		// gh issue the request (which the gateway then authenticates); the value
+		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
+		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-orbit-egress-gateway"},
+	)
+	return env
+}
+
+// egressGatewayURL returns the in-cluster URL of the egress gateway, or empty
+// if SystemNamespace is unset. The gateway always lives in SystemNamespace
+// under the well-known service name + port (the shared ports.EgressGatewayCONNECT,
+// matching charts/orbit/templates/egress-gateway/service.yaml) — there's no
+// configurable knob because there's no version of the topology where it
+// could be different.
+func egressGatewayURL(cfg K8sProvisionerConfig) string {
+	if cfg.SystemNamespace == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://orbit-egress-gateway.%s.svc:%d", cfg.SystemNamespace, ports.EgressGatewayCONNECT)
+}
+
+// sandboxTenantCAPath is where the tenant CA root is mounted inside the
+// sandbox container. The runtime env hints in sandboxContainerEnv all point
+// here.
+const sandboxTenantCAPath = "/var/run/orbit/tenant-ca/ca.crt"
+
+// osTrustBundlePath is the OS-wide CA bundle (Debian/Ubuntu base images) that
+// tools falling back to the system trust store read. Mounting the tenant CA
+// here makes git, wget, the curl CLI, Go binaries (gh/kubectl/helm), ruby and
+// apt trust the interception cert with no per-tool env var. The sandbox only
+// ever sees tenant-CA-signed certs (all egress is intercepted), so replacing
+// the bundle with the tenant CA alone is correct, not a downgrade — the
+// sandbox never needs to verify a real upstream certificate.
+const osTrustBundlePath = "/etc/ssl/certs/ca-certificates.crt"
+
+// tenantCAVolumeName is the projected-volume name for the tenant CA.
+const tenantCAVolumeName = "orbit-tenant-ca"
+
+// sandboxVolumes builds the sandbox pod's volume list. The workspaces PVC
+// always mounts; the per-tenant CA Secret is added only when an egress
+// gateway URL can be derived (otherwise there's nothing to trust).
+//
+// The CA Secret (orbit-tenant-ca) is created by the operator's
+// ensureTenantCA step in the same tenant namespace as the sandbox pod, so
+// no cross-namespace projection is needed.
+func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Volume {
+	vols := []corev1.Volume{
+		{
+			Name: "workspaces",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: workspacesPVC,
+				},
+			},
+		},
+	}
+	if egressGatewayURL(cfg) == "" {
+		return vols
+	}
+	// 0o444 — world-readable. The sandbox container runs as a non-root UID
+	// the operator does not pre-coordinate with the Secret mount's UID, so
+	// any-user-readable is the safest default for a public CA cert. The
+	// CA's *private key* is intentionally NOT projected here (Items below
+	// only includes ca.crt); the key never leaves the egress gateway pod.
+	mode := int32(0o444)
+	vols = append(vols, corev1.Volume{
+		Name: tenantCAVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  "orbit-tenant-ca",
+				DefaultMode: &mode,
+				Items: []corev1.KeyToPath{
+					// Project ca.crt only — the private key never reaches
+					// the sandbox; that lives on the egress gateway pod.
+					{Key: "ca.crt", Path: "ca.crt"},
+				},
+			},
+		},
+	})
+	return vols
+}
+
+// sandboxContainer builds the sandbox-exec container. Mirrors sandboxVolumes:
+// when an egress gateway URL can be derived, a read-only mount of the tenant
+// CA root is added so the env vars in sandboxContainerEnv point at a real
+// file.
+func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
+	mounts := []corev1.VolumeMount{
+		{Name: "workspaces", MountPath: "/workspaces"},
+	}
+	if egressGatewayURL(cfg) != "" {
+		mounts = append(mounts,
+			corev1.VolumeMount{
+				Name:      tenantCAVolumeName,
+				MountPath: "/var/run/orbit/tenant-ca",
+				ReadOnly:  true,
+			},
+			// Overlay the OS trust bundle so OS-store tools (wget, curl CLI, Go
+			// binaries, ruby, apt) trust the interception cert without a per-tool
+			// env var. SubPath mounts a single file and does not auto-update on
+			// CA rotation — fine for per-run sandboxes, each of which gets the
+			// current CA at provision time.
+			corev1.VolumeMount{
+				Name:      tenantCAVolumeName,
+				MountPath: osTrustBundlePath,
+				SubPath:   "ca.crt",
+				ReadOnly:  true,
+			},
+		)
+	}
+	return corev1.Container{
+		Name:  "sandbox-exec",
+		Image: cfg.SandboxImage,
+		// Always so a freshly built :latest image (new toolchain/versions) reaches
+		// new sandboxes — PullIfNotPresent would keep serving the node's cached
+		// image. The registry is local (orbit-registry:5001), so the digest check
+		// is cheap and short-circuits when the image is already cached.
+		ImagePullPolicy: corev1.PullAlways,
+		Ports: []corev1.ContainerPort{
+			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
+		},
+		// The agent is untrusted code. Dropping all Linux capabilities —
+		// critically NET_ADMIN and NET_RAW — is what makes the transparent
+		// egress redirect un-bypassable: without them the agent cannot rewrite
+		// the pod's iptables or open raw sockets to escape the sidecar
+		// interception (docs/adr/2026-06-06-jit-credential-brokering-egress-
+		// gateway.md, Amendment 2). Combined with the pod's RunAsNonRoot, the
+		// agent has no path back to the network layer Envoy controls.
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: new(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		},
+		Env:          sandboxContainerEnv(cfg),
+		VolumeMounts: mounts,
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromInt32(cfg.SandboxGRPCPort),
+				},
+			},
+			InitialDelaySeconds: 2,
+			PeriodSeconds:       3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+	}
+}
+
 // ── Policy grant management ───────────────────────────────────────────────────
 
 // agentSpiffeID returns the SPIFFE principal ID for an agent type's pods.
@@ -459,8 +679,9 @@ func (p *K8sProvisioner) EnsureAgentGrant(ctx context.Context, at AgentType, nam
 }
 
 // ensureAgentGrant reconciles the policy-service grant for this agent's SPIFFE
-// principal toward exactly one grant containing at.GrantScopes and, when
-// at.Budget is set, the desired budget assignment.
+// principal toward exactly one grant containing at.EffectiveGrantScopes()
+// (capability scopes + compiled egress scopes) and, when at.Budget is set,
+// the desired budget assignment.
 //
 // Reconcile logic:
 //   - Keep the first existing grant whose scopes (and, when a budget is
@@ -500,13 +721,30 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
+	// The reconciled scope set is the agent's capability scopes PLUS the egress
+	// scopes compiled from its connectivity posture, so egress survives every
+	// re-provision (a hand-added egress grant would be deleted as "stale" here).
+	// When a scope resolver is wired it also folds in the referenced
+	// environment's egress/connectors and each connector's adapter-declared
+	// auto-egress; without one it falls back to the agent's own scopes.
+	effectiveScopes := at.EffectiveGrantScopes()
+	if p.scopeResolver != nil {
+		resolved, rErr := p.scopeResolver.EffectiveScopes(ctx, at)
+		if rErr != nil {
+			span.RecordError(rErr)
+			span.SetStatus(codes.Error, "resolve effective scopes")
+			return fmt.Errorf("resolve effective scopes for %s: %w", principalID, rErr)
+		}
+		effectiveScopes = resolved
+	}
+
 	// Walk existing grants: keep the first whose SCOPES match (budget is
 	// reconciled separately), delete the rest. Remember the kept grant's budget
 	// so an unspecified desired budget survives.
 	var keepID string
 	var keptBudget *policyclient.BudgetAssignment
 	for _, g := range existing {
-		if keepID == "" && scopeSetsEqual(g.Scopes, at.GrantScopes) {
+		if keepID == "" && scopeSetsEqual(g.Scopes, effectiveScopes) {
 			keepID = g.ID
 			keptBudget = g.Budget
 			continue
@@ -554,7 +792,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	if at.Budget == nil {
 		createBudget = firstBudget(existing)
 	}
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, at.GrantScopes, createBudget); err != nil {
+	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create agent grant")
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)

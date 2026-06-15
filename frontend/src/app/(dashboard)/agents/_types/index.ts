@@ -3,9 +3,17 @@
 // AgentTypeRow and RunRow are the shapes consumed by all UI components.
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
-import type { AgentType, AgentBudget, Run, AgentTypeState, RunState } from '@orbit/shared/api';
+import type {
+  AgentType,
+  AgentBudget,
+  Run,
+  AgentTypeState,
+  RunState,
+  Connectivity,
+  Connector,
+} from '@orbit/shared/api';
 
-export type { AgentTypeState, RunState };
+export type { AgentTypeState, RunState, Connectivity, Connector };
 
 export interface AgentTypeRow {
   id: string;
@@ -19,6 +27,10 @@ export interface AgentTypeRow {
   state: AgentTypeState;
   toolScopes: string[];
   grantScopes: string[];
+  /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
+  connectivity: Connectivity;
+  /** Attached credential connections + the actions granted through each. */
+  connectors: Connector[];
   maxConcurrentRunsPerPod: number;
   systemPrompt: string;
   createdAt: string;
@@ -27,6 +39,8 @@ export interface AgentTypeRow {
   modelId: string;
   /** Budget on the agent's policy grant (present on detail reads when configured). */
   budget: AgentBudget | null;
+  /** Attached environment id, or "" when none is attached. */
+  environmentId: string;
 }
 
 export interface RunRow {
@@ -66,12 +80,15 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     state: a.state,
     toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
+    connectivity: a.connectivity ?? { mode: 'none' },
+    connectors: a.connectors ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
     modelId: a.model_id ?? 'anthropic/claude-sonnet-4-6',
     budget: a.budget ?? null,
+    environmentId: a.environment_id ?? '',
   };
 }
 
