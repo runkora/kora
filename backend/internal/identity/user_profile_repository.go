@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,13 +39,14 @@ func NewPostgresUserProfileRepository(pool *pgxpool.Pool) UserProfileRepository 
 
 func (r *postgresUserProfileRepository) Upsert(ctx context.Context, p UserProfile) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO user_profiles (id, tenant_id, email, display_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $5)
+		INSERT INTO user_profiles (id, tenant_id, email, display_name, roles, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
 		ON CONFLICT (id, tenant_id) DO UPDATE
 		SET email        = EXCLUDED.email,
 		    display_name = EXCLUDED.display_name,
+		    roles        = EXCLUDED.roles,
 		    updated_at   = EXCLUDED.updated_at
-	`, p.ID, p.TenantID, p.Email, p.DisplayName, p.UpdatedAt)
+	`, p.ID, p.TenantID, p.Email, p.DisplayName, p.Roles, p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert user profile: %w", err)
 	}
@@ -54,10 +56,10 @@ func (r *postgresUserProfileRepository) Upsert(ctx context.Context, p UserProfil
 func (r *postgresUserProfileRepository) GetByID(ctx context.Context, tenantID, id string) (UserProfile, error) {
 	var p UserProfile
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, email, display_name, created_at, updated_at
+		SELECT id, tenant_id, email, display_name, roles, created_at, updated_at
 		FROM   user_profiles
 		WHERE  id = $1 AND tenant_id = $2
-	`, id, tenantID).Scan(&p.ID, &p.TenantID, &p.Email, &p.DisplayName, &p.CreatedAt, &p.UpdatedAt)
+	`, id, tenantID).Scan(&p.ID, &p.TenantID, &p.Email, &p.DisplayName, &p.Roles, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserProfile{}, ErrUserProfileNotFound
@@ -93,7 +95,7 @@ func (r *postgresUserProfileRepository) List(ctx context.Context, tenantID strin
 	switch {
 	case len(filter.IDs) > 0:
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, email, display_name, created_at, updated_at,
+			SELECT id, tenant_id, email, display_name, roles, created_at, updated_at,
 			       COUNT(*) OVER() AS total_count
 			FROM   user_profiles
 			WHERE  tenant_id = $1
@@ -104,7 +106,7 @@ func (r *postgresUserProfileRepository) List(ctx context.Context, tenantID strin
 	case filter.Search != "":
 		pattern := "%" + filter.Search + "%"
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, email, display_name, created_at, updated_at,
+			SELECT id, tenant_id, email, display_name, roles, created_at, updated_at,
 			       COUNT(*) OVER() AS total_count
 			FROM   user_profiles
 			WHERE  tenant_id = $1
@@ -114,7 +116,7 @@ func (r *postgresUserProfileRepository) List(ctx context.Context, tenantID strin
 		`, tenantID, pattern, limit, offset)
 	default:
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, email, display_name, created_at, updated_at,
+			SELECT id, tenant_id, email, display_name, roles, created_at, updated_at,
 			       COUNT(*) OVER() AS total_count
 			FROM   user_profiles
 			WHERE  tenant_id = $1
@@ -131,7 +133,7 @@ func (r *postgresUserProfileRepository) List(ctx context.Context, tenantID strin
 	var total int
 	for rows.Next() {
 		var p UserProfile
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.Email, &p.DisplayName, &p.CreatedAt, &p.UpdatedAt, &total); err != nil {
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.Email, &p.DisplayName, &p.Roles, &p.CreatedAt, &p.UpdatedAt, &total); err != nil {
 			return nil, 0, fmt.Errorf("scan user profile: %w", err)
 		}
 		profiles = append(profiles, p)
@@ -168,6 +170,31 @@ func userProfileFromPrincipal(p *Principal) UserProfile {
 		TenantID:    p.TenantID,
 		Email:       p.Claims["email"],
 		DisplayName: p.DisplayName,
+		Roles:       rolesFromClaim(p.Claims["roles"]),
 		UpdatedAt:   now,
 	}
+}
+
+// rolesFromClaim splits the comma-joined "roles" claim (merged OIDC roles +
+// groups, as written by the login flow) into a trimmed, de-duplicated,
+// non-empty slice. The login flow concatenates roles + groups without
+// de-duplication, so the same role can appear twice; collapsing it here keeps
+// the persisted snapshot clean and prevents duplicates leaking into budget
+// attribution. Returns an empty (non-nil) slice when the claim is absent so the
+// NOT NULL column is never written as NULL.
+func rolesFromClaim(raw string) []string {
+	roles := make([]string, 0)
+	seen := make(map[string]struct{})
+	for part := range strings.SplitSeq(raw, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		roles = append(roles, trimmed)
+	}
+	return roles
 }

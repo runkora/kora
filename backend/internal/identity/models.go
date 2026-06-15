@@ -249,12 +249,17 @@ type PATAttributionResponse struct {
 // UserProfile is a persistent, upserted record of a human principal's identity
 // attributes. Populated from verified OIDC claims on every successful login.
 type UserProfile struct {
-	ID          string    `db:"id"`
-	TenantID    string    `db:"tenant_id"`
-	Email       string    `db:"email"`
-	DisplayName string    `db:"display_name"`
-	CreatedAt   time.Time `db:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at"`
+	ID          string `db:"id"`
+	TenantID    string `db:"tenant_id"`
+	Email       string `db:"email"`
+	DisplayName string `db:"display_name"`
+	// Roles is the principal's IdP-asserted role membership (merged OIDC
+	// roles + groups), snapshotted on every login. It is the single source of
+	// truth for role membership — credentials (PATs, agent tokens) never carry
+	// roles, so role-budget attribution resolves them from here.
+	Roles     []string  `db:"roles"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }
 
 // UserProfileResponse is a single user entry in list and detail responses.

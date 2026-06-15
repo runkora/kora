@@ -473,6 +473,88 @@ func TestGetPersonalBudget_JWTRolesPassedToCheckBudget(t *testing.T) {
 	}
 }
 
+func TestGetPersonalBudget_ResolvesRolesFromSnapshotWhenCredentialHasNone(t *testing.T) {
+	t.Parallel()
+	// A PAT-attributed caller carries no roles claim. Roles must be resolved
+	// from the user_profiles snapshot so role budgets attribute and enforce.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
+	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"engineering"}}}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	if got := eval.lastBudgetReq.Roles; len(got) != 1 || got[0] != "engineering" {
+		t.Errorf("CheckBudget roles = %v, want [engineering] resolved from snapshot", got)
+	}
+}
+
+func TestGetPersonalBudget_DeduplicatesResolvedRoles(t *testing.T) {
+	t.Parallel()
+	// The login flow merges OIDC roles + groups, so the snapshot can contain a
+	// duplicate. It must be collapsed before reaching budget evaluation, or a
+	// pooled role budget would double-count.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
+	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"engineering", "engineering", "users"}}}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	got := eval.lastBudgetReq.Roles
+	if len(got) != 2 || got[0] != "engineering" || got[1] != "users" {
+		t.Errorf("CheckBudget roles = %v, want de-duplicated [engineering users]", got)
+	}
+}
+
+func TestGetPersonalBudget_SkipsRoleLookupForAgentPrincipals(t *testing.T) {
+	t.Parallel()
+	// SPIFFE (agent) principals have no user_profiles row; the snapshot lookup
+	// must be skipped, not issued as a wasted query, and no roles resolved.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
+	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00spiffe://td/agent/x": {"should-not-be-read"}}}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "spiffe://td/agent/x"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	if got := eval.lastBudgetReq.Roles; len(got) != 0 {
+		t.Errorf("CheckBudget roles = %v, want none (agent lookup skipped)", got)
+	}
+}
+
+func TestGetPersonalBudget_LiveJWTRolesWinOverSnapshot(t *testing.T) {
+	t.Parallel()
+	// An interactive session carries live roles. Those win — the snapshot is a
+	// fallback only for credentials that carry none.
+	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
+	counter := &mockSpendCounter{spends: monthlySpends(30)}
+	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"stale-snapshot-role"}}}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+
+	if _, err := svc.GetPersonalBudget(ctxWithRoles(t, "live-role"), "tenant-1", "user-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eval.lastBudgetReq == nil {
+		t.Fatal("CheckBudget was not called")
+	}
+	if got := eval.lastBudgetReq.Roles; len(got) != 1 || got[0] != "live-role" {
+		t.Errorf("CheckBudget roles = %v, want [live-role] (live JWT roles win over snapshot)", got)
+	}
+}
+
 func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
 	t.Parallel()
 	// JWT has no roles claim — CheckBudget receives no roles (grant budgets only).

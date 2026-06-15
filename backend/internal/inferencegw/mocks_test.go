@@ -33,6 +33,7 @@ type mockInferenceUsageRepository struct {
 	periodSpends      []PrincipalPeriodSpend
 	windowSpends      map[string]float64
 	activeRoleHolders map[string][]string
+	principalRoles    map[string][]string // key: tenantID+"\x00"+principalID
 	runSpend          float64
 	runTokens         int64
 	runUsageErr       error
@@ -145,6 +146,15 @@ func (m *mockInferenceUsageRepository) GetSpendByPrincipalSince(_ context.Contex
 
 func (m *mockInferenceUsageRepository) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
 	return m.activeRoleHolders, nil
+}
+
+// GetPrincipalRoles keys on the composite (tenantID, principalID) — matching the
+// real implementation's scoping — so cross-tenant isolation tests can't false-pass.
+func (m *mockInferenceUsageRepository) GetPrincipalRoles(_ context.Context, tenantID, principalID string) ([]string, error) {
+	if m.principalRoles == nil {
+		return []string{}, nil
+	}
+	return m.principalRoles[tenantID+"\x00"+principalID], nil
 }
 
 // ── shared test helpers ────────────────────────────────────────────────────────

@@ -53,8 +53,10 @@ type InferenceUsageRepository interface {
 	GetTenantSpendSince(ctx context.Context, tenantID string, since time.Time) (float64, error)
 
 	// GetPoolSpendSince returns the total spend of all principals that
-	// exercised the given role from the given instant onward. Rehydrates the
-	// role-pool counter via the principal_roles column.
+	// currently hold the given role from the given instant onward. Rehydrates
+	// the role-pool counter. Membership is resolved from the user_profiles role
+	// snapshot (the single source of truth), so already-logged current-period
+	// spend is attributed to the role without ever stamping roles onto usage rows.
 	GetPoolSpendSince(ctx context.Context, tenantID, role string, since time.Time) (float64, error)
 
 	// GetRunSpend returns the total spend recorded against a run.
@@ -78,13 +80,20 @@ type InferenceUsageRepository interface {
 	// to the human principal at write time).
 	GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error)
 
-	// GetActiveRoleHolders returns principal ID → distinct OIDC role names for
-	// principals that made requests in the tenant since the given instant. The
-	// roles come from the principal_roles column recorded at request time — the
-	// authoritative, tenant-scoped record of which IDP-asserted roles each
-	// principal exercised. Used to attribute role budgets in the budgets
-	// listing (the policy service cannot resolve IDP role membership).
+	// GetActiveRoleHolders returns principal ID → current role names for
+	// principals that made requests in the tenant since the given instant.
+	// Membership is read from the user_profiles role snapshot (the single source
+	// of truth — credentials carry no roles), intersected with principals that
+	// have period spend. Used to attribute role budgets in the budgets listing.
 	GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error)
+
+	// GetPrincipalRoles returns the principal's current role snapshot from
+	// user_profiles (merged OIDC roles + groups, refreshed on every login).
+	// Returns an empty slice (no error) when the principal has no profile — e.g.
+	// agents, or a human who has not logged in since role snapshotting began.
+	// This is the per-request resolution that backs role-budget attribution and
+	// enforcement for credentials that carry no roles claim.
+	GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -701,15 +710,22 @@ func (r *PostgresInferenceUsageRepository) GetTenantSpendSince(ctx context.Conte
 	return total, nil
 }
 
-// GetPoolSpendSince returns the total spend of all principals that exercised
-// the given role from the given instant onward (via the principal_roles column).
+// GetPoolSpendSince returns the period spend of all principals that currently
+// hold the given role, resolved from the user_profiles role snapshot. Summing
+// by current membership (rather than a roles value stamped on each usage row)
+// means the period's already-logged spend is attributed immediately and no role
+// data is duplicated onto inference_usage. See
+// docs/adr/2026-06-15-role-budget-attribution-for-non-interactive-credentials.md
 func (r *PostgresInferenceUsageRepository) GetPoolSpendSince(ctx context.Context, tenantID, role string, since time.Time) (float64, error) {
 	const q = `
 		SELECT COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND $2 = ANY(principal_roles)
-		  AND created_at >= $3`
+		  AND created_at >= $3
+		  AND principal_id IN (
+		      SELECT id FROM user_profiles
+		      WHERE tenant_id = $1 AND $2 = ANY(roles)
+		  )`
 
 	var total float64
 	if err := r.pool.QueryRow(ctx, q, tenantID, role, since.UTC()).Scan(&total); err != nil {
@@ -782,16 +798,23 @@ func (r *PostgresInferenceUsageRepository) GetSpendByPrincipalSince(ctx context.
 	return out, rows.Err()
 }
 
-// GetActiveRoleHolders returns principal ID → distinct roles for principals
-// active in the tenant since the given instant, read from principal_roles.
+// GetActiveRoleHolders returns principal ID → current roles for every principal
+// that has period spend (since the given instant) and holds at least one role
+// in its user_profiles snapshot. Membership is current (snapshot-sourced), not
+// the roles a request happened to carry, so freshly-budgeted roles attribute the
+// period's already-logged spend immediately.
 func (r *PostgresInferenceUsageRepository) GetActiveRoleHolders(ctx context.Context, tenantID string, since time.Time) (map[string][]string, error) {
 	const q = `
-		SELECT principal_id, ARRAY_AGG(DISTINCT role) AS roles
-		FROM inference_usage, unnest(principal_roles) AS role
-		WHERE tenant_id = $1
-		  AND created_at >= $2
-		  AND principal_roles IS NOT NULL
-		GROUP BY principal_id`
+		SELECT up.id, up.roles
+		FROM user_profiles up
+		WHERE up.tenant_id = $1
+		  AND cardinality(up.roles) > 0
+		  AND EXISTS (
+		      SELECT 1 FROM inference_usage iu
+		      WHERE iu.tenant_id = up.tenant_id
+		        AND iu.principal_id = up.id
+		        AND iu.created_at >= $2
+		  )`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
 	if err != nil {
@@ -809,6 +832,22 @@ func (r *PostgresInferenceUsageRepository) GetActiveRoleHolders(ctx context.Cont
 		out[pid] = roles
 	}
 	return out, rows.Err()
+}
+
+// GetPrincipalRoles returns the principal's current role snapshot from
+// user_profiles. Returns an empty slice (not an error) when no profile exists,
+// so callers fail open: a principal with no snapshot simply has no roles.
+func (r *PostgresInferenceUsageRepository) GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error) {
+	const q = `SELECT roles FROM user_profiles WHERE tenant_id = $1 AND id = $2`
+
+	var roles []string
+	if err := r.pool.QueryRow(ctx, q, tenantID, principalID).Scan(&roles); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("get principal roles: %w", err)
+	}
+	return roles, nil
 }
 
 // GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
