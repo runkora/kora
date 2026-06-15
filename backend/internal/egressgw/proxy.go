@@ -53,7 +53,13 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream, err := buildUpstreamURL(decision.Connection.BaseHost)
+	// Forward to the host the client actually requested, not the connection's
+	// base_host: a single connection can serve a host family (github.com for git
+	// AND api.github.com / codeload.github.com / *.githubusercontent.com for the
+	// REST API, archives, and raw content). GetByHost has already constrained
+	// r.Host to the connection's declared hosts, so the minted credential only
+	// ever reaches the connection's own upstreams.
+	upstream, err := buildUpstreamURL(r.Host)
 	if err != nil {
 		p.writeError(w, r, err, http.StatusBadGateway, "invalid upstream url")
 		return

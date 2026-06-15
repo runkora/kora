@@ -29,6 +29,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -86,19 +87,44 @@ func (r *ConfigMapRegistry) OnReload(fn func(ctx context.Context)) {
 	r.mu.Unlock()
 }
 
-// GetByHost returns the connection whose base_host matches host within tenantID.
-// Host comparison is case-insensitive and ignores any :port suffix. Returns
-// ErrConnectionNotFound when no connection serves that host.
+// GetByHost returns the connection serving host within tenantID. A connection
+// serves its base_host AND the family of hosts its adapter declares — github_app
+// also serves api.github.com, codeload.github.com, and *.githubusercontent.com —
+// so REST/archive/raw calls to those hosts are brokered and credentialed rather
+// than passed through unauthenticated. Comparison is case-insensitive and ignores
+// any :port suffix. Returns ErrConnectionNotFound when no connection serves host.
 func (r *ConfigMapRegistry) GetByHost(_ context.Context, tenantID, host string) (*Connection, error) {
 	want := normalizeHost(host)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, c := range r.conns {
-		if c.TenantID == tenantID && normalizeHost(c.BaseHost) == want {
+		if c.TenantID != tenantID {
+			continue
+		}
+		if normalizeHost(c.BaseHost) == want {
 			return c, nil
+		}
+		for _, h := range platformconns.EgressHosts(string(c.Adapter), c.BaseHost) {
+			if hostPatternMatches(normalizeHost(h), want) {
+				return c, nil
+			}
 		}
 	}
 	return nil, ErrConnectionNotFound
+}
+
+// hostPatternMatches reports whether the (already normalized) host matches the
+// (already normalized) pattern — either an exact host or a "*.suffix" wildcard
+// covering any subdomain of suffix.
+func hostPatternMatches(pattern, host string) bool {
+	if pattern == host {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // ".githubusercontent.com"
+		return strings.HasSuffix(host, suffix) && len(host) > len(suffix)
+	}
+	return false
 }
 
 // ListByTenant returns connections for tenantID. An empty tenantID returns ALL

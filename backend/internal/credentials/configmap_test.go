@@ -78,6 +78,43 @@ func TestConfigMapRegistry_GetByHost(t *testing.T) {
 	}
 }
 
+func TestConfigMapRegistry_GetByHost_AdapterHostFamily(t *testing.T) {
+	r := newTestRegistry(t, sampleRegistry)
+	ctx := context.Background()
+
+	// github_app serves a host family beyond its base_host, so REST/archive/raw
+	// calls resolve to the same connection and get credentialed (not passthrough).
+	for _, host := range []string{
+		"api.github.com",                // REST API
+		"codeload.github.com",           // archive downloads
+		"raw.githubusercontent.com",     // *.githubusercontent.com wildcard
+		"objects.githubusercontent.com", // ditto
+		"API.GitHub.com:443",            // case + port normalize first
+	} {
+		got, err := r.GetByHost(ctx, "acme", host)
+		if err != nil {
+			t.Errorf("GetByHost(%q): %v", host, err)
+			continue
+		}
+		if got.Name != "github" {
+			t.Errorf("GetByHost(%q) = %q, want github", host, got.Name)
+		}
+	}
+
+	// Hosts outside the family are NOT claimed by the github connection — the
+	// credential must never reach a non-github upstream.
+	for _, host := range []string{
+		"githubusercontent.com", // apex, not a *.subdomain
+		"api.gitlab.com",        // different service
+		"github.com.evil.com",   // suffix-confusion attempt
+		"notgithubusercontent.com",
+	} {
+		if _, err := r.GetByHost(ctx, "acme", host); !errors.Is(err, ErrConnectionNotFound) {
+			t.Errorf("GetByHost(%q) err = %v, want ErrConnectionNotFound", host, err)
+		}
+	}
+}
+
 func TestConfigMapRegistry_ListByTenant(t *testing.T) {
 	r := newTestRegistry(t, sampleRegistry)
 	ctx := context.Background()

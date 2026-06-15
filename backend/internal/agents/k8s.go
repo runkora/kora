@@ -484,6 +484,11 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 		corev1.EnvVar{Name: "REQUESTS_CA_BUNDLE", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "GIT_SSL_CAINFO", Value: sandboxTenantCAPath},
 		corev1.EnvVar{Name: "PIP_CERT", Value: sandboxTenantCAPath},
+		// gh refuses to run without a token, yet the agent never holds a real one:
+		// the egress gateway injects a short-lived GitHub credential on the wire and
+		// strips this header. A non-empty placeholder makes gh issue the request
+		// (which the gateway then authenticates); the value never reaches GitHub.
+		corev1.EnvVar{Name: "GH_TOKEN", Value: "orbit-egress-injected"},
 	)
 	return env
 }
@@ -597,9 +602,13 @@ func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
 		)
 	}
 	return corev1.Container{
-		Name:            "sandbox-exec",
-		Image:           cfg.SandboxImage,
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		Name:  "sandbox-exec",
+		Image: cfg.SandboxImage,
+		// Always so a freshly built :latest image (new toolchain/versions) reaches
+		// new sandboxes — PullIfNotPresent would keep serving the node's cached
+		// image. The registry is local (orbit-registry:5001), so the digest check
+		// is cheap and short-circuits when the image is already cached.
+		ImagePullPolicy: corev1.PullAlways,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
 		},
