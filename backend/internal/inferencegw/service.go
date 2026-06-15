@@ -48,6 +48,7 @@ type Service struct {
 	pricing       PricingCache
 	usage         InferenceUsageRepository
 	budgetCounter SpendCounter
+	roleCache     *roleCache
 	logger        logging.Logger
 }
 
@@ -66,6 +67,7 @@ func NewService(
 		pricing:       pricing,
 		usage:         usage,
 		budgetCounter: budgetCounter,
+		roleCache:     newRoleCache(roleCacheTTL),
 		logger:        logger,
 	}
 }
@@ -674,13 +676,15 @@ func (s *Service) filterTargetsByPolicy(ctx context.Context, targets []RouteTarg
 
 const spanStatusBudgetExceeded = "budget exceeded"
 
-// writeUsage stamps request-context attribution (run identity, JWT roles)
-// onto the record and persists it. Every usage write goes through here so the
-// run_id and principal_roles columns — the durable sources for run and
-// role-pool counter rehydration — are never missed.
+// writeUsage stamps the run identity onto the record and persists it. Role
+// membership is NOT written here: it is single-sourced in the user_profiles
+// snapshot (see
+// docs/adr/2026-06-15-role-budget-attribution-for-non-interactive-credentials.md),
+// and role-period spend is computed by joining usage to current membership at
+// read time — so the principal_roles column is no longer populated and is
+// slated for removal in a follow-up migration.
 func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
 	rec.RunID = runIDFromContext(ctx)
-	rec.PrincipalRoles = rolesFromContext(ctx)
 	return s.usage.Create(ctx, rec)
 }
 
@@ -689,7 +693,15 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 // attribution categories. Limits come from bundle data; role membership and
 // run identity come from request context. Every lookup fails open.
 func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes, []policy.BudgetCategory, []string) {
+	// Live JWT roles (interactive browser sessions) win. When the credential
+	// carries none — every PAT and agent token — fall back to the principal's
+	// current role snapshot from user_profiles, so role budgets attribute and
+	// enforce against non-interactive inference too. See
+	// docs/adr/2026-06-15-role-budget-attribution-for-non-interactive-credentials.md
 	roles := rolesFromContext(ctx)
+	if len(roles) == 0 {
+		roles = s.resolveRolesCached(ctx, p.TenantID, p.PrincipalID)
+	}
 
 	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
 	if err != nil {

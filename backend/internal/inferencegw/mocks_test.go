@@ -33,6 +33,7 @@ type mockInferenceUsageRepository struct {
 	periodSpends      []PrincipalPeriodSpend
 	windowSpends      map[string]float64
 	activeRoleHolders map[string][]string
+	principalRoles    map[string][]string
 	runSpend          float64
 	runTokens         int64
 	runUsageErr       error
@@ -145,6 +146,13 @@ func (m *mockInferenceUsageRepository) GetSpendByPrincipalSince(_ context.Contex
 
 func (m *mockInferenceUsageRepository) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
 	return m.activeRoleHolders, nil
+}
+
+func (m *mockInferenceUsageRepository) GetPrincipalRoles(_ context.Context, _, principalID string) ([]string, error) {
+	if m.principalRoles == nil {
+		return []string{}, nil
+	}
+	return m.principalRoles[principalID], nil
 }
 
 // ── shared test helpers ────────────────────────────────────────────────────────

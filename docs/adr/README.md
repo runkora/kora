@@ -61,6 +61,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) — `Accepted` · 2026-06-05
 - [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) — `Accepted (Decision 5 superseded 2026-06-10)` · 2026-06-05
 - [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) — `Proposed` · 2026-06-10
+- [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) — `Accepted` · 2026-06-15
 
 ### Agents Control Plane & Execution
 
@@ -180,3 +181,4 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
 | 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |
 | 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Accepted | — |
+| 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |

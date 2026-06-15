@@ -152,6 +152,9 @@ func (s *stubUsageRepo) GetSpendByPrincipalSince(_ context.Context, _ string, _ 
 func (s *stubUsageRepo) GetActiveRoleHolders(_ context.Context, _ string, _ time.Time) (map[string][]string, error) {
 	return nil, nil
 }
+func (s *stubUsageRepo) GetPrincipalRoles(_ context.Context, _, _ string) ([]string, error) {
+	return nil, nil
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
