@@ -151,72 +151,155 @@ func fixResponseOutputItems(m map[string]json.RawMessage, output []responses.Res
 }
 
 // marshalResponsesResponse produces wire-compatible JSON for a *responses.Response
-// synthesized by one of the Orbit bridges. It fixes the output array using
-// fixResponseOutputItems so that function_call items serialize correctly.
+// synthesized by one of the Orbit bridges. responses.Response has no MarshalJSON,
+// so encoding/json dumps all zero-value fields producing massively bloated output.
+// This function emits only the fields Codex CLI actually reads.
 func marshalResponsesResponse(resp *responses.Response) ([]byte, error) {
-	raw, err := json.Marshal(resp)
-	if err != nil {
-		return nil, err
+	m := map[string]json.RawMessage{
+		"id":     mustMarshal(resp.ID),
+		"object": mustMarshal(string(resp.Object)),
+		"model":  mustMarshal(resp.Model),
+		"status": mustMarshal(string(resp.Status)),
 	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, err
+
+	// Output items — only present when there are actual output items.
+	if len(resp.Output) > 0 {
+		if err := fixResponseOutputItems(m, resp.Output); err != nil {
+			return nil, err
+		}
 	}
-	if err := fixResponseOutputItems(m, resp.Output); err != nil {
-		return nil, err
+
+	// Usage — only include when non-zero (i.e. the final response.completed).
+	if resp.Usage.TotalTokens > 0 {
+		usageBytes, err := json.Marshal(map[string]any{
+			"input_tokens":  resp.Usage.InputTokens,
+			"output_tokens": resp.Usage.OutputTokens,
+			"total_tokens":  resp.Usage.TotalTokens,
+			"input_tokens_details": map[string]any{
+				"cached_tokens": resp.Usage.InputTokensDetails.CachedTokens,
+			},
+			"output_tokens_details": map[string]any{
+				"reasoning_tokens": resp.Usage.OutputTokensDetails.ReasoningTokens,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		m["usage"] = usageBytes
 	}
+
 	return json.Marshal(m)
 }
 
 // marshalResponsesEvent produces wire-compatible JSON for a synthesized
-// ResponseStreamEventUnion (one without RawJSON). In v3 of the SDK, Delta is
-// a plain string field, so json.Marshal serializes it correctly. However,
-// events that have no delta (e.g. response.completed) still carry the zero
-// string value and would produce a spurious "delta":"" key. This function
-// removes the delta key for events where the field was absent in the original
-// payload, using ev.JSON.Delta.Valid() which reflects presence in decoded JSON.
-//
-// It also fixes any ResponseOutputItemUnion items embedded in the event (e.g.
-// the Output slice inside a response.completed event) using fixResponseOutputItems.
+// ResponseStreamEventUnion. ResponseStreamEventUnion is a flat struct holding
+// all possible event fields — encoding/json would dump every zero-value field
+// producing massively bloated frames that break Codex CLI's SSE parser.
+// This function constructs the JSON manually, emitting only the fields that
+// are actually populated for the given event type.
 func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error) {
-	raw, err := json.Marshal(ev)
-	if err != nil {
-		return nil, err
-	}
+	m := make(map[string]json.RawMessage, 8)
 
-	// Both the delta fix and the output-item fix require map manipulation;
-	// only unmarshal once and apply both corrections together.
-	needsMapFix := !ev.JSON.Delta.Valid() || len(ev.Response.Output) > 0
-	if !needsMapFix {
-		return raw, nil
-	}
+	// Fields present on every event.
+	m["type"] = mustMarshal(ev.Type)
+	m["sequence_number"] = mustMarshal(ev.SequenceNumber)
 
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, err
-	}
-	if !ev.JSON.Delta.Valid() {
-		delete(m, "delta")
-	}
-	// Fix the Response.Output items embedded in events like response.completed.
-	if len(ev.Response.Output) > 0 {
-		respRaw, ok := m["response"]
-		if ok && len(respRaw) > 0 {
-			var respMap map[string]json.RawMessage
-			if err := json.Unmarshal(respRaw, &respMap); err != nil {
-				return nil, err
-			}
-			if err := fixResponseOutputItems(respMap, ev.Response.Output); err != nil {
-				return nil, err
-			}
-			fixed, err := json.Marshal(respMap)
+	switch ev.Type {
+	case "response.created", "response.in_progress", "response.completed",
+		"response.failed", "response.incomplete":
+		// Events that carry a Response object.
+		respBytes, err := marshalResponsesResponse(&ev.Response)
+		if err != nil {
+			return nil, fmt.Errorf("marshal response field: %w", err)
+		}
+		m["response"] = respBytes
+
+	case "response.output_item.added", "response.output_item.done":
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		if rj := ev.Item.RawJSON(); rj != "" {
+			m["item"] = json.RawMessage(rj)
+		} else {
+			b, err := json.Marshal(ev.Item)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("marshal item field: %w", err)
 			}
-			m["response"] = fixed
+			m["item"] = b
+		}
+
+	case "response.content_part.added", "response.content_part.done":
+		m["item_id"] = mustMarshal(ev.ItemID)
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		m["content_index"] = mustMarshal(ev.ContentIndex)
+
+	case "response.output_text.delta":
+		m["item_id"] = mustMarshal(ev.ItemID)
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		m["content_index"] = mustMarshal(ev.ContentIndex)
+		// The bridge stores the text fragment in ev.Text; wire-decoded events store it
+		// in ev.Delta. The wire key is always "delta".
+		deltaText := ev.Delta
+		if deltaText == "" {
+			deltaText = ev.Text
+		}
+		m["delta"] = mustMarshal(deltaText)
+
+	case "response.output_text.done":
+		m["item_id"] = mustMarshal(ev.ItemID)
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		m["content_index"] = mustMarshal(ev.ContentIndex)
+		m["text"] = mustMarshal(ev.Text)
+
+	case "response.function_call_arguments.delta":
+		m["item_id"] = mustMarshal(ev.ItemID)
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		m["arguments"] = mustMarshal(ev.Arguments)
+
+	case "response.function_call_arguments.done":
+		m["item_id"] = mustMarshal(ev.ItemID)
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+		m["arguments"] = mustMarshal(ev.Arguments)
+
+	case "error":
+		m["code"] = mustMarshal(ev.Code)
+		m["message"] = mustMarshal(ev.Message)
+		if ev.Param != "" {
+			m["param"] = mustMarshal(ev.Param)
+		}
+
+	default:
+		// For any other event type, fall back to a minimal map of the
+		// non-zero scalar fields to avoid omitting useful data.
+		if ev.ItemID != "" {
+			m["item_id"] = mustMarshal(ev.ItemID)
+		}
+		if ev.OutputIndex != 0 {
+			m["output_index"] = mustMarshal(ev.OutputIndex)
+		}
+		if ev.ContentIndex != 0 {
+			m["content_index"] = mustMarshal(ev.ContentIndex)
+		}
+		if ev.Text != "" {
+			m["text"] = mustMarshal(ev.Text)
+		}
+		if ev.Delta != "" {
+			m["delta"] = mustMarshal(ev.Delta)
+		}
+		if ev.Arguments != "" {
+			m["arguments"] = mustMarshal(ev.Arguments)
 		}
 	}
+
 	return json.Marshal(m)
+}
+
+// mustMarshal marshals v to JSON, panicking on error. Used for simple scalar
+// values (string, int64) where failure is a programming error, not a runtime one.
+func mustMarshal(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustMarshal: %v", err))
+	}
+	return b
 }
 
 func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {

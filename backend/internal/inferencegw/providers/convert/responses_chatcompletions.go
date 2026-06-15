@@ -233,18 +233,11 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 		choice := completion.Choices[0]
 		msg := choice.Message
 
-		msgItem := responses.ResponseOutputItemUnion{
-			ID:     completion.ID,
-			Type:   "message",
-			Status: "completed",
-			Role:   "assistant",
-		}
+		var content []responses.ResponseOutputMessageContentUnion
 		if msg.Content != "" {
-			msgItem.Content = []responses.ResponseOutputMessageContentUnion{
-				{Type: "output_text", Text: msg.Content},
-			}
+			content = []responses.ResponseOutputMessageContentUnion{newOutputTextContent(msg.Content)}
 		}
-		outputItems = append(outputItems, msgItem)
+		outputItems = append(outputItems, newMessageItem(completion.ID, "completed", content))
 
 		for _, tc := range msg.ToolCalls {
 			outputItems = append(outputItems, newFunctionCallItem(
@@ -357,17 +350,11 @@ func (s *ChatCompletionsStreamState) finishEvents(finishReason string) []respons
 	if finishReason == "length" {
 		status = "incomplete"
 	}
-	completedMsg := responses.ResponseOutputItemUnion{
-		ID:     s.CompletionID,
-		Type:   "message",
-		Status: "completed",
-		Role:   "assistant",
-	}
+	var content []responses.ResponseOutputMessageContentUnion
 	if fullText != "" {
-		completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
-			{Type: "output_text", Text: fullText},
-		}
+		content = []responses.ResponseOutputMessageContentUnion{newOutputTextContent(fullText)}
 	}
+	completedMsg := newMessageItem(s.CompletionID, "completed", content)
 	output := append([]responses.ResponseOutputItemUnion{completedMsg}, toolItems...)
 	s.pendingCompletedResp = &responses.Response{
 		ID:     s.CompletionID,
@@ -415,12 +402,7 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 		s.Model = chunk.Model
 		s.started = true
 		r := s.partialResponse()
-		msgItem := responses.ResponseOutputItemUnion{
-			ID:     s.CompletionID,
-			Type:   "message",
-			Status: "in_progress",
-			Role:   "assistant",
-		}
+		msgItem := newMessageItem(s.CompletionID, "in_progress", nil)
 		events = append(events,
 			responses.ResponseStreamEventUnion{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},
 			responses.ResponseStreamEventUnion{Type: "response.in_progress", SequenceNumber: s.nextSeq(), Response: r},

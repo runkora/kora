@@ -419,3 +419,144 @@ func TestMarshalResponsesEvent_FunctionCallInCompletedEvent(t *testing.T) {
 		t.Errorf("arguments = %s, want a JSON string (not an object)", argsRaw)
 	}
 }
+
+// TestMarshalResponsesResponse_MessageItemWireFormat verifies that a message
+// output item (text-only response) serializes with a clean content array on the
+// wire — no extraneous fields, no zero-value garbage from encoding/json on the
+// bare ResponseOutputItemUnion struct.
+func TestMarshalResponsesResponse_MessageItemWireFormat(t *testing.T) {
+	t.Parallel()
+
+	// Build a message item exactly as the bridges do via newMessageItem.
+	// We use the round-trip pattern directly since newMessageItem is unexported.
+	msg := responses.ResponseOutputMessage{
+		ID:     "msg_1",
+		Status: responses.ResponseOutputMessageStatusCompleted,
+		Content: []responses.ResponseOutputMessageContentUnion{},
+	}
+	// Add text content via the ResponseOutputText round-trip.
+	ot := responses.ResponseOutputText{
+		Text:        "Hello from the model",
+		Annotations: []responses.ResponseOutputTextAnnotationUnion{},
+	}
+	otBytes, _ := json.Marshal(ot)
+	var cu responses.ResponseOutputMessageContentUnion
+	_ = json.Unmarshal(otBytes, &cu)
+	msg.Content = []responses.ResponseOutputMessageContentUnion{cu}
+
+	msgBytes, _ := json.Marshal(msg)
+	var item responses.ResponseOutputItemUnion
+	_ = json.Unmarshal(msgBytes, &item)
+
+	r := &responses.Response{
+		ID:     "resp_msg",
+		Output: []responses.ResponseOutputItemUnion{item},
+	}
+	b, err := marshalResponsesResponse(r)
+	if err != nil {
+		t.Fatalf("marshalResponsesResponse: %v", err)
+	}
+
+	var parsed struct {
+		Output []json.RawMessage `json:"output"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(parsed.Output) == 0 {
+		t.Fatal("output array is empty")
+	}
+	var item0 map[string]json.RawMessage
+	if err := json.Unmarshal(parsed.Output[0], &item0); err != nil {
+		t.Fatalf("unmarshal item0: %v", err)
+	}
+
+	// type must be "message"
+	var typ string
+	_ = json.Unmarshal(item0["type"], &typ)
+	if typ != "message" {
+		t.Errorf("type = %q, want message", typ)
+	}
+
+	// content must be a non-null array
+	contentRaw, ok := item0["content"]
+	if !ok {
+		t.Fatal("content key missing from message item")
+	}
+	if len(contentRaw) == 0 || contentRaw[0] != '[' {
+		t.Errorf("content = %s, want a JSON array", contentRaw)
+	}
+
+	// content[0].text must equal the original text
+	var content []map[string]json.RawMessage
+	if err := json.Unmarshal(contentRaw, &content); err != nil {
+		t.Fatalf("unmarshal content: %v", err)
+	}
+	if len(content) == 0 {
+		t.Fatal("content array is empty")
+	}
+	var text string
+	_ = json.Unmarshal(content[0]["text"], &text)
+	if text != "Hello from the model" {
+		t.Errorf("content[0].text = %q, want \"Hello from the model\"", text)
+	}
+
+	// Extraneous zero-value fields that belong to other item types (function_call, etc.)
+	// must be absent from a message item — these would be present if the bare
+	// ResponseOutputItemUnion struct were marshaled directly.
+	for _, unwanted := range []string{"call_id", "name", "namespace", "queries", "results"} {
+		if _, present := item0[unwanted]; present {
+			t.Errorf("unexpected field %q in message item wire output", unwanted)
+		}
+	}
+}
+
+// TestMarshalResponsesEvent_MessageItemInOutputItemAdded verifies that the
+// item field in response.output_item.added events is correctly serialized
+// when the item was built via newMessageItem.
+func TestMarshalResponsesEvent_MessageItemInOutputItemAdded(t *testing.T) {
+	t.Parallel()
+
+	// Simulate an in_progress message item as built by the streaming bridges.
+	msg := responses.ResponseOutputMessage{
+		ID:     "msg_stream",
+		Status: responses.ResponseOutputMessageStatusInProgress,
+	}
+	msgBytes, _ := json.Marshal(msg)
+	var item responses.ResponseOutputItemUnion
+	_ = json.Unmarshal(msgBytes, &item)
+
+	ev := responses.ResponseStreamEventUnion{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        item,
+	}
+
+	b, err := marshalResponsesEvent(ev)
+	if err != nil {
+		t.Fatalf("marshalResponsesEvent: %v", err)
+	}
+
+	var parsed struct {
+		Item map[string]json.RawMessage `json:"item"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.Item == nil {
+		t.Fatal("item field missing from event")
+	}
+
+	var typ string
+	_ = json.Unmarshal(parsed.Item["type"], &typ)
+	if typ != "message" {
+		t.Errorf("item.type = %q, want message", typ)
+	}
+
+	// No extraneous fields that belong to other item types.
+	for _, unwanted := range []string{"call_id", "name", "namespace", "queries"} {
+		if _, present := parsed.Item[unwanted]; present {
+			t.Errorf("unexpected field %q in item wire output", unwanted)
+		}
+	}
+}
