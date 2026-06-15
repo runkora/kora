@@ -430,8 +430,8 @@ func TestMarshalResponsesResponse_MessageItemWireFormat(t *testing.T) {
 	// Build a message item exactly as the bridges do via newMessageItem.
 	// We use the round-trip pattern directly since newMessageItem is unexported.
 	msg := responses.ResponseOutputMessage{
-		ID:     "msg_1",
-		Status: responses.ResponseOutputMessageStatusCompleted,
+		ID:      "msg_1",
+		Status:  responses.ResponseOutputMessageStatusCompleted,
 		Content: []responses.ResponseOutputMessageContentUnion{},
 	}
 	// Add text content via the ResponseOutputText round-trip.

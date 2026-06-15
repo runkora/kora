@@ -204,13 +204,20 @@ func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error
 	m["type"] = mustMarshal(ev.Type)
 	m["sequence_number"] = mustMarshal(ev.SequenceNumber)
 
+	if err := marshalResponsesEventFields(ev, m); err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+// marshalResponsesEventFields populates the event-type-specific fields into m.
+func marshalResponsesEventFields(ev responses.ResponseStreamEventUnion, m map[string]json.RawMessage) error {
 	switch ev.Type {
 	case "response.created", "response.in_progress", "response.completed",
 		"response.failed", "response.incomplete":
-		// Events that carry a Response object.
 		respBytes, err := marshalResponsesResponse(&ev.Response)
 		if err != nil {
-			return nil, fmt.Errorf("marshal response field: %w", err)
+			return fmt.Errorf("marshal response field: %w", err)
 		}
 		m["response"] = respBytes
 
@@ -221,7 +228,7 @@ func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error
 		} else {
 			b, err := json.Marshal(ev.Item)
 			if err != nil {
-				return nil, fmt.Errorf("marshal item field: %w", err)
+				return fmt.Errorf("marshal item field: %w", err)
 			}
 			m["item"] = b
 		}
@@ -249,12 +256,7 @@ func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error
 		m["content_index"] = mustMarshal(ev.ContentIndex)
 		m["text"] = mustMarshal(ev.Text)
 
-	case "response.function_call_arguments.delta":
-		m["item_id"] = mustMarshal(ev.ItemID)
-		m["output_index"] = mustMarshal(ev.OutputIndex)
-		m["arguments"] = mustMarshal(ev.Arguments)
-
-	case "response.function_call_arguments.done":
+	case "response.function_call_arguments.delta", "response.function_call_arguments.done":
 		m["item_id"] = mustMarshal(ev.ItemID)
 		m["output_index"] = mustMarshal(ev.OutputIndex)
 		m["arguments"] = mustMarshal(ev.Arguments)
@@ -267,29 +269,32 @@ func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error
 		}
 
 	default:
-		// For any other event type, fall back to a minimal map of the
-		// non-zero scalar fields to avoid omitting useful data.
-		if ev.ItemID != "" {
-			m["item_id"] = mustMarshal(ev.ItemID)
-		}
-		if ev.OutputIndex != 0 {
-			m["output_index"] = mustMarshal(ev.OutputIndex)
-		}
-		if ev.ContentIndex != 0 {
-			m["content_index"] = mustMarshal(ev.ContentIndex)
-		}
-		if ev.Text != "" {
-			m["text"] = mustMarshal(ev.Text)
-		}
-		if ev.Delta != "" {
-			m["delta"] = mustMarshal(ev.Delta)
-		}
-		if ev.Arguments != "" {
-			m["arguments"] = mustMarshal(ev.Arguments)
-		}
+		marshalResponsesEventScalars(ev, m)
 	}
+	return nil
+}
 
-	return json.Marshal(m)
+// marshalResponsesEventScalars populates non-zero scalar fields for unknown
+// event types to avoid omitting useful data.
+func marshalResponsesEventScalars(ev responses.ResponseStreamEventUnion, m map[string]json.RawMessage) {
+	if ev.ItemID != "" {
+		m["item_id"] = mustMarshal(ev.ItemID)
+	}
+	if ev.OutputIndex != 0 {
+		m["output_index"] = mustMarshal(ev.OutputIndex)
+	}
+	if ev.ContentIndex != 0 {
+		m["content_index"] = mustMarshal(ev.ContentIndex)
+	}
+	if ev.Text != "" {
+		m["text"] = mustMarshal(ev.Text)
+	}
+	if ev.Delta != "" {
+		m["delta"] = mustMarshal(ev.Delta)
+	}
+	if ev.Arguments != "" {
+		m["arguments"] = mustMarshal(ev.Arguments)
+	}
 }
 
 // mustMarshal marshals v to JSON, panicking on error. Used for simple scalar

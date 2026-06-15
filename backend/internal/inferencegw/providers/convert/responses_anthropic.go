@@ -35,8 +35,24 @@ func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseO
 	if err != nil {
 		panic(fmt.Sprintf("newFunctionCallItem: marshal ResponseFunctionToolCall: %v", err))
 	}
+	// Strip "namespace":"" — Codex CLI builds ToolName{namespace: Some(""), name: "..."}
+	// when namespace is an empty string, which fails the registry lookup (registered
+	// tools use namespace: None). Remove the key when empty so Codex gets None.
+	var m map[string]json.RawMessage
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: unmarshal for cleanup: %v", err))
+	}
+	if v, ok := m["namespace"]; ok && (string(v) == `""` || string(v) == "null") {
+		delete(m, "namespace")
+	}
+	cleaned, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: re-marshal after cleanup: %v", err))
+	}
 	var item responses.ResponseOutputItemUnion
-	if err := json.Unmarshal(b, &item); err != nil {
+	err = json.Unmarshal(cleaned, &item)
+	if err != nil {
 		panic(fmt.Sprintf("newFunctionCallItem: unmarshal into ResponseOutputItemUnion: %v", err))
 	}
 	return item
@@ -57,12 +73,26 @@ func newInProgressFunctionCallItem(id, callID, name string) responses.ResponseOu
 	if err != nil {
 		panic(fmt.Sprintf("newInProgressFunctionCallItem: marshal: %v", err))
 	}
+	var m map[string]json.RawMessage
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: unmarshal for cleanup: %v", err))
+	}
+	if v, ok := m["namespace"]; ok && (string(v) == `""` || string(v) == "null") {
+		delete(m, "namespace")
+	}
+	cleaned, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: re-marshal after cleanup: %v", err))
+	}
 	var item responses.ResponseOutputItemUnion
-	if err := json.Unmarshal(b, &item); err != nil {
+	err = json.Unmarshal(cleaned, &item)
+	if err != nil {
 		panic(fmt.Sprintf("newInProgressFunctionCallItem: unmarshal: %v", err))
 	}
 	return item
 }
+
 // It round-trips through the SDK's ResponseOutputMessage type to populate JSON.raw,
 // which is required for correct wire-format serialization. ResponseOutputItemUnion
 // has no MarshalJSON, so direct struct construction produces extraneous zero-value
@@ -86,7 +116,8 @@ func newMessageItem(id, status string, content []responses.ResponseOutputMessage
 	// as either None or a valid variant and silently drops the entire item.
 	// Strip "phase" when empty and "content" when null so the wire JSON is clean.
 	var m map[string]json.RawMessage
-	if err := json.Unmarshal(b, &m); err != nil {
+	err = json.Unmarshal(b, &m)
+	if err != nil {
 		panic(fmt.Sprintf("newMessageItem: unmarshal for cleanup: %v", err))
 	}
 	if v, ok := m["phase"]; ok && (string(v) == `""` || string(v) == "null") {
