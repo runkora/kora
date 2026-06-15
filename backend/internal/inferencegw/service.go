@@ -702,6 +702,10 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	if len(roles) == 0 {
 		roles = s.resolveRolesCached(ctx, p.TenantID, p.PrincipalID)
 	}
+	// De-duplicate before anything downstream consumes roles: the login flow
+	// merges OIDC roles + groups, so the same role can appear twice and would
+	// otherwise double-count a pooled role budget's per-category attribution.
+	roles = dedupeRoles(roles)
 
 	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
 	if err != nil {
@@ -1233,6 +1237,25 @@ func rolesFromContext(ctx context.Context) []string {
 		return nil
 	}
 	return extractRolesFromClaims(claims)
+}
+
+// dedupeRoles returns roles with duplicates removed, preserving first-seen
+// order. Returns the input unchanged when there is nothing to dedupe, and never
+// mutates the input slice (it may be a cached snapshot shared across requests).
+func dedupeRoles(roles []string) []string {
+	if len(roles) < 2 {
+		return roles
+	}
+	seen := make(map[string]struct{}, len(roles))
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if _, dup := seen[r]; dup {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 // extractRolesFromClaims reads the comma-separated roles claim from the platform JWT.

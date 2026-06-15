@@ -176,14 +176,25 @@ func userProfileFromPrincipal(p *Principal) UserProfile {
 }
 
 // rolesFromClaim splits the comma-joined "roles" claim (merged OIDC roles +
-// groups, as written by the login flow) into a trimmed, non-empty slice.
-// Returns an empty slice when the claim is absent so the column is never NULL.
+// groups, as written by the login flow) into a trimmed, de-duplicated,
+// non-empty slice. The login flow concatenates roles + groups without
+// de-duplication, so the same role can appear twice; collapsing it here keeps
+// the persisted snapshot clean and prevents duplicates leaking into budget
+// attribution. Returns an empty (non-nil) slice when the claim is absent so the
+// NOT NULL column is never written as NULL.
 func rolesFromClaim(raw string) []string {
 	roles := make([]string, 0)
+	seen := make(map[string]struct{})
 	for part := range strings.SplitSeq(raw, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			roles = append(roles, trimmed)
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
 		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		roles = append(roles, trimmed)
 	}
 	return roles
 }
