@@ -3,7 +3,7 @@ package bedrock
 import (
 	"testing"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 )
 
 // TestExtractEmbeddingInputs covers the multi-input fix: native Bedrock

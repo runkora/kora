@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 )
 
 // ─── buildFilter ─────────────────────────────────────────────────────────────

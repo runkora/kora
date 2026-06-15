@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/responses"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 // ─── drainOpenAIStream ───────────────────────────────────────────────────────

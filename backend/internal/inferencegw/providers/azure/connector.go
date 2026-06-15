@@ -9,9 +9,9 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	anthropicopt "github.com/anthropics/anthropic-sdk-go/option"
-	openai "github.com/openai/openai-go"
-	azureopenai "github.com/openai/openai-go/azure"
-	openaiopt "github.com/openai/openai-go/option"
+	openai "github.com/openai/openai-go/v3"
+	azureopenai "github.com/openai/openai-go/v3/azure"
+	openaiopt "github.com/openai/openai-go/v3/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"

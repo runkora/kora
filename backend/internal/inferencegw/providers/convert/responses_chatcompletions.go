@@ -3,10 +3,10 @@ package convert
 import (
 	"strings"
 
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared"
-	"github.com/openai/openai-go/shared/constant"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
+	"github.com/openai/openai-go/v3/shared/constant"
 )
 
 // ResponsesParamsToChatCompletionParams translates a Responses API request to an
@@ -67,7 +67,7 @@ func chatCompletionToolChoice(tc responses.ResponseNewParamsToolChoiceUnion) ope
 	}
 	if fn := tc.OfFunctionTool; fn != nil {
 		return openai.ChatCompletionToolChoiceOptionUnionParam{
-			OfChatCompletionNamedToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
+			OfFunctionToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
 				Function: openai.ChatCompletionNamedToolChoiceFunctionParam{Name: fn.Name},
 			},
 		}
@@ -119,7 +119,7 @@ func responsesInputToChatMessages(input responses.ResponseNewParamsInputUnion) [
 func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnionParam) []openai.ChatCompletionMessageParamUnion {
 	var (
 		msgs        []openai.ChatCompletionMessageParamUnion
-		pendingTool []openai.ChatCompletionMessageToolCallParam
+		pendingTool []openai.ChatCompletionMessageToolCallUnionParam
 	)
 	flushPendingTool := func() {
 		if len(pendingTool) == 0 {
@@ -146,19 +146,23 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 
 		case item.OfFunctionCall != nil:
 			fc := item.OfFunctionCall
-			pendingTool = append(pendingTool, openai.ChatCompletionMessageToolCallParam{
-				ID:   fc.CallID,
-				Type: "function",
-				Function: openai.ChatCompletionMessageToolCallFunctionParam{
-					Name:      fc.Name,
-					Arguments: fc.Arguments,
+			pendingTool = append(pendingTool, openai.ChatCompletionMessageToolCallUnionParam{
+				OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+					ID: fc.CallID,
+					Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+						Name:      fc.Name,
+						Arguments: fc.Arguments,
+					},
 				},
 			})
 
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			msgs = append(msgs, openai.ToolMessage(fco.Output, fco.CallID))
+			// Output is a string|[]content union in v3. Orbit only produces string
+			// outputs; access .OfString.Value directly.
+			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
+			msgs = append(msgs, openai.ToolMessage(fco.Output.OfString.Value, fco.CallID))
 		}
 	}
 	flushPendingTool()
@@ -200,8 +204,8 @@ func convertInputMessageParamToChat(m *responses.ResponseInputItemMessageParam) 
 // convertResponsesToolsToChatCompletion translates Responses API function tools
 // to ChatCompletion tool params. Built-in tools (file_search, web_search, etc.)
 // are silently dropped — they are not supported via Chat Completions.
-func convertResponsesToolsToChatCompletion(tools []responses.ToolUnionParam) []openai.ChatCompletionToolParam {
-	out := make([]openai.ChatCompletionToolParam, 0, len(tools))
+func convertResponsesToolsToChatCompletion(tools []responses.ToolUnionParam) []openai.ChatCompletionToolUnionParam {
+	out := make([]openai.ChatCompletionToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		if t.OfFunction == nil {
 			continue
@@ -214,7 +218,7 @@ func convertResponsesToolsToChatCompletion(tools []responses.ToolUnionParam) []o
 		if fn.Description.Valid() {
 			def.Description = openai.String(fn.Description.Value)
 		}
-		out = append(out, openai.ChatCompletionToolParam{Function: def})
+		out = append(out, openai.ChatCompletionFunctionTool(def))
 	}
 	return out
 }
@@ -233,7 +237,7 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 			ID:     completion.ID,
 			Type:   "message",
 			Status: "completed",
-			Role:   constant.Assistant("assistant"),
+			Role:   "assistant",
 		}
 		if msg.Content != "" {
 			msgItem.Content = []responses.ResponseOutputMessageContentUnion{
@@ -243,14 +247,9 @@ func ChatCompletionToResponsesResponse(completion *openai.ChatCompletion) *respo
 		outputItems = append(outputItems, msgItem)
 
 		for _, tc := range msg.ToolCalls {
-			outputItems = append(outputItems, responses.ResponseOutputItemUnion{
-				ID:        tc.ID,
-				Type:      "function_call",
-				Status:    "completed",
-				Name:      tc.Function.Name,
-				CallID:    tc.ID,
-				Arguments: tc.Function.Arguments,
-			})
+			outputItems = append(outputItems, newFunctionCallItem(
+				tc.ID, tc.ID, tc.Function.Name, tc.Function.Arguments,
+			))
 		}
 	}
 
@@ -321,14 +320,7 @@ func (s *ChatCompletionsStreamState) completedToolItems() []responses.ResponseOu
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, responses.ResponseOutputItemUnion{
-			ID:        t.id,
-			Type:      "function_call",
-			Status:    "completed",
-			Name:      t.name,
-			CallID:    t.id,
-			Arguments: args,
-		})
+		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
 	}
 	return out
 }
@@ -369,7 +361,7 @@ func (s *ChatCompletionsStreamState) finishEvents(finishReason string) []respons
 		ID:     s.CompletionID,
 		Type:   "message",
 		Status: "completed",
-		Role:   constant.Assistant("assistant"),
+		Role:   "assistant",
 	}
 	if fullText != "" {
 		completedMsg.Content = []responses.ResponseOutputMessageContentUnion{
@@ -427,7 +419,7 @@ func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *C
 			ID:     s.CompletionID,
 			Type:   "message",
 			Status: "in_progress",
-			Role:   constant.Assistant("assistant"),
+			Role:   "assistant",
 		}
 		events = append(events,
 			responses.ResponseStreamEventUnion{Type: "response.created", SequenceNumber: s.nextSeq(), Response: r},

@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"

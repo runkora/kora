@@ -19,7 +19,13 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/landlock-lsm/go-landlock v0.8.1
 	github.com/open-policy-agent/opa v1.15.1
-	github.com/openai/openai-go v1.12.0
+	// openai-go: when upgrading this module to a new major or minor version,
+	// review knownToolTypes in internal/inferencegw/handlers_responses.go —
+	// the set of recognized ToolUnionParam "type" discriminators may have grown
+	// and previously-dropped tool types may need to be added or removed.
+	// The upstream ToolUnionParam discriminator registration lives in:
+	//   responses/response.go — func init() { apijson.RegisterUnion[ToolUnionParam](...) }
+	github.com/openai/openai-go/v3 v3.39.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/viper v1.21.0

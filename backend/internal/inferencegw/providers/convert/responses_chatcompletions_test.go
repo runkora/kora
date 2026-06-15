@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 )
@@ -92,11 +92,11 @@ func TestChatCompletionToResponsesResponse_WithToolCalls(t *testing.T) {
 				Message: openai.ChatCompletionMessage{
 					Role:    "assistant",
 					Content: "I'll check.",
-					ToolCalls: []openai.ChatCompletionMessageToolCall{
+					ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
 						{
 							ID:   "call_x",
 							Type: "function",
-							Function: openai.ChatCompletionMessageToolCallFunction{
+							Function: openai.ChatCompletionMessageFunctionToolCallFunction{
 								Name:      "get_weather",
 								Arguments: `{"city":"Paris"}`,
 							},
@@ -116,8 +116,8 @@ func TestChatCompletionToResponsesResponse_WithToolCalls(t *testing.T) {
 	if got.Output[1].Name != "get_weather" {
 		t.Errorf("Output[1].Name = %q, want get_weather", got.Output[1].Name)
 	}
-	if got.Output[1].Arguments != `{"city":"Paris"}` {
-		t.Errorf("Output[1].Arguments = %q", got.Output[1].Arguments)
+	if got.Output[1].Arguments.OfString != `{"city":"Paris"}` {
+		t.Errorf("Output[1].Arguments = %q", got.Output[1].Arguments.OfString)
 	}
 }
 
@@ -209,8 +209,8 @@ func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 			if item.Name != "get_weather" {
 				t.Errorf("Name = %q, want get_weather", item.Name)
 			}
-			if item.Arguments != `{"city":"Berlin"}` {
-				t.Errorf("Arguments = %q, want accumulated JSON", item.Arguments)
+			if item.Arguments.OfString != `{"city":"Berlin"}` {
+				t.Errorf("Arguments = %q, want accumulated JSON", item.Arguments.OfString)
 			}
 		}
 	}
@@ -231,9 +231,9 @@ func TestChatCompletionToResponsesResponse_MultipleToolCalls(t *testing.T) {
 				FinishReason: "tool_calls",
 				Message: openai.ChatCompletionMessage{
 					Role: "assistant",
-					ToolCalls: []openai.ChatCompletionMessageToolCall{
-						{ID: "call_a", Type: "function", Function: openai.ChatCompletionMessageToolCallFunction{Name: "search", Arguments: `{"q":"foo"}`}},
-						{ID: "call_b", Type: "function", Function: openai.ChatCompletionMessageToolCallFunction{Name: "calc", Arguments: `{"expr":"1+1"}`}},
+					ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
+						{ID: "call_a", Type: "function", Function: openai.ChatCompletionMessageFunctionToolCallFunction{Name: "search", Arguments: `{"q":"foo"}`}},
+						{ID: "call_b", Type: "function", Function: openai.ChatCompletionMessageFunctionToolCallFunction{Name: "calc", Arguments: `{"expr":"1+1"}`}},
 					},
 				},
 			},
@@ -367,8 +367,8 @@ func TestChatCompletionToolChoice_Modes(t *testing.T) {
 			if got.ToolChoice.OfAuto.Value != tc.want {
 				t.Errorf("OfAuto.Value = %q, want %q", got.ToolChoice.OfAuto.Value, tc.want)
 			}
-			if got.ToolChoice.OfChatCompletionNamedToolChoice != nil {
-				t.Error("OfChatCompletionNamedToolChoice should not be set for a mode")
+			if got.ToolChoice.OfFunctionToolChoice != nil {
+				t.Error("OfFunctionToolChoice should not be set for a mode")
 			}
 		})
 	}
@@ -384,9 +384,9 @@ func TestChatCompletionToolChoice_SpecificFunction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	nc := got.ToolChoice.OfChatCompletionNamedToolChoice
+	nc := got.ToolChoice.OfFunctionToolChoice
 	if nc == nil {
-		t.Fatal("OfChatCompletionNamedToolChoice should be set for a specific function")
+		t.Fatal("OfFunctionToolChoice should be set for a specific function")
 	}
 	if nc.Function.Name != "my_fn" {
 		t.Errorf("Function.Name = %q, want my_fn", nc.Function.Name)
@@ -405,7 +405,7 @@ func TestChatCompletionToolChoice_Unset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.ToolChoice.OfAuto.Valid() || got.ToolChoice.OfChatCompletionNamedToolChoice != nil {
+	if got.ToolChoice.OfAuto.Valid() || got.ToolChoice.OfFunctionToolChoice != nil {
 		t.Error("ToolChoice should be zero when not set in params")
 	}
 }
@@ -547,5 +547,128 @@ func TestChatCompletionScalarFields_Unset(t *testing.T) {
 	}
 	if got.ParallelToolCalls.Valid() {
 		t.Error("ParallelToolCalls should be omitted when not set")
+	}
+}
+
+// ─── Wire-format regression: function_call items must have RawJSON populated ──
+
+// TestChatCompletionToResponsesResponse_FunctionCallWireFormat verifies that
+// function_call output items have JSON.raw populated (via newFunctionCallItem's
+// round-trip construction), so that the handler-level marshal helpers can use
+// RawJSON() to produce correct wire bytes.
+func TestChatCompletionToResponsesResponse_FunctionCallWireFormat(t *testing.T) {
+	t.Parallel()
+	completion := &openai.ChatCompletion{
+		ID:    "chatcmpl_wire",
+		Model: "gpt-4o",
+		Choices: []openai.ChatCompletionChoice{
+			{
+				FinishReason: "tool_calls",
+				Message: openai.ChatCompletionMessage{
+					Role: "assistant",
+					ToolCalls: []openai.ChatCompletionMessageToolCallUnion{
+						{
+							ID:   "call_wire",
+							Type: "function",
+							Function: openai.ChatCompletionMessageFunctionToolCallFunction{
+								Name:      "get_weather",
+								Arguments: `{"city":"Berlin"}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	got := convert.ChatCompletionToResponsesResponse(completion)
+	if len(got.Output) < 2 {
+		t.Fatalf("expected at least 2 output items, got %d", len(got.Output))
+	}
+
+	var foundFunctionCall bool
+	for _, item := range got.Output {
+		if item.Type != "function_call" {
+			continue
+		}
+		foundFunctionCall = true
+		rj := item.RawJSON()
+		if rj == "" {
+			t.Error("RawJSON() is empty — newFunctionCallItem did not round-trip correctly")
+			continue
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(rj), &raw); err != nil {
+			t.Fatalf("unmarshal RawJSON: %v", err)
+		}
+		argsRaw, ok := raw["arguments"]
+		if !ok {
+			t.Fatal("arguments key missing from RawJSON")
+		}
+		if len(argsRaw) == 0 || argsRaw[0] != '"' {
+			t.Errorf("arguments in RawJSON = %s, want a JSON string", argsRaw)
+		}
+		var argsStr string
+		if err := json.Unmarshal(argsRaw, &argsStr); err != nil {
+			t.Errorf("arguments is not a valid JSON string: %v — raw: %s", err, argsRaw)
+		}
+		if argsStr != `{"city":"Berlin"}` {
+			t.Errorf("arguments string = %q, want {\"city\":\"Berlin\"}", argsStr)
+		}
+	}
+	if !foundFunctionCall {
+		t.Error("no function_call item found in output")
+	}
+}
+
+// TestChatCompletionsStreamState_FunctionCallWireFormat verifies that streaming
+// bridge function_call items have RawJSON populated correctly.
+func TestChatCompletionsStreamState_FunctionCallWireFormat(t *testing.T) {
+	t.Parallel()
+	state := convert.NewChatCompletionsStreamState()
+
+	chunks := []openai.ChatCompletionChunk{
+		{ID: "chatcmpl_ws", Model: "gpt-4o", Choices: []openai.ChatCompletionChunkChoice{
+			{Delta: openai.ChatCompletionChunkChoiceDelta{ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{
+				{Index: 0, ID: "call_ws", Type: "function",
+					Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{Name: "calc"}},
+			}}},
+		}},
+		{ID: "chatcmpl_ws", Model: "gpt-4o", Choices: []openai.ChatCompletionChunkChoice{
+			{Delta: openai.ChatCompletionChunkChoiceDelta{ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{
+				{Index: 0, Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{Arguments: `{"x":1}`}},
+			}}},
+		}},
+		{ID: "chatcmpl_ws", Model: "gpt-4o", Choices: []openai.ChatCompletionChunkChoice{
+			{FinishReason: "tool_calls"},
+		}},
+		{ID: "chatcmpl_ws", Model: "gpt-4o", Usage: openai.CompletionUsage{TotalTokens: 15}},
+	}
+
+	var completed *responses.ResponseStreamEventUnion
+	for _, chunk := range chunks {
+		for _, ev := range convert.ChatCompletionChunkToResponsesEvents(chunk, state) {
+			if ev.Type == "response.completed" {
+				cp := ev
+				completed = &cp
+			}
+		}
+	}
+	if completed == nil {
+		t.Fatal("no response.completed event emitted")
+	}
+
+	var foundFunctionCall bool
+	for _, item := range completed.Response.Output {
+		if item.Type != "function_call" {
+			continue
+		}
+		foundFunctionCall = true
+		rj := item.RawJSON()
+		if rj == "" {
+			t.Error("RawJSON() is empty for streaming function_call item")
+		}
+	}
+	if !foundFunctionCall {
+		t.Error("no function_call item found in response.completed output")
 	}
 }

@@ -6,11 +6,31 @@ import (
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared/constant"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared/constant"
 )
 
 const blockTypeToolUse = "tool_use"
+
+// newFunctionCallItem constructs a ResponseOutputItemUnion for a completed
+// function_call output item. It round-trips through the SDK's ResponseFunctionToolCall
+// type to populate JSON.raw, which is required for the item to serialize correctly
+// to wire JSON — direct struct construction produces malformed Arguments output
+// because ResponseOutputItemUnion has no MarshalJSON and encoding/json cannot
+// handle the inline union sub-fields.
+func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseOutputItemUnion {
+	ftc := responses.ResponseFunctionToolCall{
+		ID:        id,
+		CallID:    callID,
+		Name:      name,
+		Arguments: arguments,
+		Status:    responses.ResponseFunctionToolCallStatusCompleted,
+	}
+	b, _ := json.Marshal(ftc)
+	var item responses.ResponseOutputItemUnion
+	_ = json.Unmarshal(b, &item)
+	return item
+}
 
 // ResponsesParamsToAnthropicParams translates a Responses API request to an
 // Anthropic MessageNewParams. Used by the AnthropicResponsesBridge to route
@@ -178,7 +198,10 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output, false))
+			// Output is a string|[]content union in v3. Orbit only produces string
+			// outputs; access .OfString.Value directly.
+			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output.OfString.Value, false))
 		}
 	}
 	flushPendingTool()
@@ -366,14 +389,9 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		case "text":
 			textBuf.WriteString(block.Text)
 		case blockTypeToolUse:
-			toolItems = append(toolItems, responses.ResponseOutputItemUnion{
-				ID:        block.ID,
-				Type:      "function_call",
-				Status:    "completed",
-				Name:      block.Name,
-				CallID:    block.ID,
-				Arguments: string(block.Input),
-			})
+			toolItems = append(toolItems, newFunctionCallItem(
+				block.ID, block.ID, block.Name, string(block.Input),
+			))
 		}
 	}
 
@@ -383,7 +401,7 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 			ID:     msg.ID,
 			Type:   "message",
 			Status: "completed",
-			Role:   constant.Assistant("assistant"),
+			Role:   "assistant",
 			Content: []responses.ResponseOutputMessageContentUnion{
 				{Type: "output_text", Text: textBuf.String()},
 			},
@@ -467,14 +485,7 @@ func (s *AnthropicResponsesStreamState) completedToolItems() []responses.Respons
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, responses.ResponseOutputItemUnion{
-			ID:        t.id,
-			Type:      "function_call",
-			Status:    "completed",
-			Name:      t.name,
-			CallID:    t.id,
-			Arguments: args,
-		})
+		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
 	}
 	return out
 }
@@ -529,7 +540,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStart(event anthropic.
 						ID:     s.MessageID,
 						Type:   "message",
 						Status: "in_progress",
-						Role:   constant.Assistant("assistant"),
+						Role:   "assistant",
 					},
 				},
 				{
@@ -610,14 +621,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStop(event anthropic.M
 		args = "{}"
 	}
 	outputIdx := s.toolOutputIndex(event.Index)
-	completed := responses.ResponseOutputItemUnion{
-		ID:        t.id,
-		Type:      "function_call",
-		Status:    "completed",
-		Name:      t.name,
-		CallID:    t.id,
-		Arguments: args,
-	}
+	completed := newFunctionCallItem(t.id, t.id, t.name, args)
 	return []responses.ResponseStreamEventUnion{
 		{
 			Type:           "response.function_call_arguments.done",
@@ -651,7 +655,7 @@ func (s *AnthropicResponsesStreamState) handleMessageStop() []responses.Response
 			ID:     s.MessageID,
 			Type:   "message",
 			Status: "completed",
-			Role:   constant.Assistant("assistant"),
+			Role:   "assistant",
 		}
 		if fullText != "" {
 			msgItem.Content = []responses.ResponseOutputMessageContentUnion{

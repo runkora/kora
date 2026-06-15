@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"

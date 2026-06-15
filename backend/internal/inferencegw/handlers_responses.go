@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
-	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -23,6 +25,87 @@ type responsesEnvelope struct {
 	Stream bool
 }
 
+// knownToolTypes is the set of "type" values that the openai-go SDK's
+// ToolUnionParam discriminator recognizes. Any tool whose "type" is not in
+// this set will cause apijson.UnmarshalRoot to fail silently and drop the
+// entire Tools slice rather than skipping the single unrecognized item.
+//
+// When upgrading github.com/openai/openai-go/v3, review this list against
+// the discriminator registration in:
+//
+//	responses/response.go — func init() { apijson.RegisterUnion[ToolUnionParam](...) }
+var knownToolTypes = map[string]bool{
+	// Present in v1.12.0
+	"function":                      true,
+	"file_search":                   true,
+	"web_search_preview":            true,
+	"web_search_preview_2025_03_11": true,
+	"computer_use_preview":          true,
+	"mcp":                           true,
+	"code_interpreter":              true,
+	"image_generation":              true,
+	"local_shell":                   true,
+	// Added in v3.x
+	"namespace":             true, // v3.25.0 — Codex CLI multi_agent_v1
+	"web_search":            true, // v3.0.0  — Codex CLI web search tool
+	"web_search_2025_08_26": true, // v3.x
+	"tool_search":           true, // v3.25.0
+	"computer":              true, // v3.25.0
+}
+
+// droppedTool records the name and type of a tool that was removed by sanitizeTools.
+type droppedTool struct {
+	Name string
+	Type string
+}
+
+// sanitizeTools returns a copy of b with any tool whose "type" is not in
+// knownToolTypes removed from the "tools" array, plus a slice describing each
+// dropped tool. If the body has no "tools" key, or all tools are recognized,
+// the original bytes and an empty slice are returned unchanged.
+func sanitizeTools(b []byte) ([]byte, []droppedTool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return b, nil
+	}
+	toolsRaw, ok := raw["tools"]
+	if !ok {
+		return b, nil
+	}
+	var rawTools []json.RawMessage
+	if err := json.Unmarshal(toolsRaw, &rawTools); err != nil {
+		return b, nil
+	}
+
+	var kept []json.RawMessage
+	var dropped []droppedTool
+	for _, rt := range rawTools {
+		var probe struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(rt, &probe); err != nil || !knownToolTypes[probe.Type] {
+			dropped = append(dropped, droppedTool{Name: probe.Name, Type: probe.Type})
+			continue
+		}
+		kept = append(kept, rt)
+	}
+	if len(dropped) == 0 {
+		return b, nil
+	}
+
+	filteredTools, err := json.Marshal(kept)
+	if err != nil {
+		return b, nil
+	}
+	raw["tools"] = filteredTools
+	sanitized, err := json.Marshal(raw)
+	if err != nil {
+		return b, nil
+	}
+	return sanitized, dropped
+}
+
 func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
 	if err := e.Params.UnmarshalJSON(b); err != nil {
 		return err
@@ -37,17 +120,41 @@ func (e *responsesEnvelope) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// marshalResponsesEvent produces wire-compatible JSON for a synthesized
-// ResponseStreamEventUnion (one without RawJSON). The openai-go SDK stores
-// the Delta field as a union struct whose json tag uses ",inline" — a custom
-// apijson convention that encoding/json ignores, causing Delta to serialize as
-// an object {"OfString":"..."} instead of a plain string. Strict SSE parsers
-// (e.g. Codex CLI, which deserializes delta as Option<String>) reject the
-// object and fail to parse the entire event, including response.completed.
-// This function fixes Delta to its correct scalar wire representation by
-// re-serializing it after the first marshal/unmarshal pass.
-func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error) {
-	raw, err := json.Marshal(ev)
+// fixResponseOutputItems replaces the "output" array in a marshaled JSON map
+// with correctly-serialized items. ResponseOutputItemUnion has no MarshalJSON,
+// so encoding/json produces malformed JSON for synthesized items (e.g. the
+// Arguments field of function_call items serializes as an object instead of a
+// plain string). Items constructed via newFunctionCallItem have JSON.raw
+// populated; RawJSON() returns the correct bytes for those items.
+func fixResponseOutputItems(m map[string]json.RawMessage, output []responses.ResponseOutputItemUnion) error {
+	if len(output) == 0 {
+		return nil
+	}
+	items := make([]json.RawMessage, len(output))
+	for i, item := range output {
+		if rj := item.RawJSON(); rj != "" {
+			items[i] = json.RawMessage(rj)
+		} else {
+			b, err := json.Marshal(item)
+			if err != nil {
+				return err
+			}
+			items[i] = b
+		}
+	}
+	fixed, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	m["output"] = fixed
+	return nil
+}
+
+// marshalResponsesResponse produces wire-compatible JSON for a *responses.Response
+// synthesized by one of the Orbit bridges. It fixes the output array using
+// fixResponseOutputItems so that function_call items serialize correctly.
+func marshalResponsesResponse(resp *responses.Response) ([]byte, error) {
+	raw, err := json.Marshal(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -55,14 +162,59 @@ func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
-	// Use JSON.OfString.Valid() rather than checking OfString != "" to correctly
-	// handle an empty-string delta without deleting a legitimately present field.
-	if ev.Delta.JSON.OfString.Valid() {
-		if b, jsonErr := json.Marshal(ev.Delta.OfString); jsonErr == nil {
-			m["delta"] = b
-		}
-	} else {
+	if err := fixResponseOutputItems(m, resp.Output); err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+// marshalResponsesEvent produces wire-compatible JSON for a synthesized
+// ResponseStreamEventUnion (one without RawJSON). In v3 of the SDK, Delta is
+// a plain string field, so json.Marshal serializes it correctly. However,
+// events that have no delta (e.g. response.completed) still carry the zero
+// string value and would produce a spurious "delta":"" key. This function
+// removes the delta key for events where the field was absent in the original
+// payload, using ev.JSON.Delta.Valid() which reflects presence in decoded JSON.
+//
+// It also fixes any ResponseOutputItemUnion items embedded in the event (e.g.
+// the Output slice inside a response.completed event) using fixResponseOutputItems.
+func marshalResponsesEvent(ev responses.ResponseStreamEventUnion) ([]byte, error) {
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return nil, err
+	}
+
+	// Both the delta fix and the output-item fix require map manipulation;
+	// only unmarshal once and apply both corrections together.
+	needsMapFix := !ev.JSON.Delta.Valid() || len(ev.Response.Output) > 0
+	if !needsMapFix {
+		return raw, nil
+	}
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	if !ev.JSON.Delta.Valid() {
 		delete(m, "delta")
+	}
+	// Fix the Response.Output items embedded in events like response.completed.
+	if len(ev.Response.Output) > 0 {
+		respRaw, ok := m["response"]
+		if ok && len(respRaw) > 0 {
+			var respMap map[string]json.RawMessage
+			if err := json.Unmarshal(respRaw, &respMap); err != nil {
+				return nil, err
+			}
+			if err := fixResponseOutputItems(respMap, ev.Response.Output); err != nil {
+				return nil, err
+			}
+			fixed, err := json.Marshal(respMap)
+			if err != nil {
+				return nil, err
+			}
+			m["response"] = fixed
+		}
 	}
 	return json.Marshal(m)
 }
@@ -73,14 +225,48 @@ func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 	// 100 MB: responses requests may carry long multi-turn conversation histories.
 	r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
 
-	var env responsesEnvelope
-	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), err)
+	bodyBytes, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		// http.MaxBytesReader surfaces *http.MaxBytesError from Read, so it
+		// arrives here via io.ReadAll — not from json.Unmarshal below.
+		if _, ok := errors.AsType[*http.MaxBytesError](readErr); ok {
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "request body too large", nil), readErr)
 		} else {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", "failed to read request body", nil), readErr)
 		}
 		return
+	}
+
+	// sanitizeTools strips tool entries whose "type" is not in knownToolTypes
+	// before the SDK decoder sees them. The SDK's apijson discriminator silently
+	// drops the entire Tools slice when it encounters an unrecognized type, which
+	// would cause zero tools to reach the model. dropped records any removed tools
+	// so we can emit a Warn after decode (once the model name is available).
+	bodyBytes, dropped := sanitizeTools(bodyBytes)
+
+	var env responsesEnvelope
+	if err := json.Unmarshal(bodyBytes, &env); err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidJSON, "invalid request body", nil), err)
+		return
+	}
+
+	c.logger.Debug(ctx, "responses: decoded request",
+		logging.Field{Key: "model", Value: env.Params.Model},
+		logging.Field{Key: "tool_count", Value: len(env.Params.Tools)},
+		logging.Field{Key: "input_items", Value: len(env.Params.Input.OfInputItemList)},
+		logging.Field{Key: "stream", Value: env.Stream},
+	)
+
+	if len(dropped) > 0 {
+		names := make([]string, len(dropped))
+		for i, d := range dropped {
+			names[i] = fmt.Sprintf("%s(%s)", d.Name, d.Type)
+		}
+		c.logger.Warn(ctx, "responses: dropped unrecognized tool types — these tools will not reach the model; check knownToolTypes in handlers_responses.go and consider upgrading github.com/openai/openai-go/v3",
+			logging.Field{Key: "model", Value: env.Params.Model},
+			logging.Field{Key: "dropped_count", Value: len(dropped)},
+			logging.Field{Key: "dropped_tools", Value: strings.Join(names, ", ")},
+		)
 	}
 
 	if env.Stream {
@@ -94,7 +280,16 @@ func (c *Controller) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+	// Use marshalResponsesResponse instead of api.JSON: encoding/json cannot
+	// correctly serialize ResponseOutputItemUnion (no MarshalJSON on the type);
+	// marshalResponsesResponse fixes the output array using each item's RawJSON().
+	// Wrap as json.RawMessage so api.JSON writes the pre-serialized bytes as-is.
+	respBytes, err := marshalResponsesResponse(resp)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError("marshal_error", "failed to marshal response", nil), err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, json.RawMessage(respBytes))
 }
 
 // handleResponsesStream writes a Server-Sent Events stream for the Responses API.

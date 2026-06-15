@@ -6,7 +6,7 @@ import (
 	"io"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"

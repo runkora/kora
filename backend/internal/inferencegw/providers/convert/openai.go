@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 )
@@ -187,16 +187,20 @@ func assistantMsgBlocks(m *openai.ChatCompletionAssistantMessageParam) []anthrop
 
 	// Tool calls
 	for _, tc := range m.ToolCalls {
+		if tc.OfFunction == nil {
+			continue
+		}
+		fn := tc.OfFunction.Function
 		var input any = map[string]any{}
-		if tc.Function.Arguments != "" {
+		if fn.Arguments != "" {
 			var parsed map[string]any
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+			if err := json.Unmarshal([]byte(fn.Arguments), &parsed); err == nil {
 				input = parsed
 			}
 			// If arguments is not valid JSON, leave input as empty map rather than
 			// forwarding an unparseable string — the Anthropic API requires an object.
 		}
-		blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Function.Name))
+		blocks = append(blocks, anthropic.NewToolUseBlock(tc.OfFunction.ID, input, fn.Name))
 	}
 
 	return blocks
@@ -218,10 +222,13 @@ func toolResultBlock(m *openai.ChatCompletionToolMessageParam) anthropic.Content
 }
 
 // convertTools translates OpenAI tool definitions to Anthropic tool params.
-func convertTools(tools []openai.ChatCompletionToolParam) []anthropic.ToolUnionParam {
+func convertTools(tools []openai.ChatCompletionToolUnionParam) []anthropic.ToolUnionParam {
 	out := make([]anthropic.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
-		fn := t.Function
+		fn := t.GetFunction()
+		if fn == nil {
+			continue
+		}
 		var desc string
 		if fn.Description.Valid() {
 			desc = fn.Description.Value
@@ -289,10 +296,10 @@ func openAISchemaToAnthropic(params map[string]any) anthropic.ToolInputSchemaPar
 // convertToolChoice translates an OpenAI tool_choice to Anthropic ToolChoiceUnionParam.
 // Returns (zero, false) when no tool choice is set.
 func convertToolChoice(tc openai.ChatCompletionToolChoiceOptionUnionParam) (anthropic.ToolChoiceUnionParam, bool) {
-	if tc.OfChatCompletionNamedToolChoice != nil {
+	if tc.OfFunctionToolChoice != nil {
 		return anthropic.ToolChoiceUnionParam{
 			OfTool: &anthropic.ToolChoiceToolParam{
-				Name: tc.OfChatCompletionNamedToolChoice.Function.Name,
+				Name: tc.OfFunctionToolChoice.Function.Name,
 			},
 		}, true
 	}
@@ -326,17 +333,17 @@ func convertToolChoice(tc openai.ChatCompletionToolChoiceOptionUnionParam) (anth
 // the conversion time.
 func AnthropicMessageToOpenAI(msg *anthropic.Message, createdAt int64) *openai.ChatCompletion {
 	var textContent strings.Builder
-	var toolCalls []openai.ChatCompletionMessageToolCall
+	var toolCalls []openai.ChatCompletionMessageToolCallUnion
 
 	for _, block := range msg.Content {
 		switch block.Type {
 		case "text":
 			textContent.WriteString(block.Text)
 		case "tool_use":
-			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCall{
+			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnion{
 				ID:   block.ID,
 				Type: "function",
-				Function: openai.ChatCompletionMessageToolCallFunction{
+				Function: openai.ChatCompletionMessageFunctionToolCallFunction{
 					Name:      block.Name,
 					Arguments: string(block.Input),
 				},
