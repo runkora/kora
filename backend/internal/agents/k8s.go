@@ -28,6 +28,7 @@ import (
 
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/ports"
 )
 
 var k8sTracer = otel.Tracer("orbit.agents.k8s")
@@ -486,31 +487,26 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 		corev1.EnvVar{Name: "PIP_CERT", Value: sandboxTenantCAPath},
 		// gh refuses to run without a token, yet the agent never holds a real one:
 		// the egress gateway injects a short-lived GitHub credential on the wire and
-		// strips this header. A non-empty placeholder makes gh issue the request
-		// (which the gateway then authenticates); the value never reaches GitHub.
-		corev1.EnvVar{Name: "GH_TOKEN", Value: "orbit-egress-injected"},
+		// strips this header. A non-empty, obviously-non-functional placeholder lets
+		// gh issue the request (which the gateway then authenticates); the value
+		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
+		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-orbit-egress-gateway"},
 	)
 	return env
 }
 
 // egressGatewayURL returns the in-cluster URL of the egress gateway, or empty
 // if SystemNamespace is unset. The gateway always lives in SystemNamespace
-// under the well-known service name + port (matching
-// charts/orbit/templates/egress-gateway/service.yaml and
-// internal/operator/tenant_netpol.go's egressGatewayCONNECTPort) — there's no
+// under the well-known service name + port (the shared ports.EgressGatewayCONNECT,
+// matching charts/orbit/templates/egress-gateway/service.yaml) — there's no
 // configurable knob because there's no version of the topology where it
 // could be different.
 func egressGatewayURL(cfg K8sProvisionerConfig) string {
 	if cfg.SystemNamespace == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://orbit-egress-gateway.%s.svc:%d", cfg.SystemNamespace, egressGatewayCONNECTPort)
+	return fmt.Sprintf("http://orbit-egress-gateway.%s.svc:%d", cfg.SystemNamespace, ports.EgressGatewayCONNECT)
 }
-
-// egressGatewayCONNECTPort matches charts/orbit/values.yaml's
-// egressGateway.connectPort and cmd/egress-gateway/config/base.yaml's
-// server.httpPort. Kept in sync with internal/operator/tenant_netpol.go.
-const egressGatewayCONNECTPort = 8085
 
 // sandboxTenantCAPath is where the tenant CA root is mounted inside the
 // sandbox container. The runtime env hints in sandboxContainerEnv all point

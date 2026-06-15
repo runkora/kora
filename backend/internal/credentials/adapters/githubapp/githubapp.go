@@ -42,6 +42,11 @@ const appJWTSkew = 60 * time.Second
 // is treated as stale, so a caller never receives an about-to-expire credential.
 const cacheSafetyMargin = time.Minute
 
+// cacheEvictThreshold is the entry count at which store() sweeps out expired
+// entries, bounding growth from keys that are minted once and never requested
+// again (cached() only evicts on a same-key re-read). A var so tests can lower it.
+var cacheEvictThreshold = 256
+
 // config is the adapter-specific configuration stored on a GitHub connection's
 // Config field.
 type config struct {
@@ -244,6 +249,17 @@ func (a *Adapter) cached(key string) (credentials.Credential, bool) {
 func (a *Adapter) store(key string, cred credentials.Credential) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// Bound growth: once the cache crosses the threshold, sweep out every entry
+	// already past its safety margin before inserting. Live entries are bounded by
+	// real usage (connections × permission sets); this stops dead keys lingering.
+	if len(a.cache) >= cacheEvictThreshold {
+		now := a.now()
+		for k, c := range a.cache {
+			if now.After(c.ExpiresAt.Add(-cacheSafetyMargin)) {
+				delete(a.cache, k)
+			}
+		}
+	}
 	a.cache[key] = cred
 }
 

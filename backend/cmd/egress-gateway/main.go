@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
@@ -165,7 +166,7 @@ func realMain() error {
 		// CONNECT must support hijacking; net/http's stdlib server does this
 		// automatically. ReadHeaderTimeout protects against slowloris on the
 		// CONNECT preamble.
-		ReadHeaderTimeout: 10 * 1e9, // 10s
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// ── Scope vocabulary registration ────────────────────────────────────────

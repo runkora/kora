@@ -37,6 +37,7 @@ export function EnvironmentField({
   compact = false,
 }: EnvironmentFieldProps) {
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [loadError, setLoadError] = useState(false);
 
   // Keep the callback in a ref so it does not have to be a stable dependency of
   // the fetch effect — the field fetches exactly once on mount regardless of how
@@ -49,36 +50,46 @@ export function EnvironmentField({
 
   useEffect(() => {
     fetch(ApiRoute.environments.list(), { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((body: { data?: Environment[] }) => {
+      .then(async (r) => {
+        // A non-OK response (403/500/…) must not be silently read as an empty
+        // list — that would falsely claim "no environments are defined".
+        if (!r.ok) throw new Error(`environments request failed (${r.status})`);
+        return (await r.json()) as { data?: Environment[] };
+      })
+      .then((body) => {
         const loaded = body.data ?? [];
         setEnvironments(loaded);
+        setLoadError(false);
         onLoadedRef.current?.(loaded);
       })
-      .catch(() => undefined);
+      .catch(() => setLoadError(true));
   }, []);
 
-  const control =
-    environments.length === 0 ? (
-      <Text size="supporting" color="muted">
-        No environments are defined for this tenant. Create one on the Environments page to attach a
-        shared bundle of egress hosts and connectors.
-      </Text>
-    ) : (
-      <NativeSelect
-        id="agent-environment"
-        aria-label="Environment"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">None</option>
-        {environments.map((env) => (
-          <option key={env.id} value={env.id}>
-            {env.name}
-          </option>
-        ))}
-      </NativeSelect>
-    );
+  const control = loadError ? (
+    <Text size="supporting" color="muted">
+      Could not load environments — try refreshing. Any environment already attached to this agent
+      is unchanged.
+    </Text>
+  ) : environments.length === 0 ? (
+    <Text size="supporting" color="muted">
+      No environments are defined for this tenant. Create one on the Environments page to attach a
+      shared bundle of egress hosts and connectors.
+    </Text>
+  ) : (
+    <NativeSelect
+      id="agent-environment"
+      aria-label="Environment"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">None</option>
+      {environments.map((env) => (
+        <option key={env.id} value={env.id}>
+          {env.name}
+        </option>
+      ))}
+    </NativeSelect>
+  );
 
   // Compact mode: bare control, no label/hint — the surrounding card supplies
   // the name and description, so repeating them here would duplicate copy.

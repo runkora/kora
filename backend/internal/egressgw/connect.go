@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -13,6 +14,12 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
+
+// maxInnerRequestBytes bounds how much of a tunneled inner request the gateway
+// reads (request line + headers + body), so a sandboxed agent cannot OOM the
+// gateway with an unbounded stream. Generous enough for realistic git pushes;
+// a var (not const) so tests can shrink it. Responses are NOT bounded by this.
+var maxInnerRequestBytes int64 = 512 << 20 // 512 MiB
 
 // IssuingCA is the per-tenant TLS authority the CONNECT handler uses to mint a
 // leaf certificate matching the SNI the agent's tool sent. The package keeps
@@ -65,8 +72,8 @@ type ConnectHandler struct {
 
 // connLookup is the narrow slice of the connection repository the CONNECT
 // handler needs: "is there a registered connection for this host?", used to
-// decide intercept-vs-relay for non-:443 ports. *credentials.PostgresRepository
-// and the test repos satisfy it.
+// decide intercept-vs-relay for non-:443 ports. *credentials.ConfigMapRegistry
+// (the gateway's registry since Amendment 3) and the test repos satisfy it.
 type connLookup interface {
 	GetByHost(ctx context.Context, tenantID, host string) (*credentials.Connection, error)
 }
@@ -195,8 +202,18 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the inner HTTP request the tool wants to send to the upstream.
-	innerReq, err := http.ReadRequest(bufio.NewReader(tlsConn))
+	h.serveTunneledRequest(ctx, tlsConn, claims, host, port)
+}
+
+// serveTunneledRequest reads the single inner HTTP request off the terminated
+// TLS conn, pins it to the verified CONNECT target, and serves it through the
+// inner handler. It is split out of ServeHTTP to keep that method within the
+// cyclomatic-complexity budget.
+func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.Conn, claims *token.PlatformClaims, host, port string) {
+	// Read the inner HTTP request the tool wants to send to the upstream. The
+	// read is bounded (io.LimitReader) so a sandboxed agent cannot OOM the gateway
+	// with an unbounded request line / header / body stream.
+	innerReq, err := http.ReadRequest(bufio.NewReader(io.LimitReader(tlsConn, maxInnerRequestBytes)))
 	if err != nil {
 		h.logger.Warn(ctx, "read inner request failed",
 			logging.Field{Key: "host", Value: host},
@@ -205,12 +222,19 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-attach the verified claims and ensure ProxyHandler's host-based
-	// connection lookup sees the SNI host (the inner request's Host header may
-	// be a bare host without port). Ensure URL is absolute-friendly: for an
-	// inner request the Host header is the destination, the Path is the URI.
+	// Pin the inner request to the CONNECT target the OPA posture authorized. The
+	// inner Host header is attacker-controlled — a sandbox can put any value
+	// inside the TLS tunnel — so without this an agent could CONNECT an allowed
+	// host and then tunnel to an arbitrary Host the gateway can reach (SSRF into
+	// cluster-internal services). For a legitimate HTTPS_PROXY client the inner
+	// Host already equals the CONNECT authority, so this is a no-op.
+	authority := host
+	if port != "443" {
+		authority = net.JoinHostPort(host, port)
+	}
+	innerReq.Host = authority
 	innerReq.URL.Scheme = "https"
-	innerReq.URL.Host = innerReq.Host
+	innerReq.URL.Host = authority
 	innerReq = innerReq.WithContext(token.WithClaims(ctx, claims))
 
 	// Serve the inner request over the tunneled TLS conn. The bufio.Writer is

@@ -22,6 +22,11 @@ func TestConnectivity_EgressScopes(t *testing.T) {
 		},
 		{"whitelist skips empty/whitespace", Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"a.com", "", "  "}}, []string{"egress:a.com:connect"}},
 		{"whitelist with no hosts is no egress", Connectivity{Mode: ConnectivityWhitelist}, nil},
+		{
+			"whitelist lowercases mixed-case hosts (gateway/OPA compare lowercase)",
+			Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"API.GitHub.com", "Proxy.Golang.ORG"}},
+			[]string{"egress:api.github.com:connect", "egress:proxy.golang.org:connect"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

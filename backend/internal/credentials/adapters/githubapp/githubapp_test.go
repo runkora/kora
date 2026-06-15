@@ -51,6 +51,37 @@ func mustConfig(t *testing.T, cfg config) json.RawMessage {
 	return b
 }
 
+func TestAdapter_CacheEvictsExpired(t *testing.T) {
+	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return now }
+
+	// Lower the threshold so the next store() triggers a sweep.
+	orig := cacheEvictThreshold
+	cacheEvictThreshold = 2
+	defer func() { cacheEvictThreshold = orig }()
+
+	// Two expired entries that are never re-requested (cached() alone would never
+	// evict them), plus a live one.
+	a.cache["dead1"] = credentials.Credential{ExpiresAt: now.Add(-time.Hour)}
+	a.cache["dead2"] = credentials.Credential{ExpiresAt: now.Add(-time.Hour)}
+	a.cache["live"] = credentials.Credential{ExpiresAt: now.Add(time.Hour)}
+
+	// len(cache)==3 >= threshold(2) → store() sweeps expired entries before insert.
+	a.store("new", credentials.Credential{ExpiresAt: now.Add(time.Hour)})
+
+	for _, dead := range []string{"dead1", "dead2"} {
+		if _, ok := a.cache[dead]; ok {
+			t.Errorf("expired entry %q was not swept", dead)
+		}
+	}
+	for _, keep := range []string{"live", "new"} {
+		if _, ok := a.cache[keep]; !ok {
+			t.Errorf("live entry %q was wrongly evicted", keep)
+		}
+	}
+}
+
 func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 	var (
 		calls   int

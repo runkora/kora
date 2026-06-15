@@ -29,6 +29,11 @@ RUN=""
 BLOCKED_HOST=github.com
 BLOCKED_IP=1.1.1.1
 ALLOWED_HOST=""
+# Gateway coordinates — the raw-TCP probe verifies denial by checking the
+# gateway's audit log (see check 3), so it needs to know where the gateway runs.
+GW_NS=orbit-system
+GW_DEPLOY=orbit-egress-gateway
+GW_CONTAINER=orbit-egress-gateway
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -38,6 +43,9 @@ while [ $# -gt 0 ]; do
     --blocked-host) BLOCKED_HOST="$2"; shift 2;;
     --blocked-ip) BLOCKED_IP="$2"; shift 2;;
     --allowed-host) ALLOWED_HOST="$2"; shift 2;;
+    --gw-namespace) GW_NS="$2"; shift 2;;
+    --gw-deploy) GW_DEPLOY="$2"; shift 2;;
+    --gw-container) GW_CONTAINER="$2"; shift 2;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
@@ -69,10 +77,23 @@ else
 fi
 
 # 3) Arbitrary TCP to a non-whitelisted IP must be denied (catch-all/IP posture).
-if exec_sb "timeout 7 curl -s http://$BLOCKED_IP:53/ -o /dev/null" ; then
-  fail "raw TCP $BLOCKED_IP:53 was REACHED (bypass)"
+# curl's OWN exit code is useless here: the sandbox runs a TRANSPARENT proxy, so
+# the iptables REDIRECT always completes the local TCP handshake to Envoy before
+# any policy is evaluated — curl reports "Connected to <ip>" and then a reset
+# (rc=56) whether the IP was truly reached or Envoy denied it. A real bypass and
+# a clean denial are indistinguishable from inside the sandbox.
+#
+# The authoritative oracle is the gateway: a relayed (i.e. bypassed) raw-TCP
+# CONNECT emits an "egress relay opened host=<ip>" audit line (relay.go). A
+# denial is dropped at the sandbox Envoy/OPA and never reaches the gateway, so
+# no such line appears. We fire the probe, then check the gateway's recent log.
+exec_sb "curl -s -o /dev/null --connect-timeout 7 http://$BLOCKED_IP:53/ >/dev/null 2>&1; true" >/dev/null || true
+sleep 2
+if kubectl logs -n "$GW_NS" "deploy/$GW_DEPLOY" -c "$GW_CONTAINER" --since=30s 2>/dev/null \
+     | grep -i "relay opened" | grep -qF "$BLOCKED_IP"; then
+  fail "raw TCP $BLOCKED_IP:53 was RELAYED by the gateway (bypass)"
 else
-  pass "raw TCP $BLOCKED_IP:53 denied"
+  pass "raw TCP $BLOCKED_IP:53 denied (gateway never relayed it)"
 fi
 
 # 4) Optional: a whitelisted host must succeed THROUGH the tenant-CA gateway.

@@ -88,7 +88,11 @@ func (c Connectivity) EgressScopes() []string {
 	case ConnectivityWhitelist:
 		scopes := make([]string, 0, len(c.Hosts))
 		for _, h := range c.Hosts {
-			if h = strings.TrimSpace(h); h != "" {
+			// Lowercase to match: the egress gateway / OPA normalize the CONNECT
+			// host to lowercase before comparing, so a scope built from a
+			// mixed-case whitelist entry (e.g. "GitHub.com") would never match and
+			// egress would be silently denied.
+			if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
 				scopes = append(scopes, "egress:"+h+":connect")
 			}
 		}

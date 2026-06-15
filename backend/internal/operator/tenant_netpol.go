@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/ports"
 )
 
 // sandboxEgressPolicyName is the NetworkPolicy created in each tenant
@@ -39,11 +40,6 @@ const sandboxEgressPolicyName = "sandbox-egress-to-gateway"
 // renders this name; mismatch here would silently break egress for all
 // tenants.
 const egressGatewayServiceName = "orbit-egress-gateway"
-
-// egressGatewayCONNECTPort is the gateway's HTTP(S) CONNECT port — the value
-// rendered by charts/orbit/templates/egress-gateway/service.yaml. Kept in
-// sync with cmd/egress-gateway/config/base.yaml's server.httpPort.
-const egressGatewayCONNECTPort = 8085
 
 // ensureSandboxEgressPolicy reconciles the NetworkPolicy that locks sandbox
 // egress to the per-tenant gateway. Re-applied on every reconcile so a
@@ -165,7 +161,7 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 						},
 					},
 					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(egressGatewayCONNECTPort)},
+						{Protocol: new(corev1.ProtocolTCP), Port: portIntOrString(ports.EgressGatewayCONNECT)},
 					},
 				},
 			},
