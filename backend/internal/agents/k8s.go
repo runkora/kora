@@ -334,6 +334,9 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser:    &uid,
 				RunAsNonRoot: &nonRoot,
+				SELinuxOptions: &corev1.SELinuxOptions{
+					Level: "s0",
+				},
 			},
 			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
 			Containers: []corev1.Container{sandboxContainer(p.cfg)},
@@ -956,6 +959,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsUser:    &uid,
 						RunAsNonRoot: &nonRoot,
+						SELinuxOptions: &corev1.SELinuxOptions{
+							Level: "s0",
+						},
 					},
 					Containers: []corev1.Container{
 						{
