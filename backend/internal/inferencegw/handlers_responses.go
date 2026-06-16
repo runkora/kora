@@ -77,7 +77,7 @@ func sanitizeTools(b []byte) ([]byte, []droppedTool) {
 		return b, nil
 	}
 
-	var kept []json.RawMessage
+	kept := make([]json.RawMessage, 0)
 	var dropped []droppedTool
 	for _, rt := range rawTools {
 		var probe struct {

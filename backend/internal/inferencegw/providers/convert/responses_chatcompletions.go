@@ -160,8 +160,12 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
 			// Output is a string|[]content union in v3. Orbit only produces string
-			// outputs; access .OfString.Value directly.
+			// outputs; skip the content-array variant to avoid silently forwarding
+			// an empty string to the model.
 			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
+			if !fco.Output.OfString.Valid() {
+				continue
+			}
 			msgs = append(msgs, openai.ToolMessage(fco.Output.OfString.Value, fco.CallID))
 		}
 	}

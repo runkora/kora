@@ -93,6 +93,7 @@ func newInProgressFunctionCallItem(id, callID, name string) responses.ResponseOu
 	return item
 }
 
+// newMessageItem constructs a ResponseOutputItemUnion for a message output item.
 // It round-trips through the SDK's ResponseOutputMessage type to populate JSON.raw,
 // which is required for correct wire-format serialization. ResponseOutputItemUnion
 // has no MarshalJSON, so direct struct construction produces extraneous zero-value
@@ -323,8 +324,12 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
 			// Output is a string|[]content union in v3. Orbit only produces string
-			// outputs; access .OfString.Value directly.
+			// outputs; reject the content-array variant explicitly to avoid silently
+			// forwarding an empty string to the model.
 			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
+			if !fco.Output.OfString.Valid() {
+				return nil, nil, fmt.Errorf("responses: function_call_output item %q has unsupported content-array output; only string outputs are supported", fco.CallID)
+			}
 			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output.OfString.Value, false))
 		}
 	}
