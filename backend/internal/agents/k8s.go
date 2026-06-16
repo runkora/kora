@@ -334,6 +334,9 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser:    &uid,
 				RunAsNonRoot: &nonRoot,
+				SELinuxOptions: &corev1.SELinuxOptions{
+					Level: "s0",
+				},
 			},
 			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
 			Containers: []corev1.Container{sandboxContainer(p.cfg)},
@@ -956,6 +959,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsUser:    &uid,
 						RunAsNonRoot: &nonRoot,
+						SELinuxOptions: &corev1.SELinuxOptions{
+							Level: "s0",
+						},
 					},
 					Containers: []corev1.Container{
 						{
@@ -1047,7 +1053,19 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	}
 
 	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
-	return ignoreAlreadyExists(err)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	// StatefulSet already exists — patch the pod template security context so that
+	// clusters affected by the SELinux MCS relabel issue pick up the fix on the next
+	// re-provision without requiring a manual StatefulSet delete.
+	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get existing statefulset: %w", err)
+	}
+	existing.Spec.Template.Spec.SecurityContext = ss.Spec.Template.Spec.SecurityContext
+	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	return err
 }
 
 func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string) error {
