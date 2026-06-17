@@ -9,8 +9,8 @@ import (
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/responses"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"

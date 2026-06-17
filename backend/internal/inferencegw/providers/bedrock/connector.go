@@ -17,8 +17,8 @@ import (
 	bedrockSDK "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	bedrockruntimeSDK "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	openai "github.com/openai/openai-go"
-	openaiopt "github.com/openai/openai-go/option"
+	openai "github.com/openai/openai-go/v3"
+	openaiopt "github.com/openai/openai-go/v3/option"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"

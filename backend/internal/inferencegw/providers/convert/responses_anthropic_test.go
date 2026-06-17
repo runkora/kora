@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/responses"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
 )
@@ -345,8 +345,8 @@ func TestAnthropicStreaming_FunctionCallEmittedInTerminalEvent(t *testing.T) {
 	for _, item := range completed.Response.Output {
 		if item.Type == "function_call" && item.CallID == "toolu_y" {
 			gotFuncCall = true
-			if item.Arguments != `{"city":"Berlin"}` {
-				t.Errorf("Arguments = %q, want accumulated JSON", item.Arguments)
+			if item.Arguments.OfString != `{"city":"Berlin"}` {
+				t.Errorf("Arguments = %q, want accumulated JSON", item.Arguments.OfString)
 			}
 			if item.Name != "get_weather" {
 				t.Errorf("Name = %q, want get_weather", item.Name)
@@ -796,5 +796,122 @@ func TestAnthropicStreaming_CacheTokensInCompletedEvent(t *testing.T) {
 	}
 	if completed.Response.Usage.OutputTokens != 5 {
 		t.Errorf("OutputTokens = %d, want 5", completed.Response.Usage.OutputTokens)
+	}
+}
+
+// ─── Wire-format regression: function_call items must have RawJSON populated ──
+
+// TestAnthropicMessageToResponsesResponse_FunctionCallWireFormat verifies that
+// function_call output items have JSON.raw populated (via newFunctionCallItem's
+// round-trip construction), so that the handler-level marshal helpers can use
+// RawJSON() to produce correct wire bytes. This is a regression guard for the
+// v3 SDK upgrade: direct ResponseOutputItemUnion struct construction produces
+// malformed arguments JSON because the type has no MarshalJSON.
+func TestAnthropicMessageToResponsesResponse_FunctionCallWireFormat(t *testing.T) {
+	t.Parallel()
+	msg := &anthropic.Message{
+		ID:    "msg_wire",
+		Model: "claude-3-5-sonnet-20241022",
+		Content: []anthropic.ContentBlockUnion{
+			{Type: "tool_use", ID: "toolu_wire", Name: "get_weather", Input: json.RawMessage(`{"city":"Berlin"}`)},
+		},
+		StopReason: anthropic.StopReasonToolUse,
+	}
+	got := convert.AnthropicMessageToResponsesResponse(msg)
+	if len(got.Output) == 0 {
+		t.Fatal("expected at least 1 output item")
+	}
+
+	var foundFunctionCall bool
+	for _, item := range got.Output {
+		if item.Type != "function_call" {
+			continue
+		}
+		foundFunctionCall = true
+		rj := item.RawJSON()
+		if rj == "" {
+			t.Error("RawJSON() is empty — newFunctionCallItem did not round-trip correctly")
+			continue
+		}
+		// Verify the raw JSON contains "arguments" as a plain string value.
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(rj), &raw); err != nil {
+			t.Fatalf("unmarshal RawJSON: %v", err)
+		}
+		argsRaw, ok := raw["arguments"]
+		if !ok {
+			t.Error("arguments key missing from RawJSON")
+			continue
+		}
+		if len(argsRaw) == 0 || argsRaw[0] != '"' {
+			t.Errorf("arguments in RawJSON = %s, want a JSON string", argsRaw)
+		}
+		var argsStr string
+		if err := json.Unmarshal(argsRaw, &argsStr); err != nil {
+			t.Errorf("arguments is not a valid JSON string: %v — raw: %s", err, argsRaw)
+		}
+		if argsStr != `{"city":"Berlin"}` {
+			t.Errorf("arguments string = %q, want {\"city\":\"Berlin\"}", argsStr)
+		}
+	}
+	if !foundFunctionCall {
+		t.Error("no function_call item found in response output")
+	}
+}
+
+// TestAnthropicStreaming_FunctionCallWireFormat verifies that function_call items
+// in the streaming bridge have RawJSON populated correctly.
+func TestAnthropicStreaming_FunctionCallWireFormat(t *testing.T) {
+	t.Parallel()
+	state := convert.NewAnthropicResponsesStreamState()
+
+	events := []anthropic.MessageStreamEventUnion{
+		{Type: "message_start", Message: anthropic.Message{ID: "msg_ws", Model: "claude-3-5-sonnet-20241022"}},
+		{Type: "content_block_start", Index: 0, ContentBlock: anthropic.ContentBlockStartEventContentBlockUnion{Type: "tool_use", ID: "toolu_ws", Name: "calc"}},
+		{Type: "content_block_delta", Index: 0, Delta: anthropic.MessageStreamEventUnionDelta{Type: "input_json_delta", PartialJSON: `{"x":1}`}},
+		{Type: "content_block_stop", Index: 0},
+		{Type: "message_delta", Delta: anthropic.MessageStreamEventUnionDelta{Type: "message_delta", StopReason: anthropic.StopReasonToolUse}},
+		{Type: "message_stop"},
+	}
+
+	var completed *responses.ResponseStreamEventUnion
+	for _, ev := range events {
+		for _, out := range convert.AnthropicEventToResponsesEvents(ev, state) {
+			if out.Type == "response.completed" {
+				cp := out
+				completed = &cp
+			}
+		}
+	}
+	if completed == nil {
+		t.Fatal("no response.completed event emitted")
+	}
+
+	var foundFunctionCall bool
+	for _, item := range completed.Response.Output {
+		if item.Type != "function_call" {
+			continue
+		}
+		foundFunctionCall = true
+		rj := item.RawJSON()
+		if rj == "" {
+			t.Error("RawJSON() is empty — newFunctionCallItem did not round-trip correctly")
+			continue
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(rj), &raw); err != nil {
+			t.Fatalf("unmarshal RawJSON: %v", err)
+		}
+		argsRaw, ok := raw["arguments"]
+		if !ok {
+			t.Error("arguments key missing from RawJSON in stream event")
+			continue
+		}
+		if len(argsRaw) == 0 || argsRaw[0] != '"' {
+			t.Errorf("stream event arguments in RawJSON = %s, want a JSON string", argsRaw)
+		}
+	}
+	if !foundFunctionCall {
+		t.Error("no function_call item found in response.completed output")
 	}
 }

@@ -6,11 +6,156 @@ import (
 	"strings"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared/constant"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared/constant"
 )
 
 const blockTypeToolUse = "tool_use"
+
+// newFunctionCallItem constructs a ResponseOutputItemUnion for a completed
+// function_call output item. It round-trips through the SDK's ResponseFunctionToolCall
+// type to populate JSON.raw, which is required for the item to serialize correctly
+// to wire JSON — direct struct construction produces malformed Arguments output
+// because ResponseOutputItemUnion has no MarshalJSON and encoding/json cannot
+// handle the inline union sub-fields.
+//
+// Panics if either marshal step fails: ResponseFunctionToolCall contains only
+// plain string fields and a constant, so failure is a runtime fault, not a
+// recoverable condition. A silent error here would leave JSON.raw empty and
+// reintroduce the wire-format regression this helper exists to prevent.
+func newFunctionCallItem(id, callID, name, arguments string) responses.ResponseOutputItemUnion {
+	ftc := responses.ResponseFunctionToolCall{
+		ID:        id,
+		CallID:    callID,
+		Name:      name,
+		Arguments: arguments,
+		Status:    responses.ResponseFunctionToolCallStatusCompleted,
+	}
+	b, err := json.Marshal(ftc)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: marshal ResponseFunctionToolCall: %v", err))
+	}
+	// Strip "namespace":"" — Codex CLI builds ToolName{namespace: Some(""), name: "..."}
+	// when namespace is an empty string, which fails the registry lookup (registered
+	// tools use namespace: None). Remove the key when empty so Codex gets None.
+	var m map[string]json.RawMessage
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: unmarshal for cleanup: %v", err))
+	}
+	if v, ok := m["namespace"]; ok && (string(v) == `""` || string(v) == "null") {
+		delete(m, "namespace")
+	}
+	cleaned, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: re-marshal after cleanup: %v", err))
+	}
+	var item responses.ResponseOutputItemUnion
+	err = json.Unmarshal(cleaned, &item)
+	if err != nil {
+		panic(fmt.Sprintf("newFunctionCallItem: unmarshal into ResponseOutputItemUnion: %v", err))
+	}
+	return item
+}
+
+// newInProgressFunctionCallItem constructs a ResponseOutputItemUnion for an
+// in_progress function_call item (used in response.output_item.added events
+// before arguments have been accumulated). Same round-trip approach as
+// newFunctionCallItem to ensure correct wire serialization.
+func newInProgressFunctionCallItem(id, callID, name string) responses.ResponseOutputItemUnion {
+	ftc := responses.ResponseFunctionToolCall{
+		ID:     id,
+		CallID: callID,
+		Name:   name,
+		Status: responses.ResponseFunctionToolCallStatusInProgress,
+	}
+	b, err := json.Marshal(ftc)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: marshal: %v", err))
+	}
+	var m map[string]json.RawMessage
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: unmarshal for cleanup: %v", err))
+	}
+	if v, ok := m["namespace"]; ok && (string(v) == `""` || string(v) == "null") {
+		delete(m, "namespace")
+	}
+	cleaned, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: re-marshal after cleanup: %v", err))
+	}
+	var item responses.ResponseOutputItemUnion
+	err = json.Unmarshal(cleaned, &item)
+	if err != nil {
+		panic(fmt.Sprintf("newInProgressFunctionCallItem: unmarshal: %v", err))
+	}
+	return item
+}
+
+// newMessageItem constructs a ResponseOutputItemUnion for a message output item.
+// It round-trips through the SDK's ResponseOutputMessage type to populate JSON.raw,
+// which is required for correct wire-format serialization. ResponseOutputItemUnion
+// has no MarshalJSON, so direct struct construction produces extraneous zero-value
+// fields that break Codex CLI's parsing of the response.completed event.
+//
+// content may be nil or empty for in_progress items that have no text yet.
+// Panics on marshal failure — plain fields only; failure is a runtime fault.
+func newMessageItem(id, status string, content []responses.ResponseOutputMessageContentUnion) responses.ResponseOutputItemUnion {
+	msg := responses.ResponseOutputMessage{
+		ID:      id,
+		Status:  responses.ResponseOutputMessageStatus(status),
+		Content: content,
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		panic(fmt.Sprintf("newMessageItem: marshal ResponseOutputMessage: %v", err))
+	}
+	// ResponseOutputMessage always emits "phase":"" and "content":null for
+	// zero-value fields. Codex CLI deserializes ResponseItem::Message with
+	// phase as Option<MessagePhase> (an enum) — an empty string fails to parse
+	// as either None or a valid variant and silently drops the entire item.
+	// Strip "phase" when empty and "content" when null so the wire JSON is clean.
+	var m map[string]json.RawMessage
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		panic(fmt.Sprintf("newMessageItem: unmarshal for cleanup: %v", err))
+	}
+	if v, ok := m["phase"]; ok && (string(v) == `""` || string(v) == "null") {
+		delete(m, "phase")
+	}
+	if v, ok := m["content"]; ok && string(v) == "null" {
+		delete(m, "content")
+	}
+	cleaned, err := json.Marshal(m)
+	if err != nil {
+		panic(fmt.Sprintf("newMessageItem: re-marshal after cleanup: %v", err))
+	}
+	var item responses.ResponseOutputItemUnion
+	if err := json.Unmarshal(cleaned, &item); err != nil {
+		panic(fmt.Sprintf("newMessageItem: unmarshal into ResponseOutputItemUnion: %v", err))
+	}
+	return item
+}
+
+// newOutputTextContent constructs a ResponseOutputMessageContentUnion for a plain
+// output_text content block, round-tripping through ResponseOutputText to populate
+// JSON.raw for correct wire serialization.
+func newOutputTextContent(text string) responses.ResponseOutputMessageContentUnion {
+	ot := responses.ResponseOutputText{
+		Text:        text,
+		Annotations: []responses.ResponseOutputTextAnnotationUnion{},
+	}
+	b, err := json.Marshal(ot)
+	if err != nil {
+		panic(fmt.Sprintf("newOutputTextContent: marshal ResponseOutputText: %v", err))
+	}
+	var cu responses.ResponseOutputMessageContentUnion
+	if err := json.Unmarshal(b, &cu); err != nil {
+		panic(fmt.Sprintf("newOutputTextContent: unmarshal into ResponseOutputMessageContentUnion: %v", err))
+	}
+	return cu
+}
 
 // ResponsesParamsToAnthropicParams translates a Responses API request to an
 // Anthropic MessageNewParams. Used by the AnthropicResponsesBridge to route
@@ -178,7 +323,14 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output, false))
+			// Output is a string|[]content union in v3. Orbit only produces string
+			// outputs; reject the content-array variant explicitly to avoid silently
+			// forwarding an empty string to the model.
+			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
+			if !fco.Output.OfString.Valid() {
+				return nil, nil, fmt.Errorf("responses: function_call_output item %q has unsupported content-array output; only string outputs are supported", fco.CallID)
+			}
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID, fco.Output.OfString.Value, false))
 		}
 	}
 	flushPendingTool()
@@ -366,28 +518,17 @@ func AnthropicMessageToResponsesResponse(msg *anthropic.Message) *responses.Resp
 		case "text":
 			textBuf.WriteString(block.Text)
 		case blockTypeToolUse:
-			toolItems = append(toolItems, responses.ResponseOutputItemUnion{
-				ID:        block.ID,
-				Type:      "function_call",
-				Status:    "completed",
-				Name:      block.Name,
-				CallID:    block.ID,
-				Arguments: string(block.Input),
-			})
+			toolItems = append(toolItems, newFunctionCallItem(
+				block.ID, block.ID, block.Name, string(block.Input),
+			))
 		}
 	}
 
 	var output []responses.ResponseOutputItemUnion
 	if textBuf.Len() > 0 {
-		output = append(output, responses.ResponseOutputItemUnion{
-			ID:     msg.ID,
-			Type:   "message",
-			Status: "completed",
-			Role:   constant.Assistant("assistant"),
-			Content: []responses.ResponseOutputMessageContentUnion{
-				{Type: "output_text", Text: textBuf.String()},
-			},
-		})
+		output = append(output, newMessageItem(msg.ID, "completed", []responses.ResponseOutputMessageContentUnion{
+			newOutputTextContent(textBuf.String()),
+		}))
 	}
 	output = append(output, toolItems...)
 
@@ -467,14 +608,7 @@ func (s *AnthropicResponsesStreamState) completedToolItems() []responses.Respons
 		if args == "" {
 			args = "{}"
 		}
-		out = append(out, responses.ResponseOutputItemUnion{
-			ID:        t.id,
-			Type:      "function_call",
-			Status:    "completed",
-			Name:      t.name,
-			CallID:    t.id,
-			Arguments: args,
-		})
+		out = append(out, newFunctionCallItem(t.id, t.id, t.name, args))
 	}
 	return out
 }
@@ -525,12 +659,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStart(event anthropic.
 					Type:           "response.output_item.added",
 					SequenceNumber: s.nextSeq(),
 					OutputIndex:    0,
-					Item: responses.ResponseOutputItemUnion{
-						ID:     s.MessageID,
-						Type:   "message",
-						Status: "in_progress",
-						Role:   constant.Assistant("assistant"),
-					},
+					Item:           newMessageItem(s.MessageID, "in_progress", nil),
 				},
 				{
 					Type:           "response.content_part.added",
@@ -555,13 +684,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStart(event anthropic.
 				Type:           "response.output_item.added",
 				SequenceNumber: s.nextSeq(),
 				OutputIndex:    outputIdx,
-				Item: responses.ResponseOutputItemUnion{
-					ID:     event.ContentBlock.ID,
-					Type:   "function_call",
-					Status: "in_progress",
-					Name:   event.ContentBlock.Name,
-					CallID: event.ContentBlock.ID,
-				},
+				Item:           newInProgressFunctionCallItem(event.ContentBlock.ID, event.ContentBlock.ID, event.ContentBlock.Name),
 			},
 		}
 	}
@@ -610,14 +733,7 @@ func (s *AnthropicResponsesStreamState) handleContentBlockStop(event anthropic.M
 		args = "{}"
 	}
 	outputIdx := s.toolOutputIndex(event.Index)
-	completed := responses.ResponseOutputItemUnion{
-		ID:        t.id,
-		Type:      "function_call",
-		Status:    "completed",
-		Name:      t.name,
-		CallID:    t.id,
-		Arguments: args,
-	}
+	completed := newFunctionCallItem(t.id, t.id, t.name, args)
 	return []responses.ResponseStreamEventUnion{
 		{
 			Type:           "response.function_call_arguments.done",
@@ -647,17 +763,11 @@ func (s *AnthropicResponsesStreamState) handleMessageStop() []responses.Response
 	var events []responses.ResponseStreamEventUnion
 
 	if s.sentMsgOutputItem {
-		msgItem := responses.ResponseOutputItemUnion{
-			ID:     s.MessageID,
-			Type:   "message",
-			Status: "completed",
-			Role:   constant.Assistant("assistant"),
-		}
+		var content []responses.ResponseOutputMessageContentUnion
 		if fullText != "" {
-			msgItem.Content = []responses.ResponseOutputMessageContentUnion{
-				{Type: "output_text", Text: fullText},
-			}
+			content = []responses.ResponseOutputMessageContentUnion{newOutputTextContent(fullText)}
 		}
+		msgItem := newMessageItem(s.MessageID, "completed", content)
 		output = append(output, msgItem)
 		events = append(events,
 			responses.ResponseStreamEventUnion{

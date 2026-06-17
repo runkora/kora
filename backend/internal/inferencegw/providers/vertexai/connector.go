@@ -11,8 +11,8 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	anthropicopt "github.com/anthropics/anthropic-sdk-go/option"
 	anthropicvertex "github.com/anthropics/anthropic-sdk-go/vertex"
-	openai "github.com/openai/openai-go"
-	openaiopt "github.com/openai/openai-go/option"
+	openai "github.com/openai/openai-go/v3"
+	openaiopt "github.com/openai/openai-go/v3/option"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 

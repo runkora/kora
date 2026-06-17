@@ -8,8 +8,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	bedrockruntimeSDK "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared/constant"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/shared/constant"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
