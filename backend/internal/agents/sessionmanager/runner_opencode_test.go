@@ -463,14 +463,14 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 	provider, _ := cfg["provider"].(map[string]any)
 	anthropic, _ := provider["anthropic"].(map[string]any)
 	options, _ := anthropic["options"].(map[string]any)
-	if options["baseURL"] != "http://inference-gateway.test" {
-		t.Errorf("anthropic baseURL = %v, want http://inference-gateway.test", options["baseURL"])
+	if options["baseURL"] != "http://inference-gateway.test/run/test-run" {
+		t.Errorf("anthropic baseURL = %v, want http://inference-gateway.test/run/test-run", options["baseURL"])
 	}
 
 	openai, _ := provider["openai"].(map[string]any)
 	openaiOptions, _ := openai["options"].(map[string]any)
-	if openaiOptions["baseURL"] != "http://inference-gateway.test" {
-		t.Errorf("openai baseURL = %v, want http://inference-gateway.test", openaiOptions["baseURL"])
+	if openaiOptions["baseURL"] != "http://inference-gateway.test/run/test-run" {
+		t.Errorf("openai baseURL = %v, want http://inference-gateway.test/run/test-run", openaiOptions["baseURL"])
 	}
 }
 

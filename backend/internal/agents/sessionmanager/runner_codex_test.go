@@ -71,7 +71,7 @@ func TestCodexHandleNotification_ToolUseAndResult(t *testing.T) {
 		Method: "item/started",
 		Params: mustMarshal(map[string]any{
 			"item": map[string]any{
-				"type":    "command_execution",
+				"type":    "commandExecution",
 				"id":      "item-1",
 				"command": "go test ./...",
 			},
@@ -80,13 +80,13 @@ func TestCodexHandleNotification_ToolUseAndResult(t *testing.T) {
 	// output delta
 	r.handleNotification(t.Context(), codexMsg{
 		Method: "item/commandExecution/outputDelta",
-		Params: mustMarshal(map[string]string{"id": "item-1", "delta": "ok\n"}),
+		Params: mustMarshal(map[string]string{"itemId": "item-1", "delta": "ok\n"}),
 	})
 	// item/completed
 	r.handleNotification(t.Context(), codexMsg{
 		Method: "item/completed",
 		Params: mustMarshal(map[string]any{
-			"item": map[string]string{"type": "command_execution", "id": "item-1"},
+			"item": map[string]string{"type": "commandExecution", "id": "item-1"},
 		}),
 	})
 
@@ -98,8 +98,8 @@ func TestCodexHandleNotification_ToolUseAndResult(t *testing.T) {
 	if err := json.Unmarshal(evs[0].Payload, &usePayload); err != nil {
 		t.Fatalf("unmarshal tool_use: %v", err)
 	}
-	if usePayload.ID != "item-1" || usePayload.Name != "command_execution" {
-		t.Errorf("tool_use payload = %+v, want ID=item-1 Name=command_execution", usePayload)
+	if usePayload.ID != "item-1" || usePayload.Name != "commandExecution" {
+		t.Errorf("tool_use payload = %+v, want ID=item-1 Name=commandExecution", usePayload)
 	}
 
 	if evs[1].Type != EventTypeToolResult {
@@ -130,7 +130,7 @@ func TestCodexHandleNotification_NonToolItemStartedIgnored(t *testing.T) {
 
 	r.handleNotification(t.Context(), codexMsg{
 		Method: "item/started",
-		Params: mustMarshal(map[string]any{"item": map[string]string{"type": "agent_message", "id": "msg-1"}}),
+		Params: mustMarshal(map[string]any{"item": map[string]string{"type": "agentMessage", "id": "msg-1"}}),
 	})
 
 	select {
@@ -147,7 +147,7 @@ func TestCodexHandleNotification_TurnCompleted(t *testing.T) {
 
 	r.handleNotification(t.Context(), codexMsg{
 		Method: "turn/completed",
-		Params: mustMarshal(map[string]any{"usage": map[string]int{"inputTokens": 10, "outputTokens": 20}}),
+		Params: mustMarshal(map[string]any{"threadId": "thr_abc", "turn": map[string]string{"id": "turn-1", "status": "completed"}}),
 	})
 
 	evs := drainN(t, r.events, 2)
@@ -178,7 +178,7 @@ func TestCodexHandleNotification_Error(t *testing.T) {
 
 	r.handleNotification(t.Context(), codexMsg{
 		Method: "error",
-		Params: mustMarshal(map[string]string{"message": "something went wrong"}),
+		Params: mustMarshal(map[string]any{"error": map[string]string{"message": "something went wrong"}, "threadId": "thr_abc", "turnId": "turn-1"}),
 	})
 
 	evs := drainN(t, r.events, 1)
@@ -249,9 +249,9 @@ func TestCodexReadLoop_ToolUseAndResult(t *testing.T) {
 	r := newTestCodexRunner()
 
 	fixture := strings.Join([]string{
-		`{"method":"item/started","params":{"item":{"type":"command_execution","id":"ci-1","command":"ls"}}}`,
-		`{"method":"item/commandExecution/outputDelta","params":{"id":"ci-1","delta":"foo.go\n"}}`,
-		`{"method":"item/completed","params":{"item":{"type":"command_execution","id":"ci-1"}}}`,
+		`{"method":"item/started","params":{"item":{"type":"commandExecution","id":"ci-1","command":"ls"}}}`,
+		`{"method":"item/commandExecution/outputDelta","params":{"itemId":"ci-1","delta":"foo.go\n"}}`,
+		`{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"ci-1"}}}`,
 		`{"method":"turn/completed","params":{}}`,
 	}, "\n") + "\n"
 
@@ -369,37 +369,18 @@ func TestCodexSendToolResult_NotSupported(t *testing.T) {
 
 // ── Resume (SessionID + NewResumeRunner) ──────────────────────────────────────
 
-func TestCodex_SessionID_EmptyBeforeFirstTurn(t *testing.T) {
+func TestCodex_SessionID_EmptyBeforeStart(t *testing.T) {
 	r := newTestCodexRunner()
 	if got := r.SessionID(); got != "" {
 		t.Errorf("SessionID() before first turn = %q, want empty", got)
 	}
 }
 
-func TestCodex_CaptureThreadIDFromNotification(t *testing.T) {
+func TestCodex_SessionID_SetAfterStart(t *testing.T) {
 	r := newTestCodexRunner()
-	r.handleNotification(t.Context(), codexMsg{
-		Method: "turn/started",
-		Params: mustMarshal(map[string]string{"threadId": "thr_abc"}),
-	})
-	if got := r.SessionID(); got != "thr_abc" {
-		t.Errorf("SessionID() after turn/started = %q, want thr_abc", got)
-	}
-}
-
-func TestCodex_ThreadIDStableOnceCaptured(t *testing.T) {
-	r := newTestCodexRunner()
-	r.handleNotification(t.Context(), codexMsg{
-		Method: "turn/started",
-		Params: mustMarshal(map[string]string{"threadId": "thr_first"}),
-	})
-	// A later notification with a different threadId must not overwrite the captured one.
-	r.handleNotification(t.Context(), codexMsg{
-		Method: "turn/completed",
-		Params: mustMarshal(map[string]any{"threadId": "thr_other", "usage": map[string]int{}}),
-	})
-	if got := r.SessionID(); got != "thr_first" {
-		t.Errorf("SessionID() = %q, want thr_first (must not change once captured)", got)
+	r.threadID.Store("thr_from_start")
+	if got := r.SessionID(); got != "thr_from_start" {
+		t.Errorf("SessionID() = %q, want thr_from_start", got)
 	}
 }
 

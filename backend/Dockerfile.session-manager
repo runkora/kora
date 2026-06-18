@@ -68,7 +68,7 @@ RUN npm install -g opencode-ai@1
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
 # Validate app-server JSONL notification schema on upgrade.
 # Override at image build time: docker build --build-arg CODEX_VERSION=x.y.z
-ARG CODEX_VERSION=0.133.0
+ARG CODEX_VERSION=0.142.1
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then MUSL_ARCH="x86_64"; \
     elif [ "$ARCH" = "aarch64" ]; then MUSL_ARCH="aarch64"; \

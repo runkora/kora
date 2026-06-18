@@ -290,13 +290,15 @@ func (r *OpenCodeRunner) Close() error {
 // writeOpenCodeConfig writes opencode.json to workDir with provider baseURLs
 // pointing to the Orbit inference gateway.
 func (r *OpenCodeRunner) writeOpenCodeConfig(workDir string) error {
+	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
+	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
 	cfg := map[string]any{
 		"provider": map[string]any{
 			"anthropic": map[string]any{
-				"options": map[string]string{"baseURL": r.cfg.InferenceGatewayURL},
+				"options": map[string]string{"baseURL": perRunURL},
 			},
 			"openai": map[string]any{
-				"options": map[string]string{"baseURL": r.cfg.InferenceGatewayURL},
+				"options": map[string]string{"baseURL": perRunURL},
 			},
 		},
 	}

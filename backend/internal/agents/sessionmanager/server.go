@@ -162,6 +162,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
 		})
 	case "opencode":
 		model = req.Model

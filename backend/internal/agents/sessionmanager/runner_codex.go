@@ -21,12 +21,15 @@ type CodexRunnerConfig struct {
 	// BinaryPath is the path to the codex binary. Defaults to "codex".
 	BinaryPath string
 
-	// Model is passed in each turn/start request. May be empty.
+	// Model is passed to thread/start. May be empty.
 	Model string
 
 	// InferenceGatewayURL is injected as OPENAI_BASE_URL so Codex routes all
 	// POST /v1/responses calls through the Orbit inference gateway.
 	InferenceGatewayURL string
+
+	// SystemPrompt, when non-empty, is sent as developerInstructions in thread/start.
+	SystemPrompt string
 
 	// Logger is used to emit structured log events.
 	Logger logging.Logger
@@ -61,9 +64,10 @@ type codexActiveItem struct {
 }
 
 // isCodexToolType returns true for item types that map to tool_use/tool_result events.
+// The v2 protocol uses camelCase type names.
 func isCodexToolType(t string) bool {
 	switch t {
-	case "command_execution", "file_change", "mcp_tool_call":
+	case "commandExecution", "fileChange", "mcpToolCall":
 		return true
 	}
 	return false
@@ -73,24 +77,25 @@ func isCodexToolType(t string) bool {
 //
 // The subprocess is started with:
 //
-//	codex app-server --transport stdio
+//	codex app-server --listen stdio://
 //
 // Communication is over bidirectional JSONL on stdin/stdout. The protocol
 // resembles JSON-RPC 2.0 but omits the "jsonrpc" field.
 type CodexRunner struct {
-	cfg         CodexRunnerConfig
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdinMu     sync.Mutex   // guards all stdin writes (Send + approval responses)
-	threadID    atomic.Value // string; captured from turn/started or turn/completed; "" until first turn
-	events      chan Event
-	once        sync.Once
-	textBuf     strings.Builder
-	thinkingBuf strings.Builder
-	pendingMu   sync.Mutex
-	pending     map[int64]chan codexMsg // in-flight requests awaiting response
-	nextID      atomic.Int64
-	activeItems map[string]*codexActiveItem // tool items between item/started and item/completed
+	cfg          CodexRunnerConfig
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdinMu      sync.Mutex   // guards all stdin writes (Send + approval responses)
+	threadID     atomic.Value // string; set after thread/start or thread/resume; "" until Start returns
+	activeTurnID atomic.Value // string; captured from turn/started; cleared on turn/completed or error
+	events       chan Event
+	once         sync.Once
+	textBuf      strings.Builder
+	thinkingBuf  strings.Builder
+	pendingMu    sync.Mutex
+	pending      map[int64]chan codexMsg // in-flight requests awaiting response
+	nextID       atomic.Int64
+	activeItems  map[string]*codexActiveItem // tool items between item/started and item/completed
 }
 
 // NewCodexRunner creates a runner with the given configuration.
@@ -107,12 +112,15 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 }
 
 // Start spawns the Codex app-server subprocess and performs the initialize handshake.
-// If ResumeThreadID is set, Start additionally issues thread/resume to restore the
-// prior conversation. Otherwise the first user message implicitly starts a new thread.
+// If ResumeThreadID is set, Start issues thread/resume after initialize to restore the
+// prior conversation. Otherwise Start issues thread/start to create a new thread and
+// captures the returned thread ID.
 func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
-	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "app-server", "--transport", "stdio")
+	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
 	r.cmd.Dir = workDir
-	r.cmd.Env = append(os.Environ(), "OPENAI_BASE_URL="+r.cfg.InferenceGatewayURL)
+	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
+	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
+	r.cmd.Env = append(os.Environ(), "OPENAI_BASE_URL="+perRunURL)
 
 	var err error
 	r.stdin, err = r.cmd.StdinPipe()
@@ -146,10 +154,8 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		return fmt.Errorf("codex initialize: %w", err)
 	}
 
-	// Resume path: load the prior thread by ID. Codex's thread/resume returns
-	// a ThreadResumeResponse mirroring thread/start; we don't need the body —
-	// the captured thread_id stays valid for subsequent turn/start calls.
 	if r.cfg.ResumeThreadID != "" {
+		// Resume path: reload the prior thread. The thread_id is already known.
 		if err := r.sendRPCRequest(ctx, "thread/resume", map[string]any{
 			"threadId": r.cfg.ResumeThreadID,
 		}); err != nil {
@@ -160,6 +166,26 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
 			logging.Field{Key: "thread_id", Value: r.cfg.ResumeThreadID},
 		)
+	} else {
+		// New-session path: call thread/start and capture the returned thread ID.
+		threadStartParams := map[string]any{
+			"cwd": workDir,
+		}
+		if r.cfg.Model != "" {
+			threadStartParams["model"] = r.cfg.Model
+		}
+		if r.cfg.SystemPrompt != "" {
+			threadStartParams["developerInstructions"] = r.cfg.SystemPrompt
+		}
+		threadID, err := r.sendRPCAndExtractThreadID(ctx, "thread/start", threadStartParams)
+		if err != nil {
+			return fmt.Errorf("codex thread/start: %w", err)
+		}
+		r.threadID.Store(threadID)
+		r.cfg.Logger.Info(ctx, "Codex thread started",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "thread_id", Value: threadID},
+		)
 	}
 
 	return nil
@@ -168,10 +194,14 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 // Send delivers a user message to the Codex app-server as a turn/start request.
 // Returns immediately — token-level deltas flow through the Events() channel.
 func (r *CodexRunner) Send(_ context.Context, text string) error {
+	threadID, _ := r.threadID.Load().(string)
+	if threadID == "" {
+		return fmt.Errorf("codex: cannot send before thread is initialized")
+	}
 	id := r.nextID.Add(1)
-	params := map[string]any{"userMessage": text}
-	if r.cfg.Model != "" {
-		params["model"] = r.cfg.Model
+	params := map[string]any{
+		"threadId": threadID,
+		"input":    []map[string]string{{"type": "text", "text": text}},
 	}
 	msg := codexMsg{ID: &id, Method: "turn/start", Params: mustMarshal(params)}
 	r.stdinMu.Lock()
@@ -190,18 +220,29 @@ func (r *CodexRunner) Events() <-chan Event {
 }
 
 // Interrupt sends SIGINT to the Codex subprocess to abort the current turn.
-// Codex's app-server treats SIGINT as a turn-cancel signal in stdio mode and
-// typically exits afterwards; the session layer then calls NewResumeRunner to
-// restart with thread/resume.
+// Uses the turn/interrupt RPC when a turn is active; falls back to SIGINT otherwise.
 func (r *CodexRunner) Interrupt() error {
 	if r.cmd == nil || r.cmd.Process == nil {
+		return nil
+	}
+	threadID, _ := r.threadID.Load().(string)
+	turnID, _ := r.activeTurnID.Load().(string)
+	if threadID != "" && turnID != "" {
+		id := r.nextID.Add(1)
+		msg := codexMsg{ID: &id, Method: "turn/interrupt", Params: mustMarshal(map[string]string{
+			"threadId": threadID,
+			"turnId":   turnID,
+		})}
+		r.stdinMu.Lock()
+		_ = r.writeJSONL(msg)
+		r.stdinMu.Unlock()
 		return nil
 	}
 	return r.cmd.Process.Signal(os.Interrupt)
 }
 
-// SessionID returns the Codex thread_id captured from turn/started or
-// turn/completed notifications. Returns empty until the first turn has begun.
+// SessionID returns the Codex thread_id set during Start. Returns empty until
+// Start has completed successfully.
 func (r *CodexRunner) SessionID() string {
 	v, _ := r.threadID.Load().(string)
 	return v
@@ -237,10 +278,35 @@ func (r *CodexRunner) Close() error {
 }
 
 // sendRPCRequest sends a request with the given method and params, registers a
-// pending channel, and blocks until the response arrives or ctx expires. The
-// response body is consumed but not returned — current callers (initialize,
-// thread/resume) need only the success/failure signal.
+// pending channel, and blocks until the response arrives or ctx expires.
 func (r *CodexRunner) sendRPCRequest(ctx context.Context, method string, params any) error {
+	_, err := r.sendRPCRaw(ctx, method, params)
+	return err
+}
+
+// sendRPCAndExtractThreadID issues method and extracts thread.id from the response.
+// Used for thread/start.
+func (r *CodexRunner) sendRPCAndExtractThreadID(ctx context.Context, method string, params any) (string, error) {
+	result, err := r.sendRPCRaw(ctx, method, params)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return "", fmt.Errorf("codex %s: parse thread id: %w", method, err)
+	}
+	if resp.Thread.ID == "" {
+		return "", fmt.Errorf("codex %s: empty thread id in response", method)
+	}
+	return resp.Thread.ID, nil
+}
+
+// sendRPCRaw issues a request, waits for the response, and returns the raw result JSON.
+func (r *CodexRunner) sendRPCRaw(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -259,20 +325,20 @@ func (r *CodexRunner) sendRPCRequest(ctx context.Context, method string, params 
 		r.pendingMu.Lock()
 		delete(r.pending, id)
 		r.pendingMu.Unlock()
-		return fmt.Errorf("write rpc request %q: %w", method, writeErr)
+		return nil, fmt.Errorf("write rpc request %q: %w", method, writeErr)
 	}
 
 	select {
 	case resp := <-ch:
 		if resp.Result == nil {
-			return fmt.Errorf("codex rpc %q: empty result", method)
+			return nil, fmt.Errorf("codex rpc %q: empty result", method)
 		}
-		return nil
+		return resp.Result, nil
 	case <-reqCtx.Done():
 		r.pendingMu.Lock()
 		delete(r.pending, id)
 		r.pendingMu.Unlock()
-		return fmt.Errorf("codex rpc %q timeout: %w", method, reqCtx.Err())
+		return nil, fmt.Errorf("codex rpc %q timeout: %w", method, reqCtx.Err())
 	}
 }
 
@@ -328,7 +394,8 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 func (r *CodexRunner) handleServerRequest(ctx context.Context, req codexMsg) {
 	switch req.Method {
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-		resp := codexMsg{ID: req.ID, Result: mustMarshal(map[string]bool{"approved": true})}
+		// v2 protocol: decision field is an enum string, not a bool.
+		resp := codexMsg{ID: req.ID, Result: mustMarshal(map[string]string{"decision": "accept"})}
 		r.stdinMu.Lock()
 		if err := r.writeJSONL(resp); err != nil {
 			r.cfg.Logger.Warn(ctx, "Codex: failed to write approval response",
@@ -361,7 +428,7 @@ func (r *CodexRunner) dispatchResponse(resp codexMsg) {
 
 // handleNotification processes an unsolicited notification from the Codex server.
 func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
-	r.captureThreadID(msg.Params)
+	r.captureActiveTurnID(msg.Params)
 	switch msg.Method {
 	case "item/agentMessage/delta":
 		r.handleTextDelta(msg.Params)
@@ -378,29 +445,27 @@ func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
 	case "error":
 		r.handleErrorNotification(ctx, msg.Params)
 	case "turn/started":
-		// Informational — no event emitted. thread_id capture handled above.
+		// Informational — no event emitted. turn_id captured by captureActiveTurnID above.
 	default:
 		// Unknown notification — ignore.
 	}
 }
 
-// captureThreadID best-effort-extracts threadId from any notification params.
-// Codex thread/turn notifications all carry the field; the first occurrence
-// pins the value used by NewResumeRunner.
-func (r *CodexRunner) captureThreadID(params json.RawMessage) {
+// captureActiveTurnID extracts turn.id from turn/started and turn/completed params
+// and keeps activeTurnID current for turn/interrupt calls.
+func (r *CodexRunner) captureActiveTurnID(params json.RawMessage) {
 	if len(params) == 0 {
 		return
 	}
-	if existing, _ := r.threadID.Load().(string); existing != "" {
-		return
-	}
 	var p struct {
-		ThreadID string `json:"threadId"`
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil || p.ThreadID == "" {
+	if err := json.Unmarshal(params, &p); err != nil || p.Turn.ID == "" {
 		return
 	}
-	r.threadID.Store(p.ThreadID)
+	r.activeTurnID.Store(p.Turn.ID)
 }
 
 func (r *CodexRunner) handleTextDelta(params json.RawMessage) {
@@ -441,13 +506,13 @@ func (r *CodexRunner) handleItemStarted(params json.RawMessage) {
 
 func (r *CodexRunner) handleOutputDelta(params json.RawMessage) {
 	var p struct {
-		ID    string `json:"id"`
-		Delta string `json:"delta"`
+		ItemID string `json:"itemId"`
+		Delta  string `json:"delta"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
-	if item, ok := r.activeItems[p.ID]; ok {
+	if item, ok := r.activeItems[p.ItemID]; ok {
 		item.outputBuf.WriteString(p.Delta)
 	}
 }
@@ -470,43 +535,36 @@ func (r *CodexRunner) handleItemCompleted(params json.RawMessage) {
 	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: p.Item.ID, Content: item.outputBuf.String()})
 }
 
-func (r *CodexRunner) handleTurnCompleted(ctx context.Context, params json.RawMessage) {
+func (r *CodexRunner) handleTurnCompleted(ctx context.Context, _ json.RawMessage) {
 	text := r.textBuf.String()
 	thinking := r.thinkingBuf.String()
 	r.textBuf.Reset()
 	r.thinkingBuf.Reset()
+	r.activeTurnID.Store("")
 	r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: text, Thinking: thinking})
 	r.emit(EventTypeMessageStop, nil)
 
-	var p struct {
-		Usage struct {
-			InputTokens  int `json:"inputTokens"`
-			OutputTokens int `json:"outputTokens"`
-		} `json:"usage"`
-	}
-	if params != nil {
-		_ = json.Unmarshal(params, &p)
-	}
 	r.cfg.Logger.Info(ctx, "Codex turn completed",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
-		logging.Field{Key: "input_tokens", Value: p.Usage.InputTokens},
-		logging.Field{Key: "output_tokens", Value: p.Usage.OutputTokens},
 	)
 }
 
 func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.RawMessage) {
 	var p struct {
-		Message string `json:"message"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if params != nil {
 		_ = json.Unmarshal(params, &p)
 	}
 	r.cfg.Logger.Error(ctx, "Codex error notification",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
-		logging.Field{Key: "message", Value: p.Message},
+		logging.Field{Key: "message", Value: p.Error.Message},
 	)
 	r.textBuf.Reset()
 	r.thinkingBuf.Reset()
+	r.activeTurnID.Store("")
 	r.emit(EventTypeMessageStop, nil)
 }
 

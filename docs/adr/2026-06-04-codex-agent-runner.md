@@ -15,7 +15,7 @@ The `AgentFramework` enum in `agents/models.go` includes `codex`, but no runner 
 
 ## Decision
 
-**Codex runs as a persistent `codex app-server --transport stdio` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via `OPENAI_BASE_URL`.
+**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via `OPENAI_BASE_URL`.
 
 ---
 
@@ -24,10 +24,10 @@ The `AgentFramework` enum in `agents/models.go` includes `codex`, but no runner 
 #### Invocation
 
 ```
-codex app-server --transport stdio
+codex app-server --listen stdio://
 ```
 
-One persistent process per session, retained across all turns — the same structural model as Claude Code. A Unix socket transport is available as a fallback if stdio causes issues under high concurrency on a shared pod, but stdio is the default.
+One persistent process per session, retained across all turns — the same structural model as Claude Code.
 
 #### Wire Protocol
 
@@ -47,20 +47,50 @@ The protocol resembles JSON-RPC 2.0 but **omits the `"jsonrpc": "2.0"` field**. 
 
 ```json
 // Runner → server
-{"id": 2, "method": "turn/start", "params": {"userMessage": "fix the bug in foo.go"}}
+{"id": 2, "method": "thread/start", "params": {"cwd": "/workspaces/run-id", "model": "..."}}
 
-// Server → runner (acknowledges; does not wait for completion)
-{"id": 2, "result": {}}
+// Server → runner
+{"id": 2, "result": {"thread": {"id": "thr_abc123", ...}, ...}}
+```
+
+The returned `thread.id` is stored and used as `threadId` in all subsequent `turn/start` calls.
+
+**Resuming a prior session:**
+
+```json
+// Runner → server
+{"id": 2, "method": "thread/resume", "params": {"threadId": "thr_abc123"}}
+
+// Server → runner
+{"id": 2, "result": {"thread": {"id": "thr_abc123", ...}, ...}}
+```
+
+**Starting a turn:**
+
+```json
+// Runner → server
+{"id": 3, "method": "turn/start", "params": {"threadId": "thr_abc123", "input": [{"type": "text", "text": "fix the bug in foo.go"}]}}
+
+// Server → runner (fire-and-forget ACK)
+{"id": 3, "result": {"turn": {"id": "turn_xyz", "status": "inProgress", ...}}}
+```
+
+**Interrupting a turn:**
+
+```json
+// Runner → server
+{"id": 4, "method": "turn/interrupt", "params": {"threadId": "thr_abc123", "turnId": "turn_xyz"}}
+{"id": 4, "result": {}}
 ```
 
 **Approval requests** — the server sends `item/commandExecution/requestApproval` as a request (it has an `id` and expects a response) when Codex wants to run a shell command. The runner **always approves** — equivalent to `--dangerously-skip-permissions` in Claude Code:
 
 ```json
 // Server → runner
-{"id": 99, "method": "item/commandExecution/requestApproval", "params": {"command": "go test ./..."}}
+{"id": 99, "method": "item/commandExecution/requestApproval", "params": {"threadId": "...", "turnId": "...", "itemId": "...", "command": "go test ./..."}}
 
 // Runner → server
-{"id": 99, "result": {"approved": true}}
+{"id": 99, "result": {"decision": "accept"}}
 ```
 
 The same auto-approve pattern applies to `item/fileChange/requestApproval`.
@@ -75,12 +105,12 @@ All inbound server notifications (no `id` field):
 | `item/started` | Emit `tool_use` for tool items |
 | `item/agentMessage/delta` | Emit `text_delta`; accumulate into buffer |
 | `item/reasoning/textDelta` | Emit `thinking_delta`; accumulate into buffer |
-| `item/commandExecution/outputDelta` | Accumulate into tool result buffer |
+| `item/commandExecution/outputDelta` | Accumulate into tool result buffer (keyed by `itemId`) |
 | `item/completed` | Emit `tool_result` for completed tool items |
-| `turn/completed` | Emit `message_complete` (flushed buffers) then `message_stop`; record token usage |
+| `turn/completed` | Emit `message_complete` (flushed buffers) then `message_stop` |
 | `error` | Log; emit `message_stop`; mark run failed |
 
-There is no `turn/failed` notification — all failures arrive as `"error"` notifications.
+There is no `turn/failed` notification — all failures arrive as `"error"` notifications. Tool item types use camelCase: `commandExecution`, `fileChange`, `mcpToolCall`.
 
 ---
 
@@ -115,13 +145,13 @@ type Runner interface {
 }
 ```
 
-- `Start(ctx, workDir)` — spawns `codex app-server --transport stdio`, then **synchronously** performs the `initialize` handshake: writes the request, reads the response from stdout (30-second deadline), and returns an error if the handshake fails or times out. Once the handshake succeeds, starts the JSONL read loop goroutine and returns. The synchronous handshake means session creation fails fast if the binary is missing or incompatible. If `ResumeThreadID` is set on the config, additionally issues `thread/resume {threadId}` after `initialize`.
-- `Send(ctx, text)` — writes a `turn/start` request to stdin; returns immediately. Deltas flow via the read loop goroutine.
+- `Start(ctx, workDir)` — spawns `codex app-server --listen stdio://`, performs the `initialize` handshake (30s deadline), then either issues `thread/start` (new session) or `thread/resume` (resume path) and captures the returned `thread.id`. Session creation fails fast on any step failure.
+- `Send(ctx, text)` — writes a `turn/start {threadId, input:[{type:"text",text:"..."}]}` request to stdin; returns immediately. Deltas flow via the read loop goroutine.
 - `SendToolResult` — returns `ErrNotSupported` (a package-level sentinel defined in `runner.go` alongside the `Runner` interface); Codex handles tool execution internally.
 - `Events()` — returns the event channel; populated by the JSONL read loop goroutine. Channel buffer size matches Claude Code: `make(chan Event, 64)`.
-- `Interrupt()` — sends `SIGINT` to the subprocess. Codex's app-server treats SIGINT as a turn-cancel signal and typically exits afterwards; the session layer's interrupt fallback then calls `NewResumeRunner` to restart with `thread/resume`.
-- `SessionID()` — returns the captured `thread_id`. The runner extracts it from any notification carrying the `threadId` field (`turn/started`, `turn/completed`, etc.); the first occurrence pins the value. Returns empty string until the first turn has begun.
-- `NewResumeRunner()` — returns a fresh `*CodexRunner` whose config carries `ResumeThreadID = SessionID()`. Returns `nil` if no thread ID has been captured (e.g. the subprocess died before the first `turn/started` notification); the session layer treats `nil` as "fall back to idle without resume" — see the SessionID-empty branch in `session.completeDrain`.
+- `Interrupt()` — issues `turn/interrupt {threadId, turnId}` RPC when a turn is active; falls back to SIGINT if no turn is active. The runner tracks the active turn ID via `turn/started` notifications and clears it on `turn/completed` or `error`.
+- `SessionID()` — returns the thread ID set by `Start()`. Available immediately after `Start()` returns. Returns empty string if `Start()` has not been called.
+- `NewResumeRunner()` — returns a fresh `*CodexRunner` whose config carries `ResumeThreadID = SessionID()`. Returns `nil` if no thread ID has been captured (e.g. the subprocess died before `Start` completed the `thread/start` handshake); the session layer treats `nil` as "fall back to idle without resume".
 - `Close()` — closes stdin (EOF causes app-server to exit cleanly), waits for process exit, closes the event channel.
 
 ```go
@@ -131,21 +161,22 @@ type CodexRunnerConfig struct {
     InferenceGatewayURL string // injected as OPENAI_BASE_URL into the subprocess env
     Logger              logging.Logger
     RunID               string
-    ResumeThreadID      string // when set, Start issues thread/resume instead of starting fresh
+    SystemPrompt        string // passed as developerInstructions in thread/start (optional)
+    ResumeThreadID      string // when set, Start issues thread/resume instead of thread/start
 }
 ```
 
 ### Resume Semantics
 
-Codex's app-server v2 protocol provides `thread/resume`, which loads a thread by ID and restores all prior turns into the in-memory state machine. The runner uses only the stable `threadId` field; the optional `history` / `path` / `runtimeWorkspaceRoots` fields are marked `experimental` upstream and are not used.
+Codex's app-server v2 protocol provides `thread/resume`, which loads a thread by ID and restores all prior turns into the in-memory state machine. The runner uses only the stable `threadId` field; optional fields are not used.
 
-When the session layer SIGINTs the subprocess (user interrupt or reaper) and the subprocess exits, `session.completeDrain` calls `NewResumeRunner().Start(ctx, workDir)`. The new subprocess re-runs `initialize`, then issues `thread/resume {threadId}`, and the next user message lands on the restored thread — matching Claude's `--resume` behaviour.
+When the session layer interrupts or the subprocess exits, `session.completeDrain` calls `NewResumeRunner().Start(ctx, workDir)`. The new subprocess re-runs `initialize`, then issues `thread/resume {threadId}`, and the next user message lands on the restored thread — matching Claude's `--resume` behaviour.
 
 ---
 
 ## Container Requirements
 
-Codex ships **musl-only** Linux binaries (`codex-x86_64-unknown-linux-musl`, `codex-aarch64-unknown-linux-musl`) — statically linked, no glibc dependency. These run on the existing `node:22-alpine` base without modification. The binary is downloaded from the GitHub release assets at image build time. No base image change is required.
+Codex ships **musl-only** Linux binaries (`codex-x86_64-unknown-linux-musl`, `codex-aarch64-unknown-linux-musl`) — statically linked, no glibc dependency. These run on the existing `node:22-alpine` base without modification. The binary is pinned at `CODEX_VERSION=0.142.1` and downloaded from GitHub release assets at image build time. No base image change is required.
 
 ---
 
@@ -241,7 +272,7 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 - The protocol omits `"jsonrpc": "2.0"` — no standard library; the JSONL bidirectional dispatch loop is custom code. Malformed lines (JSON parse failures) are silently skipped: the read loop logs the error and continues scanning, matching the error-recovery strategy of the Claude Code transform loop.
 - Codex version must be pinned in the container image and validated on upgrade — notification schema stability is not guaranteed across major versions.
-- `item/commandExecution/requestApproval` must be auto-approved synchronously in the read loop goroutine, which interleaves request handling with notification handling in the same goroutine.
+- `item/commandExecution/requestApproval` must be auto-approved synchronously in the read loop goroutine, which interleaves request handling with notification handling in the same goroutine. The approval `decision` field is an enum string (`"accept"`) not a boolean.
 - If `Start()` fails (binary not found, handshake timeout, or incompatible version), `registry.Create` propagates the error and `handleCreateSession` returns HTTP 500. Binary availability is validated at session creation time, not at construction time.
 
 ### Neutral
@@ -260,4 +291,4 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 ---
 
-**Last Updated:** 2026-05-22 (rev 2 — all review findings addressed)
+**Last Updated:** 2026-06-25 (rev 3 — updated for v2 protocol: `--listen stdio://`, `thread/start` before first turn, `turn/start` with `input` array + `threadId`, `turn/interrupt` RPC, camelCase tool item types, `decision: "accept"` approval response, version pinned at 0.142.1)
