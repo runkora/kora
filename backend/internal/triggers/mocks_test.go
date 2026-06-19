@@ -285,6 +285,13 @@ func (f *fakeMinter) MintServiceToken(_ context.Context, tenantID, principalID, 
 	return f.token, nil
 }
 
+// reset clears recorded calls so a test can assert on mints made after setup.
+func (f *fakeMinter) reset() {
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
+}
+
 // ── policy stub server ────────────────────────────────────────────────────────
 
 type policyStub struct {
@@ -292,6 +299,7 @@ type policyStub struct {
 
 	mu         sync.Mutex
 	created    map[string]string // grantID → principalID
+	lastScopes []string          // scopes of the most recent create
 	deleted    []string
 	counter    int
 	failCreate bool
@@ -309,12 +317,14 @@ func newPolicyStub() *policyStub {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
-			PrincipalID string `json:"principal_id"`
+			PrincipalID string   `json:"principal_id"`
+			Scopes      []string `json:"scopes"`
 		}
 		_ = json.Unmarshal(body, &req)
 		ps.counter++
 		id := fmt.Sprintf("grant-%d", ps.counter)
 		ps.created[id] = req.PrincipalID
+		ps.lastScopes = req.Scopes
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = fmt.Fprintf(w, `{"id":%q}`, id)
@@ -362,12 +372,36 @@ type agentsStub struct {
 
 	mu     sync.Mutex
 	calls  []startCall
-	status int // response status; 0 → 201
+	status int // run-start response status; 0 → 201
+
+	// agent-type resolution (GET /api/v1/agent-types/{id}).
+	atSlug   string // slug to return; "" → "code-reviewer"
+	atTenant string // tenant to return; "" → testTenant
+	atStatus int    // response status; 0 → 200
 }
 
 func newAgentsStub() *agentsStub {
 	as := &agentsStub{}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/agent-types/{id}", func(w http.ResponseWriter, r *http.Request) {
+		as.mu.Lock()
+		status, slug, tenant := as.atStatus, as.atSlug, as.atTenant
+		as.mu.Unlock()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if slug == "" {
+			slug = "code-reviewer"
+		}
+		if tenant == "" {
+			tenant = testTenant
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if status < 300 {
+			fmt.Fprintf(w, `{"id":%q,"tenant_id":%q,"slug":%q}`, r.PathValue("id"), tenant, slug)
+		}
+	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req struct {

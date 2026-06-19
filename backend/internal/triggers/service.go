@@ -27,8 +27,11 @@ const (
 )
 
 // sourceRunScopes are granted to every webhook source's principal so it may
-// reach the run endpoints at all (the route-level scope on POST /api/v1/runs).
-var sourceRunScopes = []string{"agents:runs:read", "agents:runs:write"}
+// reach the run endpoints at all (the route-level scope on POST /api/v1/runs)
+// and resolve agent types when a trigger is bound. The "agents:types:read" scope
+// lets CreateTrigger look up an agent type under the source's own (tenant-scoped)
+// identity to derive its canonical slug.
+var sourceRunScopes = []string{"agents:runs:read", "agents:runs:write", "agents:types:read"}
 
 // triggerRunScopes are the per-agent run scopes a source principal needs to start
 // runs for a specific agent slug (the service-level checkRun in orbit-agents).
@@ -254,7 +257,33 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 		return nil, err
 	}
 
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(req.AgentSlug), nil)
+	// Resolve the agent type against orbit-agents under the source's own
+	// tenant-scoped identity instead of trusting the client-supplied slug. This
+	// (a) confirms the agent type exists and is owned by this tenant, and (b)
+	// derives the canonical slug. orbit-agents keys the run-authorization check on
+	// the resolved slug, so a client slug that disagreed with the real one would
+	// silently 403 every dispatch — and would let a triggers:write caller shape an
+	// arbitrary run-grant scope on the source principal. The canonical slug closes
+	// both gaps.
+	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("mint source token for agent-type resolution: %w", err)
+	}
+	at, err := s.agents.GetAgentType(ctx, tok, req.AgentTypeID)
+	if err != nil {
+		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) || errors.Is(err, agentsclient.ErrForbidden) {
+			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
+		}
+		return nil, fmt.Errorf("resolve agent type: %w", err)
+	}
+	if at.TenantID != tenantID {
+		// Defense in depth: orbit-agents already scopes the read to the token's
+		// tenant, so this is unreachable in practice — but never bind a trigger to
+		// an agent type across a tenant boundary.
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
+	}
+
+	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(at.Slug), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create trigger grant: %w", err)
 	}
@@ -264,8 +293,8 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 		TenantID:       tenantID,
 		SourceID:       req.SourceID,
 		Name:           strings.TrimSpace(req.Name),
-		AgentTypeID:    req.AgentTypeID,
-		AgentSlug:      req.AgentSlug,
+		AgentTypeID:    at.ID,
+		AgentSlug:      at.Slug,
 		EventType:      req.EventType,
 		MatchCondition: req.MatchCondition,
 		PromptTemplate: req.PromptTemplate,
@@ -286,7 +315,7 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 	s.logger.Info(ctx, "trigger created",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "source_id", Value: req.SourceID},
-		logging.Field{Key: "agent_slug", Value: req.AgentSlug},
+		logging.Field{Key: "agent_slug", Value: at.Slug},
 	)
 	return t, nil
 }
@@ -520,8 +549,8 @@ func validateTriggerCreate(req CreateTriggerRequest) error {
 		return fmt.Errorf("%w: source_id is required", ErrValidation)
 	case req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	case req.AgentSlug == "":
-		return fmt.Errorf("%w: agent_slug is required", ErrValidation)
+	// agent_slug is intentionally not required: it is resolved server-side from
+	// agent_type_id (see CreateTrigger). Any client-supplied value is ignored.
 	case req.EventType == "":
 		return fmt.Errorf("%w: event_type is required", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":

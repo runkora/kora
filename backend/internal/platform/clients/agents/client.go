@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"context"
@@ -47,6 +48,50 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 	return &Client{
 		Base:    httpclient.New(tracerName, logger, clientTimeout),
 		baseURL: baseURL,
+	}
+}
+
+// AgentType is the subset of an orbit-agents agent type that callers need to
+// validate a binding before granting run scopes: its canonical slug and owning
+// tenant.
+type AgentType struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Slug     string `json:"slug"`
+}
+
+// GetAgentType resolves an agent type by id, authenticating with the supplied
+// platform bearer token. orbit-agents scopes the read to the token's tenant, so
+// a type owned by another tenant (or absent) returns ErrAgentTypeNotFound. The
+// Triggers feature uses this to confirm a trigger's target exists in-tenant and
+// to derive the canonical slug the run grant must be keyed on.
+func (c *Client) GetAgentType(ctx context.Context, bearer, id string) (AgentType, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types/"+url.PathEscape(id), nil)
+	if err != nil {
+		return AgentType{}, fmt.Errorf("build get agent type request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.GetAgentType", httpReq)
+	defer span.End()
+	if err != nil {
+		return AgentType{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out AgentType
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return AgentType{}, fmt.Errorf("decode agent type response: %w", err)
+		}
+		return out, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return AgentType{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	case http.StatusNotFound:
+		return AgentType{}, c.HandleErrorResponse(span, resp, ErrAgentTypeNotFound)
+	default:
+		return AgentType{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -205,6 +206,65 @@ func TestCreateTrigger_Validation(t *testing.T) {
 	}
 }
 
+func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
+	// The grant scope and stored slug must come from the resolved agent type, not
+	// the client-supplied agent_slug — even when the client sends a different one.
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	deps.agents.atSlug = "real-slug"
+
+	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1",
+		AgentSlug: "attacker-controlled", EventType: "pull_request", PromptTemplate: "p",
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	if tr.AgentSlug != "real-slug" {
+		t.Errorf("stored slug = %q, want the canonical resolved slug", tr.AgentSlug)
+	}
+	want := []string{"agents:runs:real-slug:read", "agents:runs:real-slug:write"}
+	if got := deps.policy.lastScopes; !slices.Equal(got, want) {
+		t.Errorf("grant scopes = %v, want %v (canonical, not client-supplied)", got, want)
+	}
+}
+
+func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	deps.agents.atStatus = http.StatusNotFound
+	grantsBefore := len(deps.policy.created) // the source's own grant already exists
+
+	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "rev", AgentTypeID: "ghost", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("got %v, want ErrValidation for an unknown agent type", err)
+	}
+	// No trigger, and no new run grant, when the agent type cannot be resolved.
+	if len(deps.repo.triggers) != 0 {
+		t.Error("no trigger should be persisted when the agent type is unknown")
+	}
+	if len(deps.policy.created) != grantsBefore {
+		t.Errorf("no trigger grant should be created when the agent type is unknown (grants %d → %d)", grantsBefore, len(deps.policy.created))
+	}
+}
+
+func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
+	// Defense in depth: an agent type reported under a different tenant must never
+	// bind, even if orbit-agents somehow returned it.
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	deps.agents.atTenant = "other-tenant"
+
+	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: src.ID, Name: "rev", AgentTypeID: "at-1", AgentSlug: "x", EventType: "pull_request", PromptTemplate: "p",
+	})
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("got %v, want ErrValidation for a cross-tenant agent type", err)
+	}
+}
+
 func TestUpdateTrigger(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, svc)
@@ -357,6 +417,9 @@ func dispatchSetup(t *testing.T, cond map[string][]string, prompt string) (*Serv
 	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
 		ID: delID, TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusVerified,
 	})
+	// CreateTrigger mints a source token to resolve the agent type; clear that so
+	// dispatch tests observe only the dispatch-time mint.
+	deps.minter.reset()
 	return svc, deps, *stored, delID
 }
 
