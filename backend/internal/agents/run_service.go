@@ -200,22 +200,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 	// cold-start latency. Runs in the background (see maybeWarmSandbox).
 	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace)
 
-	if req.InitialMessage != "" {
-		if err := s.sm.SendMessage(ctx, podURL, run.ID, req.InitialMessage); err != nil {
-			// Non-fatal: run is active, user can resend from the chat.
-			s.logger.Warn(ctx, "failed to send initial message",
-				logging.Field{Key: "run_id", Value: run.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		} else {
-			s.emitHumanMessage(ctx, run.ID, req.InitialMessage)
-			// Asynchronously generate a task summary from the initial message.
-			// Best-effort: failure does not affect the run.
-			if s.summarizer != nil && at.ModelID != nil {
-				go s.summarizeRun(context.WithoutCancel(ctx), run.ID, *at.ModelID, req.InitialMessage)
-			}
-		}
-	}
+	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
 
 	s.logger.Info(ctx, "Run started",
 		logging.Field{Key: "run_id", Value: run.ID},
@@ -486,6 +471,26 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 
 	s.emitHumanMessage(ctx, runID, content)
 	return nil
+}
+
+// tryInitialMessage sends the initial message to the session-manager and, on
+// success, emits it to the event stream and fires async summarization.
+// Best-effort: a send failure is logged but does not abort the run.
+func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID string, at *AgentType, msg string) {
+	if msg == "" {
+		return
+	}
+	if err := s.sm.SendMessage(ctx, podURL, runID, msg); err != nil {
+		s.logger.Warn(ctx, "failed to send initial message",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.emitHumanMessage(ctx, runID, msg)
+	if s.summarizer != nil && at.ModelID != nil {
+		go s.summarizeRun(context.WithoutCancel(ctx), runID, *at.ModelID, msg)
+	}
 }
 
 // emitHumanMessage persists a human message to run_events and fans it out via
