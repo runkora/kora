@@ -141,6 +141,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		SessionManagerImage:       cfg.Agents.SessionManagerImage,
 		SandboxImage:              cfg.Agents.SandboxImage,
 		SandboxGRPCPort:           int32(cfg.Agents.SandboxGRPCPort), //nolint:gosec
+		GitAuthorName:             cfg.Agents.SandboxGitAuthorName,
+		GitAuthorEmail:            cfg.Agents.SandboxGitAuthorEmail,
 		SessionManagerPostgresSSL: cfg.Agents.SessionManager.PostgresSSLMode,
 		TrustDomain:               cfg.Platform.TrustDomain,
 		SystemNamespace:           cfg.Kubernetes.SystemNamespace,
