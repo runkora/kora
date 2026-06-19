@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"regexp"
 	"strings"
 	"sync/atomic"
 
@@ -79,6 +80,110 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 	}
 	return New(cfg, logger)
 }
+
+// ── Multi-account support ─────────────────────────────────────────────────────
+
+// aliasRe validates a Bedrock account alias. Aliases may only contain
+// lowercase letters, digits, hyphens, and underscores so that the composed
+// provider name "bedrock:<alias>" is safe to store in the database, appear in
+// OTel traces, and be used as an OPA scope segment.
+var aliasRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// NamedConfig pairs a validated alias with its per-account Config.
+type NamedConfig struct {
+	// Alias is the operator-chosen name, e.g. "prod", "staging".
+	// It becomes the suffix in the provider name "bedrock:<alias>".
+	Alias  string
+	Config Config
+}
+
+// LoadMultiConfig reads BEDROCK_ACCOUNTS (comma-separated list of aliases) and
+// constructs a NamedConfig for each alias. Returns nil when BEDROCK_ACCOUNTS is
+// unset or empty. Returns an error if any alias is invalid or its REGION is missing.
+//
+// Environment variables for each alias (ALIAS uppercased):
+//
+//	BEDROCK_<ALIAS>_REGION           — required
+//	BEDROCK_<ALIAS>_ACCESS_KEY_ID    — optional
+//	BEDROCK_<ALIAS>_SECRET_ACCESS_KEY — optional
+//	BEDROCK_<ALIAS>_SESSION_TOKEN    — optional
+func LoadMultiConfig() ([]NamedConfig, error) {
+	raw := os.Getenv("BEDROCK_ACCOUNTS")
+	if raw == "" {
+		return nil, nil
+	}
+
+	var configs []NamedConfig
+	for _, alias := range strings.Split(raw, ",") {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		if !aliasRe.MatchString(alias) {
+			return nil, fmt.Errorf("bedrock: invalid account alias %q — must match [a-z0-9_-]+", alias)
+		}
+		prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
+		region := os.Getenv(prefix + "REGION")
+		if region == "" {
+			return nil, fmt.Errorf("bedrock: %sREGION is required for account %q", prefix, alias)
+		}
+		configs = append(configs, NamedConfig{
+			Alias: alias,
+			Config: Config{
+				Region:          region,
+				AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
+				SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
+				SessionToken:    os.Getenv(prefix + "SESSION_TOKEN"),
+			},
+		})
+	}
+	return configs, nil
+}
+
+// MultiFactory implements inferencegw.MultiConnectorFactory for AWS Bedrock.
+// It is consulted before Factory in main.go — when BEDROCK_ACCOUNTS is set,
+// MultiFactory registers N connectors and Factory is not invoked.
+type MultiFactory struct{}
+
+// Build reads BEDROCK_ACCOUNTS and returns one NamedConnector per alias.
+// Returns nil when BEDROCK_ACCOUNTS is unset, signalling that the caller
+// should fall back to Factory (single-account mode).
+func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, error) {
+	cfgs, err := LoadMultiConfig()
+	if err != nil {
+		return nil, err
+	}
+	if len(cfgs) == 0 {
+		return nil, nil
+	}
+
+	out := make([]inferencegw.NamedConnector, 0, len(cfgs))
+	for _, nc := range cfgs {
+		conn, err := New(&nc.Config, logger)
+		if err != nil {
+			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, err)
+		}
+		// Override the connector's reported name to the namespaced form.
+		named := &namedConnector{Connector: conn, name: inferencegw.ProviderName("bedrock:" + nc.Alias)}
+		out = append(out, inferencegw.NamedConnector{
+			Name:      named.name,
+			Connector: named,
+		})
+	}
+	return out, nil
+}
+
+// namedConnector wraps a Connector and overrides its Name() return value.
+// This is necessary because Connector.Name() is hard-coded to return
+// inferencegw.ProviderBedrock ("bedrock"), but in multi-account mode each
+// connector must return its unique namespaced name ("bedrock:<alias>").
+type namedConnector struct {
+	*Connector
+	name inferencegw.ProviderName
+}
+
+func (n *namedConnector) Name() inferencegw.ProviderName { return n.name }
+
 
 // Connector implements inferencegw.ProviderConnector for AWS Bedrock.
 // It wraps three separate endpoints:
