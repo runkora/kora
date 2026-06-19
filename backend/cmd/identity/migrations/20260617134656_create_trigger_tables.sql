@@ -44,7 +44,7 @@ CREATE TABLE triggers (
     agent_type_id       TEXT        NOT NULL,
     agent_slug          TEXT        NOT NULL,                 -- denormalized for run scope derivation
     event_type          TEXT        NOT NULL,                 -- e.g. "pull_request", "push"
-    match_condition     JSONB       NOT NULL DEFAULT '{}'::jsonb, -- e.g. {"action":["opened"],"base_ref":"main"}
+    match_condition     JSONB       NOT NULL DEFAULT '{}'::jsonb, -- field -> allowed values, e.g. {"action":["opened"],"pr.base_ref":["main"]}
     prompt_template     TEXT        NOT NULL,
     grant_id            TEXT,                                 -- policy grant for agents:runs:{slug} scopes
     enabled             BOOLEAN     NOT NULL DEFAULT true,
@@ -66,7 +66,7 @@ CREATE TABLE trigger_deliveries (
     source_id             TEXT        NOT NULL,
     provider_delivery_id  TEXT        NOT NULL DEFAULT '',    -- provider's delivery id (GitHub X-GitHub-Delivery)
     event_type            TEXT        NOT NULL DEFAULT '',
-    status                TEXT        NOT NULL,               -- received|verified|matched|dispatched|skipped|failed
+    status                TEXT        NOT NULL,               -- verified|dispatched|skipped|failed
     trigger_id            TEXT,                               -- matched trigger (nullable)
     run_id                TEXT,                               -- started run (nullable)
     error                 TEXT,

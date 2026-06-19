@@ -28,11 +28,18 @@ export const POST = withAuth(async (req: NextRequest, session) => {
       { status: 400 },
     );
   }
-  if (!body.source_id || !body.agent_type_id || !body.agent_slug || !body.event_type) {
+  // agent_slug is intentionally not required: the backend resolves the canonical
+  // slug from agent_type_id and ignores any client-supplied value.
+  if (
+    !body.source_id ||
+    !body.agent_type_id ||
+    !body.event_type ||
+    !body.prompt_template?.trim()
+  ) {
     return NextResponse.json(
       {
         code: 'validation_error',
-        message: 'source_id, agent_type_id, agent_slug, and event_type are required',
+        message: 'source_id, agent_type_id, event_type, and prompt_template are required',
       },
       { status: 400 },
     );
@@ -42,10 +49,9 @@ export const POST = withAuth(async (req: NextRequest, session) => {
       source_id: body.source_id,
       name: body.name,
       agent_type_id: body.agent_type_id,
-      agent_slug: body.agent_slug,
       event_type: body.event_type,
       match_condition: body.match_condition ?? {},
-      prompt_template: body.prompt_template ?? '',
+      prompt_template: body.prompt_template,
     });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {

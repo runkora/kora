@@ -129,8 +129,10 @@ type SourceResponse struct {
 }
 
 // CreateTriggerRequest is the body for POST /api/v1/triggers. AgentSlug is
-// supplied by the caller (the UI has it) so the service need not call the agent
-// control plane to resolve it.
+// accepted for backward compatibility but IGNORED: CreateTrigger resolves the
+// canonical slug from AgentTypeID via the agent control plane and never trusts
+// the client-supplied value (trusting it would let a caller shape an arbitrary
+// run-grant scope — see CreateTrigger).
 type CreateTriggerRequest struct {
 	SourceID       string              `json:"source_id"`
 	Name           string              `json:"name"`

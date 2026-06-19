@@ -87,6 +87,12 @@ func (a *githubAdapter) Verify(secret string, headers http.Header, body []byte) 
 	return nil
 }
 
+// DeliveryID returns GitHub's per-delivery id. Replay protection relies entirely
+// on this id (deduped via the partial unique index on trigger_deliveries) — the
+// adapter does not inspect any timestamp header, so there is no time-window
+// replay defense. A delivery with no id is rejected fail-closed in Service.Ingest
+// rather than accepted unprotected. If a provider/requirement ever needs
+// timestamp-based anti-replay, it belongs here alongside the id.
 func (a *githubAdapter) DeliveryID(headers http.Header) string {
 	return headers.Get("X-GitHub-Delivery")
 }

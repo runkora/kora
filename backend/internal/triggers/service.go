@@ -69,7 +69,7 @@ type Service struct {
 }
 
 // NewService constructs the Triggers service. webhookBase is the absolute path
-// prefix for inbound webhook URLs (e.g. "/api/v1/triggers/webhooks/").
+// prefix for inbound webhook URLs (e.g. "/api/v1/webhooks/").
 func NewService(
 	repo Repository,
 	registry *Registry,
@@ -476,6 +476,12 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 		return
 	}
 
+	// v1 limitation: a delivery may match multiple triggers and start a run for
+	// each, but trigger_deliveries records a single (trigger_id, run_id) — the
+	// first successful dispatch. Each run is still logged individually, and every
+	// run is attributed to the source principal, but the delivery row alone does
+	// not enumerate all runs it spawned. Recording the full 1→N relationship
+	// (delivery↔trigger↔run join) is deferred; see PR #75 discussion.
 	var dispatched bool
 	var lastErr error
 	for _, t := range matched {

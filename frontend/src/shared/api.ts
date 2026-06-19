@@ -447,7 +447,12 @@ export interface TriggerCreateRequest {
   source_id: string;
   name: string;
   agent_type_id: string;
-  agent_slug: string;
+  /**
+   * Ignored by the backend, which resolves the canonical slug from
+   * `agent_type_id` server-side. Optional and retained only for backward
+   * compatibility — do not rely on it being honored.
+   */
+  agent_slug?: string;
   event_type: string;
   match_condition?: Record<string, string[]>;
   prompt_template: string;
