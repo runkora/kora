@@ -17,6 +17,10 @@ const (
 	// runKeyTTL outlives any plausible run; refreshed on every write so
 	// long-lived runs never lose their counter mid-run.
 	runKeyTTL = 7 * 24 * time.Hour
+
+	// cadenceWeekly is the canonical string for a weekly reset window, used
+	// throughout the budget counter to avoid repeating the literal.
+	cadenceWeekly = "weekly"
 )
 
 // SpendScopes describes which canonical counters apply to one request — the
@@ -94,7 +98,7 @@ func NewRedisBudgetCounter(rc *storage.RedisClient, usage InferenceUsageReposito
 func periodForCadence(cadence string, t time.Time) string {
 	u := t.UTC()
 	switch cadence {
-	case "weekly":
+	case cadenceWeekly:
 		y, w := u.ISOWeek()
 		return fmt.Sprintf("%d-W%02d", y, w)
 	case "quarterly":
@@ -110,7 +114,7 @@ func periodForCadence(cadence string, t time.Time) string {
 // periodStart returns the UTC start of the window containing t.
 func periodStart(window string, t time.Time) time.Time {
 	u := t.UTC()
-	if window == "weekly" {
+	if window == cadenceWeekly {
 		// ISO week starts Monday. Weekday() is 0=Sunday … 6=Saturday.
 		offset := (int(u.Weekday()) + 6) % 7
 		day := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)

@@ -1087,16 +1087,18 @@ func (s *Service) buildBudgetPrincipalRow(
 		}
 	}
 
-	catStatuses, effective, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
+	catStatuses, effective, effectiveCadence, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
 
 	row := BudgetPrincipalStatus{
-		PrincipalID:       pid,
-		PrincipalType:     principalTypeFor(pid, sp.PrincipalType),
-		Categories:        catStatuses,
-		EffectiveLimitUSD: effective,
-		CurrentSpendUSD:   sp.SpendUSD,
-		HasLimit:          hasLimit,
-		SpendLimitReached: reached,
+		PrincipalID:           pid,
+		PrincipalType:         principalTypeFor(pid, sp.PrincipalType),
+		Categories:            catStatuses,
+		EffectiveLimitUSD:     effective,
+		EffectiveResetCadence: effectiveCadence,
+		EffectiveSpendUSD:     effectiveSpend(effectiveCadence, sp.SpendUSD, weeklySpend),
+		CurrentSpendUSD:       sp.SpendUSD,
+		HasLimit:              hasLimit,
+		SpendLimitReached:     reached,
 	}
 	if !sp.LastActiveAt.IsZero() {
 		row.LastActiveAt = sp.LastActiveAt.Format(time.RFC3339)
@@ -1106,14 +1108,15 @@ func (s *Service) buildBudgetPrincipalRow(
 
 // summarizeBudgetCategories builds the per-category status rows and the
 // headline fields: effective (MAX per-member limit across all window cadences),
-// hasLimit, and reached (any per-member category's window spend ≥ its limit).
+// effectiveCadence (cadence of the winning category), hasLimit, and reached
+// (any per-member category's window spend ≥ its limit).
 //
 // Per-member category spend is the principal's canonical window spend
 // (monthlySpend / weeklySpend) — the same number enforcement evaluates — so a
 // freshly created or re-windowed assignment never reads as zero usage. Pooled
 // categories keep the attribution counter: it records the member's own
 // contribution to the shared pot (the pool's total lives on the role surface).
-func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend, weeklySpend float64) (statuses []BudgetCategoryStatus, effective float64, hasLimit, reached bool) {
+func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64, monthlySpend, weeklySpend float64) (statuses []BudgetCategoryStatus, effective float64, effectiveCadence string, hasLimit, reached bool) {
 	statuses = make([]BudgetCategoryStatus, len(cats))
 	for i, cat := range cats {
 		if cat.LimitUSD > 0 || cat.PerRunLimitUSD > 0 {
@@ -1144,12 +1147,13 @@ func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64
 		}
 		if cat.LimitUSD > effective {
 			effective = cat.LimitUSD
+			effectiveCadence = cat.ResetCadence
 		}
 		if cat.LimitUSD > 0 && st.SpendUSD >= cat.LimitUSD {
 			reached = true // this per-member window ceiling is exhausted
 		}
 	}
-	return statuses, effective, hasLimit, reached
+	return statuses, effective, effectiveCadence, hasLimit, reached
 }
 
 // principalTypeFor returns the recorded principal type, or — for synthesized
@@ -1165,6 +1169,15 @@ func principalTypeFor(pid, recorded string) string {
 		return "AGENT"
 	}
 	return "HUMAN"
+}
+
+// effectiveSpend returns the spend that belongs to the same window as the
+// effective limit: ISO-week spend for weekly cadence, month-to-date otherwise.
+func effectiveSpend(cadence string, monthlySpend, weeklySpend float64) float64 {
+	if cadence == "weekly" {
+		return weeklySpend
+	}
+	return monthlySpend
 }
 
 // sortBudgetPrincipals orders budgeted principals first by utilization
@@ -1189,11 +1202,13 @@ func sortBudgetPrincipals(data []BudgetPrincipalStatus) {
 }
 
 // utilization is the spend-to-limit ratio used for sorting the budgets listing.
+// Uses EffectiveSpendUSD (window-matched to the effective limit) so that
+// weekly-only principals are not inflated by their full month-to-date spend.
 func utilization(s BudgetPrincipalStatus) float64 {
 	if s.EffectiveLimitUSD <= 0 {
 		return 0
 	}
-	return s.CurrentSpendUSD / s.EffectiveLimitUSD
+	return s.EffectiveSpendUSD / s.EffectiveLimitUSD
 }
 
 // principalFromClaims reads the verified PlatformClaims stored in context by
