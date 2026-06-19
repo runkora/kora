@@ -60,6 +60,11 @@ type Config struct {
 		SandboxImage string `yaml:"sandboxImage"`
 		// SandboxGRPCPort is the port the sandbox-exec gRPC server listens on.
 		SandboxGRPCPort int `yaml:"sandboxGRPCPort"`
+		// SandboxGitAuthorName/Email set the git identity (GIT_AUTHOR_* and
+		// GIT_COMMITTER_*) for commits the agent makes inside the sandbox. Set
+		// per-deployment so the platform identity is not baked into the operator.
+		SandboxGitAuthorName  string `yaml:"sandboxGitAuthorName"`
+		SandboxGitAuthorEmail string `yaml:"sandboxGitAuthorEmail"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by

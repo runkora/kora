@@ -42,9 +42,13 @@ var destinationRuleGVR = schema.GroupVersionResource{
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
-	SessionManagerImage       string
-	SandboxImage              string
-	SandboxGRPCPort           int32
+	SessionManagerImage string
+	SandboxImage        string
+	SandboxGRPCPort     int32
+	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
+	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
+	GitAuthorName             string
+	GitAuthorEmail            string
 	SessionManagerPostgresSSL string
 	// TrustDomain is the SPIFFE trust domain (e.g. "orbit.test").
 	// Used to build the agent's SPIFFE principal ID for grant creation.
@@ -419,10 +423,12 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 }
 
 // waitForPodReady polls until the pod is Ready, returning its pod IP.
-// Respects the deadline on ctx (the session-manager enforces 120s).
+// Respects the deadline on ctx (the session-manager enforces 300s). The poll
+// budget allows for a cold sandbox-exec image pull on a fresh orbit node plus
+// istio/sidecar startup; keep it below the session-manager client timeout.
 func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace string) (string, error) {
 	var podIP string
-	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, 120*time.Second, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, 240*time.Second, true, func(ctx context.Context) (bool, error) {
 		pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -476,6 +482,17 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
+	}
+	// Git identity for commits the agent makes in the sandbox. Setting both
+	// GIT_AUTHOR_* and GIT_COMMITTER_* makes the platform identity the author and
+	// committer; these override any repo or global git config the agent inherits.
+	if cfg.GitAuthorName != "" && cfg.GitAuthorEmail != "" {
+		env = append(env,
+			corev1.EnvVar{Name: "GIT_AUTHOR_NAME", Value: cfg.GitAuthorName},
+			corev1.EnvVar{Name: "GIT_AUTHOR_EMAIL", Value: cfg.GitAuthorEmail},
+			corev1.EnvVar{Name: "GIT_COMMITTER_NAME", Value: cfg.GitAuthorName},
+			corev1.EnvVar{Name: "GIT_COMMITTER_EMAIL", Value: cfg.GitAuthorEmail},
+		)
 	}
 	// egressGatewayURL is empty only when SystemNamespace is unset; in that
 	// case there is no gateway and no per-tenant CA to trust.

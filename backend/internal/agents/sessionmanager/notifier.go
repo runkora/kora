@@ -48,7 +48,9 @@ func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (string, error
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
 // Each call is fire-and-forget with a short timeout so a slow or absent
 // orbit-agents instance does not block the session-manager drain loop.
-// ProvisionSandbox uses a longer timeout since pod cold-start can take ~60s.
+// ProvisionSandbox uses a long timeout: a sandbox scheduled onto a fresh orbit
+// node pays a cold image pull (sandbox-exec is large) plus istio/sidecar
+// startup. Must exceed the orbit-agents pod-ready wait (k8s.waitForPodReady).
 type HTTPNotifier struct {
 	baseURL         string
 	client          *http.Client // short timeout: event fan-out (best-effort, fire-and-forget)
@@ -62,7 +64,7 @@ func NewHTTPNotifier(baseURL string) *HTTPNotifier {
 		baseURL:         baseURL,
 		client:          &http.Client{Timeout: 2 * time.Second},
 		lifecycleClient: &http.Client{Timeout: 15 * time.Second},
-		sandboxClient:   &http.Client{Timeout: 120 * time.Second},
+		sandboxClient:   &http.Client{Timeout: 300 * time.Second},
 	}
 }
 
