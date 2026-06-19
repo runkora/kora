@@ -368,6 +368,18 @@ func (m *mockRepository) AppendRunMessage(_ context.Context, msg RunMessage) err
 	return nil
 }
 
+func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, r := range m.runs {
+		if r.ID == runID {
+			m.runs[i].Summary = &summary
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // ── mockK8s ───────────────────────────────────────────────────────────────────
 
 type mockK8s struct {

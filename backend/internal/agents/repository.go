@@ -53,6 +53,10 @@ type RunRepository interface {
 	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
 	ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error)
 
+	// SetRunSummary persists the LLM-generated task summary for a run.
+	// Called asynchronously after run start; a failure does not affect the run.
+	SetRunSummary(ctx context.Context, runID, summary string) error
+
 	// ── Messages ──────────────────────────────────────────────────────────────
 
 	AppendRunMessage(ctx context.Context, m RunMessage) error

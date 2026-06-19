@@ -265,6 +265,10 @@ type Run struct {
 	CompletedAt *time.Time `json:"completed_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+	// Summary is a short LLM-generated sentence describing the run's task
+	// intent, derived from the initial message at run start. Null when the run
+	// had no initial message or when generation failed (best-effort).
+	Summary *string `json:"summary"`
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────

@@ -138,4 +138,6 @@ export interface RunChatState {
   perRunLimitUsd: number | null;
   /** Total tokens consumed by this run so far. */
   tokensUsed: number;
+  /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
+  summary: string | null;
 }

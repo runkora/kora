@@ -32,21 +32,27 @@ type RunServiceConfig struct {
 // RunService is the single state machine authority for agent runs.
 // Every run state transition anywhere in the system goes through RunService.
 type RunService struct {
-	repo     RunRepository
-	atRepo   AgentTypeRepository
-	sm       smClient
-	k8s      k8sProvisioner
-	pubsub   *PubSub
-	authz    *Authz
-	cfg      RunServiceConfig
-	logger   logging.Logger
-	resolver *ScopeResolver // resolves the runtime-environment brief; nil = no brief
+	repo       RunRepository
+	atRepo     AgentTypeRepository
+	sm         smClient
+	k8s        k8sProvisioner
+	pubsub     *PubSub
+	authz      *Authz
+	cfg        RunServiceConfig
+	logger     logging.Logger
+	resolver   *ScopeResolver // resolves the runtime-environment brief; nil = no brief
+	summarizer Summarizer     // generates run task summaries; nil = disabled
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
 // brief appended to an agent's system prompt at run start. When unset, runs start
 // without the brief.
 func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
+
+// SetSummarizer installs the summarizer used to generate a short task description
+// at run start. When unset or when the inference gateway URL is empty, summarization
+// is skipped and the run summary remains null.
+func (s *RunService) SetSummarizer(sum Summarizer) { s.summarizer = sum }
 
 // systemPromptWithBrief returns the agent's system prompt with the runtime-
 // environment brief appended (governed network + injected credentials), so the
@@ -203,6 +209,11 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 			)
 		} else {
 			s.emitHumanMessage(ctx, run.ID, req.InitialMessage)
+			// Asynchronously generate a task summary from the initial message.
+			// Best-effort: failure does not affect the run.
+			if s.summarizer != nil && at.ModelID != nil {
+				go s.summarizeRun(context.WithoutCancel(ctx), run.ID, *at.ModelID, req.InitialMessage)
+			}
 		}
 	}
 
@@ -735,4 +746,30 @@ func (s *RunService) publishReapedState(ctx context.Context, runID string, state
 		seqNo = 0
 	}
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+}
+
+// summarizeRun calls the summarizer to generate a short task description and
+// persists it via SetRunSummary. Runs in a detached background goroutine;
+// failures are logged at WARN and never propagate.
+func (s *RunService) summarizeRun(ctx context.Context, runID, modelID, initialMessage string) {
+	bgCtx, cancel := context.WithTimeout(ctx, summarizerTimeout)
+	defer cancel()
+
+	summary, err := s.summarizer.Summarize(bgCtx, modelID, initialMessage)
+	if err != nil {
+		s.logger.Warn(bgCtx, "run summarization failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if summary == "" {
+		return
+	}
+	if err := s.repo.SetRunSummary(bgCtx, runID, summary); err != nil {
+		s.logger.Warn(bgCtx, "failed to persist run summary",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }

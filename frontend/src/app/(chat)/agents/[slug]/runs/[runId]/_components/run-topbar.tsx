@@ -52,6 +52,7 @@ export function RunTopbar() {
     model,
     runId,
     runState,
+    summary,
     canvasState,
     openCanvas,
     spentUsd,
@@ -171,6 +172,25 @@ export function RunTopbar() {
           {displayRunId}
         </Badge>
       </Stack>
+
+      {/* Task summary — shown when available, truncated with ellipsis */}
+      {summary && (
+        <Text
+          as="span"
+          style={{
+            fontSize: 12,
+            color: 'var(--color-subtle)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: '32rem',
+            flexShrink: 1,
+          }}
+          title={summary}
+        >
+          {summary}
+        </Text>
+      )}
 
       <Stack grow />
 

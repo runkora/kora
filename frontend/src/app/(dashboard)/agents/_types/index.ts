@@ -59,6 +59,8 @@ export interface RunRow {
   tokensUsed: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
+  /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
+  summary: string | null;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
@@ -116,6 +118,7 @@ export function toRunRow(r: Run, agentTypeById: Map<string, AgentTypeRow>): RunR
     durationMs,
     tokensUsed: r.tokens_used ?? null,
     toolCalls: r.tool_calls ?? null,
+    summary: r.summary ?? null,
   };
 }
 

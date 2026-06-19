@@ -192,6 +192,14 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	atSvc.SetScopeResolver(resolver)
 	runSvc.SetScopeResolver(resolver)
 
+	// Wire the run summarizer: generates a short task description at run start
+	// from the initial message. Uses the agent's configured model via the inference
+	// gateway. Skipped when inferenceGatewayURL is empty (e.g. local dev without
+	// a gateway).
+	if cfg.Agents.InferenceGatewayURL != "" {
+		runSvc.SetSummarizer(agents.NewInferenceGatewaySummarizer(cfg.Agents.InferenceGatewayURL, logger))
+	}
+
 	server := apiServer.Server(
 		ctx,
 		cfg.Server.Port,

@@ -196,7 +196,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+		SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 		FROM runs WHERE id=$1`, id)
 	return scanRun(row)
 }
@@ -206,11 +206,11 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 	var err error
 	if agentTypeID != "" {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 			FROM runs WHERE tenant_id=$1 AND agent_type_id=$2 ORDER BY created_at DESC`, tenantID, agentTypeID)
 	} else {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 			FROM runs WHERE tenant_id=$1 ORDER BY created_at DESC`, tenantID)
 	}
 	if err != nil {
@@ -271,8 +271,21 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	return nil
 }
 
-func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE id=$1`, id)
+func (r *PostgresRepository) SetRunSummary(ctx context.Context, runID, summary string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3`,
+		summary, time.Now().UTC(), runID,
+	)
+	if err != nil {
+		return fmt.Errorf("set run summary: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {	tag, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE id=$1`, id)
 	if err != nil {
 		return fmt.Errorf("delete run: %w", err)
 	}
@@ -470,6 +483,7 @@ func scanRun(s scanner) (*Run, error) {
 	err := s.Scan(
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
+		&r.Summary,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
