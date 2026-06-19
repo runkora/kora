@@ -311,6 +311,36 @@ export const ApiRoute = {
       `${API_BASE}/agents/environments/${id}`,
   },
 
+  /**
+   * Triggers feature — webhook sources, triggers, and delivery log. Served by the
+   * identity binary via the BFF.
+   */
+  triggerSources: {
+    list: (): `${typeof API_BASE}/trigger-sources` => `${API_BASE}/trigger-sources`,
+    create: (): `${typeof API_BASE}/trigger-sources` => `${API_BASE}/trigger-sources`,
+    detail: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
+      `${API_BASE}/trigger-sources/${id}`,
+    delete: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
+      `${API_BASE}/trigger-sources/${id}`,
+  },
+
+  triggers: {
+    list: (agentTypeId?: string): string =>
+      agentTypeId
+        ? `${API_BASE}/triggers?agent_type_id=${encodeURIComponent(agentTypeId)}`
+        : `${API_BASE}/triggers`,
+    create: (): `${typeof API_BASE}/triggers` => `${API_BASE}/triggers`,
+    detail: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
+    delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
+  },
+
+  triggerDeliveries: {
+    list: (sourceId?: string): string =>
+      sourceId
+        ? `${API_BASE}/trigger-deliveries?source_id=${encodeURIComponent(sourceId)}`
+        : `${API_BASE}/trigger-deliveries`,
+  },
+
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
     listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>

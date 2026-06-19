@@ -981,6 +981,23 @@ func (s *Service) SystemToken(ctx context.Context) (string, error) {
 	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), 5*time.Minute)
 }
 
+// MintServiceToken issues a short-lived RS256 platform JWT for a non-interactive
+// SERVICE principal — e.g. a webhook trigger source. Unlike SystemToken, the
+// principal is caller-specified and tenant-scoped: its access is bounded by the
+// policy grants attached to principalID, so a trigger-initiated run is authorized
+// and attributed exactly like any principal. See
+// docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
+func (s *Service) MintServiceToken(ctx context.Context, tenantID, principalID, displayName string, ttl time.Duration) (string, error) {
+	principal := &Principal{
+		ID:             principalID,
+		Type:           token.PrincipalTypeService,
+		TenantID:       tenantID,
+		DisplayName:    displayName,
+		IdentitySource: IdentitySourcePlatform,
+	}
+	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), ttl)
+}
+
 // GetUserProfile returns the profile for a single user, scoped to the caller's tenant.
 func (s *Service) GetUserProfile(ctx context.Context, tenantID, userID string) (UserProfile, error) {
 	profile, err := s.profiles.GetByID(ctx, tenantID, userID)

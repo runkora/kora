@@ -31,3 +31,12 @@ export { HealthStatus } from './health-status';
 
 /** BFF-backed logout button, revokes tokens then redirects to /login. */
 export { LogoutButton } from './logout-button';
+
+/** Create/edit modal for a webhook trigger (event → agent + prompt template). */
+export { TriggerFormModal } from './trigger-form-modal';
+export type {
+  TriggerFormModalProps,
+  TriggerFormValue,
+  TriggerFormSource,
+  TriggerFormAgent,
+} from './trigger-form-modal';

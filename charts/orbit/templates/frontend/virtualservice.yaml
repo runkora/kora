@@ -19,6 +19,19 @@ spec:
   gateways:
     - {{ include "orbit.systemNamespace" . }}/orbit-gateway
   http:
+    # Inbound webhook deliveries (Triggers feature) are HMAC-authenticated and
+    # served by the identity service — not the frontend. Route this prefix
+    # directly to orbit-identity, ahead of the catch-all frontend route below.
+    # The gateway OPA bypass for this path lives in authz_gateway.rego.
+    # Ref: ADR 2026-06-17 (agent triggers and webhook ingestion).
+    - match:
+        - uri:
+            prefix: /api/v1/webhooks/
+      route:
+        - destination:
+            host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 80
     - route:
         - destination:
             host: orbit-frontend.{{ include "orbit.systemNamespace" . }}.svc.cluster.local

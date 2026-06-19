@@ -12,6 +12,7 @@ import (
 	ic "github.com/clear-route/orbit/cmd/identity/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
+	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -20,6 +21,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/triggers"
 )
 
 func main() {
@@ -176,9 +178,75 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
+	// Triggers feature (docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md).
+	// Hosted here because identity is the only externally-reachable binary and the
+	// platform token authority — it mints each webhook source's identity in-process.
+	// The package is self-contained: it reaches orbit-agents via a typed client and
+	// mints SERVICE tokens via the identity service (the TokenMinter).
+	triggerCtrl, err := initTriggersController(ctx, logger, db, svc, policyClient, policyEval)
+	if err != nil {
+		return nil, err
+	}
+
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
+		triggerCtrl,
 	}, nil
+}
+
+// initTriggersController wires the Triggers feature: the Postgres repository, the
+// source-adapter registry, the at-rest secret cipher, the orbit-agents client, and
+// the controller. The identity service doubles as the TokenMinter and the auth
+// middleware provider.
+func initTriggersController(
+	ctx context.Context,
+	logger logging.Logger,
+	db *storage.DB,
+	svc *identity.Service,
+	policyClient *policyclient.Client,
+	policyEval policy.Evaluator,
+) (api.Controller, error) {
+	cipherKey, devFallback, err := triggers.LoadCipherKey()
+	if err != nil {
+		return nil, fmt.Errorf("load triggers encryption key: %w", err)
+	}
+	if devFallback {
+		logger.Warn(ctx, "ORBIT_TRIGGERS_ENCRYPTION_KEY not set — using insecure local-dev key; set it in production")
+	}
+	cipher, err := triggers.NewSecretCipherFromKey(cipherKey)
+	if err != nil {
+		return nil, fmt.Errorf("init triggers cipher: %w", err)
+	}
+
+	agentsURL := os.Getenv("ORBIT_AGENTS_URL")
+	if agentsURL == "" {
+		agentsURL = "http://orbit-agents.orbit-system.svc"
+	}
+
+	repo := triggers.NewPostgresRepository(db.Pool())
+	agentsCli := agentsclient.NewClient(agentsURL, logger)
+	// Inbound webhook path prefix: /api/v1 (server base) + /webhooks/.
+	triggerSvc := triggers.NewService(repo, triggers.NewRegistry(), cipher, policyClient, agentsCli, svc, ic.Current.Server.BasePath+"/webhooks/", logger)
+
+	return triggers.NewController(triggerSvc, svc.AuthMiddleware(logger), policyEval, triggerRoutes(), ic.Current.Server.BasePath, logger), nil
+}
+
+// triggerRoutes returns the route→required-scope bindings for the Triggers
+// management API, consumed by ScopeEnforcementMiddleware. The public inbound
+// webhook endpoint is intentionally absent — it is HMAC-authenticated and
+// registered with mux.Handle so it never reaches the scope middleware.
+func triggerRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-sources", Method: "GET", RequiredScope: "triggers:read"},
+		{PathPrefix: "/api/v1/trigger-sources", Method: "PATCH", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-sources", Method: "DELETE", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/triggers", Method: "POST", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
+		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
+	}
 }
 
 // identityRoutes returns the static route → required-scope bindings for the
