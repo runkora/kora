@@ -28,12 +28,6 @@ const MAIN_NAV: NavEntry[] = [
     icon: 'zap',
     requiredScope: 'triggers:read',
   },
-  { label: 'Event Spine', href: APP_ROUTES.events, icon: 'activity', wip: true },
-  { label: 'Credentials', href: APP_ROUTES.credentials, icon: 'key', wip: true },
-];
-
-const SECURITY_NAV: NavEntry[] = [
-  { label: 'Identity', href: APP_ROUTES.identity, icon: 'user', wip: true },
 ];
 
 const POLICY_NAV: NavEntry[] = [
@@ -75,11 +69,6 @@ const POLICY_NAV: NavEntry[] = [
   },
 ];
 
-const SYSTEM_NAV: NavEntry[] = [
-  { label: 'Storage', href: APP_ROUTES.storage, icon: 'database', wip: true },
-  { label: 'Settings', href: APP_ROUTES.settings, icon: 'settings', wip: true },
-];
-
 const MODEL_GATEWAY_NAV: NavEntry[] = [
   {
     label: 'Overview',
@@ -116,8 +105,6 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
 
 export const NAV_GROUPS: NavGroup[] = [
   { label: 'Control Plane', items: MAIN_NAV },
-  { label: 'Security', items: SECURITY_NAV },
   { label: 'Policy', items: POLICY_NAV },
   { label: 'Model Gateway', items: MODEL_GATEWAY_NAV },
-  { label: 'System', items: SYSTEM_NAV },
 ];

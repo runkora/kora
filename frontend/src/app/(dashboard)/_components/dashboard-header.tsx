@@ -7,7 +7,6 @@ import { useSidebarState } from './sidebar-state';
 const SECTION_LABELS: Record<string, string> = {
   agents: 'Agents',
   policy: 'Policy',
-  identity: 'Identity',
   'model-gateway': 'Model Gateway',
   chat: 'Chat',
 };

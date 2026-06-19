@@ -40,10 +40,8 @@ export const APP_ROUTES = {
   connections: '/connections',
   environments: '/environments',
   triggers: '/triggers',
-  events: '/events',
-  credentials: '/credentials',
 
-  // ── Security ─────────────────────────────────────────────────────────────
+  // ── Policy ───────────────────────────────────────────────────────────────
   policy: {
     overview: '/policy/overview',
     grants: '/policy/grants',
@@ -52,11 +50,6 @@ export const APP_ROUTES = {
     routes: '/policy/routes',
     evaluate: '/policy/evaluate',
   },
-  identity: '/identity',
-
-  // ── System ───────────────────────────────────────────────────────────────
-  storage: '/storage',
-  settings: '/settings',
 
   // ── Model Gateway ─────────────────────────────────────────────────────────
   modelGateway: {
