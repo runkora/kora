@@ -88,6 +88,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Accepted` · 2026-06-12
+- [Sandbox Warm-Start Strategy: Image Warmer and Low-Priority Headroom](2026-06-19-sandbox-warm-start-strategy.md) — `Proposed` · 2026-06-19
+- [Build Scratch on Ephemeral Node-Local Storage](2026-06-19-build-scratch-on-ephemeral-volume.md) — `Proposed` · 2026-06-19
 
 ### Service Mesh, Operator & Deployment
 
@@ -182,3 +184,5 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |
 | 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Accepted | — |
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
+| 2026-06-19 | [Sandbox Warm-Start Strategy: Image Warmer and Low-Priority Headroom](2026-06-19-sandbox-warm-start-strategy.md) | Proposed | — |
+| 2026-06-19 | [Build Scratch on Ephemeral Node-Local Storage](2026-06-19-build-scratch-on-ephemeral-volume.md) | Proposed | — |
