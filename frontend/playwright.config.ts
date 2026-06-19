@@ -59,6 +59,12 @@ export default defineConfig({
       // when invoked via `make` which exports the root .env).
       BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
       ORBIT_API_URL: process.env.ORBIT_API_URL ?? 'http://localhost:8080',
+      // These URLs are not called during E2E tests (all BFF fetches are
+      // intercepted by page.route()), but config.ts requires them at boot.
+      INFERENCE_GATEWAY_URL: process.env.INFERENCE_GATEWAY_URL ?? 'http://localhost:8081/v1',
+      POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
+      POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
+      ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
     },
   },
 });
