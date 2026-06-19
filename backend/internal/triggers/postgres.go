@@ -333,3 +333,48 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 	}
 	return out, nil
 }
+
+func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO trigger_delivery_runs
+			(id, tenant_id, delivery_id, trigger_id, run_id, status, error)
+		VALUES
+			($1, $2, $3, $4, $5, $6, $7)
+	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, dr.RunID, dr.Status, dr.Error)
+	if err != nil {
+		return fmt.Errorf("insert delivery run: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
+	out := make(map[string][]DeliveryRun)
+	if len(deliveryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, tenant_id, delivery_id, trigger_id, run_id, status, error, created_at
+		FROM   trigger_delivery_runs
+		WHERE  tenant_id = $1 AND delivery_id = ANY($2)
+		ORDER BY created_at ASC
+	`, tenantID, deliveryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list delivery runs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var dr DeliveryRun
+		if err := rows.Scan(
+			&dr.ID, &dr.TenantID, &dr.DeliveryID, &dr.TriggerID,
+			&dr.RunID, &dr.Status, &dr.Error, &dr.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan delivery run: %w", err)
+		}
+		out[dr.DeliveryID] = append(out[dr.DeliveryID], dr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate delivery runs: %w", err)
+	}
+	return out, nil
+}

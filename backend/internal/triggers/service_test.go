@@ -453,6 +453,59 @@ func TestDispatch_Match_StartsRun(t *testing.T) {
 	}
 }
 
+func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
+	// Two triggers match the same delivery: every run must be recorded in the
+	// join table, and ListDeliveries must surface the full fan-out on the delivery.
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	cond := map[string][]string{"action": {"opened"}}
+	mustTrigger(t, svc, src.ID, cond, "p1")
+	mustTrigger(t, svc, src.ID, cond, "p2")
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	delID := "deliv-multi"
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: delID, TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusVerified,
+	})
+	deps.minter.reset()
+
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+	svc.dispatch(context.Background(), *stored, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	if deps.agents.callCount() != 2 {
+		t.Fatalf("expected 2 runs started, got %d", deps.agents.callCount())
+	}
+	runs := deps.repo.deliveryRunsFor(delID)
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 delivery-run records, got %d", len(runs))
+	}
+	for _, r := range runs {
+		if r.Status != RunStatusDispatched || r.RunID == nil {
+			t.Errorf("run record = %+v, want dispatched with a run id", r)
+		}
+	}
+
+	// Delivery summary points at the first dispatch; ListDeliveries attaches all runs.
+	list, err := svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	var got *Delivery
+	for i := range list {
+		if list[i].ID == delID {
+			got = &list[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("delivery not found in listing")
+	}
+	if got.Status != StatusDispatched || got.RunID == nil {
+		t.Errorf("delivery summary = %+v, want dispatched with a run id", got)
+	}
+	if len(got.Runs) != 2 {
+		t.Errorf("delivery.Runs = %d, want 2 (full fan-out)", len(got.Runs))
+	}
+}
+
 func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, nil, "p")
 	adapter, _ := NewRegistry().Get(ProviderGitHub)

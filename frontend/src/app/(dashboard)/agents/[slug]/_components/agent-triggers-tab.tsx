@@ -79,7 +79,14 @@ export function AgentTriggersTab() {
 
   const triggerIds = useMemo(() => new Set(triggers.map((t) => t.id)), [triggers]);
   const agentDeliveries = useMemo(
-    () => deliveries.filter((d) => d.trigger_id && triggerIds.has(d.trigger_id)).slice(0, 20),
+    () =>
+      deliveries
+        .filter(
+          (d) =>
+            (d.trigger_id && triggerIds.has(d.trigger_id)) ||
+            (d.runs ?? []).some((r) => triggerIds.has(r.trigger_id)),
+        )
+        .slice(0, 20),
     [deliveries, triggerIds],
   );
   const sourceName = useMemo(() => {
@@ -232,7 +239,11 @@ export function AgentTriggersTab() {
         id: 'detail',
         header: 'Detail',
         cell: (row) =>
-          row.run_id ? (
+          (row.runs?.length ?? 0) > 1 ? (
+            <Text size="caption" color="muted">
+              {row.runs?.length} runs
+            </Text>
+          ) : row.run_id ? (
             <Text mono size="caption">
               run {row.run_id.slice(0, 8)}
             </Text>

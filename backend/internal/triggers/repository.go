@@ -33,6 +33,13 @@ type Repository interface {
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+
+	// InsertDeliveryRun records one matched-trigger dispatch for a delivery.
+	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
+	// ListDeliveryRunsForDeliveries returns the per-trigger dispatch records for
+	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
+	// attach the full run fan-out to a delivery listing without an N+1 query.
+	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
 }
 
 // DeliveryFilter narrows a delivery listing. Empty fields are ignored.

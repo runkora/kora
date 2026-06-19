@@ -213,3 +213,65 @@ func TestPostgres_DeliveryDedupAndOutcome(t *testing.T) {
 		t.Error("dispatched delivery missing from list")
 	}
 }
+
+func TestPostgres_DeliveryRuns(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, ProviderDeliveryID: "gh-runs-1", Status: StatusVerified}
+	if _, err := r.InsertDelivery(ctx, d); err != nil {
+		t.Fatalf("InsertDelivery: %v", err)
+	}
+
+	run := "run-ok"
+	failMsg := "start run: boom"
+	ok := &DeliveryRun{ID: uuid.NewString(), TenantID: tenant, DeliveryID: d.ID, TriggerID: "trig-a", RunID: &run, Status: RunStatusDispatched}
+	bad := &DeliveryRun{ID: uuid.NewString(), TenantID: tenant, DeliveryID: d.ID, TriggerID: "trig-b", Status: RunStatusFailed, Error: &failMsg}
+	if err := r.InsertDeliveryRun(ctx, ok); err != nil {
+		t.Fatalf("InsertDeliveryRun(ok): %v", err)
+	}
+	if err := r.InsertDeliveryRun(ctx, bad); err != nil {
+		t.Fatalf("InsertDeliveryRun(bad): %v", err)
+	}
+
+	byDelivery, err := r.ListDeliveryRunsForDeliveries(ctx, tenant, []string{d.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveryRunsForDeliveries: %v", err)
+	}
+	runs := byDelivery[d.ID]
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs for delivery, got %d", len(runs))
+	}
+	var sawOK, sawFailed bool
+	for _, dr := range runs {
+		switch dr.TriggerID {
+		case "trig-a":
+			sawOK = true
+			if dr.Status != RunStatusDispatched || dr.RunID == nil || *dr.RunID != "run-ok" || dr.Error != nil {
+				t.Errorf("dispatched run not persisted correctly: %+v", dr)
+			}
+		case "trig-b":
+			sawFailed = true
+			if dr.Status != RunStatusFailed || dr.RunID != nil || dr.Error == nil {
+				t.Errorf("failed run not persisted correctly: %+v", dr)
+			}
+		}
+	}
+	if !sawOK || !sawFailed {
+		t.Error("both dispatched and failed run records expected")
+	}
+
+	// Tenant scoping: another tenant sees nothing for this delivery id.
+	if other, _ := r.ListDeliveryRunsForDeliveries(ctx, "test-"+uuid.NewString(), []string{d.ID}); len(other) != 0 {
+		t.Error("delivery runs must be tenant-scoped")
+	}
+
+	// FK cascade: deleting the delivery removes its run records.
+	if _, err := r.pool.Exec(ctx, `DELETE FROM trigger_deliveries WHERE id=$1`, d.ID); err != nil {
+		t.Fatalf("delete delivery: %v", err)
+	}
+	if after, _ := r.ListDeliveryRunsForDeliveries(ctx, tenant, []string{d.ID}); len(after) != 0 {
+		t.Error("deleting a delivery must cascade-delete its run records")
+	}
+}

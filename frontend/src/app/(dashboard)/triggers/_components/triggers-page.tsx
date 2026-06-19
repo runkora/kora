@@ -315,7 +315,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         id: 'detail',
         header: 'Detail',
         cell: (row) =>
-          row.error ? (
+          row.runs.length > 1 ? (
+            <Text size="caption" color="muted">
+              {row.runs.length} runs
+            </Text>
+          ) : row.error ? (
             <Text size="caption" color="muted">
               {row.error}
             </Text>

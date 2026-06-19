@@ -474,11 +474,27 @@ export interface TriggerDelivery {
   source_id: string;
   provider_delivery_id?: string;
   event_type?: string;
-  /** received | verified | dispatched | skipped | failed. */
+  /** verified | dispatched | skipped | failed. */
   status: string;
+  /** Summary of the first dispatched run; see `runs` for the full fan-out. */
   trigger_id?: string;
   run_id?: string;
   error?: string;
   payload_excerpt?: string;
   received_at: string;
+  /** One entry per matched trigger — the complete per-trigger dispatch record. */
+  runs?: TriggerDeliveryRun[];
+}
+
+/** A single matched-trigger dispatch within a delivery. */
+export interface TriggerDeliveryRun {
+  id: string;
+  delivery_id: string;
+  trigger_id: string;
+  /** Present when the run started; absent when the dispatch failed. */
+  run_id?: string;
+  /** dispatched | failed. */
+  status: string;
+  error?: string;
+  created_at: string;
 }

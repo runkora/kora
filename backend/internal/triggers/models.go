@@ -29,6 +29,12 @@ const (
 	StatusFailed     = "failed"     // matched but dispatch failed
 )
 
+// Per-trigger dispatch statuses recorded in trigger_delivery_runs.
+const (
+	RunStatusDispatched = "dispatched" // the matched trigger started a run
+	RunStatusFailed     = "failed"     // the matched trigger failed to start a run
+)
+
 // Sentinel errors. Callers branch on these with errors.Is.
 var (
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
@@ -89,18 +95,35 @@ type Trigger struct {
 }
 
 // Delivery is the durable record of an inbound webhook delivery and its outcome.
+// TriggerID/RunID summarize the first dispatched run; Runs carries the complete
+// per-trigger fan-out (one entry per matched trigger) and is populated on reads.
 type Delivery struct {
-	ID                 string    `json:"id"`
-	TenantID           string    `json:"tenant_id"`
-	SourceID           string    `json:"source_id"`
-	ProviderDeliveryID string    `json:"provider_delivery_id,omitempty"`
-	EventType          string    `json:"event_type,omitempty"`
-	Status             string    `json:"status"`
-	TriggerID          *string   `json:"trigger_id,omitempty"`
-	RunID              *string   `json:"run_id,omitempty"`
-	Error              *string   `json:"error,omitempty"`
-	PayloadExcerpt     string    `json:"payload_excerpt,omitempty"`
-	ReceivedAt         time.Time `json:"received_at"`
+	ID                 string        `json:"id"`
+	TenantID           string        `json:"tenant_id"`
+	SourceID           string        `json:"source_id"`
+	ProviderDeliveryID string        `json:"provider_delivery_id,omitempty"`
+	EventType          string        `json:"event_type,omitempty"`
+	Status             string        `json:"status"`
+	TriggerID          *string       `json:"trigger_id,omitempty"`
+	RunID              *string       `json:"run_id,omitempty"`
+	Error              *string       `json:"error,omitempty"`
+	PayloadExcerpt     string        `json:"payload_excerpt,omitempty"`
+	ReceivedAt         time.Time     `json:"received_at"`
+	Runs               []DeliveryRun `json:"runs,omitempty"`
+}
+
+// DeliveryRun records a single matched-trigger dispatch for a delivery — the
+// authoritative one-to-many audit detail behind a delivery. RunID is nil when
+// the dispatch failed (Status == RunStatusFailed), in which case Error explains.
+type DeliveryRun struct {
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	DeliveryID string    `json:"delivery_id"`
+	TriggerID  string    `json:"trigger_id"`
+	RunID      *string   `json:"run_id,omitempty"`
+	Status     string    `json:"status"`
+	Error      *string   `json:"error,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // ─── API request/response DTOs ────────────────────────────────────────────────

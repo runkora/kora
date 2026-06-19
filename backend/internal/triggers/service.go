@@ -376,9 +376,28 @@ func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error 
 	return s.repo.DeleteTrigger(ctx, tenantID, id)
 }
 
-// ListDeliveries returns recent deliveries for a tenant.
+// ListDeliveries returns recent deliveries for a tenant, each with its full
+// per-trigger run fan-out attached (one batched query, no N+1).
 func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
-	return s.repo.ListDeliveries(ctx, tenantID, filter)
+	deliveries, err := s.repo.ListDeliveries(ctx, tenantID, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(deliveries) == 0 {
+		return deliveries, nil
+	}
+	ids := make([]string, len(deliveries))
+	for i := range deliveries {
+		ids[i] = deliveries[i].ID
+	}
+	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("attach delivery runs: %w", err)
+	}
+	for i := range deliveries {
+		deliveries[i].Runs = runs[deliveries[i].ID]
+	}
+	return deliveries, nil
 }
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────
@@ -476,12 +495,10 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 		return
 	}
 
-	// v1 limitation: a delivery may match multiple triggers and start a run for
-	// each, but trigger_deliveries records a single (trigger_id, run_id) — the
-	// first successful dispatch. Each run is still logged individually, and every
-	// run is attributed to the source principal, but the delivery row alone does
-	// not enumerate all runs it spawned. Recording the full 1→N relationship
-	// (delivery↔trigger↔run join) is deferred; see PR #75 discussion.
+	// A delivery may match multiple triggers and start a run for each. Every
+	// attempt is recorded individually in trigger_delivery_runs (the authoritative
+	// 1→N audit record); trigger_deliveries keeps a delivery-level summary whose
+	// trigger_id/run_id point at the first successful dispatch.
 	var dispatched bool
 	var lastErr error
 	for _, t := range matched {
@@ -493,6 +510,8 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 				logging.Field{Key: "delivery_id", Value: deliveryID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			msg := err.Error()
+			s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusFailed, nil, &msg)
 			continue
 		}
 		s.logger.Info(ctx, "trigger started run",
@@ -500,9 +519,11 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "delivery_id", Value: deliveryID},
 		)
+		rID := runID
+		s.recordDeliveryRun(ctx, src.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
 		if !dispatched {
 			dispatched = true
-			tID, rID := t.ID, runID
+			tID := t.ID
 			if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &tID, &rID, nil); err != nil {
 				s.logger.Error(ctx, "failed to record dispatched delivery", logging.Field{Key: "delivery_id", Value: deliveryID}, logging.Field{Key: "error", Value: err.Error()})
 			}
@@ -540,6 +561,27 @@ func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
 	if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, nil, nil, &msg); err != nil {
 		s.logger.Error(ctx, "failed to record failed delivery",
 			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// recordDeliveryRun persists one matched-trigger dispatch outcome. Best-effort:
+// a failure to write the audit row is logged but never aborts dispatch.
+func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, triggerID, status string, runID, errMsg *string) {
+	dr := &DeliveryRun{
+		ID:         uuid.NewString(),
+		TenantID:   tenantID,
+		DeliveryID: deliveryID,
+		TriggerID:  triggerID,
+		RunID:      runID,
+		Status:     status,
+		Error:      errMsg,
+	}
+	if err := s.repo.InsertDeliveryRun(ctx, dr); err != nil {
+		s.logger.Error(ctx, "failed to record delivery run",
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "trigger_id", Value: triggerID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}

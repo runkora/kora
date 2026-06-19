@@ -30,12 +30,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
   }
   // agent_slug is intentionally not required: the backend resolves the canonical
   // slug from agent_type_id and ignores any client-supplied value.
-  if (
-    !body.source_id ||
-    !body.agent_type_id ||
-    !body.event_type ||
-    !body.prompt_template?.trim()
-  ) {
+  if (!body.source_id || !body.agent_type_id || !body.event_type || !body.prompt_template?.trim()) {
     return NextResponse.json(
       {
         code: 'validation_error',

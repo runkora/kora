@@ -31,11 +31,12 @@ func silentLogger() logging.Logger { return logging.NewLoggerWithOutput(io.Disca
 // ── mockRepository ──────────────────────────────────────────────────────────
 
 type mockRepository struct {
-	mu         sync.Mutex
-	sources    map[string]*WebhookSource
-	triggers   map[string]*Trigger
-	deliveries []*Delivery
-	seenDeliv  map[string]bool // source_id|provider_delivery_id → seen (dedup)
+	mu           sync.Mutex
+	sources      map[string]*WebhookSource
+	triggers     map[string]*Trigger
+	deliveries   []*Delivery
+	deliveryRuns []*DeliveryRun
+	seenDeliv    map[string]bool // source_id|provider_delivery_id → seen (dedup)
 
 	createSourceErr   error
 	createTriggerErr  error
@@ -235,6 +236,43 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		}
 	}
 	return out, nil
+}
+
+func (m *mockRepository) InsertDeliveryRun(_ context.Context, r *DeliveryRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *r
+	m.deliveryRuns = append(m.deliveryRuns, &cp)
+	return nil
+}
+
+func (m *mockRepository) ListDeliveryRunsForDeliveries(_ context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	want := map[string]bool{}
+	for _, id := range deliveryIDs {
+		want[id] = true
+	}
+	out := map[string][]DeliveryRun{}
+	for _, r := range m.deliveryRuns {
+		if r.TenantID == tenantID && want[r.DeliveryID] {
+			out[r.DeliveryID] = append(out[r.DeliveryID], *r)
+		}
+	}
+	return out, nil
+}
+
+// deliveryRunsFor returns the recorded run rows for a delivery, for assertions.
+func (m *mockRepository) deliveryRunsFor(deliveryID string) []DeliveryRun {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []DeliveryRun
+	for _, r := range m.deliveryRuns {
+		if r.DeliveryID == deliveryID {
+			out = append(out, *r)
+		}
+	}
+	return out
 }
 
 // deliveryByID returns the recorded delivery for assertions.

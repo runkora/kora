@@ -35,6 +35,15 @@ export interface DeliveryRow {
   runId: string | null;
   error: string | null;
   receivedAt: string;
+  /** Full per-trigger dispatch fan-out for this delivery. */
+  runs: DeliveryRunRow[];
+}
+
+export interface DeliveryRunRow {
+  triggerId: string;
+  runId: string | null;
+  status: string;
+  error: string | null;
 }
 
 /** Minimal agent identity used by the trigger create/edit form's agent picker. */
@@ -81,6 +90,12 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     runId: d.run_id ?? null,
     error: d.error ?? null,
     receivedAt: d.received_at,
+    runs: (d.runs ?? []).map((r) => ({
+      triggerId: r.trigger_id,
+      runId: r.run_id ?? null,
+      status: r.status,
+      error: r.error ?? null,
+    })),
   };
 }
 
