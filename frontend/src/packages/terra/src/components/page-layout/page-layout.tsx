@@ -24,6 +24,15 @@ export interface PageLayoutProps {
   sidebarFooter?: React.ReactNode;
   /** Fixed top header bar (optional). */
   header?: React.ReactNode;
+  /**
+   * Mobile sidebar drawer overlay (optional). When provided, the fixed sidebar
+   * `<aside>` is hidden on viewports narrower than `md` (768 px) and this slot
+   * is rendered in its place. Use a slide-in Radix Dialog drawer that wraps the
+   * same sidebar content.
+   *
+   * Has no effect when `sidebar` is not provided.
+   */
+  mobileDrawer?: React.ReactNode;
   /** Main scrollable content. */
   children: React.ReactNode;
   className?: string;
@@ -71,12 +80,22 @@ const PageLayout = ({
   sidebarHeader,
   sidebarFooter,
   header,
+  mobileDrawer,
   children,
   className,
 }: PageLayoutProps) => (
   <div className={cn('flex h-screen w-full overflow-hidden bg-background', className)}>
+    {/* Mobile drawer overlay — only rendered on viewports narrower than md when provided */}
+    {sidebar && mobileDrawer}
+
     {sidebar && (
-      <aside className="h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface">
+      <aside
+        className={cn(
+          'h-full w-60 shrink-0 flex flex-col border-r border-border-subtle bg-surface',
+          // Hide the fixed sidebar on mobile; the drawer takes over below md
+          mobileDrawer ? 'hidden md:flex' : 'flex',
+        )}
+      >
         {sidebarHeader && (
           <header className="shrink-0 h-14 border-b border-border-subtle">{sidebarHeader}</header>
         )}
@@ -86,7 +105,7 @@ const PageLayout = ({
     )}
     <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
       {header && (
-        <header className="shrink-0 h-14 flex items-center border-b border-border-subtle bg-surface pl-8 pr-6">
+        <header className="shrink-0 h-14 flex items-center border-b border-border-subtle bg-surface pl-4 md:pl-8 pr-4 md:pr-6">
           {header}
         </header>
       )}

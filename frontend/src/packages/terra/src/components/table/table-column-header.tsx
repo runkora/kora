@@ -63,6 +63,8 @@ export interface TableColumnHeaderProps {
   align?: 'left' | 'right' | 'center';
   /** Optional fixed width passed as an inline style. */
   width?: string | number;
+  /** @internal Extra classes forwarded to the `<th>` element. Used by DataTable for sticky columns. */
+  className?: string;
 
   /**
    * Current sort direction for this column.
@@ -144,6 +146,7 @@ export function TableColumnHeader({
   children,
   align = 'left',
   width,
+  className,
   sortDir,
   onSort,
   filter,
@@ -161,7 +164,7 @@ export function TableColumnHeader({
 
   return (
     <th
-      className="h-10 px-4 align-middle text-xs font-medium uppercase tracking-wider text-subtle whitespace-nowrap"
+      className={cn('h-10 px-4 align-middle text-xs font-medium uppercase tracking-wider text-subtle whitespace-nowrap', className)}
       style={width !== undefined ? { width } : undefined}
     >
       <div className={cn('flex items-center gap-1', alignClass)}>

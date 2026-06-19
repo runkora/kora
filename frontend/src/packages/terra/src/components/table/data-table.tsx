@@ -460,6 +460,7 @@ export function DataTable<TData>({
                       <TableHead
                         key={header.id}
                         style={colDef.width !== undefined ? { width: colDef.width } : undefined}
+                        className={colDef.locked ? 'sticky left-0 z-10 bg-surface-elevated' : undefined}
                       >
                         {colDef.header}
                       </TableHead>
@@ -500,6 +501,7 @@ export function DataTable<TData>({
                       sortDir={isSortable ? sortDir : undefined}
                       onSort={isSortable ? () => handleSort(header.id) : undefined}
                       filter={filterProp}
+                      className={colDef.locked ? 'sticky left-0 z-10 bg-surface-elevated' : undefined}
                     >
                       {colDef.header}
                     </TableColumnHeader>
@@ -544,7 +546,10 @@ export function DataTable<TData>({
                   {row.getVisibleCells().map((cell) => {
                     const cellColDef = colById.get(cell.column.id);
                     return (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        className={cellColDef?.locked ? 'sticky left-0 z-10 bg-surface' : undefined}
+                      >
                         {cellColDef ? cellColDef.cell(row.original) : null}
                       </TableCell>
                     );
