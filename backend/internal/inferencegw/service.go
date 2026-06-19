@@ -1145,7 +1145,9 @@ func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64
 		if cat.Pooled {
 			continue // pools are shared ceilings, never part of the per-member MAX
 		}
-		if cat.LimitUSD > effective {
+		// Tie-break: prefer "weekly" when two categories share the same limit so
+		// the UI always shows the more conservative (shorter) window.
+		if cat.LimitUSD > effective || (cat.LimitUSD == effective && cat.ResetCadence == cadenceWeekly && effectiveCadence != cadenceWeekly) {
 			effective = cat.LimitUSD
 			effectiveCadence = cat.ResetCadence
 		}
@@ -1174,7 +1176,7 @@ func principalTypeFor(pid, recorded string) string {
 // effectiveSpend returns the spend that belongs to the same window as the
 // effective limit: ISO-week spend for weekly cadence, month-to-date otherwise.
 func effectiveSpend(cadence string, monthlySpend, weeklySpend float64) float64 {
-	if cadence == "weekly" {
+	if cadence == cadenceWeekly {
 		return weeklySpend
 	}
 	return monthlySpend

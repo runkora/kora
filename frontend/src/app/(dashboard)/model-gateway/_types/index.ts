@@ -200,8 +200,8 @@ export interface BudgetPrincipalStatus {
   categories: BudgetCategoryStatus[];
   /** MAX limit across all non-pooled categories, regardless of cadence. */
   effective_limit_usd: number;
-  /** Cadence ("weekly" | "monthly") of the category that set effective_limit_usd. */
-  effective_reset_cadence?: string;
+  /** Cadence of the category that set effective_limit_usd. */
+  effective_reset_cadence?: 'weekly' | 'monthly';
   /** Spend over the same window as effective_limit_usd (ISO-week for weekly, month-to-date otherwise).
    *  Use this for the headline utilisation bar — not current_spend_usd. */
   effective_spend_usd: number;

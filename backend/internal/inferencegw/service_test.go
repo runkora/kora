@@ -712,6 +712,12 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	if row.PrincipalType != "AGENT" {
 		t.Errorf("principal type = %q, want AGENT (inferred from SPIFFE id)", row.PrincipalType)
 	}
+	if row.EffectiveResetCadence != "weekly" {
+		t.Errorf("effective_reset_cadence = %q, want \"weekly\"", row.EffectiveResetCadence)
+	}
+	if row.EffectiveSpendUSD != 20 {
+		t.Errorf("effective_spend_usd = %v, want 20 (ISO-week spend, not monthly)", row.EffectiveSpendUSD)
+	}
 }
 
 func TestListBudgetPrincipals_RoleCounterForRemovedBudgetIgnored(t *testing.T) {
