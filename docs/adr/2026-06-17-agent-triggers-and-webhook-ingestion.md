@@ -106,7 +106,7 @@ The pivotal architectural question is *where the feature lives and how a non-int
 
 ### Rationale
 
-Option 1 is the only one that satisfies every driver at once: it puts the public endpoint where a public endpoint already lives, mints the per-source identity where tokens are already signed, keeps the triggers package independent of `internal/agents`, and reuses the typed-client idiom for the one cross-service call that matters (starting a run). Option 2 either widens the external surface or doesn't actually reduce coupling; Option 3 is the right *eventual* shape but unjustified infrastructure today. The hosting binary is recorded as revisitable — if the triggers surface grows, the package grarduates to `orbit-triggers` with no change to its internal boundaries.
+Option 1 is the only one that satisfies every driver at once: it puts the public endpoint where a public endpoint already lives, mints the per-source identity where tokens are already signed, keeps the triggers package independent of `internal/agents`, and reuses the typed-client idiom for the one cross-service call that matters (starting a run). Option 2 either widens the external surface or doesn't actually reduce coupling; Option 3 is the right *eventual* shape but unjustified infrastructure today. The hosting binary is recorded as revisitable — if the triggers surface grows, the package graduates to `orbit-triggers` with no change to its internal boundaries (see the planned extraction in Notes).
 
 ### Sub-decisions
 
@@ -156,7 +156,7 @@ Option 1 is the only one that satisfies every driver at once: it puts the public
 
 ### Negative
 
-- Adds registry/matching/dispatch/delivery-log responsibility to the `identity` binary.
+- Adds registry/matching/dispatch/delivery-log responsibility to the `identity` binary — a direction we have committed to unwinding (see the planned `orbit-triggers` extraction in Notes); this v1 hosting must not become the place additional trigger surfaces accrete.
 - A new typed `clients/agents` and a `SERVICE`-principal run-creation path widen `orbit-agents`'s accepted callers (mitigated: same JWT verification + scope enforcement as any principal).
 - Cross-service reads (`identity → orbit-agents`) to validate target agent types.
 
@@ -222,6 +222,28 @@ Phase 1 (framework + GitHub PR end-to-end in k3d), then Phase 2 (UI + hardening:
 
 ## Notes
 
-The binary that hosts `internal/triggers/` (recorded as `identity`) is the most likely point to revisit: if ingestion volume or the management surface grows, the package can move to a dedicated `orbit-triggers` binary without changing its internal boundaries, since it already talks to `orbit-agents` and the policy service over typed clients rather than in-process imports.
+### Planned follow-up: extract `internal/triggers/` into an `orbit-triggers` service
+
+Hosting in `identity` is a deliberate **v1-only** choice, not the end state. Product
+direction is explicit that triggers becomes its own service, and that webhooks is
+only the **first** ingestion surface — scheduled/cron triggers and other automated
+trigger kinds are coming. Two of the drivers that justify identity-hosting today
+(*"the public edge already lives here"* and *"identity is the token authority"*) are
+**webhook-specific** and do **not** generalise: a cron has no public inbound edge at
+all, so adding those surfaces inside `identity` would grow it in a direction we have
+already decided to unwind, and risks `identity` becoming a catch-all.
+
+**Decision trigger:** extract to a dedicated `orbit-triggers` binary **when the second
+trigger surface lands** (e.g. cron/scheduled), rather than adding a second surface to
+`identity`. The package was built to make this cheap — it imports neither
+`internal/identity` nor `internal/agents`, reaching both the policy service and
+`orbit-agents` over typed HTTP clients. The extraction work is bounded:
+
+- New `cmd/orbit-triggers/` binary wiring the existing `internal/triggers/` package unchanged.
+- Replace the in-process `TokenMinter` with an HTTP client to a (new) internal mint endpoint on `identity` — this is the **only** in-process coupling today.
+- Move the trigger migrations to the new binary (the tables FK only among themselves — no cross-schema FK into identity/principals — so they relocate cleanly; decide shared-DB vs own-DB at that point).
+- Move the gateway JWT-bypass rule for `/api/v1/webhooks/` and the VirtualService route to the new host.
+
+Tracked as backlog work on the Orbit board.
 
 **Last Updated:** 2026-06-17
