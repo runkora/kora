@@ -164,7 +164,10 @@ export function TableColumnHeader({
 
   return (
     <th
-      className={cn('h-10 px-4 align-middle text-xs font-medium uppercase tracking-wider text-subtle whitespace-nowrap', className)}
+      className={cn(
+        'h-10 px-4 align-middle text-xs font-medium uppercase tracking-wider text-subtle whitespace-nowrap',
+        className,
+      )}
       style={width !== undefined ? { width } : undefined}
     >
       <div className={cn('flex items-center gap-1', alignClass)}>

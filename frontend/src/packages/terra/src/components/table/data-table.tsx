@@ -419,6 +419,13 @@ export function DataTable<TData>({
   const rows = table.getRowModel().rows;
   const visibleColCount = table.getVisibleLeafColumns().length;
 
+  // Only the first locked column is pinned (sticky-left) while the table scrolls
+  // horizontally, so the primary identifier stays visible. Pinning every locked
+  // column would stack them all at `left-0` on top of one another — `locked` is
+  // also used purely to keep a column out of the visibility toggle, so a table
+  // may legitimately lock several columns without wanting them all pinned.
+  const pinnedColId = columnDefs.find((c) => c.locked)?.id;
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -460,7 +467,11 @@ export function DataTable<TData>({
                       <TableHead
                         key={header.id}
                         style={colDef.width !== undefined ? { width: colDef.width } : undefined}
-                        className={colDef.locked ? 'sticky left-0 z-10 bg-surface-elevated' : undefined}
+                        className={
+                          colDef.id === pinnedColId
+                            ? 'sticky left-0 z-10 bg-surface-elevated'
+                            : undefined
+                        }
                       >
                         {colDef.header}
                       </TableHead>
@@ -501,7 +512,11 @@ export function DataTable<TData>({
                       sortDir={isSortable ? sortDir : undefined}
                       onSort={isSortable ? () => handleSort(header.id) : undefined}
                       filter={filterProp}
-                      className={colDef.locked ? 'sticky left-0 z-10 bg-surface-elevated' : undefined}
+                      className={
+                        colDef.id === pinnedColId
+                          ? 'sticky left-0 z-10 bg-surface-elevated'
+                          : undefined
+                      }
                     >
                       {colDef.header}
                     </TableColumnHeader>
@@ -548,7 +563,11 @@ export function DataTable<TData>({
                     return (
                       <TableCell
                         key={cell.id}
-                        className={cellColDef?.locked ? 'sticky left-0 z-10 bg-surface' : undefined}
+                        className={
+                          pinnedColId !== undefined && cellColDef?.id === pinnedColId
+                            ? 'sticky left-0 z-10 bg-surface'
+                            : undefined
+                        }
                       >
                         {cellColDef ? cellColDef.cell(row.original) : null}
                       </TableCell>

@@ -47,7 +47,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 ### Success Metrics
 
 - All pages render without horizontal scroll on a 390 px iPhone 14 viewport.
-- All interactive touch targets meet the WCAG 2.5.5 AAA minimum of 44 × 44 px.
+- All interactive touch targets meet the WCAG 2.5.5 AAA minimum of 44 × 44 px. **(Deferred — icon-only buttons remain at Terra's 36 px `size="icon"`; bumping this is a Terra-wide change tracked as a follow-up. See the ADR Success Metrics note.)**
 - All existing desktop Playwright/Storybook tests continue to pass.
 - Lighthouse mobile score improves from current baseline.
 
@@ -93,7 +93,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 
 **Acceptance Criteria:**
 - [ ] The start-run modal is fully usable at 390 px (form fields, dropdowns, submit).
-- [ ] All modal dialogs have at least 44 px touch targets for primary actions.
+- [ ] ~~All modal dialogs have at least 44 px touch targets for primary actions.~~ **(Deferred — Terra-wide touch-target review; icon buttons currently 36 px.)**
 
 ### Secondary User Stories
 
@@ -119,9 +119,9 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 3. **Grid responsiveness** — audit every `<Grid cols={N}>` in the dashboard and ensure it carries a `base: 1` starting point (most already do). Hard-coded non-responsive column counts that would overflow at mobile are updated.
 
-4. **Data tables mobile treatment** — the `DataTable` component already renders in a scrollable container. We add `overflow-x-auto` at the table wrapper level and ensure the first column is sticky so users can scroll right and still see what row they are on.
+4. **Data tables mobile treatment** — the `DataTable` component already renders in a horizontally scrollable container (`TableRoot` carries `overflow-x-auto`). We make the locked column sticky (`sticky left-0`) so users can scroll right and still see what row they are on.
 
-5. **Touch targets** — audit and expand button sizes to 44 px minimum on mobile using Tailwind responsive utilities via Terra's `Button` size prop.
+5. **Touch targets** — _Deferred._ Auditing and expanding icon-button sizes to a 44 px minimum is a Terra-wide change (every `size="icon"` button in the app) and is tracked as a follow-up rather than forked locally in this pass.
 
 ### User Experience
 
@@ -194,7 +194,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 **Should Have (P1):**
 - [ ] Tablet (768 px) sidebar collapses to icon-rail or stays full-width with labels.
-- [ ] All touch targets ≥ 44 × 44 px on mobile.
+- [ ] ~~All touch targets ≥ 44 × 44 px on mobile.~~ **(Deferred — Terra-wide touch-target review; icon buttons currently 36 px.)**
 - [ ] Page header breadcrumbs truncate gracefully on narrow viewports.
 - [ ] Modal dialogs are full-width on mobile.
 

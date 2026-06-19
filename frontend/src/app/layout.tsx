@@ -20,10 +20,11 @@ export const metadata: Metadata = {
   description: 'Control plane for autonomous AI agents.',
 };
 
+// Note: we deliberately do not set `maximumScale` or `userScalable: false` —
+// disabling pinch-zoom is a WCAG 1.4.4 / 1.4.10 accessibility violation.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
 };
 
 export default function RootLayout({

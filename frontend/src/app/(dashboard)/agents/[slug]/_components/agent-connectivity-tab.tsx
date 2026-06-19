@@ -99,7 +99,10 @@ export function AgentConnectivityTab() {
 
   return (
     <Stack paddingBlock="comfortable">
-      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="comfortable" align="start">
+      {/* No align="start": on mobile the stack is vertical, where flex-start
+          sizes children to their content and overflows. Stretch keeps the
+          columns full-width. */}
+      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="comfortable">
         {/* ── LEFT: editable layers (~60%) ──────────────────────────────────── */}
         <Stack grow gap="comfortable" minWidth="none">
           <Form

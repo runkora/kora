@@ -64,7 +64,7 @@ Extend `PageLayout` with responsive Tailwind classes directly: hide the sidebar 
 
 ### Option 2: Split the mobile drawer into a Tier 3 feature component, pass as a slot to `PageLayout`
 
-`PageLayout` gets two new props: `mobileDrawer?: React.ReactNode` and `mobileHeader?: React.ReactNode`. The dashboard layout assembles a `MobileSidebarDrawer` Tier 3 component and passes it. `PageLayout` applies the responsive `hidden md:flex` class to its `<aside>` so the sidebar is hidden on small viewports when a `mobileDrawer` is provided.
+`PageLayout` gets one new prop: `mobileDrawer?: React.ReactNode`. The dashboard layout assembles a `MobileSidebarDrawer` Tier 3 component and passes it. `PageLayout` applies the responsive `hidden md:flex` class to its `<aside>` so the sidebar is hidden on small viewports when a `mobileDrawer` is provided. (An earlier draft also considered a `mobileHeader` prop, but the existing `header` slot already collapses responsively via padding utilities, so no separate mobile header was needed.)
 
 **Pros:**
 - `PageLayout` stays a pure render function (Server Component compatible).
@@ -99,7 +99,7 @@ Use the `peer` Tailwind pattern with a hidden `<input type="checkbox">` to toggl
 
 Option 2 threads the needle between all constraints:
 
-1. **Terra stays a pure render function.** `PageLayout` grows by two optional props (`mobileDrawer`, `mobileHeader`). It applies `hidden md:flex` to its sidebar `<aside>` when `mobileDrawer` is provided, and renders `mobileDrawer` alongside the aside. No `useState`, no event handlers, no client component promotion inside Terra.
+1. **Terra stays a pure render function.** `PageLayout` grows by one optional prop (`mobileDrawer`). It applies `hidden md:flex` to its sidebar `<aside>` when `mobileDrawer` is provided, and renders `mobileDrawer` alongside the aside. No `useState`, no event handlers, no client component promotion inside Terra.
 
 2. **Open/close state is scoped to the dashboard.** A `useSidebarState` hook in `DashboardLayout` provides `{ isOpen, toggle, close }`. The hamburger button in `DashboardHeader` and the `MobileSidebarDrawer` both receive this state. When the user taps a nav link, `DashboardSidebar` calls `close()` via the context.
 
@@ -140,7 +140,7 @@ Option 2 threads the needle between all constraints:
 
 | Component | Location | Change |
 |-----------|----------|--------|
-| `PageLayout` | `src/packages/terra/.../page-layout/page-layout.tsx` | Add `mobileDrawer?: React.ReactNode` + `mobileHeader?: React.ReactNode` props; add `md:hidden` class to `mobileDrawer` slot and `hidden md:flex` to `<aside>` when `mobileDrawer` is provided. |
+| `PageLayout` | `src/packages/terra/.../page-layout/page-layout.tsx` | Add `mobileDrawer?: React.ReactNode` prop; render it alongside the `<aside>` and apply `hidden md:flex` to the `<aside>` when `mobileDrawer` is provided. |
 | `DashboardLayout` | `src/app/(dashboard)/layout.tsx` | Add `'use client'`; wrap with `SidebarStateProvider`. |
 | `DashboardHeader` | `src/app/(dashboard)/_components/dashboard-header.tsx` | Add hamburger `Button` (icon, `md:hidden`) on the left; wire to `useSidebarState`. |
 | `MobileSidebarDrawer` | `src/app/(dashboard)/_components/mobile-sidebar-drawer.tsx` | New Tier 3 component. Radix `Dialog` full-height left drawer. Renders `SidebarBrandHeader` + `DashboardSidebar` + `SidebarUserFooter`. |
@@ -164,7 +164,7 @@ The sidebar is visible at `md:flex` (768 px and above) and hidden at base (below
 
 ### Migration Path
 
-No migration required. Existing callers of `PageLayout` without the new props are unaffected — the `mobileDrawer` and `mobileHeader` props are optional and default to `undefined`.
+No migration required. Existing callers of `PageLayout` without the new prop are unaffected — `mobileDrawer` is optional and defaults to `undefined`.
 
 ### Timeline
 
@@ -180,7 +180,12 @@ Phase 1 (2026-06-19): All changes above in a single PR.
 - `pnpm tsc --noEmit` passes with zero errors.
 - All existing Vitest unit and integration tests pass.
 - Dashboard loads without horizontal scroll at 390 × 844 px (iPhone 14) in Chrome DevTools device emulation.
-- All primary interactive elements have a visible touch target ≥ 44 × 44 px.
+- Primary interactive elements use Terra's standard control sizes. **Note:** icon-only
+  buttons (hamburger, drawer close, header refresh) render at Terra's `size="icon"`
+  (36 × 36 px), which is below the WCAG 2.5.5 AAA target of 44 × 44 px the PRD aspired
+  to. Bumping the `icon` size is a Terra-wide change affecting every icon button in the
+  app, so it is **explicitly deferred** out of this pass rather than forked locally.
+  Tracked as a follow-up for a dedicated Terra touch-target review.
 
 ### Monitoring
 

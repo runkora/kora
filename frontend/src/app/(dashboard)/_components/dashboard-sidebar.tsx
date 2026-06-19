@@ -57,7 +57,9 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     badge={badge}
                     asChild
                   >
-                    <a href={href} onClick={onNavigate}>{itemLabel}</a>
+                    <a href={href} onClick={onNavigate}>
+                      {itemLabel}
+                    </a>
                   </NavItem>
                 ),
               )}

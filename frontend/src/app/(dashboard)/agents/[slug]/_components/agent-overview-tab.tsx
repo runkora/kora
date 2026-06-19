@@ -9,6 +9,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  CodeBlock,
   DataTable,
   Grid,
   Stack,
@@ -205,8 +206,13 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         </Card>
       </Grid>
 
-      {/* ── Two-column layout ────────────────────────────────────────────── */}
-      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="comfortable" align="start">
+      {/* ── Two-column layout ──────────────────────────────────────────────
+          Columns stretch to full width (default align-items: stretch). Do NOT
+          set align="start" here: on mobile the stack is vertical, where
+          align-items:flex-start makes the children size to their (wide) content
+          instead of the column width — which pushes the table and prompt past
+          the viewport. Stretch keeps them full-width so they wrap/scroll. */}
+      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="comfortable">
         {/* Left column: recent runs + system prompt */}
         <Stack gap="comfortable" grow>
           {/* Recent runs */}
@@ -225,14 +231,13 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
             }
           />
 
-          {/* System prompt */}
+          {/* System prompt — wrapping CodeBlock so long lines wrap within the
+              column instead of forcing the page wider than the viewport. */}
           <Card>
             <CardHeader compact title="System Prompt" divider />
             <CardContent padded>
               <Stack gap="snug">
-                <Text mono preserveWhitespace size="supporting">
-                  {promptTruncated}
-                </Text>
+                <CodeBlock text={promptTruncated} wrap />
                 {agent.systemPrompt.length > PROMPT_PREVIEW_LENGTH && (
                   <Button
                     variant="ghost"
