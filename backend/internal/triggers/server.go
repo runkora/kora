@@ -107,6 +107,8 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, ErrSignatureInvalid):
 			api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "signature verification failed", nil), nil)
+		case errors.Is(err, ErrMissingDeliveryID):
+			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "delivery is missing a provider delivery id", nil), nil)
 		case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrSourceDisabled):
 			// Do not distinguish missing from disabled — avoid leaking which
 			// source ids exist to unauthenticated callers.

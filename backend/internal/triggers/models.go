@@ -40,6 +40,11 @@ var (
 	ErrSourceDisabled = errors.New("webhook source is disabled")
 	// ErrSignatureInvalid is returned when a delivery fails signature verification.
 	ErrSignatureInvalid = errors.New("webhook signature verification failed")
+	// ErrMissingDeliveryID is returned when a verified delivery carries no
+	// provider delivery id. The id is the sole basis for replay dedup, and it is
+	// not part of the signed payload, so a delivery without one cannot be
+	// deduplicated and is rejected fail-closed rather than accepted unprotected.
+	ErrMissingDeliveryID = errors.New("webhook delivery has no provider delivery id")
 	// ErrUnknownProvider is returned when a source references an unregistered adapter.
 	ErrUnknownProvider = errors.New("unknown webhook provider")
 	// ErrValidation indicates a malformed create/update request.

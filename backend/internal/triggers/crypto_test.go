@@ -86,7 +86,10 @@ func TestGenerateSecret(t *testing.T) {
 
 func TestLoadCipherKey_DevFallback(t *testing.T) {
 	t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", "")
-	key, dev := LoadCipherKey()
+	key, dev, err := LoadCipherKey()
+	if err != nil {
+		t.Fatalf("unexpected error when env unset: %v", err)
+	}
 	if !dev {
 		t.Error("expected devFallback=true when env unset")
 	}
@@ -101,7 +104,10 @@ func TestLoadCipherKey_FromEnv(t *testing.T) {
 		raw[i] = byte(i)
 	}
 	t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(raw))
-	key, dev := LoadCipherKey()
+	key, dev, err := LoadCipherKey()
+	if err != nil {
+		t.Fatalf("unexpected error for valid env key: %v", err)
+	}
 	if dev {
 		t.Error("expected devFallback=false when a valid env key is set")
 	}
@@ -110,11 +116,26 @@ func TestLoadCipherKey_FromEnv(t *testing.T) {
 	}
 }
 
-func TestLoadCipherKey_InvalidEnvFallsBack(t *testing.T) {
-	// Wrong length → fall back to the dev key rather than a bad key.
-	t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("too-short")))
-	key, dev := LoadCipherKey()
-	if !dev || len(key) != 32 {
-		t.Errorf("invalid env key should fall back to a 32-byte dev key (dev=%v len=%d)", dev, len(key))
+func TestLoadCipherKey_SetButInvalidIsFatal(t *testing.T) {
+	// A present-but-malformed key must be a hard error, never a silent fallback
+	// to the public dev key. Cover both failure modes: bad base64 and wrong length.
+	cases := map[string]string{
+		"not base64":   "@@@not-base64@@@",
+		"wrong length": base64.StdEncoding.EncodeToString([]byte("too-short")),
+	}
+	for name, val := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("ORBIT_TRIGGERS_ENCRYPTION_KEY", val)
+			key, dev, err := LoadCipherKey()
+			if !errors.Is(err, ErrCipherKey) {
+				t.Fatalf("expected ErrCipherKey for a set-but-invalid key, got err=%v", err)
+			}
+			if dev {
+				t.Error("must not report a dev fallback for a set-but-invalid key")
+			}
+			if key != nil {
+				t.Error("must not return a key for a set-but-invalid key")
+			}
+		})
 	}
 }

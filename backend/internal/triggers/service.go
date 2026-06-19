@@ -382,6 +382,13 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	}
 
 	deliveryID := adapter.DeliveryID(headers)
+	if deliveryID == "" {
+		// Replay protection keys entirely on the provider delivery id via the
+		// partial unique index on trigger_deliveries. The id is not covered by the
+		// HMAC signature, so a captured-and-replayed body with the id header
+		// stripped would otherwise re-dispatch unbounded. Reject fail-closed.
+		return 0, ErrMissingDeliveryID
+	}
 	eventType := adapter.EventType(headers, body)
 
 	delivery := &Delivery{
@@ -533,5 +540,7 @@ func truncate(b []byte, n int) string {
 	if len(b) <= n {
 		return string(b)
 	}
-	return string(b[:n])
+	// Trim back to a rune boundary so the excerpt never ends mid-codepoint and
+	// re-serializes as valid UTF-8 in the deliveries API response.
+	return strings.ToValidUTF8(string(b[:n]), "")
 }

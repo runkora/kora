@@ -284,6 +284,24 @@ func TestIngest_SignatureInvalid_NoRow(t *testing.T) {
 	}
 }
 
+func TestIngest_MissingDeliveryID_NoRow(t *testing.T) {
+	// A validly-signed body with the delivery-id header stripped must be rejected
+	// fail-closed: the id is the sole dedup key and is not covered by the
+	// signature, so accepting it would re-open the replay hole.
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+	h.Del("X-Github-Delivery")
+
+	if _, err := svc.Ingest(context.Background(), src.ID, h, body); !errors.Is(err, ErrMissingDeliveryID) {
+		t.Errorf("got %v, want ErrMissingDeliveryID", err)
+	}
+	if len(deps.repo.deliveries) != 0 {
+		t.Error("a delivery with no provider id must not be recorded")
+	}
+}
+
 func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	svc, deps := newTestService(t)
 	src := mustSource(t, svc)

@@ -206,7 +206,10 @@ func initTriggersController(
 	policyClient *policyclient.Client,
 	policyEval policy.Evaluator,
 ) (api.Controller, error) {
-	cipherKey, devFallback := triggers.LoadCipherKey()
+	cipherKey, devFallback, err := triggers.LoadCipherKey()
+	if err != nil {
+		return nil, fmt.Errorf("load triggers encryption key: %w", err)
+	}
 	if devFallback {
 		logger.Warn(ctx, "ORBIT_TRIGGERS_ENCRYPTION_KEY not set — using insecure local-dev key; set it in production")
 	}

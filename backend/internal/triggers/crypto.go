@@ -72,18 +72,28 @@ func (c *secretCipher) decrypt(encoded string) (string, error) {
 // LoadCipherKey resolves the AES-256 key for encrypting webhook signing secrets.
 //
 // It reads a base64-encoded 32-byte key from ORBIT_TRIGGERS_ENCRYPTION_KEY. When
-// unset (local development), it derives a stable well-known key from a fixed
-// passphrase so the feature works out of the box — the second return value is
-// true to signal the dev fallback so the caller can log a warning. Production
-// deployments MUST set the environment variable.
-func LoadCipherKey() (key []byte, devFallback bool) {
+// the variable is unset (local development), it derives a stable well-known key
+// from a fixed passphrase so the feature works out of the box — devFallback is
+// true so the caller can log a warning. Production deployments MUST set the
+// variable.
+//
+// A variable that is set but malformed (not valid base64, or not 32 bytes) is a
+// fatal misconfiguration: it returns ErrCipherKey rather than silently falling
+// back to the public dev key, which would leave every signing secret encrypted
+// under a well-known key.
+func LoadCipherKey() (key []byte, devFallback bool, err error) {
 	if raw := os.Getenv("ORBIT_TRIGGERS_ENCRYPTION_KEY"); raw != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) == 32 {
-			return decoded, false
+		decoded, decErr := base64.StdEncoding.DecodeString(raw)
+		if decErr != nil {
+			return nil, false, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is not valid base64: %w", ErrCipherKey, decErr)
 		}
+		if len(decoded) != 32 {
+			return nil, false, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY must decode to 32 bytes, got %d", ErrCipherKey, len(decoded))
+		}
+		return decoded, false, nil
 	}
 	sum := sha256.Sum256([]byte("orbit-triggers-local-dev-key"))
-	return sum[:], true
+	return sum[:], true, nil
 }
 
 // generateSecret returns a cryptographically random hex string suitable for use
