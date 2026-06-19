@@ -64,16 +64,19 @@ else
   exit 1
 fi
 
-# ── Patch CoreDNS for dex.orbit.local.clearroute.io → Docker bridge ────────────────────
-# On the host Mac, dnsmasq resolves *.orbit.local.clearroute.io → 127.0.0.1.
-# Inside k3d pods, 127.0.0.1 means the pod itself — not the host.
+# ── Patch CoreDNS ──────────────────────────────────────────────────────────
+# Two problems to solve:
 #
-# The k3d Corefile already contains:
-#   import /etc/coredns/custom/*.server
-# which loads any *.server key from the coredns-custom ConfigMap as an
-# additional server block. We write our orbit.local.clearroute.io zone there so k3d's
-# own Corefile (and its NodeHosts block) is never touched or reconciled away.
-step "Patching CoreDNS for orbit.local.clearroute.io hostnames"
+# 1. *.orbit.local.clearroute.io hostnames: on the host Mac, dnsmasq resolves
+#    these to 127.0.0.1, but inside k3d pods 127.0.0.1 is the pod itself.
+#    We add a custom server block via the coredns-custom ConfigMap so k3d's
+#    own Corefile is never modified.
+#
+# 2. orbit-postgres / orbit-redis bare hostnames: the `forward . /etc/resolv.conf`
+#    rule points CoreDNS to 127.0.0.11 (Docker's embedded DNS), but from inside
+#    CoreDNS's own container that address is unreachable. We inject these into
+#    CoreDNS's NodeHosts file, which the hosts plugin resolves in-process.
+step "Patching CoreDNS for orbit.local.clearroute.io hostnames and Docker service IPs"
 
 DOCKER_BRIDGE_IP="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || echo "")"
@@ -84,8 +87,6 @@ if [[ -z "${DOCKER_BRIDGE_IP}" ]]; then
   exit 1
 fi
 
-# Resolve Dex container IP dynamically — Docker assigns IPs from the subnet
-# pool and they vary across machines and restarts.
 DEX_IP="$(docker inspect orbit-dex \
   --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")"
 if [[ -z "${DEX_IP}" ]]; then
@@ -94,13 +95,25 @@ if [[ -z "${DEX_IP}" ]]; then
   exit 1
 fi
 
-ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}"
+POSTGRES_IP="$(docker inspect orbit-postgres \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")"
+if [[ -z "${POSTGRES_IP}" ]]; then
+  echo "  ERROR: Could not detect orbit-postgres container IP."
+  echo "  Is Postgres running?  Run:  make dev-up"
+  exit 1
+fi
 
-# The key name must end in .server so CoreDNS imports it as a server block.
-# orbit.local.clearroute.io and api.orbit.local.clearroute.io resolve to the gateway (Istio VirtualService
-# health checks). dex.orbit.local.clearroute.io resolves to the Dex container IP directly
-# because Dex isn't reachable via the gateway — only via its container IP on
-# orbit-network.
+REDIS_IP="$(docker inspect orbit-redis \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")"
+if [[ -z "${REDIS_IP}" ]]; then
+  echo "  ERROR: Could not detect orbit-redis container IP."
+  echo "  Is Redis running?  Run:  make dev-up"
+  exit 1
+fi
+
+ok "Docker bridge gateway: ${DOCKER_BRIDGE_IP}, Dex: ${DEX_IP}, Postgres: ${POSTGRES_IP}, Redis: ${REDIS_IP}"
+
+# Custom server block for *.orbit.local.clearroute.io zone resolution.
 ORBIT_SERVER_BLOCK="orbit.local.clearroute.io:53 {
     hosts {
       ${DEX_IP} dex.orbit.local.clearroute.io
@@ -117,10 +130,24 @@ kubectl create configmap coredns-custom \
   --from-literal=orbit.local.clearroute.io.server="${ORBIT_SERVER_BLOCK}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Restart CoreDNS to pick up the new custom block immediately.
+# Inject orbit-postgres and orbit-redis into NodeHosts so the hosts plugin
+# resolves them in-process without forwarding.
+kubectl get configmap coredns -n kube-system -o json \
+  | jq --arg pg "${POSTGRES_IP} orbit-postgres" \
+       --arg rd "${REDIS_IP} orbit-redis" \
+       '.data.NodeHosts = (
+         (.data.NodeHosts // "") |
+         split("\n") |
+         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis"))) |
+         . + [$pg, $rd] |
+         join("\n") + "\n"
+       )' \
+  | kubectl apply -f -
+
+# Restart CoreDNS to pick up all changes immediately.
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS patched — dex.orbit.local.clearroute.io → ${DEX_IP}, orbit.local.clearroute.io/api.orbit.local.clearroute.io → ${DOCKER_BRIDGE_IP}"
+ok "CoreDNS patched — dex → ${DEX_IP}, orbit.local.clearroute.io → ${DOCKER_BRIDGE_IP}, orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
