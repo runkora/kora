@@ -285,7 +285,8 @@ func (r *PostgresRepository) SetRunSummary(ctx context.Context, runID, summary s
 	return nil
 }
 
-func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {	tag, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE id=$1`, id)
+func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE id=$1`, id)
 	if err != nil {
 		return fmt.Errorf("delete run: %w", err)
 	}
