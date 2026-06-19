@@ -115,8 +115,15 @@ _is_frontend_request if {
 
 # ══ INFRASTRUCTURE BYPASS ═════════════════════════════════════════════════════
 #
-# Health checks, OIDC discovery, and bundle polling endpoints are unauthenticated
-# by design. The gateway must allow them through without JWT validation.
+# Health checks, OIDC discovery, bundle polling, and inbound webhook delivery
+# endpoints are unauthenticated by design. The gateway must allow them through
+# without JWT validation.
+#
+# /api/v1/webhooks/ is the Triggers feature's inbound delivery endpoint
+# (docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md). External
+# providers (e.g. GitHub) POST here with no platform token; the request is
+# authenticated by the source adapter's HMAC signature check in-process, so it
+# must bypass JWT validation at the gateway.
 
 _is_platform_internal_path if {
 	some prefix in [
@@ -124,6 +131,7 @@ _is_platform_internal_path if {
 		"/api/v1/identity/exchange",
 		"/api/v1/identity/.well-known/",
 		"/api/v1/policy/bundles/",
+		"/api/v1/webhooks/",
 	]
 	startswith(input.attributes.request.http.path, prefix)
 }

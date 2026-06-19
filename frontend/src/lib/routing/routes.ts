@@ -39,6 +39,7 @@ export const APP_ROUTES = {
   },
   connections: '/connections',
   environments: '/environments',
+  triggers: '/triggers',
   events: '/events',
   credentials: '/credentials',
 

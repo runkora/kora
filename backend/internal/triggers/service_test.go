@@ -1,0 +1,434 @@
+package triggers
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+const testTenant = "t-1"
+
+func prBody(action, baseRef string) []byte {
+	return fmt.Appendf(nil, `{"action":%q,
+		"pull_request":{"number":42,"title":"Add widget","html_url":"https://x/pull/42",
+			"head":{"ref":"feature"},"base":{"ref":%q},"user":{"login":"alice"}},
+		"repository":{"full_name":"acme/widgets"},"sender":{"login":"bob"}}`, action, baseRef)
+}
+
+func mustSource(t *testing.T, svc *Service) *SourceResponse {
+	t.Helper()
+	resp, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
+	if err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	return resp
+}
+
+func mustTrigger(t *testing.T, svc *Service, sourceID string, cond map[string][]string, prompt string) *Trigger {
+	t.Helper()
+	tr, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID:       sourceID,
+		Name:           "rev",
+		AgentTypeID:    "at-1",
+		AgentSlug:      "code-reviewer",
+		EventType:      "pull_request",
+		MatchCondition: cond,
+		PromptTemplate: prompt,
+	})
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	return tr
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition not met within timeout")
+}
+
+// ── Sources ─────────────────────────────────────────────────────────────────
+
+func TestCreateSource_Success(t *testing.T) {
+	svc, deps := newTestService(t)
+	resp := mustSource(t, svc)
+
+	if resp.Secret == "" {
+		t.Error("expected one-time secret in response")
+	}
+	if resp.WebhookPath != "/api/v1/webhooks/"+resp.ID {
+		t.Errorf("WebhookPath = %q", resp.WebhookPath)
+	}
+	if resp.SecretCiphertext != "" {
+		t.Error("ciphertext must be redacted from the response")
+	}
+
+	stored := deps.repo.sources[resp.ID]
+	if stored == nil {
+		t.Fatal("source not persisted")
+	}
+	if !stored.Enabled {
+		t.Error("source should be enabled on create")
+	}
+	if stored.GrantID == nil || *stored.GrantID == "" {
+		t.Error("source should reference a created grant")
+	}
+	if stored.PrincipalID != "trigger-source:"+resp.ID {
+		t.Errorf("PrincipalID = %q", stored.PrincipalID)
+	}
+	// The stored ciphertext must decrypt back to the one-time secret.
+	c, _ := newSecretCipher(testCipherKey)
+	dec, err := c.decrypt(stored.SecretCiphertext)
+	if err != nil || dec != resp.Secret {
+		t.Errorf("stored ciphertext did not round-trip: dec=%q err=%v", dec, err)
+	}
+}
+
+func TestCreateSource_Validation(t *testing.T) {
+	svc, _ := newTestService(t)
+	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Provider: ProviderGitHub}); !errors.Is(err, ErrValidation) {
+		t.Errorf("empty name: got %v, want ErrValidation", err)
+	}
+	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "x", Provider: "gitlab"}); !errors.Is(err, ErrUnknownProvider) {
+		t.Errorf("unknown provider: got %v, want ErrUnknownProvider", err)
+	}
+}
+
+func TestCreateSource_GrantCleanupOnRepoFailure(t *testing.T) {
+	svc, deps := newTestService(t)
+	deps.repo.createSourceErr = errors.New("db down")
+
+	if _, err := svc.CreateSource(context.Background(), testTenant, CreateSourceRequest{Name: "gh", Provider: ProviderGitHub}); err == nil {
+		t.Fatal("expected error when persistence fails")
+	}
+	if deps.policy.deletedCount() != 1 {
+		t.Errorf("expected the orphaned grant to be cleaned up, deleted=%d", deps.policy.deletedCount())
+	}
+}
+
+func TestListSources_RedactsSecret(t *testing.T) {
+	svc, _ := newTestService(t)
+	mustSource(t, svc)
+	list, err := svc.ListSources(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("ListSources: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(list))
+	}
+	if list[0].SecretCiphertext != "" {
+		t.Error("ListSources must redact the ciphertext")
+	}
+}
+
+func TestUpdateSource_DisableAndRotate(t *testing.T) {
+	svc, deps := newTestService(t)
+	resp := mustSource(t, svc)
+
+	disabled := false
+	if _, err := svc.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{Enabled: &disabled}); err != nil {
+		t.Fatalf("UpdateSource disable: %v", err)
+	}
+	if deps.repo.sources[resp.ID].Enabled {
+		t.Error("source should be disabled")
+	}
+
+	rot, err := svc.UpdateSource(context.Background(), testTenant, resp.ID, UpdateSourceRequest{RotateSecret: true})
+	if err != nil {
+		t.Fatalf("UpdateSource rotate: %v", err)
+	}
+	if rot.Secret == "" || rot.Secret == resp.Secret {
+		t.Error("rotate should return a new, different secret")
+	}
+}
+
+func TestDeleteSource_CleansGrants(t *testing.T) {
+	svc, deps := newTestService(t)
+	resp := mustSource(t, svc)
+	mustTrigger(t, svc, resp.ID, nil, "review")
+
+	if err := svc.DeleteSource(context.Background(), testTenant, resp.ID); err != nil {
+		t.Fatalf("DeleteSource: %v", err)
+	}
+	if _, ok := deps.repo.sources[resp.ID]; ok {
+		t.Error("source should be deleted")
+	}
+	// Source grant + trigger grant both attached to the principal → both deleted.
+	if deps.policy.deletedCount() < 1 {
+		t.Errorf("expected source principal grants to be revoked, deleted=%d", deps.policy.deletedCount())
+	}
+}
+
+// ── Triggers ────────────────────────────────────────────────────────────────
+
+func TestCreateTrigger_Success(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	tr := mustTrigger(t, svc, src.ID, map[string][]string{"action": {"opened"}}, "review {{ pr.number }}")
+
+	stored := deps.repo.triggers[tr.ID]
+	if stored == nil {
+		t.Fatal("trigger not persisted")
+	}
+	if !stored.Enabled {
+		t.Error("trigger should be enabled on create")
+	}
+	if stored.GrantID == nil {
+		t.Error("trigger should reference a per-agent run grant")
+	}
+}
+
+func TestCreateTrigger_Validation(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+
+	_, err := svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{SourceID: src.ID, EventType: "pull_request", AgentTypeID: "a", AgentSlug: "s", PromptTemplate: "p"})
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("missing name: got %v, want ErrValidation", err)
+	}
+
+	_, err = svc.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+		SourceID: "nope", Name: "n", AgentTypeID: "a", AgentSlug: "s", EventType: "pull_request", PromptTemplate: "p",
+	})
+	if !errors.Is(err, ErrSourceNotFound) {
+		t.Errorf("missing source: got %v, want ErrSourceNotFound", err)
+	}
+}
+
+func TestUpdateTrigger(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	tr := mustTrigger(t, svc, src.ID, nil, "old")
+
+	enabled := false
+	newPrompt := "new prompt"
+	if _, err := svc.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{Enabled: &enabled, PromptTemplate: &newPrompt}); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	got := deps.repo.triggers[tr.ID]
+	if got.Enabled {
+		t.Error("trigger should be disabled")
+	}
+	if got.PromptTemplate != "new prompt" {
+		t.Errorf("prompt = %q", got.PromptTemplate)
+	}
+}
+
+func TestDeleteTrigger(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	tr := mustTrigger(t, svc, src.ID, nil, "p")
+	before := deps.policy.deletedCount()
+
+	if err := svc.DeleteTrigger(context.Background(), testTenant, tr.ID); err != nil {
+		t.Fatalf("DeleteTrigger: %v", err)
+	}
+	if _, ok := deps.repo.triggers[tr.ID]; ok {
+		t.Error("trigger should be deleted")
+	}
+	if deps.policy.deletedCount() != before+1 {
+		t.Errorf("expected the trigger grant to be revoked")
+	}
+}
+
+// ── Ingest ──────────────────────────────────────────────────────────────────
+
+func sign(secret string, body []byte) http.Header {
+	return http.Header{
+		"X-Hub-Signature-256": {githubSig(secret, body)},
+		"X-Github-Event":      {"pull_request"},
+		"X-Github-Delivery":   {"delivery-1"},
+	}
+}
+
+func TestIngest_SourceNotFound(t *testing.T) {
+	svc, _ := newTestService(t)
+	if _, err := svc.Ingest(context.Background(), "nope", http.Header{}, []byte(`{}`)); !errors.Is(err, ErrSourceNotFound) {
+		t.Errorf("got %v, want ErrSourceNotFound", err)
+	}
+}
+
+func TestIngest_Disabled(t *testing.T) {
+	svc, _ := newTestService(t)
+	src := mustSource(t, svc)
+	disabled := false
+	_, _ = svc.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{Enabled: &disabled})
+
+	body := prBody("opened", "main")
+	if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); !errors.Is(err, ErrSourceDisabled) {
+		t.Errorf("got %v, want ErrSourceDisabled", err)
+	}
+}
+
+func TestIngest_SignatureInvalid_NoRow(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	h := http.Header{"X-Hub-Signature-256": {"sha256=bad"}, "X-Github-Event": {"pull_request"}}
+
+	if _, err := svc.Ingest(context.Background(), src.ID, h, body); !errors.Is(err, ErrSignatureInvalid) {
+		t.Errorf("got %v, want ErrSignatureInvalid", err)
+	}
+	if len(deps.repo.deliveries) != 0 {
+		t.Error("an unverified delivery must not be recorded")
+	}
+}
+
+func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+
+	out, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if out != IngestAccepted {
+		t.Errorf("outcome = %v, want IngestAccepted", out)
+	}
+	// Async dispatch records "skipped" since no trigger exists.
+	waitFor(t, func() bool {
+		d := deps.repo.lastDelivery()
+		return d != nil && d.Status == StatusSkipped
+	})
+	if deps.agents.callCount() != 0 {
+		t.Error("no run should be started when nothing matches")
+	}
+}
+
+func TestIngest_Duplicate(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+
+	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out != IngestAccepted {
+		t.Fatalf("first delivery should be accepted")
+	}
+	out, err := svc.Ingest(context.Background(), src.ID, h, body)
+	if err != nil {
+		t.Fatalf("Ingest(dup): %v", err)
+	}
+	if out != IngestDuplicate {
+		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out)
+	}
+	if len(deps.repo.deliveries) != 1 {
+		t.Errorf("redelivery must not insert a second row, got %d", len(deps.repo.deliveries))
+	}
+}
+
+// ── Dispatch ────────────────────────────────────────────────────────────────
+
+func dispatchSetup(t *testing.T, cond map[string][]string, prompt string) (*Service, *testDeps, WebhookSource, string) {
+	t.Helper()
+	svc, deps := newTestService(t)
+	src := mustSource(t, svc)
+	mustTrigger(t, svc, src.ID, cond, prompt)
+	stored, _ := deps.repo.GetSourceByID(context.Background(), src.ID)
+	delID := "deliv-x"
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+		ID: delID, TenantID: testTenant, SourceID: src.ID, EventType: "pull_request", Status: StatusVerified,
+	})
+	return svc, deps, *stored, delID
+}
+
+func TestDispatch_Match_StartsRun(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "Review PR #{{ pr.number }}")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	if deps.agents.callCount() != 1 {
+		t.Fatalf("expected exactly one run start, got %d", deps.agents.callCount())
+	}
+	call, _ := deps.agents.lastCall()
+	if call.bearer != "Bearer minted-token" {
+		t.Errorf("run started with bearer %q, want the minted source token", call.bearer)
+	}
+	if call.agentTypeID != "at-1" {
+		t.Errorf("run agentTypeID = %q", call.agentTypeID)
+	}
+	if !strings.Contains(call.initialMessage, "Review PR #42") {
+		t.Errorf("prompt not rendered: %q", call.initialMessage)
+	}
+	// Minted token must be for the source's identity.
+	if len(deps.minter.calls) != 1 || deps.minter.calls[0].principalID != src.PrincipalID {
+		t.Errorf("minter calls = %+v, want principal %q", deps.minter.calls, src.PrincipalID)
+	}
+	// Delivery recorded as dispatched with the run id.
+	d := deps.repo.deliveryByID(delID)
+	if d.Status != StatusDispatched || d.RunID == nil || *d.RunID != "run-1" {
+		t.Errorf("delivery outcome = %+v, want dispatched/run-1", d)
+	}
+}
+
+func TestDispatch_EventTypeMismatch_Skipped(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, nil, "p")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	// Trigger is for pull_request; deliver a push.
+	svc.dispatch(context.Background(), src, adapter, delID, "push", []byte(`{"ref":"refs/heads/main"}`))
+
+	if deps.agents.callCount() != 0 {
+		t.Error("event-type mismatch should not start a run")
+	}
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
+		t.Errorf("status = %q, want skipped", d.Status)
+	}
+}
+
+func TestDispatch_ConditionMismatch_Skipped(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"pr.base_ref": {"main"}}, "p")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	// base_ref is "release", condition requires "main".
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "release"))
+
+	if deps.agents.callCount() != 0 {
+		t.Error("condition mismatch should not start a run")
+	}
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusSkipped {
+		t.Errorf("status = %q, want skipped", d.Status)
+	}
+}
+
+func TestDispatch_StartRunError_Failed(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.agents.status = http.StatusInternalServerError
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	d := deps.repo.deliveryByID(delID)
+	if d.Status != StatusFailed {
+		t.Errorf("status = %q, want failed", d.Status)
+	}
+	if d.Error == nil || *d.Error == "" {
+		t.Error("failed delivery should record an error message")
+	}
+}
+
+func TestDispatch_MintError_Failed(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.minter.err = errors.New("mint boom")
+	adapter, _ := NewRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, delID, "pull_request", prBody("opened", "main"))
+
+	if deps.agents.callCount() != 0 {
+		t.Error("run must not start if token minting fails")
+	}
+	if d := deps.repo.deliveryByID(delID); d.Status != StatusFailed {
+		t.Errorf("status = %q, want failed", d.Status)
+	}
+}

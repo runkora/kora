@@ -378,3 +378,102 @@ export interface UpdateAgentTypeRequest {
   /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
   environment_id?: string;
 }
+
+// ── Triggers ───────────────────────────────────────────────────────────────
+//
+// The Triggers feature starts agent runs automatically in response to external
+// events. The webhook trigger is the first kind. Types mirror Go:
+// internal/triggers. See docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
+
+/**
+ * A webhook source is a registered inbound origin of webhook deliveries (e.g. a
+ * GitHub repository). Mirrors Go: triggers.WebhookSource.
+ */
+export interface WebhookSource {
+  id: string;
+  tenant_id: string;
+  name: string;
+  /** Source adapter id, e.g. "github". */
+  provider: string;
+  config?: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Response to source create/rotate. Mirrors Go: triggers.SourceResponse.
+ * `secret` and `webhook_path` are returned ONCE (at create or secret rotation).
+ */
+export interface WebhookSourceResponse extends WebhookSource {
+  /** Inbound path to configure on the provider; combine with the public base URL. */
+  webhook_path: string;
+  /** HMAC signing secret — shown once; never returned on reads. */
+  secret?: string;
+}
+
+/** Request body for POST /api/trigger-sources. */
+export interface WebhookSourceCreateRequest {
+  name: string;
+  provider: string;
+  config?: Record<string, unknown>;
+}
+
+/** Request body for PATCH /api/trigger-sources/:id. */
+export interface WebhookSourceUpdateRequest {
+  enabled?: boolean;
+  rotate_secret?: boolean;
+}
+
+/** A trigger binds a source event to an agent. Mirrors Go: triggers.Trigger. */
+export interface Trigger {
+  id: string;
+  tenant_id: string;
+  source_id: string;
+  name: string;
+  agent_type_id: string;
+  agent_slug: string;
+  event_type: string;
+  /** field → allowed values; a delivery matches when every clause is satisfied. */
+  match_condition?: Record<string, string[]>;
+  prompt_template: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Request body for POST /api/triggers. */
+export interface TriggerCreateRequest {
+  source_id: string;
+  name: string;
+  agent_type_id: string;
+  agent_slug: string;
+  event_type: string;
+  match_condition?: Record<string, string[]>;
+  prompt_template: string;
+}
+
+/** Request body for PATCH /api/triggers/:id. */
+export interface TriggerUpdateRequest {
+  name?: string;
+  event_type?: string;
+  match_condition?: Record<string, string[]>;
+  prompt_template?: string;
+  enabled?: boolean;
+}
+
+/** A durable record of an inbound delivery and its outcome. Mirrors Go: triggers.Delivery. */
+export interface TriggerDelivery {
+  id: string;
+  tenant_id: string;
+  source_id: string;
+  provider_delivery_id?: string;
+  event_type?: string;
+  /** received | verified | dispatched | skipped | failed. */
+  status: string;
+  trigger_id?: string;
+  run_id?: string;
+  error?: string;
+  payload_excerpt?: string;
+  received_at: string;
+}

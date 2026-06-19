@@ -26,6 +26,7 @@ import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gate
 import { AgentRunsTab } from './agent-runs-tab';
 import { AgentConnectivityTab } from './agent-connectivity-tab';
 import { AgentSettingsTab } from './agent-settings-tab';
+import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
 interface AgentDetailPageProps {
@@ -185,6 +186,7 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Runs</TabsTrigger>
           <TabsTrigger value="connectivity">Connectivity</TabsTrigger>
+          <TabsTrigger value="triggers">Triggers</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
@@ -195,6 +197,9 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
         </TabsContent>
         <TabsContent value="connectivity">
           <AgentConnectivityTab />
+        </TabsContent>
+        <TabsContent value="triggers">
+          <AgentTriggersTab />
         </TabsContent>
         <TabsContent value="settings">
           <AgentSettingsTab />

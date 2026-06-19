@@ -1,0 +1,80 @@
+package agents
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/clear-route/orbit/internal/platform/logging"
+)
+
+func newTestClient(t *testing.T, status int, body string) (*Client, *capture) {
+	t.Helper()
+	cap := &capture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cap.method = r.Method
+		cap.path = r.URL.Path
+		cap.auth = r.Header.Get("Authorization")
+		raw, _ := io.ReadAll(r.Body)
+		cap.body = string(raw)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if body != "" {
+			_, _ = w.Write([]byte(body))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)), cap
+}
+
+type capture struct {
+	method, path, auth, body string
+}
+
+func TestStartRun_Success(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"active"}`)
+
+	out, err := c.StartRun(context.Background(), "tok-123", StartRunRequest{
+		AgentTypeID:    "at-1",
+		InitialMessage: "do the thing",
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if out.ID != "run-1" || out.State != "active" {
+		t.Errorf("response = %+v", out)
+	}
+	if cap.method != http.MethodPost || cap.path != "/api/v1/runs" {
+		t.Errorf("request = %s %s", cap.method, cap.path)
+	}
+	if cap.auth != "Bearer tok-123" {
+		t.Errorf("auth header = %q, want Bearer tok-123", cap.auth)
+	}
+	if !strings.Contains(cap.body, `"agent_type_id":"at-1"`) {
+		t.Errorf("body missing agent_type_id: %s", cap.body)
+	}
+}
+
+func TestStartRun_StatusMapping(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusForbidden, ErrForbidden},
+		{http.StatusUnauthorized, ErrForbidden},
+		{http.StatusNotFound, ErrAgentTypeNotFound},
+		{http.StatusInternalServerError, ErrUnexpectedStatus},
+		{http.StatusBadGateway, ErrUnexpectedStatus},
+	}
+	for _, tt := range tests {
+		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)
+		_, err := c.StartRun(context.Background(), "tok", StartRunRequest{AgentTypeID: "a"})
+		if !errors.Is(err, tt.want) {
+			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
+		}
+	}
+}
