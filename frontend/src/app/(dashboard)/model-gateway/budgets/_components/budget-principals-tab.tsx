@@ -22,9 +22,12 @@ import { principalDisplay } from './principal-display';
 
 const NEAR_LIMIT_THRESHOLD = 0.8;
 
+// utilisation compares effective_spend_usd (window-matched to the effective
+// limit) against the limit. Using current_spend_usd (always monthly) against a
+// weekly effective limit would inflate the ratio by 4-5x for weekly principals.
 function utilisation(p: BudgetPrincipalRow): number {
   if (!p.has_limit || p.effective_limit_usd <= 0) return 0;
-  return p.current_spend_usd / p.effective_limit_usd;
+  return p.effective_spend_usd / p.effective_limit_usd;
 }
 
 // chipLabel renders one budget source: "role:eng · $12.00 / $50.00/wk · pool".
@@ -120,7 +123,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         cell: (p) =>
           p.has_limit ? (
             <Text size="caption" mono>
-              {fmtUsd(p.effective_limit_usd)}/mo
+              {fmtUsd(p.effective_limit_usd)}
+              {fmtWindowSuffix(p.effective_reset_cadence ?? 'monthly')}
             </Text>
           ) : (
             <Text size="caption" color="subtle">
@@ -130,7 +134,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       },
       {
         id: 'spend',
-        header: 'Spend',
+        header: 'Spend (month-to-date)',
         sortable: true,
         sortAccessor: (p) => p.current_spend_usd,
         cell: (p) => (
@@ -160,7 +164,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
               : 'healthy';
           return (
             <Progress
-              value={p.current_spend_usd}
+              value={p.effective_spend_usd}
               max={p.effective_limit_usd}
               label={`Budget utilisation for ${p.principal_id}`}
               variant={variant}

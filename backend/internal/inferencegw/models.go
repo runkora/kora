@@ -340,18 +340,42 @@ type TenantCapStatus struct {
 	Reached      bool    `json:"reached"`
 }
 
-// BudgetPrincipalStatus is one principal's row in the budgets principals listing:
-// every applicable budget category, the effective (MAX) limit, and current spend.
+// BudgetPrincipalStatus is one principal's row in the budgets principals listing.
 // Principals with period spend but no budget appear with HasLimit=false.
+//
+// Terminology:
+//
+//	┌─────────────────────────┬────────────────────────────────────────────────────────────────┐
+//	│ Field                   │ Definition                                                     │
+//	├─────────────────────────┼────────────────────────────────────────────────────────────────┤
+//	│ current_spend_usd       │ Calendar-month spend — running total since the 1st of the      │
+//	│                         │ month. Always monthly regardless of the principal's budget      │
+//	│                         │ cadence. Useful for billing roll-ups.                          │
+//	├─────────────────────────┼────────────────────────────────────────────────────────────────┤
+//	│ effective_limit_usd     │ MAX limit_usd across all non-pooled budget categories assigned  │
+//	│                         │ to this principal. The single ceiling that constrains them most,│
+//	│                         │ whichever cadence it came from.                                │
+//	├─────────────────────────┼────────────────────────────────────────────────────────────────┤
+//	│ effective_reset_cadence │ The cadence ("weekly" or "monthly") of the category that        │
+//	│                         │ produced effective_limit_usd. Required so the UI can label and  │
+//	│                         │ compare correctly.                                             │
+//	├─────────────────────────┼────────────────────────────────────────────────────────────────┤
+//	│ effective_spend_usd     │ Spend over the same window as effective_limit_usd: ISO-week     │
+//	│                         │ spend when effective_reset_cadence == "weekly", otherwise       │
+//	│                         │ month-to-date. Use this (not current_spend_usd) for the         │
+//	│                         │ headline utilization bar and near-limit calculations.           │
+//	└─────────────────────────┴────────────────────────────────────────────────────────────────┘
 type BudgetPrincipalStatus struct {
-	PrincipalID       string                 `json:"principal_id"`
-	PrincipalType     string                 `json:"principal_type,omitempty"`
-	Categories        []BudgetCategoryStatus `json:"categories"`
-	EffectiveLimitUSD float64                `json:"effective_limit_usd"`
-	CurrentSpendUSD   float64                `json:"current_spend_usd"`
-	HasLimit          bool                   `json:"has_limit"`
-	SpendLimitReached bool                   `json:"spend_limit_reached"`
-	LastActiveAt      string                 `json:"last_active_at,omitempty"` // RFC3339
+	PrincipalID           string                 `json:"principal_id"`
+	PrincipalType         string                 `json:"principal_type,omitempty"`
+	Categories            []BudgetCategoryStatus `json:"categories"`
+	EffectiveLimitUSD     float64                `json:"effective_limit_usd"`
+	EffectiveResetCadence string                 `json:"effective_reset_cadence,omitempty"` // "weekly" | "monthly"
+	EffectiveSpendUSD     float64                `json:"effective_spend_usd"`
+	CurrentSpendUSD       float64                `json:"current_spend_usd"`
+	HasLimit              bool                   `json:"has_limit"`
+	SpendLimitReached     bool                   `json:"spend_limit_reached"`
+	LastActiveAt          string                 `json:"last_active_at,omitempty"` // RFC3339
 }
 
 // BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.
