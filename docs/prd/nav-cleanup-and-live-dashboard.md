@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-06-19  
-**Last Updated:** 2026-06-19  
+**Last Updated:** 2026-06-20  
 **Owner:** Platform Engineering  
 **Stakeholders:** Platform Engineering, Product
 
@@ -249,8 +249,31 @@ The sidebar becomes shorter and cleaner — only the Control Plane, Policy, and 
 
 - [x] PRD Approved: 2026-06-19
 - [x] ADR Created: 2026-06-19
-- [ ] Implementation Started: 2026-06-19
-- [ ] CI Green: 2026-06-19
+- [x] Implementation Started: 2026-06-19
+- [x] Dashboard enrichment (Phase 2): 2026-06-20
+- [ ] CI Green: 2026-06-20
+
+---
+
+## Addendum — Dashboard enrichment (Phase 2, 2026-06-20)
+
+The Phase 1 dashboard met the goal of showing real data, but in practice it was still thin — four count cards and a registry table. Phase 2 makes it a genuinely useful operator landing page by surfacing usage and spend, which are the questions operators actually open the dashboard to answer. This stays within the original RSC + server-fetch approach; no new backend work.
+
+### Added
+
+- **Inference activity (last 7 days):** cost, request volume (with success/fail split), token consumption, and latency — so operators see whether agents are actually being used and what it costs.
+- **Usage trend:** a requests-over-time chart for the same window.
+- **Spend vs budget:** tenant spend against the configured cap, with a colour-coded utilisation bar and an at-a-glance "within budget / limit reached" state. This partially realises the "spend visibility" theme without waiting for a dedicated billing surface.
+
+### Changed / removed
+
+- The "Quick links to platform sections" card (Open Question, resolved in Phase 1) is **removed** — it duplicated the sidebar. Those links now live on the stat cards.
+- The backend health card is **removed** as low day-to-day signal.
+
+### Notes
+
+- All new sections degrade independently: if the inference gateway or budget data is unavailable, the affected section hides (or shows an empty state) rather than failing the page.
+- The Phase 1 "Future Considerations" item *"add infrastructure health metrics"* remains future work; this phase adds **inference/usage** metrics, not host-level infra metrics.
 
 ---
 

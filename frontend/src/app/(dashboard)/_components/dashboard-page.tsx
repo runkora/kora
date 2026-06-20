@@ -71,7 +71,8 @@ function fmtBudgetUsd(n: number): string {
 
 // ─── Spend vs budget ──────────────────────────────────────────────────────────
 
-function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
+/** Exported for unit testing of its empty-state and threshold logic. */
+export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
   return (
     <Card column>
       <CardHeader>

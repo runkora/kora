@@ -173,6 +173,44 @@ No migration needed — this is a frontend-only change with no database, API, or
 
 ---
 
+## Amendment — Dashboard enrichment (2026-06-20)
+
+After the initial live dashboard landed, the home page was still thin (four count cards plus a registry table). It was extended — within the same RSC + server-fetch pattern — to surface higher-signal operational data for the control plane. This amendment records what changed; the original decision (nav cleanup + live RSC) is unaffected.
+
+### What was added
+
+- **Inference KPIs (last 7 days)** — Cost, Requests, Tokens, and Latency cards driven by the model-gateway analytics API.
+- **Usage trend** — a requests-over-time line chart for the same 7-day window.
+- **Spend vs budget** — tenant spend against the configured cap, rendered with a colour-coded `Progress` bar (`healthy` < 80% → `degraded` ≥ 80% → `error` when reached) and a "no budget configured" empty state.
+
+### What was removed (supersedes the original Consequences)
+
+- The **Platform Sections quick-links card** that originally replaced the System Health card is itself removed — it duplicated the sidebar. Those destinations now hang off the stat cards as `View all →` footer links.
+- The **backend `HealthStatus` card** is removed as low-signal for day-to-day operation.
+
+### Data sources (extends the original Data Model table)
+
+| Section | Source |
+|---------|--------|
+| Inference KPIs | `fetchAnalyticsFromGateway(token, { days: 7, granularity: 'daily' })` → `kpis` |
+| Usage trend | same call → `buckets` |
+| Spend vs budget | `fetchBudgetPrincipalsFromGateway(token)` → `tenant_cap` |
+
+`fetchDashboardData` issues these in the same `Promise.all` batch as agents/connections/environments. Every sub-fetch degrades independently: when the inference gateway is unavailable, `analytics` is `null` and the Inference section + trend simply do not render; an absent cap yields the budget empty state. A failure never breaks the page.
+
+The agents table renders up to 6 `AgentTypeRow` entries; Recent Runs shows up to 8 `RunRow` entries. Vertical spacing was tightened (`spacious` → `relaxed` section gaps).
+
+### Component reuse and a convention deviation to resolve
+
+The Inference KPIs and trend reuse the existing model-gateway components `AnalyticsKPICards` and `AnalyticsRequestsChart` rather than duplicating recharts code. These are Tier-3 (feature-scoped) components now consumed by a second feature (the dashboard). Per the component-tier model in [2026-05-04-frontend-component-consolidation.md](2026-05-04-frontend-component-consolidation.md), components used across ≥2 features should be promoted to Tier 2 (`src/components/`). They were left in place to keep this change focused; **promotion is a tracked follow-up** and should be done before these are reused a third time.
+
+### Testing
+
+- `SpendBudgetCard` is exported and unit-tested (`dashboard-page.test.tsx`) for its empty-state and the spend → variant/badge threshold logic.
+- The dashboard E2E spec (`e2e/dashboard.spec.ts`) drops the obsolete `HealthStatus` assertions and instead checks the always-present stat and section cards.
+
+---
+
 ## Related Decisions
 
 - [2026-03-17-frontend-scaffolding-and-toolchain.md](2026-03-17-frontend-scaffolding-and-toolchain.md) — Established the Next.js app-router pattern this change follows.
@@ -185,4 +223,4 @@ No migration needed — this is a frontend-only change with no database, API, or
 
 The `(dashboard)/_components/dashboard-sidebar.integration.test.tsx` test comment at the top currently reads: *"Default state (empty scopes) renders Control Plane, Security, Model Gateway, System groups."* — this comment must be updated to reflect the new group set.
 
-**Last Updated:** 2026-06-19
+**Last Updated:** 2026-06-20
