@@ -14,6 +14,7 @@ import {
   Grid,
   Heading,
   List,
+  Progress,
   Stack,
   Table,
   TableBody,
@@ -24,7 +25,6 @@ import {
   TableRow,
   Text,
 } from '@orbit/terra';
-import { HealthStatus } from '@orbit/components';
 import { StatusBadge } from '@orbit/components';
 import { MetricCard } from '@orbit/components';
 import { EventFeedItem } from '@orbit/components';
@@ -34,6 +34,9 @@ import type { AgentTypeRow, RunRow } from '../agents/_types';
 import { formatRelativeTime } from '../agents/_types';
 import type { ConnectionRow } from '../connections/_types';
 import type { EnvironmentRow } from '../environments/_types';
+import type { AnalyticsResponse, TenantCapStatus } from '../model-gateway/_types';
+import { AnalyticsKPICards } from '../model-gateway/_components/analytics/analytics-kpi-cards';
+import { AnalyticsRequestsChart } from '../model-gateway/_components/analytics/analytics-requests-chart';
 
 // ─── Status maps ─────────────────────────────────────────────────────────────
 
@@ -59,6 +62,70 @@ const runStatusMap: Record<string, 'healthy' | 'degraded' | 'error' | 'idle' | '
   idle: 'idle',
 };
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Currency formatter for budget figures (two decimals — these are real dollars). */
+function fmtBudgetUsd(n: number): string {
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// ─── Spend vs budget ──────────────────────────────────────────────────────────
+
+function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
+  return (
+    <Card column>
+      <CardHeader>
+        <Stack gap="tight">
+          <CardTitle>Spend vs budget</CardTitle>
+          <Text size="supporting" color="muted">
+            Tenant spend against the configured cap.
+          </Text>
+        </Stack>
+      </CardHeader>
+      <CardContent grow>
+        {cap == null || cap.limit_usd <= 0 ? (
+          <Stack align="center" justify="center" paddingBlock="spacious" gap="snug">
+            <Icon name="dollar-sign" size="lg" color="subtle" aria-hidden />
+            <Text color="subtle">No tenant budget configured.</Text>
+          </Stack>
+        ) : (
+          <Stack gap="relaxed">
+            <Stack direction="horizontal" align="baseline" justify="between">
+              <Heading variant="metric">{fmtBudgetUsd(cap.spend_usd)}</Heading>
+              <Text size="supporting" color="muted">
+                of {fmtBudgetUsd(cap.limit_usd)}
+              </Text>
+            </Stack>
+            <Progress
+              value={cap.spend_usd}
+              max={cap.limit_usd}
+              variant={
+                cap.reached
+                  ? 'error'
+                  : cap.spend_usd / cap.limit_usd >= 0.8
+                    ? 'degraded'
+                    : 'healthy'
+              }
+              size="lg"
+              label="Tenant spend usage"
+              showValue
+            />
+            <Stack direction="horizontal" align="center" justify="between">
+              <StatusBadge
+                status={cap.reached ? 'error' : 'healthy'}
+                label={cap.reached ? 'Limit reached' : 'Within budget'}
+              />
+              <Text size="caption" color="subtle">
+                Resets {cap.reset_cadence}
+              </Text>
+            </Stack>
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface DashboardPageProps {
@@ -66,29 +133,38 @@ export interface DashboardPageProps {
   runs: RunRow[];
   connections: ConnectionRow[];
   environments: EnvironmentRow[];
+  analytics: AnalyticsResponse | null;
+  tenantCap: TenantCapStatus | null;
+  windowDays?: number;
 }
 
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
-export function DashboardPage({ agentTypes, runs, connections, environments }: DashboardPageProps) {
+export function DashboardPage({
+  agentTypes,
+  runs,
+  connections,
+  environments,
+  analytics,
+  tenantCap,
+  windowDays = 7,
+}: DashboardPageProps) {
   const activeRunCount = runs.filter((r) =>
     ['active', 'starting', 'pending', 'completing'].includes(r.state),
   ).length;
 
-  const recentRuns = runs.slice(0, 10);
+  const recentRuns = runs.slice(0, 8);
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
-    <Stack gap="spacious" asChild>
-      <main className="px-6 py-8 max-w-screen-xl mx-auto">
+    <Stack gap="relaxed" asChild>
+      <main className="px-6 py-6 max-w-screen-xl mx-auto">
         <Stack gap="tight">
           <Heading variant="title">Dashboard</Heading>
           <Text color="muted">Real-time overview of the Orbit control plane.</Text>
         </Stack>
 
-        <HealthStatus />
-
-        {/* ── Stat cards ── */}
+        {/* ── Inventory stat cards ── */}
         <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
           <MetricCard
             icon={
@@ -97,6 +173,7 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
             label="Agent Types"
             value={String(agentTypes.length)}
             delta={{ text: 'registered', positive: true }}
+            href={APP_ROUTES.agents.list}
           />
           <MetricCard
             icon={
@@ -110,7 +187,8 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
             }
             label="Active Runs"
             value={String(activeRunCount)}
-            delta={{ text: 'currently running', positive: activeRunCount > 0 }}
+            delta={{ text: `${runs.length} total`, positive: activeRunCount > 0 }}
+            href={APP_ROUTES.agents.list}
           />
           <MetricCard
             icon={
@@ -125,6 +203,7 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
             label="Connections"
             value={String(connections.length)}
             delta={{ text: 'configured', positive: true }}
+            href={APP_ROUTES.connections}
           />
           <MetricCard
             icon={
@@ -139,6 +218,7 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
             label="Environments"
             value={String(environments.length)}
             delta={{ text: 'configured', positive: true }}
+            href={APP_ROUTES.environments}
           />
         </Grid>
 
@@ -228,18 +308,38 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
           )}
         </Card>
 
-        {/* ── Bottom row ── */}
+        {/* ── Inference (model gateway) ── */}
+        {analytics && (
+          <Stack gap="comfortable">
+            <Stack direction="horizontal" align="center" justify="between">
+              <Stack gap="tight">
+                <Heading variant="section">Inference</Heading>
+                <Text size="supporting" color="muted">
+                  Model gateway activity over the last {windowDays} days.
+                </Text>
+              </Stack>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={APP_ROUTES.modelGateway.analytics}>
+                  Analytics
+                  <Icon name="chevron-right" size="2xs" />
+                </Link>
+              </Button>
+            </Stack>
+            <AnalyticsKPICards kpis={analytics.kpis} />
+            <AnalyticsRequestsChart buckets={analytics.buckets} />
+          </Stack>
+        )}
+
+        {/* ── Activity & spend ── */}
         <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
           {/* Recent Runs */}
           <Card column>
             <CardHeader>
-              <Stack direction="horizontal" align="center" justify="between">
-                <Stack gap="tight">
-                  <CardTitle>Recent Runs</CardTitle>
-                  <Text size="supporting" color="muted">
-                    Latest agent run activity.
-                  </Text>
-                </Stack>
+              <Stack gap="tight">
+                <CardTitle>Recent Runs</CardTitle>
+                <Text size="supporting" color="muted">
+                  Latest agent run activity.
+                </Text>
               </Stack>
             </CardHeader>
             <CardContent flush grow>
@@ -273,49 +373,8 @@ export function DashboardPage({ agentTypes, runs, connections, environments }: D
             </CardFooter>
           </Card>
 
-          {/* Platform Sections */}
-          <Card column>
-            <CardHeader>
-              <Stack gap="tight">
-                <CardTitle>Platform</CardTitle>
-                <Text size="supporting" color="muted">
-                  Quick links to platform sections.
-                </Text>
-              </Stack>
-            </CardHeader>
-            <CardContent grow>
-              <Stack gap="comfortable">
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={APP_ROUTES.agents.list}>
-                    <Icon name="bot" size="2xs" />
-                    Agents
-                    <Icon name="chevron-right" size="2xs" />
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={APP_ROUTES.connections}>
-                    <Icon name="network" size="2xs" />
-                    Connections
-                    <Icon name="chevron-right" size="2xs" />
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={APP_ROUTES.modelGateway.models}>
-                    <Icon name="sparkles" size="2xs" />
-                    Model Gateway
-                    <Icon name="chevron-right" size="2xs" />
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={APP_ROUTES.environments}>
-                    <Icon name="layers" size="2xs" />
-                    Environments
-                    <Icon name="chevron-right" size="2xs" />
-                  </Link>
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+          {/* Spend vs budget */}
+          <SpendBudgetCard cap={tenantCap} />
         </Grid>
       </main>
     </Stack>
