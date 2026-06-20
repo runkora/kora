@@ -7,8 +7,9 @@
  *   scopes without needing a live PermissionsProvider + MSW. The provider's own
  *   fetch behaviour is tested separately.
  *
- * Default state (empty scopes) renders Control Plane, Security, Model Gateway, System
- * groups. Policy group requires `platform:grants:read` and is hidden by default.
+ * Default state (empty scopes) renders Control Plane and Model Gateway groups.
+ * Policy group requires `platform:grants:read` and is hidden by default.
+ * Security and System groups have been removed (no built features behind them yet).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
@@ -39,12 +40,16 @@ function renderSidebar() {
 
 describe('DashboardSidebar', () => {
   describe('navigation groups', () => {
-    it('renders Control Plane, Security, Model Gateway, and System group labels by default', () => {
+    it('renders Control Plane and Model Gateway group labels by default', () => {
       renderSidebar();
       expect(screen.getByText('Control Plane')).toBeInTheDocument();
-      expect(screen.getByText('Security')).toBeInTheDocument();
       expect(screen.getByText('Model Gateway')).toBeInTheDocument();
-      expect(screen.getByText('System')).toBeInTheDocument();
+    });
+
+    it('does not render Security or System group labels', () => {
+      renderSidebar();
+      expect(screen.queryByText('Security')).not.toBeInTheDocument();
+      expect(screen.queryByText('System')).not.toBeInTheDocument();
     });
 
     it('hides the Policy group when the user has no scopes', () => {
@@ -60,19 +65,6 @@ describe('DashboardSidebar', () => {
       });
       renderSidebar();
       expect(screen.getByText('Policy')).toBeInTheDocument();
-    });
-
-    it('wip items across all groups do not render as links', () => {
-      renderSidebar();
-      const linkTexts = screen.getAllByRole('link').map((l) => l.textContent?.trim());
-      // Main wip
-      expect(linkTexts).not.toContain('Event Spine');
-      expect(linkTexts).not.toContain('Credentials');
-      // Security — entirely wip
-      expect(linkTexts).not.toContain('Identity');
-      // System — entirely wip
-      expect(linkTexts).not.toContain('Storage');
-      expect(linkTexts).not.toContain('Settings');
     });
   });
 
@@ -130,13 +122,6 @@ describe('DashboardSidebar', () => {
         'href',
         APP_ROUTES.home,
       );
-    });
-
-    it('does not render a link for wip items regardless of pathname', () => {
-      vi.mocked(usePathname).mockReturnValue(APP_ROUTES.home);
-      renderSidebar();
-      const linkTexts = screen.getAllByRole('link').map((l) => l.textContent?.trim());
-      expect(linkTexts).not.toContain('Event Spine');
     });
   });
 });
