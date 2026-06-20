@@ -14,8 +14,11 @@ import { useSession } from './permissions-provider';
  *
  * Active state is derived from the current pathname so it stays correct across
  * client-side navigations without any prop drilling.
+ *
+ * `onNavigate` is called when any nav link is clicked — used by the mobile
+ * drawer to close itself after navigation.
  */
-export function DashboardSidebar() {
+export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { scopes } = useSession();
 
@@ -54,7 +57,9 @@ export function DashboardSidebar() {
                     badge={badge}
                     asChild
                   >
-                    <a href={href}>{itemLabel}</a>
+                    <a href={href} onClick={onNavigate}>
+                      {itemLabel}
+                    </a>
                   </NavItem>
                 ),
               )}

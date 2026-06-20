@@ -15,6 +15,14 @@ export interface CodeBlockProps {
   text: string;
   /** Optional file path shown as a header above the block (e.g. `~/.zshrc`). */
   filename?: string;
+  /**
+   * Soft-wrap long lines instead of scrolling horizontally. Use for prose-like
+   * content (system prompts, descriptions) where horizontal scrolling reads
+   * poorly. Preserves newlines, wraps at the block width, and breaks overlong
+   * unbreakable tokens so the block never forces the page wider than its column.
+   * Defaults to `false` (horizontal scroll — best for real code).
+   */
+  wrap?: boolean;
   /** @internal Used for internal Terra composition via cn(). Blocked by ESLint in product code. */
   className?: string;
 }
@@ -33,7 +41,7 @@ export interface CodeBlockProps {
  * ```
  */
 export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
-  ({ text, filename, className }, ref) => {
+  ({ text, filename, wrap = false, className }, ref) => {
     const [copied, setCopied] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -66,6 +74,9 @@ export const CodeBlock = React.forwardRef<HTMLElement, CodeBlockProps>(
           <pre
             className={cn(
               'overflow-x-auto border border-border bg-surface-elevated px-4 py-3 leading-relaxed',
+              // Wrap mode: preserve newlines but soft-wrap long lines and break
+              // overlong tokens so the block stays within its column width.
+              wrap && 'whitespace-pre-wrap break-words',
               filename ? 'rounded-b-lg' : 'rounded-lg',
             )}
           >

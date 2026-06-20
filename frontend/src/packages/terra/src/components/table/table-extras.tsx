@@ -17,6 +17,11 @@ import * as React from 'react';
  */
 export function TableContainer({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-surface overflow-hidden">{children}</div>
+    // `min-w-0` lets the container shrink below its table's intrinsic width when
+    // it is a flex item, so the inner `TableRoot` `overflow-x-auto` actually
+    // engages instead of the table forcing the whole page wider on mobile.
+    <div className="rounded-lg border border-border bg-surface overflow-hidden min-w-0">
+      {children}
+    </div>
   );
 }

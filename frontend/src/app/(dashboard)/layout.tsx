@@ -1,13 +1,15 @@
-import 'server-only';
+'use client';
 
 import { PageLayout } from '@orbit/terra';
 import {
   DashboardHeader,
   DashboardSidebar,
+  MobileSidebarDrawer,
   PermissionsProvider,
   SidebarBrandHeader,
   SidebarUserFooter,
 } from './_components';
+import { SidebarStateProvider } from './_components/sidebar-state';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.
@@ -16,9 +18,12 @@ import {
  * events, credentials, policy, identity, storage, and settings.
  *
  * `DashboardSidebar` is a client component (needs usePathname for active
- * state). `DashboardHeader` is a server component. Both are passed as slots
- * to Terra's `PageLayout` which handles the fixed-chrome, scrollable-main
- * structure at h-screen.
+ * state). `DashboardHeader` is a client component (needs sidebar toggle state).
+ * Both are passed as slots to Terra's `PageLayout` which handles the fixed-chrome,
+ * scrollable-main structure at h-screen.
+ *
+ * On mobile (< md / 768 px), the fixed sidebar is hidden and replaced by a
+ * slide-in `MobileSidebarDrawer` opened by the hamburger in `DashboardHeader`.
  *
  * `PermissionsProvider` fetches the principal's scope set from the BFF session
  * and provides it to all client components via React context (docs/adr/2026-04-14-frontend-policy-projection.md).
@@ -26,14 +31,17 @@ import {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <PermissionsProvider>
-      <PageLayout
-        sidebarHeader={<SidebarBrandHeader />}
-        sidebar={<DashboardSidebar />}
-        sidebarFooter={<SidebarUserFooter />}
-        header={<DashboardHeader />}
-      >
-        {children}
-      </PageLayout>
+      <SidebarStateProvider>
+        <PageLayout
+          sidebarHeader={<SidebarBrandHeader />}
+          sidebar={<DashboardSidebar />}
+          sidebarFooter={<SidebarUserFooter />}
+          header={<DashboardHeader />}
+          mobileDrawer={<MobileSidebarDrawer />}
+        >
+          {children}
+        </PageLayout>
+      </SidebarStateProvider>
     </PermissionsProvider>
   );
 }

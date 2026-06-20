@@ -10,7 +10,6 @@ import {
   ModalAccessibleTitle,
   ModalBody,
   ModalFooter,
-  Separator,
   Stack,
   Text,
 } from '@orbit/terra';
