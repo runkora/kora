@@ -29,6 +29,5 @@ agents:
   sandboxGRPCPort: 50051
   maxConcurrentRunsPerPod: 10
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
-  inferenceGatewayURL: "http://orbit-inference-gateway.orbit-system.svc"
   sessionManager:
     postgresSSLMode: require

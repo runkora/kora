@@ -106,9 +106,10 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
 	// budgets. Transparent to the agent runtime; the inherited pod-level value
 	// is stripped in buildRunEnv. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+	var inferenceURL string
 	if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
-		extraEnv = append(extraEnv,
-			fmt.Sprintf("ANTHROPIC_BASE_URL=%s/run/%s", strings.TrimRight(base, "/"), req.RunID))
+		inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
+		extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
 	}
 	runner := NewClaudeRunner(ClaudeRunnerConfig{
 		BinaryPath:        c.cfg.ClaudeBinaryPath,
@@ -124,10 +125,12 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	})
 
 	cfg := SessionConfig{
-		RunID:       req.RunID,
-		AgentTypeID: req.AgentTypeID,
-		TenantID:    req.TenantID,
-		Runner:      runner,
+		RunID:        req.RunID,
+		AgentTypeID:  req.AgentTypeID,
+		TenantID:     req.TenantID,
+		Runner:       runner,
+		Model:        model,
+		InferenceURL: inferenceURL,
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {

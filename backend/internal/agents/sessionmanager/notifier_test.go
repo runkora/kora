@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,6 +84,47 @@ func TestHTTPNotifier_CompleteRun_Non2xxReturnsError(t *testing.T) {
 		t.Fatal("expected error for 409 response, got nil")
 	}
 	if !strings.Contains(err.Error(), "409") {
+		t.Errorf("error should mention status code, got: %v", err)
+	}
+}
+
+// ── SetSummary ────────────────────────────────────────────────────────────────
+
+func TestHTTPNotifier_SetSummary_PostsSummaryToRunURL(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	n := NewHTTPNotifier(srv.URL)
+	if err := n.SetSummary(context.Background(), "run-1", "Refactor the auth module"); err != nil {
+		t.Fatalf("unexpected error for 204: %v", err)
+	}
+	if gotPath != "/internal/runs/run-1/summary" {
+		t.Errorf("path = %q, want /internal/runs/run-1/summary", gotPath)
+	}
+	if !strings.Contains(gotBody, "Refactor the auth module") {
+		t.Errorf("body should carry the summary, got: %q", gotBody)
+	}
+}
+
+func TestHTTPNotifier_SetSummary_Non2xxReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("boom")) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	n := NewHTTPNotifier(srv.URL)
+	err := n.SetSummary(context.Background(), "run-1", "x")
+	if err == nil {
+		t.Fatal("expected error for 500 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("error should mention status code, got: %v", err)
 	}
 }

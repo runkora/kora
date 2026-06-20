@@ -98,9 +98,11 @@ Neither view shows *what the run is doing* or *what it was asked to do*.
 
 ### High-Level Approach
 
-When a run is started with an initial message, orbit-agents makes a best-effort LLM call (via the inference gateway, using the agent type's configured model) immediately after sending the initial message. The LLM is prompted to produce a single short sentence describing the task. The result is persisted in a new `summary` column on the `runs` table and returned in the run API response. The frontend displays this field wherever runs are listed or shown.
+When a run starts with an initial message, the **session-manager** (the agent's own pod) makes a best-effort LLM call on the agent's authorized inference path — `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages`, using the agent's **effective** model — to produce a single short sentence describing the task. It reports the result to orbit-agents via a callback, which persists it in a new `summary` column on the `runs` table. The frontend displays this field wherever runs are listed or shown.
 
-Generation is strictly best-effort: if the LLM call fails or times out (5-second ceiling), the run proceeds normally with a null summary. The summarization call does not block the run or the API response to the caller.
+Summarization must run where the agent's inference identity, effective model, and per-run budget exist — the session-manager — **not** in the orbit-agents control plane, which has no inference grant (a direct call is denied by policy) and does not know the effective model. See the ADR for the full rationale.
+
+Generation is strictly best-effort: if the LLM call fails or times out, the run proceeds normally with a null summary. It runs in a detached goroutine and never blocks the run or the `StartRun` response.
 
 ### User Experience
 
@@ -114,8 +116,8 @@ Generation is strictly best-effort: if the LLM call fails or times out (5-second
 
 ### Key Components
 
-- **Backend — `runs.summary` column**: A nullable `TEXT` column on the `runs` table, populated asynchronously after run start.
-- **Backend — `RunSummarizer`**: A lightweight service that calls the inference gateway's `/v1/chat/completions` endpoint with a fixed prompt, stores the result via a new `SetRunSummary` repository method.
+- **Backend — `runs.summary` column**: A nullable `TEXT` column on the `runs` table, populated asynchronously after run start (set-once).
+- **Backend — session-manager summarizer**: Calls the inference gateway's Anthropic `/v1/messages` endpoint on the agent's per-run authorized path with a fixed prompt, then reports the result to orbit-agents via the `POST /internal/runs/{id}/summary` callback, which persists it via a new `SetRunSummary` repository method.
 - **API**: The `Run` struct and all run-response payloads include the `summary` field (null-safe).
 - **Frontend — `Run` interface**: `summary?: string` added to the shared API type.
 - **Frontend — `RunRow`**: `summary: string | null` added to the display-layer type and transformer.
@@ -129,9 +131,8 @@ Generation is strictly best-effort: if the LLM call fails or times out (5-second
 ### In Scope
 
 - New `summary` column on `runs` table (goose migration).
-- `RunSummarizer` service in `internal/agents/`.
-- `SetRunSummary` repository method (interface + postgres impl).
-- Inference gateway URL config on orbit-agents.
+- Summarizer in `internal/agents/sessionmanager/` calling the agent's authorized inference path.
+- `SetRunSummary` repository method (interface + postgres impl, set-once) and `POST /internal/runs/{id}/summary` callback.
 - `summary` field on the `Run` model and all API responses.
 - Frontend: `Run` interface, `RunRow`, agent-runs-tab "Task" column, run-topbar summary display.
 
@@ -171,12 +172,12 @@ Generation is strictly best-effort: if the LLM call fails or times out (5-second
 ### Non-Functional Requirements
 
 **Performance:**
-- Summarization must not block the `StartRun` API response. It runs in a detached goroutine.
-- The inference call has a 5-second timeout; failure is silent to the caller.
+- Summarization must not block the `StartRun` API response. It runs in a detached goroutine in the session-manager, off the run's critical path.
+- The inference call has a 15-second timeout; failure is silent to the caller.
 
 **Security:**
-- The summarizer uses the same orbit-agents service token already used for platform calls; no new credential surface.
-- The initial message is sent to the inference gateway, which is an internal cluster endpoint.
+- The summary call goes out over the agent's own authorized inference path: the identity-proxy injects the agent token, OPA authorizes it under the agent's existing grant, and the gateway attributes cost to the run's budget. The control plane is **not** granted any inference capability — no new credential surface, no policy exception.
+- The initial message is sent to the inference gateway, an internal cluster endpoint.
 
 **Reliability:**
 - Failures in summarization do not affect run lifecycle. The run proceeds regardless.
@@ -190,8 +191,8 @@ Generation is strictly best-effort: if the LLM call fails or times out (5-second
 
 ### Internal Dependencies
 
-- **Inference Gateway** (`internal/inferencegw`): The orbit-agents service calls the inference gateway's `/v1/chat/completions` endpoint. The gateway must be reachable from the orbit-agents pod (already the case — session-manager pods call it for agent LLM calls).
-- **orbit-agents config**: A new `inferenceGatewayURL` config field is added.
+- **Inference Gateway** (`internal/inferencegw`): The session-manager calls the gateway's Anthropic `/v1/messages` endpoint on the agent's per-run path (already reachable — the agent subprocess calls it for every LLM turn).
+- **session-manager → orbit-agents callback**: A new `POST /internal/runs/{id}/summary` internal endpoint persists the reported summary. No new config — the session-manager reuses the `ANTHROPIC_BASE_URL` already in its pod.
 
 ### External Dependencies
 
@@ -221,14 +222,22 @@ Generation is strictly best-effort: if the LLM call fails or times out (5-second
 - Long preambles (e.g. system context) in the initial message produce misleading summaries.
 - Misses the compression value of LLM summarization.
 
-### Alternative 2: Generate summary in the session-manager after the first agent turn
+### Alternative 2: Generate the summary in the orbit-agents control plane
 
-**Description:** Wait until the agent has completed its first turn, then summarize the conversation.
+**Description:** Have orbit-agents call the inference gateway directly after sending the initial message (the original implementation).
 
 **Why not chosen:**
-- Introduces significant latency (the first agent turn can take 30+ seconds).
-- Requires a new callback into orbit-agents from the session-manager.
-- More complex than summarizing the initial message at run start.
+- The control plane has no agent identity, so OPA denies the call (`403 policy_denied`) — and granting the control plane inference would violate the platform's trust model.
+- orbit-agents only knows the agent type's default model, not the run's effective model.
+- No per-run budget attribution.
+- The chosen design instead generates in the session-manager (where identity, model, and budget exist) and reports back via a callback. See the ADR for the full analysis.
+
+### Alternative 2a: Generate in the session-manager after the first agent *turn*
+
+**Description:** Same location as chosen, but wait until the agent's first turn completes to summarize from richer output.
+
+**Why not chosen:**
+- Introduces significant latency (the first agent turn can take 30+ seconds); the initial message already captures intent well enough for a ≤120-char label.
 
 ### Alternative 3: Client-side summary generation (frontend)
 

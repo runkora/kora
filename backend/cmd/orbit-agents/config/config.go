@@ -72,10 +72,6 @@ type Config struct {
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
 		// catalog (GET /api/v1/connections). Absent/empty yields an empty catalog.
 		ConnectionRegistryPath string `yaml:"connectionRegistryPath"`
-		// InferenceGatewayURL is the base URL of the inference gateway, used by
-		// the run summarizer to generate task descriptions at run start.
-		// Defaults to the standard in-cluster address when not set.
-		InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
 		// SessionManager holds env var overrides injected into session-manager pods.
 		SessionManager struct {
 			// PostgresSSLMode is injected as ORBIT_POSTGRES_SSL_MODE.

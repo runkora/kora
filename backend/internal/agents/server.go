@@ -126,6 +126,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
 	mux.Handle("POST /internal/runs/{id}/state", c.handleRunStateCallback)
 	mux.Handle("POST /internal/runs/{id}/events", c.handlePushEvent)
+	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 }
 
@@ -598,6 +599,36 @@ func (c *Controller) handlePushEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.runs.PublishEvent(ctx, id, ev)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setRunSummaryRequest is the body for POST /internal/runs/{id}/summary.
+type setRunSummaryRequest struct {
+	Summary string `json:"summary"`
+}
+
+// handleSetRunSummary receives the LLM-generated task summary from a
+// session-manager pod, which generates it from the run's initial message over
+// the agent's own authorized inference path. The write is set-once and
+// best-effort.
+func (c *Controller) handleSetRunSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+
+	var req setRunSummaryRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+
+	if err := c.runs.SetRunSummary(ctx, id, req.Summary); err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to set run summary", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

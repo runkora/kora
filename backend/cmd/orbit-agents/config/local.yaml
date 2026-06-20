@@ -7,6 +7,5 @@ platform:
   policyServiceURL: ""
 
 agents:
-  inferenceGatewayURL: "http://localhost:8081"
   sessionManager:
     postgresSSLMode: disable

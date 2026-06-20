@@ -18,8 +18,18 @@ Every agent run in Orbit is currently identified only by a UUID. The runs table 
 Orbit already has the building blocks to solve this:
 
 1. **The initial message** — `StartRunRequest.InitialMessage` is the first user message sent at run creation time. It captures the user's intent.
-2. **The inference gateway** — `orbit-agents` already knows the agent type's configured `model_id` and the inference gateway is reachable from all orbit-agents pods (`http://orbit-inference-gateway.orbit-system.svc.cluster.local`).
+2. **An authorized inference path** — the agent already calls the inference gateway continuously from inside the session-manager pod, at `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages`. That path is the *only* context where all three of the following hold at once: the identity-proxy sidecar injects the agent's platform token, OPA authorizes the call under the agent's grant, and the gateway attributes cost to the run's budget.
 3. **The runs table** — has a clean extension point: a nullable `TEXT` column can be added without breaking existing rows.
+
+### Critical constraint (learned during implementation)
+
+A first implementation generated the summary **in the `orbit-agents` control plane**, calling the inference gateway directly. It does not work, and cannot:
+
+- **No inference identity.** `orbit-agents` is not an agent. Its direct call to the gateway carries no agent token, so OPA rejects it — observed as `403 {"code":"policy_denied"}`. There is no policy that authorizes the control plane to perform inference, nor should there be.
+- **Wrong / unknown model.** The control plane only knows the agent type's *default* `model_id`, which may be empty or overridden. The summary must use the agent's **effective** model, which is resolved at session-manager start.
+- **No budget attribution.** A control-plane call has no `run/{runID}` context, so the cost cannot be attributed or enforced.
+
+These are not incidental — they are the platform working as designed (*the control plane is never trusted to perform an agent's actions*). Summarization must therefore happen where the agent's identity, model, and budget already live: the **session-manager**.
 
 ### Problem Statement
 
@@ -42,29 +52,36 @@ How should Orbit generate and store a short, human-readable summary of each run'
 
 ## Decision Drivers
 
-* **Zero new dependencies**: The inference gateway is already in the cluster; the agent's `model_id` is already stored on the agent type.
+* **Authorized inference only**: The summary's LLM call must go through the agent's own identity, grant, and per-run budget — the platform must never grant the control plane a side-channel to perform inference.
+* **Effective model**: The summary must be generated with the model the agent actually runs, resolved at session-manager start, not the agent type's default.
 * **Non-blocking**: Summarization failures must never affect run lifecycle or API response latency.
-* **Minimal blast radius**: The change must not touch the session-manager or any other binary.
-* **Testability**: The summarizer must be injectable (interface-based) so unit tests can replace the LLM call.
-* **Consistency with existing patterns**: Follow the repository pattern, use `httpclient.Base` for the HTTP call, log warnings on failure.
+* **Reuse the existing callback surface**: The session-manager already POSTs run state and events back to orbit-agents over `/internal/runs/{id}/*`; a summary callback fits the same pattern.
+* **Testability**: The summarizer and the callback must be unit-testable without a live gateway.
+* **Consistency with existing patterns**: Follow the repository pattern, use `httpclient.Base` for the gateway call, log warnings on failure.
 
 ---
 
 ## Considered Options
 
-### Option 1: Async goroutine in `StartRun`, persisted via `SetRunSummary`
+### Option 1: Async goroutine in `StartRun` calling the gateway from orbit-agents ❌ (rejected — attempted, does not work)
 
-**Description:** Immediately after the initial message is sent to the session-manager, `StartRun` spawns a background goroutine. The goroutine calls the inference gateway with a compact prompt and persists the result by calling a new `SetRunSummary(ctx, runID, summary)` repository method. The goroutine uses a context detached from the request context (`context.WithoutCancel`) with a 5-second timeout, mirroring the `maybeWarmSandbox` pattern already in the codebase.
+**Description:** Immediately after the initial message is sent, `StartRun` spawns a background goroutine in `orbit-agents` that calls the inference gateway directly and persists the result via `SetRunSummary`.
+
+**Why it fails:** `orbit-agents` has no agent identity, so OPA denies the call (`403 policy_denied`); it only knows the agent type's *default* model, not the effective one; and a control-plane call has no per-run budget context. See *Critical constraint* above. This was implemented first and reverted.
+
+### Option 3 (chosen): Generate in the session-manager over the agent's authorized path, report back via callback
+
+**Description:** When the session-manager receives the run's **first user message**, it spawns a detached background goroutine that calls `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages` — the same authorized path the agent uses — with the session's **effective model**. The identity-proxy injects the agent token, OPA authorizes it, and the gateway attributes the (tiny) cost to the run's budget. The session-manager then reports the summary to orbit-agents via a new best-effort callback, `POST /internal/runs/{runID}/summary`, which persists it set-once.
 
 **Pros:**
-- Zero latency impact on `StartRun` API response.
-- No new IPC or callback surface.
-- Mirrors the existing `maybeWarmSandbox` goroutine pattern exactly.
-- Summary is durable (DB-persisted) before any live subscriber polls.
+- The only design where inference identity, effective model, and budget attribution all hold.
+- Reuses the existing session-manager → orbit-agents callback surface (`/internal/runs/{id}/*`).
+- Non-blocking: detached goroutine, `StartRun` and the run lifecycle are untouched.
+- Summary is durable (DB row), survives reconnects and SSE replay.
 
 **Cons:**
-- Summary is not in the `StartRun` API response body (caller sees null initially).
-- Requires a slight poll/refresh on the frontend to show the summary immediately after run creation.
+- Touches a second binary (session-manager) and adds one callback endpoint.
+- Summary is not in the `StartRun` response; it appears on the next frontend fetch (~1–2 s).
 
 ### Option 2: Synchronous call inside `StartRun`, returned in the response
 
@@ -78,17 +95,13 @@ How should Orbit generate and store a short, human-readable summary of each run'
 - A slow or unavailable inference gateway blocks run creation.
 - Violates the principle that `StartRun` should be fast and responsive.
 
-### Option 3: Summarize from the session-manager after the first agent turn
+### Option 3a: Summarize in the session-manager after the first agent *turn* (rejected timing variant)
 
-**Description:** Let the session-manager detect when the first assistant turn ends, then call back to orbit-agents with a summary request.
-
-**Pros:**
-- Summary based on actual agent output (richer signal).
+**Description:** Same location as the chosen option, but trigger after the first assistant turn *completes* rather than on the first user message, to summarize from richer output.
 
 **Cons:**
 - First agent turn can take 30–120 seconds; summary visibility is badly delayed.
-- Requires a new callback contract in the session-manager binary.
-- Much higher implementation complexity.
+- The user's initial message already captures intent well enough for a ≤120-char label; waiting buys little.
 
 ### Option 4: Client-side summary via the frontend BFF
 
@@ -106,18 +119,17 @@ How should Orbit generate and store a short, human-readable summary of each run'
 
 ## Decision
 
-**Chosen Option:** Option 1 — Async goroutine in `StartRun`, persisted via `SetRunSummary`
+**Chosen Option:** Option 3 — Generate in the session-manager over the agent's authorized inference path, report back via a best-effort callback.
 
 ### Rationale
 
-Option 1 is the right choice because:
+This is the only option that satisfies the platform's own rules. Summarization is an inference action, and *every inference action must run under an agent's identity, grant, and budget*. The session-manager is the one place that context exists:
 
-1. It mirrors an identical pattern already in the codebase (`maybeWarmSandbox`), so there is no new architectural surface to validate.
-2. It keeps `StartRun` fast — the single most important invariant for run creation UX.
-3. The inference gateway is already a hard dependency of every agent run (agents call it continuously); adding one extra call at start time introduces no new failure mode that is not already present.
-4. The summary is durable (DB row) and survives reconnects, page refreshes, and SSE replay.
+1. **Identity** — the call originates from the agent's pod, so the identity-proxy injects the agent token and OPA authorizes it under the same grant the agent already holds. No new policy, no control-plane inference side-channel.
+2. **Effective model** — the session-manager holds the model the agent actually runs with (`CreateSessionRequest.Model`, falling back to the configured default), so the summary uses the same model.
+3. **Budget** — calling `{base}/run/{runID}/v1/messages` attributes the ~80-token cost to the run, exactly like the agent's own calls.
 
-The null-on-creation gap (summary appears ≈ 1–2 seconds after the run list loads) is acceptable: the frontend refreshes runs on a polling interval, and the summary will appear on the next poll without any special handling.
+It keeps `StartRun` fast (the call is a detached goroutine in the session-manager), reuses the existing `/internal/runs/{id}/*` callback surface, and the summary remains durable. The null-on-creation gap (summary appears ≈ 1–2 s later) is unchanged and acceptable: the frontend shows it on the next fetch.
 
 ---
 
@@ -126,19 +138,22 @@ The null-on-creation gap (summary appears ≈ 1–2 seconds after the run list l
 ### Positive
 
 - All run list views become meaningfully scannable.
-- No new binaries, no new external services, no new network policies required.
-- Testable in isolation (the `Summarizer` interface is injected into `RunService`).
+- The summary call is correctly authorized, attributed, and uses the agent's real model — it cannot bypass policy or budget.
+- Reuses the existing session-manager → orbit-agents callback surface; no new external services or network policies.
+- Testable in isolation (the summarizer and the `SetSummary` callback are unit-tested with `httptest`).
 - Failure is silent to the user (graceful degradation).
 
 ### Negative
 
+- Spans two binaries: generation in the session-manager, persistence in orbit-agents via a new `/internal/runs/{id}/summary` callback.
 - The `StartRun` response does not include the summary; callers see `null` initially.
-- One additional LLM call is made per run that has an initial message (billed against the tenant's inference budget — but the cost is negligible: ~50 input tokens + ~30 output tokens).
+- One additional ~80-token LLM call per run with an initial message, attributed to the run's budget.
 
 ### Neutral
 
 - A new `summary TEXT` nullable column is added to the `runs` table; existing rows keep `null` with no schema issues.
-- The inference gateway URL is a new config field on orbit-agents; defaults to the standard in-cluster address.
+- `SetRunSummary` is set-once (`WHERE summary IS NULL`) so a resumed session never clobbers the original label.
+- No inference-gateway URL config is added to orbit-agents — the session-manager reuses the `ANTHROPIC_BASE_URL` already present in its pod.
 
 ---
 
@@ -152,43 +167,30 @@ A goose migration adds `summary TEXT` (nullable) to the `runs` table:
 ALTER TABLE runs ADD COLUMN summary TEXT;
 ```
 
-The `Run` struct gains a `Summary *string` field. The `RunRepository` interface gains:
+The `Run` struct gains a `Summary *string` field. The `RunRepository` interface gains `SetRunSummary(ctx, runID, summary string) error`, implemented set-once:
 
-```go
-SetRunSummary(ctx context.Context, runID, summary string) error
+```sql
+UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3 AND summary IS NULL
 ```
 
-`GetRun` and `ListRuns` select and scan the new column. `CreateRun` does not set it (null on creation).
+Zero rows affected (already set, or run gone) is not an error — the callback is idempotent. `GetRun`/`ListRuns` scan the column; `CreateRun` leaves it null.
 
-### Summarizer Interface
+### Summarizer (session-manager)
 
-```go
-// Summarizer generates a short description of a run's task intent.
-type Summarizer interface {
-    Summarize(ctx context.Context, modelID, initialMessage string) (string, error)
-}
-```
+`internal/agents/sessionmanager/summarizer.go` posts an **Anthropic Messages API** request (the dialect the agent uses) to `{inferenceURL}/v1/messages`, where `inferenceURL = {ANTHROPIC_BASE_URL}/run/{runID}`:
 
-`InferenceGatewaySummarizer` implements this interface. It posts a compact chat completion request to the inference gateway:
+- **model**: the session's effective model (`session.model`).
+- **system**: "You are a concise task labeler … ≤ 120 characters … output only the sentence."
+- **messages**: `[{role: user, content: <initial message>}]`
+- **max_tokens**: 60
 
-- **System prompt**: "You are a concise task labeler. Given a user's initial request, respond with a single sentence of ≤ 120 characters that captures the task intent. Output only the sentence — no quotes, no preamble."
-- **User message**: the initial message verbatim.
-- **Max tokens**: 60
-- **Temperature**: 0
+It embeds `httpclient.Base` (satisfies the no-raw-HTTP-client lint rule) and truncates the result to 120 runes. It sets **no** Authorization header — the identity-proxy sidecar injects the agent token on the way out, exactly as for the agent's own calls.
 
-### Wiring
+### Trigger & callback
 
-`RunService` gains an optional `Summarizer` field set via `SetSummarizer(s Summarizer)`. When non-nil and `req.InitialMessage != ""`, a goroutine is spawned after `emitHumanMessage`:
+`handleCreateSession` computes `inferenceURL` from the pod's `ANTHROPIC_BASE_URL` and passes it plus the model into `SessionConfig`. On the **first** user message (`session.summarizeOnce`), `Registry.Send` spawns a detached goroutine (15 s timeout) that calls the summarizer and then `Notifier.SetSummary(ctx, runID, summary)`.
 
-```go
-go s.summarizeRun(context.WithoutCancel(ctx), run.ID, at.ModelID, req.InitialMessage)
-```
-
-`summarizeRun` calls the summarizer, truncates to 120 chars, calls `s.repo.SetRunSummary`, and logs a WARN on any failure.
-
-### HTTP Client
-
-`InferenceGatewaySummarizer` uses a typed client that embeds `httpclient.Base` (as required by the no-raw-HTTP-client lint rule). The inference gateway URL is read from a new `InferenceGatewayURL` field on `agentsConfig.Agents`.
+`HTTPNotifier.SetSummary` POSTs `{"summary": …}` to `POST /internal/runs/{runID}/summary` on orbit-agents. The orbit-agents handler (`handleSetRunSummary`, behind the same `authorizeCallback` as the other internal callbacks) calls `RunService.SetRunSummary` → `repo.SetRunSummary`. Both generation and callback are best-effort: failures log at WARN and never affect the run.
 
 ### Frontend
 
@@ -199,20 +201,7 @@ go s.summarizeRun(context.WithoutCancel(ctx), run.ID, at.ModelID, req.InitialMes
 
 ### Config
 
-`cmd/orbit-agents/config/config.go`:
-```go
-InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
-```
-
-`base.yaml`:
-```yaml
-inferenceGatewayURL: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
-```
-
-`local.yaml`:
-```yaml
-inferenceGatewayURL: "http://localhost:8081"
-```
+No new config. The session-manager reuses the `ANTHROPIC_BASE_URL` already injected into its pod (`internal/agents/k8s.go`). In local dev (no `ANTHROPIC_BASE_URL`, `NoopNotifier`) summarization is simply skipped.
 
 ### Migration Path
 
@@ -250,4 +239,4 @@ The `summary` column is nullable. Existing runs are unaffected. No back-fill is 
 
 ---
 
-**Last Updated:** 2026-06-19
+**Last Updated:** 2026-06-20

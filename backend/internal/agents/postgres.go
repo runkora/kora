@@ -271,16 +271,18 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	return nil
 }
 
+// SetRunSummary writes the task summary set-once: the first summary for a run
+// wins. A resumed session's first message would otherwise re-summarize and
+// clobber the original task label, so the UPDATE only fires while summary IS
+// NULL. Zero rows affected (already set, or run gone) is not an error — the
+// callback is best-effort and idempotent.
 func (r *PostgresRepository) SetRunSummary(ctx context.Context, runID, summary string) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3`,
+	_, err := r.pool.Exec(ctx, `
+		UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3 AND summary IS NULL`,
 		summary, time.Now().UTC(), runID,
 	)
 	if err != nil {
 		return fmt.Errorf("set run summary: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
 	}
 	return nil
 }
