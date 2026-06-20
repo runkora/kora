@@ -1,19 +1,26 @@
 // Package triggers implements the Orbit Triggers feature: a generic, inbound
 // event framework that starts agent runs automatically in response to external
-// events. The webhook trigger is the first (v1) kind — see
-// docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md and
-// docs/prd/agent-webhook-triggers.md.
+// events. The webhook trigger is the first (v1) kind; scheduled and manual kinds
+// are added here. See docs/adr/2026-06-20-extended-trigger-types.md and the
+// original docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
 //
 // The package is hosted by the identity binary (the only externally-reachable
 // service and the platform token authority) but is a self-contained feature
 // package: it never imports other feature packages. It reaches the agent control
-// plane through a typed platform client and mints each webhook source's identity
+// plane through a typed platform client and mints each trigger source's identity
 // via the TokenMinter interface (satisfied by the identity service in main).
 package triggers
 
 import (
 	"errors"
 	"time"
+)
+
+// Trigger kind identifiers.
+const (
+	KindWebhook   = "webhook"   // inbound HTTP push from an external system (v1)
+	KindScheduled = "scheduled" // cron-based, time-driven firing
+	KindManual    = "manual"    // explicit API call (agent-to-agent, CI scripts, etc.)
 )
 
 // Provider identifiers for the source adapters that ship in v1.
@@ -55,6 +62,10 @@ var (
 	ErrUnknownProvider = errors.New("unknown webhook provider")
 	// ErrValidation indicates a malformed create/update request.
 	ErrValidation = errors.New("validation failed")
+	// ErrTriggerDisabled is returned when trying to fire a disabled trigger.
+	ErrTriggerDisabled = errors.New("trigger is disabled")
+	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
+	ErrWrongKind = errors.New("operation not valid for trigger kind")
 )
 
 // WebhookSource is a registered inbound origin of webhook deliveries. It owns the
@@ -77,39 +88,60 @@ type WebhookSource struct {
 	SecretCiphertext string `json:"-"`
 }
 
-// Trigger binds (source, event type, match condition) → (agent, prompt template).
+// ScheduleConfig holds the cron schedule for a KindScheduled trigger.
+type ScheduleConfig struct {
+	CronExpression string `json:"cron_expression"` // standard 5-field cron
+	Timezone       string `json:"timezone"`         // IANA timezone name, e.g. "Australia/Sydney"
+}
+
+// Trigger binds a firing condition to (agent, prompt template).
+// For KindWebhook: source_id, event_type, and match_condition drive firing.
+// For KindScheduled: kind_config carries the cron schedule; source_id is empty.
+// For KindManual: firing is driven by POST /triggers/{id}/fire; source_id is empty.
+// Scheduled and manual triggers have their own principal_id (not inherited from a source).
 type Trigger struct {
 	ID             string              `json:"id"`
 	TenantID       string              `json:"tenant_id"`
-	SourceID       string              `json:"source_id"`
+	Kind           string              `json:"kind"`
+	SourceID       string              `json:"source_id,omitempty"`
 	Name           string              `json:"name"`
 	AgentTypeID    string              `json:"agent_type_id"`
 	AgentSlug      string              `json:"agent_slug"`
-	EventType      string              `json:"event_type"`
+	EventType      string              `json:"event_type,omitempty"`
 	MatchCondition map[string][]string `json:"match_condition,omitempty"`
 	PromptTemplate string              `json:"prompt_template"`
-	GrantID        *string             `json:"-"`
-	Enabled        bool                `json:"enabled"`
-	CreatedAt      time.Time           `json:"created_at"`
-	UpdatedAt      time.Time           `json:"updated_at"`
+	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
+	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
+	// webhook triggers inherit from their WebhookSource).
+	PrincipalID string  `json:"-"`
+	GrantID     *string `json:"-"` // webhook: per-agent run grant; scheduled/manual: source-level run grant
+	GrantIDSvc  *string `json:"-"` // scheduled/manual: the trigger's own SERVICE principal grant
+	Enabled     bool    `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// Delivery is the durable record of an inbound webhook delivery and its outcome.
+// Delivery is the durable record of a trigger delivery and its outcome.
 // TriggerID/RunID summarize the first dispatched run; Runs carries the complete
 // per-trigger fan-out (one entry per matched trigger) and is populated on reads.
 type Delivery struct {
 	ID                 string        `json:"id"`
 	TenantID           string        `json:"tenant_id"`
-	SourceID           string        `json:"source_id"`
+	SourceID           string        `json:"source_id,omitempty"`
+	TriggerID          *string       `json:"trigger_id,omitempty"`
+	Kind               string        `json:"kind"`
 	ProviderDeliveryID string        `json:"provider_delivery_id,omitempty"`
 	EventType          string        `json:"event_type,omitempty"`
 	Status             string        `json:"status"`
-	TriggerID          *string       `json:"trigger_id,omitempty"`
 	RunID              *string       `json:"run_id,omitempty"`
 	Error              *string       `json:"error,omitempty"`
 	PayloadExcerpt     string        `json:"payload_excerpt,omitempty"`
-	ReceivedAt         time.Time     `json:"received_at"`
-	Runs               []DeliveryRun `json:"runs,omitempty"`
+	// FiredBy is the principal ID of the caller who fired a manual trigger.
+	FiredBy     string     `json:"fired_by,omitempty"`
+	// ScheduledAt is the cron tick time for scheduled trigger deliveries.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	ReceivedAt  time.Time  `json:"received_at"`
+	Runs        []DeliveryRun `json:"runs,omitempty"`
 }
 
 // DeliveryRun records a single matched-trigger dispatch for a delivery — the
@@ -128,14 +160,14 @@ type DeliveryRun struct {
 
 // ─── API request/response DTOs ────────────────────────────────────────────────
 
-// CreateSourceRequest is the body for POST /api/v1/triggers/sources.
+// CreateSourceRequest is the body for POST /api/v1/trigger-sources.
 type CreateSourceRequest struct {
 	Name     string         `json:"name"`
 	Provider string         `json:"provider"`
 	Config   map[string]any `json:"config,omitempty"`
 }
 
-// UpdateSourceRequest is the body for PATCH /api/v1/triggers/sources/{id}.
+// UpdateSourceRequest is the body for PATCH /api/v1/trigger-sources/{id}.
 // Only the enabled flag is mutable in v1; rotating the secret regenerates it.
 type UpdateSourceRequest struct {
 	Enabled      *bool `json:"enabled,omitempty"`
@@ -151,12 +183,20 @@ type SourceResponse struct {
 	Secret      string `json:"secret,omitempty"`
 }
 
-// CreateTriggerRequest is the body for POST /api/v1/triggers. AgentSlug is
-// accepted for backward compatibility but IGNORED: CreateTrigger resolves the
-// canonical slug from AgentTypeID via the agent control plane and never trusts
-// the client-supplied value (trusting it would let a caller shape an arbitrary
-// run-grant scope — see CreateTrigger).
+// CreateTriggerRequest is the body for POST /api/v1/triggers.
+//
+// Kind selects the trigger kind ("webhook", "scheduled", or "manual").
+// Defaults to "webhook" when omitted for backward compatibility.
+//
+// For webhook kind: SourceID, EventType are required; MatchCondition is optional.
+// For scheduled kind: ScheduleConfig is required; SourceID/EventType are ignored.
+// For manual kind: no extra fields required beyond Name/AgentTypeID/PromptTemplate.
+//
+// AgentSlug is accepted for backward compatibility but IGNORED: CreateTrigger
+// resolves the canonical slug from AgentTypeID via the agent control plane and
+// never trusts the client-supplied value.
 type CreateTriggerRequest struct {
+	Kind           string              `json:"kind"`
 	SourceID       string              `json:"source_id"`
 	Name           string              `json:"name"`
 	AgentTypeID    string              `json:"agent_type_id"`
@@ -164,15 +204,28 @@ type CreateTriggerRequest struct {
 	EventType      string              `json:"event_type"`
 	MatchCondition map[string][]string `json:"match_condition,omitempty"`
 	PromptTemplate string              `json:"prompt_template"`
+	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 }
 
 // UpdateTriggerRequest is the body for PATCH /api/v1/triggers/{id}. The agent
-// binding is immutable (changing it would re-key the run grant) — recreate the
-// trigger to retarget it.
+// binding and kind are immutable — recreate the trigger to retarget it.
 type UpdateTriggerRequest struct {
 	Name           *string             `json:"name,omitempty"`
 	EventType      *string             `json:"event_type,omitempty"`
 	MatchCondition map[string][]string `json:"match_condition,omitempty"`
 	PromptTemplate *string             `json:"prompt_template,omitempty"`
 	Enabled        *bool               `json:"enabled,omitempty"`
+	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
+}
+
+// FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.
+// Variables are substituted into {{ var.key }} placeholders in the prompt template.
+type FireTriggerRequest struct {
+	Variables map[string]string `json:"variables,omitempty"`
+}
+
+// FireTriggerResponse is returned from POST /api/v1/triggers/{id}/fire.
+type FireTriggerResponse struct {
+	DeliveryID string `json:"delivery_id"`
+	RunID      string `json:"run_id"`
 }

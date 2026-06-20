@@ -168,6 +168,18 @@ func (m *mockRepository) ListEnabledTriggersForSource(_ context.Context, sourceI
 	return out, nil
 }
 
+func (m *mockRepository) ListEnabledScheduledTriggers(_ context.Context) ([]Trigger, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Trigger
+	for _, t := range m.triggers {
+		if t.Kind == KindScheduled && t.Enabled {
+			out = append(out, *t)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

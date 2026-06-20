@@ -118,3 +118,24 @@ export async function deleteTrigger(id: string): Promise<{ error: string | null 
   if (!res.ok) return { error: await errorMessage(res) };
   return { error: null };
 }
+
+// ── Fire ──────────────────────────────────────────────────────────────────────
+
+export async function fireTrigger(
+  id: string,
+  variables?: Record<string, string>,
+): Promise<{ deliveryId: string; runId: string; error: null } | { error: string }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.triggers.fire(id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables }),
+    });
+  } catch {
+    return { error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) return { error: await errorMessage(res) };
+  const body = (await res.json()) as { data: { delivery_id: string; run_id: string } };
+  return { deliveryId: body.data.delivery_id, runId: body.data.run_id, error: null };
+}

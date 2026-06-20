@@ -33,11 +33,14 @@ const (
 // identity to derive its canonical slug.
 var sourceRunScopes = []string{"agents:runs:read", "agents:runs:write", "agents:types:read"}
 
-// triggerRunScopes are the per-agent run scopes a source principal needs to start
-// runs for a specific agent slug (the service-level checkRun in orbit-agents).
+// triggerRunScopes are the per-agent run scopes a source/trigger principal needs
+// to start runs for a specific agent slug.
 func triggerRunScopes(slug string) []string {
 	return []string{"agents:runs:" + slug + ":read", "agents:runs:" + slug + ":write"}
 }
+
+// fireScope is the scope required to fire a specific manual trigger.
+func fireScope(triggerID string) string { return "triggers:fire:" + triggerID }
 
 // TokenMinter mints a short-lived platform token for a non-interactive principal.
 // It is satisfied by the identity service and injected from main, so the triggers
@@ -142,7 +145,6 @@ func (s *Service) CreateSource(ctx context.Context, tenantID string, req CreateS
 		SecretCiphertext: ciphertext,
 	}
 	if err := s.repo.CreateSource(ctx, src); err != nil {
-		// Best-effort grant cleanup so a failed create leaves no orphaned grant.
 		if delErr := s.policy.DeleteGrant(ctx, grantID); delErr != nil {
 			s.logger.Error(ctx, "source create failed and grant cleanup failed",
 				logging.Field{Key: "source_id", Value: id},
@@ -246,10 +248,28 @@ func (s *Service) DeleteSource(ctx context.Context, tenantID, id string) error {
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
 
-// CreateTrigger binds a source event to an agent. It grants the source's
-// principal the per-agent run scopes so the trigger-initiated run is authorized.
+// CreateTrigger binds a source event (webhook), a cron schedule (scheduled), or
+// an explicit fire call (manual) to an agent.
 func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
-	if err := validateTriggerCreate(req); err != nil {
+	kind := req.Kind
+	if kind == "" {
+		kind = KindWebhook // backward-compatible default
+	}
+	switch kind {
+	case KindWebhook:
+		return s.createWebhookTrigger(ctx, tenantID, req)
+	case KindScheduled:
+		return s.createScheduledTrigger(ctx, tenantID, req)
+	case KindManual:
+		return s.createManualTrigger(ctx, tenantID, req)
+	default:
+		return nil, fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, kind)
+	}
+}
+
+// createWebhookTrigger handles the existing webhook trigger creation path.
+func (s *Service) createWebhookTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
+	if err := validateWebhookTriggerCreate(req); err != nil {
 		return nil, err
 	}
 	src, err := s.repo.GetSource(ctx, tenantID, req.SourceID)
@@ -257,29 +277,11 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 		return nil, err
 	}
 
-	// Resolve the agent type against orbit-agents under the source's own
-	// tenant-scoped identity instead of trusting the client-supplied slug. This
-	// (a) confirms the agent type exists and is owned by this tenant, and (b)
-	// derives the canonical slug. orbit-agents keys the run-authorization check on
-	// the resolved slug, so a client slug that disagreed with the real one would
-	// silently 403 every dispatch — and would let a triggers:write caller shape an
-	// arbitrary run-grant scope on the source principal. The canonical slug closes
-	// both gaps.
-	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
+	at, err := s.resolveAgentType(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, req.AgentTypeID)
 	if err != nil {
-		return nil, fmt.Errorf("mint source token for agent-type resolution: %w", err)
-	}
-	at, err := s.agents.GetAgentType(ctx, tok, req.AgentTypeID)
-	if err != nil {
-		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) || errors.Is(err, agentsclient.ErrForbidden) {
-			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
-		}
-		return nil, fmt.Errorf("resolve agent type: %w", err)
+		return nil, err
 	}
 	if at.TenantID != tenantID {
-		// Defense in depth: orbit-agents already scopes the read to the token's
-		// tenant, so this is unreachable in practice — but never bind a trigger to
-		// an agent type across a tenant boundary.
 		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
 	}
 
@@ -291,6 +293,7 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 	t := &Trigger{
 		ID:             uuid.NewString(),
 		TenantID:       tenantID,
+		Kind:           KindWebhook,
 		SourceID:       req.SourceID,
 		Name:           strings.TrimSpace(req.Name),
 		AgentTypeID:    at.ID,
@@ -312,9 +315,125 @@ func (s *Service) CreateTrigger(ctx context.Context, tenantID string, req Create
 		return nil, err
 	}
 
-	s.logger.Info(ctx, "trigger created",
+	s.logger.Info(ctx, "webhook trigger created",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "source_id", Value: req.SourceID},
+		logging.Field{Key: "agent_slug", Value: at.Slug},
+	)
+	return t, nil
+}
+
+// createScheduledTrigger creates a scheduled trigger with its own SERVICE principal.
+func (s *Service) createScheduledTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
+	if err := validateScheduledTriggerCreate(req); err != nil {
+		return nil, err
+	}
+
+	id := uuid.NewString()
+	principalID := "trigger:" + id
+
+	// Resolve agent type using a temporary principal. We provision the principal
+	// first so it can be used for the agent-type lookup.
+	svcGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger service grant: %w", err)
+	}
+
+	at, err := s.resolveAgentType(ctx, tenantID, principalID, "trigger:"+id, req.AgentTypeID)
+	if err != nil {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
+	}
+	if at.TenantID != tenantID {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
+	}
+
+	runGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, triggerRunScopes(at.Slug), nil)
+	if err != nil {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, fmt.Errorf("create trigger run grant: %w", err)
+	}
+
+	t := &Trigger{
+		ID:             id,
+		TenantID:       tenantID,
+		Kind:           KindScheduled,
+		Name:           strings.TrimSpace(req.Name),
+		AgentTypeID:    at.ID,
+		AgentSlug:      at.Slug,
+		PromptTemplate: req.PromptTemplate,
+		ScheduleConfig: req.ScheduleConfig,
+		PrincipalID:    principalID,
+		GrantID:        &runGrantID,
+		GrantIDSvc:     &svcGrantID,
+		Enabled:        true,
+	}
+	if err := s.repo.CreateTrigger(ctx, t); err != nil {
+		_ = s.policy.DeleteGrant(ctx, runGrantID)
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
+	}
+
+	s.logger.Info(ctx, "scheduled trigger created",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "cron", Value: req.ScheduleConfig.CronExpression},
+		logging.Field{Key: "agent_slug", Value: at.Slug},
+	)
+	return t, nil
+}
+
+// createManualTrigger creates a manual trigger with its own SERVICE principal.
+func (s *Service) createManualTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
+	if err := validateManualTriggerCreate(req); err != nil {
+		return nil, err
+	}
+
+	id := uuid.NewString()
+	principalID := "trigger:" + id
+
+	svcGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger service grant: %w", err)
+	}
+
+	at, err := s.resolveAgentType(ctx, tenantID, principalID, "trigger:"+id, req.AgentTypeID)
+	if err != nil {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
+	}
+	if at.TenantID != tenantID {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, req.AgentTypeID)
+	}
+
+	runGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, triggerRunScopes(at.Slug), nil)
+	if err != nil {
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, fmt.Errorf("create trigger run grant: %w", err)
+	}
+
+	t := &Trigger{
+		ID:             id,
+		TenantID:       tenantID,
+		Kind:           KindManual,
+		Name:           strings.TrimSpace(req.Name),
+		AgentTypeID:    at.ID,
+		AgentSlug:      at.Slug,
+		PromptTemplate: req.PromptTemplate,
+		PrincipalID:    principalID,
+		GrantID:        &runGrantID,
+		GrantIDSvc:     &svcGrantID,
+		Enabled:        true,
+	}
+	if err := s.repo.CreateTrigger(ctx, t); err != nil {
+		_ = s.policy.DeleteGrant(ctx, runGrantID)
+		_ = s.policy.DeleteGrant(ctx, svcGrantID)
+		return nil, err
+	}
+
+	s.logger.Info(ctx, "manual trigger created",
+		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "agent_slug", Value: at.Slug},
 	)
 	return t, nil
@@ -330,8 +449,8 @@ func (s *Service) GetTrigger(ctx context.Context, tenantID, id string) (*Trigger
 	return s.repo.GetTrigger(ctx, tenantID, id)
 }
 
-// UpdateTrigger edits the mutable fields of a trigger. The agent binding is
-// immutable (recreate to retarget).
+// UpdateTrigger edits the mutable fields of a trigger. The agent binding and kind
+// are immutable — recreate the trigger to retarget it.
 func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
@@ -352,28 +471,167 @@ func (s *Service) UpdateTrigger(ctx context.Context, tenantID, id string, req Up
 	if req.Enabled != nil {
 		t.Enabled = *req.Enabled
 	}
+	if req.ScheduleConfig != nil && t.Kind == KindScheduled {
+		if err := validateScheduleConfig(req.ScheduleConfig); err != nil {
+			return nil, err
+		}
+		t.ScheduleConfig = req.ScheduleConfig
+	}
 	if err := s.repo.UpdateTrigger(ctx, t); err != nil {
 		return nil, err
 	}
 	return t, nil
 }
 
-// DeleteTrigger removes a trigger and its per-agent run grant.
+// DeleteTrigger removes a trigger and all its policy grants.
 func (s *Service) DeleteTrigger(ctx context.Context, tenantID, id string) error {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return err
 	}
-	if t.GrantID != nil {
-		if delErr := s.policy.DeleteGrant(ctx, *t.GrantID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
+	for _, gid := range []*string{t.GrantID, t.GrantIDSvc} {
+		if gid == nil {
+			continue
+		}
+		if delErr := s.policy.DeleteGrant(ctx, *gid); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
 			s.logger.Error(ctx, "failed to delete trigger grant",
 				logging.Field{Key: "trigger_id", Value: id},
-				logging.Field{Key: "grant_id", Value: *t.GrantID},
+				logging.Field{Key: "grant_id", Value: *gid},
 				logging.Field{Key: "error", Value: delErr.Error()},
 			)
 		}
 	}
 	return s.repo.DeleteTrigger(ctx, tenantID, id)
+}
+
+// FireTrigger fires a manual trigger on behalf of callerPrincipalID.
+// The resulting run executes under the trigger's own SERVICE principal, not
+// the caller's identity. The caller must hold triggers:fire:{id} scope — enforced
+// at the HTTP layer by ScopeEnforcementMiddleware before this is called.
+func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipalID string, req FireTriggerRequest) (*FireTriggerResponse, error) {
+	t, err := s.repo.GetTrigger(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.Kind != KindManual {
+		return nil, fmt.Errorf("%w: only manual triggers can be fired directly", ErrWrongKind)
+	}
+	if !t.Enabled {
+		return nil, ErrTriggerDisabled
+	}
+
+	fields := make(map[string]string)
+	for k, v := range req.Variables {
+		fields["var."+k] = v
+	}
+
+	deliveryID := uuid.NewString()
+	triggerID := t.ID
+	delivery := &Delivery{
+		ID:         deliveryID,
+		TenantID:   tenantID,
+		TriggerID:  &triggerID,
+		Kind:       KindManual,
+		Status:     StatusVerified,
+		FiredBy:    callerPrincipalID,
+	}
+	inserted, err := s.repo.InsertDelivery(ctx, delivery)
+	if err != nil {
+		return nil, fmt.Errorf("record manual delivery: %w", err)
+	}
+	if !inserted {
+		// Should not happen for manual (no dedup key), but handle defensively.
+		return nil, fmt.Errorf("failed to record delivery")
+	}
+
+	runID, err := s.startRunForTriggerWithFields(ctx, *t, fields)
+	if err != nil {
+		msg := err.Error()
+		_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, &triggerID, nil, &msg)
+		return nil, fmt.Errorf("start run: %w", err)
+	}
+
+	rID := runID
+	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &triggerID, &rID, nil)
+	s.recordDeliveryRun(ctx, tenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
+
+	s.logger.Info(ctx, "manual trigger fired",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "fired_by", Value: callerPrincipalID},
+	)
+
+	return &FireTriggerResponse{DeliveryID: deliveryID, RunID: runID}, nil
+}
+
+// TickScheduled is called by the Scheduler for each enabled scheduled trigger at
+// its cron tick. It creates a delivery record (with dedup) and starts the run.
+func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
+	t := tick.Trigger
+	scheduledAt := scheduledAtMinute(tick.ScheduledAt)
+
+	deliveryID := uuid.NewString()
+	triggerID := t.ID
+	delivery := &Delivery{
+		ID:          deliveryID,
+		TenantID:    t.TenantID,
+		TriggerID:   &triggerID,
+		Kind:        KindScheduled,
+		Status:      StatusVerified,
+		ScheduledAt: &scheduledAt,
+	}
+
+	// Use the scheduled dedup path to prevent double-fire on pod restart.
+	pgRepo, ok := s.repo.(*postgresRepository)
+	if !ok {
+		s.logger.Error(ctx, "repo does not support scheduled dedup", logging.Field{Key: "trigger_id", Value: t.ID})
+		return
+	}
+	inserted, err := pgRepo.InsertScheduledDelivery(ctx, delivery)
+	if err != nil {
+		s.logger.Error(ctx, "failed to record scheduled delivery",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if !inserted {
+		s.logger.Info(ctx, "duplicate scheduled tick ignored",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "scheduled_at", Value: scheduledAt},
+		)
+		return
+	}
+
+	// Inject scheduler context as var fields (e.g. {{ var.date }}).
+	fields := map[string]string{
+		"var.date":        scheduledAt.Format("2006-01-02"),
+		"var.datetime":    scheduledAt.Format(time.RFC3339),
+		"var.trigger_id":  t.ID,
+		"var.tenant_id":   t.TenantID,
+	}
+
+	runID, err := s.startRunForTriggerWithFields(ctx, t, fields)
+	if err != nil {
+		msg := err.Error()
+		_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, &triggerID, nil, &msg)
+		s.logger.Error(ctx, "scheduled trigger dispatch failed",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+
+	rID := runID
+	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &triggerID, &rID, nil)
+	s.recordDeliveryRun(ctx, t.TenantID, deliveryID, t.ID, RunStatusDispatched, &rID, nil)
+
+	s.logger.Info(ctx, "scheduled trigger fired",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "scheduled_at", Value: scheduledAt},
+	)
 }
 
 // ListDeliveries returns recent deliveries for a tenant, each with its full
@@ -400,7 +658,7 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	return deliveries, nil
 }
 
-// ─── Ingest ───────────────────────────────────────────────────────────────────
+// ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
 // dispatch. It returns IngestAccepted for a new, verified delivery and
@@ -431,10 +689,6 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 
 	deliveryID := adapter.DeliveryID(headers)
 	if deliveryID == "" {
-		// Replay protection keys entirely on the provider delivery id via the
-		// partial unique index on trigger_deliveries. The id is not covered by the
-		// HMAC signature, so a captured-and-replayed body with the id header
-		// stripped would otherwise re-dispatch unbounded. Reject fail-closed.
 		return 0, ErrMissingDeliveryID
 	}
 	eventType := adapter.EventType(headers, body)
@@ -443,6 +697,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		ID:                 uuid.NewString(),
 		TenantID:           src.TenantID,
 		SourceID:           src.ID,
+		Kind:               KindWebhook,
 		ProviderDeliveryID: deliveryID,
 		EventType:          eventType,
 		Status:             StatusVerified,
@@ -460,9 +715,6 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		return IngestDuplicate, nil
 	}
 
-	// Dispatch asynchronously so the provider receives a fast 2xx. The detached
-	// context keeps trace/log correlation but is independent of the request's
-	// cancellation, which fires as soon as we respond.
 	go s.dispatch(context.WithoutCancel(ctx), *src, adapter, delivery.ID, eventType, body)
 
 	return IngestAccepted, nil
@@ -490,19 +742,18 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 	}
 	if len(matched) == 0 {
 		if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusSkipped, nil, nil, nil); err != nil {
-			s.logger.Error(ctx, "failed to record skipped delivery", logging.Field{Key: "delivery_id", Value: deliveryID}, logging.Field{Key: "error", Value: err.Error()})
+			s.logger.Error(ctx, "failed to record skipped delivery",
+				logging.Field{Key: "delivery_id", Value: deliveryID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 		}
 		return
 	}
 
-	// A delivery may match multiple triggers and start a run for each. Every
-	// attempt is recorded individually in trigger_delivery_runs (the authoritative
-	// 1→N audit record); trigger_deliveries keeps a delivery-level summary whose
-	// trigger_id/run_id point at the first successful dispatch.
 	var dispatched bool
 	var lastErr error
 	for _, t := range matched {
-		runID, err := s.startRunForTrigger(ctx, src, t, fields)
+		runID, err := s.startRunForWebhookTrigger(ctx, src, t, fields)
 		if err != nil {
 			lastErr = err
 			s.logger.Error(ctx, "trigger dispatch failed",
@@ -525,7 +776,10 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 			dispatched = true
 			tID := t.ID
 			if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &tID, &rID, nil); err != nil {
-				s.logger.Error(ctx, "failed to record dispatched delivery", logging.Field{Key: "delivery_id", Value: deliveryID}, logging.Field{Key: "error", Value: err.Error()})
+				s.logger.Error(ctx, "failed to record dispatched delivery",
+					logging.Field{Key: "delivery_id", Value: deliveryID},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
 			}
 		}
 	}
@@ -538,11 +792,10 @@ func (s *Service) dispatch(ctx context.Context, src WebhookSource, adapter Sourc
 	}
 }
 
-// startRunForTrigger renders the prompt, mints a JIT SERVICE token for the
-// source's identity, and starts a run via the agent control plane.
-func (s *Service) startRunForTrigger(ctx context.Context, src WebhookSource, t Trigger, fields map[string]string) (string, error) {
+// startRunForWebhookTrigger renders the prompt and starts a run under the
+// source's mapped SERVICE identity.
+func (s *Service) startRunForWebhookTrigger(ctx context.Context, src WebhookSource, t Trigger, fields map[string]string) (string, error) {
 	prompt := renderTemplate(t.PromptTemplate, fields)
-
 	tok, err := s.minter.MintServiceToken(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, sourceTokenTTL)
 	if err != nil {
 		return "", fmt.Errorf("mint source token: %w", err)
@@ -557,6 +810,42 @@ func (s *Service) startRunForTrigger(ctx context.Context, src WebhookSource, t T
 	return run.ID, nil
 }
 
+// startRunForTriggerWithFields starts a run under the trigger's own SERVICE
+// principal. Used by scheduled and manual triggers.
+func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, fields map[string]string) (string, error) {
+	prompt := renderTemplate(t.PromptTemplate, fields)
+	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, t.PrincipalID, "trigger:"+t.ID, sourceTokenTTL)
+	if err != nil {
+		return "", fmt.Errorf("mint trigger token: %w", err)
+	}
+	run, err := s.agents.StartRun(ctx, tok, agentsclient.StartRunRequest{
+		AgentTypeID:    t.AgentTypeID,
+		InitialMessage: prompt,
+	})
+	if err != nil {
+		return "", fmt.Errorf("start run: %w", err)
+	}
+	return run.ID, nil
+}
+
+// resolveAgentType looks up an agent type under a given SERVICE principal and
+// validates it belongs to the tenant. This prevents the caller from shaping an
+// arbitrary run-grant scope via a client-supplied slug.
+func (s *Service) resolveAgentType(ctx context.Context, tenantID, principalID, displayName, agentTypeID string) (*agentsclient.AgentType, error) {
+	tok, err := s.minter.MintServiceToken(ctx, tenantID, principalID, displayName, sourceTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("mint token for agent-type resolution: %w", err)
+	}
+	at, err := s.agents.GetAgentType(ctx, tok, agentTypeID)
+	if err != nil {
+		if errors.Is(err, agentsclient.ErrAgentTypeNotFound) || errors.Is(err, agentsclient.ErrForbidden) {
+			return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+		}
+		return nil, fmt.Errorf("resolve agent type: %w", err)
+	}
+	return &at, nil
+}
+
 func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
 	if err := s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusFailed, nil, nil, &msg); err != nil {
 		s.logger.Error(ctx, "failed to record failed delivery",
@@ -566,8 +855,6 @@ func (s *Service) recordFailure(ctx context.Context, deliveryID, msg string) {
 	}
 }
 
-// recordDeliveryRun persists one matched-trigger dispatch outcome. Best-effort:
-// a failure to write the audit row is logged but never aborts dispatch.
 func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, triggerID, status string, runID, errMsg *string) {
 	dr := &DeliveryRun{
 		ID:         uuid.NewString(),
@@ -589,20 +876,61 @@ func (s *Service) recordDeliveryRun(ctx context.Context, tenantID, deliveryID, t
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-func validateTriggerCreate(req CreateTriggerRequest) error {
+func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
 		return fmt.Errorf("%w: name is required", ErrValidation)
 	case req.SourceID == "":
-		return fmt.Errorf("%w: source_id is required", ErrValidation)
+		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
 	case req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
-	// agent_slug is intentionally not required: it is resolved server-side from
-	// agent_type_id (see CreateTrigger). Any client-supplied value is ignored.
 	case req.EventType == "":
-		return fmt.Errorf("%w: event_type is required", ErrValidation)
+		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
+	}
+	return nil
+}
+
+func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
+	switch {
+	case strings.TrimSpace(req.Name) == "":
+		return fmt.Errorf("%w: name is required", ErrValidation)
+	case req.AgentTypeID == "":
+		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
+	case strings.TrimSpace(req.PromptTemplate) == "":
+		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
+	case req.ScheduleConfig == nil:
+		return fmt.Errorf("%w: schedule_config is required for scheduled triggers", ErrValidation)
+	}
+	return validateScheduleConfig(req.ScheduleConfig)
+}
+
+func validateManualTriggerCreate(req CreateTriggerRequest) error {
+	switch {
+	case strings.TrimSpace(req.Name) == "":
+		return fmt.Errorf("%w: name is required", ErrValidation)
+	case req.AgentTypeID == "":
+		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
+	case strings.TrimSpace(req.PromptTemplate) == "":
+		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
+	}
+	return nil
+}
+
+func validateScheduleConfig(sc *ScheduleConfig) error {
+	if sc == nil {
+		return fmt.Errorf("%w: schedule_config is required", ErrValidation)
+	}
+	if strings.TrimSpace(sc.CronExpression) == "" {
+		return fmt.Errorf("%w: schedule_config.cron_expression is required", ErrValidation)
+	}
+	if strings.TrimSpace(sc.Timezone) == "" {
+		return fmt.Errorf("%w: schedule_config.timezone is required", ErrValidation)
+	}
+	// Validate timezone by loading it.
+	if _, err := time.LoadLocation(sc.Timezone); err != nil {
+		return fmt.Errorf("%w: schedule_config.timezone %q is not a valid IANA timezone: %v", ErrValidation, sc.Timezone, err)
 	}
 	return nil
 }
@@ -617,7 +945,5 @@ func truncate(b []byte, n int) string {
 	if len(b) <= n {
 		return string(b)
 	}
-	// Trim back to a rune boundary so the excerpt never ends mid-codepoint and
-	// re-serializes as valid UTF-8 in the deliveries API response.
 	return strings.ToValidUTF8(string(b[:n]), "")
 }

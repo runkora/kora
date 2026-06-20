@@ -172,13 +172,17 @@ export function AgentTriggersTab() {
                 setFormState({
                   trigger: {
                     id: row.id,
+                    kind: row.kind ?? 'webhook',
                     name: row.name,
-                    sourceId: row.source_id,
+                    sourceId: row.source_id ?? '',
                     agentTypeId: row.agent_type_id,
                     agentSlug: row.agent_slug,
-                    eventType: row.event_type,
+                    eventType: row.event_type ?? '',
                     matchCondition: row.match_condition ?? {},
                     promptTemplate: row.prompt_template,
+                    scheduleConfig: row.schedule_config
+                      ? { cronExpression: row.schedule_config.cron_expression, timezone: row.schedule_config.timezone }
+                      : undefined,
                   },
                 })
               }

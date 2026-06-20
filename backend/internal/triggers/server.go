@@ -50,21 +50,25 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 // Public (unauthenticated, HMAC-verified by the source adapter):
 //
-//	POST /api/v1/webhooks/{sourceID}   Inbound webhook delivery.
+//	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
 // Management (platform-admin; triggers:read / triggers:write):
 //
-//	POST   /api/v1/trigger-sources           Register a webhook source.
-//	GET    /api/v1/trigger-sources           List webhook sources.
-//	GET    /api/v1/trigger-sources/{id}      Get a webhook source.
-//	PATCH  /api/v1/trigger-sources/{id}      Enable/disable or rotate secret.
-//	DELETE /api/v1/trigger-sources/{id}      Delete a webhook source.
-//	POST   /api/v1/triggers                  Create a trigger.
-//	GET    /api/v1/triggers                  List triggers (filter ?agent_type_id=).
-//	GET    /api/v1/triggers/{id}             Get a trigger.
-//	PATCH  /api/v1/triggers/{id}             Edit a trigger.
-//	DELETE /api/v1/triggers/{id}             Delete a trigger.
-//	GET    /api/v1/trigger-deliveries        List recent deliveries (filter ?source_id=).
+//	POST   /api/v1/trigger-sources            Register a webhook source.
+//	GET    /api/v1/trigger-sources            List webhook sources.
+//	GET    /api/v1/trigger-sources/{id}       Get a webhook source.
+//	PATCH  /api/v1/trigger-sources/{id}       Enable/disable or rotate secret.
+//	DELETE /api/v1/trigger-sources/{id}       Delete a webhook source.
+//	POST   /api/v1/triggers                   Create a trigger (any kind).
+//	GET    /api/v1/triggers                   List triggers (filter ?agent_type_id= ?kind=).
+//	GET    /api/v1/triggers/{id}              Get a trigger.
+//	PATCH  /api/v1/triggers/{id}              Edit a trigger.
+//	DELETE /api/v1/triggers/{id}              Delete a trigger.
+//	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
+//
+// Fire (requires triggers:fire:{id} scope):
+//
+//	POST   /api/v1/triggers/{id}/fire         Fire a manual trigger.
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public inbound webhook — authenticated by HMAC signature, not a platform
 	// token, so it is registered without the auth chain (like /identity/device).
@@ -86,6 +90,11 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /triggers/{id}", auth, c.handleGetTrigger)
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
+
+	// The fire endpoint uses the same auth chain as management routes; the
+	// ScopeEnforcementMiddleware enforces triggers:fire:{id} via the route scope
+	// registration in triggerRoutes() (see cmd/identity/main.go).
+	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 }
@@ -110,8 +119,6 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrMissingDeliveryID):
 			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "delivery is missing a provider delivery id", nil), nil)
 		case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrSourceDisabled):
-			// Do not distinguish missing from disabled — avoid leaking which
-			// source ids exist to unauthenticated callers.
 			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "webhook source not found", nil), nil)
 		default:
 			api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to process delivery", nil), err)
@@ -244,14 +251,34 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
+// handleFireTrigger handles POST /api/v1/triggers/{id}/fire.
+// The caller must hold triggers:fire:{id} scope — enforced by
+// ScopeEnforcementMiddleware before this handler is reached.
+func (c *Controller) handleFireTrigger(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req FireTriggerRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	callerID := principalFromCtx(ctx)
+	resp, err := c.svc.FireTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), callerID, req)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusAccepted, resp)
+}
+
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
 func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), DeliveryFilter{
-		SourceID: r.URL.Query().Get("source_id"),
-		Limit:    limit,
+		SourceID:  r.URL.Query().Get("source_id"),
+		TriggerID: r.URL.Query().Get("trigger_id"),
+		Kind:      r.URL.Query().Get("kind"),
+		Limit:     limit,
 	})
 	if err != nil {
 		c.writeServiceError(w, r, err)
@@ -262,12 +289,15 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// writeServiceError maps service-layer sentinel errors to structured responses.
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	switch {
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
+	case errors.Is(err, ErrTriggerDisabled):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
+	case errors.Is(err, ErrWrongKind):
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 	case errors.Is(err, ErrValidation), errors.Is(err, ErrUnknownProvider):
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
 	default:
@@ -281,4 +311,12 @@ func tenantFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return claims.Orbit.TenantID
+}
+
+func principalFromCtx(ctx context.Context) string {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		return ""
+	}
+	return claims.Subject
 }
