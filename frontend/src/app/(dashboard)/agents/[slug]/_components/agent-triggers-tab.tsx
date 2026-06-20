@@ -181,7 +181,10 @@ export function AgentTriggersTab() {
                     matchCondition: row.match_condition ?? {},
                     promptTemplate: row.prompt_template,
                     scheduleConfig: row.schedule_config
-                      ? { cronExpression: row.schedule_config.cron_expression, timezone: row.schedule_config.timezone }
+                      ? {
+                          cronExpression: row.schedule_config.cron_expression,
+                          timezone: row.schedule_config.timezone,
+                        }
                       : undefined,
                   },
                 })

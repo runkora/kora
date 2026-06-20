@@ -260,10 +260,7 @@ export function TriggerFormModal({
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
-      <ModalHeader
-        title={isEdit ? 'Edit trigger' : 'New trigger'}
-        description={modalDescription}
-      />
+      <ModalHeader title={isEdit ? 'Edit trigger' : 'New trigger'} description={modalDescription} />
       <ModalBody flushY>
         <Stack gap="comfortable">
           {!isEdit && (
@@ -442,7 +439,7 @@ export function TriggerFormModal({
                 ? 'Use {{ var.date }}, {{ var.datetime }}, {{ var.trigger_id }} for injected values.'
                 : kind === 'manual'
                   ? 'Use {{ var.KEY }} for caller-supplied variables.'
-                  : 'Sent as the run\'s initial message. Use {{ field }} placeholders, e.g. {{ pr.title }}.'
+                  : "Sent as the run's initial message. Use {{ field }} placeholders, e.g. {{ pr.title }}."
             }
           >
             <Textarea
