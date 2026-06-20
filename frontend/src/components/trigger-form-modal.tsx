@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
+  Code,
   FormField,
   Icon,
   Input,
@@ -428,8 +429,8 @@ export function TriggerFormModal({
           {kind === 'manual' && !isEdit && (
             <Text size="caption" color="muted">
               After creation you will receive a trigger ID. Any principal with the{' '}
-              <code>triggers:fire:&#123;id&#125;</code> scope can POST to{' '}
-              <code>/api/v1/triggers/&#123;id&#125;/fire</code> to dispatch a run.
+              <Code>triggers:fire:&#123;id&#125;</Code> scope can POST to{' '}
+              <Code>/api/v1/triggers/&#123;id&#125;/fire</Code> to dispatch a run.
             </Text>
           )}
 

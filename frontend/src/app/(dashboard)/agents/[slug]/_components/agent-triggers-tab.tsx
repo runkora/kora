@@ -134,7 +134,7 @@ export function AgentTriggersTab() {
               {row.name}
             </Text>
             <Text size="caption" color="muted">
-              {sourceName(row.source_id)}
+              {row.source_id ? sourceName(row.source_id) : row.kind}
             </Text>
           </Stack>
         ),
