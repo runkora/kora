@@ -528,12 +528,12 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	deliveryID := uuid.NewString()
 	triggerID := t.ID
 	delivery := &Delivery{
-		ID:         deliveryID,
-		TenantID:   tenantID,
-		TriggerID:  &triggerID,
-		Kind:       KindManual,
-		Status:     StatusVerified,
-		FiredBy:    callerPrincipalID,
+		ID:        deliveryID,
+		TenantID:  tenantID,
+		TriggerID: &triggerID,
+		Kind:      KindManual,
+		Status:    StatusVerified,
+		FiredBy:   callerPrincipalID,
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
@@ -606,10 +606,10 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 
 	// Inject scheduler context as var fields (e.g. {{ var.date }}).
 	fields := map[string]string{
-		"var.date":        scheduledAt.Format("2006-01-02"),
-		"var.datetime":    scheduledAt.Format(time.RFC3339),
-		"var.trigger_id":  t.ID,
-		"var.tenant_id":   t.TenantID,
+		"var.date":       scheduledAt.Format("2006-01-02"),
+		"var.datetime":   scheduledAt.Format(time.RFC3339),
+		"var.trigger_id": t.ID,
+		"var.tenant_id":  t.TenantID,
 	}
 
 	runID, err := s.startRunForTriggerWithFields(ctx, t, fields)

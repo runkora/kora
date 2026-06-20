@@ -144,7 +144,7 @@ export function AgentTriggersTab() {
         header: 'Event',
         cell: (row) => (
           <Badge variant="elevated" size="sm">
-            {row.event_type}
+            {row.event_type ?? '—'}
           </Badge>
         ),
       },
@@ -320,7 +320,7 @@ export function AgentTriggersTab() {
             searchPlaceholder="Search triggers…"
             searchFn={(row, q) =>
               row.name.toLowerCase().includes(q.toLowerCase()) ||
-              row.event_type.toLowerCase().includes(q.toLowerCase())
+              (row.event_type ?? '').toLowerCase().includes(q.toLowerCase())
             }
             defaultSortId="name"
             defaultSortDir="asc"

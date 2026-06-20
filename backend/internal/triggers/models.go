@@ -91,7 +91,7 @@ type WebhookSource struct {
 // ScheduleConfig holds the cron schedule for a KindScheduled trigger.
 type ScheduleConfig struct {
 	CronExpression string `json:"cron_expression"` // standard 5-field cron
-	Timezone       string `json:"timezone"`         // IANA timezone name, e.g. "Australia/Sydney"
+	Timezone       string `json:"timezone"`        // IANA timezone name, e.g. "Australia/Sydney"
 }
 
 // Trigger binds a firing condition to (agent, prompt template).
@@ -113,10 +113,10 @@ type Trigger struct {
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
-	PrincipalID string  `json:"-"`
-	GrantID     *string `json:"-"` // webhook: per-agent run grant; scheduled/manual: source-level run grant
-	GrantIDSvc  *string `json:"-"` // scheduled/manual: the trigger's own SERVICE principal grant
-	Enabled     bool    `json:"enabled"`
+	PrincipalID string    `json:"-"`
+	GrantID     *string   `json:"-"` // webhook: per-agent run grant; scheduled/manual: source-level run grant
+	GrantIDSvc  *string   `json:"-"` // scheduled/manual: the trigger's own SERVICE principal grant
+	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -125,22 +125,22 @@ type Trigger struct {
 // TriggerID/RunID summarize the first dispatched run; Runs carries the complete
 // per-trigger fan-out (one entry per matched trigger) and is populated on reads.
 type Delivery struct {
-	ID                 string        `json:"id"`
-	TenantID           string        `json:"tenant_id"`
-	SourceID           string        `json:"source_id,omitempty"`
-	TriggerID          *string       `json:"trigger_id,omitempty"`
-	Kind               string        `json:"kind"`
-	ProviderDeliveryID string        `json:"provider_delivery_id,omitempty"`
-	EventType          string        `json:"event_type,omitempty"`
-	Status             string        `json:"status"`
-	RunID              *string       `json:"run_id,omitempty"`
-	Error              *string       `json:"error,omitempty"`
-	PayloadExcerpt     string        `json:"payload_excerpt,omitempty"`
+	ID                 string  `json:"id"`
+	TenantID           string  `json:"tenant_id"`
+	SourceID           string  `json:"source_id,omitempty"`
+	TriggerID          *string `json:"trigger_id,omitempty"`
+	Kind               string  `json:"kind"`
+	ProviderDeliveryID string  `json:"provider_delivery_id,omitempty"`
+	EventType          string  `json:"event_type,omitempty"`
+	Status             string  `json:"status"`
+	RunID              *string `json:"run_id,omitempty"`
+	Error              *string `json:"error,omitempty"`
+	PayloadExcerpt     string  `json:"payload_excerpt,omitempty"`
 	// FiredBy is the principal ID of the caller who fired a manual trigger.
-	FiredBy     string     `json:"fired_by,omitempty"`
+	FiredBy string `json:"fired_by,omitempty"`
 	// ScheduledAt is the cron tick time for scheduled trigger deliveries.
-	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
-	ReceivedAt  time.Time  `json:"received_at"`
+	ScheduledAt *time.Time    `json:"scheduled_at,omitempty"`
+	ReceivedAt  time.Time     `json:"received_at"`
 	Runs        []DeliveryRun `json:"runs,omitempty"`
 }
 
