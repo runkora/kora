@@ -34,6 +34,7 @@ export interface DeliveryRow {
   triggerId: string | null;
   runId: string | null;
   error: string | null;
+  payloadExcerpt: string | null;
   receivedAt: string;
   /** Full per-trigger dispatch fan-out for this delivery. */
   runs: DeliveryRunRow[];
@@ -89,6 +90,7 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
     triggerId: d.trigger_id ?? null,
     runId: d.run_id ?? null,
     error: d.error ?? null,
+    payloadExcerpt: d.payload_excerpt ?? null,
     receivedAt: d.received_at,
     runs: (d.runs ?? []).map((r) => ({
       triggerId: r.trigger_id,

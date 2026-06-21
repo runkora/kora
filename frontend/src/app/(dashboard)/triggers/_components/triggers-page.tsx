@@ -19,7 +19,7 @@ import {
   TabsTrigger,
   Text,
 } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import type { DataTableColumn, TableColumnFilterOption } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
 import type { TriggerFormValue } from '@orbit/components';
 import {
@@ -46,6 +46,13 @@ function formatTimestamp(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
+
+const DELIVERY_STATUS_OPTIONS: TableColumnFilterOption[] = [
+  { value: 'dispatched', label: 'Dispatched', dot: 'bg-status-healthy' },
+  { value: 'verified', label: 'Verified', dot: 'bg-status-degraded' },
+  { value: 'skipped', label: 'Skipped', dot: 'bg-status-degraded' },
+  { value: 'failed', label: 'Failed', dot: 'bg-status-error' },
+];
 
 export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
   const router = useRouter();
@@ -304,6 +311,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'status',
         header: 'Status',
+        filter: {
+          mode: 'client',
+          options: DELIVERY_STATUS_OPTIONS,
+          filterFn: (row, selected) => selected.has(row.status),
+        },
         cell: (row) => <StatusBadge status={deliveryStatusTone(row.status)} label={row.status} />,
       },
       {
@@ -326,6 +338,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           ) : row.runId ? (
             <Text mono size="caption">
               run {row.runId.slice(0, 8)}
+            </Text>
+          ) : row.payloadExcerpt ? (
+            <Text mono size="caption" color="muted">
+              {row.payloadExcerpt.length > 120 ? `${row.payloadExcerpt.slice(0, 120)}…` : row.payloadExcerpt}
             </Text>
           ) : (
             <Text size="caption" color="muted">
@@ -467,7 +483,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               defaultSortId="received"
               defaultSortDir="desc"
               emptyMessage="No deliveries."
-              filteredEmptyMessage="No deliveries match your search."
+              filteredEmptyMessage="No deliveries match your search or filter."
             />
           )}
         </TabsContent>
