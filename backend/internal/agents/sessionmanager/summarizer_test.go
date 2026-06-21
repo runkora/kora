@@ -70,6 +70,29 @@ func TestSummarizer_TruncatesToMaxChars(t *testing.T) {
 	}
 }
 
+func TestTruncateSummary_MultibyteUnicodeAtBoundary(t *testing.T) {
+	// Fill to two runes short of the cap, then push past it with 4-byte emoji so
+	// the cut lands mid-emoji if the logic were byte-based instead of rune-based.
+	in := strings.Repeat("a", summaryMaxChars-2) + "🚀🔥🌟"
+	got := truncateSummary(in)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated string is not valid UTF-8: %q", got)
+	}
+	if n := utf8.RuneCountInString(got); n != summaryMaxChars {
+		t.Errorf("rune count = %d, want %d", n, summaryMaxChars)
+	}
+	if !strings.HasSuffix(got, "🚀🔥") {
+		t.Errorf("expected the cut to land on a rune boundary keeping 🚀🔥, got %q", got)
+	}
+}
+
+func TestTruncateSummary_TrimsWhitespace(t *testing.T) {
+	if got := truncateSummary("  \t Build the thing \n "); got != "Build the thing" {
+		t.Errorf("truncateSummary = %q, want trimmed %q", got, "Build the thing")
+	}
+}
+
 func TestSummarizer_ErrorOnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

@@ -368,16 +368,21 @@ func (m *mockRepository) AppendRunMessage(_ context.Context, msg RunMessage) err
 	return nil
 }
 
+// SetRunSummary mirrors the real postgres set-once semantics: the first summary
+// wins (WHERE summary IS NULL) and a missing run is a no-op returning nil
+// (UPDATE affects 0 rows). Keep this in sync with PostgresRepository.SetRunSummary.
 func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, r := range m.runs {
 		if r.ID == runID {
-			m.runs[i].Summary = &summary
+			if m.runs[i].Summary == nil {
+				m.runs[i].Summary = &summary
+			}
 			return nil
 		}
 	}
-	return ErrNotFound
+	return nil
 }
 
 // ── mockK8s ───────────────────────────────────────────────────────────────────
