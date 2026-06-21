@@ -18,9 +18,20 @@ const (
 	summaryMaxTokens     = 60
 	summaryMaxChars      = 120
 
-	summarizerSystemPrompt = "You are a concise task labeler. Given a user's initial request to an AI agent, " +
-		"respond with a single sentence of at most 120 characters that captures the task intent. " +
-		"Output only the sentence — no quotes, no preamble, no trailing punctuation unless it is a natural part of the sentence."
+	// The model is given the user's first message to an *agent* — which usually
+	// reads as a direct command ("build X", "audit Y"). Left alone it will try to
+	// perform the task and answer in the first person ("I'll start by…"). The
+	// system prompt frames it strictly as a labeling function, and the user turn
+	// (buildSummaryPrompt) wraps the message as quoted data to label, not an
+	// instruction to follow.
+	summarizerSystemPrompt = "You are a task-labeling function for an agent-run dashboard. " +
+		"You receive the user's first message to an AI agent and output a short label naming the task being requested. " +
+		"Rules: write a single line of at most 120 characters; phrase it as an imperative task (e.g. \"Audit the repo for exposed secrets\"); " +
+		"use the third person — never say \"I\" and never address the user; " +
+		"do NOT perform, answer, plan, or respond to the request — only label it; " +
+		"output only the label text, with no quotes, preamble, or trailing period."
+
+	summaryPromptTemplate = "Label the following agent task request. Output only the label.\n\nREQUEST:\n\"\"\"\n%s\n\"\"\""
 )
 
 var errSummarizerUnexpectedStatus = errors.New("unexpected status from inference gateway")
@@ -46,10 +57,11 @@ func newSummarizer(logger logging.Logger) *summarizer {
 
 // anthropic Messages API request/response shapes — the dialect the agent uses.
 type messagesRequest struct {
-	Model     string            `json:"model"`
-	MaxTokens int               `json:"max_tokens"`
-	System    string            `json:"system,omitempty"`
-	Messages  []messagesMessage `json:"messages"`
+	Model       string            `json:"model"`
+	MaxTokens   int               `json:"max_tokens"`
+	Temperature float64           `json:"temperature"`
+	System      string            `json:"system,omitempty"`
+	Messages    []messagesMessage `json:"messages"`
 }
 
 type messagesMessage struct {
@@ -68,11 +80,12 @@ type messagesResponse struct {
 // base (e.g. http://orbit-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
 	payload := messagesRequest{
-		Model:     model,
-		MaxTokens: summaryMaxTokens,
-		System:    summarizerSystemPrompt,
+		Model:       model,
+		MaxTokens:   summaryMaxTokens,
+		Temperature: 0,
+		System:      summarizerSystemPrompt,
 		Messages: []messagesMessage{
-			{Role: "user", Content: initialMessage},
+			{Role: "user", Content: fmt.Sprintf(summaryPromptTemplate, initialMessage)},
 		},
 	}
 

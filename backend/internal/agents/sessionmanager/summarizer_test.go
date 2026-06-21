@@ -44,8 +44,8 @@ func TestSummarizer_CallsMessagesEndpointWithModel(t *testing.T) {
 	if gotModel != "anthropic/claude-sonnet-4-6" {
 		t.Errorf("model = %q, want the session's model", gotModel)
 	}
-	if gotUserMsg != "please refactor the auth module" {
-		t.Errorf("user message = %q, want the initial message", gotUserMsg)
+	if !strings.Contains(gotUserMsg, "please refactor the auth module") {
+		t.Errorf("user message should embed the initial message as data to label, got %q", gotUserMsg)
 	}
 }
 
