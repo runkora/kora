@@ -92,6 +92,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // Empty until the run's agent type metadata resolves — the model is injected
   // from the created agent (agent_type.model_id), never hardcoded here.
   const [model, setModel] = useState('');
+  const [summary, setSummary] = useState<string | null>(null);
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -165,7 +166,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       .then((r) => r.json())
       .then(
         (body: {
-          data?: { state: RunState };
+          data?: { state: RunState; summary?: string | null };
           agent_type?: {
             name?: string;
             model_id?: string;
@@ -174,6 +175,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         }) => {
           if (body.data?.state) {
             setRunState(body.data.state);
+          }
+          if (typeof body.data?.summary === 'string') {
+            setSummary(body.data.summary);
           }
           if (body.agent_type) {
             setAgentName(body.agent_type.name ?? 'Agent');
@@ -560,6 +564,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     slug,
     agentName,
     model,
+    summary,
     runState,
     turns: allTurns,
     isStreaming: inProgressTurn !== null,

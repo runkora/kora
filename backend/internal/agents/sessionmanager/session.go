@@ -26,6 +26,13 @@ type SessionConfig struct {
 	AgentTypeID string
 	TenantID    string
 	Runner      Runner
+	// Model is the effective model the agent runs with; used to generate the
+	// run's task summary with the same model. Empty disables summarization.
+	Model string
+	// InferenceURL is the per-run inference base ({gateway}/run/{runID}) the agent
+	// uses. The summary call reuses it so it inherits the agent's identity-proxy
+	// token, OPA grant, and per-run budget. Empty disables summarization.
+	InferenceURL string
 }
 
 // session represents one active run backed by a CLI subprocess.
@@ -34,6 +41,9 @@ type session struct {
 	runner           Runner
 	cancel           context.CancelFunc
 	done             chan struct{}
+	model            string
+	inferenceURL     string
+	summarizeOnce    sync.Once   // ensures only the first user message triggers summarization
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
@@ -46,6 +56,7 @@ type Registry struct {
 	pool        *pgxpool.Pool
 	workspaces  string // base path for workspace directories
 	notifier    Notifier
+	summarizer  *summarizer
 	idleTimeout time.Duration
 	mu          sync.RWMutex
 	sessions    map[string]*session
@@ -58,6 +69,7 @@ func NewRegistry(logger logging.Logger, pool *pgxpool.Pool, workspacesBase strin
 		pool:        pool,
 		workspaces:  workspacesBase,
 		notifier:    notifier,
+		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
 		sessions:    make(map[string]*session),
 	}
@@ -86,10 +98,12 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 	}
 
 	s := &session{
-		runID:  cfg.RunID,
-		runner: cfg.Runner,
-		cancel: cancel,
-		done:   make(chan struct{}),
+		runID:        cfg.RunID,
+		runner:       cfg.Runner,
+		cancel:       cancel,
+		done:         make(chan struct{}),
+		model:        cfg.Model,
+		inferenceURL: cfg.InferenceURL,
 	}
 	reg.sessions[cfg.RunID] = s
 
@@ -111,7 +125,40 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	return s.runner.Send(ctx, text)
+	if err := s.runner.Send(ctx, text); err != nil {
+		return err
+	}
+	// The first user message is the run's task. Generate its summary once, in the
+	// background, over the agent's own authorized inference path.
+	s.summarizeOnce.Do(func() {
+		if s.inferenceURL == "" || s.model == "" {
+			return
+		}
+		go reg.summarizeRun(s.runID, s.inferenceURL, s.model, text)
+	})
+	return nil
+}
+
+// summarizeRun generates the run's task summary and reports it to orbit-agents.
+// Detached and best-effort: failures are logged at WARN and never affect the run.
+func (reg *Registry) summarizeRun(runID, inferenceURL, model, initialMessage string) {
+	ctx, cancel := context.WithTimeout(context.Background(), summarizerTimeout)
+	defer cancel()
+
+	summary, err := reg.summarizer.Summarize(ctx, inferenceURL, model, initialMessage)
+	if err != nil {
+		reg.logger.Warn(ctx, "Run summarization failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	if err := reg.notifier.SetSummary(ctx, runID, summary); err != nil {
+		reg.logger.Warn(ctx, "Failed to report run summary",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // SendToolResult injects a tool result for a pending AskFollowupQuestion in an

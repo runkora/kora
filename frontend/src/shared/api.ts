@@ -278,6 +278,8 @@ export interface Run {
   tokens_used?: number;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
+  /** LLM-generated one-sentence summary of the run's task intent, if available. */
+  summary?: string | null;
 }
 
 /** Top-level response from GET /agents/types. */

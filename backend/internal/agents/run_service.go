@@ -194,17 +194,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 	// cold-start latency. Runs in the background (see maybeWarmSandbox).
 	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace)
 
-	if req.InitialMessage != "" {
-		if err := s.sm.SendMessage(ctx, podURL, run.ID, req.InitialMessage); err != nil {
-			// Non-fatal: run is active, user can resend from the chat.
-			s.logger.Warn(ctx, "failed to send initial message",
-				logging.Field{Key: "run_id", Value: run.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		} else {
-			s.emitHumanMessage(ctx, run.ID, req.InitialMessage)
-		}
-	}
+	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
 
 	s.logger.Info(ctx, "Run started",
 		logging.Field{Key: "run_id", Value: run.ID},
@@ -477,6 +467,26 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 	return nil
 }
 
+// tryInitialMessage sends the initial message to the session-manager and, on
+// success, emits it to the event stream. The session-manager generates the run's
+// task summary from this first message over its own authorized inference path
+// (see internal/agents/sessionmanager/summarizer.go) and reports it back via the
+// /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
+// does not abort the run.
+func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID string, _ *AgentType, msg string) {
+	if msg == "" {
+		return
+	}
+	if err := s.sm.SendMessage(ctx, podURL, runID, msg); err != nil {
+		s.logger.Warn(ctx, "failed to send initial message",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	s.emitHumanMessage(ctx, runID, msg)
+}
+
 // emitHumanMessage persists a human message to run_events and fans it out via
 // PubSub so live SSE subscribers and future replays both see it.
 func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string) {
@@ -735,4 +745,17 @@ func (s *RunService) publishReapedState(ctx context.Context, runID string, state
 		seqNo = 0
 	}
 	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+}
+
+// SetRunSummary persists the LLM-generated task summary reported by a
+// session-manager pod (via the /internal/runs/{id}/summary callback). The
+// session-manager generates it from the run's initial message over the agent's
+// own authorized, budget-attributed inference path — the only context where the
+// effective model and an inference grant both exist. The write is idempotent
+// (set-once): the first summary wins, so a resumed session never overwrites it.
+func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) error {
+	if summary == "" {
+		return nil
+	}
+	return s.repo.SetRunSummary(ctx, runID, summary)
 }

@@ -460,6 +460,79 @@ func TestHandlePushEvent_NoContent(t *testing.T) {
 	}
 }
 
+func TestHandleSetRunSummary_NoContent(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	w := httptest.NewRecorder()
+	c.handleSetRunSummary(w, callbackReq(http.MethodPost, "/internal/runs/run-1/summary", `{"summary":"Audit the repo for exposed secrets"}`))
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
+	}
+	got, err := repo.GetRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Summary == nil || *got.Summary != "Audit the repo for exposed secrets" {
+		t.Errorf("summary = %v, want the persisted label", got.Summary)
+	}
+}
+
+func TestHandleSetRunSummary_SetOnce(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	// First summary wins; a second callback (e.g. after a session resume) must not overwrite it.
+	c.handleSetRunSummary(httptest.NewRecorder(), callbackReq(http.MethodPost, "/internal/runs/run-1/summary", `{"summary":"First label"}`))
+	c.handleSetRunSummary(httptest.NewRecorder(), callbackReq(http.MethodPost, "/internal/runs/run-1/summary", `{"summary":"Second label"}`))
+
+	got, err := repo.GetRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Summary == nil || *got.Summary != "First label" {
+		t.Errorf("summary = %v, want the first label to win (set-once)", got.Summary)
+	}
+}
+
+func TestHandleSetRunSummary_MissingRunNotFound(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	// No run seeded: authorizeCallback loads the run to verify ownership, so a
+	// missing run is rejected at the gate with 404 — consistent with the other
+	// internal callbacks — before the summary write is ever reached.
+
+	w := httptest.NewRecorder()
+	c.handleSetRunSummary(w, callbackReq(http.MethodPost, "/internal/runs/run-1/summary", `{"summary":"task"}`))
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 for a missing run; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSetRunSummary_EmptyIsNoop(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	w := httptest.NewRecorder()
+	c.handleSetRunSummary(w, callbackReq(http.MethodPost, "/internal/runs/run-1/summary", `{"summary":""}`))
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
+	}
+	got, err := repo.GetRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Summary != nil {
+		t.Errorf("summary = %v, want nil for an empty payload", *got.Summary)
+	}
+}
+
 func TestHandleProvisionSandbox_OK(t *testing.T) {
 	c, repo, k8s, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -523,6 +596,19 @@ func TestInternalCallbacks_RejectUnauthorizedAgents(t *testing.T) {
 
 			if w.Code != http.StatusForbidden {
 				t.Errorf("push event: status = %d, want 403; body: %s", w.Code, w.Body.String())
+			}
+
+			// The summary callback must enforce the same agent authorization.
+			sumReq := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/summary",
+				bytes.NewBufferString(`{"summary":"x"}`))
+			sumReq.Header.Set("Content-Type", "application/json")
+			sumReq.SetPathValue("id", "run-1")
+			sumReq = sumReq.WithContext(tc.ctxFn(sumReq.Context()))
+			sumW := httptest.NewRecorder()
+			c.handleSetRunSummary(sumW, sumReq)
+
+			if sumW.Code != http.StatusForbidden {
+				t.Errorf("set summary: status = %d, want 403; body: %s", sumW.Code, sumW.Body.String())
 			}
 		})
 	}

@@ -81,6 +81,32 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   const columns = useMemo<DataTableColumn<RunRow>[]>(
     () => [
       {
+        id: 'summary',
+        header: 'Task',
+        locked: true,
+        cell: (row) =>
+          row.summary ? (
+            <Text
+              size="caption"
+              style={{
+                maxWidth: '22rem',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                lineHeight: 1.35,
+              }}
+              title={row.summary}
+            >
+              {row.summary}
+            </Text>
+          ) : (
+            <Text size="caption" color="muted">
+              —
+            </Text>
+          ),
+      },
+      {
         id: 'id',
         header: 'Run ID',
         locked: true,

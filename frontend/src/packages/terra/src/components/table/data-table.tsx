@@ -540,6 +540,7 @@ export function DataTable<TData>({
               rows.map((row) => (
                 <TableRow
                   key={getRowKey(row.original)}
+                  className="group"
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
@@ -565,7 +566,10 @@ export function DataTable<TData>({
                         key={cell.id}
                         className={
                           pinnedColId !== undefined && cellColDef?.id === pinnedColId
-                            ? 'sticky left-0 z-10 bg-surface'
+                            ? // Opaque base so horizontally-scrolled cells don't show through,
+                              // plus the row's hover/selected tint via group-* so the pinned
+                              // column highlights with the rest of the row instead of staying flat.
+                              'sticky left-0 z-10 bg-surface group-hover:bg-surface-elevated/60 group-data-[selected=true]:bg-accent/10'
                             : undefined
                         }
                       >

@@ -32,6 +32,9 @@ type Notifier interface {
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns its gRPC endpoint ("podIP:port").
 	ProvisionSandbox(ctx context.Context, runID string) (string, error)
+	// SetSummary reports the run's generated task summary to orbit-agents, which
+	// persists it set-once. Best-effort.
+	SetSummary(ctx context.Context, runID, summary string) error
 }
 
 // NoopNotifier silently discards all events.
@@ -44,6 +47,7 @@ func (NoopNotifier) ActivateRun(_ context.Context, _ string) error              
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
 func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string) (string, error)    { return "", nil }
+func (NoopNotifier) SetSummary(_ context.Context, _ string, _ string) error          { return nil }
 
 // HTTPNotifier POSTs events to orbit-agents via HTTP.
 // Each call is fire-and-forget with a short timeout so a slow or absent
@@ -113,6 +117,29 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (stri
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 	return result.Endpoint, nil
+}
+
+func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) error {
+	body, err := json.Marshal(map[string]string{"summary": summary})
+	if err != nil {
+		return fmt.Errorf("marshal summary: %w", err)
+	}
+	url := fmt.Sprintf("%s/internal/runs/%s/summary", n.baseURL, runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := n.lifecycleClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("post summary: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("orbit-agents returned %d: %s", resp.StatusCode, bytes.TrimSpace(snippet))
+	}
+	return nil
 }
 
 func (n *HTTPNotifier) IdleRun(ctx context.Context, runID string) error {

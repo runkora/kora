@@ -196,7 +196,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+		SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 		FROM runs WHERE id=$1`, id)
 	return scanRun(row)
 }
@@ -206,11 +206,11 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 	var err error
 	if agentTypeID != "" {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 			FROM runs WHERE tenant_id=$1 AND agent_type_id=$2 ORDER BY created_at DESC`, tenantID, agentTypeID)
 	} else {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at
+			SELECT id, tenant_id, agent_type_id, state, pod_ordinal, created_by, started_at, completed_at, created_at, updated_at, summary
 			FROM runs WHERE tenant_id=$1 ORDER BY created_at DESC`, tenantID)
 	}
 	if err != nil {
@@ -267,6 +267,22 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrConflict
+	}
+	return nil
+}
+
+// SetRunSummary writes the task summary set-once: the first summary for a run
+// wins. A resumed session's first message would otherwise re-summarize and
+// clobber the original task label, so the UPDATE only fires while summary IS
+// NULL. Zero rows affected (already set, or run gone) is not an error — the
+// callback is best-effort and idempotent.
+func (r *PostgresRepository) SetRunSummary(ctx context.Context, runID, summary string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3 AND summary IS NULL`,
+		summary, time.Now().UTC(), runID,
+	)
+	if err != nil {
+		return fmt.Errorf("set run summary: %w", err)
 	}
 	return nil
 }
@@ -470,6 +486,7 @@ func scanRun(s scanner) (*Run, error) {
 	err := s.Scan(
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
+		&r.Summary,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
