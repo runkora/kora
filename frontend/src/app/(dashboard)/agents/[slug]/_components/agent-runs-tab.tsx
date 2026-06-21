@@ -87,20 +87,21 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         cell: (row) =>
           row.summary ? (
             <Text
-              size="supporting"
+              size="caption"
               style={{
-                maxWidth: '28rem',
+                maxWidth: '22rem',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                display: 'block',
+                lineHeight: 1.35,
               }}
               title={row.summary}
             >
               {row.summary}
             </Text>
           ) : (
-            <Text size="supporting" color="muted">
+            <Text size="caption" color="muted">
               —
             </Text>
           ),
