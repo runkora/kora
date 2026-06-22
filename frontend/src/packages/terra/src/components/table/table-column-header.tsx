@@ -193,7 +193,7 @@ export function TableColumnHeader({
                 type="button"
                 className={cn(
                   'rounded p-0.5 transition-colors focus:outline-none focus:ring-1 focus:ring-accent',
-                  filterActive ? 'text-accent' : 'text-subtle/40 hover:text-subtle',
+                  filterActive ? 'text-accent' : 'text-subtle/70 hover:text-foreground',
                 )}
                 aria-label="Filter"
               >
