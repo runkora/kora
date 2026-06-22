@@ -10,7 +10,10 @@ export const GET = withAuth(
     const { agentTypeId } = await (context?.params ?? Promise.resolve({ agentTypeId: '' }));
 
     if (!agentTypeId) {
-      return NextResponse.json({ code: 'bad_request', message: 'agentTypeId is required' }, { status: 400 });
+      return NextResponse.json(
+        { code: 'bad_request', message: 'agentTypeId is required' },
+        { status: 400 },
+      );
     }
 
     const result = await fetchAgentAnalyticsFromGateway(session.accessToken, agentTypeId);

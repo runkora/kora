@@ -18,29 +18,29 @@ var _ InferenceUsageRepository = (*mockInferenceUsageRepository)(nil)
 // ── mockInferenceUsageRepository ──────────────────────────────────────────────
 
 type mockInferenceUsageRepository struct {
-	mu                   sync.Mutex
-	records              []InferenceUsageRecord
-	hasNextPage          bool
-	createErr            error
-	listErr              error
-	getErr               error
-	statsResult          []TokenUsageStat
-	statsErr             error
-	analyticsResp        AnalyticsResponse
-	analyticsErr         error
-	principalsResp       AnalyticsPrincipalsResponse
-	principalsErr        error
-	agentAnalyticsResp   AgentAnalyticsKPIs
-	agentAnalyticsErr    error
-	periodSpends         []PrincipalPeriodSpend
-	windowSpends         map[string]float64
-	activeRoleHolders    map[string][]string
-	principalRoles       map[string][]string // key: tenantID+"\x00"+principalID
-	runSpend             float64
-	runTokens            int64
-	runUsageErr          error
-	lastFilter           InferenceUsageFilter // captured on each List call
-	lastAnalytics        AnalyticsFilter      // captured on each GetAnalytics call
+	mu                 sync.Mutex
+	records            []InferenceUsageRecord
+	hasNextPage        bool
+	createErr          error
+	listErr            error
+	getErr             error
+	statsResult        []TokenUsageStat
+	statsErr           error
+	analyticsResp      AnalyticsResponse
+	analyticsErr       error
+	principalsResp     AnalyticsPrincipalsResponse
+	principalsErr      error
+	agentAnalyticsResp AgentAnalyticsKPIs
+	agentAnalyticsErr  error
+	periodSpends       []PrincipalPeriodSpend
+	windowSpends       map[string]float64
+	activeRoleHolders  map[string][]string
+	principalRoles     map[string][]string // key: tenantID+"\x00"+principalID
+	runSpend           float64
+	runTokens          int64
+	runUsageErr        error
+	lastFilter         InferenceUsageFilter // captured on each List call
+	lastAnalytics      AnalyticsFilter      // captured on each GetAnalytics call
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {

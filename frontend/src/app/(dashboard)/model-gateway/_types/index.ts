@@ -12,7 +12,14 @@ import type {
   AgentAnalyticsKPIs,
 } from '@orbit/shared/api';
 
-export type { ModelObject, ModelsListResponse, Modality, APIDialect, ModelCapability, AgentAnalyticsKPIs };
+export type {
+  ModelObject,
+  ModelsListResponse,
+  Modality,
+  APIDialect,
+  ModelCapability,
+  AgentAnalyticsKPIs,
+};
 
 // ── Inference Usage ───────────────────────────────────────────────────────────
 //
