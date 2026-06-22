@@ -16,16 +16,19 @@ package main
 //   - present → dial the gRPC exec server in the sandbox pod and stream the command
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
@@ -70,6 +73,15 @@ func runLocal() {
 }
 
 // runRemote streams the command to the sandbox gRPC exec server.
+//
+// If the sandbox is unreachable (the pod died/was evicted, leaving a stale
+// endpoint), execOne returns an infra error. Rather than failing the command —
+// which would wedge the run, since the local-bash fallback only applies when no
+// sandbox is expected — we ask the session-manager to re-provision the sandbox,
+// re-read the freshly written endpoint, and retry once. The endpoint workspace
+// files survive on the shared volume, so a replacement sandbox resumes against
+// the same workspace. A normal non-zero command exit is NOT an infra error and
+// never triggers a retry.
 func runRemote(endpoint string) {
 	command := parseCommand()
 	if command == "" {
@@ -78,10 +90,34 @@ func runRemote(endpoint string) {
 		return
 	}
 
+	exitCode, err := execOne(endpoint, command)
+	if err == nil {
+		os.Exit(exitCode)
+	}
+
+	// Sandbox unreachable — attempt one re-provision + retry.
+	newEndpoint, reErr := reprovisionSandbox()
+	if reErr != nil {
+		log.Fatalf("orbit-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
+	}
+	exitCode, err = execOne(newEndpoint, command)
+	if err != nil {
+		log.Fatalf("orbit-shell: sandbox unreachable after re-provision: %v", err)
+	}
+	os.Exit(exitCode)
+}
+
+// execOne dials the sandbox and streams a single command. It returns the
+// command's exit code on success. It returns a non-nil error ONLY for
+// infrastructure failures (dial/Execute/Recv) that indicate the sandbox is
+// unreachable — a command that runs and exits non-zero is a success here, with
+// its code returned via exitCode.
+func execOne(endpoint, command string) (exitCode int, err error) {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("orbit-shell: dial %s: %v", endpoint, err)
+		return 0, fmt.Errorf("dial %s: %w", endpoint, err)
 	}
+	defer conn.Close() //nolint:errcheck
 
 	client := execpb.NewExecServiceClient(conn)
 	req := &execpb.ExecuteRequest{
@@ -91,19 +127,16 @@ func runRemote(endpoint string) {
 
 	stream, err := client.Execute(context.Background(), req)
 	if err != nil {
-		conn.Close() //nolint:errcheck
-		log.Fatalf("orbit-shell: execute: %v", err)
+		return 0, fmt.Errorf("execute: %w", err)
 	}
 
-	exitCode := 0
 	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
+		resp, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
 			break
 		}
-		if err != nil {
-			conn.Close() //nolint:errcheck
-			log.Fatalf("orbit-shell: recv: %v", err)
+		if recvErr != nil {
+			return 0, fmt.Errorf("recv: %w", recvErr)
 		}
 		switch v := resp.Output.(type) {
 		case *execpb.ExecuteResponse_Stdout:
@@ -114,9 +147,46 @@ func runRemote(endpoint string) {
 			exitCode = int(v.ExitCode)
 		}
 	}
+	return exitCode, nil
+}
 
-	conn.Close() //nolint:errcheck
-	os.Exit(exitCode)
+// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
+// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
+// existing endpoint and replaces a dead sandbox, then rewrites
+// $WORKSPACE/.sandbox/endpoint, which we re-read here.
+func reprovisionSandbox() (string, error) {
+	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
+	runID := os.Getenv("ORBIT_RUN_ID")
+	if smURL == "" || runID == "" {
+		return "", fmt.Errorf("missing ORBIT_SESSION_MANAGER_URL/ORBIT_RUN_ID")
+	}
+
+	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return "", fmt.Errorf("build provision request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("post provision-sandbox: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
+	}
+	// Drain the body so the connection can be reused / cleanly closed.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return "", fmt.Errorf("drain provision response: %w", err)
+	}
+
+	endpoint := sandboxEndpoint()
+	if endpoint == "" {
+		return "", fmt.Errorf("endpoint still empty after re-provision")
+	}
+	return endpoint, nil
 }
 
 // parseCommand extracts the command string bash would run for a `-c` invocation.
