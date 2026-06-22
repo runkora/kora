@@ -188,6 +188,15 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
+	// Publish the Triggers scope vocabulary (triggers:read / triggers:write) to
+	// the policy service so PATs and custom grants can reference them. Unlike the
+	// other services, identity has no identity-proxy sidecar, so it registers via
+	// the authenticated policy client (its own SystemToken → SYSTEM principal →
+	// global registration) rather than the routescopes client. Runs in the
+	// background with retries since the policy service / system token may not be
+	// ready at startup.
+	go registerTriggerScopes(ctx, logger, policyClient)
+
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 		triggerCtrl,
@@ -247,6 +256,56 @@ func triggerRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
 	}
+}
+
+// triggerScopes declares the Triggers scope vocabulary so the policy service can
+// publish triggers:read / triggers:write into the vocabulary. Without these
+// declarations the scopes exist only as references (route bindings and the
+// reserved tenant-admin/platform-admin roles), so they cannot be granted
+// explicitly — e.g. PAT creation with triggers:read fails the vocabulary check.
+func triggerScopes() []routescopes.ScopeDeclaration {
+	return []routescopes.ScopeDeclaration{
+		{Scope: "triggers:read", ResourceType: "triggers", PathSegments: []string{}, Action: "read", Description: "View trigger sources, triggers, and delivery history"},
+		{Scope: "triggers:write", ResourceType: "triggers", PathSegments: []string{}, Action: "write", Description: "Create, edit, and delete trigger sources and triggers"},
+	}
+}
+
+// registerTriggerScopes publishes triggerRoutes()/triggerScopes() to the policy
+// service via the authenticated policy client, retrying with backoff until it
+// succeeds or ctx is canceled (the policy service or the system token may not be
+// ready at startup).
+func registerTriggerScopes(ctx context.Context, logger logging.Logger, pc *policyclient.Client) {
+	const maxAttempts = 15
+	maxBackoff := 30 * time.Second
+	backoff := 2 * time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := pc.RegisterRoutes(ctx, "identity", triggerRoutes(), triggerScopes()); err == nil {
+			logger.Info(ctx, "triggers scope vocabulary registered with policy service")
+			return
+		} else {
+			lastErr = err
+			logger.Warn(ctx, "trigger scope registration attempt failed, retrying",
+				logging.Field{Key: "attempt", Value: attempt},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	errStr := "unknown"
+	if lastErr != nil {
+		errStr = lastErr.Error()
+	}
+	logger.Error(ctx, "trigger scope registration gave up after max attempts",
+		logging.Field{Key: "attempts", Value: maxAttempts},
+		logging.Field{Key: "last_error", Value: errStr})
 }
 
 // identityRoutes returns the static route → required-scope bindings for the
