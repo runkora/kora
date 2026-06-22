@@ -19,6 +19,10 @@ import (
 // ErrGrantNotFound is returned when the grant to delete does not exist.
 var ErrGrantNotFound = errors.New("grant not found")
 
+// errRegisterRoutesFailed is the stable sentinel for a non-2xx route
+// registration; HandleErrorResponse appends the status code and body.
+var errRegisterRoutesFailed = errors.New("register routes failed")
+
 const (
 	tracerName    = "orbit.policy-client"
 	clientTimeout = 10 * time.Second
@@ -163,7 +167,7 @@ func (c *Client) RegisterRoutes(ctx context.Context, service string, routes []ro
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusNoContent {
-		return c.HandleErrorResponse(span, resp, fmt.Errorf("register routes failed: status %d", resp.StatusCode))
+		return c.HandleErrorResponse(span, resp, errRegisterRoutesFailed)
 	}
 	return nil
 }

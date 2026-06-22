@@ -278,11 +278,13 @@ func registerTriggerScopes(ctx context.Context, logger logging.Logger, pc *polic
 	const maxAttempts = 15
 	maxBackoff := 30 * time.Second
 	backoff := 2 * time.Second
+	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if err := pc.RegisterRoutes(ctx, "identity", triggerRoutes(), triggerScopes()); err == nil {
 			logger.Info(ctx, "triggers scope vocabulary registered with policy service")
 			return
 		} else {
+			lastErr = err
 			logger.Warn(ctx, "trigger scope registration attempt failed, retrying",
 				logging.Field{Key: "attempt", Value: attempt},
 				logging.Field{Key: "error", Value: err.Error()})
@@ -292,11 +294,18 @@ func registerTriggerScopes(ctx context.Context, logger logging.Logger, pc *polic
 			return
 		case <-time.After(backoff):
 		}
-		if backoff < maxBackoff {
-			backoff *= 2
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
 		}
 	}
-	logger.Error(ctx, "trigger scope registration gave up after max attempts")
+	errStr := "unknown"
+	if lastErr != nil {
+		errStr = lastErr.Error()
+	}
+	logger.Error(ctx, "trigger scope registration gave up after max attempts",
+		logging.Field{Key: "attempts", Value: maxAttempts},
+		logging.Field{Key: "last_error", Value: errStr})
 }
 
 // identityRoutes returns the static route → required-scope bindings for the

@@ -122,10 +122,11 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 }
 
 // AllScopes is the full set of scope declarations the gateway publishes: the
-// platform:connections:read scope guarding the read-only connections catalog,
-// plus the per-connection connection:<name>:<action> scopes for every
-// connection in conns. The read scope is always published (it guards a static
-// route); the connection scopes vary with the mounted registry.
+// static platform:connections:read and platform:connections:write scopes, plus
+// the per-connection connection:<name>:<action> scopes for every connection in
+// conns. The two static scopes are always published (read guards a static
+// route; write is the reserved-role management scope); the connection scopes
+// vary with the mounted registry.
 func AllScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
 	return append([]routescopes.ScopeDeclaration{ReadScope(), WriteScope()}, ConnectionScopes(conns, registry)...)
 }

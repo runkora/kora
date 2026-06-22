@@ -12,7 +12,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-func TestAllScopes_NoConnections_PublishesReadScope(t *testing.T) {
+func TestAllScopes_NoConnections_PublishesStaticScopes(t *testing.T) {
 	registry := NewAdapterRegistry()
 	got := AllScopes(nil, registry)
 	// With no connections, AllScopes still publishes the static platform
