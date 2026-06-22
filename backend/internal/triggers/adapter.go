@@ -181,6 +181,11 @@ func (a *githubAdapter) Fields(eventType string, body []byte) map[string]string 
 			f["push.commit_message"] = p.HeadCommit.Message
 		}
 	case "issues":
+		// SECURITY: issue.title/issue.body are attacker-influenceable — any GitHub
+		// user can open an issue — and are substituted into prompts verbatim
+		// (template.go defers injection hardening platform-wide, as for pr.title /
+		// push.commit_message). Treat them as untrusted data: the real boundary is
+		// the agent's least-privilege tools + human PR review, not the prompt text.
 		if p.Issue != nil {
 			f["issue.number"] = strconv.Itoa(p.Issue.Number)
 			f["issue.title"] = p.Issue.Title
