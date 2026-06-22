@@ -254,6 +254,9 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// their own analytics. Listed before /v1/analytics so the more-specific
 		// path wins for the analytics/me request.
 		{PathPrefix: "/v1/analytics/me", Method: "GET", RequiredScope: ""},
+		// GET /v1/analytics/agents/{id} returns per-agent-type token + spend.
+		// Listed before /v1/analytics so the more-specific path wins.
+		{PathPrefix: "/v1/analytics/agents", Method: "GET", RequiredScope: "platform:analytics:read"},
 		{PathPrefix: "/v1/analytics", Method: "GET", RequiredScope: "platform:analytics:read"},
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.

@@ -196,6 +196,19 @@ type AnalyticsKPIs struct {
 	CacheHitRate        float64 `json:"cache_hit_rate"`
 }
 
+// AgentAnalyticsKPIs holds token consumption and cost aggregates for a single
+// agent type over a lookback window. Returned by GET /v1/analytics/agents/{agentTypeId}.
+// It is a subset of AnalyticsKPIs: latency and request-count fields are omitted
+// because they are not meaningful for the agent overview card.
+type AgentAnalyticsKPIs struct {
+	TotalTokens         int64   `json:"total_tokens"`
+	PromptTokens        int64   `json:"prompt_tokens"`
+	CompletionTokens    int64   `json:"completion_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	EstimatedCostUSD    float64 `json:"estimated_cost_usd"`
+}
+
 // AnalyticsBucket is a single time-series data point for the chosen granularity.
 type AnalyticsBucket struct {
 	Date                string  `json:"date"`

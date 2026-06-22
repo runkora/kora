@@ -139,6 +139,34 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
 
+// ─── GET /v1/analytics/agents/{agentTypeId} ───────────────────────────────────
+
+// handleAnalyticsAgent handles GET /v1/analytics/agents/{agentTypeId}.
+//
+// Returns token-category totals (input, output, cache-read, cache-write) and
+// estimated cost for the given agent type over the last 7 days. TenantID is
+// always sourced from the verified JWT. Requires platform:analytics:read.
+func (c *Controller) handleAnalyticsAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx, span := tracer.Start(ctx, "handleAnalyticsAgent")
+	defer span.End()
+
+	agentTypeID := r.PathValue("agentTypeId")
+	if agentTypeID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "agentTypeId is required", nil), nil)
+		return
+	}
+
+	kpis, err := c.svc.AnalyticsAgent(ctx, agentTypeID, 7)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(err), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, kpis)
+}
+
 // ─── shared parameter parsing ─────────────────────────────────────────────────
 
 var validDays = []int{7, 30, 90}

@@ -82,6 +82,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
 //	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
 //	GET    /analytics/principals  Per-principal usage summary (requires platform:analytics:read)
+//	GET    /analytics/agents/{id} Per-agent-type token breakdown + spend (requires platform:analytics:read)
 //	GET    /budgets/principals    Per-principal budget status (requires platform:budgets:read)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
@@ -96,6 +97,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)
 	mux.Handle("GET /analytics/principals", c.handleAnalyticsPrincipals)
+	mux.Handle("GET /analytics/agents/{agentTypeId}", c.handleAnalyticsAgent)
 	mux.Handle("GET /budgets/principals", c.handleListBudgetPrincipals)
 }
 

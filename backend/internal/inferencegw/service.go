@@ -2340,3 +2340,18 @@ func (s *Service) AnalyticsPrincipals(ctx context.Context, filter AnalyticsPrinc
 	}
 	return resp, nil
 }
+
+// AnalyticsAgent returns token-breakdown and estimated-cost aggregates for a
+// single agent type over a lookback window. TenantID is always sourced from
+// the verified JWT. Requires the platform:analytics:read scope.
+func (s *Service) AnalyticsAgent(ctx context.Context, agentTypeID string, days int) (AgentAnalyticsKPIs, error) {
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		return AgentAnalyticsKPIs{}, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+	kpis, err := s.usage.GetAgentTypeAnalytics(ctx, p.TenantID, agentTypeID, days)
+	if err != nil {
+		return AgentAnalyticsKPIs{}, fmt.Errorf("analytics agent: %w", err)
+	}
+	return kpis, nil
+}

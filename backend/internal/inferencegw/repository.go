@@ -37,6 +37,12 @@ type InferenceUsageRepository interface {
 	// path); otherwise it returns tenant-wide data. filter.TenantID must be non-empty.
 	GetAnalytics(ctx context.Context, filter AnalyticsFilter) (AnalyticsResponse, error)
 
+	// GetAgentTypeAnalytics returns token-category and cost aggregates for a
+	// single agent type over the given lookback window (days). It joins
+	// inference_usage with runs on run_id so it attributes only requests made
+	// within agent runs (not direct PAT calls). tenantID must be non-empty.
+	GetAgentTypeAnalytics(ctx context.Context, tenantID, agentTypeID string, days int) (AgentAnalyticsKPIs, error)
+
 	// ListPrincipalUsage returns per-principal aggregates (cost, tokens, requests,
 	// error rate, latency) for the tenant over the given time window, sorted by
 	// estimated cost descending, with offset-based pagination.
@@ -768,6 +774,41 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 		return 0, 0, fmt.Errorf("get run usage: %w", err)
 	}
 	return spend, tokens, nil
+}
+
+// GetAgentTypeAnalytics returns token-category and cost aggregates for a
+// single agent type over the given lookback window. It joins inference_usage
+// with the runs table on run_id so only requests attributed to agent runs are
+// counted. Both tables share the same Postgres instance; the join is safe.
+func (r *PostgresInferenceUsageRepository) GetAgentTypeAnalytics(ctx context.Context, tenantID, agentTypeID string, days int) (AgentAnalyticsKPIs, error) {
+	if days <= 0 {
+		days = 7
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+
+	const q = `
+		SELECT
+		    COALESCE(SUM(iu.total_tokens), 0)                AS total_tokens,
+		    COALESCE(SUM(iu.prompt_tokens), 0)               AS prompt_tokens,
+		    COALESCE(SUM(iu.completion_tokens), 0)           AS completion_tokens,
+		    COALESCE(SUM(iu.cache_read_input_tokens), 0)     AS cache_read_tokens,
+		    COALESCE(SUM(iu.cache_creation_input_tokens), 0) AS cache_creation_tokens,
+		    COALESCE(SUM(iu.estimated_cost_usd), 0)          AS estimated_cost_usd
+		FROM inference_usage iu
+		JOIN runs r ON r.id = iu.run_id
+		WHERE iu.tenant_id = $1
+		  AND r.agent_type_id = $2
+		  AND iu.created_at >= $3`
+
+	row := r.pool.QueryRow(ctx, q, tenantID, agentTypeID, cutoff)
+	var k AgentAnalyticsKPIs
+	if err := row.Scan(
+		&k.TotalTokens, &k.PromptTokens, &k.CompletionTokens,
+		&k.CacheReadTokens, &k.CacheCreationTokens, &k.EstimatedCostUSD,
+	); err != nil {
+		return AgentAnalyticsKPIs{}, fmt.Errorf("get agent type analytics: %w", err)
+	}
+	return k, nil
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given
