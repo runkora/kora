@@ -370,22 +370,33 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	}
 
 	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create sandbox pod")
-		return "", fmt.Errorf("create sandbox pod: %w", err)
-	}
-	if apierrors.IsAlreadyExists(err) {
-		p.logger.Info(ctx, "Sandbox pod already exists, waiting for ready",
-			logging.Field{Key: "run_id", Value: run.ID},
-			logging.Field{Key: "pod", Value: podName},
-		)
-	} else {
+	switch {
+	case err == nil:
 		p.logger.Info(ctx, "Sandbox pod created, waiting for ready",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "pod", Value: podName},
 			logging.Field{Key: "namespace", Value: namespace},
 		)
+	case apierrors.IsAlreadyExists(err):
+		// A pod of this name already exists. Reuse it if it's alive (warm-start /
+		// idempotent re-call), but REPLACE it if it's dead or terminating — the
+		// previous sandbox was evicted/killed and left a stale pod. Without this
+		// we would wait on a corpse and hand back a dead endpoint.
+		replaced, repErr := p.replaceIfDeadSandboxPod(ctx, &podVal, namespace)
+		if repErr != nil {
+			span.RecordError(repErr)
+			span.SetStatus(codes.Error, "replace dead sandbox pod")
+			return "", repErr
+		}
+		p.logger.Info(ctx, "Sandbox pod already exists",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod", Value: podName},
+			logging.Field{Key: "replaced_dead_pod", Value: replaced},
+		)
+	default:
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "create sandbox pod")
+		return "", fmt.Errorf("create sandbox pod: %w", err)
 	}
 
 	podIP, err := p.waitForPodReady(ctx, podName, namespace)
@@ -403,6 +414,59 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
 	return endpoint, nil
+}
+
+// replaceIfDeadSandboxPod inspects an existing sandbox pod of the same name and,
+// if it is dead (PodFailed/PodSucceeded) or already terminating
+// (DeletionTimestamp set), deletes it, waits for it to disappear, and creates a
+// fresh one. It returns true when it replaced the pod. A live pod
+// (Running/Pending and not terminating) is left untouched so warm-start and
+// idempotent re-provision calls keep reusing it.
+func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev1.Pod, namespace string) (bool, error) {
+	existing, err := p.client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		// Vanished between Create and Get — just create it fresh.
+		if _, cErr := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); cErr != nil && !apierrors.IsAlreadyExists(cErr) {
+			return true, fmt.Errorf("create sandbox pod: %w", cErr)
+		}
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get existing sandbox pod: %w", err)
+	}
+
+	alive := existing.DeletionTimestamp == nil &&
+		existing.Status.Phase != corev1.PodFailed &&
+		existing.Status.Phase != corev1.PodSucceeded
+	if alive {
+		return false, nil
+	}
+
+	del := metav1.DeletePropagationForeground
+	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{PropagationPolicy: &del})); err != nil {
+		return false, fmt.Errorf("delete dead sandbox pod: %w", err)
+	}
+	if err := p.waitForPodGone(ctx, pod.Name, namespace); err != nil {
+		return false, err
+	}
+	if _, err := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return false, fmt.Errorf("recreate sandbox pod: %w", err)
+	}
+	return true, nil
+}
+
+// waitForPodGone polls until the named pod no longer exists.
+func (p *K8sProvisioner) waitForPodGone(ctx context.Context, name, namespace string) error {
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return false, nil
+	})
 }
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.

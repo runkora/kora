@@ -97,11 +97,11 @@ func (n *HTTPNotifier) Notify(ctx context.Context, runID string, ev Event) error
 
 func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
 	url := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil) //nolint:gosec // G704: baseURL from config; runID is a DB-validated UUID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build request: %w", err)
 	}
-	resp, err := n.sandboxClient.Do(req) //nolint:gosec // G704: URL built from config base + DB-validated ID
+	resp, err := n.sandboxClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("post provision-sandbox: %w", err)
 	}

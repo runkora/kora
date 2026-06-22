@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,6 +15,10 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// sandboxLivenessTimeout bounds the TCP dial used to check whether a cached
+// sandbox endpoint still points at a live pod before reusing it.
+const sandboxLivenessTimeout = 2 * time.Second
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
@@ -231,16 +236,27 @@ func (reg *Registry) ActiveCount() int {
 // given run, then writes the returned gRPC endpoint to
 // $workspaces/{runID}/.sandbox/endpoint so orbit-shell can discover it.
 //
-// Idempotent: if the endpoint file already exists the cached value is returned
-// immediately without contacting orbit-agents or creating a new pod.
+// Idempotent toward liveness: if the endpoint file already exists AND the
+// sandbox at that address is still reachable, the cached value is returned
+// without contacting orbit-agents. If the cached endpoint is dead (the pod was
+// evicted/killed, leaving a stale pointer), it is treated as a miss and a fresh
+// sandbox is provisioned — otherwise callers (orbit-shell) would keep dialing a
+// corpse. orbit-agents replaces the dead pod and returns the new endpoint.
 func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string, error) {
 	endpointFile := filepath.Join(reg.workspaces, runID, ".sandbox", "endpoint")
 	if data, err := os.ReadFile(endpointFile); err == nil && len(data) > 0 {
-		reg.logger.Info(ctx, "Sandbox endpoint cache hit",
+		cached := string(data)
+		if endpointAlive(cached) {
+			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "endpoint", Value: cached},
+			)
+			return cached, nil
+		}
+		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
 			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "endpoint", Value: string(data)},
+			logging.Field{Key: "endpoint", Value: cached},
 		)
-		return string(data), nil
 	}
 
 	endpoint, err := reg.notifier.ProvisionSandbox(ctx, runID)
@@ -254,6 +270,22 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string) (string
 		return "", fmt.Errorf("write endpoint: %w", err)
 	}
 	return endpoint, nil
+}
+
+// endpointAlive reports whether a "host:port" sandbox endpoint accepts a TCP
+// connection within sandboxLivenessTimeout. A successful connect means the
+// sandbox pod is up and its gRPC exec server is listening; a failure means the
+// pod is gone/unreachable and the endpoint should not be reused.
+func endpointAlive(endpoint string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), sandboxLivenessTimeout)
+	defer cancel()
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", endpoint)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // drain reads events from a session's runner, persists durable events to the DB,
