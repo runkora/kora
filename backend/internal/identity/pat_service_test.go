@@ -246,6 +246,50 @@ func TestValidateScopesAgainstUser_ForbiddenScope_ReturnsError(t *testing.T) {
 	}
 }
 
+// TestValidateScopesAgainstUser_CoarseScopeCoversFineScopedPAT reproduces the
+// reported bug: a user holds inference:anthropic:use (coarse) and tries to
+// create a PAT with inference:anthropic:claude-sonnet-4-6:use (fine). The
+// coverage rule (same type, same action, held path is prefix of requested path)
+// should allow this — the PAT is scoped narrower than the user's grant.
+func TestValidateScopesAgainstUser_CoarseScopeCoversFineScopedPAT(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+
+	// Override the mock evaluator to return the coarse scope the user holds.
+	svc.policyEval = &mockPolicyEvaluator{
+		scopes: []string{"inference:anthropic:use"},
+	}
+
+	claims := testClaims()
+	// The PAT requests a finer scope within the same hierarchy.
+	if err := svc.validateScopesAgainstUser(context.Background(), claims, []string{"inference:anthropic:claude-sonnet-4-6:use"}); err != nil {
+		t.Errorf("coarse scope inference:anthropic:use should cover fine scope inference:anthropic:claude-sonnet-4-6:use, got: %v", err)
+	}
+}
+
+// TestValidateScopesAgainstUser_ScopeOutsideGrantedHierarchyRejected confirms
+// that a PAT scope from a different hierarchy is still rejected even when the
+// user holds a coarse scope in a different domain.
+func TestValidateScopesAgainstUser_ScopeOutsideGrantedHierarchyRejected(t *testing.T) {
+	svc, _, _, _, _ := newFullTestService(t)
+
+	svc.policyEval = &mockPolicyEvaluator{
+		scopes: []string{"inference:anthropic:use"},
+	}
+
+	claims := testClaims()
+	err := svc.validateScopesAgainstUser(context.Background(), claims, []string{"connection:db:read"})
+	if err == nil {
+		t.Fatal("expected error for scope outside the user's grant hierarchy")
+	}
+	var scopeErr *ErrPATScopesForbiddenError
+	if !errors.As(err, &scopeErr) {
+		t.Fatalf("expected *ErrPATScopesForbiddenError, got: %T", err)
+	}
+	if len(scopeErr.Scopes) != 1 || scopeErr.Scopes[0] != "connection:db:read" {
+		t.Errorf("forbidden scopes: got %v, want [connection:db:read]", scopeErr.Scopes)
+	}
+}
+
 // ── UpdatePATScopes ───────────────────────────────────────────────────────────
 
 func TestUpdatePATScopes_NewGrantCreateFails_ReturnsError(t *testing.T) {
