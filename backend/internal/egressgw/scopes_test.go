@@ -15,14 +15,18 @@ import (
 func TestAllScopes_NoConnections_PublishesReadScope(t *testing.T) {
 	registry := NewAdapterRegistry()
 	got := AllScopes(nil, registry)
-	// With no connections, AllScopes still publishes the read scope guarding
-	// the read-only connections catalog (GET /api/v1/connections) so the
-	// policy-service registration has a non-empty vocabulary bound to its route.
-	if len(got) != 1 {
-		t.Fatalf("scopes = %d, want 1 (platform:connections:read, no connections) — got %v", len(got), scopeStrings(got))
+	// With no connections, AllScopes still publishes the static platform
+	// connection scopes (read guards GET /api/v1/connections; write is the
+	// reserved-role management scope) so the policy-service vocabulary contains
+	// them even when no connections are mounted.
+	if len(got) != 2 {
+		t.Fatalf("scopes = %d, want 2 (platform:connections:read + :write, no connections) — got %v", len(got), scopeStrings(got))
 	}
 	if got[0].Scope != "platform:connections:read" {
 		t.Errorf("scope[0] = %q, want platform:connections:read", got[0].Scope)
+	}
+	if got[1].Scope != "platform:connections:write" {
+		t.Errorf("scope[1] = %q, want platform:connections:write", got[1].Scope)
 	}
 }
 
@@ -49,12 +53,13 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	}
 	got := AllScopes(conns, registry)
 
-	// AllScopes prepends the read scope (platform:connections:read), then the
-	// per-connection scopes sorted lexicographically by Scope: wildcard +
-	// repo:read + repo:write, for each of two connections = 6, plus the read
-	// scope = 7 total.
+	// AllScopes prepends the static platform connection scopes (read + write),
+	// then the per-connection scopes sorted lexicographically by Scope: wildcard
+	// + repo:read + repo:write, for each of two connections = 6, plus the two
+	// static scopes = 8 total.
 	wantScopes := []string{
 		"platform:connections:read",
+		"platform:connections:write",
 		"connection:github-prod:*",
 		"connection:github-prod:repo:read",
 		"connection:github-prod:repo:write",

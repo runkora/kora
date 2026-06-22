@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -119,6 +120,52 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 		return "", fmt.Errorf("decode grant response: %w", err)
 	}
 	return g.ID, nil
+}
+
+type registerRoutesRequest struct {
+	Service string                         `json:"service"`
+	Routes  []routescopes.RouteScope       `json:"routes"`
+	Scopes  []routescopes.ScopeDeclaration `json:"scopes,omitempty"`
+}
+
+// RegisterRoutes publishes a service's route→scope bindings and scope
+// declarations to the policy service, upserting the declared scopes into the
+// vocabulary so grants and roles can reference them.
+//
+// Unlike the routescopes.Client (used by services whose identity-proxy sidecar
+// injects the platform token), this goes through the authenticated policy client
+// using the caller's own bearer token — required by the identity service, which
+// has no identity-proxy sidecar but mints its own SystemToken. A SYSTEM-principal
+// token yields a global registration (compiled into every tenant bundle).
+func (c *Client) RegisterRoutes(ctx context.Context, service string, routes []routescopes.RouteScope, scopes []routescopes.ScopeDeclaration) error {
+	body, err := c.EncodeJSON(registerRoutesRequest{Service: service, Routes: routes, Scopes: scopes})
+	if err != nil {
+		return fmt.Errorf("encode register-routes request: %w", err)
+	}
+
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return fmt.Errorf("get bearer token for register-routes request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/routes/register", body)
+	if err != nil {
+		return fmt.Errorf("build register-routes request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.RegisterRoutes", req)
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusNoContent {
+		return c.HandleErrorResponse(span, resp, fmt.Errorf("register routes failed: status %d", resp.StatusCode))
+	}
+	return nil
 }
 
 // ListGrants returns all grants for a principal within a tenant.

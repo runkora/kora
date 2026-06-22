@@ -23,6 +23,13 @@ const ServiceName = "egress-gateway"
 // is only to satisfy the policy service and publish the connection vocabulary.
 const readConnectionsScope = "platform:connections:read"
 
+// writeConnectionsScope is the connection-management scope. Connections are
+// GitOps-managed CRs, so there is no write HTTP route to bind it to — but the
+// reserved tenant-admin/platform-admin roles reference it, so it must exist in
+// the vocabulary to be grantable (e.g. via a PAT). It is published as a
+// declaration-only scope (no route binding).
+const writeConnectionsScope = "platform:connections:write"
+
 // ReadRoutes returns the route→scope binding for the gateway's read-only admin
 // API. It binds GET /api/v1/connections to readConnectionsScope so the
 // policy-service registration carries a non-empty routes list (an empty routes
@@ -42,6 +49,18 @@ func ReadScope() routescopes.ScopeDeclaration {
 		PathSegments: []string{"connections"},
 		Action:       "read",
 		Description:  "Read the egress-gateway connection catalog",
+	}
+}
+
+// WriteScope returns the declaration for the connection-management scope. It is
+// declaration-only (no bound route) — see writeConnectionsScope.
+func WriteScope() routescopes.ScopeDeclaration {
+	return routescopes.ScopeDeclaration{
+		Scope:        writeConnectionsScope,
+		ResourceType: "platform",
+		PathSegments: []string{"connections"},
+		Action:       "write",
+		Description:  "Manage connections (reserved-role scope; connections are GitOps-managed)",
 	}
 }
 
@@ -108,7 +127,7 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 // connection in conns. The read scope is always published (it guards a static
 // route); the connection scopes vary with the mounted registry.
 func AllScopes(conns []*credentials.Connection, registry *AdapterRegistry) []routescopes.ScopeDeclaration {
-	return append([]routescopes.ScopeDeclaration{ReadScope()}, ConnectionScopes(conns, registry)...)
+	return append([]routescopes.ScopeDeclaration{ReadScope(), WriteScope()}, ConnectionScopes(conns, registry)...)
 }
 
 // dedupe returns the declaration if its Scope has not been emitted yet,
