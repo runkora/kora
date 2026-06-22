@@ -341,7 +341,9 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
             </Text>
           ) : row.payloadExcerpt ? (
             <Text mono size="caption" color="muted">
-              {row.payloadExcerpt.length > 120 ? `${row.payloadExcerpt.slice(0, 120)}…` : row.payloadExcerpt}
+              {row.payloadExcerpt.length > 120
+                ? `${row.payloadExcerpt.slice(0, 120)}…`
+                : row.payloadExcerpt}
             </Text>
           ) : (
             <Text size="caption" color="muted">
