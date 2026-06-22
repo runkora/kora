@@ -324,14 +324,6 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		// pull alone can take ~50s on a cold node). Same wiring the
 		// session-manager StatefulSet pod uses.
 		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
-		// Protect the running sandbox from Karpenter voluntary disruption.
-		// A sandbox is a single-run, low-CPU pod, so a node hosting it looks
-		// "underutilized" — without this, Karpenter consolidation evicts it
-		// mid-run, killing the agent↔sandbox (orbit-shell) connection and
-		// forcing a re-provision. RestartPolicy is Never, so an eviction is
-		// terminal for the run's sandbox. Karpenter still reclaims the node
-		// once the run completes and the pod is deleted.
-		"karpenter.sh/do-not-disrupt": "true",
 	}
 
 	pod := &corev1.Pod{
@@ -1041,12 +1033,6 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 						"inject.istio.io/templates":                     "sidecar,spire,identity-proxy",
 						"proxy.istio.io/config":                         `{"holdApplicationUntilProxyStarts": true}`,
 						"traffic.sidecar.istio.io/excludeOutboundPorts": "5432,50051",
-						// Protect the session-manager from Karpenter voluntary
-						// disruption: it holds the live agent (Claude) subprocess
-						// and session state, so a consolidation/drift eviction
-						// kills active runs. Karpenter still reclaims the node
-						// when the StatefulSet is scaled to zero / deprovisioned.
-						"karpenter.sh/do-not-disrupt": "true",
 					},
 				},
 				Spec: corev1.PodSpec{
