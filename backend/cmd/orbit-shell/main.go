@@ -177,6 +177,10 @@ func reprovisionSandbox() (string, error) {
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
 	}
+	// Drain the body so the connection can be reused / cleanly closed.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return "", fmt.Errorf("drain provision response: %w", err)
+	}
 
 	endpoint := sandboxEndpoint()
 	if endpoint == "" {
