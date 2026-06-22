@@ -19,6 +19,11 @@ export interface RouteTarget {
   enabled: boolean;
 }
 
+export interface VirtualModelPricing {
+  effective_input_cost_per_1m: number;
+  effective_output_cost_per_1m: number;
+}
+
 export interface VirtualModel {
   id: string;
   family: string;
@@ -28,6 +33,7 @@ export interface VirtualModel {
   strategy: RoutingStrategy;
   routes: RouteTarget[];
   enabled: boolean;
+  pricing?: VirtualModelPricing;
 }
 
 export interface ProviderModel {
