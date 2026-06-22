@@ -155,6 +155,9 @@ func (s *stubUsageRepo) GetActiveRoleHolders(_ context.Context, _ string, _ time
 func (s *stubUsageRepo) GetPrincipalRoles(_ context.Context, _, _ string) ([]string, error) {
 	return nil, nil
 }
+func (s *stubUsageRepo) GetAgentTypeAnalytics(_ context.Context, _, _ string, _ int) (AgentAnalyticsKPIs, error) {
+	return AgentAnalyticsKPIs{}, nil
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
