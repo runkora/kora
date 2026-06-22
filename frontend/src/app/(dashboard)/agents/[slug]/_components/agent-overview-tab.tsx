@@ -2,16 +2,20 @@
 
 /** @tier 3 — agents/[slug]-scoped. Overview tab: stats, recent runs, system prompt, scopes, metadata. */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
+  CardTitle,
   CodeBlock,
   DataTable,
   Grid,
+  Heading,
+  Icon,
+  Separator,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -22,16 +26,22 @@ import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
 import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import type { AgentAnalyticsKPIs } from '@orbit/shared/api';
 import { AgentBudgetCard } from './agent-budget-card';
 
 const PROMPT_PREVIEW_LENGTH = 300;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatTokens(n: number): string {
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return n.toLocaleString();
+}
+
+function fmtUsd(n: number): string {
+  return `$${n.toFixed(4)}`;
 }
 
 function runStatusBadge(row: RunRow) {
@@ -61,6 +71,26 @@ function runStatusBadge(row: RunRow) {
   );
 }
 
+// ── Stat row (used inside analytics cards) ────────────────────────────────────
+
+interface StatRowProps {
+  label: string;
+  value: string;
+}
+
+function StatRow({ label, value }: StatRowProps) {
+  return (
+    <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
+      <Text size="supporting" color="muted">
+        {label}
+      </Text>
+      <Text size="supporting" weight="emphasis" mono tabular>
+        {value}
+      </Text>
+    </Stack>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface AgentOverviewTabProps {
@@ -71,6 +101,24 @@ interface AgentOverviewTabProps {
 export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
   const { agent, runs } = useAgentDetailContext();
   const [promptExpanded, setPromptExpanded] = useState(false);
+  const [agentAnalytics, setAgentAnalytics] = useState<AgentAnalyticsKPIs | null>(null);
+
+  // Fetch agent-scoped token/spend analytics from the BFF.
+  useEffect(() => {
+    if (!agent) return;
+    let cancelled = false;
+    void fetch(`/api/analytics/agents/${encodeURIComponent(agent.id)}`)
+      .then((res) => (res.ok ? (res.json() as Promise<AgentAnalyticsKPIs>) : null))
+      .then((data) => {
+        if (!cancelled) setAgentAnalytics(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentAnalytics(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent]);
 
   // ── Stats computation ──────────────────────────────────────────────────────
 
@@ -88,11 +136,6 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
     if (completed.length === 0) return '—';
     const avg = completed.reduce((sum, r) => sum + (r.durationMs ?? 0), 0) / completed.length;
     return formatDuration(avg);
-  }, [runs]);
-
-  const totalTokens = useMemo(() => {
-    const sum = runs.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
-    return sum > 0 ? formatTokens(sum) : '—';
   }, [runs]);
 
   // ── Recent runs (5 most recent) ────────────────────────────────────────────
@@ -143,7 +186,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
-            {row.tokensUsed ? formatTokens(row.tokensUsed) : '—'}
+            {row.tokensUsed ? fmtTokens(row.tokensUsed) : '—'}
           </Text>
         ),
       },
@@ -168,10 +211,14 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       ? agent.systemPrompt.slice(0, PROMPT_PREVIEW_LENGTH) + '…'
       : agent.systemPrompt;
 
+  const tokensLoaded = agentAnalytics !== null;
+  const totalTokensDisplay = tokensLoaded ? fmtTokens(agentAnalytics.total_tokens) : '—';
+  const spendDisplay = tokensLoaded ? fmtUsd(agentAnalytics.estimated_cost_usd) : '—';
+
   return (
     <Stack gap="comfortable" paddingBlock="comfortable">
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
-      <Grid cols={{ base: 2, md: 4 }} gap="comfortable">
+      <Grid cols={{ base: 2, md: 3, lg: 5 }} gap="comfortable">
         <Card>
           <CardHeader compact title="Total Runs" />
           <CardContent>
@@ -196,11 +243,55 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
             </Text>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader compact title="Tokens (7d)" />
+
+        {/* Tokens (7d) — full breakdown */}
+        <Card column>
+          <CardHeader compact icon={<Icon name="zap" />}>
+            <CardTitle>Tokens (7d)</CardTitle>
+          </CardHeader>
           <CardContent>
-            <Text mono size="body" weight="emphasis">
-              {totalTokens}
+            <Heading variant="metric">{totalTokensDisplay}</Heading>
+            <Text size="caption" color="muted">
+              Total consumed
+            </Text>
+            <Stack asChild>
+              <figure className="my-3 m-0">
+                <Separator span="full" />
+              </figure>
+            </Stack>
+            <Stack gap="none">
+              <StatRow
+                label="Input"
+                value={tokensLoaded ? fmtTokens(agentAnalytics.prompt_tokens) : '—'}
+              />
+              <Separator />
+              <StatRow
+                label="Output"
+                value={tokensLoaded ? fmtTokens(agentAnalytics.completion_tokens) : '—'}
+              />
+              <Separator />
+              <StatRow
+                label="Cache read"
+                value={tokensLoaded ? fmtTokens(agentAnalytics.cache_read_tokens) : '—'}
+              />
+              <Separator />
+              <StatRow
+                label="Cache write"
+                value={tokensLoaded ? fmtTokens(agentAnalytics.cache_creation_tokens) : '—'}
+              />
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {/* Spend (7d) */}
+        <Card column>
+          <CardHeader compact icon={<Icon name="dollar-sign" />}>
+            <CardTitle>Spend (7d)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Heading variant="metric">{spendDisplay}</Heading>
+            <Text size="caption" color="muted">
+              Estimated cost
             </Text>
           </CardContent>
         </Card>

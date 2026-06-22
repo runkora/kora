@@ -292,6 +292,20 @@ export interface RunsListResponse {
   data: Run[];
 }
 
+/**
+ * Token-category totals and estimated cost for a single agent type over a
+ * lookback window. Returned by GET /v1/analytics/agents/{agentTypeId}.
+ * Mirrors Go: inferencegw.AgentAnalyticsKPIs.
+ */
+export interface AgentAnalyticsKPIs {
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  estimated_cost_usd: number;
+}
+
 /** Request body for POST /api/agents/types. */
 export interface CreateAgentTypeRequest {
   name: string;
