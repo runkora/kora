@@ -129,6 +129,31 @@ func TestGitHubAdapter_Fields_Push(t *testing.T) {
 	}
 }
 
+func TestGitHubAdapter_Fields_Issues(t *testing.T) {
+	a := &githubAdapter{}
+	body := []byte(`{"action":"opened",
+		"issue":{"number":7,"title":"Login button does nothing","body":"Clicking login is a no-op on Safari.","html_url":"https://x/issues/7","user":{"login":"dave"}},
+		"repository":{"full_name":"acme/widgets","default_branch":"main"},"sender":{"login":"dave"}}`)
+
+	f := a.Fields("issues", body)
+	want := map[string]string{
+		"event":          "issues",
+		"action":         "opened",
+		"issue.number":   "7",
+		"issue.title":    "Login button does nothing",
+		"issue.body":     "Clicking login is a no-op on Safari.",
+		"issue.url":      "https://x/issues/7",
+		"issue.author":   "dave",
+		"repo.full_name": "acme/widgets",
+		"sender.login":   "dave",
+	}
+	for k, v := range want {
+		if f[k] != v {
+			t.Errorf("field %q = %q, want %q", k, f[k], v)
+		}
+	}
+}
+
 func TestGitHubAdapter_Fields_Malformed(t *testing.T) {
 	a := &githubAdapter{}
 	// Garbage body must not panic and yields empty optional fields.

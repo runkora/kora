@@ -101,14 +101,24 @@ func (a *githubAdapter) EventType(headers http.Header, _ []byte) string {
 	return headers.Get("X-GitHub-Event")
 }
 
-// githubPayload covers the subset of the pull_request and push event payloads
-// exposed to matching and templating. Unknown/absent fields decode to zero values.
+// githubPayload covers the subset of the pull_request, push, and issues event
+// payloads exposed to matching and templating. Unknown/absent fields decode to
+// zero values.
 type githubPayload struct {
-	Action      string `json:"action"`
-	Number      int    `json:"number"`
-	Ref         string `json:"ref"`
-	Before      string `json:"before"`
-	After       string `json:"after"`
+	Action string `json:"action"`
+	Number int    `json:"number"`
+	Ref    string `json:"ref"`
+	Before string `json:"before"`
+	After  string `json:"after"`
+	Issue  *struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"issue"`
 	PullRequest *struct {
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
@@ -169,6 +179,14 @@ func (a *githubAdapter) Fields(eventType string, body []byte) map[string]string 
 		f["push.after"] = p.After
 		if p.HeadCommit != nil {
 			f["push.commit_message"] = p.HeadCommit.Message
+		}
+	case "issues":
+		if p.Issue != nil {
+			f["issue.number"] = strconv.Itoa(p.Issue.Number)
+			f["issue.title"] = p.Issue.Title
+			f["issue.body"] = p.Issue.Body
+			f["issue.url"] = p.Issue.HTMLURL
+			f["issue.author"] = p.Issue.User.Login
 		}
 	}
 	return f
