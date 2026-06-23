@@ -119,6 +119,11 @@ type githubPayload struct {
 			Login string `json:"login"`
 		} `json:"user"`
 	} `json:"issue"`
+	// Label is the top-level label on labeled/unlabeled actions (the one just
+	// added/removed), so a trigger can gate on a specific label.
+	Label *struct {
+		Name string `json:"name"`
+	} `json:"label"`
 	PullRequest *struct {
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
@@ -192,6 +197,11 @@ func (a *githubAdapter) Fields(eventType string, body []byte) map[string]string 
 			f["issue.body"] = p.Issue.Body
 			f["issue.url"] = p.Issue.HTMLURL
 			f["issue.author"] = p.Issue.User.Login
+		}
+		// On labeled/unlabeled actions, expose the affected label so triggers can
+		// gate on it, e.g. match {"action":["labeled"],"label.name":["bug-smith"]}.
+		if p.Label != nil {
+			f["label.name"] = p.Label.Name
 		}
 	}
 	return f
