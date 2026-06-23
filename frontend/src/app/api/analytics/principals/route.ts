@@ -14,10 +14,12 @@ export const GET = withAuth(async (req: NextRequest, session) => {
   const days = sp.get('days') ? Number(sp.get('days')) : undefined;
   const page = sp.get('page') ? Number(sp.get('page')) : undefined;
   const limit = sp.get('limit') ? Number(sp.get('limit')) : undefined;
+  const sort_by = sp.get('sort_by') ?? undefined;
+  const order = sp.get('order') ?? undefined;
 
   // Fetch usage data and all tenant users in parallel.
   const [result, allUsersResult] = await Promise.all([
-    fetchAnalyticsPrincipalsFromGateway(session.accessToken, { days, page, limit }),
+    fetchAnalyticsPrincipalsFromGateway(session.accessToken, { days, page, limit, sort_by, order }),
     fetchAllTenantUsers(session.accessToken),
   ]);
 
@@ -48,35 +50,40 @@ export const GET = withAuth(async (req: NextRequest, session) => {
     };
   });
 
-  // Add synthetic zero-activity rows for identity users not present in usage data.
+  // Add synthetic zero-activity rows for identity users not present in usage
+  // data. Only injected on the last page so they don't disrupt server-side
+  // ordering: under descending sort (the default) zero-values naturally belong
+  // at the end of the dataset, which is the last page.
+  const isLastPage = result.data.page * result.data.limit >= result.data.total;
   const seenIds = new Set(result.data.data.map((r) => r.principal_id));
-  const syntheticRows: PrincipalUsageRow[] = allUsersResult.ok
-    ? allUsersResult.users
-        .filter((u) => !seenIds.has(u.id))
-        .map((u): PrincipalUsageRow => {
-          const summary: PrincipalUsageSummary = {
-            principal_id: u.id,
-            principal_type: 'HUMAN',
-            request_count: 0,
-            total_tokens: 0,
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-            estimated_cost_usd: 0,
-            error_rate: 0,
-            avg_latency_ms: 0,
-            last_active_at: '',
-          };
-          return { ...summary, email: u.email, display_name: u.display_name };
-        })
-    : [];
+  const syntheticRows: PrincipalUsageRow[] =
+    isLastPage && allUsersResult.ok
+      ? allUsersResult.users
+          .filter((u) => !seenIds.has(u.id))
+          .map((u): PrincipalUsageRow => {
+            const summary: PrincipalUsageSummary = {
+              principal_id: u.id,
+              principal_type: 'HUMAN',
+              request_count: 0,
+              total_tokens: 0,
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              estimated_cost_usd: 0,
+              error_rate: 0,
+              avg_latency_ms: 0,
+              last_active_at: '',
+            };
+            return { ...summary, email: u.email, display_name: u.display_name };
+          })
+      : [];
 
   const allRows = [...usageRows, ...syntheticRows];
 
   const response: AnalyticsPrincipalsPageResponse = {
     data: allRows,
-    total: allRows.length,
+    total: result.data.total,
     page: result.data.page,
     limit: result.data.limit,
   };

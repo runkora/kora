@@ -209,6 +209,13 @@ export interface DataTableProps<TData> {
   emptyMessage?: string;
   /** Message shown when active search or filters produce zero results. */
   filteredEmptyMessage?: string;
+  /** Called when the user clicks a sortable column header.
+   * When provided, `manualSorting` is enabled on the TanStack table — rows are
+   * NOT reordered client-side. The consumer is responsible for refetching with
+   * the new sort parameters and supplying the already-sorted data.
+   * When omitted, sorting is handled entirely client-side (default behaviour).
+   */
+  onSortChange?: (columnId: string, dir: 'asc' | 'desc') => void;
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
   /**
@@ -246,6 +253,7 @@ export function DataTable<TData>({
   onRowClick,
   onRowClickLabel = 'View details',
   toolbarActions,
+  onSortChange,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -335,6 +343,7 @@ export function DataTable<TData>({
     getCoreRowModel: coreRowModelRef.current,
     getSortedRowModel: sortedRowModelRef.current,
     manualFiltering: true,
+    manualSorting: onSortChange !== undefined,
     enableSortingRemoval: false,
   });
 
@@ -356,11 +365,16 @@ export function DataTable<TData>({
     (columnId: string) => {
       setSorting((prev) => {
         const existing = prev.find((s) => s.id === columnId);
-        if (!existing) return [{ id: columnId, desc: false }]; // unsorted → asc
-        return [{ id: columnId, desc: !existing.desc }]; // asc ↔ desc
+        const next: SortingState = existing
+          ? [{ id: columnId, desc: !existing.desc }] // asc ↔ desc
+          : [{ id: columnId, desc: false }]; // unsorted → asc
+        // Call the server-sort callback with the derived next state so it never
+        // reads stale state from the closing-over sorting variable.
+        onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
+        return next;
       });
     },
-    [setSorting],
+    [setSorting, onSortChange],
   );
 
   // ── Client filter handlers ──────────────────────────────────────────────────

@@ -87,7 +87,8 @@ func (c *Controller) handleAnalytics(w http.ResponseWriter, r *http.Request) {
 // handleAnalyticsPrincipals handles GET /v1/analytics/principals.
 //
 // Returns per-principal usage aggregates (cost, tokens, requests, error rate,
-// latency) for the tenant, sorted by cost descending. Paginated via page/limit.
+// latency) for the tenant, sorted by cost descending by default. Paginated via
+// page/limit. Sort column and direction are controlled by sort_by and order.
 // Requires the platform:analytics:read scope.
 func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -95,34 +96,10 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 	ctx, span := tracer.Start(ctx, "handleAnalyticsPrincipals")
 	defer span.End()
 
-	q := r.URL.Query()
-	filter := AnalyticsPrincipalsFilter{Days: 30, Page: 1, Limit: 20}
-
-	if raw := q.Get("days"); raw != "" {
-		v, err := strconv.Atoi(raw)
-		if err != nil || !slices.Contains(validDays, v) {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'days' must be one of: 7, 30, 90", nil), err)
-			return
-		}
-		filter.Days = v
-	}
-
-	if raw := q.Get("page"); raw != "" {
-		v, err := strconv.Atoi(raw)
-		if err != nil || v < 1 {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'page' must be a positive integer", nil), err)
-			return
-		}
-		filter.Page = v
-	}
-
-	if raw := q.Get("limit"); raw != "" {
-		v, err := strconv.Atoi(raw)
-		if err != nil || v < 1 {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err)
-			return
-		}
-		filter.Limit = v
+	filter, apiErr, parseErr := parseAnalyticsPrincipalsFilter(r.URL.Query())
+	if apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
+		return
 	}
 
 	span.SetAttributes(
@@ -142,10 +119,55 @@ func (c *Controller) handleAnalyticsPrincipals(w http.ResponseWriter, r *http.Re
 // ─── shared parameter parsing ─────────────────────────────────────────────────
 
 var validDays = []int{7, 30, 90}
+var validSortOrders = []string{"asc", "desc"}
 var validGranularities = []string{"daily", "weekly", "monthly"}
 
-// parseAnalyticsFilter extracts and validates the common query parameters
-// shared by both analytics endpoints.
+// parseAnalyticsPrincipalsFilter extracts and validates the query parameters
+// for GET /v1/analytics/principals.
+func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *api.APIError, error) {
+	f := AnalyticsPrincipalsFilter{Days: 30, Page: 1, Limit: 20}
+
+	if raw := q.Get("days"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || !slices.Contains(validDays, v) {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'days' must be one of: 7, 30, 90", nil), err
+		}
+		f.Days = v
+	}
+
+	if raw := q.Get("page"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 1 {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'page' must be a positive integer", nil), err
+		}
+		f.Page = v
+	}
+
+	if raw := q.Get("limit"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 1 {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'limit' must be a positive integer", nil), err
+		}
+		f.Limit = v
+	}
+
+	if raw := q.Get("sort_by"); raw != "" {
+		if _, ok := principalSortColumns[raw]; !ok {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'sort_by' must be one of: cost, tokens, requests, error_rate, avg_latency, last_active", nil), nil
+		}
+		f.SortBy = raw
+	}
+
+	if raw := q.Get("order"); raw != "" {
+		if !slices.Contains(validSortOrders, raw) {
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'order' must be 'asc' or 'desc'", nil), nil
+		}
+		f.SortOrder = raw
+	}
+
+	return f, nil, nil
+}
+
 func parseAnalyticsFilter(q url.Values) (AnalyticsFilter, *api.APIError, error) {
 	f := AnalyticsFilter{
 		Days:        30,
