@@ -136,8 +136,8 @@ func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ strin
 	return m.runSpend, m.runTokens, m.runUsageErr
 }
 
-func (m *mockInferenceUsageRepository) GetAgentTypeUsage(_ context.Context, _, _ string) (AgentTypeUsage, error) {
-	return AgentTypeUsage{}, nil
+func (m *mockInferenceUsageRepository) GetAgentTypeUsage(_ context.Context, _, agentTypeID string) (AgentTypeUsage, error) {
+	return AgentTypeUsage{AgentTypeID: agentTypeID}, nil
 }
 
 func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
