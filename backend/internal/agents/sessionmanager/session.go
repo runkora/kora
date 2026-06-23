@@ -217,10 +217,11 @@ func (reg *Registry) Close(ctx context.Context, runID string) error {
 
 	s.intentionalClose.Store(true)
 	s.cancel()
-	if err := s.runner.Close(); err != nil {
-		return err
-	}
+	closeErr := s.runner.Close()
 	<-s.done
+	if closeErr != nil {
+		return closeErr
+	}
 	reg.logger.Info(ctx, "Session closed", logging.Field{Key: "run_id", Value: runID})
 	return nil
 }
