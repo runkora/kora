@@ -374,6 +374,12 @@ func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
 			logging.Field{Key: "line", Value: line},
 		)
 	}
+	if err := scanner.Err(); err != nil {
+		r.cfg.Logger.Error(ctx, "Claude stderr scan error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // transform reads Claude Code's stream-json stdout and emits Orbit events.
