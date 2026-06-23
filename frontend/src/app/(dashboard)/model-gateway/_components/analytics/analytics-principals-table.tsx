@@ -16,6 +16,8 @@ import { fmtCost, fmtDate, fmtNum } from '@orbit/utils';
 const SORT_KEY: Record<string, string> = {
   requests: 'requests',
   totalTokens: 'tokens',
+  promptTokens: 'prompt_tokens',
+  completionTokens: 'completion_tokens',
   cost: 'cost',
   errorRate: 'error_rate',
   latency: 'avg_latency',
@@ -133,6 +135,8 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     id: 'promptTokens',
     header: 'Input tokens',
     align: 'right',
+    sortable: true,
+    sortAccessor: (row) => row.prompt_tokens,
     cell: (row) => (
       <Text size="supporting" color="muted" mono align="end">
         {fmtNum(row.prompt_tokens)}
@@ -143,6 +147,8 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     id: 'completionTokens',
     header: 'Output tokens',
     align: 'right',
+    sortable: true,
+    sortAccessor: (row) => row.completion_tokens,
     cell: (row) => (
       <Text size="supporting" color="muted" mono align="end">
         {fmtNum(row.completion_tokens)}

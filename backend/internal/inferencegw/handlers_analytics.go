@@ -153,7 +153,7 @@ func parseAnalyticsPrincipalsFilter(q url.Values) (AnalyticsPrincipalsFilter, *a
 
 	if raw := q.Get("sort_by"); raw != "" {
 		if _, ok := principalSortColumns[raw]; !ok {
-			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'sort_by' must be one of: cost, tokens, requests, error_rate, avg_latency, last_active", nil), nil
+			return AnalyticsPrincipalsFilter{}, api.BadRequestError("invalid_param", "'sort_by' must be one of: cost, tokens, prompt_tokens, completion_tokens, requests, error_rate, avg_latency, last_active", nil), nil
 		}
 		f.SortBy = raw
 	}

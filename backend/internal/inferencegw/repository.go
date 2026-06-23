@@ -589,12 +589,14 @@ const maxPrincipalsLimit = 100
 // produced by the GROUP BY query. The raw request value is never interpolated
 // into SQL — only the resolved value from this map is used.
 var principalSortColumns = map[string]string{
-	"cost":        "estimated_cost_usd",
-	"tokens":      "total_tokens",
-	"requests":    "request_count",
-	"error_rate":  "error_rate",
-	"avg_latency": "avg_latency_ms",
-	"last_active": "last_active_at",
+	"cost":              "estimated_cost_usd",
+	"tokens":            "total_tokens",
+	"prompt_tokens":     "prompt_tokens",
+	"completion_tokens": "completion_tokens",
+	"requests":          "request_count",
+	"error_rate":        "error_rate",
+	"avg_latency":       "avg_latency_ms",
+	"last_active":       "last_active_at",
 }
 
 func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error) {
