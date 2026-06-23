@@ -51,13 +51,14 @@ export const GET = withAuth(async (req: NextRequest, session) => {
   });
 
   // Add synthetic zero-activity rows for identity users not present in usage
-  // data. Only injected on the last page so they don't disrupt server-side
-  // ordering: under descending sort (the default) zero-values naturally belong
-  // at the end of the dataset, which is the last page.
-  const isLastPage = result.data.page * result.data.limit >= result.data.total;
+  // data. Only injected when the full result fits on a single page (page 1 and
+  // no further pages exist). When there are multiple pages, seenIds only covers
+  // the current page — principals from earlier pages would get duplicate
+  // zero-rows if we injected here.
+  const isSinglePage = result.data.page === 1 && result.data.total <= result.data.limit;
   const seenIds = new Set(result.data.data.map((r) => r.principal_id));
   const syntheticRows: PrincipalUsageRow[] =
-    isLastPage && allUsersResult.ok
+    isSinglePage && allUsersResult.ok
       ? allUsersResult.users
           .filter((u) => !seenIds.has(u.id))
           .map((u): PrincipalUsageRow => {

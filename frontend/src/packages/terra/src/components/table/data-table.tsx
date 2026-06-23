@@ -363,18 +363,17 @@ export function DataTable<TData>({
   // Uses a functional setSorting update to avoid stale-closure issues.
   const handleSort = React.useCallback(
     (columnId: string) => {
-      setSorting((prev) => {
-        const existing = prev.find((s) => s.id === columnId);
-        const next: SortingState = existing
-          ? [{ id: columnId, desc: !existing.desc }] // asc ↔ desc
-          : [{ id: columnId, desc: false }]; // unsorted → asc
-        // Call the server-sort callback with the derived next state so it never
-        // reads stale state from the closing-over sorting variable.
-        onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
-        return next;
-      });
+      // Derive next state synchronously from closed-over sorting so we can call
+      // onSortChange outside any state updater — updaters may run more than once
+      // in StrictMode/dev, which would cause duplicate fetches.
+      const existing = sorting.find((s) => s.id === columnId);
+      const next: SortingState = existing
+        ? [{ id: columnId, desc: !existing.desc }]
+        : [{ id: columnId, desc: false }];
+      setSorting(next);
+      onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
     },
-    [setSorting, onSortChange],
+    [sorting, setSorting, onSortChange],
   );
 
   // ── Client filter handlers ──────────────────────────────────────────────────
