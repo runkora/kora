@@ -204,7 +204,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
               {agentUsage ? fmtTokens(agentUsage.total_tokens) : '—'}
             </Text>
             {agentUsage && (
-              <Stack gap="none" paddingBlockStart="snug">
+              <Stack gap="none" paddingBlock="snug">
                 <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
                   <Text size="supporting" color="muted">
                     Input
