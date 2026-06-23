@@ -3,6 +3,7 @@
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
   AgentType,
+  AgentTypeUsage,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Run,
@@ -166,4 +167,26 @@ export async function updateAgentType(
   }
   const body = (await res.json()) as { data: AgentType };
   return { agentType: toAgentTypeRow(body.data), error: null };
+}
+
+// ── fetchAgentTypeUsage ───────────────────────────────────────────────────────
+
+export async function fetchAgentTypeUsage(
+  id: string,
+): Promise<{ usage: AgentTypeUsage | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.usage(id), { cache: 'no-store' });
+  } catch {
+    return { usage: null, error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      usage: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const usageBody = (await res.json()) as AgentTypeUsage;
+  return { usage: usageBody, error: null };
 }

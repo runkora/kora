@@ -256,6 +256,36 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
 }
 
+// handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{agentTypeID}.
+// Returns the token breakdown and spend recorded against the agent type's
+// SPIFFE principal over the last 7 days, scoped to the caller's verified
+// tenant. Any authenticated tenant member may read it (the agent overview
+// page is already tenant-scoped); the query filters by tenant_id so no
+// cross-tenant leakage is possible.
+func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	agentTypeID := r.PathValue("agentTypeID")
+	if agentTypeID == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "agent type id is required", nil), nil)
+		return
+	}
+
+	usage, err := c.svc.GetAgentTypeUsage(ctx, claims.Orbit.TenantID, agentTypeID)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent type usage", nil), err)
+		return
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
+}
+
 // handleUsageStats handles GET /v1/usage/stats.
 // Returns per-PAT aggregates (request_count, last_used) for the authenticated principal.
 func (c *Controller) handleUsageStats(w http.ResponseWriter, r *http.Request) {

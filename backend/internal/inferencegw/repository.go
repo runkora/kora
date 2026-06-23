@@ -69,6 +69,12 @@ type InferenceUsageRepository interface {
 	// for a run with no recorded usage.
 	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
 
+	// GetAgentTypeUsage returns aggregated token breakdown and spend for an
+	// agent type's SPIFFE principal over the last 7 days, tenant-scoped. Powers
+	// the token breakdown and spend cards on the agent overview page. Returns
+	// a zero-value result (not an error) when no usage exists.
+	GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error)
+
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
@@ -768,6 +774,41 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 		return 0, 0, fmt.Errorf("get run usage: %w", err)
 	}
 	return spend, tokens, nil
+}
+
+// GetAgentTypeUsage returns aggregated token breakdown and spend for an agent
+// type's SPIFFE principal over the last 7 days, tenant-scoped. The principal
+// ID is derived from the standard agent SPIFFE format used by the
+// identity-proxy sidecar: spiffe://orbit/{tenantID}/agent/{agentTypeID}.
+// Returns a zero-value result when no usage records exist.
+func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error) {
+	principalID := "spiffe://orbit/" + tenantID + "/agent/" + agentTypeID
+	const q = `
+		SELECT
+		    COALESCE(SUM(prompt_tokens), 0),
+		    COALESCE(SUM(completion_tokens), 0),
+		    COALESCE(SUM(cache_read_input_tokens), 0),
+		    COALESCE(SUM(cache_creation_input_tokens), 0),
+		    COALESCE(SUM(total_tokens), 0),
+		    COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND principal_id = $2
+		  AND created_at >= NOW() - INTERVAL '7 days'`
+
+	var u AgentTypeUsage
+	u.AgentTypeID = agentTypeID
+	if err := r.pool.QueryRow(ctx, q, tenantID, principalID).Scan(
+		&u.PromptTokens,
+		&u.CompletionTokens,
+		&u.CacheReadTokens,
+		&u.CacheCreationTokens,
+		&u.TotalTokens,
+		&u.EstimatedCostUSD,
+	); err != nil {
+		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
+	}
+	return u, nil
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given
