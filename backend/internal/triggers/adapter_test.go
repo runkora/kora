@@ -154,6 +154,35 @@ func TestGitHubAdapter_Fields_Issues(t *testing.T) {
 	}
 }
 
+func TestGitHubAdapter_Fields_IssuesLabeled(t *testing.T) {
+	a := &githubAdapter{}
+	body := []byte(`{"action":"labeled",
+		"label":{"name":"bug-smith"},
+		"issue":{"number":12,"title":"Crash on startup","body":"stack trace...","html_url":"https://x/issues/12","user":{"login":"erin"}},
+		"repository":{"full_name":"acme/widgets"},"sender":{"login":"justin"}}`)
+
+	f := a.Fields("issues", body)
+	if f["action"] != "labeled" {
+		t.Errorf("action = %q, want labeled", f["action"])
+	}
+	if f["label.name"] != "bug-smith" {
+		t.Errorf("label.name = %q, want bug-smith", f["label.name"])
+	}
+	if f["issue.number"] != "12" {
+		t.Errorf("issue.number = %q, want 12", f["issue.number"])
+	}
+	// A trigger gating on the label should match this delivery.
+	cond := map[string][]string{"action": {"labeled"}, "label.name": {"bug-smith"}}
+	if !matchesCondition(cond, f) {
+		t.Error("expected match for {action:labeled, label.name:bug-smith}")
+	}
+	// A different label must NOT match.
+	cond2 := map[string][]string{"action": {"labeled"}, "label.name": {"wontfix"}}
+	if matchesCondition(cond2, f) {
+		t.Error("expected no match for a different label")
+	}
+}
+
 func TestGitHubAdapter_Fields_Malformed(t *testing.T) {
 	a := &githubAdapter{}
 	// Garbage body must not panic and yields empty optional fields.
