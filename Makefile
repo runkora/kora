@@ -860,19 +860,26 @@ fix: ## Run go fix
 # ===========================================
 
 .PHONY: frontend-install
-frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
+frontend-install: ## Install frontend dependencies (enforces nvm or fnm + Node LTS + pnpm, idempotent)
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
-	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
+	@# ── 1. Check for nvm or fnm ────────────────────────────────────────────────
 	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
-	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
-		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
+	if command -v fnm > /dev/null 2>&1; then \
+		eval "$$(fnm env)"; \
+		NODE_MANAGER="fnm"; \
+	elif [ -f "$$NVM_DIR/nvm.sh" ]; then \
+		. "$$NVM_DIR/nvm.sh"; \
+		NODE_MANAGER="nvm"; \
+	else \
+		echo "$(COLOR_RED)✗ Neither nvm nor fnm found$(COLOR_RESET)"; \
 		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
+		echo "  Or install fnm: https://github.com/Schniz/fnm"; \
 		exit 1; \
 	fi; \
-	. "$$NVM_DIR/nvm.sh"; \
-	echo "  Ensuring Node LTS via nvm (skipped if already installed)..."; \
-	nvm install $(NODE_VERSION); \
-	nvm use $(NODE_VERSION); \
+	echo "  Using $$NODE_MANAGER for Node management..."; \
+	echo "  Ensuring Node $(NODE_VERSION) via $$NODE_MANAGER (skipped if already installed)..."; \
+	$$NODE_MANAGER install $(NODE_VERSION); \
+	$$NODE_MANAGER use $(NODE_VERSION); \
 	echo "  Enabling Corepack..."; \
 	corepack enable; \
 	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
