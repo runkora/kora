@@ -155,7 +155,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		if model == "" {
 			model = c.cfg.CodexDefaultModel
 		}
-		inferenceURL = c.cfg.InferenceGatewayURL
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewCodexRunner(CodexRunnerConfig{
 			BinaryPath:          c.cfg.CodexBinaryPath,
 			Model:               model,
@@ -169,7 +169,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		if model == "" {
 			model = c.cfg.OpenCodeDefaultModel
 		}
-		inferenceURL = c.cfg.InferenceGatewayURL
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
 		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
 			BinaryPath:          c.cfg.OpenCodeBinaryPath,
 			Model:               model,
@@ -178,7 +178,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			RunID:               req.RunID,
 		})
 	default:
-		apiErr := api.ValidationError(api.ErrCodeMissingField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
@@ -330,4 +330,10 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// inferenceURLForRun builds the per-run inference base URL used for
+// summarization and per-run budget attribution.
+func inferenceURLForRun(gatewayURL, runID string) string {
+	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
 }

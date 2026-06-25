@@ -413,7 +413,7 @@ The session-manager container image (`node:22-alpine` base per [agent-cli-framew
 Codex ships musl-only Linux binaries (`codex-x86_64-unknown-linux-musl`, `codex-aarch64-unknown-linux-musl`) — there is no glibc variant. These are statically linked and run on Alpine without modification. The binary is downloaded directly from the GitHub release assets and copied into the image.
 
 **OpenCode:**  
-OpenCode is a Node.js application, already compatible with the existing `node:22-alpine` base. It is installed via npm globally (`npm install -g opencode`).
+OpenCode is a Node.js application, already compatible with the existing `node:22-alpine` base. It is installed via npm globally (`npm install -g opencode-ai@1`). The npm package name is `opencode-ai`; it provides the `opencode` binary.
 
 A single container image can support all three frameworks, which keeps the StatefulSet spec uniform across agent types.
 

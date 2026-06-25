@@ -274,7 +274,7 @@ When the session layer SIGINTs the subprocess and the subprocess exits, `session
 OpenCode is a Node.js application installed via npm, compatible with the existing `node:22-alpine` base:
 
 ```dockerfile
-RUN npm install -g opencode
+RUN npm install -g opencode-ai@1
 ```
 
 No base image change is required.
