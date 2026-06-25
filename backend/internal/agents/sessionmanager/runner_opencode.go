@@ -133,6 +133,14 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 
 	go r.readLoop(ctx, stdout)
 
+	// cleanupProc kills and reaps the subprocess when Start returns an error
+	// after the process has already been launched.
+	cleanupProc := func() {
+		r.cmd.Process.Kill() //nolint:errcheck
+		_ = r.stdin.Close()
+		_ = r.cmd.Wait()
+	}
+
 	// Synchronous initialize handshake — 30-second deadline.
 	initResult, err := r.sendRPCRequest(ctx, "initialize", map[string]any{
 		"protocolVersion":    1,
@@ -140,6 +148,7 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 		"clientInfo":         map[string]string{"name": "orbit-session-manager", "version": "1.0"},
 	})
 	if err != nil {
+		cleanupProc()
 		return fmt.Errorf("opencode initialize: %w", err)
 	}
 
@@ -165,6 +174,7 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 			"cwd":        workDir,
 			"mcpServers": []any{},
 		}); err != nil {
+			cleanupProc()
 			return fmt.Errorf("opencode session/load: %w", err)
 		}
 		r.sessionID = r.cfg.ResumeSessionID
@@ -181,6 +191,7 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 		"mcpServers": []any{},
 	})
 	if err != nil {
+		cleanupProc()
 		return fmt.Errorf("opencode session/new: %w", err)
 	}
 	var newResult struct {
@@ -443,6 +454,19 @@ func (r *OpenCodeRunner) dispatchResponse(ctx context.Context, resp openCodeMsg)
 	case isHandshake:
 		ch <- resp
 	case isPrompt:
+		// JSON-RPC error response from session/prompt — surface as a run failure
+		// and close the channel so the registry marks the run as failed.
+		if resp.Error != nil {
+			r.textBuf.Reset()
+			r.thinkingBuf.Reset()
+			r.emit(EventTypeRunError, RunErrorPayload{
+				Code:    "runner_error",
+				Message: string(resp.Error),
+			})
+			r.stdin.Close() //nolint:errcheck
+			return
+		}
+
 		// Turn complete — emit accumulated text and stop signal.
 		text := r.textBuf.String()
 		thinking := r.thinkingBuf.String()
@@ -534,12 +558,12 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 		case "completed":
 			r.emit(EventTypeToolResult, ToolResultPayload{
 				ToolUseID: u.ToolCallID,
-				Content:   string(u.RawOutput),
+				Content:   unquoteRawOutput(u.RawOutput),
 			})
 		case "failed":
 			r.emit(EventTypeToolResult, ToolResultPayload{
 				ToolUseID: u.ToolCallID,
-				Content:   string(u.RawOutput),
+				Content:   unquoteRawOutput(u.RawOutput),
 				IsError:   true,
 			})
 		}
@@ -563,4 +587,18 @@ func (r *OpenCodeRunner) emit(t EventType, payload any) {
 		return
 	}
 	r.events <- ev
+}
+
+// unquoteRawOutput converts a json.RawMessage tool output to a plain string.
+// OpenCode sends rawOutput as a JSON-encoded value: a JSON string like "\"hello\""
+// would become hello, and a structured JSON object is returned as its JSON text.
+func unquoteRawOutput(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }

@@ -538,3 +538,84 @@ func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
 		t.Errorf("resume runner SessionID() before Start = %q, want empty", got)
 	}
 }
+
+// ── unquoteRawOutput ──────────────────────────────────────────────────────────
+
+func TestUnquoteRawOutput_JSONString(t *testing.T) {
+	raw := json.RawMessage(`"file contents here"`)
+	if got := unquoteRawOutput(raw); got != "file contents here" {
+		t.Errorf("got %q, want %q", got, "file contents here")
+	}
+}
+
+func TestUnquoteRawOutput_JSONObject(t *testing.T) {
+	raw := json.RawMessage(`{"key":"value"}`)
+	if got := unquoteRawOutput(raw); got != `{"key":"value"}` {
+		t.Errorf("got %q, want raw JSON text", got)
+	}
+}
+
+func TestUnquoteRawOutput_Empty(t *testing.T) {
+	if got := unquoteRawOutput(nil); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+// ── dispatchResponse: JSON-RPC error → run_error ──────────────────────────────
+
+func TestOpenCodeDispatchResponse_ErrorEmitsRunError(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.stdin = nopWriteCloser{} // dispatchResponse calls r.stdin.Close() on error
+	id := int64(42)
+	r.pendingMu.Lock()
+	r.pendingPromptID = id
+	r.pendingMu.Unlock()
+
+	r.dispatchResponse(t.Context(), openCodeMsg{
+		JSONRPC: "2.0",
+		ID:      &id,
+		Error:   mustMarshal(map[string]any{"code": -32000, "message": "internal error"}),
+	})
+
+	ev := <-r.events
+	if ev.Type != EventTypeRunError {
+		t.Fatalf("event type = %q, want run_error", ev.Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "runner_error" {
+		t.Errorf("code = %q, want runner_error", payload.Code)
+	}
+}
+
+// ── tool_call rawOutput unquoting ─────────────────────────────────────────────
+
+func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
+	r := newTestOpenCodeRunner()
+
+	params := mustMarshal(map[string]any{
+		"update": map[string]any{
+			"sessionUpdate": "tool_call",
+			"toolCallId":    "tc-1",
+			"title":         "read_file",
+			"status":        "completed",
+			"rawInput":      mustMarshal("{}"),
+			"rawOutput":     mustMarshal("file contents here"),
+		},
+	})
+	r.handleSessionUpdate(t.Context(), params)
+
+	ev := <-r.events
+	if ev.Type != EventTypeToolResult {
+		t.Fatalf("event type = %q, want tool_result", ev.Type)
+	}
+	var payload ToolResultPayload
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Content != "file contents here" {
+		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
+	}
+}

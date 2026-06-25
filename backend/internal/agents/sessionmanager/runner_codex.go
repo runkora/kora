@@ -152,11 +152,20 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 
 	go r.readLoop(ctx, stdout)
 
+	// cleanupProc kills and reaps the subprocess when Start returns an error
+	// after the process has already been launched.
+	cleanupProc := func() {
+		r.cmd.Process.Kill() //nolint:errcheck
+		_ = r.stdin.Close()
+		_ = r.cmd.Wait()
+	}
+
 	// Synchronous initialize handshake — 30-second deadline.
 	if err := r.sendRPCRequest(ctx, "initialize", map[string]any{
 		"clientInfo":   map[string]string{"name": "orbit-session-manager", "version": "1.0"},
 		"capabilities": map[string]any{},
 	}); err != nil {
+		cleanupProc()
 		return fmt.Errorf("codex initialize: %w", err)
 	}
 
@@ -165,6 +174,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		if err := r.sendRPCRequest(ctx, "thread/resume", map[string]any{
 			"threadId": r.cfg.ResumeThreadID,
 		}); err != nil {
+			cleanupProc()
 			return fmt.Errorf("codex thread/resume: %w", err)
 		}
 		r.threadID.Store(r.cfg.ResumeThreadID)
@@ -185,6 +195,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 		}
 		threadID, err := r.sendRPCAndExtractThreadID(ctx, "thread/start", threadStartParams)
 		if err != nil {
+			cleanupProc()
 			return fmt.Errorf("codex thread/start: %w", err)
 		}
 		r.threadID.Store(threadID)
@@ -571,7 +582,13 @@ func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.R
 	r.textBuf.Reset()
 	r.thinkingBuf.Reset()
 	r.activeTurnID.Store("")
-	r.emit(EventTypeMessageStop, nil)
+	// Emit a run_error so the registry marks the run as failed, then close
+	// stdin to cause the subprocess to exit and the event channel to close.
+	r.emit(EventTypeRunError, RunErrorPayload{
+		Code:    "runner_error",
+		Message: p.Error.Message,
+	})
+	r.stdin.Close() //nolint:errcheck
 }
 
 // emit sends an Orbit event to the events channel.

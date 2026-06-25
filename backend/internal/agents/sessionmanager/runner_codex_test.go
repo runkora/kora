@@ -16,6 +16,12 @@ func newTestCodexRunner() *CodexRunner {
 	})
 }
 
+// nopWriteCloser is a no-op io.WriteCloser used in tests that trigger stdin.Close().
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
+
 // ── handleNotification ────────────────────────────────────────────────────────
 
 func TestCodexHandleNotification_TextDelta(t *testing.T) {
@@ -174,6 +180,7 @@ func TestCodexHandleNotification_TurnCompleted(t *testing.T) {
 
 func TestCodexHandleNotification_Error(t *testing.T) {
 	r := newTestCodexRunner()
+	r.stdin = nopWriteCloser{} // handleErrorNotification calls r.stdin.Close()
 	r.textBuf.WriteString("partial text")
 
 	r.handleNotification(t.Context(), codexMsg{
@@ -182,8 +189,8 @@ func TestCodexHandleNotification_Error(t *testing.T) {
 	})
 
 	evs := drainN(t, r.events, 1)
-	if evs[0].Type != EventTypeMessageStop {
-		t.Errorf("event type = %q, want message_stop", evs[0].Type)
+	if evs[0].Type != EventTypeRunError {
+		t.Errorf("event[0] type = %q, want run_error", evs[0].Type)
 	}
 	if r.textBuf.Len() != 0 {
 		t.Error("textBuf should be reset after error")
@@ -404,5 +411,31 @@ func TestCodex_NewResumeRunner_CarriesThreadID(t *testing.T) {
 	}
 	if rr.cfg.ResumeThreadID != "thr_xyz" {
 		t.Errorf("resume runner ResumeThreadID = %q, want thr_xyz", rr.cfg.ResumeThreadID)
+	}
+}
+
+// ── handleErrorNotification: emits run_error ──────────────────────────────────
+
+func TestCodexHandleErrorNotification_EmitsRunError(t *testing.T) {
+	r := newTestCodexRunner()
+	r.stdin = nopWriteCloser{} // handleErrorNotification calls r.stdin.Close()
+
+	r.handleErrorNotification(t.Context(), mustMarshal(map[string]any{
+		"error": map[string]string{"message": "context length exceeded"},
+	}))
+
+	ev := <-r.events
+	if ev.Type != EventTypeRunError {
+		t.Fatalf("event type = %q, want run_error", ev.Type)
+	}
+	var payload RunErrorPayload
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.Code != "runner_error" {
+		t.Errorf("code = %q, want runner_error", payload.Code)
+	}
+	if payload.Message != "context length exceeded" {
+		t.Errorf("message = %q, want 'context length exceeded'", payload.Message)
 	}
 }
