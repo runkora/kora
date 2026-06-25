@@ -15,7 +15,7 @@ The `AgentFramework` enum in `agents/models.go` includes `codex`, but no runner 
 
 ## Decision
 
-**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via `OPENAI_BASE_URL`.
+**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via a per-run `config.toml` written to a dedicated `CODEX_HOME` directory.
 
 ---
 
@@ -116,13 +116,33 @@ There is no `turn/failed` notification — all failures arrive as `"error"` noti
 
 ## LLM Routing
 
-Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)). The runner injects `OPENAI_BASE_URL` into the subprocess environment via `ExtraEnv` — the same mechanism used to inject `WORKSPACE` for Claude Code:
+Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)).
 
-```go
-ExtraEnv: []string{
-    "OPENAI_BASE_URL=" + cfg.InferenceGatewayURL,
-}
+### Provider configuration via config.toml
+
+Codex requires a custom provider to be declared in `config.toml` in order to set `wire_api = "responses"` (Codex only supports the Responses API, not chat/completions). `OPENAI_BASE_URL` alone cannot set `wire_api`, so environment-variable injection is insufficient.
+
+The runner writes a minimal `config.toml` into a per-run `$CODEX_HOME` directory (under `workDir/.codex/`) before spawning the subprocess, and sets `CODEX_HOME` in the subprocess environment to point at it:
+
+```toml
+model_provider = "orbit"
+model          = "<model>"
+
+[model_providers.orbit]
+name     = "Orbit"
+base_url = "<inferenceGatewayURL>/run/<runID>"
+env_key  = "ORBIT_INFERENCE_KEY"
+wire_api = "responses"
+
+[projects."<workDir>"]
+trust_level = "trusted"
 ```
+
+#### Bearer token: `env_key` not inline
+
+The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `ORBIT_INFERENCE_KEY=orbit-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `orbit-managed` is a placeholder that is never sent to the upstream provider.
+
+This is preferable to passing the token via a `-c` CLI flag because process argv is world-readable on Linux (`/proc/<pid>/cmdline`) and would expose the token to any process on the same node. Passing it as an environment variable scopes it to the subprocess and its children, which is the standard safe approach for secrets in child processes.
 
 `InferenceGatewayURL` is sourced from `ControllerConfig` which reads it from the session-manager config YAML (`inferenceGateway.url`). No inference gateway changes are required.
 
@@ -158,7 +178,7 @@ type Runner interface {
 type CodexRunnerConfig struct {
     BinaryPath          string
     Model               string
-    InferenceGatewayURL string // injected as OPENAI_BASE_URL into the subprocess env
+    InferenceGatewayURL string // written into per-run config.toml as custom provider base_url
     Logger              logging.Logger
     RunID               string
     SystemPrompt        string // passed as developerInstructions in thread/start (optional)
@@ -266,7 +286,7 @@ runner = NewCodexRunner(CodexRunnerConfig{
 - Token-level text streaming via `item/agentMessage/delta` matches Claude Code's streaming UX.
 - No changes to `run_events` schema, SSE relay, or frontend — Orbit standard event format is framework-agnostic.
 - No base image change required — Codex musl binary runs on existing `node:22-alpine`.
-- No inference gateway changes required — Codex's Responses API calls route via `OPENAI_BASE_URL`.
+- No inference gateway changes required — Codex's Responses API calls route via the custom provider `base_url` written in the per-run `config.toml`.
 
 ### Negative
 

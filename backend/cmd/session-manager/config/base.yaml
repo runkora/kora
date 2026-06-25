@@ -29,8 +29,23 @@ opencode:
   binaryPath: opencode
   defaultModel: "anthropic/claude-sonnet-4-6"
 
+# inferenceGateway is used by the Codex and OpenCode runners (and the run
+# summarizer) to construct per-run base URLs.
+#
+# Claude reads ANTHROPIC_BASE_URL directly from the pod environment, which the
+# operator injects at StatefulSet creation time (internal/agents/k8s.go), so
+# this value does not affect Claude runs.
+#
+# Codex and OpenCode cannot follow the same pattern: Codex requires a custom
+# provider declaration in config.toml to set wire_api = "responses" (an
+# env-var-only approach has no equivalent field), and OpenCode requires a
+# provider block in opencode.json. Both files are written at session start
+# by the respective runners, which need this URL to do so. Extending the
+# operator to inject per-framework env vars for every future runner type
+# would couple it to runner implementation details; centralising the value
+# here keeps that concern inside the session-manager.
 inferenceGateway:
-  url: "http://inference-gateway.orbit-system.svc.cluster.local"
+  url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
 
 session:
   idleTimeoutSecs: 1200 # 20 minutes

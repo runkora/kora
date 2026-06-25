@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,8 +25,9 @@ type CodexRunnerConfig struct {
 	// Model is passed to thread/start. May be empty.
 	Model string
 
-	// InferenceGatewayURL is injected as OPENAI_BASE_URL so Codex routes all
-	// POST /v1/responses calls through the Orbit inference gateway.
+	// InferenceGatewayURL is written into a per-run config.toml (via writeCodexConfig)
+	// as the custom provider base_url so Codex routes all Responses API calls
+	// through the Orbit inference gateway.
 	InferenceGatewayURL string
 
 	// SystemPrompt, when non-empty, is sent as developerInstructions in thread/start.
@@ -118,11 +120,15 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	r.cmd = exec.CommandContext(ctx, r.cfg.BinaryPath, "app-server", "--listen", "stdio://")
 	r.cmd.Dir = workDir
-	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
-	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
-	r.cmd.Env = append(os.Environ(), "OPENAI_BASE_URL="+perRunURL)
+	codexHome, err := r.writeCodexConfig(workDir)
+	if err != nil {
+		return fmt.Errorf("codex: write config: %w", err)
+	}
+	r.cmd.Env = append(os.Environ(),
+		"CODEX_HOME="+codexHome,
+		"ORBIT_INFERENCE_KEY=orbit-managed",
+	)
 
-	var err error
 	r.stdin, err = r.cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("codex stdin pipe: %w", err)
@@ -579,6 +585,51 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 		return
 	}
 	r.events <- ev
+}
+
+// writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
+// writes a config.toml that points Codex at the Orbit inference gateway.
+//
+// The bearer token is read from the ORBIT_INFERENCE_KEY environment variable
+// (env_key = "ORBIT_INFERENCE_KEY" in config.toml). This keeps the credential
+// out of process argv — which is world-readable on Linux via /proc — and relies
+// on the OS environment being scoped to the subprocess, which is the standard
+// safe approach for secrets in child processes.
+func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
+	if r.cfg.InferenceGatewayURL == "" {
+		return "", fmt.Errorf("InferenceGatewayURL must not be empty")
+	}
+	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
+	perRunURL := fmt.Sprintf("%s/run/%s", gatewayURL, r.cfg.RunID)
+
+	codexHome := filepath.Join(workDir, ".codex")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		return "", fmt.Errorf("create codex home dir: %w", err)
+	}
+
+	// Build minimal config.toml: one custom provider pointing at the gateway.
+	// wire_api = "responses" is required — Codex only speaks the Responses API.
+	// env_key names an environment variable that holds the bearer token; the
+	// identity-proxy sidecar injects a platform token via ORBIT_INFERENCE_KEY,
+	// so the actual secret value never appears on the command line or in the file.
+	configContent := fmt.Sprintf(`model_provider = "orbit"
+model = %q
+
+[model_providers.orbit]
+name     = "Orbit"
+base_url = %q
+env_key  = "ORBIT_INFERENCE_KEY"
+wire_api = "responses"
+
+[projects.%q]
+trust_level = "trusted"
+`, r.cfg.Model, perRunURL, workDir)
+
+	configPath := filepath.Join(codexHome, "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		return "", fmt.Errorf("write codex config.toml: %w", err)
+	}
+	return codexHome, nil
 }
 
 // mustMarshal marshals v to JSON, panicking on error (only called with known-good types).
