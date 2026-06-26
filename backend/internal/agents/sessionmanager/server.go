@@ -30,6 +30,20 @@ type ControllerConfig struct {
 	// WorkspacesBasePath is the base directory for run workspaces (e.g. /workspaces).
 	// Used to set WORKSPACE env var for Claude and to write sandbox endpoint files.
 	WorkspacesBasePath string
+
+	// CodexBinaryPath overrides the codex binary location. Defaults to "codex".
+	CodexBinaryPath string
+	// CodexDefaultModel is used when the session request omits a model for Codex.
+	CodexDefaultModel string
+
+	// OpenCodeBinaryPath overrides the opencode binary location. Defaults to "opencode".
+	OpenCodeBinaryPath string
+	// OpenCodeDefaultModel is used when the session request omits a model for OpenCode.
+	OpenCodeDefaultModel string
+
+	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
+	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+	InferenceGatewayURL string
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -74,16 +88,23 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateSessionRequest is the body for POST /session.
+//
+// Note: there is an independent CreateSessionRequest in
+// internal/platform/clients/sessionmanager/client.go. The two structs are kept
+// separate because the client package cannot import the server package (the
+// dependency direction would be backwards).
 type CreateSessionRequest struct {
 	RunID        string   `json:"run_id"`
 	AgentTypeID  string   `json:"agent_type_id"`
 	TenantID     string   `json:"tenant_id"`
+	Framework    string   `json:"framework"`
 	Model        string   `json:"model"`
 	AllowedTools []string `json:"allowed_tools"`
 	SystemPrompt string   `json:"system_prompt"`
 }
 
-// handleCreateSession starts a new Claude Code subprocess for the given run.
+// handleCreateSession starts an agent subprocess for the given run.
+// The runner type is selected based on the Framework field.
 func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -97,32 +118,70 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	model := req.Model
-	if model == "" {
-		model = c.cfg.ClaudeDefaultModel
+	var runner Runner
+	var model, inferenceURL string
+	switch req.Framework {
+	case "claude-code", "":
+		// Empty framework also routes to claude-code: rows that pre-date
+		// service.CreateAgentType's empty→claude-code defaulting still carry
+		// the migration's NOT NULL DEFAULT '' value.
+		model = req.Model
+		if model == "" {
+			model = c.cfg.ClaudeDefaultModel
+		}
+		extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
+		// Run identity travels as a base-URL path prefix: point this subprocess at
+		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
+		// budgets. Transparent to the agent runtime; the inherited pod-level value
+		// is stripped in buildRunEnv. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
+			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
+			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
+		}
+		runner = NewClaudeRunner(ClaudeRunnerConfig{
+			BinaryPath:        c.cfg.ClaudeBinaryPath,
+			WrapperPath:       c.cfg.ClaudeWrapperPath,
+			Model:             model,
+			AllowedTools:      req.AllowedTools,
+			SystemPrompt:      req.SystemPrompt,
+			Bare:              c.cfg.ClaudeBare,
+			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			RunID:             req.RunID,
+			ExtraEnv:          extraEnv,
+			Logger:            c.logger,
+		})
+	case "codex":
+		model = req.Model
+		if model == "" {
+			model = c.cfg.CodexDefaultModel
+		}
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
+		runner = NewCodexRunner(CodexRunnerConfig{
+			BinaryPath:          c.cfg.CodexBinaryPath,
+			Model:               model,
+			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
+			Logger:              c.logger,
+			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
+		})
+	case "opencode":
+		model = req.Model
+		if model == "" {
+			model = c.cfg.OpenCodeDefaultModel
+		}
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
+		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
+			BinaryPath:          c.cfg.OpenCodeBinaryPath,
+			Model:               model,
+			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
+			Logger:              c.logger,
+			RunID:               req.RunID,
+		})
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
 	}
-	extraEnv := []string{fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, req.RunID))}
-	// Run identity travels as a base-URL path prefix: point this subprocess at
-	// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
-	// budgets. Transparent to the agent runtime; the inherited pod-level value
-	// is stripped in buildRunEnv. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
-	var inferenceURL string
-	if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
-		inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
-		extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
-	}
-	runner := NewClaudeRunner(ClaudeRunnerConfig{
-		BinaryPath:        c.cfg.ClaudeBinaryPath,
-		WrapperPath:       c.cfg.ClaudeWrapperPath,
-		Model:             model,
-		AllowedTools:      req.AllowedTools,
-		SystemPrompt:      req.SystemPrompt,
-		Bare:              c.cfg.ClaudeBare,
-		SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
-		RunID:             req.RunID,
-		ExtraEnv:          extraEnv,
-		Logger:            c.logger,
-	})
 
 	cfg := SessionConfig{
 		RunID:        req.RunID,
@@ -271,4 +330,10 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// inferenceURLForRun builds the per-run inference base URL used for
+// summarization and per-run budget attribution.
+func inferenceURLForRun(gatewayURL, runID string) string {
+	return fmt.Sprintf("%s/run/%s", strings.TrimRight(gatewayURL, "/"), runID)
 }

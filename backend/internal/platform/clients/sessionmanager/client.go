@@ -64,16 +64,22 @@ func PodURL(slug string, ordinal int, namespace string) string {
 }
 
 // CreateSessionRequest is the payload for CreateSession.
+//
+// Note: there is an independent CreateSessionRequest in internal/agents/sessionmanager/server.go.
+// The two structs are kept separate because the client package cannot import the server package
+// (the dependency direction would be backwards) and a shared type in internal/platform/ would
+// pull session-manager domain concepts into the platform layer.
 type CreateSessionRequest struct {
 	RunID        string   `json:"run_id"`
 	AgentTypeID  string   `json:"agent_type_id"`
 	TenantID     string   `json:"tenant_id"`
+	Framework    string   `json:"framework,omitempty"`
 	Model        string   `json:"model,omitempty"`
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 }
 
-// CreateSession starts a new Claude Code subprocess on the target pod.
+// CreateSession starts a new agent subprocess on the target pod.
 // Returns ErrSessionConflict if a session for the same run ID already exists.
 func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSessionRequest) error {
 	body, err := c.EncodeJSON(req)

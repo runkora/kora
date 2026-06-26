@@ -98,12 +98,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, db.Pool(), cfg.Workspaces.BasePath, notifier, idleTimeout)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
-		ClaudeBinaryPath:   cfg.Claude.BinaryPath,
-		ClaudeWrapperPath:  cfg.Claude.WrapperPath,
-		ClaudeDefaultModel: cfg.Claude.DefaultModel,
-		ClaudeBare:         cfg.Claude.Bare,
-		SelfPort:           cfg.Server.Port,
-		WorkspacesBasePath: cfg.Workspaces.BasePath,
+		ClaudeBinaryPath:     cfg.Claude.BinaryPath,
+		ClaudeWrapperPath:    cfg.Claude.WrapperPath,
+		ClaudeDefaultModel:   cfg.Claude.DefaultModel,
+		ClaudeBare:           cfg.Claude.Bare,
+		SelfPort:             cfg.Server.Port,
+		WorkspacesBasePath:   cfg.Workspaces.BasePath,
+		CodexBinaryPath:      cfg.Codex.BinaryPath,
+		CodexDefaultModel:    cfg.Codex.DefaultModel,
+		OpenCodeBinaryPath:   cfg.OpenCode.BinaryPath,
+		OpenCodeDefaultModel: cfg.OpenCode.DefaultModel,
+		InferenceGatewayURL:  cfg.InferenceGateway.URL,
 	}, registry)
 
 	return apiServer.Server(
