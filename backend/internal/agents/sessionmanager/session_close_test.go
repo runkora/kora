@@ -23,13 +23,13 @@ func newStubRunner(closeErr error) *stubRunner {
 	}
 }
 
-func (r *stubRunner) Start(_ context.Context, _ string) error { return nil }
-func (r *stubRunner) Send(_ context.Context, _ string) error  { return nil }
+func (r *stubRunner) Start(_ context.Context, _ string) error             { return nil }
+func (r *stubRunner) Send(_ context.Context, _ string) error              { return nil }
 func (r *stubRunner) SendToolResult(_ context.Context, _, _ string) error { return nil }
-func (r *stubRunner) Events() <-chan Event                    { return r.events }
-func (r *stubRunner) Interrupt() error                        { return nil }
-func (r *stubRunner) SessionID() string                       { return "" }
-func (r *stubRunner) NewResumeRunner() Runner                 { return nil }
+func (r *stubRunner) Events() <-chan Event                                { return r.events }
+func (r *stubRunner) Interrupt() error                                    { return nil }
+func (r *stubRunner) SessionID() string                                   { return "" }
+func (r *stubRunner) NewResumeRunner() Runner                             { return nil }
 func (r *stubRunner) Close() error {
 	select {
 	case <-r.closed:
