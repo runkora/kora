@@ -29,7 +29,7 @@ import {
   updateTrigger,
 } from '../_services/triggers-api';
 import { SourceFormModal } from './source-form-modal';
-import { deliveryStatusTone } from '../_types';
+import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
 
 interface TriggersPageProps {
@@ -314,7 +314,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         filter: {
           mode: 'client',
           options: DELIVERY_STATUS_OPTIONS,
-          filterFn: (row, selected) => selected.has(row.status),
+          filterFn: matchesStatusFilter,
         },
         cell: (row) => <StatusBadge status={deliveryStatusTone(row.status)} label={row.status} />,
       },
@@ -326,30 +326,36 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'detail',
         header: 'Detail',
-        cell: (row) =>
-          row.runs.length > 1 ? (
-            <Text size="caption" color="muted">
-              {row.runs.length} runs
-            </Text>
-          ) : row.error ? (
-            <Text size="caption" color="muted">
-              {row.error}
-            </Text>
-          ) : row.runId ? (
-            <Text mono size="caption">
-              run {row.runId.slice(0, 8)}
-            </Text>
-          ) : row.payloadExcerpt ? (
-            <Text mono size="caption" color="muted">
-              {row.payloadExcerpt.length > 120
-                ? `${row.payloadExcerpt.slice(0, 120)}…`
-                : row.payloadExcerpt}
-            </Text>
-          ) : (
-            <Text size="caption" color="muted">
-              —
-            </Text>
-          ),
+        cell: (row) => {
+          const detail = deliveryDetail(row);
+          switch (detail.kind) {
+            case 'runs':
+            case 'error':
+              return (
+                <Text size="caption" color="muted">
+                  {detail.text}
+                </Text>
+              );
+            case 'runId':
+              return (
+                <Text mono size="caption">
+                  {detail.text}
+                </Text>
+              );
+            case 'excerpt':
+              return (
+                <Text mono size="caption" color="muted">
+                  {detail.text}
+                </Text>
+              );
+            case 'empty':
+              return (
+                <Text size="caption" color="muted">
+                  —
+                </Text>
+              );
+          }
+        },
       },
     ],
     [sourceName],

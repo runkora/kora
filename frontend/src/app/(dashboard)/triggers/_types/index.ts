@@ -115,3 +115,47 @@ export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'er
       return 'unknown';
   }
 }
+
+/** Max characters of a payload excerpt rendered in the Deliveries "Detail" column. */
+export const DELIVERY_EXCERPT_MAX = 120;
+
+/**
+ * Decision for the Deliveries "Detail" column, in priority order:
+ * fan-out run count > error > single run id > payload excerpt > none.
+ * Pure so the priority chain and excerpt truncation are unit-testable; the
+ * cell renders styling from `kind`.
+ *
+ * Note: `text` for `excerpt` is derived from `payload_excerpt`, which is
+ * untrusted webhook data — it is rendered through Terra `<Text>` (React-escaped),
+ * never as HTML.
+ */
+export type DeliveryDetail =
+  | { kind: 'runs'; text: string }
+  | { kind: 'error'; text: string }
+  | { kind: 'runId'; text: string }
+  | { kind: 'excerpt'; text: string }
+  | { kind: 'empty' };
+
+export function deliveryDetail(row: DeliveryRow): DeliveryDetail {
+  if (row.runs.length > 1) return { kind: 'runs', text: `${row.runs.length} runs` };
+  if (row.error) return { kind: 'error', text: row.error };
+  if (row.runId) return { kind: 'runId', text: `run ${row.runId.slice(0, 8)}` };
+  if (row.payloadExcerpt) {
+    const e = row.payloadExcerpt;
+    return {
+      kind: 'excerpt',
+      text: e.length > DELIVERY_EXCERPT_MAX ? `${e.slice(0, DELIVERY_EXCERPT_MAX)}…` : e,
+    };
+  }
+  return { kind: 'empty' };
+}
+
+/**
+ * Client-side Deliveries status-filter predicate. A row passes when its status
+ * is in the selected set (OR semantics across multiple selections). The
+ * DataTable skips filtering entirely when nothing is selected, so an empty
+ * selection shows all rows.
+ */
+export function matchesStatusFilter(row: DeliveryRow, selected: ReadonlySet<string>): boolean {
+  return selected.has(row.status);
+}
