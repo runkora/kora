@@ -12,6 +12,7 @@ import {
   CodeBlock,
   DataTable,
   Grid,
+  Progress,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -76,6 +77,20 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       if (usage) setAgentUsage(usage);
     });
   }, [agent]);
+
+  // Token-usage rows for the breakdown card, scaled to the largest category so
+  // the bars convey relative magnitude at a glance.
+  const usageBars = useMemo(() => {
+    if (!agentUsage) return null;
+    const rows = [
+      { label: 'Input', value: agentUsage.prompt_tokens },
+      { label: 'Output', value: agentUsage.completion_tokens },
+      { label: 'Cache read', value: agentUsage.cache_read_tokens },
+      { label: 'Cache write', value: agentUsage.cache_creation_tokens },
+    ];
+    const max = Math.max(1, ...rows.map((r) => r.value));
+    return { rows, max };
+  }, [agentUsage]);
 
   // ── Stats computation ──────────────────────────────────────────────────────
 
@@ -215,30 +230,43 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
       </Grid>
 
       {/* ── Token usage breakdown (7d) ─────────────────────────────────────
-          The headline total lives in the stat row above; this card gives the
-          per-category split room to breathe in an even grid instead of
-          cramming it into a single stat cell. */}
-      {agentUsage && (
+          The headline total lives in the stat row above; this card breaks it
+          down by category as a labelled bar list — each bar is scaled to the
+          largest category so relative magnitude reads at a glance. */}
+      {usageBars && (
         <Card>
           <CardHeader compact title="Token usage (7d)" />
           <CardContent>
-            <Grid cols={{ base: 2, md: 4 }} gap="comfortable">
-              {[
-                { label: 'Input', value: agentUsage.prompt_tokens },
-                { label: 'Output', value: agentUsage.completion_tokens },
-                { label: 'Cache read', value: agentUsage.cache_read_tokens },
-                { label: 'Cache write', value: agentUsage.cache_creation_tokens },
-              ].map((stat) => (
-                <Stack key={stat.label} gap="tight">
-                  <Text size="supporting" color="muted">
-                    {stat.label}
+            <Stack gap="snug">
+              {usageBars.rows.map((row) => (
+                <Stack key={row.label} direction="horizontal" align="center" gap="comfortable">
+                  <Text
+                    size="supporting"
+                    color="muted"
+                    style={{ width: '5.5rem', flexShrink: 0 }}
+                  >
+                    {row.label}
                   </Text>
-                  <Text mono tabular size="body" weight="emphasis">
-                    {fmtTokens(stat.value)}
+                  <Stack grow>
+                    <Progress
+                      value={row.value}
+                      max={usageBars.max}
+                      label={`${row.label} tokens (7 day)`}
+                      size="sm"
+                    />
+                  </Stack>
+                  <Text
+                    mono
+                    tabular
+                    size="supporting"
+                    weight="emphasis"
+                    style={{ width: '4rem', textAlign: 'right', flexShrink: 0 }}
+                  >
+                    {fmtTokens(row.value)}
                   </Text>
                 </Stack>
               ))}
-            </Grid>
+            </Stack>
           </CardContent>
         </Card>
       )}
