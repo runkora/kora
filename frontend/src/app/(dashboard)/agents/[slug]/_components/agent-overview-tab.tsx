@@ -12,7 +12,6 @@ import {
   CodeBlock,
   DataTable,
   Grid,
-  Progress,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -78,18 +77,16 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
     });
   }, [agent]);
 
-  // Token-usage rows for the breakdown card, scaled to the largest category so
-  // the bars convey relative magnitude at a glance.
-  const usageBars = useMemo(() => {
+  // Token-usage rows for the sidebar breakdown (under Budget). Precise counts,
+  // shown as a compact label → value definition list.
+  const usageRows = useMemo(() => {
     if (!agentUsage) return null;
-    const rows = [
+    return [
       { label: 'Input', value: agentUsage.prompt_tokens },
       { label: 'Output', value: agentUsage.completion_tokens },
       { label: 'Cache read', value: agentUsage.cache_read_tokens },
       { label: 'Cache write', value: agentUsage.cache_creation_tokens },
     ];
-    const max = Math.max(1, ...rows.map((r) => r.value));
-    return { rows, max };
   }, [agentUsage]);
 
   // ── Stats computation ──────────────────────────────────────────────────────
@@ -229,48 +226,6 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         </Card>
       </Grid>
 
-      {/* ── Token usage breakdown (7d) ─────────────────────────────────────
-          The headline total lives in the stat row above; this card breaks it
-          down by category as a labelled bar list — each bar is scaled to the
-          largest category so relative magnitude reads at a glance. */}
-      {usageBars && (
-        <Card>
-          <CardHeader compact title="Token usage (7d)" />
-          <CardContent>
-            <Stack gap="snug">
-              {usageBars.rows.map((row) => (
-                <Stack key={row.label} direction="horizontal" align="center" gap="comfortable">
-                  <Text
-                    size="supporting"
-                    color="muted"
-                    style={{ width: '5.5rem', flexShrink: 0 }}
-                  >
-                    {row.label}
-                  </Text>
-                  <Stack grow>
-                    <Progress
-                      value={row.value}
-                      max={usageBars.max}
-                      label={`${row.label} tokens (7 day)`}
-                      size="sm"
-                    />
-                  </Stack>
-                  <Text
-                    mono
-                    tabular
-                    size="supporting"
-                    weight="emphasis"
-                    style={{ width: '4rem', textAlign: 'right', flexShrink: 0 }}
-                  >
-                    {fmtTokens(row.value)}
-                  </Text>
-                </Stack>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
-
       {/* ── Two-column layout ──────────────────────────────────────────────
           Columns stretch to full width (default align-items: stretch). Do NOT
           set align="start" here: on mobile the stack is vertical, where
@@ -321,6 +276,33 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
         <Stack gap="comfortable" style={{ flexShrink: 0, flexBasis: '300px' }}>
           {/* Budget usage — the agent's grant ceilings joined with live spend */}
           <AgentBudgetCard budget={budget} tenantCap={tenantCap} />
+
+          {/* Token usage (7d) — sits with Budget; the spend total is in the
+              stat row above. Compact label → value list. */}
+          {usageRows && (
+            <Card>
+              <CardHeader compact title="Token Usage (7d)" divider />
+              <CardContent padded>
+                <Stack gap="snug">
+                  {usageRows.map((row) => (
+                    <Stack
+                      key={row.label}
+                      direction="horizontal"
+                      align="center"
+                      justify="between"
+                    >
+                      <Text size="supporting" color="muted">
+                        {row.label}
+                      </Text>
+                      <Text mono tabular size="supporting">
+                        {fmtTokens(row.value)}
+                      </Text>
+                    </Stack>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Tool scopes */}
           <Card>
