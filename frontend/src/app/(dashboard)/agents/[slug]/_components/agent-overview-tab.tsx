@@ -12,7 +12,6 @@ import {
   CodeBlock,
   DataTable,
   Grid,
-  Separator,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -197,51 +196,12 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
             </Text>
           </CardContent>
         </Card>
-        <Card column>
+        <Card>
           <CardHeader compact title="Tokens (7d)" />
           <CardContent>
             <Text mono size="body" weight="emphasis">
               {agentUsage ? fmtTokens(agentUsage.total_tokens) : '—'}
             </Text>
-            {agentUsage && (
-              <Stack gap="none" paddingBlock="snug">
-                <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
-                  <Text size="supporting" color="muted">
-                    Input
-                  </Text>
-                  <Text size="supporting" mono tabular>
-                    {fmtTokens(agentUsage.prompt_tokens)}
-                  </Text>
-                </Stack>
-                <Separator />
-                <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
-                  <Text size="supporting" color="muted">
-                    Output
-                  </Text>
-                  <Text size="supporting" mono tabular>
-                    {fmtTokens(agentUsage.completion_tokens)}
-                  </Text>
-                </Stack>
-                <Separator />
-                <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
-                  <Text size="supporting" color="muted">
-                    Cache read
-                  </Text>
-                  <Text size="supporting" mono tabular>
-                    {fmtTokens(agentUsage.cache_read_tokens)}
-                  </Text>
-                </Stack>
-                <Separator />
-                <Stack direction="horizontal" align="center" justify="between" paddingBlock="tight">
-                  <Text size="supporting" color="muted">
-                    Cache write
-                  </Text>
-                  <Text size="supporting" mono tabular>
-                    {fmtTokens(agentUsage.cache_creation_tokens)}
-                  </Text>
-                </Stack>
-              </Stack>
-            )}
           </CardContent>
         </Card>
         <Card>
@@ -253,6 +213,35 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
           </CardContent>
         </Card>
       </Grid>
+
+      {/* ── Token usage breakdown (7d) ─────────────────────────────────────
+          The headline total lives in the stat row above; this card gives the
+          per-category split room to breathe in an even grid instead of
+          cramming it into a single stat cell. */}
+      {agentUsage && (
+        <Card>
+          <CardHeader compact title="Token usage (7d)" />
+          <CardContent>
+            <Grid cols={{ base: 2, md: 4 }} gap="comfortable">
+              {[
+                { label: 'Input', value: agentUsage.prompt_tokens },
+                { label: 'Output', value: agentUsage.completion_tokens },
+                { label: 'Cache read', value: agentUsage.cache_read_tokens },
+                { label: 'Cache write', value: agentUsage.cache_creation_tokens },
+              ].map((stat) => (
+                <Stack key={stat.label} gap="tight">
+                  <Text size="supporting" color="muted">
+                    {stat.label}
+                  </Text>
+                  <Text mono tabular size="body" weight="emphasis">
+                    {fmtTokens(stat.value)}
+                  </Text>
+                </Stack>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Two-column layout ──────────────────────────────────────────────
           Columns stretch to full width (default align-items: stretch). Do NOT
