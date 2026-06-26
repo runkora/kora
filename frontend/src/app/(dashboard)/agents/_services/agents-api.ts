@@ -4,7 +4,13 @@
 // pattern-match on the returned `error` field.
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import type { AgentType, Run, CreateAgentTypeRequest, StartRunRequest } from '@orbit/shared/api';
+import type {
+  AgentType,
+  AgentTypeUsage,
+  Run,
+  CreateAgentTypeRequest,
+  StartRunRequest,
+} from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
@@ -26,6 +32,33 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   }
   const body = (await res.json()) as { data: AgentType[] };
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
+}
+
+// ── fetchAgentTypesUsage ──────────────────────────────────────────────────────
+// Returns the 7-day token + spend aggregate per agent type, keyed by agent type
+// id for direct lookup. Never throws; on error returns an empty map.
+
+export async function fetchAgentTypesUsage(): Promise<{
+  byAgentType: Record<string, AgentTypeUsage>;
+  error: string | null;
+}> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentTypes.usageAll(), { cache: 'no-store' });
+  } catch {
+    return { byAgentType: {}, error: 'Network error — could not reach the server.' };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      byAgentType: {},
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  const body = (await res.json()) as { data: AgentTypeUsage[] };
+  const byAgentType: Record<string, AgentTypeUsage> = {};
+  for (const u of body.data ?? []) byAgentType[u.agent_type_id] = u;
+  return { byAgentType, error: null };
 }
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────

@@ -312,6 +312,13 @@ export const ApiRoute = {
      */
     usage: (id: string): `${typeof API_BASE}/agents/types/${string}/usage` =>
       `${API_BASE}/agents/types/${id}/usage`,
+    /**
+     * `/api/agents/types/usage`
+     *
+     * GET — returns the 7-day token breakdown and spend for every agent type in
+     *       the tenant. Powers the total + per-agent cost on the agents list.
+     */
+    usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
   },
 
   /**

@@ -131,6 +131,10 @@ func (s *stubUsageRepo) GetAgentTypeUsage(_ context.Context, _, _ string) (Agent
 	return AgentTypeUsage{}, nil
 }
 
+func (s *stubUsageRepo) ListAgentTypeUsage(_ context.Context, _ string) ([]AgentTypeUsage, error) {
+	return nil, nil
+}
+
 func (s *stubUsageRepo) Create(_ context.Context, _ InferenceUsageRecord) error { return nil }
 func (s *stubUsageRepo) List(_ context.Context, _ InferenceUsageFilter) ([]InferenceUsageRecord, bool, error) {
 	return nil, false, nil

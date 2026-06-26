@@ -286,6 +286,32 @@ func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Requ
 	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
 }
 
+// handleListAgentTypeUsage handles GET /v1/usage/agent-types. Returns the
+// 7-day token breakdown and spend per agent type for the caller's verified
+// tenant, powering the total + per-agent cost on the agents list page. Scoped
+// to the caller's tenant; the query filters by tenant_id so no cross-tenant
+// leakage is possible.
+func (c *Controller) handleListAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil {
+		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
+		return
+	}
+
+	usages, err := c.svc.ListAgentTypeUsage(ctx, claims.Orbit.TenantID)
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list agent type usage", nil), err)
+		return
+	}
+	if usages == nil {
+		usages = []AgentTypeUsage{}
+	}
+
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": usages})
+}
+
 // handleUsageStats handles GET /v1/usage/stats.
 // Returns per-PAT aggregates (request_count, last_used) for the authenticated principal.
 func (c *Controller) handleUsageStats(w http.ResponseWriter, r *http.Request) {

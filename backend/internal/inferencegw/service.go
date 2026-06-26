@@ -958,6 +958,20 @@ func (s *Service) GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID s
 	return u, nil
 }
 
+// ListAgentTypeUsage returns the 7-day token breakdown and spend per agent type
+// for the tenant. Returns an empty slice (not an error) when no usage
+// repository is configured.
+func (s *Service) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
+	if s.usage == nil {
+		return []AgentTypeUsage{}, nil
+	}
+	usages, err := s.usage.ListAgentTypeUsage(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list agent type usage: %w", err)
+	}
+	return usages, nil
+}
+
 // ListBudgetPrincipals returns per-principal budget status for the tenant:
 // every principal with a budget assignment (grant budgets from the compiled
 // bundle, role budgets attributed via their active spend counters) plus every

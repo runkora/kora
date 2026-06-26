@@ -75,6 +75,13 @@ type InferenceUsageRepository interface {
 	// a zero-value result (not an error) when no usage exists.
 	GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error)
 
+	// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
+	// type for the tenant over the last 7 days, derived from the agent SPIFFE
+	// principals (spiffe://orbit/{tenantID}/agent/{agentTypeID}). One entry per
+	// agent type that has usage in the window; types with no usage are absent.
+	// Powers the total + per-agent cost on the agents list page.
+	ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error)
+
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
@@ -832,6 +839,58 @@ func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context
 		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
 	}
 	return u, nil
+}
+
+// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
+// type for the tenant over the last 7 days. It groups inference_usage by the
+// agent SPIFFE principal and recovers the agent type id from the principal
+// path (spiffe://orbit/{tenantID}/agent/{agentTypeID}). Agent types with no
+// usage in the window are absent from the result.
+func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
+	prefix := "spiffe://orbit/" + tenantID + "/agent/"
+	const q = `
+		SELECT
+		    principal_id,
+		    COALESCE(SUM(prompt_tokens), 0),
+		    COALESCE(SUM(completion_tokens), 0),
+		    COALESCE(SUM(cache_read_input_tokens), 0),
+		    COALESCE(SUM(cache_creation_input_tokens), 0),
+		    COALESCE(SUM(total_tokens), 0),
+		    COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE tenant_id = $1
+		  AND principal_id LIKE $2 || '%'
+		  AND created_at >= NOW() - INTERVAL '7 days'
+		GROUP BY principal_id`
+
+	rows, err := r.pool.Query(ctx, q, tenantID, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("list agent type usage: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AgentTypeUsage
+	for rows.Next() {
+		var principalID string
+		var u AgentTypeUsage
+		if err := rows.Scan(
+			&principalID,
+			&u.PromptTokens,
+			&u.CompletionTokens,
+			&u.CacheReadTokens,
+			&u.CacheCreationTokens,
+			&u.TotalTokens,
+			&u.EstimatedCostUSD,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent type usage: %w", err)
+		}
+		u.AgentTypeID = strings.TrimPrefix(principalID, prefix)
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent type usage: %w", err)
+	}
+	return out, nil
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given
