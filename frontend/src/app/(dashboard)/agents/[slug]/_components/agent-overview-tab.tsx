@@ -285,12 +285,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
               <CardContent padded>
                 <Stack gap="snug">
                   {usageRows.map((row) => (
-                    <Stack
-                      key={row.label}
-                      direction="horizontal"
-                      align="center"
-                      justify="between"
-                    >
+                    <Stack key={row.label} direction="horizontal" align="center" justify="between">
                       <Text size="supporting" color="muted">
                         {row.label}
                       </Text>
