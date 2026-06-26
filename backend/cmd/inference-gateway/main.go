@@ -123,9 +123,9 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
 
 	// Multi-account Bedrock: attempt multi-factory first.
-	bedrockMulti, err := bedrock.MultiFactory{}.Build(logger)
-	if err != nil {
-		return nil, fmt.Errorf("bedrock multi-account: %w", err)
+	bedrockMulti, errMulti := bedrock.MultiFactory{}.Build(logger)
+	if errMulti != nil {
+		return nil, fmt.Errorf("bedrock multi-account: %w", errMulti)
 	}
 	if len(bedrockMulti) > 0 {
 		for _, nc := range bedrockMulti {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -114,7 +114,7 @@ func LoadMultiConfig() ([]NamedConfig, error) {
 	}
 
 	var configs []NamedConfig
-	for _, alias := range strings.Split(raw, ",") {
+	for alias := range strings.SplitSeq(raw, ",") {
 		alias = strings.TrimSpace(alias)
 		if alias == "" {
 			continue
@@ -146,7 +146,7 @@ func LoadMultiConfig() ([]NamedConfig, error) {
 type MultiFactory struct{}
 
 // Build reads BEDROCK_ACCOUNTS and returns one NamedConnector per alias.
-// Returns nil when BEDROCK_ACCOUNTS is unset, signalling that the caller
+// Returns nil when BEDROCK_ACCOUNTS is unset, signaling that the caller
 // should fall back to Factory (single-account mode).
 func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, error) {
 	cfgs, err := LoadMultiConfig()
@@ -183,7 +183,6 @@ type namedConnector struct {
 }
 
 func (n *namedConnector) Name() inferencegw.ProviderName { return n.name }
-
 
 // Connector implements inferencegw.ProviderConnector for AWS Bedrock.
 // It wraps three separate endpoints:
