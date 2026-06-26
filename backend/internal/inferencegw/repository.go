@@ -859,7 +859,7 @@ func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Contex
 		    COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND principal_id LIKE $2 || '%'
+		  AND starts_with(principal_id, $2)
 		  AND created_at >= NOW() - INTERVAL '7 days'
 		GROUP BY principal_id`
 
