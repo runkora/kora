@@ -171,6 +171,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		RunID:        run.ID,
 		AgentTypeID:  run.AgentTypeID,
 		TenantID:     run.TenantID,
+		Framework:    string(at.Framework),
 		AllowedTools: at.ToolScopes,
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),

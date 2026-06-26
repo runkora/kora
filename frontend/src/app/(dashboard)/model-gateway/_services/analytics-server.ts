@@ -99,12 +99,14 @@ export async function fetchAnalyticsFromGateway(
 
 export async function fetchAnalyticsPrincipalsFromGateway(
   accessToken: string,
-  params: { days?: number; page?: number; limit?: number } = {},
+  params: { days?: number; page?: number; limit?: number; sort_by?: string; order?: string } = {},
 ): Promise<AnalyticsPrincipalsRawResult> {
   const qs = new URLSearchParams();
   if (params.days !== undefined) qs.set('days', String(params.days));
   if (params.page !== undefined) qs.set('page', String(params.page));
   if (params.limit !== undefined) qs.set('limit', String(params.limit));
+  if (params.sort_by !== undefined) qs.set('sort_by', params.sort_by);
+  if (params.order !== undefined) qs.set('order', params.order);
 
   const path = '/analytics/principals';
   const url = `${config.inferenceGatewayUrl}${path}${qs.size > 0 ? `?${qs.toString()}` : ''}`;

@@ -163,19 +163,27 @@ type modelsResponse struct {
 	Data   []modelObject `json:"data"`
 }
 
+// modelObjectPricing carries effective per-million-token prices for display.
+// It reflects the lowest-cost enabled route so clients can show a floor price.
+type modelObjectPricing struct {
+	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m"`
+	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
+}
+
 type modelObject struct {
-	ID               string            `json:"id"`
-	Object           string            `json:"object"`
-	Created          int64             `json:"created"`
-	OwnedBy          string            `json:"owned_by"`
-	Family           string            `json:"family,omitempty"`
-	DisplayName      string            `json:"display_name,omitempty"`
-	Status           string            `json:"status"`
-	Aliases          []string          `json:"aliases,omitempty"`
-	InputModalities  []Modality        `json:"input_modalities,omitempty"`
-	OutputModalities []Modality        `json:"output_modalities,omitempty"`
-	Dialects         []APIDialect      `json:"dialects,omitempty"`
-	Capabilities     []ModelCapability `json:"capabilities,omitempty"`
+	ID               string              `json:"id"`
+	Object           string              `json:"object"`
+	Created          int64               `json:"created"`
+	OwnedBy          string              `json:"owned_by"`
+	Family           string              `json:"family,omitempty"`
+	DisplayName      string              `json:"display_name,omitempty"`
+	Status           string              `json:"status"`
+	Aliases          []string            `json:"aliases,omitempty"`
+	InputModalities  []Modality          `json:"input_modalities,omitempty"`
+	OutputModalities []Modality          `json:"output_modalities,omitempty"`
+	Dialects         []APIDialect        `json:"dialects,omitempty"`
+	Capabilities     []ModelCapability   `json:"capabilities,omitempty"`
+	Pricing          *modelObjectPricing `json:"pricing,omitempty"`
 }
 
 // pmKey is the composite key used to look up provider models by (provider, modelID).
@@ -275,6 +283,47 @@ func aggregateVMMetadata(vm VirtualModel, idx map[pmKey]*ProviderModel) (
 	return
 }
 
+// buildPricingIndex constructs a lookup map from "provider/normalisedModelID"
+// to ModelPricing using the in-memory pricing cache entries.
+// Used by handleListModels to attach effective pricing to each virtual model.
+func buildPricingIndex(entries []ModelPricing) map[string]ModelPricing {
+	idx := make(map[string]ModelPricing, len(entries))
+	for _, e := range entries {
+		key := string(e.Provider) + "/" + normalisePricingModelID(e.Provider, e.ModelID)
+		idx[key] = e
+	}
+	return idx
+}
+
+// vmEffectivePricing returns the effective pricing for a virtual model by
+// finding the enabled route with the lowest combined (input + output) cost
+// that has a matching entry in the pricing index. Returns nil when no
+// costed enabled route exists.
+func vmEffectivePricing(vm VirtualModel, pricingIdx map[string]ModelPricing) *modelObjectPricing {
+	var best *ModelPricing
+	for _, route := range vm.Routes {
+		if !route.Enabled {
+			continue
+		}
+		key := string(route.Provider) + "/" + normalisePricingModelID(route.Provider, route.ModelID)
+		p, ok := pricingIdx[key]
+		if !ok {
+			continue
+		}
+		if best == nil || (p.InputCostPerMillion+p.OutputCostPerMillion) < (best.InputCostPerMillion+best.OutputCostPerMillion) {
+			copy := p
+			best = &copy
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return &modelObjectPricing{
+		EffectiveInputCostPer1M:  best.InputCostPerMillion,
+		EffectiveOutputCostPer1M: best.OutputCostPerMillion,
+	}
+}
+
 // handleListModels returns all virtual models in the catalog, enriched with
 // provider metadata. Status reflects whether the model is enabled and has at
 // least one active route — disabled models or those with no enabled routes are
@@ -296,6 +345,9 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pmIdx := buildProviderModelIndex(providerModels)
+
+	// Build pricing index from the in-memory cache — no DB round-trip.
+	pricingIdx := buildPricingIndex(c.svc.PricingAll())
 
 	snap := c.svc.router.virtualCatalog.Load()
 
@@ -324,6 +376,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
+			Pricing:          vmEffectivePricing(vm, pricingIdx),
 		})
 	}
 

@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Badge, Button, DataTable, Icon, Stack, StatusDot, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
+import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { PROVIDER_LABELS } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
@@ -22,6 +23,29 @@ function virtualModelMatchesSearch(m: VirtualModel, q: string): boolean {
     m.family.toLowerCase().includes(q) ||
     m.name.toLowerCase().includes(q) ||
     m.displayName.toLowerCase().includes(q)
+  );
+}
+
+function VmEffectivePriceCell({ model }: { model: VirtualModel }) {
+  if (!model.pricing) {
+    return (
+      <Stack direction="horizontal" align="center" gap="tight">
+        <Icon name="alert-circle" size="2xs" color="status-degraded" />
+        <Text size="caption" color="muted">
+          Unknown
+        </Text>
+      </Stack>
+    );
+  }
+  return (
+    <Stack gap="none">
+      <Text size="supporting" mono color="foreground">
+        {fmtCost(model.pricing.effective_input_cost_per_1m)}/1M
+      </Text>
+      <Text size="caption" color="muted" mono>
+        out: {fmtCost(model.pricing.effective_output_cost_per_1m)}/1M
+      </Text>
+    </Stack>
   );
 }
 
@@ -63,6 +87,13 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         id: 'strategy',
         header: 'Strategy',
         cell: (m) => <StrategyBadge strategy={m.strategy} />,
+      },
+      {
+        id: 'effectivePrice',
+        header: 'Effective Price',
+        sortable: true,
+        sortAccessor: (m) => m.pricing?.effective_input_cost_per_1m ?? -1,
+        cell: (m) => <VmEffectivePriceCell model={m} />,
       },
       {
         id: 'routes',

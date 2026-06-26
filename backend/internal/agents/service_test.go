@@ -355,6 +355,7 @@ func TestStartRun_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework:  AgentFrameworkClaudeCode,
 		ToolScopes: []string{"shell"}, SystemPrompt: "be helpful",
 		MaxConcurrentRunsPerPod: 5,
 	})
@@ -373,12 +374,16 @@ func TestStartRun_HappyPath(t *testing.T) {
 		t.Errorf("AgentTypeID = %q, want %q", run.AgentTypeID, at.ID)
 	}
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if len(sm.sessions) != 1 {
-		t.Errorf("expected 1 session-manager call, got %d", len(sm.sessions))
-	} else if sm.sessions[0].SystemPrompt != "be helpful" {
+		t.Fatalf("expected 1 session-manager call, got %d", len(sm.sessions))
+	}
+	if sm.sessions[0].SystemPrompt != "be helpful" {
 		t.Errorf("SystemPrompt not forwarded: %q", sm.sessions[0].SystemPrompt)
 	}
-	sm.mu.Unlock()
+	if sm.sessions[0].Framework != string(AgentFrameworkClaudeCode) {
+		t.Errorf("Framework not forwarded: got %q, want %q", sm.sessions[0].Framework, AgentFrameworkClaudeCode)
+	}
 }
 
 func TestStartRun_TenantMismatch(t *testing.T) {

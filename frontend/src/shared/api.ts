@@ -48,6 +48,12 @@ export interface ToolScopeDefinition {
   tools: string[];
 }
 
+/** Effective per-million-token prices for a virtual model. */
+export interface ModelObjectPricing {
+  effective_input_cost_per_1m: number;
+  effective_output_cost_per_1m: number;
+}
+
 /** Raw model object returned by the inference gateway. */
 export interface ModelObject {
   id: string;
@@ -64,6 +70,8 @@ export interface ModelObject {
   /** Only populated for models with CapabilityChat. */
   dialects: APIDialect[];
   capabilities: ModelCapability[];
+  /** Effective pricing derived from the lowest-cost enabled route. Absent when no pricing data exists. */
+  pricing?: ModelObjectPricing;
 }
 
 /** Top-level response from GET /v1/models. */

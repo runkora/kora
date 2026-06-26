@@ -62,6 +62,30 @@ type Config struct {
 		Bare bool `yaml:"bare"`
 	} `yaml:"claude"`
 
+	Codex struct {
+		// BinaryPath overrides the location of the codex binary.
+		// Defaults to "codex" (resolved via $PATH).
+		BinaryPath string `yaml:"binaryPath"`
+
+		// DefaultModel is used when the session creation request omits a model.
+		DefaultModel string `yaml:"defaultModel"`
+	} `yaml:"codex"`
+
+	OpenCode struct {
+		// BinaryPath overrides the location of the opencode binary.
+		// Defaults to "opencode" (resolved via $PATH).
+		BinaryPath string `yaml:"binaryPath"`
+
+		// DefaultModel is used when the session creation request omits a model.
+		DefaultModel string `yaml:"defaultModel"`
+	} `yaml:"opencode"`
+
+	InferenceGateway struct {
+		// URL is the base URL of the Orbit inference gateway.
+		// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+		URL string `yaml:"url"`
+	} `yaml:"inferenceGateway"`
+
 	Session struct {
 		// IdleTimeoutSecs is how long a session may be idle (no message_stop
 		// followed by a new message) before it is automatically closed.

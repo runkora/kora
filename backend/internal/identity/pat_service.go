@@ -318,20 +318,19 @@ func (s *Service) RevokePAT(ctx context.Context, tenantID, userID, patID string)
 
 // validateScopesAgainstUser checks that every requested scope is covered by the
 // user's current effective scopes (bundle-consistent, not IdP-consistent).
+// Coverage uses the same prefix-match semantics as scope_covers in authz.rego:
+// a coarse scope like inference:anthropic:use covers the finer
+// inference:anthropic:claude-sonnet-4-6:use, so a PAT can always be scoped
+// narrower than the holder's grant without being rejected here.
 func (s *Service) validateScopesAgainstUser(ctx context.Context, claims *PlatformClaims, requested []string) error {
 	effective, err := s.policyEval.Scopes(ctx, policy.ScopesInput{Claims: claims})
 	if err != nil {
 		return fmt.Errorf("resolve effective scopes: %w", err)
 	}
 
-	effectiveSet := make(map[string]struct{}, len(effective))
-	for _, sc := range effective {
-		effectiveSet[sc] = struct{}{}
-	}
-
 	var forbidden []string
 	for _, sc := range requested {
-		if _, ok := effectiveSet[sc]; !ok {
+		if !policy.AnyScopeCovers(effective, sc) {
 			forbidden = append(forbidden, sc)
 		}
 	}

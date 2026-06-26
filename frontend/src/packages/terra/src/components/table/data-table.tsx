@@ -209,6 +209,13 @@ export interface DataTableProps<TData> {
   emptyMessage?: string;
   /** Message shown when active search or filters produce zero results. */
   filteredEmptyMessage?: string;
+  /** Called when the user clicks a sortable column header.
+   * When provided, `manualSorting` is enabled on the TanStack table — rows are
+   * NOT reordered client-side. The consumer is responsible for refetching with
+   * the new sort parameters and supplying the already-sorted data.
+   * When omitted, sorting is handled entirely client-side (default behaviour).
+   */
+  onSortChange?: (columnId: string, dir: 'asc' | 'desc') => void;
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
   /**
@@ -246,6 +253,7 @@ export function DataTable<TData>({
   onRowClick,
   onRowClickLabel = 'View details',
   toolbarActions,
+  onSortChange,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -335,6 +343,7 @@ export function DataTable<TData>({
     getCoreRowModel: coreRowModelRef.current,
     getSortedRowModel: sortedRowModelRef.current,
     manualFiltering: true,
+    manualSorting: onSortChange !== undefined,
     enableSortingRemoval: false,
   });
 
@@ -354,13 +363,17 @@ export function DataTable<TData>({
   // Uses a functional setSorting update to avoid stale-closure issues.
   const handleSort = React.useCallback(
     (columnId: string) => {
-      setSorting((prev) => {
-        const existing = prev.find((s) => s.id === columnId);
-        if (!existing) return [{ id: columnId, desc: false }]; // unsorted → asc
-        return [{ id: columnId, desc: !existing.desc }]; // asc ↔ desc
-      });
+      // Derive next state synchronously from closed-over sorting so we can call
+      // onSortChange outside any state updater — updaters may run more than once
+      // in StrictMode/dev, which would cause duplicate fetches.
+      const existing = sorting.find((s) => s.id === columnId);
+      const next: SortingState = existing
+        ? [{ id: columnId, desc: !existing.desc }]
+        : [{ id: columnId, desc: false }];
+      setSorting(next);
+      onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
     },
-    [setSorting],
+    [sorting, setSorting, onSortChange],
   );
 
   // ── Client filter handlers ──────────────────────────────────────────────────

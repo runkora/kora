@@ -19,7 +19,7 @@ import {
   TabsTrigger,
   Text,
 } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import type { DataTableColumn, TableColumnFilterOption } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge, TriggerFormModal } from '@orbit/components';
 import type { TriggerFormValue } from '@orbit/components';
 import {
@@ -29,7 +29,7 @@ import {
   updateTrigger,
 } from '../_services/triggers-api';
 import { SourceFormModal } from './source-form-modal';
-import { deliveryStatusTone } from '../_types';
+import { deliveryDetail, deliveryStatusTone, matchesStatusFilter } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
 
 interface TriggersPageProps {
@@ -46,6 +46,13 @@ function formatTimestamp(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
+
+const DELIVERY_STATUS_OPTIONS: TableColumnFilterOption[] = [
+  { value: 'dispatched', label: 'Dispatched', dot: 'bg-status-healthy' },
+  { value: 'verified', label: 'Verified', dot: 'bg-status-degraded' },
+  { value: 'skipped', label: 'Skipped', dot: 'bg-status-degraded' },
+  { value: 'failed', label: 'Failed', dot: 'bg-status-error' },
+];
 
 export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
   const router = useRouter();
@@ -304,6 +311,11 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'status',
         header: 'Status',
+        filter: {
+          mode: 'client',
+          options: DELIVERY_STATUS_OPTIONS,
+          filterFn: matchesStatusFilter,
+        },
         cell: (row) => <StatusBadge status={deliveryStatusTone(row.status)} label={row.status} />,
       },
       {
@@ -314,24 +326,36 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {
         id: 'detail',
         header: 'Detail',
-        cell: (row) =>
-          row.runs.length > 1 ? (
-            <Text size="caption" color="muted">
-              {row.runs.length} runs
-            </Text>
-          ) : row.error ? (
-            <Text size="caption" color="muted">
-              {row.error}
-            </Text>
-          ) : row.runId ? (
-            <Text mono size="caption">
-              run {row.runId.slice(0, 8)}
-            </Text>
-          ) : (
-            <Text size="caption" color="muted">
-              —
-            </Text>
-          ),
+        cell: (row) => {
+          const detail = deliveryDetail(row);
+          switch (detail.kind) {
+            case 'runs':
+            case 'error':
+              return (
+                <Text size="caption" color="muted">
+                  {detail.text}
+                </Text>
+              );
+            case 'runId':
+              return (
+                <Text mono size="caption">
+                  {detail.text}
+                </Text>
+              );
+            case 'excerpt':
+              return (
+                <Text mono size="caption" color="muted">
+                  {detail.text}
+                </Text>
+              );
+            case 'empty':
+              return (
+                <Text size="caption" color="muted">
+                  —
+                </Text>
+              );
+          }
+        },
       },
     ],
     [sourceName],
@@ -467,7 +491,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
               defaultSortId="received"
               defaultSortDir="desc"
               emptyMessage="No deliveries."
-              filteredEmptyMessage="No deliveries match your search."
+              filteredEmptyMessage="No deliveries match your search or filter."
             />
           )}
         </TabsContent>

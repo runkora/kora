@@ -79,26 +79,37 @@ func (c *CatalogController) Boot(mux *api.Mux) {
 
 // ─── JSON wire types ──────────────────────────────────────────────────────────
 
+// virtualModelPricingJSON carries effective per-million-token prices for a
+// virtual model. It reflects the lowest-cost enabled route so the admin UI
+// can display a floor price without additional API calls.
+type virtualModelPricingJSON struct {
+	EffectiveInputCostPer1M  float64 `json:"effective_input_cost_per_1m"`
+	EffectiveOutputCostPer1M float64 `json:"effective_output_cost_per_1m"`
+}
+
 type virtualModelJSON struct {
-	ID          string      `json:"id"`
-	Family      string      `json:"family"`
-	Name        string      `json:"name"`
-	DisplayName string      `json:"display_name"`
-	Description string      `json:"description"`
-	Strategy    string      `json:"strategy"`
-	Enabled     bool        `json:"enabled"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	Routes      []routeJSON `json:"routes"`
+	ID          string                   `json:"id"`
+	Family      string                   `json:"family"`
+	Name        string                   `json:"name"`
+	DisplayName string                   `json:"display_name"`
+	Description string                   `json:"description"`
+	Strategy    string                   `json:"strategy"`
+	Enabled     bool                     `json:"enabled"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
+	Routes      []routeJSON              `json:"routes"`
+	Pricing     *virtualModelPricingJSON `json:"pricing,omitempty"`
 }
 
 type routeJSON struct {
-	ID       string `json:"id"`
-	Provider string `json:"provider"`
-	ModelID  string `json:"model_id"`
-	Priority int    `json:"priority"`
-	Weight   int    `json:"weight"`
-	Enabled  bool   `json:"enabled"`
+	ID              string  `json:"id"`
+	Provider        string  `json:"provider"`
+	ModelID         string  `json:"model_id"`
+	Priority        int     `json:"priority"`
+	Weight          int     `json:"weight"`
+	InputCostPer1M  float64 `json:"input_cost_per_1m"`
+	OutputCostPer1M float64 `json:"output_cost_per_1m"`
+	Enabled         bool    `json:"enabled"`
 }
 
 // virtualModelRequest is the shared request body for create and update operations.
@@ -149,9 +160,19 @@ func (c *CatalogController) handleListVirtualModels(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Build a pricing map to attach effective prices to each virtual model.
+	// Failures are non-fatal — virtual models are returned without pricing.
+	pricingMap, err := c.buildPricingMap(ctx)
+	if err != nil {
+		c.logger.Warn(ctx, "failed to load pricing for virtual models — returning without pricing",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		pricingMap = map[string]*pricingEntryJSON{}
+	}
+
 	items := make([]virtualModelJSON, len(vms))
 	for i, vm := range vms {
-		items[i] = toVirtualModelJSON(vm)
+		items[i] = toVirtualModelJSON(vm, pricingMap)
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": items})
 }
@@ -192,7 +213,7 @@ func (c *CatalogController) handleCreateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm)})
+	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"data": toVirtualModelJSON(vm, map[string]*pricingEntryJSON{})})
 }
 
 func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +230,7 @@ func (c *CatalogController) handleGetVirtualModel(w http.ResponseWriter, r *http
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm)})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(vm, map[string]*pricingEntryJSON{})})
 }
 
 func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +274,7 @@ func (c *CatalogController) handleUpdateVirtualModel(w http.ResponseWriter, r *h
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated)})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": toVirtualModelJSON(updated, map[string]*pricingEntryJSON{})})
 }
 
 func (c *CatalogController) handleDeleteVirtualModel(w http.ResponseWriter, r *http.Request) {
@@ -413,16 +434,45 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func toVirtualModelJSON(vm VirtualModel) virtualModelJSON {
+// vmCatalogPricing returns the effective pricing for a virtual model by
+// finding the enabled route with the lowest combined (input + output) effective
+// cost from the pricing map. Returns nil when no costed enabled route exists.
+func vmCatalogPricing(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) *virtualModelPricingJSON {
+	var best *pricingEntryJSON
+	for _, route := range vm.Routes {
+		if !route.Enabled {
+			continue
+		}
+		p := lookupPricing(pricingMap, route.Provider, route.ModelID)
+		if p == nil {
+			continue
+		}
+		if best == nil ||
+			(p.EffectiveInput+p.EffectiveOutput) < (best.EffectiveInput+best.EffectiveOutput) {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return &virtualModelPricingJSON{
+		EffectiveInputCostPer1M:  best.EffectiveInput,
+		EffectiveOutputCostPer1M: best.EffectiveOutput,
+	}
+}
+
+func toVirtualModelJSON(vm VirtualModel, pricingMap map[string]*pricingEntryJSON) virtualModelJSON {
 	routes := make([]routeJSON, len(vm.Routes))
 	for i, r := range vm.Routes {
 		routes[i] = routeJSON{
-			ID:       r.ID,
-			Provider: string(r.Provider),
-			ModelID:  r.ModelID,
-			Priority: r.Priority,
-			Weight:   r.Weight,
-			Enabled:  r.Enabled,
+			ID:              r.ID,
+			Provider:        string(r.Provider),
+			ModelID:         r.ModelID,
+			Priority:        r.Priority,
+			Weight:          r.Weight,
+			InputCostPer1M:  r.InputCostPer1M,
+			OutputCostPer1M: r.OutputCostPer1M,
+			Enabled:         r.Enabled,
 		}
 	}
 	return virtualModelJSON{
@@ -436,6 +486,7 @@ func toVirtualModelJSON(vm VirtualModel) virtualModelJSON {
 		CreatedAt:   vm.CreatedAt,
 		UpdatedAt:   vm.UpdatedAt,
 		Routes:      routes,
+		Pricing:     vmCatalogPricing(vm, pricingMap),
 	}
 }
 

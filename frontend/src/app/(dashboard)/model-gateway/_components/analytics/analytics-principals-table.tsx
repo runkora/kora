@@ -11,45 +11,80 @@ import type {
 } from '../../_types';
 import { fmtCost, fmtDate, fmtNum } from '@orbit/utils';
 
+// Maps DataTable column IDs to the sort_by keys accepted by the backend.
+// Columns absent from this map are not sortable server-side.
+const SORT_KEY: Record<string, string> = {
+  requests: 'requests',
+  totalTokens: 'tokens',
+  promptTokens: 'prompt_tokens',
+  completionTokens: 'completion_tokens',
+  cost: 'cost',
+  errorRate: 'error_rate',
+  latency: 'avg_latency',
+  lastActive: 'last_active',
+};
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 function useAnalyticsPrincipals(days: AnalyticsDays) {
   const [page, setPage] = useState(1);
+  // Initialise sort state to match DataTable defaultSortId/defaultSortDir so
+  // the first fetch and the initial sort indicator are in sync.
+  const [sortBy, setSortBy] = useState('cost');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [data, setData] = useState<AnalyticsPrincipalsPageResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (d: AnalyticsDays, p: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetch(ApiRoute.analyticsPrincipals.GET({ days: d, page: p }));
-      if (!r.ok) throw new Error(r.statusText);
-      setData((await r.json()) as AnalyticsPrincipalsPageResponse);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (d: AnalyticsDays, p: number, by: string, order: 'asc' | 'desc') => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await fetch(
+          ApiRoute.analyticsPrincipals.GET({ days: d, page: p, sort_by: by, order }),
+        );
+        if (!r.ok) throw new Error(r.statusText);
+        setData((await r.json()) as AnalyticsPrincipalsPageResponse);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   // Initial fetch on mount. Days changes are handled by the parent passing
   // key={days}, which remounts this component and resets page state.
   useEffect(() => {
-    void load(days, 1);
+    void load(days, 1, sortBy, sortOrder);
+    // sortBy/sortOrder are stable on mount; days drives the re-mount via key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, load]);
 
   const goToPage = useCallback(
     (p: number) => {
       setPage(p);
-      void load(days, p);
+      void load(days, p, sortBy, sortOrder);
+    },
+    [days, load, sortBy, sortOrder],
+  );
+
+  const handleSortChange = useCallback(
+    (columnId: string, dir: 'asc' | 'desc') => {
+      const by = SORT_KEY[columnId] ?? 'cost';
+      setSortBy(by);
+      setSortOrder(dir);
+      setPage(1);
+      void load(days, 1, by, dir);
     },
     [days, load],
   );
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 0;
 
-  return { data, loading, error, page, goToPage, totalPages };
+  return { data, loading, error, page, goToPage, totalPages, handleSortChange };
 }
 
 // ── Columns ───────────────────────────────────────────────────────────────────
@@ -125,8 +160,6 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
     header: 'Cache tokens',
     align: 'right',
     defaultVisible: false,
-    sortable: true,
-    sortAccessor: (row) => row.cache_read_tokens + row.cache_creation_tokens,
     cell: (row) => (
       <Stack gap="none" align="end">
         {row.cache_read_tokens > 0 && (
@@ -206,7 +239,8 @@ const COLUMNS: DataTableColumn<PrincipalUsageRow>[] = [
 // Parent should pass key={days} so this component remounts when the time
 // window changes, resetting page state and triggering a fresh fetch.
 export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
-  const { data, loading, error, page, goToPage, totalPages } = useAnalyticsPrincipals(days);
+  const { data, loading, error, page, goToPage, totalPages, handleSortChange } =
+    useAnalyticsPrincipals(days);
 
   return (
     <Stack gap="comfortable">
@@ -229,6 +263,7 @@ export function AnalyticsPrincipalsTable({ days }: { days: AnalyticsDays }) {
         }
         defaultSortId="cost"
         defaultSortDir="desc"
+        onSortChange={handleSortChange}
         emptyMessage="No inference activity in this period."
         filteredEmptyMessage="No users match your search."
       />

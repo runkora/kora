@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# Session-manager image: Go binary + Node.js (required for the claude CLI).
+# Session-manager image: Go binary + Node.js (required for the claude and opencode CLIs).
+# Codex (musl static binary) and OpenCode (npm) are installed here so all three frameworks
+# can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -31,7 +33,7 @@ RUN find /app -path "*/config/*.yaml" | while read f; do \
     done
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-# Node.js 22 alpine: required for the claude CLI subprocess.
+# Node.js 22 alpine: required for the claude and opencode CLI subprocesses.
 FROM node:22-alpine
 
 WORKDIR /app
@@ -40,7 +42,8 @@ WORKDIR /app
 #       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
 # go:   required so Claude Code can build/run Go programs in agent workspaces.
-RUN apk add --no-cache ca-certificates bash git go
+# curl: used to download the Codex musl binary below.
+RUN apk add --no-cache ca-certificates bash git go curl
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
@@ -55,8 +58,26 @@ RUN apk add --no-cache ca-certificates bash git go
 ENV SHELL=/opt/orbit/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 
-# Install claude CLI. Pin to the tested major version.
+# Install claude CLI.
 RUN npm install -g @anthropic-ai/claude-code@2
+
+# Install OpenCode (Node.js app; ACP stdio mode requires no additional system packages).
+# Validate opencode.acp protocol compatibility on upgrade.
+RUN npm install -g opencode-ai@1
+
+# Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
+# Validate app-server JSONL notification schema on upgrade.
+# Override at image build time: docker build --build-arg CODEX_VERSION=x.y.z
+ARG CODEX_VERSION=0.142.1
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then MUSL_ARCH="x86_64"; \
+    elif [ "$ARCH" = "aarch64" ]; then MUSL_ARCH="aarch64"; \
+    else echo "Unsupported architecture: $ARCH" >&2 && exit 1; fi && \
+    curl -fsSL \
+        "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${MUSL_ARCH}-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin && \
+    mv /usr/local/bin/codex-${MUSL_ARCH}-unknown-linux-musl /usr/local/bin/codex && \
+    chmod +x /usr/local/bin/codex
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
 RUN addgroup -S orbit && adduser -S orbit -G orbit
