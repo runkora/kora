@@ -107,7 +107,7 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 	}
 	return &CodexRunner{
 		cfg:         cfg,
-		events:      make(chan Event, 64),
+		events:      make(chan Event, 256),
 		pending:     make(map[int64]chan codexMsg),
 		activeItems: make(map[string]*codexActiveItem),
 	}

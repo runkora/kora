@@ -80,7 +80,8 @@ type OpenCodeRunner struct {
 	pending         map[int64]chan openCodeMsg // in-flight handshake requests
 	pendingPromptID int64                      // ID of the in-flight session/prompt; 0 if none
 	nextID          atomic.Int64
-	seenToolUse     map[string]bool // deduplicates tool_use events per toolCallId
+	seenToolUse     map[string]bool // deduplicates tool_use events per toolCallId; never cleared — assumes OpenCode generates unique IDs per tool call for the lifetime of a session
+	replaying       atomic.Bool     // true while session/load replay is in progress; suppresses ephemeral events so the channel does not fill before drain() starts
 }
 
 // NewOpenCodeRunner creates a runner with the given configuration.
@@ -89,8 +90,12 @@ func NewOpenCodeRunner(cfg OpenCodeRunnerConfig) *OpenCodeRunner {
 		cfg.BinaryPath = "opencode"
 	}
 	return &OpenCodeRunner{
-		cfg:         cfg,
-		events:      make(chan Event, 64),
+		cfg: cfg,
+		// 256 slots: during session/load replay, ephemeral events are suppressed
+		// (see emit), so only durable events (tool_use + tool_result, 2 per tool call)
+		// reach this channel before drain() starts consuming. 256 handles sessions
+		// with up to 128 historical tool calls without blocking readLoop.
+		events:      make(chan Event, 256),
 		pending:     make(map[int64]chan openCodeMsg),
 		seenToolUse: make(map[string]bool),
 	}
@@ -169,14 +174,25 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 
 		// session/load — replays the entire conversation history via session/update
 		// notifications, which the existing handleSessionUpdate consumes.
+		// Suppress ephemeral events (text_delta, thinking_delta) during replay so
+		// the channel buffer cannot fill before drain() starts consuming: only durable
+		// events (tool_use, tool_result) are emitted, and those are bounded by the
+		// number of historical tool calls, which 256 slots handles comfortably.
+		r.replaying.Store(true)
 		if _, err = r.sendRPCRequest(ctx, "session/load", map[string]any{
 			"sessionId":  r.cfg.ResumeSessionID,
 			"cwd":        workDir,
 			"mcpServers": []any{},
 		}); err != nil {
+			r.replaying.Store(false)
 			cleanupProc()
 			return fmt.Errorf("opencode session/load: %w", err)
 		}
+		r.replaying.Store(false)
+		// Discard any text/thinking accumulated from replayed messages — they belong
+		// to the prior session and must not leak into the first real turn's buffer.
+		r.textBuf.Reset()
+		r.thinkingBuf.Reset()
 		r.sessionID = r.cfg.ResumeSessionID
 		r.cfg.Logger.Info(ctx, "OpenCode session loaded",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
@@ -556,11 +572,27 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 				Input: u.RawInput,
 			})
 		case "completed":
+			if !r.seenToolUse[u.ToolCallID] {
+				r.seenToolUse[u.ToolCallID] = true
+				r.emit(EventTypeToolUse, ToolUsePayload{
+					ID:    u.ToolCallID,
+					Name:  u.Title,
+					Input: u.RawInput,
+				})
+			}
 			r.emit(EventTypeToolResult, ToolResultPayload{
 				ToolUseID: u.ToolCallID,
 				Content:   unquoteRawOutput(u.RawOutput),
 			})
 		case "failed":
+			if !r.seenToolUse[u.ToolCallID] {
+				r.seenToolUse[u.ToolCallID] = true
+				r.emit(EventTypeToolUse, ToolUsePayload{
+					ID:    u.ToolCallID,
+					Name:  u.Title,
+					Input: u.RawInput,
+				})
+			}
 			r.emit(EventTypeToolResult, ToolResultPayload{
 				ToolUseID: u.ToolCallID,
 				Content:   unquoteRawOutput(u.RawOutput),
@@ -577,7 +609,14 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 }
 
 // emit sends an Orbit event to the events channel.
+// During session/load replay (r.replaying == true) ephemeral events are
+// dropped: they cannot be consumed until drain() starts, and replay history
+// can be arbitrarily large. Durable events (tool_use, tool_result) are always
+// emitted so the resumed session's event log is complete.
 func (r *OpenCodeRunner) emit(t EventType, payload any) {
+	if r.replaying.Load() && !isDurableEvent(t) {
+		return
+	}
 	if payload == nil {
 		r.events <- Event{Type: t}
 		return

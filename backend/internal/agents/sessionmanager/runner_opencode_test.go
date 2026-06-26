@@ -131,6 +131,14 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_InProgressDeduped(t *testing.T) {
 func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedEmitsToolResult(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
+	// Simulate a normal flow: pending first, then completed.
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "tc-3",
+		"title":         "read",
+		"status":        "pending",
+		"rawInput":      map[string]string{"path": "foo.go"},
+	}))
 	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
 		"sessionUpdate": "tool_call",
 		"toolCallId":    "tc-3",
@@ -139,12 +147,15 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedEmitsToolResult(t *testin
 		"rawOutput":     "file contents",
 	}))
 
-	evs := drainN(t, r.events, 1)
-	if evs[0].Type != EventTypeToolResult {
-		t.Errorf("event type = %q, want tool_result", evs[0].Type)
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] type = %q, want tool_use", evs[0].Type)
+	}
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
 	}
 	var payload ToolResultPayload
-	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+	if err := json.Unmarshal(evs[1].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal tool_result: %v", err)
 	}
 	if payload.ToolUseID != "tc-3" {
@@ -158,6 +169,13 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedEmitsToolResult(t *testin
 func TestOpenCodeHandleSessionUpdate_ToolCall_Failed(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
+	// Simulate a normal flow: pending first, then failed.
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "tc-4",
+		"title":         "shell",
+		"status":        "pending",
+	}))
 	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
 		"sessionUpdate": "tool_call",
 		"toolCallId":    "tc-4",
@@ -166,12 +184,15 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_Failed(t *testing.T) {
 		"rawOutput":     "permission denied",
 	}))
 
-	evs := drainN(t, r.events, 1)
-	if evs[0].Type != EventTypeToolResult {
-		t.Errorf("event type = %q, want tool_result", evs[0].Type)
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] type = %q, want tool_use", evs[0].Type)
+	}
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
 	}
 	var payload ToolResultPayload
-	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
+	if err := json.Unmarshal(evs[1].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal tool_result: %v", err)
 	}
 	if !payload.IsError {
@@ -345,6 +366,83 @@ func TestOpenCodeReadLoop_ToolCallSequence(t *testing.T) {
 		if evs[i].Type != want {
 			t.Errorf("event[%d] = %q, want %q", i, evs[i].Type, want)
 		}
+	}
+}
+
+func TestOpenCodeReadLoop_ToolCallReplaySequence(t *testing.T) {
+	// Simulates session/load replay: completed tool call arrives with no prior pending.
+	r := newTestOpenCodeRunner()
+
+	promptID := int64(5)
+	r.pendingMu.Lock()
+	r.pendingPromptID = promptID
+	r.pendingMu.Unlock()
+
+	fixture := strings.Join([]string{
+		`{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tc-hist","title":"shell","status":"completed","rawInput":{"cmd":"ls"},"rawOutput":"file.go\n"}}}`,
+		`{"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn"}}`,
+	}, "\n") + "\n"
+
+	go r.readLoop(t.Context(), strings.NewReader(fixture))
+	evs := collectEvents(r.events)
+
+	wantTypes := []EventType{EventTypeToolUse, EventTypeToolResult, EventTypeMessageComplete, EventTypeMessageStop}
+	if len(evs) != len(wantTypes) {
+		types := make([]EventType, len(evs))
+		for i, ev := range evs {
+			types[i] = ev.Type
+		}
+		t.Fatalf("got events %v, want %v", types, wantTypes)
+	}
+	for i, want := range wantTypes {
+		if evs[i].Type != want {
+			t.Errorf("event[%d] = %q, want %q", i, evs[i].Type, want)
+		}
+	}
+	var usePayload ToolUsePayload
+	if err := json.Unmarshal(evs[0].Payload, &usePayload); err != nil {
+		t.Fatalf("unmarshal tool_use: %v", err)
+	}
+	if usePayload.ID != "tc-hist" {
+		t.Errorf("tool_use ID = %q, want tc-hist", usePayload.ID)
+	}
+}
+
+func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedMissingTitleAndInput(t *testing.T) {
+	// If OpenCode omits title/rawInput in a replay update, the synthetic tool_use
+	// will have empty Name and nil Input. This test documents that behaviour and
+	// ensures the code does not panic — downstream consumers must handle empty Name.
+	r := newTestOpenCodeRunner()
+
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "tc-no-meta",
+		// title and rawInput intentionally absent
+		"status":    "completed",
+		"rawOutput": "output",
+	}))
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] type = %q, want tool_use", evs[0].Type)
+	}
+	var usePayload ToolUsePayload
+	if err := json.Unmarshal(evs[0].Payload, &usePayload); err != nil {
+		t.Fatalf("unmarshal tool_use: %v", err)
+	}
+	if usePayload.ID != "tc-no-meta" {
+		t.Errorf("tool_use ID = %q, want tc-no-meta", usePayload.ID)
+	}
+	// Name and Input are empty/null when the update omits title/rawInput — documented behaviour.
+	if usePayload.Name != "" {
+		t.Errorf("tool_use Name = %q, want empty (title absent in replay update)", usePayload.Name)
+	}
+	// rawInput absent → json.RawMessage zero value (nil) → marshals to JSON null.
+	if s := string(usePayload.Input); s != "" && s != "null" {
+		t.Errorf("tool_use Input = %s, want null/empty (rawInput absent in replay update)", usePayload.Input)
+	}
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
 	}
 }
 
@@ -539,6 +637,133 @@ func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
 	}
 }
 
+// ── Resume tool event ordering (session/load replay) ─────────────────────────
+
+
+// TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents verifies that setting
+// r.replaying suppresses text_delta and thinking_delta events (which could fill
+// the channel buffer before drain() starts) while allowing durable events
+// (tool_use, tool_result) through.
+func TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.replaying.Store(true)
+
+	// Ephemeral — should be dropped.
+	r.emit(EventTypeTextDelta, TextDeltaPayload{Delta: "hello"})
+	r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: "thinking"})
+	r.emit(EventTypeMessageStop, nil)
+
+	// Durable — must pass through.
+	r.emit(EventTypeToolUse, ToolUsePayload{ID: "tc-1", Name: "shell"})
+	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: "tc-1", Content: "ok"})
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] = %q, want tool_use", evs[0].Type)
+	}
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] = %q, want tool_result", evs[1].Type)
+	}
+	select {
+	case ev := <-r.events:
+		t.Errorf("unexpected third event %q — ephemeral events should be suppressed during replay", ev.Type)
+	default:
+	}
+}
+
+// TestOpenCodeHandleSessionUpdate_ToolCall_CompletedWithoutPriorPending verifies
+// that a "completed" status arriving without a prior "pending"/"in_progress" —
+// as happens when session/load replays historical tool calls — emits a synthetic
+// tool_use before the tool_result so the event stream remains ordered.
+func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedWithoutPriorPending(t *testing.T) {
+	r := newTestOpenCodeRunner()
+
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "tc-replay-1",
+		"title":         "read_file",
+		"status":        "completed",
+		"rawInput":      map[string]string{"path": "main.go"},
+		"rawOutput":     "package main",
+	}))
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] type = %q, want tool_use (synthetic)", evs[0].Type)
+	}
+	var usePayload ToolUsePayload
+	if err := json.Unmarshal(evs[0].Payload, &usePayload); err != nil {
+		t.Fatalf("unmarshal tool_use: %v", err)
+	}
+	if usePayload.ID != "tc-replay-1" {
+		t.Errorf("tool_use ID = %q, want tc-replay-1", usePayload.ID)
+	}
+	if usePayload.Name != "read_file" {
+		t.Errorf("tool_use Name = %q, want read_file", usePayload.Name)
+	}
+
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
+	}
+	var resultPayload ToolResultPayload
+	if err := json.Unmarshal(evs[1].Payload, &resultPayload); err != nil {
+		t.Fatalf("unmarshal tool_result: %v", err)
+	}
+	if resultPayload.ToolUseID != "tc-replay-1" {
+		t.Errorf("tool_result ToolUseID = %q, want tc-replay-1", resultPayload.ToolUseID)
+	}
+	if resultPayload.Content != "package main" {
+		t.Errorf("tool_result Content = %q, want 'package main'", resultPayload.Content)
+	}
+	if resultPayload.IsError {
+		t.Error("IsError should be false for completed tool call")
+	}
+}
+
+// TestOpenCodeHandleSessionUpdate_ToolCall_FailedWithoutPriorPending verifies
+// the same synthetic tool_use behaviour for "failed" status during replay.
+func TestOpenCodeHandleSessionUpdate_ToolCall_FailedWithoutPriorPending(t *testing.T) {
+	r := newTestOpenCodeRunner()
+
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "tc-replay-2",
+		"title":         "shell",
+		"status":        "failed",
+		"rawInput":      map[string]string{"cmd": "rm -rf /"},
+		"rawOutput":     "permission denied",
+	}))
+
+	evs := drainN(t, r.events, 2)
+	if evs[0].Type != EventTypeToolUse {
+		t.Errorf("event[0] type = %q, want tool_use (synthetic)", evs[0].Type)
+	}
+	var usePayload ToolUsePayload
+	if err := json.Unmarshal(evs[0].Payload, &usePayload); err != nil {
+		t.Fatalf("unmarshal tool_use: %v", err)
+	}
+	if usePayload.ID != "tc-replay-2" {
+		t.Errorf("tool_use ID = %q, want tc-replay-2", usePayload.ID)
+	}
+	if usePayload.Name != "shell" {
+		t.Errorf("tool_use Name = %q, want shell", usePayload.Name)
+	}
+
+	if evs[1].Type != EventTypeToolResult {
+		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
+	}
+	var resultPayload ToolResultPayload
+	if err := json.Unmarshal(evs[1].Payload, &resultPayload); err != nil {
+		t.Fatalf("unmarshal tool_result: %v", err)
+	}
+	if resultPayload.ToolUseID != "tc-replay-2" {
+		t.Errorf("tool_result ToolUseID = %q, want tc-replay-2", resultPayload.ToolUseID)
+	}
+	if !resultPayload.IsError {
+		t.Error("IsError should be true for failed tool call")
+	}
+}
+
 // ── unquoteRawOutput ──────────────────────────────────────────────────────────
 
 func TestUnquoteRawOutput_JSONString(t *testing.T) {
@@ -596,6 +821,19 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
 	params := mustMarshal(map[string]any{
+		"update": map[string]any{
+			"sessionUpdate": "tool_call",
+			"toolCallId":    "tc-1",
+			"title":         "read_file",
+			"status":        "pending",
+			"rawInput":      mustMarshal("{}"),
+		},
+	})
+	r.handleSessionUpdate(t.Context(), params)
+	// Drain the tool_use so we can inspect the tool_result below.
+	drainN(t, r.events, 1)
+
+	params = mustMarshal(map[string]any{
 		"update": map[string]any{
 			"sessionUpdate": "tool_call",
 			"toolCallId":    "tc-1",
