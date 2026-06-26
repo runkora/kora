@@ -38,6 +38,11 @@ export interface VirtualModelRoute {
   enabled: boolean;
 }
 
+export interface VirtualModelPricingWire {
+  effective_input_cost_per_1m: number;
+  effective_output_cost_per_1m: number;
+}
+
 export interface VirtualModel {
   id: string;
   family: string;
@@ -49,6 +54,7 @@ export interface VirtualModel {
   created_at: string;
   updated_at: string;
   routes: VirtualModelRoute[];
+  pricing?: VirtualModelPricingWire;
 }
 
 export interface ProviderModel {

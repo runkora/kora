@@ -25,6 +25,7 @@ export function toVirtualModel(m: ApiVirtualModel): VirtualModel {
       outputCostPer1M: r.output_cost_per_1m,
       enabled: r.enabled,
     })),
+    pricing: m.pricing,
   };
 }
 

@@ -268,6 +268,9 @@ export interface ModelRow {
   // ── Availability ──────────────────────────────────────────────────────────
   status: ModelStatus;
 
+  // ── Pricing ───────────────────────────────────────────────────────────────
+  pricing?: { effective_input_cost_per_1m: number; effective_output_cost_per_1m: number };
+
   // ── UI state ──────────────────────────────────────────────────────────────
   favourite: boolean;
 }
@@ -286,6 +289,7 @@ export function toModelRow(m: ModelObject): ModelRow {
     dialects: m.dialects ?? [],
     capabilities: m.capabilities ?? [],
     status: m.status ?? 'available',
+    pricing: m.pricing,
     favourite: false,
   };
 }

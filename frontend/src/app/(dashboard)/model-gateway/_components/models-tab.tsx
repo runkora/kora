@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Badge, Button, DataTable, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
+import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
 import { AvailabilityDot } from './availability-dot';
@@ -45,6 +46,35 @@ function Chips({ values }: { values: string[] }) {
           {v}
         </Badge>
       ))}
+    </Stack>
+  );
+}
+
+// ── Effective price cell ──────────────────────────────────────────────────────
+
+function EffectivePriceCell({
+  pricing,
+}: {
+  pricing?: { effective_input_cost_per_1m: number; effective_output_cost_per_1m: number };
+}) {
+  if (!pricing) {
+    return (
+      <Stack direction="horizontal" align="center" gap="tight">
+        <Icon name="alert-circle" size="2xs" color="status-degraded" />
+        <Text size="caption" color="muted">
+          Unknown
+        </Text>
+      </Stack>
+    );
+  }
+  return (
+    <Stack gap="none">
+      <Text size="supporting" mono color="foreground">
+        {fmtCost(pricing.effective_input_cost_per_1m)}/1M
+      </Text>
+      <Text size="caption" color="muted" mono>
+        out: {fmtCost(pricing.effective_output_cost_per_1m)}/1M
+      </Text>
     </Stack>
   );
 }
@@ -153,6 +183,13 @@ export function ModelsTab() {
         id: 'capabilities',
         header: 'Capabilities',
         cell: (row) => <Chips values={row.capabilities} />,
+      },
+      {
+        id: 'effectivePrice',
+        header: 'Effective Price',
+        sortable: true,
+        sortAccessor: (row) => row.pricing?.effective_input_cost_per_1m ?? -1,
+        cell: (row) => <EffectivePriceCell pricing={row.pricing} />,
       },
       {
         id: 'dialects',
