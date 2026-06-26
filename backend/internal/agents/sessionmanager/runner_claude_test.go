@@ -1,13 +1,16 @@
 package sessionmanager
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -682,3 +685,37 @@ func TestIsExitKilled(t *testing.T) {
 type fakeError struct{ msg string }
 
 func (e *fakeError) Error() string { return e.msg }
+
+// ── logStderr ─────────────────────────────────────────────────────────────────
+
+func TestLogStderr_ScanError_IsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(&buf),
+		RunID:  "test-run",
+	}
+	r := NewClaudeRunner(cfg)
+
+	pr, pw := io.Pipe()
+	scanErr := fmt.Errorf("injected scan error")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.logStderr(context.Background(), pr)
+	}()
+
+	// Write a normal line then close the pipe with an error to trigger scanner.Err().
+	_, _ = fmt.Fprintln(pw, "some stderr line")
+	pw.CloseWithError(scanErr)
+	wg.Wait()
+
+	log := buf.String()
+	if !strings.Contains(log, "Claude stderr scan error") {
+		t.Errorf("expected scan error to be logged; got: %s", log)
+	}
+	if !strings.Contains(log, "injected scan error") {
+		t.Errorf("expected error text in log; got: %s", log)
+	}
+}
