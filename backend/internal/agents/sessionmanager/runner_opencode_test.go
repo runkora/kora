@@ -639,7 +639,6 @@ func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
 
 // ── Resume tool event ordering (session/load replay) ─────────────────────────
 
-
 // TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents verifies that setting
 // r.replaying suppresses text_delta and thinking_delta events (which could fill
 // the channel buffer before drain() starts) while allowing durable events
