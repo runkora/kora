@@ -88,14 +88,6 @@ export function AgentsPage() {
     (r) => r.state === 'completed' && r.completedAt !== null,
   ).length;
 
-  const totalTokensUsed = useMemo(() => {
-    const sum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
-    if (sum === 0) return '—';
-    if (sum >= 1_000_000) return `${(sum / 1_000_000).toFixed(1)}M`;
-    if (sum >= 1_000) return `${(sum / 1_000).toFixed(1)}k`;
-    return String(sum);
-  }, [recentRuns]);
-
   // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
   // Fetched client-side so the list can show total + per-agent spend without
   // blocking the initial render on the usage aggregate.
@@ -117,6 +109,16 @@ export function AgentsPage() {
     if (values.length === 0) return '—';
     return fmtUsd(values.reduce((acc, u) => acc + u.estimated_cost_usd, 0));
   }, [agentUsage]);
+
+  // Tokens Used: prefer the accurate inference_usage total (same source as cost
+  // + per-agent breakdown); fall back to the runs-based estimate when the usage
+  // aggregate has no data yet.
+  const totalTokensUsed = useMemo(() => {
+    const usageSum = Object.values(agentUsage).reduce((acc, u) => acc + u.total_tokens, 0);
+    if (usageSum > 0) return fmtTokens(usageSum);
+    const runsSum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
+    return runsSum > 0 ? fmtTokens(runsSum) : '—';
+  }, [agentUsage, recentRuns]);
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
