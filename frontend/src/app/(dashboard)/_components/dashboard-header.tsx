@@ -27,7 +27,7 @@ export function DashboardHeader() {
       align="center"
       justify="between"
       height="full"
-      paddingInline="comfortable"
+      grow
     >
       <Stack direction="horizontal" align="center" gap="snug">
         {/* Hamburger — only visible on mobile (hidden at md+) */}
@@ -56,10 +56,17 @@ export function DashboardHeader() {
           </Button>
         </Indicator>
         <Separator orientation="vertical" span="narrow" />
-        <Button variant="default" size="sm">
-          <Icon name="bot" />
-          Deploy Agent
-        </Button>
+        <Show below="md">
+          <Button variant="default" size="icon" aria-label="Deploy Agent">
+            <Icon name="bot" />
+          </Button>
+        </Show>
+        <Show above="md">
+          <Button variant="default" size="sm">
+            <Icon name="bot" />
+            Deploy Agent
+          </Button>
+        </Show>
       </Stack>
     </Stack>
   );
