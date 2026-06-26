@@ -262,14 +262,23 @@ export const ApiRoute = {
    * GET — returns per-principal usage aggregates enriched with identity data.
    *       BFF orchestrates inference gateway + identity service.
    *       Requires `platform:analytics:read` scope.
-   *       Accepts optional `days` (7 | 30 | 90), `page`, and `limit` params.
+   *       Accepts optional `days` (7 | 30 | 90), `page`, `limit`, `sort_by`,
+   *       and `order` params.
    */
   analyticsPrincipals: {
-    GET: (params?: { days?: number; page?: number; limit?: number }): string => {
+    GET: (params?: {
+      days?: number;
+      page?: number;
+      limit?: number;
+      sort_by?: string;
+      order?: string;
+    }): string => {
       const qs = new URLSearchParams();
       if (params?.days !== undefined) qs.set('days', String(params.days));
       if (params?.page !== undefined) qs.set('page', String(params.page));
       if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+      if (params?.sort_by !== undefined) qs.set('sort_by', params.sort_by);
+      if (params?.order !== undefined) qs.set('order', params.order);
       const q = qs.toString();
       return q ? `${API_BASE}/analytics/principals?${q}` : `${API_BASE}/analytics/principals`;
     },

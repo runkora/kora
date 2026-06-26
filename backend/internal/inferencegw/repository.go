@@ -585,6 +585,20 @@ func (r *PostgresInferenceUsageRepository) getAnalyticsTokensByModel(ctx context
 const defaultPrincipalsLimit = 20
 const maxPrincipalsLimit = 100
 
+// principalSortColumns maps the public sort_by key to the SQL column alias
+// produced by the GROUP BY query. The raw request value is never interpolated
+// into SQL — only the resolved value from this map is used.
+var principalSortColumns = map[string]string{
+	"cost":              "estimated_cost_usd",
+	"tokens":            "total_tokens",
+	"prompt_tokens":     "prompt_tokens",
+	"completion_tokens": "completion_tokens",
+	"requests":          "request_count",
+	"error_rate":        "error_rate",
+	"avg_latency":       "avg_latency_ms",
+	"last_active":       "last_active_at",
+}
+
 func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Context, filter AnalyticsPrincipalsFilter) (AnalyticsPrincipalsResponse, error) {
 	if filter.TenantID == "" {
 		return AnalyticsPrincipalsResponse{}, fmt.Errorf("%w: tenant_id is required for principal usage", ErrInvalidRequest)
@@ -606,6 +620,15 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 	page := max(filter.Page, 1)
 	offset := (page - 1) * limit
 
+	sortCol, ok := principalSortColumns[filter.SortBy]
+	if !ok {
+		sortCol = principalSortColumns["cost"]
+	}
+	sortDir := "DESC"
+	if filter.SortOrder == "asc" {
+		sortDir = "ASC"
+	}
+
 	const countQ = `
 		SELECT COUNT(DISTINCT principal_id)
 		FROM inference_usage
@@ -616,7 +639,7 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		return AnalyticsPrincipalsResponse{}, fmt.Errorf("principal usage count: %w", err)
 	}
 
-	const dataQ = `
+	dataQ := fmt.Sprintf(`
 		SELECT
 		    principal_id,
 		    -- PAT-authenticated requests record the human as the principal with
@@ -639,8 +662,8 @@ func (r *PostgresInferenceUsageRepository) ListPrincipalUsage(ctx context.Contex
 		WHERE tenant_id = $1
 		  AND created_at >= $2
 		GROUP BY principal_id
-		ORDER BY estimated_cost_usd DESC
-		LIMIT $3 OFFSET $4`
+		ORDER BY %s %s, principal_id ASC
+		LIMIT $3 OFFSET $4`, sortCol, sortDir)
 
 	rows, err := r.pool.Query(ctx, dataQ, filter.TenantID, cutoff, limit, offset)
 	if err != nil {

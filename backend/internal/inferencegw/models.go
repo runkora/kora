@@ -257,10 +257,12 @@ type PrincipalUsageSummary struct {
 
 // AnalyticsPrincipalsFilter controls the principal usage aggregation query.
 type AnalyticsPrincipalsFilter struct {
-	TenantID string
-	Days     int // lookback window: 7, 30, or 90
-	Page     int // 1-based page number
-	Limit    int // page size (default 20, max 100)
+	TenantID  string
+	Days      int    // lookback window: 7, 30, or 90
+	Page      int    // 1-based page number
+	Limit     int    // page size (default 20, max 100)
+	SortBy    string // allowlisted key; resolved to a SQL column inside the repository. defaults to "cost"
+	SortOrder string // "asc" or "desc"; defaults to "desc"
 }
 
 // AnalyticsPrincipalsResponse is the payload returned by GET /v1/analytics/principals.
