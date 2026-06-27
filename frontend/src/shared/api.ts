@@ -300,6 +300,20 @@ export interface RunsListResponse {
   data: Run[];
 }
 
+/**
+ * Agent-type 7-day token breakdown and spend.
+ * Mirrors Go: inferencegw.AgentTypeUsage
+ */
+export interface AgentTypeUsage {
+  agent_type_id: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
 /** Request body for POST /api/agents/types. */
 export interface CreateAgentTypeRequest {
   name: string;

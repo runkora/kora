@@ -322,6 +322,20 @@ type RunUsage struct {
 	TotalTokens int64   `json:"total_tokens"`
 }
 
+// AgentTypeUsage is the spend and token breakdown recorded against an agent
+// type's SPIFFE principal over the last 7 days, returned by
+// GET /v1/usage/agent-type/{agentTypeID}. Powers the token breakdown and spend
+// cards on the agent overview page.
+type AgentTypeUsage struct {
+	AgentTypeID         string  `json:"agent_type_id"`
+	PromptTokens        int64   `json:"prompt_tokens"`
+	CompletionTokens    int64   `json:"completion_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
+	EstimatedCostUSD    float64 `json:"estimated_cost_usd"`
+}
+
 // BudgetCategoryStatus is a single budget assignment source with its attributed
 // spend for the current period. Part of the budgets principals listing.
 type BudgetCategoryStatus struct {

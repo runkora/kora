@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Main UI for the /agents list page. */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -22,8 +22,11 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import Link from 'next/link';
 import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
+import { fmtTokens, fmtUsd } from '@orbit/utils';
+import type { AgentTypeUsage } from '@orbit/shared/api';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
+import { fetchAgentTypesUsage } from '../_services/agents-api';
 import { StartRunModal } from './start-run-modal';
 import { formatRelativeTime } from '../_types';
 import type { AgentTypeRow } from '../_types';
@@ -85,13 +88,37 @@ export function AgentsPage() {
     (r) => r.state === 'completed' && r.completedAt !== null,
   ).length;
 
+  // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
+  // Fetched client-side so the list can show total + per-agent spend without
+  // blocking the initial render on the usage aggregate.
+
+  const [agentUsage, setAgentUsage] = useState<Record<string, AgentTypeUsage>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAgentTypesUsage().then(({ byAgentType }) => {
+      if (!cancelled) setAgentUsage(byAgentType);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const totalCost = useMemo(() => {
+    const values = Object.values(agentUsage);
+    if (values.length === 0) return '—';
+    return fmtUsd(values.reduce((acc, u) => acc + u.estimated_cost_usd, 0));
+  }, [agentUsage]);
+
+  // Tokens Used: prefer the accurate inference_usage total (same source as cost
+  // + per-agent breakdown); fall back to the runs-based estimate when the usage
+  // aggregate has no data yet.
   const totalTokensUsed = useMemo(() => {
-    const sum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
-    if (sum === 0) return '—';
-    if (sum >= 1_000_000) return `${(sum / 1_000_000).toFixed(1)}M`;
-    if (sum >= 1_000) return `${(sum / 1_000).toFixed(1)}k`;
-    return String(sum);
-  }, [recentRuns]);
+    const usageSum = Object.values(agentUsage).reduce((acc, u) => acc + u.total_tokens, 0);
+    if (usageSum > 0) return fmtTokens(usageSum);
+    const runsSum = recentRuns.reduce((acc, r) => acc + (r.tokensUsed ?? 0), 0);
+    return runsSum > 0 ? fmtTokens(runsSum) : '—';
+  }, [agentUsage, recentRuns]);
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
@@ -242,7 +269,7 @@ export function AgentsPage() {
       </Stack>
 
       {/* Metric cards */}
-      <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
+      <Grid cols={{ base: 2, sm: 3, lg: 5 }} gap="comfortable">
         <MetricCard icon={<Icon name="bot" />} label="Active Agents" value={activeAgentCount} />
         <MetricCard icon={<Icon name="activity" />} label="Active Runs" value={activeRunCount} />
         <MetricCard
@@ -251,6 +278,7 @@ export function AgentsPage() {
           value={completedTodayCount}
         />
         <MetricCard icon={<Icon name="zap" />} label="Tokens Used" value={totalTokensUsed} />
+        <MetricCard icon={<Icon name="dollar-sign" />} label="Total Cost (7d)" value={totalCost} />
       </Grid>
 
       {/* Section header */}
@@ -323,6 +351,14 @@ export function AgentsPage() {
                       {agent.toolScopes.length} tools
                     </Badge>
                   </Stack>
+
+                  {/* Per-agent 7-day cost + tokens (when usage exists) */}
+                  {agentUsage[agent.id] && (
+                    <Text size="caption" color="muted">
+                      {fmtUsd(agentUsage[agent.id].estimated_cost_usd)} ·{' '}
+                      {fmtTokens(agentUsage[agent.id].total_tokens)} tokens · 7d
+                    </Text>
+                  )}
                 </Stack>
               </CardContent>
 
