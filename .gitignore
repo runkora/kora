@@ -105,3 +105,6 @@ infrastructure/overlays/*/charts
 **/.envrc
 # Claude Code per-user settings (project-level settings live in .claude/settings.json)
 .claude/settings.local.json
+
+# Scratch / working files (local only)
+.scratch/

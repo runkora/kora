@@ -700,11 +700,9 @@ func TestLogStderr_ScanError_IsLogged(t *testing.T) {
 	scanErr := fmt.Errorf("injected scan error")
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		r.logStderr(context.Background(), pr)
-	}()
+	})
 
 	// Write a normal line then close the pipe with an error to trigger scanner.Err().
 	_, _ = fmt.Fprintln(pw, "some stderr line")

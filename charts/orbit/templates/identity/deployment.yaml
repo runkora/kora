@@ -85,6 +85,8 @@ spec:
               value: {{ .Values.identity.config.otlpInsecure | quote }}
             - name: ORBIT_LOG_FORMAT
               value: {{ .Values.identity.config.logFormat | quote }}
+            - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
+              value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
             # SPIFFE Workload API socket — used for SVID exchange and SPIRE SDS.
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"

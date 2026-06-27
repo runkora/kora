@@ -83,6 +83,9 @@ identity:
     # Structured log format. "json" for production log aggregators;
     # "console" for human-readable local dev output.
     logFormat: "json"
+    # Platform access-token lifetime in minutes. 15 in production; raise on local
+    # dev clusters to avoid re-auth churn (deploy/local/orbit-values.yaml sets 240 = 4h).
+    accessTokenTtlMinutes: 15
 
   # Name of the existing Secret containing environment variables for the
   # identity service (DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY, etc.).
