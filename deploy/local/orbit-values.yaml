@@ -53,6 +53,7 @@ identity:
     redisTLSEnabled: "false"             # Local Redis has no TLS cert.
     otlpInsecure: "true"                 # Local OTLP collector has no TLS.
     logFormat: "console"                 # Human-readable logs locally.
+    accessTokenTtlMinutes: 240           # 4h — avoid re-auth churn during local dev.
 
 inferenceGateway:
   image:
