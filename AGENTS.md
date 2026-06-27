@@ -12,9 +12,9 @@ The platform answers three questions for every agent that goes into production, 
 
 Underneath, Orbit is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native and standards-based. Every agent action traces back to the human who initiated it and the policy that authorised it.
 
-**These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
+**These three questions are the founding spine — a coherence test, not a ceiling.** They are why Orbit exists and the source of its credibility, but the product deliberately grows beyond them (the live pillars include Agents, Identity & Policy, Inference & Model Gateway, Audit & Governance, Playground, Context Lake, Infrastructure & Deployment, and Enablement). When you propose a change, be explicit about how it fits the platform — which question(s) it deepens, which pillar it extends, or which new pillar it opens. The hard line is not "map to one of the three"; it is **never erode the security guarantees** they encode: verifiable identity, pre-execution policy enforcement, no credentials in agents' hands, and full traceability to the initiating human.
 
-**Development Status**: Active development — Orbit runs a multi-service control plane (13 binaries). Built and running: identity/auth, the identity-proxy sidecar, policy enforcement (OPA PDP/PAP + PEP), the inference gateway, the agent run control plane (runs/sessions/sandboxing), the Kubernetes operator, and the platform foundation. Designed but **not yet built**: the general credential broker, the governed MCP/tool gateway, and a platform-wide event spine (`internal/{credentials,toolgateway,events}` are empty stubs). See [docs/architecture.md](docs/architecture.md) and the [ADR index](docs/adr/README.md).
+**Development Status**: Active development — Orbit runs a multi-service control plane (13 binaries). Built and running: identity/auth, the identity-proxy sidecar, policy enforcement (OPA PDP/PAP + PEP), the inference gateway, the agent run control plane (runs/sessions/sandboxing), the Kubernetes operator, the platform foundation, and the **credential broker pattern** (`internal/credentials/` — GitHub App + passthrough adapters, k8s-file resolver, egress control via OPA, and the GitHub connector in `internal/platform/connections/`). Designed but **not yet built**: the governed MCP/tool gateway and a platform-wide event spine (`internal/{toolgateway,events}` are empty stubs). This list goes stale quickly — grep `backend/internal/` to confirm current state before relying on it. See [docs/architecture.md](docs/architecture.md) and the [ADR index](docs/adr/README.md).
 
 ## Product Development Workflow
 
@@ -39,7 +39,7 @@ Only after PRD and ADR approval:
 - Reference the ADR and PRD in commit messages and PR descriptions
 - Update documentation as needed
 
-**The three questions are the spine of every architectural decision.** Be explicit about which one a change touches — *Who is this agent? What can it access? How does it connect?* — and how it preserves the others.
+**The three questions are the founding spine of architectural decisions — a coherence test, not a ceiling.** Be explicit about how a change fits: which of *Who is this agent? What can it access? How does it connect?* it deepens, which existing pillar it extends, or which new pillar it opens. Growth beyond the three questions is expected; the non-negotiable is that no change weakens the security guarantees they encode (verifiable identity, pre-execution policy, no creds in agents' hands, traceability).
 
 ## Development Setup
 
@@ -388,4 +388,4 @@ Orbit is licensed under Apache License 2.0. All contributions must be compatible
 
 ---
 
-**Remember**: Orbit is the control plane underneath production agentic systems. Every change should answer one or more of: *Who is this agent? What can it access? How does it connect?* — and never weaken the others.
+**Remember**: Orbit is the control plane underneath production agentic systems. The three questions — *Who is this agent? What can it access? How does it connect?* — are the founding spine and a coherence test, not a ceiling: the product grows beyond them into named pillars. What every change must never do is weaken the security guarantees they encode (verifiable identity, pre-execution policy, no credentials in agents' hands, traceability to the initiating human).
