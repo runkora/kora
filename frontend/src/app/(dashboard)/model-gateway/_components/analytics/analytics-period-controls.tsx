@@ -41,7 +41,6 @@ export function AnalyticsPeriodControls({
       <NativeSelect
         value={days}
         disabled={loading}
-        variant="sm"
         aria-label="Period"
         onChange={(e) => onSetDays(Number(e.target.value) as AnalyticsDays)}
       >
@@ -54,7 +53,6 @@ export function AnalyticsPeriodControls({
       <NativeSelect
         value={granularity}
         disabled={loading}
-        variant="sm"
         aria-label="Granularity"
         onChange={(e) => onSetGranularity(e.target.value as AnalyticsGranularity)}
       >

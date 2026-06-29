@@ -70,7 +70,6 @@ export function LatencyChart() {
           </Stack>
           <NativeSelect
             value={period}
-            variant="sm"
             aria-label="Period"
             onChange={(e) => setPeriod(e.target.value as Period)}
           >
