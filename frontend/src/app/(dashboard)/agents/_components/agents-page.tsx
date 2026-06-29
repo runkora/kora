@@ -246,27 +246,25 @@ export function AgentsPage() {
             </Link>
           </Button>
           <Show above="md">
-            <Separator
-              orientation="vertical"
-              span="full"
-              style={{ height: '1.5rem', alignSelf: 'center' }}
-            />
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              size="icon-sm"
-              aria-label="Grid view"
-              onClick={() => setViewMode('grid')}
-            >
-              <Icon name="layout-grid" size="xs" />
-            </Button>
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size="icon-sm"
-              aria-label="List view"
-              onClick={() => setViewMode('list')}
-            >
-              <Icon name="layout-list" size="xs" />
-            </Button>
+            <Stack direction="horizontal" align="center" gap="snug">
+              <Separator orientation="vertical" style={{ height: '1.5rem' }} />
+              <Button
+                variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                size="icon-sm"
+                aria-label="Grid view"
+                onClick={() => setViewMode('grid')}
+              >
+                <Icon name="layout-grid" size="xs" />
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                size="icon-sm"
+                aria-label="List view"
+                onClick={() => setViewMode('list')}
+              >
+                <Icon name="layout-list" size="xs" />
+              </Button>
+            </Stack>
           </Show>
         </Stack>
       </Stack>
