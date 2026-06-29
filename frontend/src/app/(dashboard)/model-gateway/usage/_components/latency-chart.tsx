@@ -77,7 +77,7 @@ export function LatencyChart() {
   return (
     <Card column>
       <CardHeader compact>
-        <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
+        <Stack direction="horizontal" align="start" justify="between" gap="comfortable" wrap>
           <Stack gap="none">
             <CardTitle>Latency distribution</CardTitle>
             <CardDescription>P50, P95, and P99 request latency (daily)</CardDescription>

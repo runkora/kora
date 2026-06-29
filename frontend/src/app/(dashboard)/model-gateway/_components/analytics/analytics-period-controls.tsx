@@ -81,7 +81,7 @@ export function AnalyticsPeriodControls({
   loading = false,
 }: AnalyticsPeriodControlsProps) {
   return (
-    <Stack direction="horizontal" align="center" gap="comfortable">
+    <Stack direction="horizontal" align="center" gap="comfortable" wrap>
       <Text size="caption" color="subtle">
         {computeDateRange(days)}
       </Text>
