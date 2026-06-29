@@ -224,7 +224,7 @@ export function AgentsPage() {
   return (
     <Stack gap="comfortable">
       {/* Page header */}
-      <Stack direction="horizontal" align="center" justify="between">
+      <Stack direction="horizontal" align="start" justify="between" wrap>
         <Stack gap="tight">
           <Heading variant="title">Agents</Heading>
           <Text size="supporting" color="muted">
