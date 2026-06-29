@@ -7,6 +7,12 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
   hasError?: boolean;
   /** Renders the select value in a monospace font. */
   mono?: boolean;
+  /**
+   * Visual size variant.
+   * - `md` (default) — matches Input height (h-9, px-3, text-sm)
+   * - `sm` — compact inline use (h-7, px-2, text-xs)
+   */
+  variant?: 'md' | 'sm';
 }
 
 /**
@@ -29,6 +35,7 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
       className,
       hasError = false,
       mono = false,
+      variant = 'md',
       children,
       id,
       'aria-describedby': ariaDescribedby,
@@ -54,10 +61,9 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
         aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
-          // Layout & typography — matches Input height and padding
-          'flex h-9 w-full rounded-md px-3 py-1',
-          'text-sm text-foreground font-normal',
-          'bg-surface-elevated border',
+          'flex w-full rounded-md font-normal text-foreground bg-surface-elevated border',
+          // Size variants
+          variant === 'sm' ? 'h-7 px-2 py-0 text-xs' : 'h-9 px-3 py-1 text-sm',
           // Border colour — normal vs error
           hasError ? 'border-status-error' : 'border-border',
           // Focus
