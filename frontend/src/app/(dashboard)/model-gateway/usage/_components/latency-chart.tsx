@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import {
-  Button,
   Card,
   CardContent,
   CardHeader,
@@ -12,6 +11,7 @@ import {
   ChartContainer,
   ChartTooltipContent,
   ChartLegendContent,
+  NativeSelect,
   Stack,
   type ChartConfig,
 } from '@orbit/terra';
@@ -46,26 +46,12 @@ function filterLatencyByPeriod(period: Period) {
   return filterByPeriod(DAILY_LATENCY, period);
 }
 
-// ── Period selector ───────────────────────────────────────────────────────────
+// ── Period options ────────────────────────────────────────────────────────────
 
 const PERIODS: { value: Period; label: string }[] = [
-  { value: '7d', label: '7d' },
-  { value: '14d', label: '14d' },
+  { value: '7d', label: 'Last 7 days' },
+  { value: '14d', label: 'Last 14 days' },
 ];
-
-interface PeriodButtonProps {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}
-
-function PeriodButton({ active, onClick, children }: PeriodButtonProps) {
-  return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="xs" onClick={onClick}>
-      {children}
-    </Button>
-  );
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -77,18 +63,22 @@ export function LatencyChart() {
   return (
     <Card column>
       <CardHeader compact>
-        <Stack direction="horizontal" align="start" justify="between" gap="comfortable" wrap>
+        <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
           <Stack gap="none">
             <CardTitle>Latency distribution</CardTitle>
             <CardDescription>P50, P95, and P99 request latency (daily)</CardDescription>
           </Stack>
-          <Stack direction="horizontal" gap="tight">
+          <NativeSelect
+            value={period}
+            aria-label="Period"
+            onChange={(e) => setPeriod(e.target.value as Period)}
+          >
             {PERIODS.map(({ value, label }) => (
-              <PeriodButton key={value} active={period === value} onClick={() => setPeriod(value)}>
+              <option key={value} value={value}>
                 {label}
-              </PeriodButton>
+              </option>
             ))}
-          </Stack>
+          </NativeSelect>
         </Stack>
       </CardHeader>
       <CardContent>

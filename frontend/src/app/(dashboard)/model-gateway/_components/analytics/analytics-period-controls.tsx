@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Stack, Text } from '@orbit/terra';
+import { NativeSelect, Stack } from '@orbit/terra';
 import type { AnalyticsDays, AnalyticsGranularity } from '../../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -13,12 +13,12 @@ interface AnalyticsPeriodControlsProps {
   loading?: boolean;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Options ───────────────────────────────────────────────────────────────────
 
 const DAYS_OPTIONS: { value: AnalyticsDays; label: string }[] = [
-  { value: 7, label: '7d' },
-  { value: 30, label: '30d' },
-  { value: 90, label: '90d' },
+  { value: 7, label: 'Last 7 days' },
+  { value: 30, label: 'Last 30 days' },
+  { value: 90, label: 'Last 90 days' },
 ];
 
 const GRANULARITY_OPTIONS: { value: AnalyticsGranularity; label: string }[] = [
@@ -26,50 +26,6 @@ const GRANULARITY_OPTIONS: { value: AnalyticsGranularity; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
 ];
-
-const MONTH_ABBR = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
-
-function formatDate(d: Date): string {
-  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
-}
-
-function computeDateRange(days: number): string {
-  const now = new Date();
-  const from = new Date(now);
-  from.setDate(from.getDate() - days);
-  return `${formatDate(from)} – ${formatDate(now)}`;
-}
-
-function ControlButton({
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button variant={active ? 'default' : 'ghost'} size="xs" onClick={onClick} disabled={disabled}>
-      {children}
-    </Button>
-  );
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -81,34 +37,32 @@ export function AnalyticsPeriodControls({
   loading = false,
 }: AnalyticsPeriodControlsProps) {
   return (
-    <Stack direction="horizontal" align="center" gap="comfortable" wrap>
-      <Text size="caption" color="subtle">
-        {computeDateRange(days)}
-      </Text>
-      <Stack direction="horizontal" gap="tight">
+    <Stack direction="horizontal" align="center" gap="snug">
+      <NativeSelect
+        value={days}
+        disabled={loading}
+        aria-label="Period"
+        onChange={(e) => onSetDays(Number(e.target.value) as AnalyticsDays)}
+      >
         {DAYS_OPTIONS.map(({ value, label }) => (
-          <ControlButton
-            key={value}
-            active={days === value}
-            disabled={loading}
-            onClick={() => onSetDays(value)}
-          >
+          <option key={value} value={value}>
             {label}
-          </ControlButton>
+          </option>
         ))}
-      </Stack>
-      <Stack direction="horizontal" gap="tight">
+      </NativeSelect>
+      <NativeSelect
+        value={granularity}
+        disabled={loading}
+        aria-label="Granularity"
+        onChange={(e) => onSetGranularity(e.target.value as AnalyticsGranularity)}
+      >
         {GRANULARITY_OPTIONS.map(({ value, label }) => (
-          <ControlButton
-            key={value}
-            active={granularity === value}
-            disabled={loading}
-            onClick={() => onSetGranularity(value)}
-          >
+          <option key={value} value={value}>
             {label}
-          </ControlButton>
+          </option>
         ))}
-      </Stack>
+      </NativeSelect>
     </Stack>
   );
 }
+

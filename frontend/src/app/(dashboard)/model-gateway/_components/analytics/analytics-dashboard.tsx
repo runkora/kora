@@ -58,7 +58,7 @@ export function AnalyticsDashboard({
       </Stack>
 
       {/* Controls row — filter slot left, period controls right */}
-      <Stack direction="horizontal" align="center" justify="between" gap="comfortable" wrap>
+      <Stack direction="horizontal" align="center" justify="between" gap="comfortable">
         {filterSlot ?? <Stack />}
         <AnalyticsPeriodControls
           days={days}
