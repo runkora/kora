@@ -512,9 +512,9 @@ export function DataTable<TData>({
                   {mobileCard(row.original)}
                 </div>
               ))}
-              {mobileCardFooter}
             </div>
           )}
+          {!error && mobileCardFooter}
         </div>
       )}
 

@@ -301,12 +301,7 @@ export function AgentsPage() {
           filteredEmptyMessage="No agents match your search."
           onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
           mobileCard={(agent) => (
-            <Card
-              column
-              role="button"
-              onClick={() => router.push(APP_ROUTES.agents.detail(agent.slug))}
-              style={{ cursor: 'pointer' }}
-            >
+            <Card column>
               <CardHeader
                 leadingIcon="bot"
                 title={agent.name}
@@ -358,7 +353,7 @@ export function AgentsPage() {
                 </Stack>
               </CardContent>
 
-              <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
+              <CardFooter compact justify="between">
                 <Text size="caption" color="muted">
                   {activeRunsByType.get(agent.id) ?? 0} active
                 </Text>
