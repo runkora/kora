@@ -13,6 +13,12 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
    * - `sm` — compact inline use (h-7, px-2, text-xs)
    */
   variant?: 'md' | 'sm';
+  /**
+   * Whether the select stretches to fill its container width.
+   * Defaults to `true` to match Input behaviour in forms. Pass `false`
+   * for inline controls where the select should size to its content.
+   */
+  fullWidth?: boolean;
 }
 
 /**
@@ -36,6 +42,7 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
       hasError = false,
       mono = false,
       variant = 'md',
+      fullWidth = true,
       children,
       id,
       'aria-describedby': ariaDescribedby,
@@ -61,7 +68,8 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
         aria-invalid={ariaInvalid ?? field?.hasError ?? undefined}
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
-          'flex w-full rounded-md font-normal text-foreground bg-surface-elevated border',
+          'flex rounded-md font-normal text-foreground bg-surface-elevated border',
+          fullWidth ? 'w-full' : 'w-auto',
           // Size variants
           variant === 'sm' ? 'h-7 px-2 py-0 text-xs' : 'h-9 px-3 py-1 text-sm',
           // Border colour — normal vs error
