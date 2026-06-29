@@ -20,6 +20,7 @@ import {
   NativeSelect,
   ModalFooter,
   ModalHeader,
+  Show,
   Stack,
   Text,
   PageSectionHeader,
@@ -143,7 +144,9 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
               onChange={(e) => setSearch(e.target.value)}
             />
           </Stack>
-          <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+          <Show above="md">
+            <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+          </Show>
         </Stack>
       )}
 
@@ -183,7 +186,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
           roles={roles}
           onEdit={canWrite ? setEditingRole : undefined}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
+          viewToggle={<Show above="md"><ViewToggle viewMode={viewMode} onToggle={setViewMode} /></Show>}
         />
       )}
 

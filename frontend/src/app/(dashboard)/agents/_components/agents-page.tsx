@@ -15,8 +15,6 @@ import {
   Grid,
   Heading,
   Icon,
-  Separator,
-  Show,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -69,7 +67,6 @@ export function AgentsPage() {
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // ── Metric card computations ───────────────────────────────────────────────
 
@@ -245,29 +242,6 @@ export function AgentsPage() {
               New Agent
             </Link>
           </Button>
-          <Show above="md">
-            <Separator
-              orientation="vertical"
-              span="full"
-              style={{ height: '1.5rem', alignSelf: 'center' }}
-            />
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              size="icon-sm"
-              aria-label="Grid view"
-              onClick={() => setViewMode('grid')}
-            >
-              <Icon name="layout-grid" size="xs" />
-            </Button>
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size="icon-sm"
-              aria-label="List view"
-              onClick={() => setViewMode('list')}
-            >
-              <Icon name="layout-list" size="xs" />
-            </Button>
-          </Show>
         </Stack>
       </Stack>
 
@@ -301,12 +275,33 @@ export function AgentsPage() {
             </Button>
           }
         />
-      ) : viewMode === 'grid' ? (
-        /* ── Grid view ─────────────────────────────────────────────────────── */
-        <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
-          {agentTypes.map((agent) => (
+      ) : (
+        <DataTable
+          data={agentTypes}
+          columns={columns}
+          getRowKey={(row) => row.id}
+          noun="agents"
+          searchPlaceholder="Search agents…"
+          searchFn={agentTypeMatchesSearch}
+          defaultSortId="name"
+          defaultSortDir="asc"
+          error={
+            status === 'error' ? (
+              <Stack align="center" paddingBlock="comfortable">
+                <Text size="supporting" color="muted">
+                  {error ?? 'Failed to load agents.'}
+                </Text>
+                <Button variant="outline" size="sm" onClick={() => void refresh()}>
+                  Try again
+                </Button>
+              </Stack>
+            ) : undefined
+          }
+          emptyMessage="No agents yet."
+          filteredEmptyMessage="No agents match your search."
+          onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
+          mobileCard={(agent) => (
             <Card
-              key={agent.id}
               column
               role="button"
               onClick={() => router.push(APP_ROUTES.agents.detail(agent.slug))}
@@ -331,7 +326,6 @@ export function AgentsPage() {
 
               <CardContent padded grow>
                 <Stack gap="snug">
-                  {/* Description — 2 lines truncated */}
                   <Text
                     size="supporting"
                     color="muted"
@@ -345,7 +339,6 @@ export function AgentsPage() {
                     {agent.description || 'No description.'}
                   </Text>
 
-                  {/* Meta row: framework badge + tool count */}
                   <Stack direction="horizontal" gap="tight" wrap>
                     <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
                       {agent.framework}
@@ -396,57 +389,30 @@ export function AgentsPage() {
                 </Stack>
               </CardFooter>
             </Card>
-          ))}
-
-          {/* Create new agent card */}
-          <Stack
-            role="button"
-            align="center"
-            gap="tight"
-            onClick={() => router.push(APP_ROUTES.agents.new)}
-            style={{
-              cursor: 'pointer',
-              minHeight: '160px',
-              borderWidth: '1.5px',
-              borderStyle: 'dashed',
-              borderColor: 'oklch(var(--color-border) / 1)',
-              borderRadius: '8px',
-              justifyContent: 'center',
-              padding: '1.5rem',
-            }}
-          >
-            <Icon name="plus" size="sm" />
-            <Text size="supporting" color="muted">
-              Create new agent
-            </Text>
-          </Stack>
-        </Grid>
-      ) : (
-        /* ── List view ─────────────────────────────────────────────────────── */
-        <DataTable
-          data={agentTypes}
-          columns={columns}
-          getRowKey={(row) => row.id}
-          noun="agents"
-          searchPlaceholder="Search agents…"
-          searchFn={agentTypeMatchesSearch}
-          defaultSortId="name"
-          defaultSortDir="asc"
-          error={
-            status === 'error' ? (
-              <Stack align="center" paddingBlock="comfortable">
-                <Text size="supporting" color="muted">
-                  {error ?? 'Failed to load agents.'}
-                </Text>
-                <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                  Try again
-                </Button>
-              </Stack>
-            ) : undefined
+          )}
+          mobileCardFooter={
+            <Stack
+              role="button"
+              align="center"
+              gap="tight"
+              onClick={() => router.push(APP_ROUTES.agents.new)}
+              style={{
+                cursor: 'pointer',
+                minHeight: '120px',
+                borderWidth: '1.5px',
+                borderStyle: 'dashed',
+                borderColor: 'oklch(var(--color-border) / 1)',
+                borderRadius: '8px',
+                justifyContent: 'center',
+                padding: '1.5rem',
+              }}
+            >
+              <Icon name="plus" size="sm" />
+              <Text size="supporting" color="muted">
+                Create new agent
+              </Text>
+            </Stack>
           }
-          emptyMessage="No agents yet."
-          filteredEmptyMessage="No agents match your search."
-          onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
         />
       )}
 

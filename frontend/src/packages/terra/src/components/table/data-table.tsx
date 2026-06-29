@@ -225,6 +225,19 @@ export interface DataTableProps<TData> {
   onRowClickLabel?: string;
   /** Extra content rendered in the toolbar after the search input. */
   toolbarActions?: React.ReactNode;
+  /**
+   * Render a single card for a row. When provided, DataTable renders the card
+   * list below the `md` breakpoint and the table at `md` and above.
+   * The card list receives the same filtered and sorted dataset as the table.
+   * Use for table-primary pages that need a mobile-friendly card fallback.
+   */
+  mobileCard?: (row: TData) => React.ReactNode;
+  /**
+   * Optional static node rendered after the last card in the mobile card list.
+   * Use for trailing affordances (e.g. a "Create new" dashed card) that are not
+   * tied to a data row. Only rendered when `mobileCard` is provided.
+   */
+  mobileCardFooter?: React.ReactNode;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -254,6 +267,8 @@ export function DataTable<TData>({
   onRowClickLabel = 'View details',
   toolbarActions,
   onSortChange,
+  mobileCard,
+  mobileCardFooter,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -462,102 +477,24 @@ export function DataTable<TData>({
         actions={toolbarActions}
       />
 
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  const colDef = colById.get(header.id);
-                  if (!colDef) return null;
-
-                  const isSortable = colDef.sortable === true;
-                  const hasFilter = colDef.filter !== undefined;
-
-                  // Static header — no sort or filter affordances.
-                  if (!isSortable && !hasFilter) {
-                    return (
-                      <TableHead
-                        key={header.id}
-                        style={colDef.width !== undefined ? { width: colDef.width } : undefined}
-                        className={
-                          colDef.id === pinnedColId
-                            ? 'sticky left-0 z-10 bg-surface-elevated'
-                            : undefined
-                        }
-                      >
-                        {colDef.header}
-                      </TableHead>
-                    );
-                  }
-
-                  // Build the structured filter prop for TableColumnHeader.
-                  let filterProp: TableColumnFilter | undefined;
-                  if (colDef.filter) {
-                    if (colDef.filter.mode === 'client') {
-                      const f = colDef.filter as DataTableClientFilter<TData>;
-                      filterProp = {
-                        options: f.options,
-                        selected: clientFilters[colDef.id] ?? new Set<string>(),
-                        onToggle: (v) => toggleClientFilter(colDef.id, v),
-                        onClear: () => clearClientFilter(colDef.id),
-                      };
-                    } else {
-                      const f = colDef.filter as DataTableServerFilter;
-                      filterProp = {
-                        options: f.options,
-                        selected: f.selected,
-                        onToggle: f.onToggle,
-                        onClear: f.onClear,
-                      };
-                    }
-                  }
-
-                  // Map TanStack's false | 'asc' | 'desc' to SortDir (null | 'asc' | 'desc').
-                  const tanstackSort = header.column.getIsSorted();
-                  const sortDir = tanstackSort === false ? null : tanstackSort;
-
-                  return (
-                    <TableColumnHeader
-                      key={header.id}
-                      align={colDef.align}
-                      width={colDef.width}
-                      sortDir={isSortable ? sortDir : undefined}
-                      onSort={isSortable ? () => handleSort(header.id) : undefined}
-                      filter={filterProp}
-                      className={
-                        colDef.id === pinnedColId
-                          ? 'sticky left-0 z-10 bg-surface-elevated'
-                          : undefined
-                      }
-                    >
-                      {colDef.header}
-                    </TableColumnHeader>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-
-          <TableBody>
-            {error ? (
-              <TableRow>
-                <TableCell colSpan={visibleColCount}>{error}</TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableEmpty
-                colSpan={visibleColCount}
-                message={hasActiveFilters ? filteredEmptyMessage : emptyMessage}
-              />
-            ) : (
-              rows.map((row) => (
-                <TableRow
+      {/* Mobile card list — visible below md when mobileCard is provided */}
+      {mobileCard && (
+        <div className="md:hidden p-2">
+          {error ? (
+            <div className="px-2 py-4">{error}</div>
+          ) : rows.length === 0 ? (
+            <div className="px-2 py-4 text-sm text-muted-foreground">
+              {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rows.map((row) => (
+                <div
                   key={getRowKey(row.original)}
-                  className="group"
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
                   style={onRowClick ? { cursor: 'pointer' } : undefined}
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  aria-describedby={onRowClick ? rowDescId : undefined}
                   onKeyDown={
                     onRowClick
                       ? (e) => {
@@ -572,30 +509,152 @@ export function DataTable<TData>({
                       : undefined
                   }
                 >
-                  {row.getVisibleCells().map((cell) => {
-                    const cellColDef = colById.get(cell.column.id);
+                  {mobileCard(row.original)}
+                </div>
+              ))}
+              {mobileCardFooter}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Table — always visible when mobileCard is not provided; md+ when it is */}
+      <div className={mobileCard ? 'hidden md:block' : undefined}>
+        <TableRoot>
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => {
+                    const colDef = colById.get(header.id);
+                    if (!colDef) return null;
+
+                    const isSortable = colDef.sortable === true;
+                    const hasFilter = colDef.filter !== undefined;
+
+                    // Static header — no sort or filter affordances.
+                    if (!isSortable && !hasFilter) {
+                      return (
+                        <TableHead
+                          key={header.id}
+                          style={colDef.width !== undefined ? { width: colDef.width } : undefined}
+                          className={
+                            colDef.id === pinnedColId
+                              ? 'sticky left-0 z-10 bg-surface-elevated'
+                              : undefined
+                          }
+                        >
+                          {colDef.header}
+                        </TableHead>
+                      );
+                    }
+
+                    // Build the structured filter prop for TableColumnHeader.
+                    let filterProp: TableColumnFilter | undefined;
+                    if (colDef.filter) {
+                      if (colDef.filter.mode === 'client') {
+                        const f = colDef.filter as DataTableClientFilter<TData>;
+                        filterProp = {
+                          options: f.options,
+                          selected: clientFilters[colDef.id] ?? new Set<string>(),
+                          onToggle: (v) => toggleClientFilter(colDef.id, v),
+                          onClear: () => clearClientFilter(colDef.id),
+                        };
+                      } else {
+                        const f = colDef.filter as DataTableServerFilter;
+                        filterProp = {
+                          options: f.options,
+                          selected: f.selected,
+                          onToggle: f.onToggle,
+                          onClear: f.onClear,
+                        };
+                      }
+                    }
+
+                    // Map TanStack's false | 'asc' | 'desc' to SortDir (null | 'asc' | 'desc').
+                    const tanstackSort = header.column.getIsSorted();
+                    const sortDir = tanstackSort === false ? null : tanstackSort;
+
                     return (
-                      <TableCell
-                        key={cell.id}
+                      <TableColumnHeader
+                        key={header.id}
+                        align={colDef.align}
+                        width={colDef.width}
+                        sortDir={isSortable ? sortDir : undefined}
+                        onSort={isSortable ? () => handleSort(header.id) : undefined}
+                        filter={filterProp}
                         className={
-                          pinnedColId !== undefined && cellColDef?.id === pinnedColId
-                            ? // Opaque base so horizontally-scrolled cells don't show through,
-                              // plus the row's hover/selected tint via group-* so the pinned
-                              // column highlights with the rest of the row instead of staying flat.
-                              'sticky left-0 z-10 bg-surface group-hover:bg-surface-elevated/60 group-data-[selected=true]:bg-accent/10'
+                          colDef.id === pinnedColId
+                            ? 'sticky left-0 z-10 bg-surface-elevated'
                             : undefined
                         }
                       >
-                        {cellColDef ? cellColDef.cell(row.original) : null}
-                      </TableCell>
+                        {colDef.header}
+                      </TableColumnHeader>
                     );
                   })}
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableRoot>
+              ))}
+            </TableHeader>
+
+            <TableBody>
+              {error ? (
+                <TableRow>
+                  <TableCell colSpan={visibleColCount}>{error}</TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
+                <TableEmpty
+                  colSpan={visibleColCount}
+                  message={hasActiveFilters ? filteredEmptyMessage : emptyMessage}
+                />
+              ) : (
+                rows.map((row) => (
+                  <TableRow
+                    key={getRowKey(row.original)}
+                    className="group"
+                    style={onRowClick ? { cursor: 'pointer' } : undefined}
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    aria-describedby={onRowClick ? rowDescId : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (e) => {
+                            if (
+                              (e.key === 'Enter' || e.key === ' ') &&
+                              e.target === e.currentTarget
+                            ) {
+                              e.preventDefault();
+                              onRowClick(row.original);
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const cellColDef = colById.get(cell.column.id);
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className={
+                            pinnedColId !== undefined && cellColDef?.id === pinnedColId
+                              ? // Opaque base so horizontally-scrolled cells don't show through,
+                                // plus the row's hover/selected tint via group-* so the pinned
+                                // column highlights with the rest of the row instead of staying flat.
+                                'sticky left-0 z-10 bg-surface group-hover:bg-surface-elevated/60 group-data-[selected=true]:bg-accent/10'
+                              : undefined
+                          }
+                        >
+                          {cellColDef ? cellColDef.cell(row.original) : null}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableRoot>
+      </div>
     </TableContainer>
   );
 }

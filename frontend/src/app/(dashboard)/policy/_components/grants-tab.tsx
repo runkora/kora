@@ -19,6 +19,7 @@ import {
   ModalFooter,
   ModalHeader,
   NativeSelect,
+  Show,
   Stack,
   Text,
   PageSectionHeader,
@@ -194,7 +195,9 @@ export function GrantsTab({
                 onChange={(e) => setSearch(e.target.value)}
               />
             </Stack>
-            <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            <Show above="md">
+              <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            </Show>
           </Stack>
 
           <Stack direction="horizontal" align="center" justify="between">
@@ -260,7 +263,7 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
+          viewToggle={<Show above="md"><ViewToggle viewMode={viewMode} onToggle={setViewMode} /></Show>}
         />
       )}
 
