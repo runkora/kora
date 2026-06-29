@@ -16,6 +16,7 @@ import {
   Heading,
   Icon,
   Separator,
+  Show,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -244,27 +245,29 @@ export function AgentsPage() {
               New Agent
             </Link>
           </Button>
-          <Separator
-            orientation="vertical"
-            span="full"
-            style={{ height: '1.5rem', alignSelf: 'center' }}
-          />
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="Grid view"
-            onClick={() => setViewMode('grid')}
-          >
-            <Icon name="layout-grid" size="xs" />
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="List view"
-            onClick={() => setViewMode('list')}
-          >
-            <Icon name="layout-list" size="xs" />
-          </Button>
+          <Show above="md">
+            <Separator
+              orientation="vertical"
+              span="full"
+              style={{ height: '1.5rem', alignSelf: 'center' }}
+            />
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'ghost'}
+              size="icon-sm"
+              aria-label="Grid view"
+              onClick={() => setViewMode('grid')}
+            >
+              <Icon name="layout-grid" size="xs" />
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="icon-sm"
+              aria-label="List view"
+              onClick={() => setViewMode('list')}
+            >
+              <Icon name="layout-list" size="xs" />
+            </Button>
+          </Show>
         </Stack>
       </Stack>
 

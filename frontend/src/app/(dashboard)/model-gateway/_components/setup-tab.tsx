@@ -51,7 +51,7 @@ function Step({
         <StepDot>{number}</StepDot>
         {!isLast && <StepConnector />}
       </Stack>
-      <Stack grow paddingBottom={isLast ? 'none' : 'spacious'}>
+      <Stack grow paddingBottom={isLast ? 'none' : 'spacious'} style={{ minWidth: 0 }}>
         <Stack marginBottom="tight">
           <Text size="supporting" weight="emphasis">
             {title}

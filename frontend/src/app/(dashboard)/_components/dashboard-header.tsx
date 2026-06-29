@@ -22,13 +22,7 @@ export function DashboardHeader() {
   const { toggle, isOpen } = useSidebarState();
 
   return (
-    <Stack
-      direction="horizontal"
-      align="center"
-      justify="between"
-      height="full"
-      grow
-    >
+    <Stack direction="horizontal" align="center" justify="between" height="full" grow>
       <Stack direction="horizontal" align="center" gap="snug">
         {/* Hamburger — only visible on mobile (hidden at md+) */}
         <Show below="md">

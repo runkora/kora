@@ -50,7 +50,7 @@ const PageSectionHeader = React.forwardRef<HTMLDivElement, PageSectionHeaderProp
     <div
       ref={ref}
       data-slot="page-section-header"
-      className={cn('flex items-center justify-between', className)}
+      className={cn('flex flex-wrap items-start justify-between gap-y-2', className)}
       {...props}
     >
       <div className="flex flex-col">
