@@ -391,27 +391,19 @@ export function AgentsPage() {
                 </Card>
               ))}
 
-              <Stack
+              <Card
+                column
                 role="button"
-                align="center"
-                gap="tight"
                 onClick={() => router.push(APP_ROUTES.agents.new)}
-                style={{
-                  cursor: 'pointer',
-                  minHeight: '160px',
-                  borderWidth: '1.5px',
-                  borderStyle: 'dashed',
-                  borderColor: 'oklch(var(--color-border) / 1)',
-                  borderRadius: '8px',
-                  justifyContent: 'center',
-                  padding: '1.5rem',
-                }}
+                style={{ cursor: 'pointer', borderStyle: 'dashed' }}
               >
-                <Icon name="plus" size="sm" />
-                <Text size="supporting" color="muted">
-                  Create new agent
-                </Text>
-              </Stack>
+                <Stack align="center" justify="center" gap="tight" grow>
+                  <Icon name="plus" size="sm" />
+                  <Text size="supporting" color="muted">
+                    Create new agent
+                  </Text>
+                </Stack>
+              </Card>
             </Grid>
           </Show>
 
