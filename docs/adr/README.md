@@ -92,6 +92,12 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Accepted` · 2026-06-20
 - [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted` · 2026-06-23
 
+### MCP / Tool Gateway
+
+- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Proposed` · 2026-06-29
+- [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Proposed` · 2026-06-29
+- [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Proposed` · 2026-06-29
+
 ### Service Mesh, Operator & Deployment
 
 - [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) — `Accepted` · 2026-03-05
@@ -188,3 +194,6 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Proposed | — |
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
 | 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Proposed | — |
+| 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Proposed | — |
+| 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Proposed | — |
