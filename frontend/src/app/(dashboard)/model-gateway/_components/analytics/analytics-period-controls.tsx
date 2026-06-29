@@ -16,9 +16,9 @@ interface AnalyticsPeriodControlsProps {
 // ── Options ───────────────────────────────────────────────────────────────────
 
 const DAYS_OPTIONS: { value: AnalyticsDays; label: string }[] = [
-  { value: 7, label: 'Last 7 days' },
-  { value: 30, label: 'Last 30 days' },
-  { value: 90, label: 'Last 90 days' },
+  { value: 7, label: '7d' },
+  { value: 30, label: '30d' },
+  { value: 90, label: '90d' },
 ];
 
 const GRANULARITY_OPTIONS: { value: AnalyticsGranularity; label: string }[] = [
@@ -65,4 +65,3 @@ export function AnalyticsPeriodControls({
     </Stack>
   );
 }
-

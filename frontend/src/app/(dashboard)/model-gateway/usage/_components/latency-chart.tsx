@@ -49,8 +49,8 @@ function filterLatencyByPeriod(period: Period) {
 // ── Period options ────────────────────────────────────────────────────────────
 
 const PERIODS: { value: Period; label: string }[] = [
-  { value: '7d', label: 'Last 7 days' },
-  { value: '14d', label: 'Last 14 days' },
+  { value: '7d', label: '7d' },
+  { value: '14d', label: '14d' },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
