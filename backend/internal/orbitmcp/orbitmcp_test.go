@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -183,9 +184,10 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 // right method + path under /api/v1/runs and forwards its body.
 func TestRunToolsForwardMethodAndPath(t *testing.T) {
 	var gotMethod, gotPath string
+	var gotQuery url.Values
 	var gotBody map[string]any
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.Path
+		gotMethod, gotPath, gotQuery = r.Method, r.URL.Path, r.URL.Query()
 		gotBody = nil
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
@@ -230,6 +232,16 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 		call("tools/call", map[string]any{"name": "runs.terminate", "arguments": map[string]any{"run_id": "run-1"}})
 		if gotMethod != http.MethodDelete || gotPath != "/api/v1/runs/run-1" {
 			t.Errorf("terminate hit %s %s", gotMethod, gotPath)
+		}
+	})
+
+	t.Run("events GETs the paginated event log", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.events", "arguments": map[string]any{"run_id": "run-1", "after_seq": 12, "limit": 25}})
+		if gotMethod != http.MethodGet || gotPath != "/api/v1/runs/run-1/events" {
+			t.Errorf("events hit %s %s", gotMethod, gotPath)
+		}
+		if gotQuery.Get("after_seq") != "12" || gotQuery.Get("limit") != "25" {
+			t.Errorf("events pagination not forwarded: %v", gotQuery)
 		}
 	})
 }

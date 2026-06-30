@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strconv"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -71,6 +72,25 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			}
 			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)))
 		})
+
+	addTool(srv, "runs.events",
+		"Read a page of a run's recorded events — the conversation (human messages, agent replies), tool calls, and "+
+			"state changes. Long runs have hundreds of events, so this is paginated: it returns at most `limit` events "+
+			"plus `next_seq` and `has_more`. Page forward (or tail a live run) by calling again with after_seq = the "+
+			"previous next_seq.",
+		func(ctx context.Context, a runEventsArgs) (*sdk.CallToolResult, error) {
+			if a.RunID == "" {
+				return toolError(errors.New("run_id is required")), nil
+			}
+			q := url.Values{}
+			if a.AfterSeq > 0 {
+				q.Set("after_seq", strconv.FormatInt(a.AfterSeq, 10))
+			}
+			if a.Limit > 0 {
+				q.Set("limit", strconv.Itoa(a.Limit))
+			}
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.RunID)+"/events", q))
+		})
 }
 
 // ── tool argument types (JSON schema is generated from these) ─────────────────
@@ -92,4 +112,10 @@ type startRunArgs struct {
 type sendMessageArgs struct {
 	RunID   string `json:"run_id" jsonschema:"the run id to send the message to"`
 	Content string `json:"content" jsonschema:"the message content"`
+}
+
+type runEventsArgs struct {
+	RunID    string `json:"run_id" jsonschema:"the run id"`
+	AfterSeq int64  `json:"after_seq,omitempty" jsonschema:"return events after this sequence number (0 = from the start); pass the previous response's next_seq to page forward or tail"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"max events to return (default 50, max 200)"`
 }

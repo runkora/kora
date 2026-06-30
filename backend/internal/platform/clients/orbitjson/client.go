@@ -99,6 +99,9 @@ func (c *Client) send(ctx context.Context, spanName, bearer string, req *http.Re
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	// This is a JSON client: always ask for JSON. Lets content-negotiated routes
+	// (e.g. the agents run-events endpoint, which is SSE by default) serve us JSON.
+	req.Header.Set("Accept", "application/json")
 	_, span, resp, err := c.Do(ctx, spanName, req)
 	defer span.End()
 	if err != nil {
