@@ -239,6 +239,30 @@ make dev-cluster-down
 
 See [local-development-environment](../adr/2026-03-10-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) for the operator design.
 
+### Driving the Orbit MCP locally
+
+The cluster runs `orbit-mcp` (the platform MCP server). To use it from Claude Code while iterating:
+
+```bash
+make mcp-local          # refresh the k3d token + start the orbit-mcp forward on :8095 (background)
+make mcp-local-stop      # stop it
+```
+
+`make mcp-local` refreshes your token and starts the port-forward **in the background**
+(logs to `/tmp/orbit-mcp-pf.log`), so it returns immediately and leaves your terminal free.
+It is idempotent — re-run it any time to refresh the token or replace a stale forward (e.g.
+after an `orbit-mcp` rollout).
+
+The repo ships a project-scoped `.mcp.json` with an `orbit-local` server pointing at
+`http://localhost:8095/mcp`. It authenticates with `headersHelper`
+(`.claude/helpers/orbit-mcp-token.sh`), which reads your current platform token from
+`/tmp/orbit_credentials.json` fresh on every connection — so a rotated token is picked up
+without restarting Claude Code. In a Claude Code session, run `/mcp` to connect (approve
+`orbit-local` the first time). The token lasts ~4h; to extend a long session, re-run
+`make mcp-local` (or `make auth-refresh-k3d`) and the helper picks up the new token on the
+next reconnect. Requires the cluster to be up (`make dev-cluster` + `make cluster-operator`)
+and a token (`make auth-device-k3d` if you have none yet).
+
 ---
 
 ## Environment Variables Reference

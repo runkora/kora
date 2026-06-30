@@ -1030,6 +1030,47 @@ auth-refresh-k3d: ## Refresh the access token in /tmp/orbit_credentials.json (k3
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
+ORBIT_MCP_PF_LOG := /tmp/orbit-mcp-pf.log
+
+.PHONY: mcp-local
+mcp-local: ## Start the orbit-mcp port-forward on :8095 (background) for the .mcp.json 'orbit-local' server
+	@chmod +x .claude/helpers/orbit-mcp-token.sh
+	@if [ ! -f /tmp/orbit_credentials.json ]; then \
+		echo "$(COLOR_YELLOW)✗ No token at /tmp/orbit_credentials.json — run 'make auth-device-k3d' first.$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@$(MAKE) --no-print-directory auth-refresh-k3d || { \
+		echo "$(COLOR_YELLOW)✗ Token refresh failed — run 'make auth-device-k3d' to start a fresh session.$(COLOR_RESET)"; \
+		exit 1; \
+	}
+	@# Idempotent: drop any existing orbit-mcp forward so re-running is safe.
+	@pkill -f "port-forward.*deploy/orbit-mcp 8095:8095" 2>/dev/null && sleep 1 || true
+	@if lsof -iTCP:8095 -sTCP:LISTEN >/dev/null 2>&1; then \
+		echo "$(COLOR_YELLOW)✗ Port 8095 is already in use by another process — free it and retry.$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@nohup kubectl port-forward -n orbit-system deploy/orbit-mcp 8095:8095 >$(ORBIT_MCP_PF_LOG) 2>&1 & echo $$! >/tmp/orbit-mcp-pf.pid
+	@sleep 2
+	@if kill -0 "$$(cat /tmp/orbit-mcp-pf.pid 2>/dev/null)" 2>/dev/null; then \
+		echo "$(COLOR_GREEN)✓ orbit-mcp → http://localhost:8095/mcp$(COLOR_RESET) (pid $$(cat /tmp/orbit-mcp-pf.pid), log $(ORBIT_MCP_PF_LOG))"; \
+		echo "  The .mcp.json 'orbit-local' server authenticates via .claude/helpers/orbit-mcp-token.sh."; \
+		echo "  In Claude Code: run /mcp to connect (approve 'orbit-local' the first time)."; \
+		echo "  Token lasts ~4h — re-run 'make mcp-local' (or 'make auth-refresh-k3d') to refresh; the helper"; \
+		echo "  picks up the new token on the next reconnect. Stop with 'make mcp-local-stop'."; \
+	else \
+		echo "$(COLOR_RED)✗ Port-forward failed to start — see $(ORBIT_MCP_PF_LOG)$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+
+.PHONY: mcp-local-stop
+mcp-local-stop: ## Stop the background orbit-mcp port-forward started by 'make mcp-local'
+	@if pkill -f "port-forward.*deploy/orbit-mcp 8095:8095" 2>/dev/null; then \
+		echo "$(COLOR_GREEN)✓ Stopped orbit-mcp port-forward$(COLOR_RESET)"; \
+	else \
+		echo "No orbit-mcp port-forward running."; \
+	fi
+	@rm -f /tmp/orbit-mcp-pf.pid
+
 .PHONY: setup-tls
 setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)
 	@chmod +x scripts/setup-tls.sh
