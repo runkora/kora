@@ -1,0 +1,23 @@
+app:
+  version: "0.1.0"
+
+server:
+  # Health (and, in Phase 4, the MCP request path). orbit-mcp serves on 8095;
+  # the tool-gateway takes 8096.
+  httpPort: 8096
+  basePath: "/v1"
+  shutdownTimeoutSecs: 30
+
+policy:
+  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
+
+registry:
+  # Rendered by the operator's MCPServerAggregator into the orbit-mcp-servers
+  # ConfigMap, mounted here and hot-reloaded on change.
+  serversPath: "/var/run/orbit/mcp-servers/servers.json"
+
+introspection:
+  reintrospectIntervalSecs: 300
+
+observability:
+  serviceName: "tool-gateway"

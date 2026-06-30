@@ -1,0 +1,72 @@
+// Package toolGatewayConfig holds the configuration for the tool-gateway binary.
+package toolGatewayConfig
+
+import (
+	"time"
+
+	"github.com/clear-route/orbit/internal/platform/config"
+)
+
+// Config holds tool-gateway configuration values.
+//
+// Values are loaded from:
+//
+//  1. cmd/tool-gateway/config/base.yaml      — service defaults
+//  2. cmd/tool-gateway/config/{env}.yaml     — env overrides (optional)
+//
+// The tool-gateway runs in two modes from one binary: the publisher (this
+// phase — mounts the registry, introspects, publishes scopes) and the
+// request-path proxy/PEP (Phase 4). Both share this config.
+type Config struct {
+	App struct {
+		Version string `yaml:"version"`
+	} `yaml:"app"`
+
+	Server struct {
+		// HTTPPort serves health (and, in Phase 4, the MCP request path).
+		HTTPPort            int    `yaml:"httpPort"`
+		BasePath            string `yaml:"basePath"`
+		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
+	} `yaml:"server"`
+
+	Policy struct {
+		// PolicyServiceInternalURL is the base URL for the policy-service
+		// route+scope registration endpoint (the ScopePublisher target).
+		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
+	} `yaml:"policy"`
+
+	Registry struct {
+		// ServersPath is the mounted servers.json file rendered by the
+		// operator's MCPServerAggregator into the orbit-mcp-servers ConfigMap.
+		// The gateway parses it into the server registry and hot-reloads on
+		// change. Absent/empty means no servers until the operator renders it.
+		ServersPath string `yaml:"serversPath"`
+	} `yaml:"registry"`
+
+	Introspection struct {
+		// ReintrospectIntervalSecs is how often the publisher re-introspects
+		// every server's tool surface on a timer (besides on registry reload).
+		ReintrospectIntervalSecs int `yaml:"reintrospectIntervalSecs"`
+	} `yaml:"introspection"`
+
+	Observability struct {
+		ServiceName string `yaml:"serviceName"`
+	} `yaml:"observability"`
+}
+
+// ShutdownTimeout returns the configured graceful-shutdown timeout.
+func (c *Config) ShutdownTimeout() time.Duration {
+	return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
+}
+
+// ReintrospectInterval returns the configured re-introspection interval,
+// defaulting to 5 minutes.
+func (c *Config) ReintrospectInterval() time.Duration {
+	if c.Introspection.ReintrospectIntervalSecs <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.Introspection.ReintrospectIntervalSecs) * time.Second
+}
+
+// Current holds non-secret configuration for the tool-gateway.
+var Current = config.MustLoadService[Config]("cmd/tool-gateway", config.Environment())

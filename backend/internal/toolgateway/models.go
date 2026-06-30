@@ -1,0 +1,60 @@
+// Package toolgateway is the MCP tool-gateway's publisher-mode core (Phase 3):
+// it mounts the operator-rendered orbit-mcp-servers registry, introspects each
+// server's tool surface (initialize + tools/list), and (Phase 3.3) publishes the
+// discovered tools as mcp:<server>:<tool>:use scopes.
+//
+// The request-path PEP + proxy (Phase 4) live alongside this in the same binary
+// but are a separate concern; this file is registration/introspection only.
+//
+// See docs/adr/2026-06-29-mcp-server-registration-and-introspection.md.
+package toolgateway
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// Server is one entry of the mounted servers.json registry — the runtime
+// contract the operator's MCPServerAggregator renders. tenant_id is "" for a
+// global (orbit-system) server and the owning tenant for a tenant server.
+type Server struct {
+	TenantID                    string `json:"tenant_id"`
+	Name                        string `json:"name"`
+	Endpoint                    string `json:"endpoint"`
+	Transport                   string `json:"transport"`
+	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`
+	CallerIdentity              string `json:"caller_identity"`
+}
+
+// Tool is one tool discovered on a server via tools/list. InputSchema is the
+// raw JSON Schema the server advertises, retained for the catalog (Phase 3.4).
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+// ServerState is the introspection health of a server (gateway runtime state —
+// NOT the CR status the operator owns).
+type ServerState string
+
+const (
+	// StatePending means the server has not been introspected yet this lifetime.
+	StatePending ServerState = "pending"
+	// StateOK means the last introspection succeeded.
+	StateOK ServerState = "ok"
+	// StateDegraded means the last introspection failed; the server's prior
+	// tools are retained in the keep-list and it is flagged in metrics/catalog.
+	StateDegraded ServerState = "degraded"
+)
+
+// ServerSnapshot is the introspection result for one server: its registry
+// entry, the tools last successfully discovered (retained across a failure),
+// the current state, and — when degraded — the last error.
+type ServerSnapshot struct {
+	Server             Server
+	Tools              []Tool
+	State              ServerState
+	LastErr            string
+	LastIntrospectedAt time.Time
+}
