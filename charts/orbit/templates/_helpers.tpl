@@ -153,6 +153,37 @@ Pod-level override → global default → IfNotPresent.
 {{- end }}
 
 {{/*
+Tool-gateway service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.toolGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-tool-gateway
+app.kubernetes.io/component: tool-gateway
+{{- end }}
+
+{{/*
+Tool-gateway selector labels — stable; used by Service selector and Deployment matchLabels.
+*/}}
+{{- define "orbit.toolGateway.selectorLabels" -}}
+app: orbit-tool-gateway
+{{- end }}
+
+{{/*
+Resolve the image tag for the tool-gateway.
+*/}}
+{{- define "orbit.toolGateway.imageTag" -}}
+{{- .Values.toolGateway.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for the tool-gateway.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.toolGateway.imagePullPolicy" -}}
+{{- .Values.toolGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
 Frontend service labels — applied to the Deployment and its pod template.
 */}}
 {{- define "orbit.frontend.labels" -}}

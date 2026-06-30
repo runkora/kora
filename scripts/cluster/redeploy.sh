@@ -167,6 +167,17 @@ workload=deployment/orbit-mcp
 restart=true
 EOF
       ;;
+    tool-gateway)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=tool-gateway
+image=orbit-tool-gateway
+namespace=orbit-system
+workload=deployment/orbit-tool-gateway
+restart=true
+EOF
+      ;;
     operator)
       cat <<'EOF'
 dockerfile=Dockerfile.operator

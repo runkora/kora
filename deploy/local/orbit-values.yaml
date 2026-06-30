@@ -88,6 +88,17 @@ orbitMcp:
     otlpInsecure: "true"                 # Local OTLP collector has no TLS.
     logFormat: "console"                 # Human-readable logs locally.
 
+toolGateway:
+  image:
+    # Local k3d registry — built by: make redeploy SERVICE=tool-gateway
+    repository: orbit-registry:5001/orbit-tool-gateway
+    tag: latest
+
+  config:
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+    postgresSSLMode: "disable"           # Local Postgres has no TLS cert.
+
 frontend:
   image:
     # Local k3d registry — built by: make docker-push-frontend
