@@ -66,6 +66,44 @@ func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
 	})
 }
 
+// TestCreateToolSchemaSurfacesEnumAndModelHint asserts the agents.create input
+// schema (a) constrains framework to the closed enum and (b) points model_id at
+// the models.list tool — so a client/agent sees valid options up front.
+func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	list := call("tools/list", map[string]any{})
+	tools, _ := list["result"].(map[string]any)["tools"].([]any)
+	var create map[string]any
+	for _, tt := range tools {
+		if m, _ := tt.(map[string]any); m["name"] == "agents.create" {
+			create = m
+		}
+	}
+	if create == nil {
+		t.Fatal("agents.create not in tools/list")
+	}
+	props, _ := create["inputSchema"].(map[string]any)["properties"].(map[string]any)
+
+	enum, _ := props["framework"].(map[string]any)["enum"].([]any)
+	got := make([]string, 0, len(enum))
+	for _, v := range enum {
+		got = append(got, v.(string))
+	}
+	if want := "claude-code,codex,opencode"; strings.Join(got, ",") != want {
+		t.Errorf("framework enum = %v, want [%s]", got, want)
+	}
+
+	desc, _ := props["model_id"].(map[string]any)["description"].(string)
+	if !strings.Contains(desc, "models.list") {
+		t.Errorf("model_id description should point at models.list; got %q", desc)
+	}
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the

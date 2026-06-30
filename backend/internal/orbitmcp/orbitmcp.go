@@ -15,9 +15,11 @@ package orbitmcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
+	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -46,7 +48,34 @@ type noArgs struct{}
 // addTool registers a typed tool on the server. Out is unused (results carry
 // text content), so it is fixed to noArgs.
 func addTool[In any](srv *sdk.Server, name, desc string, h func(context.Context, In) (*sdk.CallToolResult, error)) {
-	sdk.AddTool(srv, &sdk.Tool{Name: name, Description: desc},
+	register(srv, &sdk.Tool{Name: name, Description: desc}, h)
+}
+
+// addEnumTool is addTool with JSON-Schema enum constraints applied to the named
+// fields of the generated input schema — for closed enumerable inputs (e.g.
+// framework). Listed values become a real `enum` that is shown in the schema and
+// validated on input before the handler runs. Open/dynamic sets (e.g. model ids,
+// whose catalog changes at runtime) are NOT enums — point at the relevant list
+// tool in the field description instead.
+func addEnumTool[In any](srv *sdk.Server, name, desc string, enums map[string][]any, h func(context.Context, In) (*sdk.CallToolResult, error)) {
+	schema, err := jsonschema.For[In](nil)
+	if err != nil {
+		panic(fmt.Sprintf("orbitmcp: build schema for tool %q: %v", name, err))
+	}
+	for field, vals := range enums {
+		p, ok := schema.Properties[field]
+		if !ok {
+			panic(fmt.Sprintf("orbitmcp: tool %q has no field %q to constrain with an enum", name, field))
+		}
+		p.Enum = vals
+	}
+	register(srv, &sdk.Tool{Name: name, Description: desc, InputSchema: schema}, h)
+}
+
+// register wires a typed handler onto the server, adapting it to the SDK's
+// (result, out, err) signature. The unused Out is fixed to noArgs.
+func register[In any](srv *sdk.Server, t *sdk.Tool, h func(context.Context, In) (*sdk.CallToolResult, error)) {
+	sdk.AddTool(srv, t,
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, noArgs, error) {
 			res, err := h(ctx, in)
 			return res, noArgs{}, err
