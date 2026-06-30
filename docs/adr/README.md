@@ -99,7 +99,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
-- [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Proposed` · 2026-06-30
+- [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 
 ### Service Mesh, Operator & Deployment
 
@@ -200,4 +200,4 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
-| 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Proposed | — |
+| 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |

@@ -209,6 +209,8 @@ This ADR deliberately issues the human's MCP token as an ordinary `aud=orbit-pla
 
 If Orbit later wants true per-resource token binding (OAuth 2.1 / RFC 8707 Resource Indicators) — so a token minted for the MCP gateway cannot be replayed against the inference gateway or the main API — that is a **platform-wide change to the token model**, not an MCP concern, and should be its **own ADR**. It would introduce a per-request audience in `signToken`, an audience registry, and multi-audience verifiers across every service, and would let each resource server (the MCP gateway included) require its own audience. Until that exists, MCP rides the existing uniform-audience model rather than inventing a one-off audience for itself.
 
+**This same work hardens the gateway→upstream caller-identity hop.** The [Gateway ADR](2026-06-29-mcp-tool-gateway.md) forwards the caller's full-power `aud=orbit-platform` token to `callerIdentity: forward` upstreams (e.g. the Orbit MCP) as raw passthrough in MVP. Per-resource audiences plus **RFC 8693 token exchange** would let the gateway swap that for a narrowed `aud=<server>` *delegated* token before forwarding — so even a trusted first-party upstream never holds a replayable full-Orbit credential. Passthrough-now / exchange-later is one coherent thread: the future audience ADR should cover this upstream-hop case alongside the resource-server case.
+
 ---
 
 ## Related Decisions

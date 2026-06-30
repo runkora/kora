@@ -44,7 +44,7 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 
 - **Reuse over reinvention.** Orbit already has a scope vocabulary with idempotent upsert + orphan pruning, an operator that aggregates tenant-namespaced CRs into mounted config, and a `ScopePublisher` that registers a service's scopes. Registration should be these patterns, composed — not new machinery.
 - **GitOps posture.** Every other per-tenant concern (`OrbitTenant`, `Connection`, ClusterSPIFFEIDs, per-tenant CA) is a reconciled CR. An MCP server is the same shape of object and is declared the same way.
-- **Security by construction.** No UI mutation path; default-deny; tenant isolation enforced structurally (namespace + `tenant_id`), not by convention.
+- **Security by construction.** No UI mutation path; default-deny; tenant isolation enforced structurally (namespace + tenant-scoped grants + the tenant-dimensioned catalog), not by convention.
 - **Drift is the norm.** MCP servers add and remove tools over their lifetime. The design must converge idempotently without manual scope bookkeeping.
 
 ---
@@ -90,7 +90,15 @@ The scope *string* is tenant-free for both; the tenant/global distinction is **n
 
 `mcp:<server>:<tool>:use` — resource_type `mcp`, path `[<server>, <tool>]`, action `use`. Prefix coverage: `mcp:<server>:use` covers a server's whole surface, `mcp:use` everything. `<server>` is the CR's stable `metadata.name`; `<tool>` is the MCP tool name **normalised** to a scope-path-safe segment (lowercase, `[a-z0-9_-]`, documented mapping). A renamed tool becomes a new scope: the old name drops from the keep-list and is pruned, so a client using it gets a clean default-deny; the new name registers ungranted. Both transitions surface in the catalog as drift.
 
-**Clarification (2026-06-30):** `<tool>` may be a **multi-segment** path, not only a single segment. A tool name containing a `.` separator splits into multiple scope-path segments — e.g. a server advertising `agents.create` registers `mcp:<server>:agents:create:use` (path `[<server>, agents, create]`), so prefix coverage gives a domain rollup `mcp:<server>:agents:use`. This is native to the policy scope model (`inference:<family>:<model>:use` is already a 2-segment path); each segment still obeys the `[a-z0-9_-]` charset (the `.` is only a separator). Used by the [Orbit MCP](2026-06-30-orbit-mcp.md).
+**Amendment (2026-06-30) — multi-segment tool paths.** The single-segment `<tool>` above is not sufficient; this amends the introspection derivation. Servers (e.g. the [Orbit MCP](2026-06-30-orbit-mcp.md)) want domain rollups like `mcp:<server>:agents:use` covering `mcp:<server>:agents:create:use`, which requires a *multi-segment* path. The policy scope model already supports arbitrary-length paths (`inference:<family>:<model>:use` is a 2-segment path); the change is in how introspection maps a tool **name** to scope **segments**:
+
+- **Reserved `.` delimiter.** Introspection splits a tool name on `.` into path segments: `agents.create` → `[<server>, agents, create]`. The `.` is a *delimiter*, never part of a segment.
+- **Charset unchanged per segment.** Each resulting segment is still normalised to `[a-z0-9_-]` (the charset rule above now applies *per segment*, not to the whole tool name).
+- **Backward compatible.** A tool name with no `.` registers as a single segment exactly as before.
+- **Universal, not convention-scoped.** The split is applied by the shared introspector to **every** server, first-party and third-party alike. A third-party tool named `foo.bar` therefore registers `mcp:<server>:foo:bar:use` and gains a `mcp:<server>:foo:use` rollup — intended and harmless (still default-deny; still per-tool grantable). Server authors who want a flat tool simply avoid `.`.
+- **Leaf-vs-prefix collision (flagged).** A leaf tool whose name equals another tool's *domain prefix* collides on the rollup string: `search` registers `mcp:<server>:search:use`, which is *also* the rollup that prefix-covers `search.advanced` (`mcp:<server>:search:advanced:use`) — so granting the leaf `search` silently grants its siblings. First-party servers (orbit-mcp) avoid this by naming convention; for arbitrary third-party servers introspection **detects** the case (a tool's full scope path being a strict prefix of another tool's path) and flags it in the catalog (and the server `Degraded`) rather than registering a silently-over-granting scope.
+
+This is a real dependency for any server wanting domain rollups, not a cosmetic clarification.
 
 ---
 
@@ -136,6 +144,21 @@ type MCPServerSpec struct {
     // ReintrospectIntervalSeconds is read by the gateway's introspection worker
     // to re-sync the tool surface on a timer (besides on registry reload). 0 = on-reload only.
     ReintrospectIntervalSeconds int `json:"reintrospectIntervalSeconds,omitempty"`
+    // CallerIdentity controls whether the gateway conveys the CALLER's identity to
+    // this upstream on a tool call. Default "none": the caller's token is NEVER
+    // forwarded (the caller's full-power aud=orbit-platform token must not leak to
+    // an upstream) — the server acts as itself with its own backend credential.
+    // "forward": the gateway forwards the caller's bearer so the server acts AS the
+    // caller against first-party Orbit APIs.
+    //
+    // ENFORCED GLOBAL-ONLY: "forward" is valid ONLY on Orbit-applied global servers
+    // (orbit-system namespace). A tenant-namespaced CR that sets "forward" is
+    // REJECTED at reconcile (Status Invalid) — otherwise a tenant admin (who holds
+    // CR-apply RBAC in their own namespace) could harvest every caller's full-power
+    // token via a pod they control and replay it across all of Orbit. The gateway
+    // additionally honors "forward" only for orbit-system servers (belt-and-braces).
+    // (Future: "exchange" — RFC 8693 narrowed delegated token; see the gateway/OAuth ADRs.)
+    CallerIdentity string `json:"callerIdentity,omitempty"` // none (default) | forward (orbit-system only)
 }
 
 // Status is reconciliation state owned by the operator — whether the CR was
@@ -161,9 +184,11 @@ spec:
   endpoint: http://github-mcp.orbit-tenant-acme.svc:8080/mcp
   transport: streamable-http
   reintrospectIntervalSeconds: 900
+  # callerIdentity omitted → "none": the caller's token is NOT forwarded to this
+  # third-party server; it acts as itself with its own backend credential.
 ```
 
-Orbit registers the global Orbit MCP identically, in `orbit-system` — same kind, different namespace.
+Orbit registers the global Orbit MCP identically, in `orbit-system` — same kind, different namespace — but with `callerIdentity: forward`, because the Orbit MCP must act *as the caller* against first-party Orbit APIs (it holds no standing authority). That flag is the **only** thing that makes the gateway convey the caller's token to an upstream, and it is **enforced global-only**: because CR-apply authority is the tenant's own namespace RBAC, a guidance comment is not enough — a tenant CR setting `callerIdentity: forward` is **rejected at reconcile** (`Status: Invalid`), since otherwise a tenant admin could point it at a pod they control and harvest every caller's full-power `aud=orbit-platform` token to replay across all of Orbit (same-tenant escalation). `forward` is honoured only on `orbit-system` (Orbit-applied) servers.
 
 ### Two loops: operator aggregation, gateway introspection
 
