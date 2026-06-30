@@ -64,6 +64,13 @@ type registrationRequest struct {
 	Service string             `json:"service"`
 	Routes  []RouteScope       `json:"routes"`
 	Scopes  []ScopeDeclaration `json:"scopes,omitempty"`
+	// SkipPrune, when true, upserts the declared scopes WITHOUT running the
+	// destructive orphan-prune (DeleteOrphans + PurgeScopeFromAll). Default
+	// false preserves the prune-on-publish behavior every existing caller
+	// relies on. The tool-gateway sets it true while its introspection
+	// keep-list is incomplete (cold/partial start), so a partial list cannot
+	// revoke live mcp scopes from grants/roles.
+	SkipPrune bool `json:"skip_prune,omitempty"`
 }
 
 // Client registers a service's routes and scopes with the policy service.
@@ -112,6 +119,19 @@ func NewClient(serviceURL string, logger logging.Logger, opts ...Option) *Client
 // initial delay allows the identity-proxy sidecar to exchange its SPIFFE SVID
 // for a platform token before the first attempt.
 func (c *Client) Register(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration) error {
+	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes})
+}
+
+// RegisterWithPrune is Register with explicit control over the destructive
+// orphan-prune. With prune=false the policy service upserts the declared scopes
+// but does NOT remove this service's other scopes — used by the tool-gateway's
+// prune-guard to publish newly-discovered tools while its keep-list is still
+// incomplete. prune=true is identical to Register.
+func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration, prune bool) error {
+	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes, SkipPrune: !prune})
+}
+
+func (c *Client) register(ctx context.Context, reg registrationRequest) error {
 	const (
 		maxAttempts = 15
 		maxBackoff  = 30 * time.Second
@@ -125,7 +145,8 @@ func (c *Client) Register(ctx context.Context, service string, routes []RouteSco
 		}
 	}
 
-	reg := registrationRequest{Service: service, Routes: routes, Scopes: scopes}
+	service := reg.Service
+	routes := reg.Routes
 	backoff := 2 * time.Second
 
 	var lastErr error
@@ -153,7 +174,7 @@ func (c *Client) Register(ctx context.Context, service string, routes []RouteSco
 		c.Logger().Info(ctx, "route scopes registered",
 			logging.Field{Key: "service", Value: service},
 			logging.Field{Key: "route_count", Value: len(routes)},
-			logging.Field{Key: "scope_count", Value: len(scopes)},
+			logging.Field{Key: "scope_count", Value: len(reg.Scopes)},
 		)
 		return nil
 	}

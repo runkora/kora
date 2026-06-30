@@ -549,6 +549,17 @@ func (s *Service) ListRoutes() []*routes.Registration {
 // covered by the service's own declarations must already exist in the vocabulary.
 // Global registrations (tenantID == "") trigger recompilation for all tenants.
 func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	return s.RegisterRoutesWithPrune(ctx, service, tenantID, routeScopes, scopeDecls, true)
+}
+
+// RegisterRoutesWithPrune is RegisterRoutes with explicit control over the
+// destructive orphan-prune. With prune=false, a global registration upserts the
+// declared scopes but does NOT run DeleteOrphans/PurgeScopeFromAll — the
+// tool-gateway uses this to publish newly-discovered tools while its
+// introspection keep-list is still incomplete, so a partial list cannot revoke
+// live mcp scopes from grants and roles. Tenant registrations never prune, so
+// prune is a no-op for them.
+func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
 	// Upsert declared scopes into vocabulary first so that the existence check
 	// below sees the freshly declared entries.
 	incomingScopes := make([]string, len(scopeDecls))
@@ -569,7 +580,7 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 	// For global registrations, reconcile owned scopes: any scope previously
 	// registered by this service that is no longer in the catalog means the
 	// virtual model was deleted. Remove it from vocab and cascade to grants/roles.
-	if tenantID == "" {
+	if tenantID == "" && prune {
 		deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
 		if err != nil {
 			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)

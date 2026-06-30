@@ -164,6 +164,18 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 	return tools, nil
 }
 
+// FlagDegraded marks a server's snapshot Degraded with a reason — used to flag
+// a scope collision (the ADR's "server Degraded" on a leaf/prefix collision)
+// without dropping its retained tools. A no-op if the server has no snapshot.
+func (i *Introspector) FlagDegraded(tenantID, name, reason string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if snap := i.snapshots[serverKey(tenantID, name)]; snap != nil {
+		snap.State = StateDegraded
+		snap.LastErr = reason
+	}
+}
+
 // Snapshot returns a copy of the current per-server snapshots.
 func (i *Introspector) Snapshot() []ServerSnapshot {
 	i.mu.RLock()

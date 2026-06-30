@@ -23,6 +23,7 @@ import (
 
 	tgc "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -62,15 +63,25 @@ func realMain() error {
 	// ── Introspection worker ─────────────────────────────────────────────────
 	introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
 
-	// ── Introspection cycle ──────────────────────────────────────────────────
-	// Re-introspect every registered server. Serialized so the reload hook and
-	// the timer never run a cycle concurrently. Phase 3.3 extends this to
-	// publish the discovered tools' scopes after introspection.
+	// ── Scope publisher ──────────────────────────────────────────────────────
+	// Publishes the mcp:<server>:<tool>:use vocabulary from the introspection
+	// snapshots. The routescopes client retries until the identity-proxy sidecar
+	// has a platform token, so the publish runs inside the cycle goroutine.
+	scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
+	publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
+
+	// ── Introspection + publish cycle ────────────────────────────────────────
+	// Re-introspect every registered server, then publish the discovered tools'
+	// scopes (with the prune-guard). Serialized so the reload hook and the timer
+	// never run a cycle concurrently.
 	var cycleMu sync.Mutex
 	cycle := func(ctx context.Context) {
 		cycleMu.Lock()
 		defer cycleMu.Unlock()
 		introspector.Sync(ctx, registry.Servers())
+		if err := publisher.Publish(ctx); err != nil {
+			logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+		}
 	}
 
 	registry.OnReload(cycle)
