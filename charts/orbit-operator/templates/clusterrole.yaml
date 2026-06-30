@@ -39,6 +39,16 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["connections"]
     verbs: ["get", "list", "watch"]
+  # MCPServer CRs — the operator reads/watches them to aggregate the
+  # tool-gateway's orbit-mcp-servers registry, and writes their status
+  # (reconciliation phase). Specs are authored via GitOps, never written by the
+  # operator; only status is patched.
+  - apiGroups: ["orbit.io"]
+    resources: ["mcpservers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["orbit.io"]
+    resources: ["mcpservers/status"]
+    verbs: ["get", "update", "patch"]
   # Apps — Deployments and DaemonSets for SPIRE, Istio, and Orbit services
   - apiGroups: ["apps"]
     resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
