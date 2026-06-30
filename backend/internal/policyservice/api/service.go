@@ -334,16 +334,18 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
 
-// EffectiveScopes returns the union of all scopes a HUMAN principal holds,
-// derived from their OIDC roles (reserved + custom) and any explicit grants.
-// Used by the effective-scopes endpoint to populate the PAT scope selector UI.
-func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID string, principalRoles []string) ([]string, error) {
+// EffectiveScopes returns the union of all scopes a principal holds, derived from
+// its OIDC roles (reserved + custom) and any explicit grants matching its type + id.
+// Used by the effective-scopes endpoint (PAT scope selector UI) and by the grant
+// anti-escalation ceiling, which needs a caller's own scopes regardless of type
+// (e.g. an AGENT orchestrating the platform).
+func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
 	scopeSet := make(map[string]struct{})
 
 	if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
 		return nil, err
 	}
-	if err := s.addGrantScopes(ctx, tenantID, principalID, scopeSet); err != nil {
+	if err := s.addGrantScopes(ctx, tenantID, grants.PrincipalType(principalType), principalID, scopeSet); err != nil {
 		return nil, err
 	}
 
@@ -392,9 +394,10 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 	return nil
 }
 
-// addGrantScopes populates scopeSet with scopes from explicit grants for the principal.
-func (s *Service) addGrantScopes(ctx context.Context, tenantID, principalID string, scopeSet map[string]struct{}) error {
-	grantList, _, err := s.grantRepo.List(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
+// addGrantScopes populates scopeSet with scopes from explicit grants held by the
+// principal (matched by its type + id).
+func (s *Service) addGrantScopes(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopeSet map[string]struct{}) error {
+	grantList, _, err := s.grantRepo.List(ctx, tenantID, principalType, principalID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list grants: %w", err)
 	}

@@ -65,7 +65,7 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 		}
 	}
 
-	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, claims.Subject, roles)
+	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, string(claims.Orbit.PrincipalType), claims.Subject, roles)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve caller scopes", nil), err)
