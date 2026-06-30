@@ -178,7 +178,7 @@ function ToolbarColumnsToggle({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated focus:outline-none focus:ring-1 focus:ring-accent"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated focus:outline-none focus:ring-1 focus:ring-accent"
         >
           <Settings2 className="h-4 w-4" />
           Columns
