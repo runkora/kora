@@ -76,6 +76,18 @@ inferenceGateway:
     enabled: true
     region: "us-east-1"
 
+orbitMcp:
+  image:
+    # Local k3d registry — built by: make redeploy SERVICE=orbit-mcp
+    repository: orbit-registry:5001/orbit-mcp
+    tag: latest
+
+  replicas: 1
+
+  config:
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+
 frontend:
   image:
     # Local k3d registry — built by: make docker-push-frontend

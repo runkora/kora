@@ -156,6 +156,17 @@ workload=deployment/orbit-frontend
 restart=true
 EOF
       ;;
+    orbit-mcp)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=orbit-mcp
+image=orbit-mcp
+namespace=orbit-system
+workload=deployment/orbit-mcp
+restart=true
+EOF
+      ;;
     operator)
       cat <<'EOF'
 dockerfile=Dockerfile.operator
@@ -220,6 +231,7 @@ policy-service      (deployment, orbit-system)
 policy-gateway      (deployment, orbit-system)
 agents              (deployment, orbit-system)
 frontend            (deployment, orbit-system)
+orbit-mcp           (deployment, orbit-system)
 operator            (deployment, orbit-operator)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)

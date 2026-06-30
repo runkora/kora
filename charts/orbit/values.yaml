@@ -152,6 +152,34 @@ inferenceGateway:
   # Operator default: "orbit-config" (managed by operator, same as identity service).
   existingConfigMap: "orbit-config"
 
+# -- Orbit MCP server configuration. The first platform-global MCP server:
+# exposes Orbit's own management surface (agents, policy, models, …) as MCP
+# tools over Streamable HTTP. Forwards the caller's platform token to each Orbit
+# API (passthrough) — holds no DB and no secrets of its own.
+orbitMcp:
+  # Container image for the orbit-mcp service.
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-mcp"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  # Number of orbit-mcp replicas.
+  replicas: 1
+
+  # Resource requests and limits.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+  # Observability tunables — backend URLs are baked into the binary's base.yaml.
+  config:
+    otlpInsecure: "false"
+    logFormat: "json"
+
 # -- Frontend service configuration.
 frontend:
   # Container image for the orbit-frontend service.

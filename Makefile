@@ -404,7 +404,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend operator session-manager sandbox-exec
+	egress-gateway agents frontend orbit-mcp operator session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static

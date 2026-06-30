@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbit-mcp
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.orbitMcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.orbitMcp.replicas }}
+  selector:
+    matchLabels:
+      {{- include "orbit.orbitMcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "orbit.orbitMcp.selectorLabels" . | nindent 8 }}
+        {{- include "orbit.orbitMcp.labels" . | nindent 8 }}
+        # Required for SPIRE workload attestation — triggers ClusterSPIFFEID
+        # orbit-system-component to issue:
+        #   spiffe://<trust-domain>/system/orbit-mcp
+        spiffe.io/spire-managed-identity: "true"
+        spiffe.io/component: orbit-mcp
+      annotations:
+        # NOTE: orbit-mcp deliberately does NOT enable the identity-proxy template.
+        # It forwards the CALLER's platform token to each Orbit API (passthrough);
+        # the identity-proxy would overwrite the outbound Authorization header with
+        # this pod's own token and defeat that model. The sidecar (mesh mTLS) and
+        # spire (workload identity) templates are all it needs.
+        inject.istio.io/templates: "sidecar,spire"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+    spec:
+      serviceAccountName: orbit-mcp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      volumes:
+        - name: spire-workload-socket
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+      containers:
+        - name: orbit-mcp
+          image: "{{ .Values.orbitMcp.image.repository }}:{{ include "orbit.orbitMcp.imageTag" . }}"
+          imagePullPolicy: {{ include "orbit.orbitMcp.imagePullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: ORBIT_OTLP_INSECURE
+              value: {{ .Values.orbitMcp.config.otlpInsecure | quote }}
+            - name: ORBIT_LOG_FORMAT
+              value: {{ .Values.orbitMcp.config.logFormat | quote }}
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+          ports:
+            - name: http
+              containerPort: 8095
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.orbitMcp.resources | nindent 12 }}
+          volumeMounts:
+            - name: spire-workload-socket
+              mountPath: /run/secrets/workload-spiffe-uds
+              readOnly: true

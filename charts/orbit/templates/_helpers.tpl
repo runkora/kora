@@ -122,6 +122,37 @@ Pod-level override → global default → IfNotPresent.
 {{- end }}
 
 {{/*
+Orbit MCP service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.orbitMcp.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-mcp
+app.kubernetes.io/component: orbit-mcp
+{{- end }}
+
+{{/*
+Orbit MCP selector labels — stable; used by Service selector and Deployment matchLabels.
+*/}}
+{{- define "orbit.orbitMcp.selectorLabels" -}}
+app: orbit-mcp
+{{- end }}
+
+{{/*
+Resolve the image tag for orbit-mcp.
+*/}}
+{{- define "orbit.orbitMcp.imageTag" -}}
+{{- .Values.orbitMcp.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for orbit-mcp.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.orbitMcp.imagePullPolicy" -}}
+{{- .Values.orbitMcp.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
 Frontend service labels — applied to the Deployment and its pod template.
 */}}
 {{- define "orbit.frontend.labels" -}}
