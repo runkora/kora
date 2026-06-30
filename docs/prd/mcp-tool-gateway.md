@@ -1,8 +1,8 @@
 # MCP / Tool Gateway — Product Requirements Document
 
-**Status:** In Review  
+**Status:** Approved  
 **Created:** 2026-06-29  
-**Last Updated:** 2026-06-29  
+**Last Updated:** 2026-06-30  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Orbit Core Team, Platform Administrators, Agent Developers, Human Tool Consumers (IDE / desktop MCP client users)
 
@@ -318,24 +318,26 @@ Steps 1, 3 and 4 are §3 (auth) and §2/§5 (check + proxy):
 
 ## Open Questions
 
-1. **Who can register a tenant server (CR-apply authority)** — "never UI-created" means registration authority is whoever can apply CRs to the tenant namespace. The ADR must tie CR-apply authority to the identity model so the tenant-isolation guarantee has an enforcement point, not just a convention.
-2. **How the content-aware PEP evaluates** — the gateway performs the per-tool check itself (the Layer-1 sidecar is body-blind to the JSON-RPC tool name, so this is the *only* place per-tool authz can happen — not a redundant double-check). Open: query the locally-distributed OPA bundle vs. use the `internal/platform/policy` Go library directly, and whether Layer 1 keeps a coarse "may reach the gateway" check in front. _Gateway ADR sub-decision._
-3. **Scope vocabulary** — the *shape* is settled: `mcp:<server>:<tool>:use` (resource_type `mcp`, path `[<server>, <tool>]`, action `use`), with the platform's existing prefix coverage giving `mcp:<server>:use` (whole server) and `mcp:use` (all MCP) — no `*` glob. What the ADR still pins is the **naming** of the path segments (Open Question 6).
-4. **Server + tool naming/stability in scope paths** — the stable slug for a *server*, and crucially **tool-name normalisation**: MCP tool names may contain characters that aren't valid scope-path segments, and tools can be renamed. A renamed tool silently becomes a new scope (prior grant stops covering it → silent deny, or silent re-expose). The ADR must define normalisation + a stability/rename story.
-5. **Transport** — Streamable HTTP (current MCP standard) vs SSE for the consumer-facing endpoint; confirm what target human clients require. _Lean Streamable HTTP; settle in the Gateway ADR._
-6. **Streaming & long-running tools** — timeout, cancellation, and backpressure for long-running `tools/call`s now that the gateway is in the path. _Gateway ADR (proxy design)._
-7. **`tools/list` filter performance** — compute the per-caller filter live against the PDP each request, or cache per (principal, server)? Affects the latency NFR. _Gateway ADR._
-8. **MCP OAuth scope of MVP** — full OAuth 2.1 + dynamic client registration + resource-server metadata is a non-trivial net-new build; the **MCP OAuth Authentication ADR** (a new platform auth model) fixes exactly which parts ship in the first cut and how the resulting token resolves to a platform principal.
+All of the questions this PRD raised have been resolved by the three accepted ADRs. Recorded here for traceability:
 
-> **Resolved during review (no longer open):** binary placement (new binary, settled in the Gateway ADR); enforcement-point placement (content-aware PEP in the gateway — the Layer-1 sidecar is body-blind to the JSON-RPC tool name, so per-tool authz can only happen here; *how* it evaluates is a Gateway-ADR sub-decision); audit sink (OTel span + structured log, no event-spine dependency).
+1. **CR-apply authority / tenant isolation** → Registration ADR: registration is GitOps `kubectl apply` into the tenant namespace, governed by tenant RBAC; there is no create API, and isolation rests on tenant-scoped grants + the tenant-dimensioned catalog.
+2. **How the PEP evaluates** → Gateway ADR: the in-process `policy.Evaluator` (OPA bundle), `Check` for `tools/call` and `Query` for `tools/list`; the Layer-1 sidecar keeps only a coarse "may reach the gateway" gate.
+3. **Scope vocabulary** → `mcp:<server>:<tool>:use` with prefix coverage (`mcp:<server>:use`, `mcp:use`); no tenant in the path — tenancy is on the grant, mirroring `connection:`/`inference:`. Published globally via the connection `ScopePublisher` pattern.
+4. **Server/tool naming & stability** → Registration ADR: stable CR slug for the server; MCP tool names normalised to scope-path-safe segments; a rename is a new scope (old pruned → clean default-deny).
+5. **Transport** → Gateway ADR: Streamable HTTP.
+6. **Streaming & long-running tools** → Gateway ADR: per-call timeout, cancellation propagated upstream, backpressure via the streamed channel.
+7. **`tools/list` filter performance** → Gateway ADR: one `Query` over the server's candidate set, cacheable per `(principal, server, bundle-revision)`.
+8. **MCP OAuth scope of MVP** → OAuth ADR: OAuth 2.1 + PKCE + DCR ship in MVP; the issued token is an ordinary `aud=orbit-platform` platform token (per-resource audiences deferred to a future ADR).
+
+> Also resolved: binary placement (new `cmd/tool-gateway`); audit (OTel span + structured log, no event-spine dependency); who introspects/publishes (the tool-gateway in a `replicas=1` publisher deployment, *not* the operator — the operator only aggregates CRs).
 
 ---
 
 ## Implementation Phases
 
-The MVP is **Phase 1 + Phase 2** (both personas). The two phases map onto the two ADRs.
+The MVP is **Phase 1 + Phase 2** (both personas), mapping onto the three ADRs (registration; gateway; OAuth).
 
-- **Phase 1 — Registration & introspection (MCP Server Registration ADR, P0):** the MCP server CR (tenant + global) + operator reconciliation; introspection of `tools/list`; idempotent `mcp:<server>:<tool>:use` scope registration; failure handling (un-ready CR, retain prior scopes); read-only catalog view with drift flagging. Exit: declaring a server registers its tools as scopes; drift re-syncs idempotently; tenant isolation holds.
+- **Phase 1 — Registration & introspection (MCP Server Registration ADR, P0):** the MCP server CR (tenant + global) aggregated by the operator into a mounted registry; the tool-gateway's publisher introspects `tools/list` and registers `mcp:<server>:<tool>:use` scopes idempotently; failure handling (retain prior scopes on unreachable, prune-guard against cold/partial keep-lists); read-only catalog view with drift flagging. Exit: declaring a server registers its tools as scopes; drift re-syncs idempotently; tenant isolation holds.
 - **Phase 2 — Gateway & both personas (MCP / Tool Gateway ADR + MCP OAuth ADR, P0):** the `internal/toolgateway` binary; the content-aware PEP (`tools/list` filter, `tools/call` check); the governing proxy + OTel audit; **agent path** (settings-UI tool selection → reconciled grant + generated unauthenticated session config); **human path** (MCP OAuth flow + generated human client config). Exit: an agent reaches only its configured tools, and a human connects a desktop MCP client and sees exactly their granted tools; default-deny holds for both.
 - **Phase 3 — Fast-follow:** remote third-party MCP servers.
 - **Phase 4 — Later:** argument-level policy; resources/prompts; delegation-chain enforcement.
