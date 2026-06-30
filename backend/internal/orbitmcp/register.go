@@ -9,6 +9,7 @@ import (
 // its own tools_<domain>.go file and registers its tools here.
 func registerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	registerAgentTools(srv, b, jc)
+	registerRunTools(srv, b, jc)
 	registerModelTools(srv, b, jc)
 	registerPolicyTools(srv, b, jc)
 }

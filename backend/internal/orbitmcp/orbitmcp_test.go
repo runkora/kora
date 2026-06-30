@@ -179,6 +179,61 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 	}
 }
 
+// TestRunToolsForwardMethodAndPath covers the runs lifecycle: each tool hits the
+// right method + path under /api/v1/runs and forwards its body.
+func TestRunToolsForwardMethodAndPath(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"run-1"}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	t.Run("start POSTs agent_type_id", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.start", "arguments": map[string]any{"agent_type_id": "at-9", "initial_message": "hi"}})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/runs" {
+			t.Errorf("start hit %s %s, want POST /api/v1/runs", gotMethod, gotPath)
+		}
+		if gotBody["agent_type_id"] != "at-9" || gotBody["initial_message"] != "hi" {
+			t.Errorf("start body not forwarded: %v", gotBody)
+		}
+	})
+
+	t.Run("send_message POSTs content to /messages", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.send_message", "arguments": map[string]any{"run_id": "run-1", "content": "go"}})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/runs/run-1/messages" {
+			t.Errorf("send_message hit %s %s", gotMethod, gotPath)
+		}
+		if gotBody["content"] != "go" {
+			t.Errorf("send_message content not forwarded: %v", gotBody)
+		}
+	})
+
+	t.Run("interrupt POSTs to /interrupt", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.interrupt", "arguments": map[string]any{"run_id": "run-1"}})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/runs/run-1/interrupt" {
+			t.Errorf("interrupt hit %s %s", gotMethod, gotPath)
+		}
+	})
+
+	t.Run("terminate DELETEs the run", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.terminate", "arguments": map[string]any{"run_id": "run-1"}})
+		if gotMethod != http.MethodDelete || gotPath != "/api/v1/runs/run-1" {
+			t.Errorf("terminate hit %s %s", gotMethod, gotPath)
+		}
+	})
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the
