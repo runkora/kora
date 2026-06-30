@@ -136,6 +136,49 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}
 }
 
+// TestConnectorsDiscoveryAndForwarding covers the connectors surface: the
+// agents.connectors discovery tool hits the connections catalog, and agents.create
+// forwards the nested connectors + connectivity intent for the backend to compile.
+func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"connections":[{"name":"github"}]}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "agents.connectors", "arguments": map[string]any{}})
+	if gotPath != "/api/v1/connections" {
+		t.Errorf("agents.connectors hit %q, want /api/v1/connections", gotPath)
+	}
+
+	call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{
+		"name": "C", "slug": "c", "model_id": "anthropic/claude-sonnet-4-6",
+		"connectors":   []any{map[string]any{"connection": "github", "actions": []any{"repo:read"}}},
+		"connectivity": map[string]any{"mode": "whitelist", "hosts": []any{"api.github.com"}},
+	}})
+	if gotPath != "/api/v1/agent-types" {
+		t.Fatalf("create hit %q, want /api/v1/agent-types", gotPath)
+	}
+	conns, _ := gotBody["connectors"].([]any)
+	if len(conns) != 1 || conns[0].(map[string]any)["connection"] != "github" {
+		t.Errorf("connectors not forwarded: %v", gotBody["connectors"])
+	}
+	if c, _ := gotBody["connectivity"].(map[string]any); c["mode"] != "whitelist" {
+		t.Errorf("connectivity not forwarded: %v", gotBody["connectivity"])
+	}
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the
