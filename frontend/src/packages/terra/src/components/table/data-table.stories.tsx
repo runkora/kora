@@ -3,7 +3,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { DataTable } from './index';
 import type { TableColumnFilter, DataTableColumn } from './index';
-import { Badge, Card, CardContent, CardFooter, CardHeader, Stack, Text } from '../../index';
+import { Badge, Button, Card, CardContent, CardFooter, CardHeader, Icon, Stack, Text } from '../../index';
 
 // ── Meta ──────────────────────────────────────────────────────────────────────
 
@@ -435,12 +435,10 @@ export const WithToolbarActions: Story = {
           row.id.toLowerCase().includes(q) || row.status.toLowerCase().includes(q)
         }
         toolbarActions={
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated"
-          >
-            + New agent
-          </button>
+          <Button>
+            <Icon name="plus" size="xs" />
+            New agent
+          </Button>
         }
       />
     </div>
