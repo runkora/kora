@@ -347,88 +347,88 @@ export function AgentsPage() {
                     </Stack>
                   </Stack>
                 </CardContent>
-              <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
-                <Text size="caption" color="muted">
-                  {activeRunsByType.get(agent.id) ?? 0} active
-                </Text>
-                <Stack direction="horizontal" gap="tight">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Start run"
-                    aria-label={`Start run for ${agent.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStartRunTarget(agent);
-                    }}
-                  >
-                    <Icon name="play" size="2xs" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Settings for ${agent.name}`}
-                    asChild
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Link href={APP_ROUTES.agents.detail(agent.slug)}>
-                      <Icon name="settings" size="2xs" />
-                    </Link>
-                  </Button>
-                </Stack>
-              </CardFooter>
-            </Card>
-          ),
-          footer: (
-            <Card
-              column
-              role="button"
-              onClick={() => router.push(APP_ROUTES.agents.new)}
-              style={{
-                background: 'transparent',
-                borderStyle: 'dashed',
-                cursor: 'pointer',
-                height: '100%',
-              }}
-            >
-              <CardHeader
-                leadingIcon="bot"
-                title="placeholder"
-                description="placeholder"
-                action={<StatusBadge status="healthy" label="Active" />}
-                divider
-                style={{ visibility: 'hidden' }}
-                aria-hidden="true"
-              />
-              <CardContent padded grow>
-                <Stack align="center" justify="center" grow gap="tight">
-                  <Icon name="plus" size="sm" />
-                  <Text size="supporting" color="muted">
-                    Create new agent
+                <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
+                  <Text size="caption" color="muted">
+                    {activeRunsByType.get(agent.id) ?? 0} active
                   </Text>
-                </Stack>
-              </CardContent>
-              <CardFooter
-                compact
-                justify="between"
-                style={{ visibility: 'hidden' }}
-                aria-hidden="true"
+                  <Stack direction="horizontal" gap="tight">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="Start run"
+                      aria-label={`Start run for ${agent.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStartRunTarget(agent);
+                      }}
+                    >
+                      <Icon name="play" size="2xs" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Settings for ${agent.name}`}
+                      asChild
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Link href={APP_ROUTES.agents.detail(agent.slug)}>
+                        <Icon name="settings" size="2xs" />
+                      </Link>
+                    </Button>
+                  </Stack>
+                </CardFooter>
+              </Card>
+            ),
+            footer: (
+              <Card
+                column
+                role="button"
+                onClick={() => router.push(APP_ROUTES.agents.new)}
+                style={{
+                  background: 'transparent',
+                  borderStyle: 'dashed',
+                  cursor: 'pointer',
+                  height: '100%',
+                }}
               >
-                <Text size="caption" color="muted">
-                  0 active
-                </Text>
-                <Stack direction="horizontal" gap="tight">
-                  <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
-                    <Icon name="play" size="2xs" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
-                    <Icon name="settings" size="2xs" />
-                  </Button>
-                </Stack>
-              </CardFooter>
-            </Card>
-          ),
-        }}
+                <CardHeader
+                  leadingIcon="bot"
+                  title="placeholder"
+                  description="placeholder"
+                  action={<StatusBadge status="healthy" label="Active" />}
+                  divider
+                  style={{ visibility: 'hidden' }}
+                  aria-hidden="true"
+                />
+                <CardContent padded grow>
+                  <Stack align="center" justify="center" grow gap="tight">
+                    <Icon name="plus" size="sm" />
+                    <Text size="supporting" color="muted">
+                      Create new agent
+                    </Text>
+                  </Stack>
+                </CardContent>
+                <CardFooter
+                  compact
+                  justify="between"
+                  style={{ visibility: 'hidden' }}
+                  aria-hidden="true"
+                >
+                  <Text size="caption" color="muted">
+                    0 active
+                  </Text>
+                  <Stack direction="horizontal" gap="tight">
+                    <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
+                      <Icon name="play" size="2xs" />
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
+                      <Icon name="settings" size="2xs" />
+                    </Button>
+                  </Stack>
+                </CardFooter>
+              </Card>
+            ),
+          }}
         />
       )}
 
