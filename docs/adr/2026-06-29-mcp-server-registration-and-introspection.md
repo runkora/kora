@@ -59,20 +59,20 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 
 ### Decision 2 — Who introspects and publishes scopes
 
-Introspection means opening an MCP session to a (running) server and calling `tools/list`; the discovered tools then become published `mcp:*` scopes. This splits cleanly along the boundary Orbit already drew for connections (jit-credential ADR, Amendment 3): the **operator aggregates CRs into mounted config**, and the **gateway does the domain work and holds the policy-service identity**.
+Introspection means opening an MCP session to a (running) server and calling `tools/list`; the discovered tools then become published `mcp` scopes. This splits cleanly along the boundary Orbit already drew for connections (jit-credential ADR, Amendment 3): the **operator aggregates CRs into mounted config**, and the **gateway does the domain work and holds the policy-service identity**.
 
-- **Option A: The tool-gateway introspects and publishes; the operator only aggregates (chosen).** The operator runs an `MCPServerAggregator` (mirror of `ConnectionAggregator`) that reconciles `MCPServer` CRs into one `orbit-system` ConfigMap — and nothing more; it stays purely Kubernetes-facing. The **tool-gateway** mounts that registry and, on reload, introspects each server (it is *already* an MCP client — proxying MCP is its job) and publishes the union `mcp:*` vocabulary via `ScopePublisher` — exactly as the egress-gateway republishes `connection:*` scopes and holds the service identity policy-service requires. This keeps each component to one concern and matches the connection precedent verbatim.
+- **Option A: The tool-gateway introspects and publishes; the operator only aggregates (chosen).** The operator runs an `MCPServerAggregator` (mirror of `ConnectionAggregator`) that reconciles `MCPServer` CRs into one `orbit-system` ConfigMap — and nothing more; it stays purely Kubernetes-facing. The **tool-gateway** mounts that registry and, on reload, introspects each server (it is *already* an MCP client — proxying MCP is its job) and publishes the union `mcp` vocabulary via `ScopePublisher` — exactly as the egress-gateway republishes `connection` scopes and holds the service identity policy-service requires. This keeps each component to one concern and matches the connection precedent verbatim.
 - **Option B: The operator reconciler introspects and registers scopes.** Puts MCP-protocol calls and policy-service registration into a pod whose only job is reconciling Kubernetes objects — breaking single-concern and diverging from the connection split. It would also give the operator its first outbound service calls and a new SPIFFE identity for policy-service. Rejected: the only thing it bought was writing introspection health onto CR status, and that is the wrong home for runtime state (see Decision below).
 - **Option C: A dedicated `mcp-registry` service.** A third deployment that watches CRs and introspects. More moving parts than warranted; introspection is the gateway's own MCP concern.
 
 **Where the publisher lives — a `replicas=1` deployment of the same binary, not every proxy replica.** `DeleteOrphans` is *destructive*: it strips pruned scopes out of every grant and role (`PurgeScopeFromAll`), so an empty or short keep-list does not merely under-advertise — it **revokes access**. That makes the publisher a single-writer problem, not a thundering-herd one. Running it in every horizontally-scaled proxy replica would have each replica prune against its *own* keep-list, and during any divergence window the prune is dangerous:
 
-- **Cold start / partial mount:** a replica that publishes before its registry ConfigMap mount or its first introspection round completes publishes an empty/partial keep-list → wipes `mcp:*` scopes from grants.
+- **Cold start / partial mount:** a replica that publishes before its registry ConfigMap mount or its first introspection round completes publishes an empty/partial keep-list → wipes `mcp` scopes from grants.
 - **Divergent keep-lists:** introspection is per-replica and fails per-replica; replica B finding server Y transiently unreachable on boot (nothing to retain) prunes Y's tools while replica A re-adds them. Policy-service's recompile debounce (~500 ms per tenant, ~1 s gateway) coalesces *recompiles*, not *opposing intents* — it does nothing to make the larger keep-list win. Idempotency holds only **at convergence**, which is exactly when a destructive prune is *not* live.
 
 So the publisher runs as its own **`replicas=1` deployment of the `tool-gateway` binary** (publisher mode); the request-path proxy scales independently. Single-writer by deployment topology — no leader election, no `Lease`, no Kubernetes API in either pod. It is the same binary and component (a run-mode split), not a separate service — distinct from rejected Option C.
 
-**Prune-guard (required, even for the single writer).** The publisher performs `DeleteOrphans` only once the registry is fully mounted *and* every server it lists has either been successfully introspected this lifetime or has prior tools to retain; until then it is **Upsert-only**. This stops a boot-time empty/partial keep-list from revoking live `mcp:*` grants.
+**Prune-guard (required, even for the single writer).** The publisher performs `DeleteOrphans` only once the registry is fully mounted *and* every server it lists has either been successfully introspected this lifetime or has prior tools to retain; until then it is **Upsert-only**. This stops a boot-time empty/partial keep-list from revoking live `mcp` grants.
 
 **CR status is reconciliation state, not introspection health.** Because the operator no longer introspects, the `MCPServer` CR's status reflects only what the operator knows — accepted and aggregated into the registry. Introspection health (reachable? how many tools? last synced?) is **runtime state the gateway owns**, surfaced via OTel/metrics and the read-only catalog UI — the same way connection health is a UI/*Test-Connection* concern, not CR status.
 
@@ -80,7 +80,7 @@ So the publisher runs as its own **`replicas=1` deployment of the `tool-gateway`
 
 MCP tool scopes follow Orbit's established scope model: the scope string names a capability (`mcp:<server>:<tool>:use`), `policy_scope_vocabulary` is the global registry of those names, and tenancy is carried by the grant — the same model as `inference:<family>:<model>:use` and `connection:<name>:<action>`.
 
-Registration mirrors the egress-gateway's `ScopePublisher`. The tool-gateway's publisher (`registeredBy = "tool-gateway"`) publishes the full `mcp:*` vocabulary globally, with the keep-list being the union of every registered server's tools across all tenants. The existing `DeleteOrphans` then retires a scope only when no server in any tenant still exposes it, so introspection drift in one tenant leaves other tenants' shared names intact. Two tenants that both run a `github` server share the `mcp:github:*` names exactly as two tenants' `github` connections share `connection:github:*` today; the gateway resolves each caller's own server and authorises on the caller's tenant-scoped grants.
+Registration mirrors the egress-gateway's `ScopePublisher`. The tool-gateway's publisher (`registeredBy = "tool-gateway"`) publishes the full `mcp` scope vocabulary globally, with the keep-list being the union of every registered server's tools across all tenants. The existing `DeleteOrphans` then retires a scope only when no server in any tenant still exposes it, so introspection drift in one tenant leaves other tenants' shared names intact. Two tenants that both run a `github` server share the `mcp:github` tool-scope names exactly as two tenants' `github` connections share their `connection:github` names today; the gateway resolves each caller's own server and authorises on the caller's tenant-scoped grants.
 
 ### Decision 4 — Tenant vs global
 
@@ -89,6 +89,8 @@ The scope *string* is tenant-free for both; the tenant/global distinction is **n
 ### Decision 5 — Naming & stability in the scope path
 
 `mcp:<server>:<tool>:use` — resource_type `mcp`, path `[<server>, <tool>]`, action `use`. Prefix coverage: `mcp:<server>:use` covers a server's whole surface, `mcp:use` everything. `<server>` is the CR's stable `metadata.name`; `<tool>` is the MCP tool name **normalised** to a scope-path-safe segment (lowercase, `[a-z0-9_-]`, documented mapping). A renamed tool becomes a new scope: the old name drops from the keep-list and is pruned, so a client using it gets a clean default-deny; the new name registers ungranted. Both transitions surface in the catalog as drift.
+
+**Clarification (2026-06-30):** `<tool>` may be a **multi-segment** path, not only a single segment. A tool name containing a `.` separator splits into multiple scope-path segments — e.g. a server advertising `agents.create` registers `mcp:<server>:agents:create:use` (path `[<server>, agents, create]`), so prefix coverage gives a domain rollup `mcp:<server>:agents:use`. This is native to the policy scope model (`inference:<family>:<model>:use` is already a 2-segment path); each segment still obeys the `[a-z0-9_-]` charset (the `.` is only a separator). Used by the [Orbit MCP](2026-06-30-orbit-mcp.md).
 
 ---
 
@@ -197,7 +199,7 @@ on registry reload / timer:
      run global DeleteOrphans(keep)                 // prune-guard: else Upsert-only
 ```
 
-Publication is global with a union keep-list, so `DeleteOrphans` (which runs for `tenantID == ""`) prunes a scope only when no server in any tenant still exposes it — exactly the connection `ScopePublisher` behaviour. A tenant's `github` and another tenant's `github` share the `mcp:github:*` names; that is fine, because the gateway resolves the *caller's* tenant's server and authorisation is on tenant-scoped grants. A server that is unreachable at introspection time keeps its prior tools in the keep-list (no silent prune) and is flagged `Degraded` in the gateway's metrics and the catalog — not on the CR.
+Publication is global with a union keep-list, so `DeleteOrphans` (which runs for `tenantID == ""`) prunes a scope only when no server in any tenant still exposes it — exactly the connection `ScopePublisher` behaviour. A tenant's `github` and another tenant's `github` share the `mcp:github` names; that is fine, because the gateway resolves the *caller's* tenant's server and authorisation is on tenant-scoped grants. A server that is unreachable at introspection time keeps its prior tools in the keep-list (no silent prune) and is flagged `Degraded` in the gateway's metrics and the catalog — not on the CR.
 
 ### Scope registration & drift (the connection pattern, reused)
 
@@ -264,7 +266,7 @@ MVP speaks **Streamable HTTP** MCP and uses only `initialize` + `tools/list`. We
 ### Negative
 
 - **The publisher is a separate `replicas=1` deployment.** Because `DeleteOrphans` revokes scopes from grants/roles, publishing must be single-writer over one complete keep-list (see Decision 2). This is one more deployment of the same binary (publisher mode) alongside the scaled proxy — the cost of avoiding both a destructive multi-writer race and a leader-election `Lease`.
-- **A union republish on every change** (the same trade the connection `ScopePublisher` makes): the publisher recomputes and re-publishes the full `mcp:*` union per registry change, gaining prune-safety and reuse of the existing global prune.
+- **A union republish on every change** (the same trade the connection `ScopePublisher` makes): the publisher recomputes and re-publishes the full `mcp` union per registry change, gaining prune-safety and reuse of the existing global prune.
 - **Prune is gated on a complete keep-list.** Until the registry is mounted and every listed server has been seen-or-retained, the publisher is Upsert-only; a server that has *never* been reachable since boot defers its prune rather than wiping its scopes.
 - **Introspection health is not in the Kubernetes API.** A `kubectl get mcpserver` shows reconciliation state, not reachability; an operator wanting "is this server healthy?" looks at the catalog UI / gateway metrics. This is the deliberate cost of keeping introspection out of the operator (and matches how connection health is surfaced).
 - Introspection is point-in-time; a tool added between syncs is invisible until the next reload/timer (bounded by `reintrospectIntervalSeconds`).
@@ -309,5 +311,5 @@ Exit: applying an `MCPServer` CR registers its tools as scopes (operator aggrega
 
 - MCP specification — `tools/list`, `initialize`, Streamable HTTP transport (spec version pinned in implementation).
 - `internal/operator/connection_types.go`, `connection_aggregator.go`, `tenant_controller.go`, `scheme.go` — the CRD + aggregator precedent the `MCPServer` CRD and `MCPServerAggregator` mirror.
-- The egress-gateway `ScopePublisher` (publishes `connection:*` on registry reload, holding the gateway's policy-service identity) — the precedent the tool-gateway's MCP publisher mirrors.
+- The egress-gateway `ScopePublisher` (publishes `connection` on registry reload, holding the gateway's policy-service identity) — the precedent the tool-gateway's MCP publisher mirrors.
 - `internal/policyservice/vocabulary/repository.go`, `internal/policyservice/api/service.go` (`RegisterRoutes`) — scope registration.
