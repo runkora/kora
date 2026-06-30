@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-server-registration-and-introspection.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, Orbit Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -27,7 +27,7 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 - Tenant-scoped registration (a tenant's own servers) and platform-global registration (the Orbit MCP and platform servers Orbit registers itself).
 - Introspect `tools/list` and register `mcp:<server>:<tool>:use` scopes into the existing policy vocabulary, reusing the grant/scope machinery wholesale.
 - Idempotent re-sync on drift: appeared tools added, vanished tools retired; the platform never auto-creates a grant.
-- Tenant isolation across the CR, introspection, the catalog, and the scopes.
+- Tenant isolation across the CR, introspection, the catalog, and grants (the scope vocabulary stays a global name registry, as for `inference:`/`connection:`).
 - A read-only catalog (servers → tools → grant status) for admins.
 
 ### Non-Goals
@@ -57,25 +57,38 @@ We need a way to: (1) declare an MCP server as infrastructure, tenant-scoped or 
 - **Option B: CRUD API + Postgres registry.** A `POST /mcp/servers` admin API. Rejected for exactly the reasons the credential broker rejected it: no human-usable front, a security-critical resource behind a raw API, and config split from its lifecycle. The credential broker already walked this back to CRs.
 - **Option C: Static config (`mcpservers.yaml`).** Too static — no per-tenant story, no reconcile loop, no status.
 
-### Decision 2 — Where introspection runs
+### Decision 2 — Who introspects and publishes scopes
 
-Introspection means opening an MCP session to a (running) server and calling `tools/list`. The result must flow to the CR's readiness status, and the discovered scopes must be registered into policy-service.
+Introspection means opening an MCP session to a (running) server and calling `tools/list`; the discovered tools then become published `mcp:*` scopes. This splits cleanly along the boundary Orbit already drew for connections (jit-credential ADR, Amendment 3): the **operator aggregates CRs into mounted config**, and the **gateway does the domain work and holds the policy-service identity**.
 
-- **Option A: The operator reconciler introspects (chosen).** The operator already has the Kubernetes API (to read CRs and write status), already reconciles tenant resources, and already calls platform services. It opens an MCP client to the server's in-mesh endpoint, calls `tools/list`, registers scopes, and writes `status` (Ready / Degraded with reason). Introspection result and CR readiness stay coherent in one place.
-- **Option B: The gateway introspects on registry reload.** Mirrors how the egress-gateway republishes connection scopes on mount reload. Clean, but the gateway is a mount-only data-plane pod with no Kubernetes API — it cannot write CR status, so the failure-mode requirement (un-ready CR on unreachable server) cannot be met there. Rejected for MVP; revisit if introspection cost forces it out of the operator.
-- **Option C: A dedicated `mcp-registry` service.** A third deployment that watches CRs and introspects. More moving parts than warranted; the operator already is the CR reconciler.
+- **Option A: The tool-gateway introspects and publishes; the operator only aggregates (chosen).** The operator runs an `MCPServerAggregator` (mirror of `ConnectionAggregator`) that reconciles `MCPServer` CRs into one `orbit-system` ConfigMap — and nothing more; it stays purely Kubernetes-facing. The **tool-gateway** mounts that registry and, on reload, introspects each server (it is *already* an MCP client — proxying MCP is its job) and publishes the union `mcp:*` vocabulary via `ScopePublisher` — exactly as the egress-gateway republishes `connection:*` scopes and holds the service identity policy-service requires. This keeps each component to one concern and matches the connection precedent verbatim.
+- **Option B: The operator reconciler introspects and registers scopes.** Puts MCP-protocol calls and policy-service registration into a pod whose only job is reconciling Kubernetes objects — breaking single-concern and diverging from the connection split. It would also give the operator its first outbound service calls and a new SPIFFE identity for policy-service. Rejected: the only thing it bought was writing introspection health onto CR status, and that is the wrong home for runtime state (see Decision below).
+- **Option C: A dedicated `mcp-registry` service.** A third deployment that watches CRs and introspects. More moving parts than warranted; introspection is the gateway's own MCP concern.
 
-### Decision 3 — How tools become scopes
+**Where the publisher lives — a `replicas=1` deployment of the same binary, not every proxy replica.** `DeleteOrphans` is *destructive*: it strips pruned scopes out of every grant and role (`PurgeScopeFromAll`), so an empty or short keep-list does not merely under-advertise — it **revokes access**. That makes the publisher a single-writer problem, not a thundering-herd one. Running it in every horizontally-scaled proxy replica would have each replica prune against its *own* keep-list, and during any divergence window the prune is dangerous:
 
-Reuse, verbatim, the path dynamic route registration already uses: the introspector calls policy-service `RegisterRoutes(ctx, service, tenantID, routes, scopeDecls)`, which `Upsert`s each `ScopeDeclaration` into `policy_scope_vocabulary` and, for the owning service, `DeleteOrphans(registeredBy, keepScopes)` prunes vanished scopes and purges them from all grants/roles. **This gives idempotent drift handling for free** — re-introspection with the current tool set is the keep-list. No new registration surface.
+- **Cold start / partial mount:** a replica that publishes before its registry ConfigMap mount or its first introspection round completes publishes an empty/partial keep-list → wipes `mcp:*` scopes from grants.
+- **Divergent keep-lists:** introspection is per-replica and fails per-replica; replica B finding server Y transiently unreachable on boot (nothing to retain) prunes Y's tools while replica A re-adds them. Policy-service's recompile debounce (~500 ms per tenant, ~1 s gateway) coalesces *recompiles*, not *opposing intents* — it does nothing to make the larger keep-list win. Idempotency holds only **at convergence**, which is exactly when a destructive prune is *not* live.
+
+So the publisher runs as its own **`replicas=1` deployment of the `tool-gateway` binary** (publisher mode); the request-path proxy scales independently. Single-writer by deployment topology — no leader election, no `Lease`, no Kubernetes API in either pod. It is the same binary and component (a run-mode split), not a separate service — distinct from rejected Option C.
+
+**Prune-guard (required, even for the single writer).** The publisher performs `DeleteOrphans` only once the registry is fully mounted *and* every server it lists has either been successfully introspected this lifetime or has prior tools to retain; until then it is **Upsert-only**. This stops a boot-time empty/partial keep-list from revoking live `mcp:*` grants.
+
+**CR status is reconciliation state, not introspection health.** Because the operator no longer introspects, the `MCPServer` CR's status reflects only what the operator knows — accepted and aggregated into the registry. Introspection health (reachable? how many tools? last synced?) is **runtime state the gateway owns**, surfaced via OTel/metrics and the read-only catalog UI — the same way connection health is a UI/*Test-Connection* concern, not CR status.
+
+### Decision 3 — How tools become scopes (mirror the connection `ScopePublisher`)
+
+MCP tool scopes follow Orbit's established scope model: the scope string names a capability (`mcp:<server>:<tool>:use`), `policy_scope_vocabulary` is the global registry of those names, and tenancy is carried by the grant — the same model as `inference:<family>:<model>:use` and `connection:<name>:<action>`.
+
+Registration mirrors the egress-gateway's `ScopePublisher`. The tool-gateway's publisher (`registeredBy = "tool-gateway"`) publishes the full `mcp:*` vocabulary globally, with the keep-list being the union of every registered server's tools across all tenants. The existing `DeleteOrphans` then retires a scope only when no server in any tenant still exposes it, so introspection drift in one tenant leaves other tenants' shared names intact. Two tenants that both run a `github` server share the `mcp:github:*` names exactly as two tenants' `github` connections share `connection:github:*` today; the gateway resolves each caller's own server and authorises on the caller's tenant-scoped grants.
 
 ### Decision 4 — Tenant vs global
 
-A server CR in a tenant namespace registers **tenant-scoped** scopes (`tenant_id` = the tenant), visible and grantable only within that tenant. A server CR in `orbit-system`, applied by Orbit, registers **global** scopes (`tenant_id = ""`), grantable in any tenant. This is exactly the `tenant_id == ""` distinction the policy vocabulary already encodes for global vs tenant route registration. Global is not an admin toggle — it is simply *who applied the CR and where*.
+The scope *string* is tenant-free for both; the tenant/global distinction is **not** in the vocabulary. It is carried by (a) **tenant-scoped grants** — the authorisation boundary — and (b) the tenant-dimensioned `mcp_tools` catalog, which determines whose admin UI can see and grant which tools. A tenant server's tools appear only in that tenant's catalog (+ globals); a global (Orbit-registered) server's tools appear in every tenant's catalog. Global is not an admin toggle — it is simply *who applied the CR and where*.
 
 ### Decision 5 — Naming & stability in the scope path
 
-`mcp:<server>:<tool>:use` — resource_type `mcp`, path `[<server>, <tool>]`, action `use`. `<server>` is the CR's stable `metadata.name` (the slug), never a renamable display field. `<tool>` is the MCP tool name **normalised** to a scope-path-safe segment (lowercase, `[a-z0-9_-]`, documented mapping). A renamed tool is, correctly, a new scope: the old scope is orphaned and pruned (silent deny on the old name), the new scope registers ungranted (default-deny). This is the safe failure direction and is surfaced in the catalog as drift.
+`mcp:<server>:<tool>:use` — resource_type `mcp`, path `[<server>, <tool>]`, action `use`. Prefix coverage: `mcp:<server>:use` covers a server's whole surface, `mcp:use` everything. `<server>` is the CR's stable `metadata.name`; `<tool>` is the MCP tool name **normalised** to a scope-path-safe segment (lowercase, `[a-z0-9_-]`, documented mapping). A renamed tool becomes a new scope: the old name drops from the keep-list and is pruned, so a client using it gets a clean default-deny; the new name registers ungranted. Both transitions surface in the catalog as drift.
 
 ---
 
@@ -84,14 +97,14 @@ A server CR in a tenant namespace registers **tenant-scoped** scopes (`tenant_id
 | # | Decision |
 |---|----------|
 | 1 | MCP servers are declared as an `MCPServer` CRD, operator-reconciled — tenant-namespaced or `orbit-system` (global). No CRUD API, no UI create. |
-| 2 | The **operator reconciler** introspects (`tools/list`), registers scopes, and writes CR status. |
-| 3 | Scopes register via the existing policy-service vocabulary path (`RegisterRoutes` → `Upsert` + `DeleteOrphans`); drift is handled by orphan pruning. |
-| 4 | Tenant CRs → tenant-scoped scopes; `orbit-system` CRs (Orbit-applied) → global scopes. |
-| 5 | Scope path is `mcp:<server-slug>:<normalised-tool>:use`; renames are new scopes; old ones pruned and default-denied. |
+| 2 | The **operator only aggregates** CRs into a mounted registry. The **tool-gateway** introspects (`tools/list`) and publishes scopes from a **`replicas=1` publisher deployment** of the same binary (single-writer by topology — no lease/k8s-API — because `DeleteOrphans` is destructive), with a prune-guard against cold/partial keep-lists. CR status is reconciliation state; introspection health is gateway runtime state. |
+| 3 | MCP tool scopes are published to the vocabulary by a single owner with a union keep-list across all servers, mirroring the connection `ScopePublisher`; the existing `DeleteOrphans` retires names no server exposes. |
+| 4 | Tenancy is carried by the grant and the tenant-dimensioned catalog. Tenant CRs populate that tenant's catalog; `orbit-system` CRs (Orbit-applied) populate every tenant's catalog. |
+| 5 | Scope path is `mcp:<server>:<tool>:use`; renames are new scopes; vanished names are pruned and default-denied. |
 
 ### Rationale
 
-Every decision lands on an existing Orbit pattern: the CR + operator-aggregation model from `Connection`, the vocabulary upsert/orphan-prune from dynamic route registration, the `tenant_id == ""` global/tenant split from the policy service, and the namespace/`tenant_id` isolation from every multi-tenant table. The only genuinely new component is an **MCP client** for introspection — and even that has a hand-rolled JSON-RPC precedent in `orbit-runtime-mcp`. The result is a foundation that is small in new surface and maximally consistent with how Orbit already governs resources.
+The design composes existing Orbit patterns and keeps each component to one concern. The operator does what it already does for `Connection` — reconcile CRs into mounted config — and nothing more. The tool-gateway does what the egress-gateway already does — read the mounted registry and publish a capability vocabulary via `ScopePublisher`, holding the service identity policy-service requires — plus the one genuinely new thing, an MCP introspection client (which has a hand-rolled JSON-RPC precedent in `orbit-runtime-mcp`). There is no new operator outbound surface and no new operator identity; the gateway's policy-service identity is the same shape the egress-gateway already carries.
 
 ---
 
@@ -118,16 +131,19 @@ type MCPServerSpec struct {
     Endpoint string `json:"endpoint"`
     // Transport selects the MCP transport. MVP: "streamable-http".
     Transport string `json:"transport,omitempty"`
-    // ReintrospectIntervalSeconds re-syncs the tool surface on a timer
-    // (in addition to reconcile-on-change). 0 = reconcile-only.
+    // ReintrospectIntervalSeconds is read by the gateway's introspection worker
+    // to re-sync the tool surface on a timer (besides on registry reload). 0 = on-reload only.
     ReintrospectIntervalSeconds int `json:"reintrospectIntervalSeconds,omitempty"`
 }
 
+// Status is reconciliation state owned by the operator — whether the CR was
+// accepted and aggregated into the registry. Introspection health (reachability,
+// tool count, last sync) is gateway runtime state, surfaced via metrics + the
+// catalog UI, NOT here.
 type MCPServerStatus struct {
-    Phase            string             `json:"phase,omitempty"` // Pending|Introspecting|Ready|Degraded
-    ToolCount        int                `json:"toolCount,omitempty"`
-    LastIntrospected *metav1.Time       `json:"lastIntrospected,omitempty"`
-    Conditions       []metav1.Condition `json:"conditions,omitempty"` // Introspected, ScopesRegistered
+    Phase            string             `json:"phase,omitempty"` // Pending|Aggregated|Invalid
+    LastReconciledAt *metav1.Time       `json:"lastReconciledAt,omitempty"`
+    Conditions       []metav1.Condition `json:"conditions,omitempty"` // Aggregated
 }
 ```
 
@@ -136,7 +152,7 @@ type MCPServerStatus struct {
 apiVersion: orbit.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: github           # → scope segment <server>; stable, never renamed in place
+  name: github           # → scope mcp:github:<tool>:use; stable slug, no tenant in path
   namespace: orbit-tenant-acme
 spec:
   displayName: "GitHub"
@@ -147,40 +163,53 @@ spec:
 
 Orbit registers the global Orbit MCP identically, in `orbit-system` — same kind, different namespace.
 
-### Reconcile lifecycle
+### Two loops: operator aggregation, gateway introspection
 
-A new `MCPServerReconciler` in the operator (registered in `scheme.go` alongside `OrbitTenant`/`Connection`):
+Responsibility splits exactly as it does for connections.
+
+**Operator — `MCPServerAggregator`** (mirror of `ConnectionAggregator`, registered in `scheme.go` alongside `OrbitTenant`/`Connection`):
 
 ```
 Reconcile(MCPServer):
-  1. phase = Introspecting
-  2. open MCP session to spec.endpoint → call initialize, then tools/list
-       └─ on error (unreachable / malformed): phase = Degraded,
-          condition Introspected=False(reason), RETAIN prior scopes, requeue
-  3. for each tool: build ScopeDeclaration{
-        Scope: "mcp:<name>:<normalise(tool)>:use",
-        ResourceType: "mcp", PathSegments: [<name>, <normalise(tool)>], Action: "use",
-        Description: tool.description }
-  4. policyClient.RegisterRoutes(ctx, service="mcp/<name>", tenantID=<ns→tenant or "">,
-        routes=[], scopes=decls)
-       └─ Upsert each scope; DeleteOrphans(service, keep=decls) prunes vanished tools
-  5. upsert tool metadata into the mcp_tools catalog table (name, description, input
-        schema) for the read-only UI
-  6. phase = Ready, toolCount=N, conditions Introspected=True, ScopesRegistered=True
+  1. validate spec; phase = Invalid(reason) on bad spec, else continue
+  2. re-render the orbit-system registry ConfigMap "orbit-mcp-servers" =
+        every active MCPServer across all tenant namespaces + orbit-system
+        (name, endpoint, transport, tenant_id, reintrospectIntervalSeconds)
+  3. phase = Aggregated, condition Aggregated=True, lastReconciledAt = now
 ```
 
-`service = "mcp/<server-slug>"` makes each server its own scope owner, so `DeleteOrphans` prunes only *that* server's tools — never another server's.
+Purely Kubernetes-facing: no MCP calls, no policy-service calls, no new identity.
 
-### Scope registration & drift (reused, not rebuilt)
+**Tool-gateway publisher** (the `replicas=1` deployment; mounts the registry ConfigMap, `fsnotify` reload + timer):
 
-`policy_scope_vocabulary` and `RegisterRoutes`/`DeleteOrphans` already exist. Drift handling is a direct consequence:
+```
+on registry reload / timer:
+  for each server in the mounted registry (subject to its reintrospectInterval):
+    open MCP session to endpoint → initialize, tools/list
+      └─ on error (unreachable / malformed): record server Degraded in
+         metrics + catalog; RETAIN its prior tools in the keep-list; continue
+    upsert tool metadata into the mcp_tools catalog (server_slug, tool_name,
+       description, input_schema, tenant_id) for the read-only UI
+  keep = union of every reachable/retained server's tools (all tenants)
+  ScopePublisher → RegisterRoutes(service="tool-gateway",
+     scopes={mcp:<server>:<tool>:use}…)            // Upsert always
+  if registry fully mounted AND every listed server seen-or-retained:
+     run global DeleteOrphans(keep)                 // prune-guard: else Upsert-only
+```
+
+Publication is global with a union keep-list, so `DeleteOrphans` (which runs for `tenantID == ""`) prunes a scope only when no server in any tenant still exposes it — exactly the connection `ScopePublisher` behaviour. A tenant's `github` and another tenant's `github` share the `mcp:github:*` names; that is fine, because the gateway resolves the *caller's* tenant's server and authorisation is on tenant-scoped grants. A server that is unreachable at introspection time keeps its prior tools in the keep-list (no silent prune) and is flagged `Degraded` in the gateway's metrics and the catalog — not on the CR.
+
+### Scope registration & drift (the connection pattern, reused)
+
+`policy_scope_vocabulary`, `Upsert`, and the global `DeleteOrphans` all already exist; MCP reuses them via a global union-keep-list publish. Drift handling:
 
 | Server change | Re-introspect result | Vocabulary effect |
 |---|---|---|
-| New tool appears | in `keep` list | `Upsert` adds the scope; **ungranted** (default-deny) |
-| Tool removed | not in `keep` list | `DeleteOrphans` prunes scope; purged from all grants/roles |
-| Tool renamed | old absent, new present | old pruned (deny on old), new added ungranted |
-| No change | same `keep` list | all upserts idempotent; no-op |
+| New tool appears | enters the union keep-list | `Upsert` adds the scope; **ungranted** (default-deny) |
+| Tool removed (no tenant has it) | drops from the union keep-list | `DeleteOrphans` retires the scope; purged from grants/roles |
+| Tool still present in another tenant | stays in the union keep-list | scope name retained (shared); no cross-tenant prune |
+| Tool renamed | old drops, new enters | old pruned (deny on old), new added ungranted |
+| No change | same keep-list | all upserts idempotent; no-op |
 
 The platform never creates a grant. A new tool is reachable only where the existing prefix-coverage rule already allows it — i.e. only under a pre-existing **server-level** grant `mcp:<server>:use` (the admin's standing opt-in to that server's whole surface, future tools included). The catalog flags newly-discovered tools regardless.
 
@@ -210,16 +239,15 @@ The catalog is **derived state** — vocabulary remains the source of truth for 
 
 ### Tenant isolation
 
-Enforced structurally, matching every multi-tenant table and the [tenant-isolation ADR](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md):
+The scope vocabulary is a shared registry of capability names; tenant isolation is enforced by three mechanisms around it, matching the [tenant-isolation ADR](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md):
 
-- A tenant CR lives in `orbit-tenant-{id}`; the reconciler derives `tenant_id` from the namespace and stamps every scope and catalog row with it.
-- CR-apply authority *is* the enforcement point: who can `kubectl apply` an `MCPServer` into a tenant namespace is governed by the tenant's RBAC, tied to the identity model — there is no Orbit API that can create a server cross-tenant because there is no create API at all.
-- Global (`orbit-system`) CRs are applicable only by Orbit (cluster-admin / platform GitOps), never by a tenant.
-- Every catalog/scope read filters `WHERE tenant_id = $1 OR tenant_id = ''` (own + global), never another tenant's.
+- **Tenant-scoped grants** are the authorisation boundary: a grant belongs to a tenant and can only be created within it, so a principal is authorised only on its own tenant's (and global) scope names — and the gateway resolves the *caller's* tenant's server, so a shared name like `mcp:github:create_issue:use` always means *that tenant's* github.
+- **Tenant-dimensioned catalog:** `mcp_tools` carries `tenant_id`; every catalog read filters `WHERE tenant_id = $1 OR tenant_id = ''` (own + global), never another tenant's — so a tenant's admin UI can only see and grant its own (and global) servers' tools.
+- **CR-apply authority** is the registration enforcement point: who can `kubectl apply` an `MCPServer` into `orbit-tenant-{id}` is governed by the tenant's RBAC, tied to the identity model — there is no create API at all, so nothing can register a server cross-tenant. Global (`orbit-system`) CRs are applicable only by Orbit, never a tenant.
 
 ### MCP client (introspection)
 
-MVP speaks **Streamable HTTP** MCP and uses only `initialize` + `tools/list`. We adopt a maintained Go MCP client library if one fits the pinned spec version; otherwise we hand-roll the two calls (the `orbit-runtime-mcp` JSON-RPC server is the in-repo precedent). The client is small and lives in the operator's MCP-introspection package.
+MVP speaks **Streamable HTTP** MCP and uses only `initialize` + `tools/list`. We adopt a maintained Go MCP client library if one fits the pinned spec version; otherwise we hand-roll the two calls (the `orbit-runtime-mcp` JSON-RPC server is the in-repo precedent). The client is small and lives in the tool-gateway's introspection worker — the same binary that already speaks MCP as a proxy.
 
 ---
 
@@ -228,38 +256,42 @@ MVP speaks **Streamable HTTP** MCP and uses only `initialize` + `tools/list`. We
 ### Positive
 
 - Registration is pure GitOps; the security-critical resource has no mutation API and no UI create path.
-- Drift handling, tenant/global split, and scope validation are **reused**, not rebuilt — minimal new surface.
-- Introspection status lives on the CR, so an unreachable or malformed server is visibly `Degraded` without silently dropping scopes.
+- Each component keeps one concern: the operator only aggregates CRs (no MCP or policy-service calls, no new identity); the tool-gateway owns all MCP-protocol work and scope publishing, exactly as the egress-gateway owns connection scope publishing.
+- Drift handling, tenant/global split, and scope validation are **reused**, not rebuilt — the only genuinely new component is the MCP introspection client.
+- An unreachable or malformed server retains its prior tools and is flagged `Degraded` in gateway metrics + the catalog, without silently dropping scopes.
 - The tool surface becomes authoritative and governable for *any* server, including unmodified open-source ones.
 
 ### Negative
 
-- The operator now makes outbound MCP protocol calls and owns an MCP client — a new responsibility for a component that was purely Kubernetes-facing.
-- Introspection is point-in-time; a tool added between syncs is invisible until the next reconcile/timer (bounded by `reintrospectIntervalSeconds`).
+- **The publisher is a separate `replicas=1` deployment.** Because `DeleteOrphans` revokes scopes from grants/roles, publishing must be single-writer over one complete keep-list (see Decision 2). This is one more deployment of the same binary (publisher mode) alongside the scaled proxy — the cost of avoiding both a destructive multi-writer race and a leader-election `Lease`.
+- **A union republish on every change** (the same trade the connection `ScopePublisher` makes): the publisher recomputes and re-publishes the full `mcp:*` union per registry change, gaining prune-safety and reuse of the existing global prune.
+- **Prune is gated on a complete keep-list.** Until the registry is mounted and every listed server has been seen-or-retained, the publisher is Upsert-only; a server that has *never* been reachable since boot defers its prune rather than wiping its scopes.
+- **Introspection health is not in the Kubernetes API.** A `kubectl get mcpserver` shows reconciliation state, not reachability; an operator wanting "is this server healthy?" looks at the catalog UI / gateway metrics. This is the deliberate cost of keeping introspection out of the operator (and matches how connection health is surfaced).
+- Introspection is point-in-time; a tool added between syncs is invisible until the next reload/timer (bounded by `reintrospectIntervalSeconds`).
 - Derived catalog state must be kept consistent with the vocabulary (rebuilt each introspection; the vocabulary stays authoritative).
 
 ### Neutral
 
 - A server-level grant remains a standing opt-in to future tools — a property of the prefix-coverage model, surfaced here, addressed (re-affirmation on drift) as possible future work.
-- Renames are new scopes by design; clients relying on a renamed tool see a clean default-deny, not a silent re-expose.
+- A renamed tool becomes a new scope; a client using the old name gets a clean default-deny rather than a silent re-expose.
 
 ---
 
 ## Implementation
 
-- **Phase 1 — CRD + reconcile skeleton.** `MCPServer` types, scheme registration, a reconciler that reaches Ready without introspection (status only). RBAC: operator gains read/watch on `MCPServer`.
-- **Phase 2 — Introspection.** MCP client (`initialize` + `tools/list`), Degraded/retain-on-failure handling, `reintrospectIntervalSeconds` timer.
-- **Phase 3 — Scope registration.** Wire introspection to `RegisterRoutes`/`Upsert`/`DeleteOrphans`; verify idempotent drift end-to-end; tenant vs global.
+- **Phase 1 — CRD + operator aggregator.** `MCPServer` types, scheme registration, and an `MCPServerAggregator` that renders the `orbit-mcp-servers` registry ConfigMap. RBAC: operator gains read/watch on `MCPServer` (it already manages ConfigMaps). No operator outbound calls, no new operator identity.
+- **Phase 2 — Publisher deployment + introspection.** The `tool-gateway` binary in publisher mode as a `replicas=1` deployment: mount the registry, MCP client (`initialize` + `tools/list`), Degraded/retain-on-failure handling, `reintrospectIntervalSeconds` timer.
+- **Phase 3 — Scope publishing + prune-guard.** `ScopePublisher` → global union-keep-list publish (`registeredBy = "tool-gateway"`, `tenantID = ""`), reusing the gateway's policy-service identity as the egress-gateway does; implement the prune-guard (Upsert-only until the keep-list is complete); verify drift end-to-end (add, remove, rename, shared-name retention) **and** the cold-start/partial-mount case does not revoke grants.
 - **Phase 4 — Catalog table + read-only API.** `mcp_tools` migration, repository, and a tenant-scoped list endpoint for the UI (consumed by the gateway/dashboard ADRs).
 
-Exit: applying an `MCPServer` CR registers its tools as scopes; removing a tool prunes its scope; another tenant cannot see either; an unreachable server is `Degraded` with prior scopes retained.
+Exit: applying an `MCPServer` CR registers its tools as scopes (operator aggregates → gateway introspects + publishes on reload); removing a tool prunes its scope; another tenant cannot see either; an unreachable server is flagged `Degraded` in the catalog/metrics with prior scopes retained.
 
 ---
 
 ## Validation
 
-- **Success metrics:** apply-to-grantable in one reconcile; zero manual scope bookkeeping across a drift cycle; no cross-tenant scope or catalog leakage in tests.
-- **Monitoring:** `mcp_introspect_total{result}`, `mcp_scopes_registered`, `mcp_scopes_pruned`, reconcile latency, count of `Degraded` servers.
+- **Success metrics:** apply-to-grantable within one introspection cycle (operator aggregate + gateway publish); zero manual scope bookkeeping across a drift cycle; no cross-tenant scope or catalog leakage in tests.
+- **Monitoring (gateway-emitted):** `mcp_introspect_total{result}`, `mcp_scopes_registered`, `mcp_scopes_pruned`, introspection latency, count of `Degraded` servers, time since last successful publish.
 
 ---
 
@@ -276,5 +308,6 @@ Exit: applying an `MCPServer` CR registers its tools as scopes; removing a tool 
 ## References
 
 - MCP specification — `tools/list`, `initialize`, Streamable HTTP transport (spec version pinned in implementation).
-- `internal/operator/connection_types.go`, `connection_aggregator.go`, `tenant_controller.go`, `scheme.go` — CRD/reconciler/aggregator precedents.
+- `internal/operator/connection_types.go`, `connection_aggregator.go`, `tenant_controller.go`, `scheme.go` — the CRD + aggregator precedent the `MCPServer` CRD and `MCPServerAggregator` mirror.
+- The egress-gateway `ScopePublisher` (publishes `connection:*` on registry reload, holding the gateway's policy-service identity) — the precedent the tool-gateway's MCP publisher mirrors.
 - `internal/policyservice/vocabulary/repository.go`, `internal/policyservice/api/service.go` (`RegisterRoutes`) — scope registration.

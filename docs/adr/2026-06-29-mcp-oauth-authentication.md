@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-oauth-authentication.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, Orbit Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -25,7 +25,7 @@ The MCP authorization spec expects the opposite shape. A spec-compliant MCP clie
 2. fetches that metadata from the **resource server** (the gateway) to discover the **authorization server**;
 3. fetches **authorization-server metadata** (RFC 8414);
 4. (optionally) **dynamically registers** as a client (RFC 7591);
-5. runs **OAuth 2.1 authorization-code + PKCE**, obtains an access token whose audience is the gateway;
+5. runs **OAuth 2.1 authorization-code + PKCE**, obtains an access token;
 6. calls the gateway with that token.
 
 Real MCP clients implement this flow; they will not perform a bespoke "paste your Dex token into a custom `/session` endpoint" handshake. So supporting them is not a pure reuse of the existing relying-party machinery — there is a genuine new surface.
@@ -39,7 +39,7 @@ Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reu
 - A human MCP client authenticates to the gateway via the standard MCP OAuth flow, no Orbit-specific client code.
 - The issued access token is an Orbit platform token (or verifiable as one) carrying a HUMAN principal the PEP authorises on existing grants.
 - Reuse token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation.
-- Tenant-correct: the human authenticates against *their* tenant's identity provider; the token is audience-bound to the gateway.
+- Tenant-correct: the human authenticates against *their* tenant's identity provider; the issued token carries that tenant.
 
 ### Non-Goals
 
@@ -54,7 +54,7 @@ Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reu
 - **Spec compliance is non-negotiable** — the value is that off-the-shelf MCP clients just work.
 - **Reuse the identity core.** Token signing (RS256), JWKS, `PlatformClaims`, JTI blocklist revocation, and the `oidc_id_token` handoff already exist and are tested.
 - **Don't reinvent IdP federation.** Orbit already does per-tenant OIDC discovery and id_token validation; the human's actual login should ride that, not a second user store.
-- **Audience binding.** The gateway is a resource server; tokens must be bound to it, not general-purpose platform tokens.
+- **Consistency with the platform token model.** The human's token should be an ordinary Orbit platform token like every agent and PAT token — same signing, same verification, authorisation by scopes — not a new token shape.
 
 ---
 
@@ -62,7 +62,7 @@ Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reu
 
 ### Option A — Orbit identity service becomes a minimal OAuth 2.1 authorization server, federating to the tenant IdP (chosen)
 
-Orbit's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, Orbit runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token, audience-bound to the gateway, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
+Orbit's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, Orbit runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token — an ordinary `aud=orbit-platform` token like every other Orbit token, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
 
 - **Pros:** fully spec-compliant (real clients work); reuses token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation; the access token is already a first-class Orbit principal the PEP understands; one identity authority.
 - **Cons:** genuinely new endpoints (`/authorize`, `/token`, metadata, DCR) and the security surface of an authorization server (redirect-URI validation, PKCE enforcement, consent). This is the real cost the PRD flagged.
@@ -83,7 +83,7 @@ The MCP client somehow obtains a tenant-IdP token and posts it to a new `mcp_oau
 
 ### Sub-decision — Dynamic Client Registration
 
-The MCP spec has moved DCR from required toward optional, allowing alternatives (pre-registered public clients, client-id metadata documents). MVP implements **DCR (RFC 7591) for public clients with PKCE**, because the major desktop MCP clients expect to self-register, with a configuration flag to require pre-registration in stricter deployments. Exact MVP surface pinned in implementation against the chosen spec revision.
+The MCP spec has moved DCR from required toward optional, allowing alternatives (pre-registered public clients, client-id metadata documents). **MVP ships DCR (RFC 7591) for public clients with PKCE** — it is *in* the first cut, because the major desktop MCP clients expect to self-register — with a configuration flag to require pre-registration in stricter deployments. The only thing deferred to implementation is pinning the exact MCP spec revision the endpoints conform to, not whether DCR ships.
 
 ---
 
@@ -93,7 +93,7 @@ The MCP spec has moved DCR from required toward optional, allowing alternatives 
 |---|----------|
 | 1 | Orbit's identity service becomes a **minimal OAuth 2.1 authorization server** for the MCP profile (Option A) — not a user directory. |
 | 2 | `/authorize` federates to the **tenant's existing OIDC provider**; the human logs in where they already do. |
-| 3 | The issued **access token is an Orbit platform token**, `PrincipalType=HUMAN`, **audience-bound to the gateway**, revocable via the existing JTI blocklist. |
+| 3 | The issued **access token is an ordinary Orbit platform token** (`aud=orbit-platform`), `PrincipalType=HUMAN`, revocable via the existing JTI blocklist — no new token shape. |
 | 4 | The **gateway** (resource server) serves protected-resource metadata (RFC 9728); the **identity service** serves AS metadata (RFC 8414) and DCR (RFC 7591). |
 | 5 | Reuse token signing, JWKS verification, `PlatformClaims`, and the `oidc_id_token` validation path internally. |
 
@@ -119,8 +119,8 @@ Option A is the only choice that makes off-the-shelf MCP clients work *and* keep
         │                                                          │  ◀── id_token ─────────── │
         │  ◀──────────────── redirect w/ code ───────────────────  │ (validates id_token,      
         │  POST /token (code+verifier) ──────────────────────────▶ │  mints platform token,    
-        │  ◀──────── access_token (Orbit platform JWT, aud=gw) ──  │  aud=tool-gateway, HUMAN) 
-        │  POST /mcp (Bearer access_token) ─▶ │  validate (JWKS) → claims → PEP                  
+        │  ◀──────── access_token (ordinary Orbit platform JWT) ─  │  HUMAN, tenant=acme)       
+        │  POST /mcp (Bearer access_token) ─▶ │  validate (JWKS, standard verifier) → claims → PEP
 ```
 
 ### Token shape
@@ -129,7 +129,7 @@ The access token is a `PlatformClaims` JWT, RS256-signed by the existing signing
 
 ```jsonc
 {
-  "aud": "tool-gateway",            // audience-bound to the resource server
+  "aud": "orbit-platform",          // ordinary platform token (same as agent/PAT tokens)
   "orbit": {
     "principal_type": "HUMAN",
     "tenant_id": "acme",
@@ -143,6 +143,8 @@ The access token is a `PlatformClaims` JWT, RS256-signed by the existing signing
 
 The gateway validates it with the existing `token.Verifier`, gets `*PlatformClaims` in context, and authorises with the unchanged PEP. No new principal *type* is strictly required — `HUMAN` is correct; the `mcp_client_id` claim records which registered client was used.
 
+The token is a standard `aud=orbit-platform` platform token — the same shape `signToken` already produces and the same audience every Orbit verifier already accepts. So both doors (agent and human) present the same audience and the gateway uses the existing verifier with **no signing or verification changes**. Authorisation is by the human's scopes, exactly as it is for agents and PATs. Per-resource audience binding (RFC 8707 resource indicators) is a possible future hardening, deferred — see *Future Work*.
+
 ### New surface vs reuse
 
 | Concern | Mechanism | Status |
@@ -153,7 +155,7 @@ The gateway validates it with the existing `token.Verifier`, gets `*PlatformClai
 | `/authorize` + `/token` (OAuth 2.1 + PKCE) | identity service | **new** (the real surface) |
 | Login (who is this human) | per-tenant OIDC federation | **reused** |
 | id_token → platform token | `oidc_id_token` handoff path | **reused** |
-| Token signing / JWKS / verification | `internal/platform/token`, identity `signToken` | **reused** |
+| Token signing / JWKS / verification | `internal/platform/token`, identity `signToken` | **reused** (no change — ordinary `aud=orbit-platform` token) |
 | Revocation | JTI blocklist (Redis) | **reused** |
 | Principal in the gateway | `PlatformClaims` + `AuthMiddleware` | **reused** |
 
@@ -186,7 +188,7 @@ The gateway validates it with the existing `token.Verifier`, gets `*PlatformClai
 ## Implementation
 
 - **Phase 1 — Metadata + resource server.** Gateway PRM endpoint and `401 + WWW-Authenticate`; identity AS metadata. Wires discovery end-to-end with a pre-registered test client.
-- **Phase 2 — Authorization-code + PKCE.** `/authorize` (federating to the tenant IdP via the existing OIDC path) and `/token` (minting an audience-bound platform token via the reused id_token→token path); JTI revocation.
+- **Phase 2 — Authorization-code + PKCE.** `/authorize` (federating to the tenant IdP via the existing OIDC path) and `/token` (minting an ordinary platform token via the reused id_token→token path); JTI revocation.
 - **Phase 3 — Dynamic client registration.** `POST /register` for public PKCE clients, with redirect-URI allow-listing and the pre-registration flag.
 - **Phase 4 — Hardening.** Consent, DCR abuse controls, audit of token issuance, and conformance testing against real MCP clients (Claude Desktop / Cursor).
 
@@ -196,8 +198,16 @@ Exit: a stock MCP client completes discovery → registration → authorization 
 
 ## Validation
 
-- **Success metrics:** a stock MCP client authenticates with zero Orbit-specific configuration beyond the gateway URL; issued tokens are audience-bound and JTI-revocable; no cross-tenant token issuance in tests.
+- **Success metrics:** a stock MCP client authenticates with zero Orbit-specific configuration beyond the gateway URL; issued tokens are JTI-revocable; no cross-tenant token issuance in tests.
 - **Monitoring:** `mcp_oauth_authorize_total{result}`, `mcp_oauth_token_issued_total`, DCR registrations, token revocations, conformance-suite pass rate.
+
+---
+
+## Future Work — per-resource audiences
+
+This ADR deliberately issues the human's MCP token as an ordinary `aud=orbit-platform` platform token, identical to agent and PAT tokens. That keeps one token model across the platform and means *no* signing or verification changes. The trade-off is that, like every Orbit token today, it is not bound to a single resource server — a leaked token is bounded by its *scopes*, not by its audience.
+
+If Orbit later wants true per-resource token binding (OAuth 2.1 / RFC 8707 Resource Indicators) — so a token minted for the MCP gateway cannot be replayed against the inference gateway or the main API — that is a **platform-wide change to the token model**, not an MCP concern, and should be its **own ADR**. It would introduce a per-request audience in `signToken`, an audience registry, and multi-audience verifiers across every service, and would let each resource server (the MCP gateway included) require its own audience. Until that exists, MCP rides the existing uniform-audience model rather than inventing a one-off audience for itself.
 
 ---
 

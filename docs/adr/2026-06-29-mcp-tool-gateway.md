@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-tool-gateway.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, Orbit Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -31,7 +31,7 @@ A `tools/call` is a single JSON-RPC method on one endpoint; the tool being invok
 
 ### Non-Goals
 
-- Server registration & introspection — the [registration ADR](2026-06-29-mcp-server-registration-and-introspection.md).
+- The *design* of server registration & introspection — the [registration ADR](2026-06-29-mcp-server-registration-and-introspection.md). (Its introspection + scope-publishing worker is the **same binary in publisher mode, run as a separate `replicas=1` deployment** — single-writer, because its `DeleteOrphans` publish revokes grants. The request-path proxy described here scales independently.)
 - The human authentication mechanism — the [OAuth ADR](2026-06-29-mcp-oauth-authentication.md); this ADR consumes its resulting principal.
 - Remote third-party MCP servers; argument-level policy; `resources/*`/`prompts/*`; delegation `act`-chain enforcement across the gateway — all deferred per the PRD.
 - Credential injection on the gateway→server hop (managed microservice owns its own backend creds).
@@ -53,6 +53,8 @@ A `tools/call` is a single JSON-RPC method on one endpoint; the tool being invok
 
 - **Option A: New `cmd/tool-gateway` binary + `internal/toolgateway` package (chosen).** Mirrors inference-gateway/policy-gateway: its own port, config, SPIFFE service identity, horizontal scaling. A gateway in the request path of all tool calls deserves its own scaling and blast-radius boundary.
 - **Option B: A feature inside orbit-agents.** Couples a shared, latency-sensitive data-plane proxy to the agent control plane; conflicts with independent scaling. Rejected.
+
+The binary runs in two modes / two deployments: the **proxy** (this ADR — request-path, horizontally scaled) and the **publisher** (the [registration ADR](2026-06-29-mcp-server-registration-and-introspection.md)'s introspection + scope-publishing worker, `replicas=1` so its destructive `DeleteOrphans` publish has a single writer). One binary and codebase; independent scaling.
 
 ### Decision 2 — How the per-tool decision is evaluated
 
@@ -113,10 +115,10 @@ func (c *Controller) GroupedBy() string { return "/mcp" }
 
 func (c *Controller) Middleware() mw.MiddlewareHandler {
     return mw.MiddlewareChain(
-        xAPIKeyMiddleware(),                       // x-api-key → Bearer (parity with inference-gw)
-        mcpOAuthMiddleware(c.oauth, c.logger),     // human path: validate MCP OAuth bearer (OAuth ADR)
-        mw.AuthMiddleware(c.verifier, c.logger),   // agent path: validate injected platform token
-        mw.ScopeEnforcementMiddleware(c.eval, ...) // Layer-1-equivalent coarse gate: mcp:invoke
+        xAPIKeyMiddleware(),                        // x-api-key → Bearer (parity with inference-gw)
+        mcpChallengeMiddleware(c.logger),           // on missing/invalid token → 401 + WWW-Authenticate → PRM
+        mw.AuthMiddleware(c.verifier, c.logger),    // ONE verifier validates BOTH personas' JWTs
+        mw.ScopeEnforcementMiddleware(c.eval, ...), // Layer-1-equivalent coarse gate: mcp:invoke
     )
 }
 
@@ -126,7 +128,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 }
 ```
 
-Both personas resolve, via their respective middleware, to a `*token.PlatformClaims` in context — `AuthMiddleware`/`ClaimsFromContext`. From there the enforcement spine is identical.
+There is **one token-validation path, not two.** The human's MCP OAuth access token *is* a `PlatformClaims` RS256 JWT ([OAuth ADR](2026-06-29-mcp-oauth-authentication.md)), so the same `mw.AuthMiddleware`/`token.Verifier` validates both the agent's injected platform token and the human's OAuth token; both yield a `*token.PlatformClaims` in context and the enforcement spine is identical. The OAuth-specific middleware does **not** re-validate — its only job is the spec's unauthenticated handshake: on a missing/invalid bearer, reply `401` with `WWW-Authenticate` pointing at the protected-resource metadata, which the gateway serves at `/.well-known/oauth-protected-resource`.
+
+Both doors present the **same kind of token**: an ordinary `aud=orbit-platform` Orbit platform token (the agent's is injected by the sidecar; the human's is minted by the MCP OAuth flow — see the [OAuth ADR](2026-06-29-mcp-oauth-authentication.md)). So the single existing verifier validates both with no special-casing, and there is no per-resource audience to reconcile. Authorisation is by scopes for both.
 
 ### The PEP — list filter & call check
 
@@ -138,11 +142,14 @@ claims, _ := token.ClaimsFromContext(ctx)
 switch req.Method {
 case "tools/list":
     candidates := c.catalog.Tools(ctx, claims.Orbit.TenantID, server) // registered tools for server
+    // policy.Candidate carries {ID, PathSegments}; encode the FULL scope path into
+    // PathSegments so the evaluator's prefix rule fires (mcp:<…>:use covers the tool).
+    // ID = the tool's wire name; PathSegments = scopePath(tenant, server, tool).
     allowed, _ := c.eval.Query(ctx, policy.QueryInput{
         Claims: claims, ResourceType: "mcp", Action: "use",
-        Candidates: toCandidates(server, candidates), // PathSegments [server, tool]
+        Candidates: toCandidates(server, candidates),
     })
-    return filteredList(allowed) // only granted tools advertised
+    return filteredList(allowed) // []string of allowed tool IDs → only those advertised
 
 case "tools/call":
     res, _ := c.eval.Check(ctx, policy.CheckInput{
@@ -158,14 +165,16 @@ case "tools/call":
 }
 ```
 
+The path `[server, normalise(tool)]` matches the `mcp:<server>:<tool>:use` scope the [registration ADR](2026-06-29-mcp-server-registration-and-introspection.md) registers, and the evaluator authorises it against the caller's grants. The candidate encoding is the hinge of the `tools/list` filter: `policy.Candidate` carries `PathSegments`, so each candidate sets `ID` = the tool's wire name and `PathSegments` = `[server, tool]`; the evaluator's prefix rule then lets a `mcp:<server>:use` server-level grant cover the whole list in one `Query`.
+
 Default-deny is structural: `Query` omits ungranted tools so they never enter the model's possibility space, and `Check` rejects an ungranted `tools/call` even if the client guessed the name.
 
 ### Agent provisioning (reused reconciliation)
 
-Selecting tools in the agent settings UI extends exactly the model-access path ([agent provisioning ADR](2026-05-11-agent-identity-and-policy-provisioning.md)):
+Selecting tools in the agent settings UI extends exactly the model-access path ([agent provisioning ADR](2026-05-11-agent-identity-and-policy-provisioning.md)). Today the agent UI already derives the model scope client-side (`deriveGrantScopes(modelId)` → `inference:invoke` + `inference:<family>:<model>:use`) and stores it in the agent's `grant_scopes`; MCP tool access is the same shape:
 
-- The UI derives `mcp:<server>:<tool>:use` (or `mcp:<server>:use`) scopes, alongside the model-derived `inference:…:use` scopes, and sends them as the agent's `grant_scopes`.
-- `ensureAgentGrant` reconciles the agent's **single** grant (delete-and-recreate, since grants are immutable) to carry model + tool scopes together. No new grant per agent.
+- The UI derives `mcp:<server>:<tool>:use` (or `mcp:<server>:use`) scopes from the tool selection and adds them to the same `grant_scopes` list, beside the `inference:…:use` model scopes.
+- `ensureAgentGrant` **reconciles** the agent's grants against `EffectiveGrantScopes()` (which folds in `grant_scopes` + egress/connector scopes): a grant whose scope set already matches is kept (budget reconciled in place); any non-matching grant is deleted and a single new grant carrying the full model + tool scope set is created. A scope change — exactly what adding MCP scopes is — therefore deletes the stale grant and creates one replacement, preserving the **one-grant-per-agent** invariant; an unchanged scope set is a no-op.
 - At session spin-up, `writeMCPConfig` (today hardcodes the `runtime` server) is extended to emit the **gateway** as an MCP source — an **unauthenticated** entry; the identity-proxy sidecar injects the agent's platform token on the outbound call ([sidecar token injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)), so the config holds no credential.
 
 ```jsonc
