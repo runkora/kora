@@ -30,15 +30,6 @@ export function groupModelsByFamily(models: ModelObject[]): ModelGroup[] {
     .map(([family, ms]) => ({ family, models: ms }));
 }
 
-export function deriveGrantScopes(modelId: string): string[] {
-  const scopes: string[] = ['inference:invoke'];
-  const parts = modelId.split('/');
-  if (parts.length === 2 && parts[0] && parts[1]) {
-    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
-  }
-  return scopes;
-}
-
 /**
  * Canonical, order-independent form of the connectors list for dirty-checking.
  * Connectors are sorted by `connection` and each connector's `actions` are
@@ -107,7 +98,6 @@ export function useAgentSettings() {
   }, []);
 
   const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
-  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
 
   // ── Tool scope data ─────────────────────────────────────────────────────────
   const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
@@ -175,7 +165,6 @@ export function useAgentSettings() {
         system_prompt: trimmedSystemPrompt,
         max_concurrent_runs_per_pod: maxRuns,
         model_id: modelId,
-        grant_scopes: grantScopes,
         tool_scopes: toolScopes,
         ...(budgetChanged
           ? {
@@ -217,7 +206,6 @@ export function useAgentSettings() {
       systemPrompt,
       maxConcurrentRuns,
       modelId,
-      grantScopes,
       toolScopes,
       budgetLimitUSD,
       budgetCadence,
@@ -292,8 +280,6 @@ export function useAgentSettings() {
     modelGroups,
     // tool scope data
     availableToolScopes,
-    // derived
-    grantScopes,
     isDirty,
     // save status
     saving,

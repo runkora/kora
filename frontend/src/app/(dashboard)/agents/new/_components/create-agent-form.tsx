@@ -46,18 +46,6 @@ const FRAMEWORK_OPTIONS = [
 
 // ── Scope derivation ──────────────────────────────────────────────────────────
 
-// Always grant inference:invoke so the agent can reach the endpoint.
-// When a specific model is chosen also grant the per-model scope so OPA
-// allows that model but nothing else.
-function deriveGrantScopes(modelId: string): string[] {
-  const scopes: string[] = ['inference:invoke'];
-  const parts = modelId.split('/');
-  if (parts.length === 2 && parts[0] && parts[1]) {
-    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
-  }
-  return scopes;
-}
-
 // ── Slug derivation ───────────────────────────────────────────────────────────
 
 function deriveSlug(name: string): string {
@@ -151,9 +139,6 @@ export function CreateAgentForm() {
 
   const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
 
-  // Derived grant scopes — recomputed whenever modelId changes.
-  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
-
   // Auto-derive slug from name unless user has manually edited it.
   const handleNameChange = useCallback(
     (value: string) => {
@@ -201,7 +186,6 @@ export function CreateAgentForm() {
           model_id: modelId,
           system_prompt: systemPrompt.trim(),
           tool_scopes: toolScopes,
-          grant_scopes: grantScopes,
           connectivity:
             connectivityMode === 'whitelist'
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
@@ -242,7 +226,6 @@ export function CreateAgentForm() {
       budgetPerRunUSD,
       modelId,
       systemPrompt,
-      grantScopes,
       toolScopes,
       connectivityMode,
       connectivityHosts,
@@ -347,8 +330,8 @@ export function CreateAgentForm() {
               label="Model"
               hint={
                 modelId
-                  ? `Grants: ${grantScopes.join(', ')}`
-                  : 'Select a model — access scopes are derived automatically.'
+                  ? 'Inference access for this model is granted automatically.'
+                  : 'Select a model — inference access is granted automatically.'
               }
               error={fieldErrors.modelId}
             >

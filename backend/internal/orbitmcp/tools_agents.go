@@ -3,9 +3,7 @@ package orbitmcp
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,9 +38,6 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			if a.Name == "" || a.Slug == "" {
 				return toolError(errors.New("name and slug are required")), nil
 			}
-			if len(a.GrantScopes) == 0 {
-				a.GrantScopes = deriveGrantScopes(a.ModelID)
-			}
 			return jsonResult(jc.Post(ctx, callerToken(ctx), base, a))
 		})
 
@@ -53,9 +48,6 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 		func(ctx context.Context, a updateAgentArgs) (*sdk.CallToolResult, error) {
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
-			}
-			if len(a.GrantScopes) == 0 && a.ModelID != nil {
-				a.GrantScopes = deriveGrantScopes(*a.ModelID)
 			}
 			return jsonResult(jc.Patch(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.AgentTypeID), a))
 		})
@@ -75,19 +67,6 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/tool-scopes", nil))
 		})
-}
-
-// deriveGrantScopes mirrors the frontend BFF (create-agent-form.tsx deriveGrantScopes):
-// an agent always gets inference:invoke, plus the fine-grained scope for its model
-// (inference:{family}:{name}:use) when a "family/name" model id is set. The MCP applies
-// this so a caller can create/update an agent with just a model_id and not have to
-// assemble grant scopes by hand — exactly as the UI does for a human.
-func deriveGrantScopes(modelID string) []string {
-	scopes := []string{"inference:invoke"}
-	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		scopes = append(scopes, fmt.Sprintf("inference:%s:%s:use", parts[0], parts[1]))
-	}
-	return scopes
 }
 
 // agentFrameworks is the closed set of agent CLI frameworks, surfaced as a
@@ -111,7 +90,7 @@ type createAgentArgs struct {
 	Framework               string   `json:"framework,omitempty" jsonschema:"agent CLI framework"`
 	ModelID                 string   `json:"model_id,omitempty" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-4-6)"`
 	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"tool scopes the agent may use — call the agents.tool_scopes tool to list the valid scopes and what each grants"`
-	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Omit to auto-derive from model_id (inference:invoke + inference:{family}:{name}:use), like the UI; set explicitly only to override"`
+	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
 	MaxConcurrentRunsPerPod int      `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
 }
 
@@ -127,5 +106,5 @@ type updateAgentArgs struct {
 	ModelID                 *string  `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
 	MaxConcurrentRunsPerPod *int     `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
 	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"replacement set of tool scopes — call the agents.tool_scopes tool to list valid scopes"`
-	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Omit while changing model_id to auto-derive the inference scopes, like the UI"`
+	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
 }

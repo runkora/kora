@@ -106,7 +106,6 @@ export function AgentSettingsTab() {
     modelsLoading,
     modelGroups,
     availableToolScopes,
-    grantScopes,
     isDirty,
     saving,
     saveError,
@@ -205,7 +204,9 @@ export function AgentSettingsTab() {
             <FormField
               id="settings-model"
               label="Model"
-              hint={modelId ? `Grants: ${grantScopes.join(', ')}` : undefined}
+              hint={
+                modelId ? 'Inference access for this model is granted automatically.' : undefined
+              }
             >
               <NativeSelect
                 id="settings-model"

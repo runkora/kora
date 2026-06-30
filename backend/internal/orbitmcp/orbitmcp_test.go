@@ -105,24 +105,10 @@ func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
 }
 
 // TestDeriveGrantScopes covers the BFF-mirrored grant-scope derivation.
-func TestDeriveGrantScopes(t *testing.T) {
-	cases := map[string][]string{
-		"anthropic/claude-sonnet-4-6": {"inference:invoke", "inference:anthropic:claude-sonnet-4-6:use"},
-		"":                            {"inference:invoke"},
-		"bare-id":                     {"inference:invoke"},
-		"too/many/parts":              {"inference:invoke"},
-	}
-	for model, want := range cases {
-		got := deriveGrantScopes(model)
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Errorf("deriveGrantScopes(%q) = %v, want %v", model, got, want)
-		}
-	}
-}
-
-// TestCreateAutoDerivesGrantScopes proves agents.create fills grant_scopes from the
-// model when the caller omits them — so create "just works" like the UI.
-func TestCreateAutoDerivesGrantScopes(t *testing.T) {
+// TestCreateForwardsModelWithoutDerivingScopes proves the MCP no longer derives
+// grant_scopes: agents.create forwards model_id and does NOT inject grant_scopes —
+// the agents service is the single source of truth (2026-06-30 amendment).
+func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	var gotBody map[string]any
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotBody = nil
@@ -142,13 +128,11 @@ func TestCreateAutoDerivesGrantScopes(t *testing.T) {
 		"name": "Reviewer", "slug": "reviewer", "model_id": "anthropic/claude-sonnet-4-6",
 	}})
 
-	scopes, _ := gotBody["grant_scopes"].([]any)
-	got := make([]string, 0, len(scopes))
-	for _, s := range scopes {
-		got = append(got, s.(string))
+	if gotBody["model_id"] != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("model_id not forwarded: %v", gotBody["model_id"])
 	}
-	if want := "inference:invoke,inference:anthropic:claude-sonnet-4-6:use"; strings.Join(got, ",") != want {
-		t.Errorf("auto-derived grant_scopes = %v, want [%s]", got, want)
+	if _, ok := gotBody["grant_scopes"]; ok {
+		t.Errorf("MCP must not derive grant_scopes; got %v", gotBody["grant_scopes"])
 	}
 }
 
