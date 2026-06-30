@@ -51,7 +51,10 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
-    className={cn('flex items-end border-b border-border-subtle', className)}
+    className={cn(
+      'flex items-end border-b border-border-subtle overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      className,
+    )}
     {...props}
   />
 ));
