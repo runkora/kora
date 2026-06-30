@@ -3,7 +3,9 @@ package orbitmcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,21 +33,29 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 		})
 
 	addEnumTool(srv, "agents.create",
-		"Create an agent type (agent definition) in the caller's tenant. Returns the created agent type.",
+		"Create an agent type (agent definition) in the caller's tenant. Returns the created agent type. "+
+			"Supplying name, slug and model_id is enough — grant_scopes are auto-derived from the model.",
 		map[string][]any{"framework": agentFrameworks},
 		func(ctx context.Context, a createAgentArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Slug == "" {
 				return toolError(errors.New("name and slug are required")), nil
 			}
+			if len(a.GrantScopes) == 0 {
+				a.GrantScopes = deriveGrantScopes(a.ModelID)
+			}
 			return jsonResult(jc.Post(ctx, callerToken(ctx), base, a))
 		})
 
 	addEnumTool(srv, "agents.update",
-		"Update an agent type by id. Only the fields you supply are changed; omitted fields are left untouched.",
+		"Update an agent type by id. Only the fields you supply are changed; omitted fields are left untouched. "+
+			"If you change model_id without setting grant_scopes, the inference grant_scopes are re-derived to match.",
 		map[string][]any{"framework": agentFrameworks},
 		func(ctx context.Context, a updateAgentArgs) (*sdk.CallToolResult, error) {
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
+			}
+			if len(a.GrantScopes) == 0 && a.ModelID != nil {
+				a.GrantScopes = deriveGrantScopes(*a.ModelID)
 			}
 			return jsonResult(jc.Patch(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.AgentTypeID), a))
 		})
@@ -58,6 +68,26 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			}
 			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.AgentTypeID)))
 		})
+
+	addTool(srv, "agents.tool_scopes",
+		"List the selectable tool scopes for an agent type — each scope, what it does, and the tools it grants. "+
+			"Use this to choose values for the tool_scopes field of agents.create / agents.update.",
+		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/tool-scopes", nil))
+		})
+}
+
+// deriveGrantScopes mirrors the frontend BFF (create-agent-form.tsx deriveGrantScopes):
+// an agent always gets inference:invoke, plus the fine-grained scope for its model
+// (inference:{family}:{name}:use) when a "family/name" model id is set. The MCP applies
+// this so a caller can create/update an agent with just a model_id and not have to
+// assemble grant scopes by hand — exactly as the UI does for a human.
+func deriveGrantScopes(modelID string) []string {
+	scopes := []string{"inference:invoke"}
+	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		scopes = append(scopes, fmt.Sprintf("inference:%s:%s:use", parts[0], parts[1]))
+	}
+	return scopes
 }
 
 // agentFrameworks is the closed set of agent CLI frameworks, surfaced as a
@@ -80,8 +110,8 @@ type createAgentArgs struct {
 	SystemPrompt            string   `json:"system_prompt,omitempty" jsonschema:"the system prompt the agent runs with"`
 	Framework               string   `json:"framework,omitempty" jsonschema:"agent CLI framework"`
 	ModelID                 string   `json:"model_id,omitempty" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-4-6)"`
-	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"tool scopes the agent may use, e.g. shell, filesystem, mcp"`
-	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes the agent is granted, e.g. inference:invoke"`
+	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"tool scopes the agent may use — call the agents.tool_scopes tool to list the valid scopes and what each grants"`
+	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Omit to auto-derive from model_id (inference:invoke + inference:{family}:{name}:use), like the UI; set explicitly only to override"`
 	MaxConcurrentRunsPerPod int      `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
 }
 
@@ -96,6 +126,6 @@ type updateAgentArgs struct {
 	Framework               *string  `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
 	ModelID                 *string  `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
 	MaxConcurrentRunsPerPod *int     `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
-	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"replacement set of tool scopes"`
-	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"replacement set of grant scopes"`
+	ToolScopes              []string `json:"tool_scopes,omitempty" jsonschema:"replacement set of tool scopes — call the agents.tool_scopes tool to list valid scopes"`
+	GrantScopes             []string `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Omit while changing model_id to auto-derive the inference scopes, like the UI"`
 }

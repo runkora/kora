@@ -104,6 +104,54 @@ func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
 	}
 }
 
+// TestDeriveGrantScopes covers the BFF-mirrored grant-scope derivation.
+func TestDeriveGrantScopes(t *testing.T) {
+	cases := map[string][]string{
+		"anthropic/claude-sonnet-4-6": {"inference:invoke", "inference:anthropic:claude-sonnet-4-6:use"},
+		"":                            {"inference:invoke"},
+		"bare-id":                     {"inference:invoke"},
+		"too/many/parts":              {"inference:invoke"},
+	}
+	for model, want := range cases {
+		got := deriveGrantScopes(model)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("deriveGrantScopes(%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+// TestCreateAutoDerivesGrantScopes proves agents.create fills grant_scopes from the
+// model when the caller omits them — so create "just works" like the UI.
+func TestCreateAutoDerivesGrantScopes(t *testing.T) {
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"at-1"}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{
+		"name": "Reviewer", "slug": "reviewer", "model_id": "anthropic/claude-sonnet-4-6",
+	}})
+
+	scopes, _ := gotBody["grant_scopes"].([]any)
+	got := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		got = append(got, s.(string))
+	}
+	if want := "inference:invoke,inference:anthropic:claude-sonnet-4-6:use"; strings.Join(got, ",") != want {
+		t.Errorf("auto-derived grant_scopes = %v, want [%s]", got, want)
+	}
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the
