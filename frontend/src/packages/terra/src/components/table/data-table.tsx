@@ -491,6 +491,7 @@ export function DataTable<TData>({
           <Button
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
             size="icon-sm"
+            style={{ height: '2rem', width: '2rem' }}
             aria-label="Grid view"
             onClick={() => setViewMode('grid')}
           >
@@ -499,6 +500,7 @@ export function DataTable<TData>({
           <Button
             variant={viewMode === 'list' ? 'default' : 'ghost'}
             size="icon-sm"
+            style={{ height: '2rem', width: '2rem' }}
             aria-label="List view"
             onClick={() => setViewMode('list')}
           >
