@@ -226,10 +226,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 }
 
 func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, int, error) {
-	if principalID != "" {
-		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID, limit, offset)
-	}
-	return s.grantRepo.ListByTenant(ctx, tenantID, limit, offset)
+	return s.grantRepo.List(ctx, tenantID, principalType, principalID, limit, offset)
 }
 
 func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
@@ -397,7 +394,7 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 
 // addGrantScopes populates scopeSet with scopes from explicit grants for the principal.
 func (s *Service) addGrantScopes(ctx context.Context, tenantID, principalID string, scopeSet map[string]struct{}) error {
-	grantList, _, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
+	grantList, _, err := s.grantRepo.List(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list grants: %w", err)
 	}

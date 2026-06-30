@@ -59,10 +59,12 @@ type Repository interface {
 	// GetByID retrieves a grant by its primary ID.
 	GetByID(ctx context.Context, id string) (*Grant, error)
 
-	// ListByPrincipal returns grants for a given principal within a tenant,
-	// paginated by limit and offset. Use limit=0 for unbounded.
-	// The second return value is the total count of matching rows before paging.
-	ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error)
+	// List returns grants in a tenant, optionally narrowed by principalType and/or
+	// principalID — an empty filter value matches all values for that column (so any
+	// combination of the two filters works). Paginated by limit and offset
+	// (limit=0 for unbounded). The second return value is the total matching count
+	// before paging.
+	List(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error)
 
 	// ListByTenant returns grants for a tenant, paginated by limit and offset.
 	// Use limit=0 for unbounded (e.g. bundle compilation).
@@ -136,20 +138,28 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, er
 	return r.scanGrant(row)
 }
 
-func (r *postgresRepository) ListByPrincipal(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error) {
+func (r *postgresRepository) List(ctx context.Context, tenantID string, principalType PrincipalType, principalID string, limit, offset int) ([]*Grant, int, error) {
 	query := `
 		SELECT id, tenant_id, principal_type, principal_id, scopes, budget, created_at,
 		       COUNT(*) OVER() AS total_count
 		FROM policy_grants
-		WHERE tenant_id = $1 AND principal_type = $2 AND principal_id = $3
-		ORDER BY created_at`
-	args := []any{tenantID, string(principalType), principalID}
+		WHERE tenant_id = $1`
+	args := []any{tenantID}
+	if principalType != "" {
+		args = append(args, string(principalType))
+		query += fmt.Sprintf(" AND principal_type = $%d", len(args))
+	}
+	if principalID != "" {
+		args = append(args, principalID)
+		query += fmt.Sprintf(" AND principal_id = $%d", len(args))
+	}
+	query += " ORDER BY principal_type, principal_id, created_at"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 	}
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list grants by principal: %w", err)
+		return nil, 0, fmt.Errorf("list grants: %w", err)
 	}
 	defer rows.Close()
 	return r.collectGrantsWithTotal(rows)
