@@ -9,10 +9,12 @@
 package orbitjson
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -110,11 +112,17 @@ func (c *Client) send(ctx context.Context, spanName, bearer string, req *http.Re
 	case resp.StatusCode == http.StatusNoContent:
 		return json.RawMessage(`{"status":"ok"}`), nil
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		var out json.RawMessage
-		if err := c.DecodeJSON(span, resp, &out); err != nil {
-			return nil, fmt.Errorf("decode response: %w", err)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
 		}
-		return out, nil
+		// Some endpoints return a 2xx with an empty body (e.g. send-message,
+		// interrupt). Treat an empty body as a success acknowledgement rather than
+		// failing to decode it as JSON.
+		if len(bytes.TrimSpace(body)) == 0 {
+			return json.RawMessage(`{"status":"ok"}`), nil
+		}
+		return json.RawMessage(body), nil
 	default:
 		return nil, c.HandleErrorResponse(span, resp, ErrUpstream)
 	}
