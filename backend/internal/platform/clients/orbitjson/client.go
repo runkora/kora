@@ -71,6 +71,20 @@ func (c *Client) Post(ctx context.Context, bearer, rawURL string, body any) (jso
 	return c.send(ctx, "orbitjson.Post", bearer, req)
 }
 
+// Put performs an authenticated PUT of a JSON body and returns the raw JSON body.
+func (c *Client) Put(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
+	r, err := c.EncodeJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, r)
+	if err != nil {
+		return nil, fmt.Errorf("build PUT request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.send(ctx, "orbitjson.Put", bearer, req)
+}
+
 // Patch performs an authenticated PATCH of a JSON body and returns the raw JSON body.
 func (c *Client) Patch(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
 	r, err := c.EncodeJSON(body)

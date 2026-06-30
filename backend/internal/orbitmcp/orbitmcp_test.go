@@ -246,6 +246,60 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 	})
 }
 
+// TestPolicyWriteToolsForwardMethodAndPath covers the policy grant/role writes:
+// grants.create POSTs to /grants, roles.upsert PUTs to /roles, and the grant
+// principal_type enum is surfaced.
+func TestPolicyWriteToolsForwardMethodAndPath(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"grant-1"}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Policy: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	t.Run("grants.create POSTs to /grants", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "policy.grants.create", "arguments": map[string]any{
+			"principal_type": "AGENT", "principal_id": "spiffe://x", "scopes": []any{"inference:invoke"},
+		}})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/policy/grants" {
+			t.Errorf("grants.create hit %s %s", gotMethod, gotPath)
+		}
+		if gotBody["principal_type"] != "AGENT" {
+			t.Errorf("principal_type not forwarded: %v", gotBody)
+		}
+	})
+
+	t.Run("grants.create rejects an invalid principal_type via the enum", func(t *testing.T) {
+		got := call("tools/call", map[string]any{"name": "policy.grants.create", "arguments": map[string]any{
+			"principal_type": "ROOT", "principal_id": "x", "scopes": []any{"inference:invoke"},
+		}})
+		res, _ := got["result"].(map[string]any)
+		text, _ := res["content"].([]any)[0].(map[string]any)["text"].(string)
+		if !strings.Contains(text, "enum") {
+			t.Errorf("expected an enum validation error for principal_type=ROOT, got %q", text)
+		}
+	})
+
+	t.Run("roles.upsert PUTs to /roles", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "policy.roles.upsert", "arguments": map[string]any{
+			"role": "analyst", "scopes": []any{"agents:types:read"},
+		}})
+		if gotMethod != http.MethodPut || gotPath != "/api/v1/policy/roles" {
+			t.Errorf("roles.upsert hit %s %s, want PUT /api/v1/policy/roles", gotMethod, gotPath)
+		}
+	})
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the
