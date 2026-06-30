@@ -770,4 +770,42 @@ Scope strings use a colon-separated hierarchy (`inference:anthropic:use`). No wi
 
 The delegation intersection is enforced as a platform invariant in Rego — three parallel coverage checks (delegation token scopes, delegator grants, agent grants) that must all pass. It is not configurable by tenants and cannot be bypassed.
 
-**Last Updated:** 2026-04-13
+---
+
+## Amendment — 2026-06-30: Grant-administration anti-escalation (creation-time scope ceiling)
+
+**Status:** Accepted — adds an invariant to **The Authorisation Model**.
+
+### Context
+
+The **Delegation Intersection** invariant above is a *runtime* check: when a delegated agent makes a request, OPA intersects `delegation_scopes ∩ delegator_grants ∩ agent_grants`. It bounds what an acting principal may **do**.
+
+It says nothing about grant **administration**. Today `POST /policy/grants` (and `PUT /policy/roles`) validate the principal type, check each scope against the vocabulary, and tenant-scope the write — but they never compare the requested scopes against the **caller's own** scopes. So any principal holding the coarse `platform:grants:write` scope can mint a grant — for any principal in its tenant, including itself — carrying **any** vocabulary scope. That is a privilege-escalation primitive: `platform:grants:write` is effectively "grant yourself anything."
+
+This gap was flagged in [orbit-mcp](2026-06-30-orbit-mcp.md) ("the platform's **missing** anti-escalation rule … fix is a separate future platform ADR") and is the blocker for exposing grant/role **write** tools to agents through the Orbit MCP — an agent must not be able to escalate itself by writing a grant.
+
+### Decision
+
+Enforce a **creation-time scope ceiling** on grant and role administration, as a platform invariant alongside the delegation intersection:
+
+> A non-SYSTEM caller may create or modify a grant or role only if **every** scope it assigns is **covered by the caller's own effective scopes** — the same `ScopeCovers` hierarchy used everywhere else (A covers B if same resource + action and A's path is a prefix of B's path).
+
+- **Where.** In the Policy Service (PAP) write path — `CreateGrant` and the role upsert — before persistence. Compute the caller's effective scopes (`EffectiveScopes`), and reject with `403` if any requested scope is not covered by `AnyScopeCovers(callerScopes, requested)`, naming the offending scopes. This is a new, separate check from the existing vocabulary validation.
+- **SYSTEM exemption.** SYSTEM principals are exempt. Trusted platform components (e.g. `orbit-agents` provisioning an agent's grant) legitimately assign scopes they do not personally hold, and already bypass tenant-scoping on these routes (`PrincipalType != SYSTEM` guards). The ceiling therefore applies to **HUMAN** and **AGENT** callers only — exactly the principals that could escalate.
+- **Roles too.** `PUT /policy/roles` gets the same ceiling: a role bundles scopes, and assigning a role is an indirect grant, so an unbounded role upsert would be the same escalation by another door.
+- **Budget-only updates unaffected.** `PATCH /policy/grants/{id}` changes only the budget; scopes are immutable on a grant, so it needs no ceiling check.
+
+### Consequences
+
+- **Closes the escalation primitive** and makes grant/role **write** tools safe to expose to agents (the Orbit MCP `grants.create` / `roles.upsert` surface). Enforced once in the PAP, not re-implemented per client.
+- **A caller can no longer hand out a scope it does not itself hold** — by design. Tenant bootstrapping is unaffected: the OIDC admin role / bootstrap path already grants the broad scopes an admin then distributes (see the bootstrapping rule in the OPA bundle).
+- **Cost:** one effective-scopes read added to the grant/role write path (already cheap; the data is in the bundle/DB).
+- **The SYSTEM carve-out is a trust boundary.** SYSTEM tokens are platform-minted (not tenant-issued) and must stay tightly controlled — they always have been; this amendment makes that property load-bearing for anti-escalation.
+
+### Implementation pointer
+
+In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (and the role upsert), when the caller is non-SYSTEM: load the caller's effective scopes (`EffectiveScopes`) and verify each requested scope with `policy.AnyScopeCovers` (`internal/platform/policy/hierarchy.go`); return a `403` naming the rejected scopes. The caller's principal type/id/roles come from the validated claims already on the context. Once shipped, the Orbit MCP grant/role write tools can be exposed safely.
+
+---
+
+**Last Updated:** 2026-06-30
