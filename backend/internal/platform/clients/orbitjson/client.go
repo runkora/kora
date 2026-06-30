@@ -1,7 +1,7 @@
 // Package orbitjson is a generic authenticated JSON client over httpclient.Base.
 //
-// It GETs/POSTs an Orbit API endpoint with the caller's bearer token and returns
-// the raw JSON body. It is the forwarding primitive for services that proxy
+// It GET/POST/PATCH/DELETEs an Orbit API endpoint with the caller's bearer token
+// and returns the raw JSON body. It is the forwarding primitive for services that proxy
 // authenticated JSON without re-modeling every backend field — notably the
 // Orbit MCP, whose tools return backend JSON to an agent verbatim. It uses
 // httpclient.Base (OTel client spans, W3C trace propagation, structured logging);
@@ -67,6 +67,30 @@ func (c *Client) Post(ctx context.Context, bearer, rawURL string, body any) (jso
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return c.send(ctx, "orbitjson.Post", bearer, req)
+}
+
+// Patch performs an authenticated PATCH of a JSON body and returns the raw JSON body.
+func (c *Client) Patch(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
+	r, err := c.EncodeJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, rawURL, r)
+	if err != nil {
+		return nil, fmt.Errorf("build PATCH request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.send(ctx, "orbitjson.Patch", bearer, req)
+}
+
+// Delete performs an authenticated DELETE and returns the raw JSON body (or a
+// synthetic {"status":"ok"} for a 204 No Content).
+func (c *Client) Delete(ctx context.Context, bearer, rawURL string) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build DELETE request: %w", err)
+	}
+	return c.send(ctx, "orbitjson.Delete", bearer, req)
 }
 
 func (c *Client) send(ctx context.Context, spanName, bearer string, req *http.Request) (json.RawMessage, error) {

@@ -13,6 +13,59 @@ import (
 	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
 )
 
+// TestAgentWriteToolsForwardMethodAndBody exercises the write vertical: each
+// write tool must hit the right HTTP method + path, carry the caller's token,
+// and forward the typed input as the JSON body.
+func TestAgentWriteToolsForwardMethodAndBody(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotAuth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"at-9","slug":"reviewer"}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	t.Run("create POSTs the typed body", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{"name": "Reviewer", "slug": "reviewer"}})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/agent-types" {
+			t.Errorf("create hit %s %s, want POST /api/v1/agent-types", gotMethod, gotPath)
+		}
+		if gotAuth != "Bearer caller-abc" {
+			t.Errorf("create did not forward the caller token; got %q", gotAuth)
+		}
+		if gotBody["name"] != "Reviewer" || gotBody["slug"] != "reviewer" {
+			t.Errorf("create body not forwarded: %v", gotBody)
+		}
+	})
+
+	t.Run("update PATCHes by id", func(t *testing.T) {
+		desc := "now does reviews"
+		call("tools/call", map[string]any{"name": "agents.update", "arguments": map[string]any{"agent_type_id": "at-9", "description": desc}})
+		if gotMethod != http.MethodPatch || gotPath != "/api/v1/agent-types/at-9" {
+			t.Errorf("update hit %s %s, want PATCH /api/v1/agent-types/at-9", gotMethod, gotPath)
+		}
+		if gotBody["description"] != desc {
+			t.Errorf("update body not forwarded: %v", gotBody)
+		}
+	})
+
+	t.Run("delete DELETEs by id", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "agents.delete", "arguments": map[string]any{"agent_type_id": "at-9"}})
+		if gotMethod != http.MethodDelete || gotPath != "/api/v1/agent-types/at-9" {
+			t.Errorf("delete hit %s %s, want DELETE /api/v1/agent-types/at-9", gotMethod, gotPath)
+		}
+	})
+}
+
 // TestToolForwardsCallerTokenAndReturnsJSON exercises the whole Phase 1 vertical:
 // a tools/call over Streamable HTTP → the kit's caller-token passthrough → the
 // orbitjson forwarder → a backend, asserting (a) the backend received the
@@ -32,10 +85,35 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
 
-	call := func(method string, params any) map[string]any {
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+	got := call("tools/call", map[string]any{"name": "agents.list", "arguments": map[string]any{}})
+
+	if gotAuth != "Bearer caller-abc" {
+		t.Errorf("backend did not receive the caller's token; got Authorization %q", gotAuth)
+	}
+	if gotPath != "/api/v1/agent-types" {
+		t.Errorf("tool called wrong backend path: %q", gotPath)
+	}
+	result, _ := got["result"].(map[string]any)
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("no content in tool result: %v", got)
+	}
+	text, _ := content[0].(map[string]any)["text"].(string)
+	if !strings.Contains(text, `"reviewer"`) {
+		t.Errorf("backend JSON not returned to caller; got %q", text)
+	}
+}
+
+// mcpCaller returns a function that issues a JSON-RPC request to the MCP gateway
+// over Streamable HTTP with a fixed caller token, parsing the SSE `data:` frame
+// (or a bare JSON body) into the response map.
+func mcpCaller(t *testing.T, baseURL string) func(method string, params any) map[string]any {
+	return func(method string, params any) map[string]any {
 		t.Helper()
 		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-		req, _ := http.NewRequest(http.MethodPost, gw.URL+"/mcp", bytes.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPost, baseURL+"/mcp", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
 		req.Header.Set("Authorization", "Bearer caller-abc")
@@ -57,24 +135,5 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 		var m map[string]any
 		_ = json.Unmarshal(buf.Bytes(), &m)
 		return m
-	}
-
-	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
-	got := call("tools/call", map[string]any{"name": "agents.list", "arguments": map[string]any{}})
-
-	if gotAuth != "Bearer caller-abc" {
-		t.Errorf("backend did not receive the caller's token; got Authorization %q", gotAuth)
-	}
-	if gotPath != "/api/v1/agent-types" {
-		t.Errorf("tool called wrong backend path: %q", gotPath)
-	}
-	result, _ := got["result"].(map[string]any)
-	content, _ := result["content"].([]any)
-	if len(content) == 0 {
-		t.Fatalf("no content in tool result: %v", got)
-	}
-	text, _ := content[0].(map[string]any)["text"].(string)
-	if !strings.Contains(text, `"reviewer"`) {
-		t.Errorf("backend JSON not returned to caller; got %q", text)
 	}
 }
