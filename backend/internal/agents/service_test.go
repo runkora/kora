@@ -441,6 +441,31 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 }
 
+func TestStartRun_FailedStartMarksRunFailed(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework: AgentFrameworkClaudeCode, MaxConcurrentRunsPerPod: 5,
+	})
+	sm.createSessionErr = errors.New("session-manager unreachable")
+
+	if _, err := svc.StartRun(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err == nil {
+		t.Fatal("expected StartRun to fail when the session cannot be created")
+	}
+
+	// The created run must be marked failed, not left stuck in starting.
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.runs) != 1 {
+		t.Fatalf("expected 1 run row, got %d", len(repo.runs))
+	}
+	for _, r := range repo.runs {
+		if r.State != RunStateFailed {
+			t.Errorf("run left in %q, want failed", r.State)
+		}
+	}
+}
+
 func TestStartRun_TenantMismatch(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})

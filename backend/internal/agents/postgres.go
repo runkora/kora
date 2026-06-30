@@ -271,6 +271,22 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	return nil
 }
 
+// MarkRunFailed unconditionally transitions a run to the failed terminal state and
+// stamps completed_at. Unlike SetRunState it is not a compare-and-swap — it cleans
+// up a run whose start failed from whatever non-terminal state it reached. Zero
+// rows affected (run already gone) is not an error.
+func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	_, err := r.pool.Exec(ctx, `
+		UPDATE runs SET state=$1, completed_at=$2, updated_at=$2 WHERE id=$3`,
+		string(RunStateFailed), now, id,
+	)
+	if err != nil {
+		return fmt.Errorf("mark run failed: %w", err)
+	}
+	return nil
+}
+
 // SetRunSummary writes the task summary set-once: the first summary for a run
 // wins. A resumed session's first message would otherwise re-summarize and
 // clobber the original task label, so the UPDATE only fires while summary IS
