@@ -242,12 +242,13 @@ The platform never creates a grant. A new tool is reachable only where the exist
 
 ### Catalog storage (for the read-only UI)
 
-Vocabulary holds the grantable scope; the **display** metadata (description, input schema) lives in a small catalog table owned by the orbit-agents/registry feature:
+Vocabulary holds the grantable scope; the **display** metadata (description, input schema) lives in a small catalog table.
+
+> **Amendment (2026-07-01) — the catalog is owned by the tool-gateway, not orbit-agents.** This ADR originally placed `mcp_tools` with "the orbit-agents/registry feature," by analogy to the egress gateway's connection catalog (which was offloaded to orbit-agents *because the egress gateway is a CONNECT broker, not reachable over plain HTTP through the mesh*). That analogy does not hold here: the **tool-gateway is a plain-HTTP Streamable-HTTP service the BFF can reach directly**, and the catalog is an MCP-governance concern — not the agent control plane's. So the table, repository, and the tenant-scoped read API all live **with the tool-gateway** (`cmd/tool-gateway/migrations`, `internal/toolgateway`), and the gateway — already the sole introspector — is also the sole writer. The surrogate `id` is dropped in favour of the natural composite primary key.
 
 ```sql
 -- +goose Up
 CREATE TABLE IF NOT EXISTS mcp_tools (
-    id            TEXT        PRIMARY KEY,
     tenant_id     TEXT        NOT NULL,           -- "" for global servers
     server_slug   TEXT        NOT NULL,           -- MCPServer metadata.name
     tool_name     TEXT        NOT NULL,           -- raw MCP tool name
@@ -255,7 +256,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools (
     description   TEXT        NOT NULL DEFAULT '',
     input_schema  JSONB       NOT NULL DEFAULT '{}',
     discovered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (tenant_id, server_slug, tool_name)
+    PRIMARY KEY (tenant_id, server_slug, tool_name)  -- natural key; gateway is single writer
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_tenant_server ON mcp_tools (tenant_id, server_slug);
 -- +goose Down
