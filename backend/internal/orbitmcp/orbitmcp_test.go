@@ -190,6 +190,12 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	if !strings.Contains(text, `"reviewer"`) {
 		t.Errorf("backend JSON not returned to caller; got %q", text)
 	}
+	// The payload must live in text content only. If the tool emits a
+	// structuredContent object, clients that prefer it (e.g. Claude Code) surface
+	// that instead of the text — which for our text-only tools would be empty.
+	if sc, ok := result["structuredContent"]; ok {
+		t.Errorf("result must not carry structuredContent (clients surface it over text); got %v", sc)
+	}
 }
 
 // mcpCaller returns a function that issues a JSON-RPC request to the MCP gateway

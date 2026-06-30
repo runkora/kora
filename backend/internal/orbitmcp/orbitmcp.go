@@ -73,12 +73,17 @@ func addEnumTool[In any](srv *sdk.Server, name, desc string, enums map[string][]
 }
 
 // register wires a typed handler onto the server, adapting it to the SDK's
-// (result, out, err) signature. The unused Out is fixed to noArgs.
+// (result, out, err) signature. The output type is deliberately `any` (returning
+// nil): our results carry their payload as text content (the backend JSON). Using
+// a concrete struct here would make the SDK derive an outputSchema and emit a
+// `structuredContent` object alongside the text — and clients that prefer
+// structuredContent (e.g. Claude Code) would surface that empty object instead of
+// the real JSON. With Out = any the SDK sets no structuredContent.
 func register[In any](srv *sdk.Server, t *sdk.Tool, h func(context.Context, In) (*sdk.CallToolResult, error)) {
 	sdk.AddTool(srv, t,
-		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, noArgs, error) {
+		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, any, error) {
 			res, err := h(ctx, in)
-			return res, noArgs{}, err
+			return res, nil, err
 		})
 }
 
