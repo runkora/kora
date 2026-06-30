@@ -762,6 +762,7 @@ build-backend: proto-gen ## Build all service binaries to .bin directory (runs p
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-mcp ./cmd/orbit-mcp
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
 	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
 
