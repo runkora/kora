@@ -61,6 +61,61 @@ func TestCreateAgentType_HappyPath(t *testing.T) {
 	}
 }
 
+func TestDeriveInferenceScopes(t *testing.T) {
+	cases := map[string][]string{
+		"anthropic/claude-sonnet-4-6": {"inference:invoke", "inference:anthropic:claude-sonnet-4-6:use"},
+		"":                            {"inference:invoke"},
+		"bare":                        {"inference:invoke"},
+		"too/many/parts":              {"inference:invoke"},
+	}
+	for model, want := range cases {
+		if got := deriveInferenceScopes(model); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("deriveInferenceScopes(%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+func TestReconcileInferenceScopes_SwapsModelScope(t *testing.T) {
+	old := "anthropic/claude-sonnet-4-6"
+	prior := append([]string{"connection:github:repo:read"}, deriveInferenceScopes(old)...)
+	next := "google/gemini-flash"
+	got := reconcileInferenceScopes(prior, &next)
+	want := []string{"connection:github:repo:read", "inference:invoke", "inference:google:gemini-flash:use"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("reconcileInferenceScopes swapped wrong: got %v, want %v", got, want)
+	}
+}
+
+func TestCreateAgentType_DerivesInferenceScopesFromModel(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	model := "anthropic/claude-sonnet-4-6"
+	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
+		TenantID: "t-1", Name: "Bot", Slug: "bot", ModelID: &model,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "inference:invoke,inference:anthropic:claude-sonnet-4-6:use"
+	if strings.Join(at.GrantScopes, ",") != want {
+		t.Errorf("derived grant_scopes = %v, want [%s]", at.GrantScopes, want)
+	}
+}
+
+func TestCreateAgentType_ExplicitInferenceScopeSuppressesDerivation(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	model := "anthropic/claude-sonnet-4-6"
+	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
+		TenantID: "t-1", Name: "Bot", Slug: "bot", ModelID: &model,
+		GrantScopes: []string{"inference:anthropic:use"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Join(at.GrantScopes, ",") != "inference:anthropic:use" {
+		t.Errorf("explicit inference scope should suppress derivation; got %v", at.GrantScopes)
+	}
+}
+
 func TestCreateAgentType_DefaultsFrameworkAndMaxRuns(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 

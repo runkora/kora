@@ -178,6 +178,62 @@ func (at AgentType) ConnectorScopes() []string {
 	return scopes
 }
 
+// deriveInferenceScopes returns the inference grant scopes for a model id:
+// inference:invoke, plus the fine-grained inference:{family}:{name}:use when the id
+// is a two-segment family/name (e.g. anthropic/claude-sonnet-4-6). This is the
+// single source of truth for inference grant derivation — clients (orbit-mcp, the
+// frontend BFF) declare model_id and do NOT derive. See the 2026-06-30 amendment to
+// docs/adr/2026-05-11-agent-identity-and-policy-provisioning.md.
+func deriveInferenceScopes(modelID string) []string {
+	scopes := []string{"inference:invoke"}
+	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		scopes = append(scopes, "inference:"+parts[0]+":"+parts[1]+":use")
+	}
+	return scopes
+}
+
+// hasInferenceScope reports whether any scope is an inference:* scope. An explicit
+// inference scope on a create/update suppresses auto-derivation (caller override).
+func hasInferenceScope(scopes []string) bool {
+	for _, s := range scopes {
+		if strings.HasPrefix(s, "inference:") {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDerivedInferenceScopes appends the inference scopes derived from modelID to
+// grantScopes, unless the caller already supplied an explicit inference:* scope
+// (which is taken as an override and suppresses derivation).
+func applyDerivedInferenceScopes(grantScopes []string, modelID *string) []string {
+	if hasInferenceScope(grantScopes) {
+		return grantScopes
+	}
+	model := ""
+	if modelID != nil {
+		model = *modelID
+	}
+	return append(grantScopes, deriveInferenceScopes(model)...)
+}
+
+// reconcileInferenceScopes strips any inference:* scopes from grantScopes and
+// re-derives them from modelID, so the inference grant always matches the current
+// model after a model change. Non-inference scopes are preserved in order.
+func reconcileInferenceScopes(grantScopes []string, modelID *string) []string {
+	kept := make([]string, 0, len(grantScopes))
+	for _, s := range grantScopes {
+		if !strings.HasPrefix(s, "inference:") {
+			kept = append(kept, s)
+		}
+	}
+	model := ""
+	if modelID != nil {
+		model = *modelID
+	}
+	return append(kept, deriveInferenceScopes(model)...)
+}
+
 // ValidateConnectors checks each connector names a connection and lists at least
 // one well-formed action. Connection names are single scope segments (no
 // whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not
