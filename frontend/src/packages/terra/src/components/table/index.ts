@@ -38,4 +38,5 @@ export type {
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
+  DataTableGridConfig,
 } from './data-table';

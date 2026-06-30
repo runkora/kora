@@ -53,6 +53,8 @@ export interface TableToolbarProps {
 
   /** Extra content rendered in the toolbar after the search input. */
   actions?: React.ReactNode;
+  /** Extra content rendered at the far right of the toolbar, after count and columns-toggle. */
+  rightActions?: React.ReactNode;
 }
 
 // ─── TableToolbarShell ────────────────────────────────────────────────────────
@@ -90,8 +92,8 @@ export function TableToolbarShell({ children, className }: TableToolbarShellProp
 
 // ─── TableToolbar ─────────────────────────────────────────────────────────────
 
-export function TableToolbar({ search, count, columns, actions }: TableToolbarProps) {
-  const hasRight = count !== undefined || columns !== undefined;
+export function TableToolbar({ search, count, columns, actions, rightActions }: TableToolbarProps) {
+  const hasRight = count !== undefined || columns !== undefined || rightActions !== undefined;
 
   return (
     <TableToolbarShell>
@@ -115,6 +117,7 @@ export function TableToolbar({ search, count, columns, actions }: TableToolbarPr
             />
           )}
           {columns && <ToolbarColumnsToggle columns={columns.items} onToggle={columns.onToggle} />}
+          {rightActions}
         </div>
       )}
     </TableToolbarShell>
@@ -140,7 +143,7 @@ function ToolbarSearch({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-8 w-56 rounded-md border border-border bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
+        className="h-8 w-40 sm:w-56 rounded-md border border-border bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
       />
     </div>
   );
@@ -157,7 +160,8 @@ function ToolbarCount({
 }) {
   return (
     <div className="text-sm text-subtle whitespace-nowrap">
-      Showing {showing.toLocaleString()} of {total.toLocaleString()} {label}
+      Showing {showing.toLocaleString()} of {total.toLocaleString()}
+      <span className="hidden sm:inline"> {label}</span>
     </div>
   );
 }

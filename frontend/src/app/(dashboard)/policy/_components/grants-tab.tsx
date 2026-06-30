@@ -263,7 +263,11 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<Show above="md"><ViewToggle viewMode={viewMode} onToggle={setViewMode} /></Show>}
+          viewToggle={
+            <Show above="md">
+              <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            </Show>
+          }
         />
       )}
 

@@ -23,8 +23,6 @@ import {
   TableColumnHeader,
   // Utilities
   nextSortDir,
-  // Data table
-  DataTable,
 } from './index';
 import type { SortDir, TableColumnVisibility, TableColumnFilter } from './index';
 
@@ -562,72 +560,68 @@ export const Toolbar: Story = {
   },
 };
 
-// ── 11. DataTable ─────────────────────────────────────────────────────────────
-//
-// DataTable owns all sort, filter, and column-visibility state internally.
-// The consumer only declares column definitions and passes data — no useState
-// for sort direction, filter sets, or visible columns.
-
-export const FullTable: Story = {
-  name: 'DataTable — sort + filter + columns',
-  render: () => (
-    <div className="w-[720px]">
-      <DataTable
-        data={agents}
-        columns={[
-          {
-            id: 'id',
-            header: 'Agent ID',
-            locked: true,
-            sortable: true,
-            sortAccessor: (a) => a.id,
-            cell: (a) => <code>{a.id}</code>,
-          },
-          {
-            id: 'status',
-            header: 'Status',
-            filter: {
-              mode: 'client',
-              options: STATUS_OPTS,
-              filterFn: (a, selected) => selected.has(a.status),
-            },
-            cell: (a) => a.status,
-          },
-          {
-            id: 'tools',
-            header: 'Tools',
-            sortable: true,
-            sortAccessor: (a) => String(a.tools),
-            cell: (a) => a.tools,
-          },
-          {
-            id: 'uptime',
-            header: 'Uptime',
-            cell: (a) => a.uptime,
-          },
-          {
-            id: 'cpu',
-            header: 'CPU',
-            align: 'right',
-            sortable: true,
-            defaultVisible: false,
-            sortAccessor: (a) => a.cpu,
-            cell: (a) => a.cpu,
-          },
-        ]}
-        getRowKey={(a) => a.id}
-        noun="agents"
-        searchPlaceholder="Search agents…"
-        searchFn={(row, q) =>
-          row.id.toLowerCase().includes(q) || row.status.toLowerCase().includes(q)
-        }
-        defaultSortId="id"
-        defaultSortDir="asc"
-        emptyMessage="No agents found."
-        filteredEmptyMessage="No agents match your filters."
-      />
-    </div>
-  ),
+// 10e — rightActions: content pinned to the far right after count + columns-toggle
+export const ToolbarRightActions: Story = {
+  name: 'TableToolbar — rightActions',
+  render: () => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [q, setQ] = useState('');
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [view, setView] = useState<'grid' | 'list'>('grid');
+    const showing = agents.filter((a) => !q || a.id.toLowerCase().includes(q.toLowerCase())).length;
+    return (
+      <div className="w-[640px]">
+        <TableContainer>
+          <TableToolbar
+            search={{ value: q, onChange: setQ, placeholder: 'Search agents…' }}
+            count={{ showing, total: agents.length, label: 'agents' }}
+            rightActions={
+              <div className="flex items-center gap-1.5">
+                <div className="h-4 w-px bg-border mx-1" />
+                <button
+                  type="button"
+                  aria-label="Grid view"
+                  onClick={() => setView('grid')}
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'grid' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <rect x="1" y="1" width="6" height="6" rx="1" />
+                    <rect x="9" y="1" width="6" height="6" rx="1" />
+                    <rect x="1" y="9" width="6" height="6" rx="1" />
+                    <rect x="9" y="9" width="6" height="6" rx="1" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  aria-label="List view"
+                  onClick={() => setView('list')}
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'list' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <line x1="1" y1="4" x2="15" y2="4" />
+                    <line x1="1" y1="8" x2="15" y2="8" />
+                    <line x1="1" y1="12" x2="15" y2="12" />
+                  </svg>
+                </button>
+              </div>
+            }
+          />
+        </TableContainer>
+      </div>
+    );
+  },
 };
 
 // ── TableToolbarShell ─────────────────────────────────────────────────────────

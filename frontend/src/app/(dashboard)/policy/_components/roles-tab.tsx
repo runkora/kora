@@ -186,7 +186,11 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
           roles={roles}
           onEdit={canWrite ? setEditingRole : undefined}
           onDelete={canWrite ? setDeleteCandidate : undefined}
-          viewToggle={<Show above="md"><ViewToggle viewMode={viewMode} onToggle={setViewMode} /></Show>}
+          viewToggle={
+            <Show above="md">
+              <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+            </Show>
+          }
         />
       )}
 

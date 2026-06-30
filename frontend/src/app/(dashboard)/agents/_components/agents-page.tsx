@@ -15,8 +15,6 @@ import {
   Grid,
   Heading,
   Icon,
-  Separator,
-  Show,
   Stack,
   Text,
 } from '@orbit/terra';
@@ -69,7 +67,6 @@ export function AgentsPage() {
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // ── Metric card computations ───────────────────────────────────────────────
 
@@ -245,27 +242,6 @@ export function AgentsPage() {
               New Agent
             </Link>
           </Button>
-          <Show above="md">
-            <Stack direction="horizontal" align="center" gap="snug">
-              <Separator orientation="vertical" style={{ height: '1.5rem' }} />
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                size="icon-sm"
-                aria-label="Grid view"
-                onClick={() => setViewMode('grid')}
-              >
-                <Icon name="layout-grid" size="xs" />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'ghost'}
-                size="icon-sm"
-                aria-label="List view"
-                onClick={() => setViewMode('list')}
-              >
-                <Icon name="layout-list" size="xs" />
-              </Button>
-            </Stack>
-          </Show>
         </Stack>
       </Stack>
 
@@ -299,246 +275,6 @@ export function AgentsPage() {
             </Button>
           }
         />
-      ) : viewMode === 'grid' ? (
-        <>
-          {/* Desktop grid — hidden on mobile; mobile always uses DataTable+mobileCard below */}
-          <Show above="md">
-            <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
-              {agentTypes.map((agent) => (
-                <Card
-                  key={agent.id}
-                  column
-                  role="button"
-                  onClick={() => router.push(APP_ROUTES.agents.detail(agent.slug))}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <CardHeader
-                    leadingIcon="bot"
-                    title={agent.name}
-                    description={
-                      <Text mono size="caption" color="muted">
-                        {agent.slug}
-                      </Text>
-                    }
-                    action={
-                      <StatusBadge
-                        status={statusMap[agent.state] ?? 'unknown'}
-                        label={labelMap[agent.state]}
-                      />
-                    }
-                    divider
-                  />
-
-                  <CardContent padded grow>
-                    <Stack gap="snug">
-                      <Text
-                        size="supporting"
-                        color="muted"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {agent.description || 'No description.'}
-                      </Text>
-
-                      <Stack direction="horizontal" gap="tight" wrap>
-                        <Badge
-                          variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'}
-                          size="sm"
-                        >
-                          {agent.framework}
-                        </Badge>
-                        <Badge variant="secondary" size="sm">
-                          {agent.toolScopes.length} tools
-                        </Badge>
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-
-                  <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
-                    <Text size="caption" color="muted">
-                      {activeRunsByType.get(agent.id) ?? 0} active
-                    </Text>
-                    <Stack direction="horizontal" gap="tight">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Start run"
-                        aria-label={`Start run for ${agent.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setStartRunTarget(agent);
-                        }}
-                      >
-                        <Icon name="play" size="2xs" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Settings for ${agent.name}`}
-                        asChild
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Link href={APP_ROUTES.agents.detail(agent.slug)}>
-                          <Icon name="settings" size="2xs" />
-                        </Link>
-                      </Button>
-                    </Stack>
-                  </CardFooter>
-                </Card>
-              ))}
-
-              <Card
-                column
-                role="button"
-                onClick={() => router.push(APP_ROUTES.agents.new)}
-                style={{ background: 'transparent', borderStyle: 'dashed', cursor: 'pointer' }}
-              >
-                <Stack align="center" justify="center" gap="tight" grow>
-                  <Icon name="plus" size="sm" />
-                  <Text size="supporting" color="muted">
-                    Create new agent
-                  </Text>
-                </Stack>
-              </Card>
-            </Grid>
-          </Show>
-
-          {/* Mobile card list — shown only below md */}
-          <Show below="md">
-            <DataTable
-              data={agentTypes}
-              columns={columns}
-              getRowKey={(row) => row.id}
-              noun="agents"
-              searchPlaceholder="Search agents…"
-              searchFn={agentTypeMatchesSearch}
-              defaultSortId="name"
-              defaultSortDir="asc"
-              error={
-                status === 'error' ? (
-                  <Stack align="center" paddingBlock="comfortable">
-                    <Text size="supporting" color="muted">
-                      {error ?? 'Failed to load agents.'}
-                    </Text>
-                    <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                      Try again
-                    </Button>
-                  </Stack>
-                ) : undefined
-              }
-              emptyMessage="No agents yet."
-              filteredEmptyMessage="No agents match your search."
-              onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
-              mobileCard={(agent) => (
-                <Card column>
-                  <CardHeader
-                    leadingIcon="bot"
-                    title={agent.name}
-                    description={
-                      <Text mono size="caption" color="muted">
-                        {agent.slug}
-                      </Text>
-                    }
-                    action={
-                      <StatusBadge
-                        status={statusMap[agent.state] ?? 'unknown'}
-                        label={labelMap[agent.state]}
-                      />
-                    }
-                    divider
-                  />
-
-                  <CardContent padded grow>
-                    <Stack gap="snug">
-                      <Text
-                        size="supporting"
-                        color="muted"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {agent.description || 'No description.'}
-                      </Text>
-
-                      <Stack direction="horizontal" gap="tight" wrap>
-                        <Badge
-                          variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'}
-                          size="sm"
-                        >
-                          {agent.framework}
-                        </Badge>
-                        <Badge variant="secondary" size="sm">
-                          {agent.toolScopes.length} tools
-                        </Badge>
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-
-                  <CardFooter compact justify="between">
-                    <Text size="caption" color="muted">
-                      {activeRunsByType.get(agent.id) ?? 0} active
-                    </Text>
-                    <Stack direction="horizontal" gap="tight">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="Start run"
-                        aria-label={`Start run for ${agent.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setStartRunTarget(agent);
-                        }}
-                      >
-                        <Icon name="play" size="2xs" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Settings for ${agent.name}`}
-                        asChild
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Link href={APP_ROUTES.agents.detail(agent.slug)}>
-                          <Icon name="settings" size="2xs" />
-                        </Link>
-                      </Button>
-                    </Stack>
-                  </CardFooter>
-                </Card>
-              )}
-              mobileCardFooter={
-                <Stack
-                  role="button"
-                  align="center"
-                  gap="tight"
-                  onClick={() => router.push(APP_ROUTES.agents.new)}
-                  style={{
-                    cursor: 'pointer',
-                    minHeight: '120px',
-                    borderWidth: '1.5px',
-                    borderStyle: 'dashed',
-                    borderColor: 'oklch(var(--color-border) / 1)',
-                    borderRadius: '8px',
-                    justifyContent: 'center',
-                    padding: '1.5rem',
-                  }}
-                >
-                  <Icon name="plus" size="sm" />
-                  <Text size="supporting" color="muted">
-                    Create new agent
-                  </Text>
-                </Stack>
-              }
-            />
-          </Show>
-        </>
       ) : (
         <DataTable
           data={agentTypes}
@@ -564,60 +300,54 @@ export function AgentsPage() {
           emptyMessage="No agents yet."
           filteredEmptyMessage="No agents match your search."
           onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
-          mobileCard={(agent) => (
-            <Card column>
-              <CardHeader
-                leadingIcon="bot"
-                title={agent.name}
-                description={
-                  <Text mono size="caption" color="muted">
-                    {agent.slug}
-                  </Text>
-                }
-                action={
-                  <StatusBadge
-                    status={statusMap[agent.state] ?? 'unknown'}
-                    label={labelMap[agent.state]}
-                  />
-                }
-                divider
-              />
-
-              <CardContent padded grow>
-                <Stack gap="snug">
-                  <Text
-                    size="supporting"
-                    color="muted"
-                    style={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {agent.description || 'No description.'}
-                  </Text>
-
-                  <Stack direction="horizontal" gap="tight" wrap>
-                    <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
-                      {agent.framework}
-                    </Badge>
-                    <Badge variant="secondary" size="sm">
-                      {agent.toolScopes.length} tools
-                    </Badge>
-                  </Stack>
-
-                  {/* Per-agent 7-day cost + tokens (when usage exists) */}
-                  {agentUsage[agent.id] && (
-                    <Text size="caption" color="muted">
-                      {fmtUsd(agentUsage[agent.id].estimated_cost_usd)} ·{' '}
-                      {fmtTokens(agentUsage[agent.id].total_tokens)} tokens · 7d
+          grid={{
+            cols: { base: 1, sm: 2, lg: 3 },
+            card: (agent) => (
+              <Card column style={{ cursor: 'pointer', height: '100%' }}>
+                <CardHeader
+                  leadingIcon="bot"
+                  title={agent.name}
+                  description={
+                    <Text mono size="caption" color="muted">
+                      {agent.slug}
                     </Text>
-                  )}
-                </Stack>
-              </CardContent>
-
-              <CardFooter compact justify="between">
+                  }
+                  action={
+                    <StatusBadge
+                      status={statusMap[agent.state] ?? 'unknown'}
+                      label={labelMap[agent.state]}
+                    />
+                  }
+                  divider
+                />
+                <CardContent padded grow>
+                  <Stack gap="snug">
+                    <Text
+                      size="supporting"
+                      color="muted"
+                      style={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {agent.description || 'No description.'}
+                    </Text>
+                    <Stack direction="horizontal" gap="tight" wrap>
+                      <Badge
+                        variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'}
+                        size="sm"
+                      >
+                        {agent.framework}
+                      </Badge>
+                      <Badge variant="secondary" size="sm">
+                        {agent.toolScopes.length} tools
+                      </Badge>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
                 <Text size="caption" color="muted">
                   {activeRunsByType.get(agent.id) ?? 0} active
                 </Text>
@@ -648,30 +378,57 @@ export function AgentsPage() {
                 </Stack>
               </CardFooter>
             </Card>
-          )}
-          mobileCardFooter={
-            <Stack
+          ),
+          footer: (
+            <Card
+              column
               role="button"
-              align="center"
-              gap="tight"
               onClick={() => router.push(APP_ROUTES.agents.new)}
               style={{
-                cursor: 'pointer',
-                minHeight: '120px',
-                borderWidth: '1.5px',
+                background: 'transparent',
                 borderStyle: 'dashed',
-                borderColor: 'oklch(var(--color-border) / 1)',
-                borderRadius: '8px',
-                justifyContent: 'center',
-                padding: '1.5rem',
+                cursor: 'pointer',
+                height: '100%',
               }}
             >
-              <Icon name="plus" size="sm" />
-              <Text size="supporting" color="muted">
-                Create new agent
-              </Text>
-            </Stack>
-          }
+              <CardHeader
+                leadingIcon="bot"
+                title="placeholder"
+                description="placeholder"
+                action={<StatusBadge status="healthy" label="Active" />}
+                divider
+                style={{ visibility: 'hidden' }}
+                aria-hidden="true"
+              />
+              <CardContent padded grow>
+                <Stack align="center" justify="center" grow gap="tight">
+                  <Icon name="plus" size="sm" />
+                  <Text size="supporting" color="muted">
+                    Create new agent
+                  </Text>
+                </Stack>
+              </CardContent>
+              <CardFooter
+                compact
+                justify="between"
+                style={{ visibility: 'hidden' }}
+                aria-hidden="true"
+              >
+                <Text size="caption" color="muted">
+                  0 active
+                </Text>
+                <Stack direction="horizontal" gap="tight">
+                  <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
+                    <Icon name="play" size="2xs" />
+                  </Button>
+                  <Button variant="ghost" size="icon-sm" aria-label="placeholder" tabIndex={-1}>
+                    <Icon name="settings" size="2xs" />
+                  </Button>
+                </Stack>
+              </CardFooter>
+            </Card>
+          ),
+        }}
         />
       )}
 

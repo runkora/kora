@@ -93,6 +93,13 @@ import { TableContainer } from './table-extras';
 import { TableToolbar } from './table-toolbar';
 import { TableColumnHeader } from './table-column-header';
 import type { TableColumnFilter, TableColumnFilterOption } from './table-column-header';
+import { Button } from '../button/button';
+import { Icon } from '../icon/icon';
+import { Separator } from '../separator/separator';
+import { Show } from '../show/show';
+import { Stack } from '../layout/stack';
+import { Grid } from '../layout/grid';
+import type { GridProps } from '../layout/grid';
 
 // ─── Column filter types ──────────────────────────────────────────────────────
 
@@ -139,21 +146,13 @@ export type DataTableColumnFilter<TData> = DataTableClientFilter<TData> | DataTa
 
 // ─── Column definition ────────────────────────────────────────────────────────
 
-/** Definition for a single column in a DataTable. */
-export interface DataTableColumn<TData> {
+type DataTableColumnBase<TData> = {
   /** Unique stable identifier. Used as a React key and in visibility state. */
   id: string;
   /** Column header label, shown in the `<th>` and the columns-toggle popover. */
   header: string;
   /** Renders the cell content for a given data row. */
   cell: (row: TData) => React.ReactNode;
-  /** Whether a sort button is rendered on this column. Defaults to false. */
-  sortable?: boolean;
-  /**
-   * Extract the primitive value used for sorting comparisons.
-   * Required when `sortable` is true. Return a string or number.
-   */
-  sortAccessor?: (row: TData) => string | number;
   /** Initial column visibility. Defaults to true. */
   defaultVisible?: boolean;
   /**
@@ -167,11 +166,57 @@ export interface DataTableColumn<TData> {
   width?: string | number;
   /** Column-level filter. Omit for non-filterable columns. */
   filter?: DataTableColumnFilter<TData>;
+};
+
+/**
+ * Definition for a single column in a DataTable.
+ *
+ * When `sortable: true`, `sortAccessor` is required — TypeScript will error
+ * if it is omitted. When `sortable` is false or omitted, `sortAccessor` must
+ * not be provided.
+ */
+export type DataTableColumn<TData> = DataTableColumnBase<TData> &
+  (
+    | { sortable: true; sortAccessor: (row: TData) => string | number }
+    | { sortable?: false; sortAccessor?: never }
+  );
+
+// ─── Grid config ─────────────────────────────────────────────────────────────
+
+/**
+ * Card grid configuration for DataTable.
+ *
+ * When provided via the `grid` prop, DataTable renders a card grid by default
+ * and adds a desktop-only toggle to switch to table view. On mobile the grid
+ * is always shown regardless of toggle state.
+ */
+export interface DataTableGridConfig<TData> {
+  /**
+   * Render a card for a row.
+   *
+   * DataTable wraps each rendered card in a focusable `div[role=button]`
+   * when `onRowClick` is provided — do NOT add a top-level click handler to
+   * the card itself, or both will fire.
+   */
+  card: (row: TData) => React.ReactNode;
+  /**
+   * Static node rendered after the last card in the grid.
+   *
+   * `onRowClick` does NOT wrap this node — attach click handling directly.
+   */
+  footer?: React.ReactNode;
+  /** Column count for the grid. Defaults to `{ base: 1, sm: 2, lg: 3 }`. */
+  cols?: GridProps['cols'];
+  /**
+   * Initial view mode on desktop. Defaults to `'grid'`. Set `'list'` to start
+   * in table view. No-op on mobile — grid is always shown regardless.
+   */
+  defaultViewMode?: 'grid' | 'list';
 }
 
 // ─── Table props ──────────────────────────────────────────────────────────────
 
-export interface DataTableProps<TData> {
+type DataTablePropsBase<TData> = {
   /** The full (client-side) or current-page (server-side) dataset. */
   data: TData[];
   /** Column definitions describing headers, cells, sort, filter, and visibility. */
@@ -182,20 +227,14 @@ export interface DataTableProps<TData> {
    * Override the total record count shown in the toolbar.
    * Use for server-paginated tables where `data` is a single page.
    * Defaults to `data.length`.
+   *
+   * Note: client-side `searchFn` and column filters reduce `showing`
+   * independently of this override — avoid combining server pagination
+   * with client-side search.
    */
   totalCount?: number;
   /** Row noun for the count label. E.g. "models" → "Showing 3 of 10 models". */
   noun?: string;
-  /**
-   * Placeholder text for the search input.
-   * Must be paired with `searchFn`; omit both to hide the search box.
-   */
-  searchPlaceholder?: string;
-  /**
-   * Full-text search predicate. Return true if the row matches the query.
-   * Must be provided to enable the search input.
-   */
-  searchFn?: (row: TData, query: string) => boolean;
   /** Column id to sort by on initial render. */
   defaultSortId?: string;
   /** Initial sort direction. Defaults to 'asc'. */
@@ -219,26 +258,31 @@ export interface DataTableProps<TData> {
   /** Called when a data row is clicked. Adds a pointer cursor to rows. */
   onRowClick?: (row: TData) => void;
   /**
-   * Description announced by screen readers when a clickable row receives focus.
+   * Visually-hidden `sr-only` description announced by screen readers when a
+   * clickable row receives focus. Not visible in the UI.
    * Only used when `onRowClick` is provided. Defaults to `"View details"`.
    */
-  onRowClickLabel?: string;
-  /** Extra content rendered in the toolbar after the search input. */
+  rowClickAriaLabel?: string;
+  /**
+   * Extra content rendered in the toolbar after the search input, before the
+   * count/columns section.
+   */
   toolbarActions?: React.ReactNode;
-  /**
-   * Render a single card for a row. When provided, DataTable renders the card
-   * list below the `md` breakpoint and the table at `md` and above.
-   * The card list receives the same filtered and sorted dataset as the table.
-   * Use for table-primary pages that need a mobile-friendly card fallback.
-   */
-  mobileCard?: (row: TData) => React.ReactNode;
-  /**
-   * Optional static node rendered after the last card in the mobile card list.
-   * Use for trailing affordances (e.g. a "Create new" dashed card) that are not
-   * tied to a data row. Only rendered when `mobileCard` is provided.
-   */
-  mobileCardFooter?: React.ReactNode;
-}
+  /** Card grid view. See {@link DataTableGridConfig}. */
+  grid?: DataTableGridConfig<TData>;
+};
+
+/**
+ * Props for the DataTable component.
+ *
+ * `searchFn` and `searchPlaceholder` must be provided together — TypeScript
+ * will error if only one is supplied. Omit both to hide the search box.
+ */
+export type DataTableProps<TData> = DataTablePropsBase<TData> &
+  (
+    | { searchFn: (row: TData, query: string) => boolean; searchPlaceholder?: string }
+    | { searchFn?: never; searchPlaceholder?: never }
+  );
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -264,11 +308,10 @@ export function DataTable<TData>({
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   onRowClick,
-  onRowClickLabel = 'View details',
+  rowClickAriaLabel = 'View details',
   toolbarActions,
   onSortChange,
-  mobileCard,
-  mobileCardFooter,
+  grid,
 }: DataTableProps<TData>) {
   // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -293,6 +336,10 @@ export function DataTable<TData>({
     });
     return vis;
   });
+
+  // ── View mode (grid / list) — only relevant when grid is provided ──────
+
+  const [viewMode, setViewMode] = React.useState<'grid' | 'list'>(grid?.defaultViewMode ?? 'grid');
 
   // ── Pre-filter (search + client-side column filters) ────────────────────────
 
@@ -435,6 +482,33 @@ export function DataTable<TData>({
     label: noun,
   };
 
+  // Grid/list toggle — only injected when grid is provided.
+  const viewToggle = grid ? (
+    <Show above="md">
+      <Stack direction="horizontal" align="center" gap="snug">
+        <Separator orientation="vertical" style={{ height: '1.5rem' }} />
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Button
+            variant={viewMode === 'grid' ? 'default' : 'ghost'}
+            size="icon-sm"
+            aria-label="Grid view"
+            onClick={() => setViewMode('grid')}
+          >
+            <Icon name="layout-grid" size="xs" />
+          </Button>
+          <Button
+            variant={viewMode === 'list' ? 'default' : 'ghost'}
+            size="icon-sm"
+            aria-label="List view"
+            onClick={() => setViewMode('list')}
+          >
+            <Icon name="layout-list" size="xs" />
+          </Button>
+        </Stack>
+      </Stack>
+    </Show>
+  ) : null;
+
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const hasActiveFilters =
@@ -460,7 +534,7 @@ export function DataTable<TData>({
     <TableContainer>
       {onRowClick && (
         <span id={rowDescId} className="sr-only">
-          {onRowClickLabel}
+          {rowClickAriaLabel}
         </span>
       )}
       <TableToolbar
@@ -475,51 +549,54 @@ export function DataTable<TData>({
             : undefined
         }
         actions={toolbarActions}
+        rightActions={viewToggle ?? undefined}
       />
 
-      {/* Mobile card list — visible below md when mobileCard is provided */}
-      {mobileCard && (
-        <div className="md:hidden p-2">
-          {error ? (
-            <div className="px-2 py-4">{error}</div>
-          ) : rows.length === 0 ? (
-            <div className="px-2 py-4 text-sm text-muted-foreground">
-              {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {rows.map((row) => (
-                <div
-                  key={getRowKey(row.original)}
-                  role={onRowClick ? 'button' : undefined}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  style={onRowClick ? { cursor: 'pointer' } : undefined}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                  onKeyDown={
-                    onRowClick
-                      ? (e) => {
-                          if (
-                            (e.key === 'Enter' || e.key === ' ') &&
-                            e.target === e.currentTarget
-                          ) {
-                            e.preventDefault();
-                            onRowClick(row.original);
+      {/* Grid view — visible on mobile always; on desktop only when viewMode='grid' */}
+      {grid && (
+        <div className={viewMode === 'list' ? 'md:hidden' : undefined}>
+          <div className="p-2">
+            {error ? (
+              <div className="px-2 py-4">{error}</div>
+            ) : rows.length === 0 ? (
+              <div className="px-2 py-4 text-sm text-muted-foreground">
+                {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
+              </div>
+            ) : (
+              <Grid cols={grid.cols ?? { base: 1, sm: 2, lg: 3 }} gap="comfortable">
+                {rows.map((row) => (
+                  <div
+                    key={getRowKey(row.original)}
+                    role={onRowClick ? 'button' : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    style={onRowClick ? { cursor: 'pointer', height: '100%' } : { height: '100%' }}
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (e) => {
+                            if (
+                              (e.key === 'Enter' || e.key === ' ') &&
+                              e.target === e.currentTarget
+                            ) {
+                              e.preventDefault();
+                              onRowClick(row.original);
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                >
-                  {mobileCard(row.original)}
-                </div>
-              ))}
-            </div>
-          )}
-          {!error && mobileCardFooter}
+                        : undefined
+                    }
+                  >
+                    {grid.card(row.original)}
+                  </div>
+                ))}
+                {!error && grid.footer}
+              </Grid>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Table — always visible when mobileCard is not provided; md+ when it is */}
-      <div className={mobileCard ? 'hidden md:block' : undefined}>
+      {/* Table — always visible when grid is not provided; desktop-only when it is */}
+      <div className={grid ? (viewMode === 'grid' ? 'hidden' : 'hidden md:block') : undefined}>
         <TableRoot>
           <Table>
             <TableHeader>
