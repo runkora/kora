@@ -28,6 +28,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/storage"
+	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/toolgateway"
 )
 
@@ -60,6 +62,14 @@ func realMain() error {
 		return fmt.Errorf("init MCP server registry: %w", err)
 	}
 
+	// ── Storage (catalog) ────────────────────────────────────────────────────
+	db, err := initStorage(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("init storage: %w", err)
+	}
+	defer db.Close()
+	catalogRepo := toolgateway.NewPostgresCatalog(db.Pool())
+
 	// ── Introspection worker ─────────────────────────────────────────────────
 	introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
 
@@ -71,9 +81,9 @@ func realMain() error {
 	publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
 	// ── Introspection + publish cycle ────────────────────────────────────────
-	// Re-introspect every registered server, then publish the discovered tools'
-	// scopes (with the prune-guard). Serialized so the reload hook and the timer
-	// never run a cycle concurrently.
+	// Re-introspect every registered server, publish the discovered tools' scopes
+	// (with the prune-guard), then rebuild the read-only catalog. Serialized so
+	// the reload hook and the timer never run a cycle concurrently.
 	var cycleMu sync.Mutex
 	cycle := func(ctx context.Context) {
 		cycleMu.Lock()
@@ -82,13 +92,18 @@ func realMain() error {
 		if err := publisher.Publish(ctx); err != nil {
 			logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
 		}
+		if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
+			logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+		}
 	}
 
 	registry.OnReload(cycle)
 	go registry.Watch(ctx)
 	go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
 
-	// ── Health server ────────────────────────────────────────────────────────
+	// ── HTTP server (health + read-only catalog) ─────────────────────────────
+	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
+	catalogController := toolgateway.NewCatalogController(catalogRepo, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
 	srv := apiServer.Server(
 		ctx,
@@ -98,6 +113,7 @@ func realMain() error {
 			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
+		catalogController,
 	)
 	go func() {
 		logger.Info(ctx, "Starting tool-gateway HTTP server", logging.Field{Key: "addr", Value: srv.Addr})
@@ -134,6 +150,19 @@ func runIntrospectionLoop(ctx context.Context, cycle func(context.Context), inte
 			cycle(ctx)
 		}
 	}
+}
+
+func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {
+	cfg, err := storage.LoadPostgresConfig()
+	if err != nil {
+		return nil, err
+	}
+	db, err := storage.New(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info(ctx, "Database initialized successfully")
+	return db, nil
 }
 
 func initObservability(ctx context.Context) (func(), error) {
