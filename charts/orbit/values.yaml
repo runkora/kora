@@ -166,6 +166,10 @@ orbitMcp:
   # Number of orbit-mcp replicas.
   replicas: 1
 
+  # Register the platform Orbit MCP as a global MCPServer CR so the tool-gateway
+  # introspects it into mcp:orbit:<tool>:use scopes.
+  register: true
+
   # Resource requests and limits.
   resources:
     requests:

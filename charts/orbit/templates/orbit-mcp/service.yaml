@@ -9,7 +9,10 @@ spec:
   selector:
     {{- include "orbit.orbitMcp.selectorLabels" . | nindent 4 }}
   ports:
+    # Port == targetPort (8095), matching every other orbit service. A 80→8095
+    # remap broke in-mesh service routing (outbound mTLS cx_connect_fail) for
+    # east-west callers like the tool-gateway, which introspects this server.
     - name: http
-      port: 80
+      port: 8095
       targetPort: 8095
       protocol: TCP
