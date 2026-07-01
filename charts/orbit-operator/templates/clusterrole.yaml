@@ -40,12 +40,13 @@ rules:
     resources: ["connections"]
     verbs: ["get", "list", "watch"]
   # MCPServer CRs — the operator reads/watches them to aggregate the
-  # tool-gateway's orbit-mcp-servers registry, and writes their status
-  # (reconciliation phase). Specs are authored via GitOps, never written by the
-  # operator; only status is patched.
+  # tool-gateway's orbit-mcp-servers registry, writes their status
+  # (reconciliation phase), AND manages the platform-global "orbit" MCPServer as
+  # part of the orbit chart (the operator applies the release, so its helm SA
+  # needs full management). Tenant MCPServers remain GitOps-authored.
   - apiGroups: ["orbit.io"]
     resources: ["mcpservers"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["*"]
   - apiGroups: ["orbit.io"]
     resources: ["mcpservers/status"]
     verbs: ["get", "update", "patch"]
