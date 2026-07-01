@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Multi-column data tables are structurally incompatible with narrow viewports — there is no way to display 5+ columns at 375 px without either truncating content or forcing horizontal scroll that discards most of the data. This PRD defines a first-class Terra `DataTable` feature that renders a card-per-row list on mobile and the full table on desktop, eliminating the need for callsites to manually duplicate grid/card logic alongside table logic.
+Multi-column data tables are structurally incompatible with narrow viewports — there is no way to display 5+ columns at 375 px without either truncating content or forcing horizontal scroll that discards most of the data. This PRD defines a first-class Terra `DataTable` feature that renders a card grid on mobile (and optionally on desktop via a toggle) using a `grid: DataTableGridConfig<TData>` prop, eliminating the need for callsites to manually duplicate grid/card logic alongside table logic.
 
 ---
 
@@ -26,7 +26,7 @@ Several pages have worked around this by maintaining a parallel card/grid view a
 
 **Card-primary pages** (policy roles, policy grants): The card grid *is* the primary desktop view and defaults to cards. The table is an opt-in alternative for power users. The card grid has its own independent filter pipeline (separate `search` and `typeFilter` state) that is already well-suited to mobile — these grids already collapse to 1 column (`cols={{ base: 1, sm: 2 }}`).
 
-This PRD addresses the table-primary pattern only. The card-primary pattern (roles, grants) has a different and simpler mobile fix: hide the `ViewToggle` below `md` so users cannot accidentally switch into the table view on a phone. Migrating those pages to `mobileCard` would demote their card grid from a desktop-primary view to a mobile-only fallback, which is a product change, not a mobile fix.
+This PRD addresses the table-primary pattern only. The card-primary pattern (roles, grants) has a different and simpler mobile fix: hide the `ViewToggle` below `md` so users cannot accidentally switch into the table view on a phone. Migrating those pages to `grid` would demote their card grid from a desktop-primary view to a mobile-only fallback, which is a product change, not a mobile fix.
 
 ### User Pain Points
 
@@ -47,8 +47,8 @@ This PRD addresses the table-primary pattern only. The card-primary pattern (rol
 
 ### Primary Goals
 
-1. Add `mobileCard` and `mobileCardFooter` render props to `DataTable` for table-primary pages that need a mobile card fallback.
-2. Remove the manual `viewMode` state and duplicate rendering from the agents page by migrating it to the new `mobileCard` prop.
+1. Add a `grid?: DataTableGridConfig<TData>` prop to `DataTable` for table-primary pages that need a card view fallback.
+2. Remove the manual `viewMode` state and duplicate rendering from the agents page by migrating it to the new `grid` prop.
 3. Hide the `ViewToggle` below `md` on the card-primary policy pages (roles, grants) so mobile users cannot switch into the unusable table view.
 
 ### Success Metrics
@@ -60,7 +60,7 @@ This PRD addresses the table-primary pattern only. The card-primary pattern (rol
 
 ### Non-Goals
 
-- Retrofitting `mobileCard` to every existing DataTable callsite in this pass. The agents page is the only mandatory migration; all others are opt-in.
+- Retrofitting `grid` to every existing DataTable callsite in this pass. The agents page is the only mandatory migration; all others are opt-in.
 - Changing the desktop table layout or column visibility.
 - A dedicated mobile toolbar (search input, column toggle) redesign. The existing toolbar is acceptable on mobile for now.
 
@@ -82,13 +82,13 @@ This PRD addresses the table-primary pattern only. The card-primary pattern (rol
 ---
 
 **As a** frontend engineer adding a new data-heavy page,  
-**I want to** pass a single `mobileCard` render prop to `DataTable`,  
+**I want to** pass a `grid` config to `DataTable`,  
 **So that** I get a correct mobile layout without writing parallel card and table rendering paths.
 
 **Acceptance Criteria:**
-- [ ] `DataTable` with `mobileCard` provided renders the card list below `md` and the table at `md` and above.
-- [ ] `DataTable` without `mobileCard` behaves identically to today (table at all sizes).
-- [ ] The card list respects the same filtered dataset as the table (search + column filters both apply).
+- [ ] `DataTable` with `grid` provided renders the card grid on mobile and (optionally) on desktop via a toggle.
+- [ ] `DataTable` without `grid` behaves identically to today (table at all sizes).
+- [ ] The card grid respects the same filtered dataset as the table (search + column filters both apply).
 
 ---
 
@@ -106,13 +106,26 @@ This PRD addresses the table-primary pattern only. The card-primary pattern (rol
 
 ### High-Level Approach
 
-Add two optional props to `DataTableProps`:
-- `mobileCard?: (row: TData) => React.ReactNode` — renders one card per data row.
-- `mobileCardFooter?: React.ReactNode` — renders a single static node after the last card (e.g. a "Create new" affordance).
+Add an optional `grid?: DataTableGridConfig<TData>` prop to `DataTableProps`:
 
-When `mobileCard` is provided, `DataTable` renders a `Stack` of `mobileCard(row)` outputs below the `md` breakpoint, optionally followed by `mobileCardFooter`, and the existing table above it. The toolbar (search, count, column toggle) is shown at all sizes. The card list operates on the same filtered and sorted dataset that the table uses, so search and client-side filters apply to both views without any additional wiring.
+```ts
+export interface DataTableGridConfig<TData> {
+  /** Render a card for a single row. */
+  card: (row: TData) => React.ReactNode;
+  /** Static node rendered after the last card (e.g. a "Create new" affordance). */
+  footer?: React.ReactNode;
+  /** Grid column count. Defaults to `{ base: 1, sm: 2, lg: 3 }`. */
+  cols?: GridProps['cols'];
+  /** Initial desktop view mode. Defaults to `'grid'`. Set `'list'` to start in table view. */
+  defaultViewMode?: 'grid' | 'list';
+}
+```
 
-The switch between views uses Tailwind responsive visibility classes applied inside the Terra `DataTable` component (which is exempt from the `no-raw-classname` ESLint rule because it is inside Terra itself).
+When `grid` is provided, `DataTable` renders:
+- **Mobile (always):** a `Grid` of `grid.card(row)` outputs, followed optionally by `grid.footer`.
+- **Desktop:** a grid/list toggle in the toolbar; the grid view or table view is shown based on `viewMode` state (defaulting to `grid.defaultViewMode`).
+
+The switch between views uses Tailwind responsive visibility classes applied inside the Terra `DataTable` component (which is exempt from the `no-raw-classname` ESLint rule because it is inside Terra itself). Both views operate on the same filtered and sorted dataset from TanStack Table.
 
 ### User Experience
 
@@ -124,19 +137,20 @@ The switch between views uses Tailwind responsive visibility classes applied ins
 
 #### Desktop (≥ 768 px)
 
-- Existing table layout unchanged.
-- If the callsite previously had a separate grid view toggle, that is removed in favour of the table-only desktop layout.
+- If `grid` is provided, a grid/list toggle appears in the toolbar. Default view is `grid.defaultViewMode` (defaults to `'grid'`).
+- If `grid` is not provided, the existing table layout renders unchanged.
+- If the callsite previously had separate grid view toggle logic, that is removed in favour of `grid.defaultViewMode`.
 
 #### Agents page migration
 
 - Remove `viewMode` state and the grid/list toggle buttons.
-- Pass the existing card JSX (currently in the `viewMode === 'grid'` branch) as the `mobileCard` render prop.
-- The desktop view becomes table-only (the card grid is mobile-only after migration).
+- Pass the existing card JSX as `grid.card` and the "Create new agent" footer card as `grid.footer`.
+- Desktop now starts in grid view by default (`defaultViewMode: 'grid'`) with a toggle to table view.
 
 ### Key Components
 
-- **`DataTable` (`src/packages/terra/src/components/table/data-table.tsx`)**: Add `mobileCard` and `mobileCardFooter` props; render card list below `md`, table above `md`.
-- **`AgentsPage` (`src/app/(dashboard)/agents/_components/agents-page.tsx`)**: Remove `viewMode` state and toggle; pass agent card JSX as `mobileCard`.
+- **`DataTable` (`src/packages/terra/src/components/table/data-table.tsx`)**: Add `grid?: DataTableGridConfig<TData>` prop; render card grid (mobile always + desktop when viewMode=grid), table (desktop when viewMode=list or grid not provided).
+- **`AgentsPage` (`src/app/(dashboard)/agents/_components/agents-page.tsx`)**: Remove `viewMode` state and toggle; pass agent card JSX as `grid.card` and the "Create new agent" card as `grid.footer`.
 - **`RolesTab` (`src/app/(dashboard)/policy/_components/roles-tab.tsx`)**: Wrap `ViewToggle` in `Show above="md"`.
 - **`GrantsTab` (`src/app/(dashboard)/policy/_components/grants-tab.tsx`)**: Wrap `ViewToggle` in `Show above="md"`.
 
@@ -146,22 +160,22 @@ The switch between views uses Tailwind responsive visibility classes applied ins
 
 ### In Scope
 
-- `DataTable` `mobileCard` and `mobileCardFooter` props (Terra change).
-- Agents page migration to `mobileCard` (table-primary → card fallback on mobile).
+- `DataTable` `grid?: DataTableGridConfig<TData>` prop (Terra change).
+- Agents page migration to `grid` (table-primary → card grid on mobile + desktop toggle).
 - Hide `ViewToggle` below `md` on the policy roles and grants pages (card-primary → no accidental table on mobile).
 
 ### Out of Scope
 
 - Migrating other table-primary DataTable callsites (triggers, connections, logs, models) — opt-in after this PR ships.
-- Redesigning the card-primary pages (roles, grants) to use `mobileCard` — their card grid is already the correct mobile layout.
+- Redesigning the card-primary pages (roles, grants) to use `grid` — their card grid is already the correct mobile layout.
 - Mobile toolbar redesign.
 - Responsive chart heights.
 - Per-callsite `defaultVisible` column hiding (Option B from the mobile responsive review).
 
 ### Future Considerations
 
-- A `DataTableCard` Terra component with standardised card chrome (border, padding, header/footer slots) that `mobileCard` callers can use instead of assembling raw `Card` components.
-- Migrating remaining DataTable callsites to use `mobileCard`.
+- A `DataTableCard` Terra component with standardised card chrome (border, padding, header/footer slots) that `grid.card` callers can use instead of assembling raw `Card` components.
+- Migrating remaining DataTable callsites to use `grid`.
 
 ---
 
@@ -170,19 +184,20 @@ The switch between views uses Tailwind responsive visibility classes applied ins
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `DataTable` renders `mobileCard(row)` output in a `Stack` below the `md` breakpoint when `mobileCard` is provided.
-- [ ] `DataTable` renders the existing table layout at `md` and above, unchanged.
-- [ ] The card list is filtered and sorted by the same logic that drives the table (search query + client filters).
-- [ ] The agents page uses `mobileCard` and `mobileCardFooter` and removes its manual `viewMode` state and toggle buttons.
-- [ ] `DataTable` without `mobileCard` is unaffected — no behaviour change for existing callers.
+- [ ] `DataTable` renders `grid.card(row)` output in a `Grid` on mobile (always) when `grid` is provided.
+- [ ] `DataTable` renders the existing table layout on desktop when `viewMode === 'list'`, unchanged.
+- [ ] A grid/list toggle is shown in the toolbar on desktop when `grid` is provided.
+- [ ] The card grid is filtered and sorted by the same logic that drives the table (search query + client filters).
+- [ ] The agents page uses `grid` and removes its manual `viewMode` state and toggle buttons.
+- [ ] `DataTable` without `grid` is unaffected — no behaviour change for existing callers.
 - [ ] The `ViewToggle` on the policy roles and grants pages is hidden below the `md` breakpoint.
 
 **Should Have (P1):**
-- [ ] The card list is wrapped in a `TableContainer` so it shares the same border/background chrome as the table.
-- [ ] The row click handler (`onRowClick`) works in the card list: tapping a card triggers navigation.
-- [ ] An empty state is shown in the card list view when the filtered dataset is empty (same `emptyMessage` / `filteredEmptyMessage` props as the table uses).
-- [ ] When the `error` prop is set, the error content is rendered in the card list view in place of the cards (same `error` prop as the table uses).
-- [ ] An optional `mobileCardFooter?: React.ReactNode` prop renders a single static node after the last card. This allows callsites to append a "Create new" affordance or similar trailing item that is not tied to a data row.
+- [ ] The card grid is wrapped inside `TableContainer` so it shares the same border/background chrome as the table.
+- [ ] The row click handler (`onRowClick`) works in the card grid: tapping a card triggers navigation.
+- [ ] An empty state is shown in the card grid when the filtered dataset is empty (same `emptyMessage` / `filteredEmptyMessage` props as the table uses).
+- [ ] When the `error` prop is set, the error content is rendered in the card grid in place of cards.
+- [ ] An optional `grid.footer?: React.ReactNode` renders a single static node after the last card for trailing affordances not tied to a data row.
 
 ### Non-Functional Requirements
 

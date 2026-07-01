@@ -564,63 +564,66 @@ export const Toolbar: Story = {
 export const ToolbarRightActions: Story = {
   name: 'TableToolbar — rightActions',
   render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [q, setQ] = useState('');
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [view, setView] = useState<'grid' | 'list'>('grid');
-    const showing = agents.filter((a) => !q || a.id.toLowerCase().includes(q.toLowerCase())).length;
-    return (
-      <div className="w-[640px]">
-        <TableContainer>
-          <TableToolbar
-            search={{ value: q, onChange: setQ, placeholder: 'Search agents…' }}
-            count={{ showing, total: agents.length, label: 'agents' }}
-            rightActions={
-              <div className="flex items-center gap-1.5">
-                <div className="h-4 w-px bg-border mx-1" />
-                <button
-                  type="button"
-                  aria-label="Grid view"
-                  onClick={() => setView('grid')}
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'grid' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
+    function Story() {
+      const [q, setQ] = useState('');
+      const [view, setView] = useState<'grid' | 'list'>('grid');
+      const showing = agents.filter(
+        (a) => !q || a.id.toLowerCase().includes(q.toLowerCase()),
+      ).length;
+      return (
+        <div className="w-[640px]">
+          <TableContainer>
+            <TableToolbar
+              search={{ value: q, onChange: setQ, placeholder: 'Search agents…' }}
+              count={{ showing, total: agents.length, label: 'agents' }}
+              rightActions={
+                <div className="flex items-center gap-1.5">
+                  <div className="h-4 w-px bg-border mx-1" />
+                  <button
+                    type="button"
+                    aria-label="Grid view"
+                    onClick={() => setView('grid')}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'grid' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
                   >
-                    <rect x="1" y="1" width="6" height="6" rx="1" />
-                    <rect x="9" y="1" width="6" height="6" rx="1" />
-                    <rect x="1" y="9" width="6" height="6" rx="1" />
-                    <rect x="9" y="9" width="6" height="6" rx="1" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  aria-label="List view"
-                  onClick={() => setView('list')}
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'list' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
+                    <svg
+                      className="h-3.5 w-3.5"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <rect x="1" y="1" width="6" height="6" rx="1" />
+                      <rect x="9" y="1" width="6" height="6" rx="1" />
+                      <rect x="1" y="9" width="6" height="6" rx="1" />
+                      <rect x="9" y="9" width="6" height="6" rx="1" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="List view"
+                    onClick={() => setView('list')}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${view === 'list' ? 'bg-foreground text-background' : 'text-subtle hover:bg-surface-elevated'}`}
                   >
-                    <line x1="1" y1="4" x2="15" y2="4" />
-                    <line x1="1" y1="8" x2="15" y2="8" />
-                    <line x1="1" y1="12" x2="15" y2="12" />
-                  </svg>
-                </button>
-              </div>
-            }
-          />
-        </TableContainer>
-      </div>
-    );
+                    <svg
+                      className="h-3.5 w-3.5"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <line x1="1" y1="4" x2="15" y2="4" />
+                      <line x1="1" y1="8" x2="15" y2="8" />
+                      <line x1="1" y1="12" x2="15" y2="12" />
+                    </svg>
+                  </button>
+                </div>
+              }
+            />
+          </TableContainer>
+        </div>
+      );
+    }
+    return <Story />;
   },
 };
 

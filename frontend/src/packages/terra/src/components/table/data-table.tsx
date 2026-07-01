@@ -275,8 +275,9 @@ type DataTablePropsBase<TData> = {
 /**
  * Props for the DataTable component.
  *
- * `searchFn` and `searchPlaceholder` must be provided together — TypeScript
- * will error if only one is supplied. Omit both to hide the search box.
+ * `searchFn` enables client-side search; omit it (along with `searchPlaceholder`)
+ * to hide the search input. `searchPlaceholder` is optional when `searchFn` is
+ * provided — omitting it falls back to the default placeholder.
  */
 export type DataTableProps<TData> = DataTablePropsBase<TData> &
   (
@@ -571,8 +572,15 @@ export function DataTable<TData>({
                     key={getRowKey(row.original)}
                     role={onRowClick ? 'button' : undefined}
                     tabIndex={onRowClick ? 0 : undefined}
+                    aria-describedby={onRowClick ? rowDescId : undefined}
                     style={onRowClick ? { cursor: 'pointer', height: '100%' } : { height: '100%' }}
-                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    onClick={
+                      onRowClick
+                        ? (e) => {
+                            if (e.target === e.currentTarget) onRowClick(row.original);
+                          }
+                        : undefined
+                    }
                     onKeyDown={
                       onRowClick
                         ? (e) => {

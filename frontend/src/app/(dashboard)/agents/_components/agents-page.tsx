@@ -383,6 +383,7 @@ export function AgentsPage() {
               <Card
                 column
                 role="button"
+                aria-label="Create new agent"
                 onClick={() => router.push(APP_ROUTES.agents.new)}
                 style={{
                   background: 'transparent',
