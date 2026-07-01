@@ -56,7 +56,7 @@ type Collision struct {
 // mcp:invoke coarse gate the Phase-4 PEP sits behind.
 func CoarseRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
-		{PathPrefix: "/v1/", Method: "POST", RequiredScope: mcpInvokeScope},
+		{PathPrefix: "/v1/mcp", Method: "POST", RequiredScope: mcpInvokeScope},
 	}
 }
 

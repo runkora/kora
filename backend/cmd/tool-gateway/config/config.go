@@ -22,6 +22,11 @@ type Config struct {
 		Version string `yaml:"version"`
 	} `yaml:"app"`
 
+	// Mode selects the run mode: "publisher" (replicas=1 — introspection +
+	// scope publishing + catalog write) or "proxy" (horizontally scaled —
+	// the request-path PEP + MCP proxy). One binary, two deployments.
+	Mode string `yaml:"mode"`
+
 	Server struct {
 		// HTTPPort serves health (and, in Phase 4, the MCP request path).
 		HTTPPort            int    `yaml:"httpPort"`
@@ -33,6 +38,11 @@ type Config struct {
 		// PolicyServiceInternalURL is the base URL for the policy-service
 		// route+scope registration endpoint (the ScopePublisher target).
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`
+		// BundleEndpoint is the policy-service bundle-polling endpoint the
+		// in-process evaluator (proxy mode) polls for per-tool authz.
+		BundleEndpoint string `yaml:"bundleEndpoint"`
+		// BundlePollIntervalSecs is how often the evaluator polls for bundles.
+		BundlePollIntervalSecs int `yaml:"bundlePollIntervalSecs"`
 	} `yaml:"policy"`
 
 	Registry struct {
@@ -67,6 +77,17 @@ func (c *Config) ReintrospectInterval() time.Duration {
 	}
 	return time.Duration(c.Introspection.ReintrospectIntervalSecs) * time.Second
 }
+
+// BundlePollInterval returns the evaluator bundle-poll interval, default 30s.
+func (c *Config) BundlePollInterval() time.Duration {
+	if c.Policy.BundlePollIntervalSecs <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.Policy.BundlePollIntervalSecs) * time.Second
+}
+
+// IsProxyMode reports whether the binary runs the request-path proxy/PEP.
+func (c *Config) IsProxyMode() bool { return c.Mode == "proxy" }
 
 // Current holds non-secret configuration for the tool-gateway.
 var Current = config.MustLoadService[Config]("cmd/tool-gateway", config.Environment())

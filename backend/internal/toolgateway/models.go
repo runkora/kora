@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// callerIdentityForward is the caller_identity value meaning "forward the
+// caller's bearer to the upstream" (valid only for global servers).
+const callerIdentityForward = "forward"
+
 // Server is one entry of the mounted servers.json registry — the runtime
 // contract the operator's MCPServerAggregator renders. tenant_id is "" for a
 // global (orbit-system) server and the owning tenant for a tenant server.

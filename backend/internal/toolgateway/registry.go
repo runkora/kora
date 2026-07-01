@@ -76,6 +76,20 @@ func (r *Registry) Servers() []Server {
 	return out
 }
 
+// lookup returns the registered server with the given name (any tenant). The
+// gateway resolves the caller's server by slug; for the MVP a slug is unique in
+// the registry. Returns false if no such server.
+func (r *Registry) lookup(name string) (Server, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, s := range r.servers {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return Server{}, false
+}
+
 // Loaded reports whether the registry file has been successfully read at least
 // once (the ConfigMap is mounted). The prune-guard requires this before any
 // destructive scope prune.

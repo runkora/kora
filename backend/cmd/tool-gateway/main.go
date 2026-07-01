@@ -28,6 +28,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/toolgateway"
@@ -51,12 +52,14 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
-	logger.Info(ctx, "Tool gateway starting (publisher mode)",
-		logging.Field{Key: "version", Value: tgc.Current.App.Version})
+	proxyMode := tgc.Current.IsProxyMode()
+	logger.Info(ctx, "Tool gateway starting",
+		logging.Field{Key: "version", Value: tgc.Current.App.Version},
+		logging.Field{Key: "mode", Value: map[bool]string{true: "proxy", false: "publisher"}[proxyMode]})
 
 	// ── MCP server registry ──────────────────────────────────────────────────
 	// Sourced from the operator-aggregated orbit-mcp-servers ConfigMap the
-	// gateway mounts, parsed + hot-reloaded from disk.
+	// gateway mounts, parsed + hot-reloaded from disk. Both modes read it.
 	registry, err := toolgateway.LoadRegistry(ctx, tgc.Current.Registry.ServersPath, logger)
 	if err != nil {
 		return fmt.Errorf("init MCP server registry: %w", err)
@@ -70,40 +73,42 @@ func realMain() error {
 	defer db.Close()
 	catalogRepo := toolgateway.NewPostgresCatalog(db.Pool())
 
-	// ── Introspection worker ─────────────────────────────────────────────────
-	introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
+	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
+	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, verifier, logger)}
 
-	// ── Scope publisher ──────────────────────────────────────────────────────
-	// Publishes the mcp:<server>:<tool>:use vocabulary from the introspection
-	// snapshots. The routescopes client retries until the identity-proxy sidecar
-	// has a platform token, so the publish runs inside the cycle goroutine.
-	scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
-	publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
+	if proxyMode {
+		// ── Request-path PEP + proxy ─────────────────────────────────────────
+		eval := policy.NewEvaluator(tgc.Current.Policy.BundleEndpoint, tgc.Current.BundlePollInterval(), logger)
+		eval.Start(ctx)
+		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
+		controllers = append(controllers, toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, logger))
+		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
+	} else {
+		// ── Publisher: introspection + scope publishing + catalog write ──────
+		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
+		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
+		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
-	// ── Introspection + publish cycle ────────────────────────────────────────
-	// Re-introspect every registered server, publish the discovered tools' scopes
-	// (with the prune-guard), then rebuild the read-only catalog. Serialized so
-	// the reload hook and the timer never run a cycle concurrently.
-	var cycleMu sync.Mutex
-	cycle := func(ctx context.Context) {
-		cycleMu.Lock()
-		defer cycleMu.Unlock()
-		introspector.Sync(ctx, registry.Servers())
-		if err := publisher.Publish(ctx); err != nil {
-			logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+		// Re-introspect every server, publish scopes (prune-guarded), rebuild the
+		// catalog. Serialized so the reload hook and timer never race.
+		var cycleMu sync.Mutex
+		cycle := func(ctx context.Context) {
+			cycleMu.Lock()
+			defer cycleMu.Unlock()
+			introspector.Sync(ctx, registry.Servers())
+			if err := publisher.Publish(ctx); err != nil {
+				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+			}
+			if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
+				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+			}
 		}
-		if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
-			logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
-		}
+		registry.OnReload(cycle)
+		go registry.Watch(ctx)
+		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
 	}
 
-	registry.OnReload(cycle)
-	go registry.Watch(ctx)
-	go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
-
-	// ── HTTP server (health + read-only catalog) ─────────────────────────────
-	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
-	catalogController := toolgateway.NewCatalogController(catalogRepo, verifier, logger)
+	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
 	apiServer := platformapi.NewAPI(ctx, logger)
 	srv := apiServer.Server(
 		ctx,
@@ -113,7 +118,7 @@ func realMain() error {
 			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
-		catalogController,
+		controllers...,
 	)
 	go func() {
 		logger.Info(ctx, "Starting tool-gateway HTTP server", logging.Field{Key: "addr", Value: srv.Addr})
