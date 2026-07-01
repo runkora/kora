@@ -1,16 +1,16 @@
-// RSC — fetches the read-only MCP tool catalog from the tool-gateway so the
-// page renders with real data immediately.
+// RSC — the MCP servers list. Fetches the tool-gateway catalog and groups it
+// into servers so the page renders with real data immediately.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchMcpCatalog } from './_services/mcp-server';
-import { McpGatewayShell } from './_components/mcp-gateway-shell';
+import { McpServersShell } from './_components/mcp-servers-shell';
 
-export default async function McpGatewayPage() {
+export default async function McpServersPage() {
   const session = await getSession();
   const result = isSessionValid(session) ? await fetchMcpCatalog(session.accessToken) : null;
 
   const initialRows = result?.ok ? result.rows : [];
   const initialError = result && !result.ok ? result.message : null;
 
-  return <McpGatewayShell initialRows={initialRows} initialError={initialError} />;
+  return <McpServersShell initialRows={initialRows} initialError={initialError} />;
 }
