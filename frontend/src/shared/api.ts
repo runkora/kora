@@ -191,6 +191,19 @@ export interface ConnectionCatalogEntry {
 }
 
 /**
+ * One tool in the MCP tool-gateway catalog — the read-only projection the
+ * gateway rebuilds on each introspection. `scope` is the mcp:<server>:<tool>:use
+ * scope a principal must hold to call it; `server_slug` is the MCPServer name.
+ */
+export interface McpCatalogTool {
+  tenant_id: string;
+  server_slug: string;
+  tool_name: string;
+  scope: string;
+  description: string;
+}
+
+/**
  * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
  * credential connectors an agent type can reference. Attaching an environment to
  * an agent type folds its hosts and connectors into the agent's effective

@@ -40,6 +40,7 @@ export const APP_ROUTES = {
   connections: '/connections',
   environments: '/environments',
   triggers: '/triggers',
+  mcpGateway: '/mcp-gateway',
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {
