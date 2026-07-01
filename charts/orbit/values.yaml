@@ -203,7 +203,10 @@ toolGateway:
       cpu: 250m
       memory: 128Mi
 
-  # Plain-HTTP port — health + GET /v1/catalog + the Phase-4 MCP request path.
+  # Number of request-path proxy replicas (the publisher is always 1).
+  proxyReplicas: 1
+
+  # Plain-HTTP port — health + GET /v1/catalog + the MCP request path.
   # Must match cmd/tool-gateway/config/base.yaml's server.httpPort.
   httpPort: 8096
 

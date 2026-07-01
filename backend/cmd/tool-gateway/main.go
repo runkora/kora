@@ -52,7 +52,13 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
+	// Mode is a deployment-topology flag: the same image runs as the publisher
+	// (replicas=1) or the scaled proxy. The env var lets the two Deployments
+	// select their mode from one baked config; it overrides config.Mode.
 	proxyMode := tgc.Current.IsProxyMode()
+	if m := os.Getenv("ORBIT_TOOL_GATEWAY_MODE"); m != "" {
+		proxyMode = m == "proxy"
+	}
 	logger.Info(ctx, "Tool gateway starting",
 		logging.Field{Key: "version", Value: tgc.Current.App.Version},
 		logging.Field{Key: "mode", Value: map[bool]string{true: "proxy", false: "publisher"}[proxyMode]})

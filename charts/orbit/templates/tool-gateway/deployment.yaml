@@ -1,23 +1,28 @@
+# PUBLISHER deployment: introspection + scope publishing + catalog write. It
+# needs identity-proxy (its own platform token for the policy-service publish +
+# authed introspection). replicas=1 — its DeleteOrphans publish is destructive
+# and must be single-writer (MCP registration ADR, Decision 2). Not behind the
+# Service (it serves no request traffic; the proxy deployment does).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-tool-gateway
+  name: orbit-tool-gateway-publisher
   namespace: {{ include "orbit.systemNamespace" . }}
   labels:
     {{- include "orbit.toolGateway.labels" . | nindent 4 }}
+    orbit.io/mode: publisher
 spec:
-  # Single writer by topology: scope publication runs DeleteOrphans, which is
-  # destructive (it revokes pruned scopes from grants/roles). The publisher must
-  # be replicas=1 — see the MCP registration ADR, Decision 2.
   replicas: 1
   selector:
     matchLabels:
       {{- include "orbit.toolGateway.selectorLabels" . | nindent 6 }}
+      orbit.io/mode: publisher
   template:
     metadata:
       labels:
         {{- include "orbit.toolGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.toolGateway.labels" . | nindent 8 }}
+        orbit.io/mode: publisher
         # SPIRE workload attestation — issues spiffe://<trust-domain>/system/tool-gateway.
         spiffe.io/spire-managed-identity: "true"
         spiffe.io/component: tool-gateway
@@ -54,6 +59,8 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
           env:
+            - name: ORBIT_TOOL_GATEWAY_MODE
+              value: publisher
             - name: ORBIT_OTLP_INSECURE
               value: {{ .Values.toolGateway.config.otlpInsecure | quote }}
             - name: ORBIT_LOG_FORMAT
