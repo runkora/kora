@@ -33,15 +33,15 @@ const headingVariants = cva('font-sans tracking-tight', {
        * <Heading variant="display">Orbit</Heading>
        * ```
        */
-      display: 'text-5xl font-bold leading-none tracking-tighter',
+      display: 'text-5xl font-bold leading-none tracking-[-0.03em]',
       /** Page-level title — reserved for a single landmark per view. */
-      title: 'text-3xl font-bold leading-tight',
+      title: 'text-3xl font-bold leading-tight tracking-[-0.02em]',
       /** Major section heading — the most common heading level. */
-      section: 'text-2xl font-semibold leading-tight',
+      section: 'text-2xl font-semibold leading-tight tracking-[-0.01em]',
       /** Secondary grouping within a section. */
-      subsection: 'text-xl font-semibold leading-snug',
+      subsection: 'text-xl font-semibold leading-snug tracking-[-0.01em]',
       /** Compact group label, card title, or sidebar item header. */
-      label: 'text-base font-semibold leading-snug',
+      label: 'text-base font-semibold leading-snug tracking-[-0.01em]',
       /**
        * Metric — large display number for stat cards and KPI widgets.
        * Renders as a div (semantic neutral) since metric values are not
