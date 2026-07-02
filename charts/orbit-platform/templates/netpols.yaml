@@ -117,6 +117,7 @@ spec:
 # - identity-proxy sidecar calls orbit-identity (/api/v1/identity/exchange) on port 8080
 # - OPA sidecar polls orbit-policy-service for bundles on port 8083
 # - session-manager (agent pods) calls orbit-inference-gateway on port 8081
+# - session-manager (agent pods) calls orbit-tool-gateway (MCP) on port 8096
 # With Istio mTLS, the source Envoy connects on the original destination port before
 # iptables redirect. Without this rule, the default-deny-all blocks the connection
 # and Envoy returns 503 "delayed connect error: Connection refused".
@@ -142,6 +143,8 @@ spec:
         - port: 8081
           protocol: TCP
         - port: 8083
+          protocol: TCP
+        - port: 8096
           protocol: TCP
         - port: 15006
           protocol: TCP

@@ -53,6 +53,12 @@ type ClaudeRunnerConfig struct {
 	// Always http://localhost:{port} since they run in the same pod.
 	SessionManagerURL string
 
+	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. When set,
+	// writeMCPConfig adds a governed streamable-HTTP MCP entry pointing at it;
+	// the agent calls it unauthenticated and the identity-proxy sidecar injects
+	// the platform token. Empty disables the gateway entry.
+	ToolGatewayURL string
+
 	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
 	RunID string
 
@@ -277,19 +283,31 @@ func (r *ClaudeRunner) SendToolResult(_ context.Context, toolUseID, content stri
 // writeMCPConfig writes the per-session MCP server config to the workspace and
 // returns the path. Claude Code reads this via --mcp-config at startup.
 func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
-	cfg := map[string]any{
-		"mcpServers": map[string]any{
-			"runtime": map[string]any{
-				"type":    "stdio",
-				"command": "orbit-runtime-mcp",
-				"args":    []string{},
-				"env": map[string]string{
-					"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
-					"ORBIT_RUN_ID":              r.cfg.RunID,
-				},
+	mcpServers := map[string]any{
+		"runtime": map[string]any{
+			"type":    "stdio",
+			"command": "orbit-runtime-mcp",
+			"args":    []string{},
+			"env": map[string]string{
+				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"ORBIT_RUN_ID":              r.cfg.RunID,
 			},
 		},
 	}
+
+	// Governed tool access: a single streamable-HTTP entry pointing at the MCP
+	// tool-gateway. The gateway fronts every server the agent is granted (tools
+	// namespaced <server>__<tool>); the agent calls it unauthenticated and the
+	// identity-proxy sidecar injects the platform token. See
+	// docs/adr/2026-06-29-mcp-tool-gateway.md.
+	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
+		mcpServers["orbit"] = map[string]any{
+			"type": "http",
+			"url":  url + "/mcp",
+		}
+	}
+
+	cfg := map[string]any{"mcpServers": mcpServers}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return "", err

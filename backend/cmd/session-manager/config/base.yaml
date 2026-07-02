@@ -47,5 +47,11 @@ opencode:
 inferenceGateway:
   url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
 
+# toolGateway is the in-mesh MCP tool-gateway. Its URL is written into each run's
+# MCP config so the agent reaches governed tools through the gateway; the agent
+# calls it unauthenticated and the identity-proxy sidecar injects the token.
+toolGateway:
+  url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
+
 session:
   idleTimeoutSecs: 1200 # 20 minutes

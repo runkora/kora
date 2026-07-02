@@ -653,6 +653,41 @@ func TestWriteMCPConfig(t *testing.T) {
 	if env["ORBIT_RUN_ID"] != "run-42" {
 		t.Errorf("ORBIT_RUN_ID = %v", env["ORBIT_RUN_ID"])
 	}
+	// No gateway URL configured — no governed MCP entry.
+	if _, ok := servers["orbit"]; ok {
+		t.Error("unexpected mcpServers.orbit without ToolGatewayURL")
+	}
+}
+
+func TestWriteMCPConfig_ToolGateway(t *testing.T) {
+	r := newTestRunner()
+	r.cfg.ToolGatewayURL = "http://orbit-tool-gateway.orbit-system.svc.cluster.local/"
+
+	dir := t.TempDir()
+	path, err := r.writeMCPConfig(dir)
+	if err != nil {
+		t.Fatalf("writeMCPConfig: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	servers, _ := cfg["mcpServers"].(map[string]any)
+	orbit, _ := servers["orbit"].(map[string]any)
+	if orbit == nil {
+		t.Fatal("missing mcpServers.orbit gateway entry")
+	}
+	if orbit["type"] != "http" {
+		t.Errorf("orbit.type = %v, want http", orbit["type"])
+	}
+	// Trailing slash trimmed, /mcp appended.
+	if want := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/mcp"; orbit["url"] != want {
+		t.Errorf("orbit.url = %v, want %q", orbit["url"], want)
+	}
 }
 
 // ── isExitKilled ──────────────────────────────────────────────────────────────
