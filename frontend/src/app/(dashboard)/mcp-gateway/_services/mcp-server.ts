@@ -1,22 +1,38 @@
 import 'server-only';
 
-import { listMcpTools } from '@orbit/server/mcp-client';
-import { buildToolRows } from '../_types';
-import type { McpToolRow } from '../_types';
+import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import { listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
 
-export type McpCatalogResult = { ok: true; rows: McpToolRow[] } | { ok: false; message: string };
+export type McpServersResult = { ok: true; servers: McpServer[] } | { ok: false; message: string };
+
+export type McpToolsResult =
+  | { ok: true; server: McpServer | null; tools: McpCatalogTool[] }
+  | { ok: false; message: string };
+
+/** Loads the MCP servers visible to the tenant for the top-level list. */
+export async function fetchMcpServers(accessToken: string): Promise<McpServersResult> {
+  try {
+    return { ok: true, servers: await listMcpServers(accessToken) };
+  } catch {
+    return { ok: false, message: 'Failed to load MCP servers' };
+  }
+}
 
 /**
- * Loads the read-only MCP tool catalog from the tool-gateway as per-tool rows.
- * Both the server list and the per-server detail derive their views from this
- * one fetch. Surfaces `ok: false` when the gateway is unreachable so the pages
- * can show a clear message rather than a misleading empty catalog.
+ * Loads the data for one server's detail: its metadata (from the servers list)
+ * and the full tool catalog (grouped by domain in the component).
  */
-export async function fetchMcpCatalog(accessToken: string): Promise<McpCatalogResult> {
+export async function fetchServerDetail(
+  accessToken: string,
+  serverSlug: string,
+): Promise<McpToolsResult> {
   try {
-    const tools = await listMcpTools(accessToken);
-    return { ok: true, rows: buildToolRows(tools) };
+    const [servers, tools] = await Promise.all([
+      listMcpServers(accessToken),
+      listMcpTools(accessToken),
+    ]);
+    return { ok: true, server: servers.find((s) => s.name === serverSlug) ?? null, tools };
   } catch {
-    return { ok: false, message: 'Failed to load the MCP tool catalog' };
+    return { ok: false, message: 'Failed to load the MCP server' };
   }
 }

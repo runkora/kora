@@ -3,13 +3,13 @@
 /** @tier 3 — mcp-gateway-scoped. Client boundary for the server list. */
 
 import { McpServersPage } from './mcp-servers-page';
-import type { McpToolRow } from '../_types';
+import type { McpServer } from '../_types';
 
 interface McpServersShellProps {
-  initialRows: McpToolRow[];
-  initialError: string | null;
+  servers: McpServer[];
+  error: string | null;
 }
 
-export function McpServersShell({ initialRows, initialError }: McpServersShellProps) {
-  return <McpServersPage rows={initialRows} error={initialError} />;
+export function McpServersShell({ servers, error }: McpServersShellProps) {
+  return <McpServersPage servers={servers} error={error} />;
 }

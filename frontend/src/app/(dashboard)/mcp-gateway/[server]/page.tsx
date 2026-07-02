@@ -1,22 +1,21 @@
-// RSC — one MCP server's tools. Fetches the catalog and filters to this server.
+// RSC — one MCP server's detail. Fetches the server's metadata + tool catalog.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { fetchMcpCatalog } from '../_services/mcp-server';
+import { fetchServerDetail } from '../_services/mcp-server';
 import { McpServerDetailShell } from '../_components/mcp-server-detail-shell';
 
 export default async function McpServerDetail({ params }: { params: Promise<{ server: string }> }) {
   const { server } = await params;
   const session = await getSession();
-  const result = isSessionValid(session) ? await fetchMcpCatalog(session.accessToken) : null;
+  const result = isSessionValid(session)
+    ? await fetchServerDetail(session.accessToken, server)
+    : null;
 
-  const initialRows = result?.ok ? result.rows : [];
-  const initialError = result && !result.ok ? result.message : null;
+  const serverMeta = result?.ok ? result.server : null;
+  const tools = result?.ok ? result.tools : [];
+  const error = result && !result.ok ? result.message : null;
 
   return (
-    <McpServerDetailShell
-      serverSlug={server}
-      initialRows={initialRows}
-      initialError={initialError}
-    />
+    <McpServerDetailShell serverSlug={server} server={serverMeta} tools={tools} error={error} />
   );
 }

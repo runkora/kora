@@ -1,25 +1,39 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Breadcrumbs, Button, Icon, Indicator, Separator, Show, Stack } from '@orbit/terra';
+import Link from 'next/link';
+import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
 import { useSidebarState } from './sidebar-state';
+import { MCP_GATEWAY_HOST } from '@orbit/lib/mcp';
 
-const SECTION_LABELS: Record<string, string> = {
-  agents: 'Agents',
-  policy: 'Policy',
-  'model-gateway': 'Model Gateway',
-  chat: 'Chat',
-};
-
-function useSectionLabel(): string {
-  const pathname = usePathname();
-  const segment = pathname.split('/').filter(Boolean)[0] ?? '';
-  return SECTION_LABELS[segment] ?? 'Dashboard';
+/**
+ * Per-section header content. `title` + `tag` render on the left of the top bar;
+ * `endpoint` fills the otherwise-dead right slot with a governed-endpoint note.
+ * Sections not listed fall back to a plain "Dashboard" title.
+ */
+interface SectionHeader {
+  title: string;
+  tag?: string;
+  endpoint?: string;
 }
 
+const SECTIONS: Record<string, SectionHeader> = {
+  agents: { title: 'Agents' },
+  policy: { title: 'Policy' },
+  'model-gateway': { title: 'Model Gateway' },
+  'mcp-gateway': { title: 'MCP Servers', tag: 'tool-gateway', endpoint: MCP_GATEWAY_HOST },
+  chat: { title: 'Chat' },
+};
+
 export function DashboardHeader() {
-  const section = useSectionLabel();
+  const pathname = usePathname();
   const { toggle, isOpen } = useSidebarState();
+
+  const segments = pathname.split('/').filter(Boolean);
+  const section = segments[0] ?? '';
+  const header = SECTIONS[section];
+  const isDetail = segments.length > 1;
+  const detailLabel = segments[segments.length - 1];
 
   return (
     <Stack
@@ -43,10 +57,72 @@ export function DashboardHeader() {
           </Button>
         </Show>
 
-        <Breadcrumbs items={[{ label: 'Orbit' }, { label: section }]} />
+        {isDetail && header ? (
+          // Detail: Back button + breadcrumb trail (section › item).
+          <Stack direction="horizontal" align="center" style={{ gap: 10 }}>
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              style={{ height: 28, padding: '0 9px 0 7px', gap: 5, fontSize: 12 }}
+            >
+              <Link href={`/${section}`}>
+                <Icon name="chevron-left" size="xs" />
+                Back
+              </Link>
+            </Button>
+            <Text as="span" style={{ fontSize: 13, color: 'var(--color-subtle)' }}>
+              {header.title}
+            </Text>
+            <Icon name="chevron-right" size="xs" color="subtle" />
+            <Text
+              as="span"
+              mono
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-foreground)' }}
+            >
+              {detailLabel}
+            </Text>
+          </Stack>
+        ) : header ? (
+          // Section root: title + service tag.
+          <Stack direction="horizontal" align="center" style={{ gap: 8 }}>
+            <Text as="span" style={{ fontSize: 13, fontWeight: 600 }}>
+              {header.title}
+            </Text>
+            {header.tag ? (
+              <Text
+                as="span"
+                mono
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: 'var(--color-subtle)',
+                  marginLeft: 2,
+                }}
+              >
+                {header.tag}
+              </Text>
+            ) : null}
+          </Stack>
+        ) : (
+          <Text as="span" style={{ fontSize: 13, fontWeight: 600 }}>
+            Dashboard
+          </Text>
+        )}
       </Stack>
 
       <Stack direction="horizontal" align="center" gap="snug">
+        {!isDetail && header?.endpoint ? (
+          <>
+            <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
+              Governed endpoint ·{' '}
+              <Text as="span" mono style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+                {header.endpoint}
+              </Text>
+            </Text>
+            <Separator orientation="vertical" span="narrow" />
+          </>
+        ) : null}
         <Button variant="ghost" size="icon" aria-label="Refresh">
           <Icon name="refresh-cw" />
         </Button>

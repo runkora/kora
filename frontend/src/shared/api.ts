@@ -204,6 +204,28 @@ export interface McpCatalogTool {
 }
 
 /**
+ * One MCP server visible to a tenant, from the tool-gateway's /v1/servers.
+ * `caller_identity` is "forward" when the gateway acts AS the caller against
+ * the upstream (global servers only); `global` is true for platform servers.
+ */
+export interface McpServer {
+  name: string;
+  display_name: string;
+  description: string;
+  transport: string;
+  caller_identity: string;
+  endpoint: string;
+  global: boolean;
+  tool_count: number;
+  /** The distinct tool domains (first path segment), e.g. ["agents","policy"]. */
+  domains: string[];
+  /** RFC3339 timestamp of the last introspection, or "" if never. */
+  last_synced: string;
+  /** Coarse health: "healthy" | "stale" | "unknown". */
+  status: string;
+}
+
+/**
  * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
  * credential connectors an agent type can reference. Attaching an environment to
  * an agent type folds its hosts and connectors into the agent's effective

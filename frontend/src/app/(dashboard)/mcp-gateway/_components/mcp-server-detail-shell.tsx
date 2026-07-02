@@ -1,20 +1,25 @@
 'use client';
 
-/** @tier 3 — mcp-gateway-scoped. Client boundary for one server's tool view. */
+/** @tier 3 — mcp-gateway-scoped. Client boundary for one server's detail view. */
 
+import type { McpCatalogTool } from '@orbit/shared/api';
 import { McpServerDetailPage } from './mcp-server-detail-page';
-import type { McpToolRow } from '../_types';
+import type { McpServer } from '../_types';
 
 interface McpServerDetailShellProps {
   serverSlug: string;
-  initialRows: McpToolRow[];
-  initialError: string | null;
+  server: McpServer | null;
+  tools: McpCatalogTool[];
+  error: string | null;
 }
 
 export function McpServerDetailShell({
   serverSlug,
-  initialRows,
-  initialError,
+  server,
+  tools,
+  error,
 }: McpServerDetailShellProps) {
-  return <McpServerDetailPage serverSlug={serverSlug} rows={initialRows} error={initialError} />;
+  return (
+    <McpServerDetailPage serverSlug={serverSlug} server={server} tools={tools} error={error} />
+  );
 }
