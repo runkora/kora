@@ -24,6 +24,8 @@ const callerIdentityForward = "forward"
 type Server struct {
 	TenantID                    string `json:"tenant_id"`
 	Name                        string `json:"name"`
+	DisplayName                 string `json:"display_name"`
+	Description                 string `json:"description"`
 	Endpoint                    string `json:"endpoint"`
 	Transport                   string `json:"transport"`
 	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`

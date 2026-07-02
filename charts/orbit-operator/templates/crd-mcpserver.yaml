@@ -61,6 +61,9 @@ spec:
                 displayName:
                   description: Human-readable name for the catalog UI.
                   type: string
+                description:
+                  description: One-line summary of what the server does, for the catalog UI.
+                  type: string
                 endpoint:
                   description: >
                     In-mesh URL of the MCP server (Streamable HTTP), e.g.

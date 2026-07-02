@@ -80,7 +80,7 @@ func realMain() error {
 	catalogRepo := toolgateway.NewPostgresCatalog(db.Pool())
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
-	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, verifier, logger)}
+	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, registry, verifier, logger)}
 
 	if proxyMode {
 		// ── Request-path PEP + proxy ─────────────────────────────────────────

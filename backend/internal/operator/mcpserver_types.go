@@ -80,6 +80,11 @@ type MCPServerSpec struct {
 	// +optional
 	DisplayName string `json:"displayName,omitempty"`
 
+	// Description is a one-line summary of what the server does, shown in the
+	// catalog UI.
+	// +optional
+	Description string `json:"description,omitempty"`
+
 	// Endpoint is the in-mesh URL of the MCP server (Streamable HTTP).
 	// +kubebuilder:validation:MinLength=1
 	Endpoint string `json:"endpoint"`

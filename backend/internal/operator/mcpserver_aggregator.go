@@ -62,6 +62,8 @@ var (
 type mcpServerRegistryEntry struct {
 	TenantID                    string `json:"tenant_id"`
 	Name                        string `json:"name"`
+	DisplayName                 string `json:"display_name,omitempty"`
+	Description                 string `json:"description,omitempty"`
 	Endpoint                    string `json:"endpoint"`
 	Transport                   string `json:"transport"`
 	ReintrospectIntervalSeconds int    `json:"reintrospect_interval_seconds"`
@@ -174,6 +176,8 @@ func buildMCPRegistry(servers []MCPServer, nsToTenant map[string]string) ([]mcpS
 		entries = append(entries, mcpServerRegistryEntry{
 			TenantID:                    tenantID,
 			Name:                        srv.Name,
+			DisplayName:                 srv.Spec.DisplayName,
+			Description:                 srv.Spec.Description,
 			Endpoint:                    srv.Spec.Endpoint,
 			Transport:                   effectiveTransport(srv.Spec.Transport),
 			ReintrospectIntervalSeconds: srv.Spec.ReintrospectIntervalSeconds,
