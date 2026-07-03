@@ -18,7 +18,10 @@ type Controller struct {
 	eval     policy.Evaluator
 	routes   []routescopes.RouteScope
 	basePath string
-	logger   logging.Logger
+	// oauthIssuer is the public base URL of the OAuth 2.1 AS surface (MCP
+	// profile); the RFC 8414 metadata's issuer and the base for its endpoints.
+	oauthIssuer string
+	logger      logging.Logger
 }
 
 // NewController creates a ready-to-boot identity Controller.
@@ -30,8 +33,8 @@ type Controller struct {
 // use the per-route auth chain — go through the scope middleware. basePath
 // must match the server's BasePath so the middleware can reconstruct absolute
 // paths after http.StripPrefix.
-func NewController(svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
-	return &Controller{svc: svc, eval: eval, routes: routes, basePath: basePath, logger: logger}
+func NewController(svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath, oauthIssuer string, logger logging.Logger) *Controller {
+	return &Controller{svc: svc, eval: eval, routes: routes, basePath: basePath, oauthIssuer: oauthIssuer, logger: logger}
 }
 
 // GroupedBy returns the route prefix shared by all identity endpoints.
@@ -64,6 +67,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /exchange", c.handleExchange)
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
+	mux.Handle("GET /.well-known/oauth-authorization-server", c.handleAuthorizationServerMetadata)
 	mux.Handle("GET /tenants/discover", c.handleDiscoverTenant)
 
 	// PAT management routes: require a non-PAT authenticated caller.

@@ -27,3 +27,10 @@ introspection:
 
 observability:
   serviceName: "tool-gateway"
+
+# MCP OAuth resource-server side (RFC 9728). resource is this gateway's public MCP
+# endpoint (the protected resource); authServer is the identity OAuth issuer a client
+# is directed to. Placeholder hosts until the public MCP-gateway exposure ADR lands.
+oauth:
+  resource: "https://gw.orbit.sh/v1/mcp"
+  authServer: "https://identity.orbit.sh/api/v1/identity"

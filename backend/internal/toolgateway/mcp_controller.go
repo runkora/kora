@@ -46,20 +46,25 @@ type MCPController struct {
 	catalog  CatalogRepository
 	registry *Registry
 	proxy    *Proxy
-	logger   logging.Logger
-	tracer   trace.Tracer
+	// resourceMetadataURL is advertised in the 401 WWW-Authenticate challenge so
+	// an unauthenticated MCP client can discover the OAuth flow (empty = no challenge).
+	resourceMetadataURL string
+	logger              logging.Logger
+	tracer              trace.Tracer
 }
 
-// NewMCPController constructs the request-path controller.
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, logger logging.Logger) *MCPController {
+// NewMCPController constructs the request-path controller. resourceMetadataURL,
+// when set, is the RFC 9728 protected-resource metadata URL advertised on 401s.
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, resourceMetadataURL string, logger logging.Logger) *MCPController {
 	return &MCPController{
-		verifier: verifier,
-		eval:     eval,
-		catalog:  catalog,
-		registry: registry,
-		proxy:    proxy,
-		logger:   logger,
-		tracer:   otel.Tracer("orbit.tool-gateway"),
+		verifier:            verifier,
+		eval:                eval,
+		catalog:             catalog,
+		registry:            registry,
+		proxy:               proxy,
+		resourceMetadataURL: resourceMetadataURL,
+		logger:              logger,
+		tracer:              otel.Tracer("orbit.tool-gateway"),
 	}
 }
 
@@ -71,6 +76,14 @@ func (c *MCPController) GroupedBy() string { return "" }
 // at the Envoy sidecar (the registered route); this app-level PEP does the
 // per-tool Check.
 func (c *MCPController) Middleware() mw.MiddlewareHandler {
+	if c.resourceMetadataURL != "" {
+		// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
+		// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
+		return mw.MiddlewareChain(
+			challengeMiddleware(c.resourceMetadataURL),
+			mw.AuthMiddleware(c.verifier, c.logger),
+		)
+	}
 	return mw.MiddlewareChain(mw.AuthMiddleware(c.verifier, c.logger))
 }
 

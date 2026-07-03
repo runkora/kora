@@ -8,3 +8,9 @@ server:
 
 observability:
   serviceName: orbit-identity
+
+# OAuth 2.1 authorization-server surface for the MCP profile (RFC 8414). issuer is
+# the public base URL of this OAuth surface; endpoints are derived from it. Placeholder
+# host until the public MCP-gateway exposure ADR lands (mirrors the gateway's gw.orbit.sh).
+oauth:
+  issuer: "https://identity.orbit.sh/api/v1/identity"

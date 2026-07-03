@@ -62,6 +62,15 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	// OAuth is the resource-server side of the MCP OAuth profile. Resource is this
+	// gateway's public identifier (the protected resource); AuthServer is the
+	// authorization server (identity) an MCP client is pointed to via the
+	// protected-resource metadata (RFC 9728) and the 401 WWW-Authenticate challenge.
+	OAuth struct {
+		Resource   string `yaml:"resource"`
+		AuthServer string `yaml:"authServer"`
+	} `yaml:"oauth"`
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

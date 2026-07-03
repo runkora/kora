@@ -978,7 +978,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 	if err != nil {
 		t.Fatalf("newTestControllerWithProfiles: %v", err)
 	}
-	c = NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c = NewController(svc, nil, nil, "", "https://identity.test/api/v1/identity", logging.NewLoggerWithOutput(io.Discard))
 	return
 }
 

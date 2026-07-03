@@ -87,7 +87,14 @@ func realMain() error {
 		eval := policy.NewEvaluator(tgc.Current.Policy.BundleEndpoint, tgc.Current.BundlePollInterval(), logger)
 		eval.Start(ctx)
 		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
-		controllers = append(controllers, toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, logger))
+		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
+		// toward the protected-resource metadata, which the metadata controller
+		// serves and which points at the identity authorization server.
+		resourceMetadataURL := toolgateway.ProtectedResourceMetadataURL(tgc.Current.OAuth.Resource)
+		controllers = append(controllers,
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, resourceMetadataURL, logger),
+			toolgateway.NewOAuthMetadataController(tgc.Current.OAuth.Resource, tgc.Current.OAuth.AuthServer, logger),
+		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
