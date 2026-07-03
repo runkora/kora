@@ -59,10 +59,10 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17)`,
+			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17,$18)`,
 		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.EnvironmentID,
+		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -75,21 +75,21 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id
 		FROM agent_types WHERE id = $1`, id)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id
 		FROM agent_types WHERE tenant_id = $1 AND slug = $2`, tenantID, slug)
 	return scanAgentType(row)
 }
 
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, environment_id
+		SELECT id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id
 		FROM agent_types WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types: %w", err)
@@ -118,9 +118,9 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10, connectivity=$11::jsonb, connectors=$12::jsonb, environment_id=$13
-		WHERE id=$14`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.EnvironmentID, at.ID,
+		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10, connectivity=$11::jsonb, connectors=$12::jsonb, mcp_tools=$13, environment_id=$14
+		WHERE id=$15`,
+		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, at.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update agent_type: %w", err)
@@ -473,7 +473,7 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var connectivityJSON, connectorsJSON []byte
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.EnvironmentID,
+		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &at.EnvironmentID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound

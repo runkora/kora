@@ -360,6 +360,8 @@ export interface CreateAgentTypeRequest {
   grant_scopes?: string[];
   connectivity?: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
+  mcp_tools?: string[];
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */

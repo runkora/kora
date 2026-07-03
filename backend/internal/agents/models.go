@@ -142,6 +142,11 @@ type AgentType struct {
 	GrantScopes  []string       `json:"grant_scopes"`
 	Connectivity Connectivity   `json:"connectivity"`
 	Connectors   []Connector    `json:"connectors,omitempty"`
+	// MCPTools are the governed MCP tools this agent may call through the
+	// tool-gateway, as mcp:<server>:<tool>:use scopes. A first-class field the
+	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
+	// mcp:invoke gate is derived there, not stored.
+	MCPTools []string `json:"mcp_tools,omitempty"`
 	// EnvironmentID references a tenant Environment whose egress hosts and
 	// connectors are merged into this agent's effective grant. nil = no
 	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
@@ -238,32 +243,19 @@ func reconcileInferenceScopes(grantScopes []string, modelID *string) []string {
 // at all; the per-tool decision is enforced there. Mirrors toolgateway.mcpInvokeScope.
 const mcpInvokeScope = "mcp:invoke"
 
-// hasMCPToolScope reports whether scopes grant any governed MCP tool, i.e. any
-// mcp:<server>…:use scope other than the coarse mcp:invoke gate.
-func hasMCPToolScope(scopes []string) bool {
-	for _, s := range scopes {
-		if strings.HasPrefix(s, "mcp:") && s != mcpInvokeScope {
-			return true
-		}
+// MCPToolScopes compiles the agent's governed MCP tool grants into policy scopes:
+// the granted mcp:<server>:<tool>:use tools plus the coarse mcp:invoke gate, so a
+// granted agent both clears the gateway's coarse gate and is admitted per tool.
+// Empty when nothing is granted. The parallel to ConnectorScopes / EgressScopes —
+// composed into EffectiveGrantScopes, so the gate can never drift from the tools.
+func (at AgentType) MCPToolScopes() []string {
+	if len(at.MCPTools) == 0 {
+		return nil
 	}
-	return false
-}
-
-// applyDerivedMCPScopes keeps the coarse mcp:invoke gate in lockstep with the
-// agent's governed MCP tool grants: present iff at least one mcp tool is granted.
-// It strips any caller-supplied mcp:invoke and re-derives, so the gate can never
-// drift from the tool set. Idempotent; non-mcp scopes are preserved in order.
-func applyDerivedMCPScopes(grantScopes []string) []string {
-	kept := make([]string, 0, len(grantScopes)+1)
-	for _, s := range grantScopes {
-		if s != mcpInvokeScope {
-			kept = append(kept, s)
-		}
-	}
-	if hasMCPToolScope(kept) {
-		kept = append(kept, mcpInvokeScope)
-	}
-	return kept
+	out := make([]string, 0, len(at.MCPTools)+1)
+	out = append(out, at.MCPTools...)
+	out = append(out, mcpInvokeScope)
+	return out
 }
 
 // ValidateConnectors checks each connector names a connection and lists at least
@@ -314,6 +306,11 @@ func (at AgentType) EffectiveGrantScopes() []string {
 		}
 	}
 	for _, s := range at.ConnectorScopes() {
+		if _, ok := seen[s]; !ok {
+			seen[s], out = struct{}{}, append(out, s)
+		}
+	}
+	for _, s := range at.MCPToolScopes() {
 		if _, ok := seen[s]; !ok {
 			seen[s], out = struct{}{}, append(out, s)
 		}

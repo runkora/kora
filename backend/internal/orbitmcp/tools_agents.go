@@ -107,6 +107,7 @@ type createAgentArgs struct {
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
+	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes. The coarse mcp:invoke gate is derived automatically"`
 	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments tool to list"`
 	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
 }

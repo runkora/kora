@@ -57,6 +57,8 @@ type CreateAgentTypeRequest struct {
 	GrantScopes  []string       `json:"grant_scopes"`
 	Connectivity *Connectivity  `json:"connectivity"`
 	Connectors   []Connector    `json:"connectors"`
+	// MCPTools are the governed MCP tools this agent may call (mcp:<server>:<tool>:use).
+	MCPTools []string `json:"mcp_tools"`
 	// EnvironmentID references a tenant Environment to merge into the grant.
 	// Blank/omitted = none.
 	EnvironmentID           *string `json:"environment_id"`
@@ -81,6 +83,9 @@ type UpdateAgentTypeRequest struct {
 	Budget       *AgentBudget  `json:"budget"`
 	Connectivity *Connectivity `json:"connectivity"`
 	Connectors   []Connector   `json:"connectors"`
+	// MCPTools replaces the governed MCP tool grants. nil = unchanged; an empty
+	// slice clears all MCP tool access.
+	MCPTools []string `json:"mcp_tools"`
 	// EnvironmentID changes the referenced environment. nil = unchanged; a
 	// pointer to "" detaches (no environment); a pointer to an id sets it.
 	EnvironmentID *string `json:"environment_id"`

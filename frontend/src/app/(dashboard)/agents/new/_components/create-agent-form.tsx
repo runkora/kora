@@ -206,7 +206,7 @@ export function CreateAgentForm() {
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
               : { mode: connectivityMode },
           connectors,
-          ...(mcpGrantScopes.length > 0 ? { grant_scopes: mcpGrantScopes } : {}),
+          ...(mcpGrantScopes.length > 0 ? { mcp_tools: mcpGrantScopes } : {}),
           ...(environmentId ? { environment_id: environmentId } : {}),
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
