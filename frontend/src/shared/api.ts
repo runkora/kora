@@ -277,6 +277,8 @@ export interface AgentType {
   grant_scopes: string[];
   connectivity: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
+  mcp_tools?: string[];
   max_concurrent_runs_per_pod: number;
   state: AgentTypeState;
   created_at: string;
@@ -436,6 +438,8 @@ export interface UpdateAgentTypeRequest {
   budget?: AgentBudget;
   connectivity?: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tool grants; replaces the set. Omit = unchanged; [] clears. */
+  mcp_tools?: string[];
   /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
   environment_id?: string;
 }

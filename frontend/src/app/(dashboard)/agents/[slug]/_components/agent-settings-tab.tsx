@@ -422,80 +422,10 @@ export function AgentSettingsTab() {
         {saveError && <Alert variant="error">{saveError}</Alert>}
       </Form>
 
-      {/* ── MCP Servers + API & Webhooks ────────────────────────────────────── */}
+      {/* ── API & Webhooks ──────────────────────────────────────────────────
+          MCP tool grants live on the Connectivity tab (fine-grained, backend-
+          composed), alongside egress and connectors — not here. */}
       <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-        <Card>
-          <CardHeader
-            leadingIcon="server"
-            title="MCP Servers"
-            description="Tool servers this agent can connect to."
-            action={
-              <Button variant="ghost" size="sm">
-                Manage →
-              </Button>
-            }
-            divider
-          />
-          <CardContent padded>
-            <Stack gap="snug">
-              {[
-                {
-                  name: 'filesystem',
-                  desc: 'Local file system access · 5 tools',
-                  connected: true,
-                  enabled: true,
-                },
-                {
-                  name: 'github',
-                  desc: 'GitHub PRs, issues, and repo management · 12 tools',
-                  connected: true,
-                  enabled: false,
-                },
-                {
-                  name: 'linear',
-                  desc: 'Linear issue management · 8 tools',
-                  connected: true,
-                  enabled: false,
-                },
-              ].map((server) => (
-                <Stack
-                  key={server.name}
-                  direction="horizontal"
-                  align="center"
-                  gap="comfortable"
-                  style={{
-                    padding: '10px 12px',
-                    border: '1px solid oklch(var(--color-border) / 1)',
-                    borderRadius: '6px',
-                  }}
-                >
-                  <Stack
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      flexShrink: 0,
-                      background: server.connected
-                        ? 'oklch(70% 0.12 140)'
-                        : 'oklch(var(--color-border) / 1)',
-                      boxShadow: server.connected ? '0 0 6px oklch(70% 0.2 140 / 0.5)' : undefined,
-                    }}
-                  />
-                  <Stack gap="none" style={{ flex: 1 }}>
-                    <Text mono size="supporting" color="muted">
-                      {server.name}
-                    </Text>
-                    <Text size="supporting" color="subtle">
-                      {server.desc}
-                    </Text>
-                  </Stack>
-                  <Toggle checked={server.enabled} onChange={() => {}} />
-                </Stack>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader
             leadingIcon="code-2"
