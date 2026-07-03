@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { Breadcrumbs, Button, Icon, Indicator, Separator, Show, Stack } from '@orbit/terra';
+import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
 
 const SECTION_LABELS: Record<string, string> = {
@@ -27,6 +28,7 @@ export function DashboardHeader() {
       align="center"
       justify="between"
       height="full"
+      grow
       paddingInline="comfortable"
     >
       <Stack direction="horizontal" align="center" gap="snug">
@@ -55,6 +57,7 @@ export function DashboardHeader() {
             <Icon name="bell" />
           </Button>
         </Indicator>
+        <ThemeToggle />
         <Separator orientation="vertical" span="narrow" />
         <Button variant="default" size="sm">
           <Icon name="bot" />

@@ -57,8 +57,14 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-:root {
-  color-scheme: dark;
+[data-theme-switch='light'] {
+  display: none;
+}
+[data-theme='light'] [data-theme-switch='light'] {
+  display: inline-flex;
+}
+[data-theme='light'] [data-theme-switch='dark'] {
+  display: none;
 }
 
 body {

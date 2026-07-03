@@ -192,7 +192,9 @@ function ToolbarColumnsToggle({
                 <span
                   className={cn(
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
-                    col.visible ? 'border-accent bg-accent text-white' : 'border-border',
+                    col.visible
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-border',
                   )}
                 >
                   {col.visible && <Check className="h-3 w-3" />}

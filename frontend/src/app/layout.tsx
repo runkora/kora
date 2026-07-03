@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@orbit/terra';
 import './globals.css';
 
@@ -33,11 +34,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    // suppressHydrationWarning: next-themes sets data-theme pre-hydration
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        <TooltipProvider>{children}</TooltipProvider>
+        <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
+          <TooltipProvider>{children}</TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
