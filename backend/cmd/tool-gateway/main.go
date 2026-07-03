@@ -89,11 +89,12 @@ func realMain() error {
 		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
-		// serves and which points at the identity authorization server.
-		resourceMetadataURL := toolgateway.ProtectedResourceMetadataURL(tgc.Current.OAuth.Resource)
+		// serves and which points at the identity authorization server. All URLs
+		// are derived from the request host — only the base path is configured.
+		basePath := tgc.Current.Server.BasePath
 		controllers = append(controllers,
-			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, resourceMetadataURL, logger),
-			toolgateway.NewOAuthMetadataController(tgc.Current.OAuth.Resource, tgc.Current.OAuth.AuthServer, logger),
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, basePath, logger),
+			toolgateway.NewOAuthMetadataController(basePath, logger),
 		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
 	} else {

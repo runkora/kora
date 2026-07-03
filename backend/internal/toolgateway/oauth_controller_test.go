@@ -11,18 +11,19 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
-func TestProtectedResourceMetadataURL(t *testing.T) {
-	got := ProtectedResourceMetadataURL("https://gw.orbit.sh/v1/mcp")
-	want := "https://gw.orbit.sh/v1/.well-known/oauth-protected-resource"
-	if got != want {
-		t.Errorf("ProtectedResourceMetadataURL = %q, want %q", got, want)
-	}
+// requestWithHost builds a request as the ingress would present it: the client
+// host in X-Forwarded-Host and the scheme in X-Forwarded-Proto.
+func requestWithHost(method, path, host string) *http.Request {
+	r := httptest.NewRequest(method, path, nil)
+	r.Header.Set("X-Forwarded-Host", host)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	return r
 }
 
-func TestPRMHandler(t *testing.T) {
-	c := NewOAuthMetadataController("https://gw.orbit.sh/v1/mcp", "https://id.orbit.sh/api/v1/identity", logging.NewLogger())
+func TestPRMHandler_DerivesFromRequestHost(t *testing.T) {
+	c := NewOAuthMetadataController("/v1", logging.NewLogger())
 	rec := httptest.NewRecorder()
-	c.handleProtectedResourceMetadata(rec, httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil))
+	c.handleProtectedResourceMetadata(rec, requestWithHost(http.MethodGet, "/v1/.well-known/oauth-protected-resource", "mcp.example.com"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -30,37 +31,35 @@ func TestPRMHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if m.Resource != "https://gw.orbit.sh/v1/mcp" {
-		t.Errorf("resource = %q", m.Resource)
+	if m.Resource != "https://mcp.example.com/v1/mcp" {
+		t.Errorf("resource = %q, want derived from host", m.Resource)
 	}
-	if len(m.AuthorizationServers) != 1 || m.AuthorizationServers[0] != "https://id.orbit.sh/api/v1/identity" {
-		t.Errorf("authorization_servers = %v", m.AuthorizationServers)
+	if len(m.AuthorizationServers) != 1 || m.AuthorizationServers[0] != "https://mcp.example.com/api/v1/identity" {
+		t.Errorf("authorization_servers = %v, want derived from host", m.AuthorizationServers)
 	}
 }
 
-// TestChallengeMiddleware confirms a 401 from the wrapped handler gains the RFC
-// 9728 WWW-Authenticate pointer, and a 200 does not.
+// TestChallengeMiddleware confirms a 401 gains the RFC 9728 WWW-Authenticate
+// pointer built from the request host, and a 200 does not.
 func TestChallengeMiddleware(t *testing.T) {
-	prmURL := "https://gw.orbit.sh/v1/.well-known/oauth-protected-resource"
-	mwHandler := mw.MiddlewareChain(challengeMiddleware(prmURL))
+	mwHandler := mw.MiddlewareChain(challengeMiddleware("/v1"))
 
-	// 401 case
 	h401 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	rec := httptest.NewRecorder()
-	h401.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/mcp", nil))
+	h401.ServeHTTP(rec, requestWithHost(http.MethodPost, "/v1/mcp", "mcp.example.com"))
 	wa := rec.Header().Get("WWW-Authenticate")
-	if !strings.Contains(wa, prmURL) || !strings.HasPrefix(wa, "Bearer ") {
-		t.Errorf("401 WWW-Authenticate = %q, want it to reference the PRM URL", wa)
+	want := "https://mcp.example.com/v1/.well-known/oauth-protected-resource"
+	if !strings.Contains(wa, want) || !strings.HasPrefix(wa, "Bearer ") {
+		t.Errorf("401 WWW-Authenticate = %q, want it to reference %q", wa, want)
 	}
 
-	// 200 case — no challenge
 	h200 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec2 := httptest.NewRecorder()
-	h200.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/v1/mcp", nil))
+	h200.ServeHTTP(rec2, requestWithHost(http.MethodPost, "/v1/mcp", "mcp.example.com"))
 	if rec2.Header().Get("WWW-Authenticate") != "" {
 		t.Errorf("200 should carry no WWW-Authenticate, got %q", rec2.Header().Get("WWW-Authenticate"))
 	}

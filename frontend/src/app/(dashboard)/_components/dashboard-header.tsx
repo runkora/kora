@@ -1,10 +1,12 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
+
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
 import { useSidebarState } from './sidebar-state';
-import { MCP_GATEWAY_HOST } from '@orbit/lib/mcp';
+import { mcpGatewayHost } from '@orbit/lib/mcp';
 
 /**
  * Per-section header content. `title` + `tag` render on the left of the top bar;
@@ -14,16 +16,23 @@ import { MCP_GATEWAY_HOST } from '@orbit/lib/mcp';
 interface SectionHeader {
   title: string;
   tag?: string;
-  endpoint?: string;
+  // showEndpoint renders the governed-endpoint note; the host is derived from the
+  // dashboard origin at render (not hardcoded) — see mcpGatewayHost.
+  showEndpoint?: boolean;
 }
 
 const SECTIONS: Record<string, SectionHeader> = {
   agents: { title: 'Agents' },
   policy: { title: 'Policy' },
   'model-gateway': { title: 'Model Gateway' },
-  'mcp-gateway': { title: 'MCP Servers', tag: 'tool-gateway', endpoint: MCP_GATEWAY_HOST },
+  'mcp-gateway': { title: 'MCP Servers', tag: 'tool-gateway', showEndpoint: true },
   chat: { title: 'Chat' },
 };
+
+// useSyncExternalStore plumbing for reading the browser host: the host never
+// changes, so the store has no subscription; the server snapshot is empty.
+const subscribeNoop = () => () => {};
+const getServerHost = () => '';
 
 export function DashboardHeader() {
   const pathname = usePathname();
@@ -34,6 +43,12 @@ export function DashboardHeader() {
   const header = SECTIONS[section];
   const isDetail = segments.length > 1;
   const detailLabel = segments[segments.length - 1];
+
+  // Derived from the dashboard origin. useSyncExternalStore reads window on the
+  // client and '' on the server with no hydration mismatch (window isn't
+  // available during SSR); the note simply doesn't render until the client host.
+  const host = useSyncExternalStore(subscribeNoop, mcpGatewayHost, getServerHost);
+  const endpoint = header?.showEndpoint ? host : '';
 
   return (
     <Stack
@@ -112,12 +127,12 @@ export function DashboardHeader() {
       </Stack>
 
       <Stack direction="horizontal" align="center" gap="snug">
-        {!isDetail && header?.endpoint ? (
+        {!isDetail && endpoint ? (
           <>
             <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
               Governed endpoint ·{' '}
               <Text as="span" mono style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-                {header.endpoint}
+                {endpoint}
               </Text>
             </Text>
             <Separator orientation="vertical" span="narrow" />

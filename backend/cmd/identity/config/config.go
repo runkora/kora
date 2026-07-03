@@ -29,14 +29,6 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-
-	// OAuth is the identity service's OAuth 2.1 authorization-server surface for
-	// the MCP profile (RFC 8414 metadata; /authorize + /token + /register land in
-	// later phases). Issuer is the public base URL of this OAuth surface — the AS
-	// identifier a spec-compliant MCP client discovers and builds endpoints from.
-	OAuth struct {
-		Issuer string `yaml:"issuer"`
-	} `yaml:"oauth"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

@@ -198,7 +198,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	go registerTriggerScopes(ctx, logger, policyClient)
 
 	return []api.Controller{
-		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, ic.Current.OAuth.Issuer, logger),
+		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 		triggerCtrl,
 	}, nil
 }

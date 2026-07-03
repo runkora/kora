@@ -1,17 +1,23 @@
 /**
  * MCP tool-gateway client helpers.
  *
- * NOTE: MCP_GATEWAY_HOST is a PLACEHOLDER. Orbit does not yet expose a public
- * MCP gateway ingress — that's the subject of a forthcoming "MCP Gateway Public
- * Exposure" ADR. Once it lands, this becomes a per-environment config value.
+ * The gateway is served at the same public host as the dashboard (path-routed),
+ * so we derive the host from the browser origin rather than hardcoding one — the
+ * same "derive, don't hardcode" approach the backend metadata endpoints use.
+ * Orbit does not yet expose a public MCP gateway ingress (the forthcoming "MCP
+ * Gateway Public Exposure" ADR); until it lands this reflects the dashboard host.
  */
 import type { IconName } from '@orbit/terra';
 
-export const MCP_GATEWAY_HOST = 'gw.orbit.sh';
+/** The host an MCP client uses to reach the gateway, derived from the dashboard origin. */
+export function mcpGatewayHost(): string {
+  return typeof window !== 'undefined' ? window.location.host : '';
+}
 
 /** The public URL an MCP client uses to reach one server through the gateway. */
 export function mcpServerUrl(serverSlug: string): string {
-  return `https://${MCP_GATEWAY_HOST}/mcp/${serverSlug}`;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/mcp/${serverSlug}`;
 }
 
 /** The MCP clients we generate connection config for. */

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -28,11 +29,13 @@ type authorizationServerMetadata struct {
 }
 
 // handleAuthorizationServerMetadata serves GET /.well-known/oauth-authorization-server
-// (RFC 8414). Endpoints are derived from the configured public issuer so the
-// document is self-consistent regardless of where the service is exposed.
+// (RFC 8414). The issuer and every endpoint are derived from the request's public
+// host (via the ingress X-Forwarded-* headers) plus this service's fixed base
+// path, so the document is self-consistent at whatever host the service is
+// exposed — no hardcoded host.
 func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	iss := c.oauthIssuer
+	iss := api.RequestBaseURL(r) + c.basePath + c.GroupedBy()
 	meta := authorizationServerMetadata{
 		Issuer:                            iss,
 		AuthorizationEndpoint:             iss + "/authorize",

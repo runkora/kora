@@ -3,12 +3,16 @@ package toolgateway
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
+
+// identityOAuthBasePath is the fixed API path of the identity service's OAuth
+// authorization-server surface. Only the host is derived per request; this path
+// is structural (the identity service's base path + its route group).
+const identityOAuthBasePath = "/api/v1/identity"
 
 // protectedResourceMetadata is the RFC 9728 document that tells a spec-compliant
 // MCP client which authorization server protects this gateway. The client
@@ -22,17 +26,16 @@ type protectedResourceMetadata struct {
 
 // OAuthMetadataController serves the gateway's protected-resource metadata
 // (RFC 9728) unauthenticated — the MCP client fetches it before it has a token.
+// URLs are derived from the request host so no host is hardcoded.
 type OAuthMetadataController struct {
-	resource   string
-	authServer string
-	logger     logging.Logger
+	basePath string // the gateway's base path (e.g. /v1)
+	logger   logging.Logger
 }
 
-// NewOAuthMetadataController builds the PRM controller. resource is this gateway's
-// protected-resource identifier (the MCP endpoint URL); authServer is the identity
-// service's OAuth issuer.
-func NewOAuthMetadataController(resource, authServer string, logger logging.Logger) *OAuthMetadataController {
-	return &OAuthMetadataController{resource: resource, authServer: authServer, logger: logger}
+// NewOAuthMetadataController builds the PRM controller. basePath is the gateway's
+// configured base path, used to form the (host-derived) resource and metadata URLs.
+func NewOAuthMetadataController(basePath string, logger logging.Logger) *OAuthMetadataController {
+	return &OAuthMetadataController{basePath: basePath, logger: logger}
 }
 
 // GroupedBy mounts the metadata at the base path root (no group).
@@ -47,9 +50,10 @@ func (c *OAuthMetadataController) Boot(mux *api.Mux) {
 }
 
 func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
+	base := api.RequestBaseURL(r)
 	meta := protectedResourceMetadata{
-		Resource:               c.resource,
-		AuthorizationServers:   []string{c.authServer},
+		Resource:               base + c.basePath + "/mcp",
+		AuthorizationServers:   []string{base + identityOAuthBasePath},
 		ScopesSupported:        []string{mcpInvokeScope},
 		BearerMethodsSupported: []string{"header"},
 	}
@@ -62,22 +66,15 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 	}
 }
 
-// ProtectedResourceMetadataURL derives where the PRM is served from the resource
-// (the MCP endpoint): the resource with its trailing "/mcp" replaced by the RFC
-// 9728 well-known path. This is the URL advertised in the 401 challenge and it
-// matches where OAuthMetadataController mounts under the same base path.
-func ProtectedResourceMetadataURL(resource string) string {
-	return strings.TrimSuffix(resource, "/mcp") + "/.well-known/oauth-protected-resource"
-}
-
 // challengeMiddleware adds the RFC 9728 `WWW-Authenticate` challenge to the MCP
 // route's 401 responses, pointing the client at the protected-resource metadata
-// so an unauthenticated MCP client can begin the OAuth flow. It wraps the writer
-// so the header is set exactly when the auth middleware writes a 401.
-func challengeMiddleware(resourceMetadataURL string) mw.Middleware {
-	challenge := `Bearer resource_metadata="` + resourceMetadataURL + `"`
+// so an unauthenticated MCP client can begin the OAuth flow. The metadata URL is
+// derived from each request's host (no hardcoded host); basePath forms its path.
+func challengeMiddleware(basePath string) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			prmURL := api.RequestBaseURL(r) + basePath + "/.well-known/oauth-protected-resource"
+			challenge := `Bearer resource_metadata="` + prmURL + `"`
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})
 	})

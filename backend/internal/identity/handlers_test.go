@@ -33,7 +33,7 @@ func newTestController(t *testing.T) (
 	svc, sessions, refreshTokens, blocklist, pats = newFullTestService(t)
 	// Handler tests invoke handlers directly, bypassing Middleware(); the
 	// evaluator and route table are never consulted.
-	c = NewController(svc, nil, nil, "", "https://identity.test/api/v1/identity", logging.NewLoggerWithOutput(io.Discard))
+	c = NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return
 }
 
@@ -43,7 +43,7 @@ func newTestControllerWithOIDC(t *testing.T, issuerURL string) *Controller {
 	svc := newTestServiceWithOIDC(t, issuerURL,
 		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
 	)
-	return NewController(svc, nil, nil, "", "https://identity.test/api/v1/identity", logging.NewLoggerWithOutput(io.Discard))
+	return NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
 }
 
 // postJSON performs an HTTP POST with a JSON body against the given handler.
