@@ -199,6 +199,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	// and connectivity scopes are compiled separately by EffectiveGrantScopes. See
 	// the 2026-06-30 amendment to agent-identity-and-policy-provisioning.
 	grantScopes = applyDerivedInferenceScopes(grantScopes, req.ModelID)
+	// The coarse mcp:invoke gate is derived from the governed MCP tool grants —
+	// present iff the agent may call at least one tool through the gateway.
+	grantScopes = applyDerivedMCPScopes(grantScopes)
 
 	// Connectivity posture: default to deny-by-default (none) when omitted.
 	connectivity := Connectivity{Mode: ConnectivityNone}
@@ -427,6 +430,9 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if req.ModelID != nil && !callerSetInference {
 		at.GrantScopes = reconcileInferenceScopes(at.GrantScopes, at.ModelID)
 	}
+	// Reconcile the coarse mcp:invoke gate with the (possibly just-updated) MCP
+	// tool grants, so it is present iff at least one governed tool is granted.
+	at.GrantScopes = applyDerivedMCPScopes(at.GrantScopes)
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
 		span.RecordError(err)

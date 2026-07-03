@@ -86,6 +86,27 @@ func TestReconcileInferenceScopes_SwapsModelScope(t *testing.T) {
 	}
 }
 
+func TestApplyDerivedMCPScopes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"no mcp scopes", []string{"connection:github:repo:read"}, []string{"connection:github:repo:read"}},
+		{"grants a tool → adds invoke", []string{"mcp:orbit:agents:list:use"}, []string{"mcp:orbit:agents:list:use", "mcp:invoke"}},
+		{"idempotent", []string{"mcp:orbit:agents:list:use", "mcp:invoke"}, []string{"mcp:orbit:agents:list:use", "mcp:invoke"}},
+		{"strips orphan invoke", []string{"mcp:invoke", "connection:x:y"}, []string{"connection:x:y"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := applyDerivedMCPScopes(tc.in)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("applyDerivedMCPScopes(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCreateAgentType_DerivesInferenceScopesFromModel(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 	model := "anthropic/claude-sonnet-4-6"

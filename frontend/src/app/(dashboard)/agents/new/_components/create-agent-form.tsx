@@ -34,6 +34,8 @@ import type {
 import { createAgentType } from '../../_services/agents-api';
 import { ConnectivityFields, textToHosts } from '../../_components/connectivity-fields';
 import { ConnectorsFields } from '../../_components/connectors-fields';
+import { McpToolsFields } from '../../_components/mcp-tools-fields';
+import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
 import { EnvironmentField } from '../../_components/environment-field';
 
 // ── Framework options ─────────────────────────────────────────────────────────
@@ -104,6 +106,9 @@ export function CreateAgentForm() {
   const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
+  const [mcpGrantScopes, setMcpGrantScopes] = useState<string[]>([]);
 
   useEffect(() => {
     fetch(ApiRoute.models.GET(), { cache: 'no-store' })
@@ -133,6 +138,16 @@ export function CreateAgentForm() {
       .then((r) => r.json())
       .then((body: { data?: ConnectionCatalogEntry[] }) => {
         setAvailableConnections(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.mcpTools(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { servers?: McpServer[]; catalog?: McpCatalogTool[] }) => {
+        setMcpServers(body.servers ?? []);
+        setMcpCatalog(body.catalog ?? []);
       })
       .catch(() => undefined);
   }, []);
@@ -191,6 +206,7 @@ export function CreateAgentForm() {
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
               : { mode: connectivityMode },
           connectors,
+          ...(mcpGrantScopes.length > 0 ? { grant_scopes: mcpGrantScopes } : {}),
           ...(environmentId ? { environment_id: environmentId } : {}),
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
@@ -230,6 +246,7 @@ export function CreateAgentForm() {
       connectivityMode,
       connectivityHosts,
       connectors,
+      mcpGrantScopes,
       environmentId,
       maxConcurrentRuns,
       router,
@@ -440,6 +457,24 @@ export function CreateAgentForm() {
             />
             <EnvironmentField value={environmentId} onChange={setEnvironmentId} />
           </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Governed MCP tools section */}
+      <Card>
+        <CardHeader
+          leadingIcon="server"
+          title="MCP tools"
+          description="The exact tools this agent may call through the governed MCP gateway. Everything outside this list is filtered from tools/list and rejected at call time."
+          divider
+        />
+        <CardContent padded>
+          <McpToolsFields
+            servers={mcpServers}
+            catalog={mcpCatalog}
+            value={mcpGrantScopes}
+            onChange={setMcpGrantScopes}
+          />
         </CardContent>
       </Card>
 

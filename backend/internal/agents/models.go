@@ -234,6 +234,38 @@ func reconcileInferenceScopes(grantScopes []string, modelID *string) []string {
 	return append(kept, deriveInferenceScopes(model)...)
 }
 
+// mcpInvokeScope is the coarse gate a caller needs to reach the MCP tool-gateway
+// at all; the per-tool decision is enforced there. Mirrors toolgateway.mcpInvokeScope.
+const mcpInvokeScope = "mcp:invoke"
+
+// hasMCPToolScope reports whether scopes grant any governed MCP tool, i.e. any
+// mcp:<server>…:use scope other than the coarse mcp:invoke gate.
+func hasMCPToolScope(scopes []string) bool {
+	for _, s := range scopes {
+		if strings.HasPrefix(s, "mcp:") && s != mcpInvokeScope {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDerivedMCPScopes keeps the coarse mcp:invoke gate in lockstep with the
+// agent's governed MCP tool grants: present iff at least one mcp tool is granted.
+// It strips any caller-supplied mcp:invoke and re-derives, so the gate can never
+// drift from the tool set. Idempotent; non-mcp scopes are preserved in order.
+func applyDerivedMCPScopes(grantScopes []string) []string {
+	kept := make([]string, 0, len(grantScopes)+1)
+	for _, s := range grantScopes {
+		if s != mcpInvokeScope {
+			kept = append(kept, s)
+		}
+	}
+	if hasMCPToolScope(kept) {
+		kept = append(kept, mcpInvokeScope)
+	}
+	return kept
+}
+
 // ValidateConnectors checks each connector names a connection and lists at least
 // one well-formed action. Connection names are single scope segments (no
 // whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not
