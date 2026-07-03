@@ -58,7 +58,11 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 		BearerMethodsSupported: []string{"header"},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// The URLs are derived from the request host, so this document must never be
+	// shared-cached across hosts — a cached response poisoned with an attacker's
+	// host would redirect other clients' OAuth flow. no-store + Vary close that.
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Vary", "X-Forwarded-Host, X-Forwarded-Proto")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(meta); err != nil {
 		c.logger.Error(r.Context(), "failed to write protected-resource metadata",

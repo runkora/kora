@@ -48,7 +48,11 @@ func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r 
 		TokenEndpointAuthMethodsSupported: []string{"none"},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// URLs are derived from the request host, so this must never be shared-cached
+	// across hosts — a poisoned cached copy would point clients at an attacker's
+	// authorization/token endpoints. no-store + Vary close that vector.
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Vary", "X-Forwarded-Host, X-Forwarded-Proto")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(meta); err != nil {
 		c.logger.Error(ctx, "failed to write AS metadata response",
