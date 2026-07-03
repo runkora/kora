@@ -156,12 +156,38 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 			return nil, fmt.Errorf("list tools: %w", terr)
 		}
 		tools = append(tools, Tool{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: marshalSchema(tool.InputSchema),
+			Name:           tool.Name,
+			Description:    tool.Description,
+			InputSchema:    marshalSchema(tool.InputSchema),
+			RequiresScopes: requiresFromMeta(tool.Meta),
 		})
 	}
 	return tools, nil
+}
+
+// metaRequiresKey is the tool _meta field a first-party MCP server uses to
+// declare the platform scopes its tool calls upstream (see Tool.RequiresScopes).
+const metaRequiresKey = "orbit/requires"
+
+// requiresFromMeta extracts the declared upstream scopes from a tool's _meta.
+// It accepts a JSON array of strings under metaRequiresKey; anything else
+// (absent, wrong type, non-string elements) yields nil — external servers that
+// set no such meta contribute no requires.
+func requiresFromMeta(meta sdk.Meta) []string {
+	arr, ok := meta[metaRequiresKey].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // FlagDegraded marks a server's snapshot Degraded with a reason — used to flag

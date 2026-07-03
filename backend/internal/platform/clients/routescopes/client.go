@@ -57,6 +57,13 @@ type ScopeDeclaration struct {
 	PathSegments []string `json:"path"`
 	Action       string   `json:"action"`
 	Description  string   `json:"description,omitempty"`
+	// Requires lists other scopes this scope depends on: holding this scope in a
+	// grant additionally confers the required scopes in the compiled effective
+	// set (not in the stored grant). Used by first-party platform MCP tools whose
+	// mcp:<server>:<tool>:use scope needs the underlying platform scope the tool
+	// calls upstream (e.g. mcp:orbit:agents:list:use requires agents:types:read).
+	// Empty for ordinary scopes and every external MCP.
+	Requires []string `json:"requires,omitempty"`
 }
 
 // registrationRequest is the wire format for POST /api/v1/policy/routes/register.

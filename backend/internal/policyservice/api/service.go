@@ -572,6 +572,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 			Action:       scopeDecls[i].Action,
 			Description:  scopeDecls[i].Description,
 			RegisteredBy: service,
+			Requires:     scopeDecls[i].Requires,
 		}); err != nil {
 			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
 		}

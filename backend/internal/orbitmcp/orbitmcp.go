@@ -81,11 +81,59 @@ func addEnumTool[In any](srv *sdk.Server, name, desc string, enums map[string][]
 // structuredContent (e.g. Claude Code) would surface that empty object instead of
 // the real JSON. With Out = any the SDK sets no structuredContent.
 func register[In any](srv *sdk.Server, t *sdk.Tool, h func(context.Context, In) (*sdk.CallToolResult, error)) {
+	// Emit the tool's upstream platform scopes as _meta["orbit/requires"] so the
+	// tool-gateway publishes them and a grant of this tool's mcp:orbit:<tool>:use
+	// scope confers them in the effective set (see toolRequires).
+	if req, ok := toolRequires[t.Name]; ok {
+		t.Meta = sdk.Meta{metaRequiresKey: req}
+	}
 	sdk.AddTool(srv, t,
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, any, error) {
 			res, err := h(ctx, in)
 			return res, nil, err
 		})
+}
+
+// metaRequiresKey is the tool _meta field carrying the platform scopes a tool
+// calls upstream. Mirrors toolgateway.metaRequiresKey.
+const metaRequiresKey = "orbit/requires"
+
+// toolRequires maps an orbit MCP tool to the platform scopes it calls upstream —
+// the scope the tool-gateway's forwarded token needs for the tool to succeed.
+// Emitted per tool as _meta so a fine-grained grant of the tool confers exactly
+// that scope in the effective set, no more. Tools absent here need no platform
+// scope (e.g. agents.mcp_tools reads the auth-only catalog; policy.scopes is
+// HUMAN-only and no agent scope makes it work). The single source of truth for
+// the orbit (first-party, platform-calling) MCP; external MCPs declare nothing.
+var toolRequires = map[string][]string{
+	"agents.list":         {"agents:types:read"},
+	"agents.get":          {"agents:types:read"},
+	"agents.tool_scopes":  {"agents:types:read"},
+	"agents.create":       {"agents:types:write"},
+	"agents.update":       {"agents:types:write"},
+	"agents.delete":       {"agents:types:write"},
+	"agents.connectors":   {"platform:connections:read"},
+	"agents.environments": {"agents:environments:read"},
+
+	"models.list": {"inference:list"},
+
+	"policy.grants.list":       {"platform:grants:read"},
+	"policy.grants.get":        {"platform:grants:read"},
+	"policy.grants.create":     {"platform:grants:write"},
+	"policy.grants.delete":     {"platform:grants:write"},
+	"policy.grants.set_budget": {"platform:grants:write"},
+	"policy.roles.list":        {"platform:roles:read"},
+	"policy.roles.get":         {"platform:roles:read"},
+	"policy.roles.upsert":      {"platform:roles:write"},
+	"policy.roles.delete":      {"platform:roles:write"},
+
+	"runs.list":         {"agents:runs:read"},
+	"runs.get":          {"agents:runs:read"},
+	"runs.events":       {"agents:runs:read"},
+	"runs.start":        {"agents:runs:write"},
+	"runs.send_message": {"agents:runs:write"},
+	"runs.interrupt":    {"agents:runs:write"},
+	"runs.terminate":    {"agents:runs:write"},
 }
 
 // callerToken returns the bearer the kit lifted from the inbound request.

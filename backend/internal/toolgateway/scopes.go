@@ -152,8 +152,12 @@ func addPrefixScopes(decls *[]routescopes.ScopeDeclaration, seen map[string]stru
 		seen[scope] = struct{}{}
 
 		desc := fmt.Sprintf("%s — all tools under %s", server, strings.Join(prefix, "."))
+		// Requires attaches only to the leaf (the actual tool); rollup prefixes
+		// grant reachability to many tools and carry no single upstream scope.
+		var requires []string
 		if n == len(path) {
 			desc = toolDescription(server, t)
+			requires = t.RequiresScopes
 		}
 		*decls = append(*decls, routescopes.ScopeDeclaration{
 			Scope:        scope,
@@ -161,6 +165,7 @@ func addPrefixScopes(decls *[]routescopes.ScopeDeclaration, seen map[string]stru
 			PathSegments: append([]string(nil), prefix...),
 			Action:       scopeAction,
 			Description:  desc,
+			Requires:     requires,
 		})
 	}
 }

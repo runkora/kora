@@ -38,6 +38,11 @@ type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
+	// RequiresScopes are platform scopes this tool needs upstream, declared by a
+	// first-party MCP server via the tool's _meta["orbit/requires"]. Published on
+	// the leaf scope declaration so the effective grant confers them. Empty for
+	// external servers.
+	RequiresScopes []string `json:"requires_scopes,omitempty"`
 }
 
 // ServerState is the introspection health of a server (gateway runtime state —

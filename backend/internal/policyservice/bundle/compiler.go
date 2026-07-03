@@ -401,17 +401,56 @@ func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEn
 }
 
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
+// requiresFromVocab builds the scope→requires adjacency used to expand grants.
+// A grant holding a scope with requires confers those scopes in the compiled
+// effective set (never the stored grant) — the mechanism first-party platform
+// MCP tools use to pull in the platform scope they call upstream (e.g.
+// mcp:orbit:agents:list:use → agents:types:read). Empty for ordinary scopes and
+// every external MCP.
+func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]string {
+	m := make(map[string][]string)
+	for _, e := range vocabEntries {
+		if len(e.Requires) > 0 {
+			m[e.Scope] = e.Requires
+		}
+	}
+	return m
+}
+
+// expandRequires returns scopes plus, transitively, every scope required by a
+// granted scope via the vocabulary "requires" edges. Order-stable (breadth-first
+// from the granted set), deduplicated, and cycle-safe.
+func expandRequires(scopes []string, requiresMap map[string][]string) []string {
+	seen := make(map[string]struct{}, len(scopes))
+	out := make([]string, 0, len(scopes))
+	queue := append([]string(nil), scopes...)
+	for len(queue) > 0 {
+		s := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+		queue = append(queue, requiresMap[s]...)
+	}
+	return out
+}
+
 func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
-	// Build grants data document
+	// Build grants data document, expanding each grant's scopes with their
+	// transitive requires (from the vocabulary) so both the edge OPA and upstream
+	// services authorize on the effective set.
+	requiresMap := requiresFromVocab(vocabEntries)
 	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants))}
 	for _, g := range tenantGrants {
 		grantDoc.Grants = append(grantDoc.Grants, grantEntry{
 			ID:            g.ID,
 			PrincipalType: string(g.PrincipalType),
 			PrincipalID:   g.PrincipalID,
-			Scopes:        g.Scopes,
+			Scopes:        expandRequires(g.Scopes, requiresMap),
 		})
 	}
 	grantsJSON, err := json.Marshal(grantDoc)
