@@ -27,10 +27,11 @@ const serverName = "orbit"
 
 // Backends holds the in-cluster base URLs of the Orbit services the tools call.
 type Backends struct {
-	Agents    string
-	Policy    string
-	Inference string
-	Identity  string
+	Agents      string
+	Policy      string
+	Inference   string
+	Identity    string
+	ToolGateway string
 }
 
 // NewServer builds the Orbit MCP server and registers its tools onto a kit server.

@@ -23,10 +23,11 @@ type Config struct {
 
 	// Backends are the in-cluster base URLs of the Orbit services the tools call.
 	Backends struct {
-		Agents    string `yaml:"agents"`
-		Policy    string `yaml:"policy"`
-		Inference string `yaml:"inference"`
-		Identity  string `yaml:"identity"`
+		Agents      string `yaml:"agents"`
+		Policy      string `yaml:"policy"`
+		Inference   string `yaml:"inference"`
+		Identity    string `yaml:"identity"`
+		ToolGateway string `yaml:"toolGateway"`
 	} `yaml:"backends"`
 
 	Observability struct {

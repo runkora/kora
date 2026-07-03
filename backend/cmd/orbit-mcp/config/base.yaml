@@ -11,6 +11,7 @@ backends:
   policy: "http://orbit-policy-service.orbit-system.svc"
   inference: "http://orbit-inference-gateway.orbit-system.svc"
   identity: "http://orbit-identity.orbit-system.svc"
+  toolGateway: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
 
 observability:
   serviceName: "orbit-mcp"

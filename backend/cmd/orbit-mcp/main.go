@@ -48,10 +48,11 @@ func realMain() error {
 
 	jc := orbitjson.NewClient(logger)
 	srv := orbitmcp.NewServer(orbitmcp.Backends{
-		Agents:    omc.Current.Backends.Agents,
-		Policy:    omc.Current.Backends.Policy,
-		Inference: omc.Current.Backends.Inference,
-		Identity:  omc.Current.Backends.Identity,
+		Agents:      omc.Current.Backends.Agents,
+		Policy:      omc.Current.Backends.Policy,
+		Inference:   omc.Current.Backends.Inference,
+		Identity:    omc.Current.Backends.Identity,
+		ToolGateway: omc.Current.Backends.ToolGateway,
 	}, jc)
 
 	controller := mcpkit.NewController("/mcp", srv)
