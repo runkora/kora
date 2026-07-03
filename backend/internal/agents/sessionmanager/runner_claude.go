@@ -301,9 +301,11 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 	// identity-proxy sidecar injects the platform token. See
 	// docs/adr/2026-06-29-mcp-tool-gateway.md.
 	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
+		// The gateway serves the Streamable-HTTP endpoint under its /v1 base path
+		// (POST /v1/mcp), which is also the route the edge OPA gates on mcp:invoke.
 		mcpServers["orbit"] = map[string]any{
 			"type": "http",
-			"url":  url + "/mcp",
+			"url":  url + "/v1/mcp",
 		}
 	}
 

@@ -684,8 +684,8 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	if orbit["type"] != "http" {
 		t.Errorf("orbit.type = %v, want http", orbit["type"])
 	}
-	// Trailing slash trimmed, /mcp appended.
-	if want := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/mcp"; orbit["url"] != want {
+	// Trailing slash trimmed, /v1/mcp appended.
+	if want := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/v1/mcp"; orbit["url"] != want {
 		t.Errorf("orbit.url = %v, want %q", orbit["url"], want)
 	}
 }

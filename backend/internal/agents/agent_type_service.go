@@ -436,10 +436,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	}
 
 	// Re-reconcile the policy-service grant when grant scopes, the model (which
-	// drives inference scopes), budget, the connectivity posture, or the connectors
-	// change (egress + connection scopes are compiled into the grant). Run in
-	// background so the update response is not delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.EnvironmentID != nil {
+	// drives inference scopes), budget, the connectivity posture, the connectors,
+	// or the governed MCP tool grants change (all compiled into the grant via
+	// EffectiveGrantScopes). Run in background so the update response is not
+	// delayed by a policy-service round-trip.
+	if req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.EnvironmentID != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
