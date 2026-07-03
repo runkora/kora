@@ -140,5 +140,6 @@ type updateAgentArgs struct {
 	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
+	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
 	EnvironmentID           *string          `json:"environment_id,omitempty" jsonschema:"id of a connectivity/connector environment to attach; empty string detaches — call the agents.environments tool to list"`
 }
