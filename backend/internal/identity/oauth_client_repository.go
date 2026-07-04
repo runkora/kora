@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -31,12 +32,7 @@ type RegisteredClient struct {
 
 // AllowsRedirect reports whether uri is one of the client's registered redirect URIs.
 func (c RegisteredClient) AllowsRedirect(uri string) bool {
-	for _, u := range c.RedirectURIs {
-		if u == uri {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.RedirectURIs, uri)
 }
 
 // ClientRepository stores dynamically-registered OAuth clients.

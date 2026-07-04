@@ -35,7 +35,9 @@ function hmacKey(): string {
 
 /** mcpConsentToken derives the CSRF token for a consent request. */
 export function mcpConsentToken(input: ConsentTokenInput): string {
-  const message = [input.userKey, input.clientId, input.redirectUri, input.codeChallenge].join('\n');
+  const message = [input.userKey, input.clientId, input.redirectUri, input.codeChallenge].join(
+    '\n',
+  );
   return createHmac('sha256', hmacKey()).update(message).digest('base64url');
 }
 
