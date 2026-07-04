@@ -40,27 +40,40 @@ const (
 	testRedirect = "http://127.0.0.1:9000/callback"
 )
 
-func mkParams() AuthorizeParams {
-	return AuthorizeParams{ClientID: "cid", RedirectURI: testRedirect, CodeChallenge: pkceS256(testVerifier), CodeChallengeMethod: "S256"}
+// registerTestClient registers a public client with the test redirect and
+// returns its generated client_id.
+func registerTestClient(t *testing.T, svc *Service) string {
+	t.Helper()
+	c, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{
+		RedirectURIs: []string{testRedirect}, ClientName: "test", TokenEndpointAuthMethod: "none",
+	})
+	if err != nil {
+		t.Fatalf("RegisterClient: %v", err)
+	}
+	return c.ClientID
+}
+
+func mkParams(clientID string) AuthorizeParams {
+	return AuthorizeParams{ClientID: clientID, RedirectURI: testRedirect, CodeChallenge: pkceS256(testVerifier), CodeChallengeMethod: "S256"}
 }
 
 func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
+	clientID := registerTestClient(t, svc)
 	human := AuthCode{Subject: "user-sub-1", TenantID: "acme", DisplayName: "jane@acme.com"}
 
-	code, err := svc.CreateAuthCode(ctx, human, mkParams())
+	code, err := svc.CreateAuthCode(ctx, human, mkParams(clientID))
 	if err != nil {
 		t.Fatalf("CreateAuthCode: %v", err)
 	}
-	resp, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: testRedirect, ClientID: "cid"})
+	resp, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: testRedirect, ClientID: clientID})
 	if err != nil {
 		t.Fatalf("ExchangeAuthCode: %v", err)
 	}
 	if resp.TokenType != "Bearer" || resp.AccessToken == "" {
 		t.Fatalf("bad token response: %+v", resp)
 	}
-	// Decode the JWT payload; it must be an aud=orbit-platform HUMAN token for the human.
 	parts := strings.Split(resp.AccessToken, ".")
 	if len(parts) != 3 {
 		t.Fatalf("not a JWT: %q", resp.AccessToken)
@@ -80,16 +93,17 @@ func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 	if claims.Sub != "user-sub-1" || claims.Orbit.PrincipalType != "HUMAN" || claims.Orbit.TenantID != "acme" {
 		t.Errorf("wrong claims: %+v", claims)
 	}
-	if claims.Orbit.Claims["mcp_client_id"] != "cid" {
-		t.Errorf("missing mcp_client_id claim: %+v", claims.Orbit.Claims)
+	if claims.Orbit.Claims["mcp_client_id"] != clientID {
+		t.Errorf("wrong mcp_client_id: %+v", claims.Orbit.Claims)
 	}
 }
 
 func TestOAuth_CodeIsSingleUse(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
-	code, _ := svc.CreateAuthCode(ctx, AuthCode{Subject: "u", TenantID: "t"}, mkParams())
-	req := TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: testRedirect, ClientID: "cid"}
+	clientID := registerTestClient(t, svc)
+	code, _ := svc.CreateAuthCode(ctx, AuthCode{Subject: "u", TenantID: "t"}, mkParams(clientID))
+	req := TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: testRedirect, ClientID: clientID}
 	if _, err := svc.ExchangeAuthCode(ctx, req); err != nil {
 		t.Fatalf("first exchange should succeed: %v", err)
 	}
@@ -101,32 +115,61 @@ func TestOAuth_CodeIsSingleUse(t *testing.T) {
 func TestOAuth_WrongVerifier_Denied(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
-	code, _ := svc.CreateAuthCode(ctx, AuthCode{Subject: "u", TenantID: "t"}, mkParams())
-	_, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: "wrong-verifier", RedirectURI: testRedirect, ClientID: "cid"})
+	clientID := registerTestClient(t, svc)
+	code, _ := svc.CreateAuthCode(ctx, AuthCode{Subject: "u", TenantID: "t"}, mkParams(clientID))
+	_, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: "wrong-verifier", RedirectURI: testRedirect, ClientID: clientID})
 	if !errors.Is(err, ErrInvalidOAuthGrant) {
 		t.Errorf("wrong verifier should be invalid_grant, got %v", err)
 	}
 }
 
-func TestOAuth_RedirectOrClientMismatch_Denied(t *testing.T) {
+func TestOAuth_UnregisteredClient_Denied(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
-	code, _ := svc.CreateAuthCode(ctx, AuthCode{Subject: "u", TenantID: "t"}, mkParams())
-	_, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: "http://127.0.0.1:1111/other", ClientID: "cid"})
-	if !errors.Is(err, ErrInvalidOAuthGrant) {
-		t.Errorf("redirect mismatch should be invalid_grant, got %v", err)
+	// No registration → unknown client_id must be rejected.
+	_, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "u"}, mkParams("never-registered"))
+	if !errors.Is(err, ErrInvalidOAuthRequest) {
+		t.Errorf("unregistered client should be invalid_request, got %v", err)
 	}
 }
 
-func TestOAuth_CreateAuthCode_Validation(t *testing.T) {
+func TestOAuth_UnregisteredRedirect_Denied(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
-	// missing PKCE S256
-	if _, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "u"}, AuthorizeParams{ClientID: "c", RedirectURI: testRedirect}); !errors.Is(err, ErrInvalidOAuthRequest) {
-		t.Errorf("missing PKCE should be invalid_request, got %v", err)
+	clientID := registerTestClient(t, svc) // registers testRedirect only
+	p := mkParams(clientID)
+	p.RedirectURI = "http://127.0.0.1:8888/other" // loopback but not registered
+	if _, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "u"}, p); !errors.Is(err, ErrInvalidOAuthRequest) {
+		t.Errorf("unregistered redirect should be invalid_request, got %v", err)
+	}
+}
+
+func TestOAuth_RegisterClient_Validation(t *testing.T) {
+	svc := newOAuthTestService(t)
+	ctx := context.Background()
+	// no redirect_uris
+	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("no redirect_uris should be invalid_client_metadata, got %v", err)
 	}
 	// non-loopback redirect
-	if _, err := svc.CreateAuthCode(ctx, AuthCode{Subject: "u"}, AuthorizeParams{ClientID: "c", RedirectURI: "https://evil.com/cb", CodeChallenge: pkceS256(testVerifier), CodeChallengeMethod: "S256"}); !errors.Is(err, ErrInvalidOAuthRequest) {
-		t.Errorf("non-loopback redirect should be invalid_request, got %v", err)
+	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{"https://evil.com/cb"}}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("non-loopback redirect should be invalid_client_metadata, got %v", err)
+	}
+	// confidential client (secret auth) rejected — public only
+	if _, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{testRedirect}, TokenEndpointAuthMethod: "client_secret_post"}); !errors.Is(err, ErrInvalidClientMetadata) {
+		t.Errorf("confidential client should be rejected, got %v", err)
+	}
+	// valid
+	c, err := svc.RegisterClient(ctx, ClientRegistrationRequest{RedirectURIs: []string{testRedirect}})
+	if err != nil || c.ClientID == "" {
+		t.Errorf("valid registration failed: %v / %+v", err, c)
+	}
+}
+
+func TestOAuth_DCRDisabled(t *testing.T) {
+	svc := newOAuthTestService(t)
+	svc.cfg.OAuth.RequirePreRegistration = true
+	if _, err := svc.RegisterClient(context.Background(), ClientRegistrationRequest{RedirectURIs: []string{testRedirect}}); !errors.Is(err, ErrDCRDisabled) {
+		t.Errorf("disabled DCR should return ErrDCRDisabled, got %v", err)
 	}
 }

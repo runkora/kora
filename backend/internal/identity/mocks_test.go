@@ -221,6 +221,29 @@ func (m *mockAuthCodeRepository) Consume(_ context.Context, code string) (AuthCo
 	return data, nil
 }
 
+// ── mockClientRepository ──────────────────────────────────────────────────────
+
+type mockClientRepository struct {
+	clients map[string]RegisteredClient
+}
+
+func newMockClientRepo() *mockClientRepository {
+	return &mockClientRepository{clients: make(map[string]RegisteredClient)}
+}
+
+func (m *mockClientRepository) Store(_ context.Context, c RegisteredClient, _ time.Duration) error {
+	m.clients[c.ClientID] = c
+	return nil
+}
+
+func (m *mockClientRepository) Get(_ context.Context, clientID string) (RegisteredClient, error) {
+	c, ok := m.clients[clientID]
+	if !ok {
+		return RegisteredClient{}, ErrClientNotFound
+	}
+	return c, nil
+}
+
 func (m *mockJTIBlocklistRepository) IsBlocked(_ context.Context, jti string) (bool, error) {
 	if m.isBlockedErr != nil {
 		return false, m.isBlockedErr
@@ -489,6 +512,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		refreshTokens,
 		blocklist,
 		newMockAuthCodeRepo(),
+		newMockClientRepo(),
 		pats,
 		nil,
 		&mockPolicyClient{},
@@ -565,6 +589,7 @@ tenants:
 		refreshTokens,
 		blocklist,
 		newMockAuthCodeRepo(),
+		newMockClientRepo(),
 		newMockPATRepo(),
 		nil,
 		&mockPolicyClient{},
@@ -633,6 +658,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		refreshTokens,
 		blocklist,
 		newMockAuthCodeRepo(),
+		newMockClientRepo(),
 		pats,
 		nil,
 		policy,
@@ -996,6 +1022,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		newMockRefreshTokenRepo(),
 		newMockBlocklistRepo(),
 		newMockAuthCodeRepo(),
+		newMockClientRepo(),
 		pats,
 		profiles,
 		&mockPolicyClient{},
@@ -1056,6 +1083,7 @@ tenants:
 		newMockRefreshTokenRepo(),
 		newMockBlocklistRepo(),
 		newMockAuthCodeRepo(),
+		newMockClientRepo(),
 		newMockPATRepo(),
 		nil,
 		&mockPolicyClient{},

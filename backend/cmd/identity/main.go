@@ -135,6 +135,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis.Client())
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())
+	clientRepo := identity.NewRedisClientRepository(redis.Client())
 	patRepo := identity.NewPostgresPATRepository(db.Pool())
 	profileRepo := identity.NewPostgresUserProfileRepository(db.Pool())
 
@@ -169,6 +170,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		refreshRepo,
 		blocklist,
 		authCodeRepo,
+		clientRepo,
 		patRepo,
 		profileRepo,
 		policyClient,

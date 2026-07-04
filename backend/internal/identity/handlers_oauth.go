@@ -153,3 +153,46 @@ func writeOAuthJSON(w http.ResponseWriter, status int, body any) {
 func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
 	writeOAuthJSON(w, status, map[string]string{"error": code, "error_description": desc})
 }
+
+// clientRegistrationResponse is the RFC 7591 registration response.
+type clientRegistrationResponse struct {
+	ClientID                string   `json:"client_id"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	ClientName              string   `json:"client_name,omitempty"`
+	ClientIDIssuedAt        int64    `json:"client_id_issued_at"`
+}
+
+// handleRegisterClient handles POST /identity/oauth/register (public, RFC 7591
+// dynamic client registration for public PKCE clients).
+func (c *Controller) handleRegisterClient(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req ClientRegistrationRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	client, err := c.svc.RegisterClient(ctx, req)
+	switch {
+	case errors.Is(err, ErrDCRDisabled):
+		writeOAuthError(w, http.StatusForbidden, "access_denied", "dynamic client registration is disabled")
+		return
+	case errors.Is(err, ErrInvalidClientMetadata):
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client_metadata", err.Error())
+		return
+	case err != nil:
+		c.logger.Error(ctx, "client registration failed", logging.Field{Key: "error", Value: err.Error()})
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "registration failed")
+		return
+	}
+	writeOAuthJSON(w, http.StatusCreated, clientRegistrationResponse{
+		ClientID:                client.ClientID,
+		RedirectURIs:            client.RedirectURIs,
+		TokenEndpointAuthMethod: "none",
+		GrantTypes:              []string{"authorization_code"},
+		ResponseTypes:           []string{"code"},
+		ClientName:              client.ClientName,
+		ClientIDIssuedAt:        client.CreatedAt.Unix(),
+	})
+}

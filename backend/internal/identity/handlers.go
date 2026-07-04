@@ -69,6 +69,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// OAuth token endpoint (MCP profile) is public: the MCP client authenticates
 	// with the authorization code + PKCE verifier, not a session.
 	mux.Handle("POST /oauth/token", c.handleOAuthToken)
+	mux.Handle("POST /oauth/register", c.handleRegisterClient)
 
 	// PAT management routes: require a non-PAT authenticated caller.
 	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the

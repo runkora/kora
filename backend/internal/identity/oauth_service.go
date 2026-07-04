@@ -31,6 +31,11 @@ const (
 var (
 	ErrInvalidOAuthRequest = errors.New("invalid_request")
 	ErrInvalidOAuthGrant   = errors.New("invalid_grant")
+	// ErrDCRDisabled is returned by RegisterClient when open dynamic client
+	// registration is turned off (RequirePreRegistration).
+	ErrDCRDisabled = errors.New("registration_not_allowed")
+	// ErrInvalidClientMetadata is a malformed RFC 7591 registration request.
+	ErrInvalidClientMetadata = errors.New("invalid_client_metadata")
 )
 
 // pkceS256 computes the RFC 7636 S256 code challenge for a verifier:
@@ -86,6 +91,18 @@ func (s *Service) CreateAuthCode(ctx context.Context, human AuthCode, p Authoriz
 	}
 	if !isLoopbackRedirect(p.RedirectURI) {
 		return "", fmt.Errorf("%w: redirect_uri must be a loopback address", ErrInvalidOAuthRequest)
+	}
+	// The client_id must be registered (via DCR or pre-registration), and the
+	// redirect_uri must be one it registered — not merely any loopback address.
+	client, err := s.clients.Get(ctx, p.ClientID)
+	if errors.Is(err, ErrClientNotFound) {
+		return "", fmt.Errorf("%w: unknown client_id", ErrInvalidOAuthRequest)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !client.AllowsRedirect(p.RedirectURI) {
+		return "", fmt.Errorf("%w: redirect_uri not registered for this client", ErrInvalidOAuthRequest)
 	}
 	code, err := randomToken(authCodeBytes)
 	if err != nil {
@@ -158,4 +175,51 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 		return nil, fmt.Errorf("mint token: %w", err)
 	}
 	return &TokenResponse{AccessToken: accessToken, TokenType: "Bearer", ExpiresIn: int(ttl.Seconds())}, nil
+}
+
+// ── Dynamic Client Registration (RFC 7591) ────────────────────────────────────
+
+// ClientRegistrationRequest is the RFC 7591 client metadata a public MCP client
+// submits to register itself.
+type ClientRegistrationRequest struct {
+	RedirectURIs            []string `json:"redirect_uris"`
+	ClientName              string   `json:"client_name,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+}
+
+// RegisterClient validates a dynamic client registration and stores a new public
+// client. Public clients only (no secret; PKCE is the proof) with loopback
+// redirect URIs. Returns ErrDCRDisabled when open registration is turned off.
+func (s *Service) RegisterClient(ctx context.Context, req ClientRegistrationRequest) (RegisteredClient, error) {
+	if s.cfg.OAuth.RequirePreRegistration {
+		return RegisteredClient{}, ErrDCRDisabled
+	}
+	if len(req.RedirectURIs) == 0 {
+		return RegisteredClient{}, fmt.Errorf("%w: at least one redirect_uri is required", ErrInvalidClientMetadata)
+	}
+	for _, u := range req.RedirectURIs {
+		if !isLoopbackRedirect(u) {
+			return RegisteredClient{}, fmt.Errorf("%w: redirect_uris must be loopback addresses", ErrInvalidClientMetadata)
+		}
+	}
+	// Only public clients — the flow relies on PKCE, not a client secret.
+	if req.TokenEndpointAuthMethod != "" && req.TokenEndpointAuthMethod != "none" {
+		return RegisteredClient{}, fmt.Errorf("%w: only public clients (token_endpoint_auth_method=none) are supported", ErrInvalidClientMetadata)
+	}
+	clientID, err := randomToken(24)
+	if err != nil {
+		return RegisteredClient{}, err
+	}
+	client := RegisteredClient{
+		ClientID:     clientID,
+		RedirectURIs: req.RedirectURIs,
+		ClientName:   req.ClientName,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := s.clients.Store(ctx, client, registeredClientTTL); err != nil {
+		return RegisteredClient{}, err
+	}
+	return client, nil
 }
