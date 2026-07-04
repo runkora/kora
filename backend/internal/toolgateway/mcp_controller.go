@@ -46,23 +46,19 @@ type MCPController struct {
 	catalog  CatalogRepository
 	registry *Registry
 	proxy    *Proxy
-	// basePath is the gateway's base path, used to form the (host-derived) RFC
-	// 9728 protected-resource metadata URL advertised in the 401 challenge.
-	basePath string
 	logger   logging.Logger
 	tracer   trace.Tracer
 }
 
-// NewMCPController constructs the request-path controller. basePath forms the
-// 401 challenge's protected-resource metadata URL (host derived per request).
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, basePath string, logger logging.Logger) *MCPController {
+// NewMCPController constructs the request-path controller. The 401 challenge's
+// protected-resource metadata URL is the host root (derived per request).
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, logger logging.Logger) *MCPController {
 	return &MCPController{
 		verifier: verifier,
 		eval:     eval,
 		catalog:  catalog,
 		registry: registry,
 		proxy:    proxy,
-		basePath: basePath,
 		logger:   logger,
 		tracer:   otel.Tracer("orbit.tool-gateway"),
 	}
@@ -79,7 +75,7 @@ func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
 	// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
 	return mw.MiddlewareChain(
-		challengeMiddleware(c.basePath),
+		challengeMiddleware(),
 		mw.AuthMiddleware(c.verifier, c.logger),
 	)
 }

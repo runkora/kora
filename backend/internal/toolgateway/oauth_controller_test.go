@@ -34,15 +34,16 @@ func TestPRMHandler_DerivesFromRequestHost(t *testing.T) {
 	if m.Resource != "https://mcp.example.com/v1/mcp" {
 		t.Errorf("resource = %q, want derived from host", m.Resource)
 	}
-	if len(m.AuthorizationServers) != 1 || m.AuthorizationServers[0] != "https://mcp.example.com/api/v1/identity" {
-		t.Errorf("authorization_servers = %v, want derived from host", m.AuthorizationServers)
+	// The authorization server is the API host root (RFC 8414 issuer).
+	if len(m.AuthorizationServers) != 1 || m.AuthorizationServers[0] != "https://mcp.example.com" {
+		t.Errorf("authorization_servers = %v, want the host root", m.AuthorizationServers)
 	}
 }
 
 // TestChallengeMiddleware confirms a 401 gains the RFC 9728 WWW-Authenticate
 // pointer built from the request host, and a 200 does not.
 func TestChallengeMiddleware(t *testing.T) {
-	mwHandler := mw.MiddlewareChain(challengeMiddleware("/v1"))
+	mwHandler := mw.MiddlewareChain(challengeMiddleware())
 
 	h401 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -50,7 +51,7 @@ func TestChallengeMiddleware(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h401.ServeHTTP(rec, requestWithHost(http.MethodPost, "/v1/mcp", "mcp.example.com"))
 	wa := rec.Header().Get("WWW-Authenticate")
-	want := "https://mcp.example.com/v1/.well-known/oauth-protected-resource"
+	want := "https://mcp.example.com/.well-known/oauth-protected-resource"
 	if !strings.Contains(wa, want) || !strings.HasPrefix(wa, "Bearer ") {
 		t.Errorf("401 WWW-Authenticate = %q, want it to reference %q", wa, want)
 	}

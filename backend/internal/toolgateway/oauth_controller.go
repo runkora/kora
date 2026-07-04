@@ -9,11 +9,6 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
-// identityOAuthBasePath is the fixed API path of the identity service's OAuth
-// authorization-server surface. Only the host is derived per request; this path
-// is structural (the identity service's base path + its route group).
-const identityOAuthBasePath = "/api/v1/identity"
-
 // protectedResourceMetadata is the RFC 9728 document that tells a spec-compliant
 // MCP client which authorization server protects this gateway. The client
 // fetches it after the 401 challenge, then discovers the AS's own metadata.
@@ -52,8 +47,11 @@ func (c *OAuthMetadataController) Boot(mux *api.Mux) {
 func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	base := api.RequestBaseURL(r)
 	meta := protectedResourceMetadata{
-		Resource:               base + c.basePath + "/mcp",
-		AuthorizationServers:   []string{base + identityOAuthBasePath},
+		Resource: base + c.basePath + "/mcp",
+		// The authorization server is the API host root (RFC 8414 issuer); the
+		// client fetches its metadata from <base>/.well-known/oauth-authorization-server.
+		// Ref ADR 2026-07-04 (north-south ingress + external service exposure).
+		AuthorizationServers:   []string{base},
 		ScopesSupported:        []string{mcpInvokeScope},
 		BearerMethodsSupported: []string{"header"},
 	}
@@ -73,11 +71,13 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 // challengeMiddleware adds the RFC 9728 `WWW-Authenticate` challenge to the MCP
 // route's 401 responses, pointing the client at the protected-resource metadata
 // so an unauthenticated MCP client can begin the OAuth flow. The metadata URL is
-// derived from each request's host (no hardcoded host); basePath forms its path.
-func challengeMiddleware(basePath string) mw.Middleware {
+// derived from each request's host (no hardcoded host) and lives at the host root
+// per RFC 8615/9728 (ADR 2026-07-04); the edge routes root /.well-known/* to the
+// gateway.
+func challengeMiddleware() mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			prmURL := api.RequestBaseURL(r) + basePath + "/.well-known/oauth-protected-resource"
+			prmURL := api.RequestBaseURL(r) + "/.well-known/oauth-protected-resource"
 			challenge := `Bearer resource_metadata="` + prmURL + `"`
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})

@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+	"strings"
+)
 
 // RequestBaseURL returns the public scheme://host the client used to reach this
 // service, honoring the ingress's X-Forwarded-* headers (Istio terminates TLS
@@ -28,4 +32,20 @@ func RequestBaseURL(r *http.Request) string {
 		host = r.Host
 	}
 	return scheme + "://" + host
+}
+
+// AppBaseURL derives the app/frontend origin from an API-host origin by stripping
+// the leading "api." label — the north-south exposure convention where
+// api.<domain> is the unified backend API host and <domain> is the app host
+// (ADR 2026-07-04). A host with no "api." prefix (e.g. a request that already
+// arrived on the app host) is returned unchanged. Used to point OAuth discovery
+// metadata's authorization_endpoint at the browser-facing consent page, which
+// lives on the app host rather than the API host that serves the metadata.
+func AppBaseURL(apiBase string) string {
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		return apiBase
+	}
+	u.Host = strings.TrimPrefix(u.Host, "api.")
+	return u.String()
 }

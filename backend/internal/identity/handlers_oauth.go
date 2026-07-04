@@ -45,15 +45,17 @@ type authorizationServerMetadata struct {
 func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	base := api.RequestBaseURL(r)
-	iss := base + c.basePath + c.GroupedBy()
+	// The issuer is the API host root (RFC 8414) — the metadata is served at the
+	// root /.well-known/oauth-authorization-server (ADR 2026-07-04). Endpoints are
+	// absolute under the identity service's path; authorization_endpoint is the
+	// browser-facing BFF consent page on the app host (strip the api. label).
+	idPath := base + c.basePath + c.GroupedBy()
 	meta := authorizationServerMetadata{
-		Issuer: iss,
-		// authorization_endpoint is the browser-facing BFF route (same host) — it
-		// reads the Orbit session for SSO; token/register are identity back-channel.
-		AuthorizationEndpoint:             base + bffAuthorizePath,
-		TokenEndpoint:                     iss + "/oauth/token",
-		RegistrationEndpoint:              iss + "/oauth/register",
-		JWKSURI:                           iss + "/.well-known/jwks.json",
+		Issuer:                            base,
+		AuthorizationEndpoint:             api.AppBaseURL(base) + bffAuthorizePath,
+		TokenEndpoint:                     idPath + "/oauth/token",
+		RegistrationEndpoint:              idPath + "/oauth/register",
+		JWKSURI:                           idPath + "/.well-known/jwks.json",
 		ResponseTypesSupported:            []string{"code"},
 		GrantTypesSupported:               []string{"authorization_code"},
 		CodeChallengeMethodsSupported:     []string{"S256"},
