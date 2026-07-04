@@ -40,7 +40,10 @@ export function DashboardHeader() {
 
   const segments = pathname.split('/').filter(Boolean);
   const section = segments[0] ?? '';
-  const header = SECTIONS[section];
+  // The dashboard home ('/') and any unlisted section have no SECTIONS entry —
+  // fall back to a plain "Dashboard" title rather than dereferencing undefined
+  // (header.title below is not optional-chained, and would crash the whole page).
+  const header = SECTIONS[section] ?? { title: 'Dashboard' };
   const isDetail = segments.length > 1;
   const detailLabel = segments[segments.length - 1];
 
