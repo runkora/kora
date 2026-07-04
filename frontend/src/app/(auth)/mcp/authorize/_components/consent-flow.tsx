@@ -261,9 +261,8 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants —
-          {' '}
-          {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
+          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants
+          — {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections
           </Text>
@@ -615,8 +614,18 @@ function ResultCard({ children }: { children: React.ReactNode }) {
 }
 
 function Strong({ children }: { children: React.ReactNode }) {
+  // Inherit the surrounding sentence's size/line-height — otherwise Terra's Text
+  // default size makes bold words jump larger than the text around them.
   return (
-    <Text as="span" style={{ fontWeight: 600, color: 'var(--color-foreground)' }}>
+    <Text
+      as="span"
+      style={{
+        fontWeight: 600,
+        fontSize: 'inherit',
+        lineHeight: 'inherit',
+        color: 'var(--color-foreground)',
+      }}
+    >
       {children}
     </Text>
   );
