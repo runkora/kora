@@ -1,36 +1,29 @@
 import 'server-only';
 import { redirect } from 'next/navigation';
 
-import {
-  Alert,
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  Heading,
-  Stack,
-  Text,
-} from '@orbit/terra';
+import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
+import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
 
-import { ConsentActions } from './_components/consent-actions';
+import {
+  ConsentFlow,
+  type ConsentDomain,
+  type ConsentServer,
+} from './_components/consent-flow';
 
 /**
  * /mcp/authorize — the OAuth 2.1 authorization endpoint (MCP profile), rendered
- * as an explicit consent screen. It is the AS metadata's authorization_endpoint.
+ * as an explicit consent screen (the AS metadata's authorization_endpoint).
  *
- * Flow: validate params → reuse the Orbit session (cold start → /login, query
- * preserved) → show the human which registered client is asking and that the
- * token acts as them → Approve/Deny. Approval POSTs to /api/mcp/authorize, which
- * mints the code and 302s back to the client's loopback redirect_uri. Nothing is
- * minted until the human approves.
- *
- * Security: the redirect_uri is validated as loopback (RFC 8252) before the page
- * renders — a non-loopback URI returns an error card, never a redirect.
+ * Validates params → reuses the Orbit session (cold start → /login, query
+ * preserved) → shows the requesting client, the human, and — for the server this
+ * consent is for (from the RFC 8707 `resource`) — the exact tools being granted.
+ * The client component owns the approve/deny + result states; nothing is minted
+ * until the human approves. redirect_uri is validated as loopback (RFC 8252)
+ * before render — a non-loopback URI returns an error, never a redirect.
  */
 interface ConsentPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -47,6 +40,17 @@ function isLoopbackRedirect(raw: string): boolean {
     return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(u.hostname);
   } catch {
     return false;
+  }
+}
+
+/** The server slug this consent is for, from the RFC 8707 resource indicator. */
+function serverFromResource(resource: string): string {
+  try {
+    const parts = new URL(resource).pathname.split('/').filter(Boolean);
+    const i = parts.indexOf('mcp');
+    return i >= 0 && parts[i + 1] ? parts[i + 1] : '';
+  } catch {
+    return '';
   }
 }
 
@@ -74,8 +78,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   const responseType = str(params.response_type);
   const state = str(params.state);
   const scope = str(params.scope);
+  const resource = str(params.resource);
 
-  // Never render (or later redirect) for a non-loopback redirect_uri.
   if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
     return (
       <ConsentError
@@ -95,7 +99,6 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 
   const session = await getSession();
   if (!isSessionValid(session)) {
-    // Cold start: log in, then return here (full query preserved) to consent.
     const back = new URLSearchParams({
       response_type: 'code',
       client_id: clientId,
@@ -105,6 +108,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     });
     if (state) back.set('state', state);
     if (scope) back.set('scope', scope);
+    if (resource) back.set('resource', resource);
     redirect(`/login?next=${encodeURIComponent(`/mcp/authorize?${back.toString()}`)}`);
   }
 
@@ -134,12 +138,49 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     );
   }
 
-  const appName = clientName || 'An application';
-  const destination = new URL(redirectUri).host;
+  // Tool surface: for the server this consent targets, show its tools grouped by
+  // domain, marking which the human holds grants for.
+  const serverSlug = serverFromResource(resource);
+  let server: ConsentServer | null = null;
+  let domains: ConsentDomain[] = [];
+  let grantedCount = 0;
+  let totalCount = 0;
+  if (serverSlug) {
+    const [servers, tools, granted] = await Promise.all([
+      listMcpServers(session.accessToken).catch(() => []),
+      listMcpTools(session.accessToken).catch(() => []),
+      listGrantedTools(session.accessToken, serverSlug),
+    ]);
+    const meta = servers.find((s) => s.name === serverSlug);
+    if (meta) {
+      server = { name: meta.name, displayName: meta.display_name || meta.name, endpoint: meta.endpoint };
+    } else {
+      server = { name: serverSlug, displayName: serverSlug, endpoint: '' };
+    }
+    const grantedSet = new Set(granted);
+    const byDomain = new Map<string, ConsentDomain>();
+    for (const t of tools.filter((x) => x.server_slug === serverSlug)) {
+      const domain = t.tool_name.split('.')[0] || t.tool_name;
+      const isGranted = grantedSet.has(t.tool_name);
+      totalCount += 1;
+      if (isGranted) grantedCount += 1;
+      const group =
+        byDomain.get(domain) ??
+        { name: domain, scope: `mcp:${serverSlug}:${domain}:use`, tools: [] };
+      group.tools.push({ name: t.tool_name, scope: t.scope, granted: isGranted });
+      byDomain.set(domain, group);
+    }
+    domains = [...byDomain.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
 
-  // The decision POSTs to the issuing route; the OAuth params ride in the action
-  // URL so no hidden inputs are needed. The activated button's name/value carries
-  // approve vs deny.
+  const techRows = [
+    { k: 'response_type', v: 'code' },
+    { k: 'client_id', v: clientId },
+    { k: 'redirect_uri', v: redirectUri, accent: true },
+    { k: 'code_challenge', v: `${codeChallenge.slice(0, 16)}… · S256` },
+    { k: 'scope', v: scope || 'mcp:invoke' },
+  ];
+
   const action = `/api/mcp/authorize?${new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
@@ -150,7 +191,6 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     ...(scope ? { scope } : {}),
   }).toString()}`;
 
-  // CSRF: bind this decision to the render for this user + these exact params.
   const csrfToken = mcpConsentToken({
     userKey: session.user.email,
     clientId,
@@ -159,31 +199,16 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   });
 
   return (
-    <Stack maxWidth="card">
-      <Card>
-        <CardHeader>
-          <Heading variant="section">Authorize {appName}</Heading>
-          <CardDescription>{appName} wants to connect to Orbit MCP.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Stack gap="comfortable">
-            <Text>
-              It will act as{' '}
-              <Text as="span" weight="heavy">
-                {session.user.email}
-              </Text>{' '}
-              when calling Orbit MCP tools — limited to what your permissions already allow, and
-              nothing more.
-            </Text>
-            <Text size="supporting" color="muted">
-              Tokens are delivered to {destination} on this device.
-            </Text>
-          </Stack>
-        </CardContent>
-        <CardFooter>
-          <ConsentActions action={action} csrfToken={csrfToken} />
-        </CardFooter>
-      </Card>
-    </Stack>
+    <ConsentFlow
+      clientName={clientName || 'An application'}
+      userEmail={session.user.email}
+      server={server}
+      domains={domains}
+      grantedCount={grantedCount}
+      totalCount={totalCount}
+      techRows={techRows}
+      actionUrl={action}
+      csrfToken={csrfToken}
+    />
   );
 }

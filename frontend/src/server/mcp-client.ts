@@ -48,3 +48,30 @@ export async function listMcpTools(accessToken: string): Promise<McpCatalogTool[
   const body = (await res.json()) as { tools?: McpCatalogTool[] };
   return body.tools ?? [];
 }
+
+/**
+ * The tool names the caller actually holds grants for on one server, via the
+ * gateway's per-server tools/list (POST /v1/mcp/<server>) — the gateway filters
+ * the list to the caller's grants. Used by the OAuth consent screen to show which
+ * catalog tools are granted vs hidden. Returns [] on any failure (fail-closed:
+ * the surface shows nothing granted rather than erroring the consent).
+ */
+export async function listGrantedTools(accessToken: string, server: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${config.toolGatewayUrl}/v1/mcp/${encodeURIComponent(server)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { result?: { tools?: { name: string }[] } };
+    return (body.result?.tools ?? []).map((t) => t.name);
+  } catch {
+    return [];
+  }
+}

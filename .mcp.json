@@ -1,9 +1,8 @@
 {
   "mcpServers": {
-    "orbit-local": {
-      "type": "http",
-      "url": "http://localhost:8095/mcp",
-      "headersHelper": "./.claude/helpers/orbit-mcp-token.sh"
+    "orbit": {
+      "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit",
+      "type": "streamable-http"
     }
   }
 }

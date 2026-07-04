@@ -6,23 +6,22 @@ import { consentTokenValid } from '@orbit/server/mcp-consent';
 /**
  * POST /api/mcp/authorize — the consent decision endpoint for the MCP OAuth flow.
  *
- * The /mcp/authorize consent page POSTs here with the OAuth params in the query
- * string and the human's decision (approve/deny) in the form body:
- * - approve → identity mints a single-use auth code (authenticated by the
- *   session token), then 302 back to the client's loopback redirect_uri with
- *   ?code&state.
- * - deny (or lost session) → 302 back with error=access_denied.
+ * The /mcp/authorize consent screen (client component) POSTs here with the OAuth
+ * params in the query string and the decision + CSRF token in the form body, and
+ * expects JSON back so it can render the branded result state before navigating:
+ * - approve → identity mints a single-use auth code; returns { redirect } (the
+ *   client's loopback redirect_uri with ?code&state) which the consent screen
+ *   navigates to after showing "connected".
+ * - deny / lost session → { redirect } with error=access_denied.
+ * - failure → { error } with a 4xx/5xx status; the screen shows it and resets.
  *
  * Security: the redirect_uri is only ever used as a redirect target if it is a
- * loopback address (RFC 8252) — otherwise 400, never an open redirect. The
- * consent page already gated this, but we re-check since this endpoint is
- * independently reachable.
+ * loopback address (RFC 8252). The render-bound CSRF token + Sec-Fetch-Site gate
+ * a cross-site submission; nothing is minted until both pass.
  */
 export async function POST(req: Request): Promise<Response> {
-  // CSRF belt: a browser sets Sec-Fetch-Site; reject a cross-site submission
-  // outright (the render-bound token below is the primary, header-independent gate).
   if (req.headers.get('sec-fetch-site') === 'cross-site') {
-    return forbidden('cross-site request rejected');
+    return jsonError('cross-site request rejected', 403);
   }
 
   const url = new URL(req.url);
@@ -34,13 +33,12 @@ export async function POST(req: Request): Promise<Response> {
   const state = p.get('state') ?? '';
   const scope = p.get('scope') ?? '';
 
-  // Validate the redirect_uri FIRST — never redirect the browser to a
-  // non-loopback URI (open-redirect / code exfiltration), not even with an error.
+  // Never use a non-loopback redirect_uri as a target (open-redirect guard).
   if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
-    return badRequest('redirect_uri must be a loopback address');
+    return jsonError('redirect_uri must be a loopback address', 400);
   }
   if (!clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
-    return redirectError(redirectUri, state, 'invalid_request');
+    return jsonError('invalid_request', 400);
   }
 
   const form = await req.formData();
@@ -49,15 +47,13 @@ export async function POST(req: Request): Promise<Response> {
 
   const session = await getSession();
   if (!isSessionValid(session)) {
-    // Session expired between rendering consent and submitting — deny gracefully.
-    return redirectError(redirectUri, state, 'access_denied', 'session expired');
+    return json({ redirect: errorRedirect(redirectUri, state, 'access_denied') });
   }
   if (decision !== 'approve') {
-    return redirectError(redirectUri, state, 'access_denied', 'the user denied the request');
+    return json({ redirect: errorRedirect(redirectUri, state, 'access_denied') });
   }
   // CSRF: the token must be one this server minted when it rendered the consent
-  // page for THIS user and THESE exact params. A cross-site auto-submit cannot
-  // forge it (the HMAC key is server-only). Fail closed without minting.
+  // page for THIS user and THESE exact params. Fail closed without minting.
   if (
     !consentTokenValid(typeof csrfToken === 'string' ? csrfToken : null, {
       userKey: session.user.email,
@@ -66,7 +62,7 @@ export async function POST(req: Request): Promise<Response> {
       codeChallenge,
     })
   ) {
-    return forbidden('invalid or missing consent token');
+    return jsonError('invalid or missing consent token', 403);
   }
 
   // Approved → identity mints the code, authenticated by the session's token.
@@ -88,24 +84,20 @@ export async function POST(req: Request): Promise<Response> {
       }),
     });
   } catch {
-    return redirectError(redirectUri, state, 'server_error');
+    return jsonError('server_error', 502);
   }
   if (!res.ok) {
-    return redirectError(
-      redirectUri,
-      state,
-      res.status === 400 ? 'invalid_request' : 'server_error',
-    );
+    return jsonError(res.status === 400 ? 'invalid_request' : 'server_error', res.status);
   }
   const body = (await res.json()) as { code?: string };
   if (!body.code) {
-    return redirectError(redirectUri, state, 'server_error');
+    return jsonError('server_error', 502);
   }
 
   const cb = new URL(redirectUri);
   cb.searchParams.set('code', body.code);
   if (state) cb.searchParams.set('state', state);
-  return Response.redirect(cb.toString(), 302);
+  return json({ redirect: cb.toString() });
 }
 
 /** Loopback-only redirect targets for public native MCP clients (RFC 8252). */
@@ -119,24 +111,17 @@ function isLoopbackRedirect(raw: string): boolean {
   }
 }
 
-function badRequest(msg: string): Response {
-  return new Response(msg, { status: 400, headers: { 'Cache-Control': 'no-store' } });
-}
-
-function forbidden(msg: string): Response {
-  return new Response(msg, { status: 403, headers: { 'Cache-Control': 'no-store' } });
-}
-
-// redirectError sends an RFC 6749 error back to the (validated loopback) client.
-function redirectError(
-  redirectUri: string,
-  state: string,
-  error: string,
-  description?: string,
-): Response {
+function errorRedirect(redirectUri: string, state: string, error: string): string {
   const u = new URL(redirectUri);
   u.searchParams.set('error', error);
-  if (description) u.searchParams.set('error_description', description);
   if (state) u.searchParams.set('state', state);
-  return Response.redirect(u.toString(), 302);
+  return u.toString();
+}
+
+function json(body: unknown): Response {
+  return Response.json(body, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+function jsonError(error: string, status: number): Response {
+  return Response.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } });
 }
