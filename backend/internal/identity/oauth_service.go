@@ -189,6 +189,12 @@ type ClientRegistrationRequest struct {
 	ResponseTypes           []string `json:"response_types,omitempty"`
 }
 
+// GetClient returns a registered client by ID (ErrClientNotFound if unknown).
+// Used by the consent screen to show the human which application is asking.
+func (s *Service) GetClient(ctx context.Context, clientID string) (RegisteredClient, error) {
+	return s.clients.Get(ctx, clientID)
+}
+
 // RegisterClient validates a dynamic client registration and stores a new public
 // client. Public clients only (no secret; PKCE is the proof) with loopback
 // redirect URIs. Returns ErrDCRDisabled when open registration is turned off.

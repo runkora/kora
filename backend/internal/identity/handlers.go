@@ -90,6 +90,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 		rejectPATMiddleware(c.logger),
 	)
 	mux.HandleWithMiddleware("POST /oauth/code", authNoScope, c.handleCreateOAuthCode)
+	mux.HandleWithMiddleware("GET /oauth/clients/{id}", authNoScope, c.handleGetClient)
 
 	mux.HandleWithMiddleware("POST /tokens", auth, c.handleCreatePAT)
 	mux.HandleWithMiddleware("GET /tokens", auth, c.handleListPATs)

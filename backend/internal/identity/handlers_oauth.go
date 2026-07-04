@@ -12,8 +12,10 @@ import (
 
 // bffAuthorizePath is the browser-facing OAuth authorization endpoint, served by
 // the Next.js BFF (which owns the Orbit session) at the same public host as this
-// service. The AS metadata advertises it as authorization_endpoint.
-const bffAuthorizePath = "/api/mcp/authorize"
+// service. It is a consent page: after the SSO session check it asks the human to
+// approve the client before a code is minted. The AS metadata advertises it as
+// authorization_endpoint.
+const bffAuthorizePath = "/mcp/authorize"
 
 // authorizationServerMetadata is the RFC 8414 OAuth 2.0 Authorization Server
 // Metadata document a spec-compliant MCP client fetches to discover Orbit's
@@ -194,5 +196,35 @@ func (c *Controller) handleRegisterClient(w http.ResponseWriter, r *http.Request
 		ResponseTypes:           []string{"code"},
 		ClientName:              client.ClientName,
 		ClientIDIssuedAt:        client.CreatedAt.Unix(),
+	})
+}
+
+// consentClientInfo is a registered client's public metadata, shown on the
+// consent screen so the human knows which application is requesting access.
+type consentClientInfo struct {
+	ClientID     string   `json:"client_id"`
+	ClientName   string   `json:"client_name,omitempty"`
+	RedirectURIs []string `json:"redirect_uris"`
+}
+
+// handleGetClient handles GET /identity/oauth/clients/{id} (authenticated) —
+// the BFF consent page fetches it (with the human's session token) to name the
+// application requesting access.
+func (c *Controller) handleGetClient(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	client, err := c.svc.GetClient(ctx, r.PathValue("id"))
+	if errors.Is(err, ErrClientNotFound) {
+		writeOAuthError(w, http.StatusNotFound, "not_found", "client not registered")
+		return
+	}
+	if err != nil {
+		c.logger.Error(ctx, "get client failed", logging.Field{Key: "error", Value: err.Error()})
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "failed to load client")
+		return
+	}
+	writeOAuthJSON(w, http.StatusOK, consentClientInfo{
+		ClientID:     client.ClientID,
+		ClientName:   client.ClientName,
+		RedirectURIs: client.RedirectURIs,
 	})
 }

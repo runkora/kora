@@ -3,24 +3,23 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
 
 /**
- * GET /api/mcp/authorize — the browser-facing OAuth 2.1 authorization endpoint
- * for the MCP profile (the AS metadata's authorization_endpoint).
+ * POST /api/mcp/authorize — the consent decision endpoint for the MCP OAuth flow.
  *
- * It reuses the existing Orbit session (the BFF iron-session) for SSO:
- * - valid session → ask identity to mint a single-use auth code bound to the
- *   human + the client's PKCE challenge, then 302 back to the client's loopback
- *   redirect_uri with ?code&state. Silent — no IdP redirect.
- * - no session (cold start) → 302 to /login?next=<this URL>; after login the
- *   browser returns here with a session and the code is issued.
+ * The /mcp/authorize consent page POSTs here with the OAuth params in the query
+ * string and the human's decision (approve/deny) in the form body:
+ * - approve → identity mints a single-use auth code (authenticated by the
+ *   session token), then 302 back to the client's loopback redirect_uri with
+ *   ?code&state.
+ * - deny (or lost session) → 302 back with error=access_denied.
  *
  * Security: the redirect_uri is only ever used as a redirect target if it is a
- * loopback address (RFC 8252) — otherwise we return 400 rather than becoming an
- * open redirect. PKCE S256 is required.
+ * loopback address (RFC 8252) — otherwise 400, never an open redirect. The
+ * consent page already gated this, but we re-check since this endpoint is
+ * independently reachable.
  */
-export async function GET(req: Request): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const p = url.searchParams;
-  const responseType = p.get('response_type');
   const clientId = p.get('client_id');
   const redirectUri = p.get('redirect_uri');
   const codeChallenge = p.get('code_challenge');
@@ -28,31 +27,28 @@ export async function GET(req: Request): Promise<Response> {
   const state = p.get('state') ?? '';
   const scope = p.get('scope') ?? '';
 
-  // Validate the redirect_uri FIRST — we must never redirect the browser to a
+  // Validate the redirect_uri FIRST — never redirect the browser to a
   // non-loopback URI (open-redirect / code exfiltration), not even with an error.
   if (!redirectUri || !isLoopbackRedirect(redirectUri)) {
     return badRequest('redirect_uri must be a loopback address');
   }
-  if (responseType !== 'code' || !clientId) {
+  if (!clientId || codeChallengeMethod !== 'S256' || !codeChallenge) {
     return redirectError(redirectUri, state, 'invalid_request');
   }
-  if (codeChallengeMethod !== 'S256' || !codeChallenge) {
-    return redirectError(
-      redirectUri,
-      state,
-      'invalid_request',
-      'PKCE S256 code_challenge required',
-    );
-  }
+
+  const form = await req.formData();
+  const decision = form.get('decision');
 
   const session = await getSession();
   if (!isSessionValid(session)) {
-    // Cold start: send the human through login, then back here to issue the code.
-    const next = url.pathname + url.search;
-    return Response.redirect(new URL(`/login?next=${encodeURIComponent(next)}`, url.origin), 302);
+    // Session expired between rendering consent and submitting — deny gracefully.
+    return redirectError(redirectUri, state, 'access_denied', 'session expired');
+  }
+  if (decision !== 'approve') {
+    return redirectError(redirectUri, state, 'access_denied', 'the user denied the request');
   }
 
-  // Logged in → identity mints the code, authenticated by the session's token.
+  // Approved → identity mints the code, authenticated by the session's token.
   let res: Response;
   try {
     res = await fetch(`${config.orbitApiUrl}/identity/oauth/code`, {
