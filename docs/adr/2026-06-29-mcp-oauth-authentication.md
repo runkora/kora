@@ -165,6 +165,38 @@ The token is a standard `aud=orbit-platform` platform token — the same shape `
 
 ---
 
+## Amendment 2026-07-04 — SSO session reuse and the `/authorize` tier
+
+Clarifies **where** the browser-facing `/authorize` endpoint lives and how it avoids re-authenticating a human who is already signed into Orbit. This does not change the decision (Option A) — it pins down the tier split the original wrote loosely.
+
+### `/authorize` is a **BFF (frontend) route**, not the identity service
+
+The authorization step is browser-facing, and Orbit's browser session lives in the **Next.js BFF's sealed iron-session cookie** (holds `session.user` + the platform token; populated by `POST /api/auth/session`). A *backend* identity-service endpoint cannot read that cookie, so it could never reuse the human's existing Orbit session. Therefore:
+
+- `/authorize` is served by the **BFF**, which reads the iron-session directly.
+- The AS metadata's `authorization_endpoint` (RFC 8414) points at the **BFF** `/authorize`, not the identity service.
+
+### SSO: reuse the existing Orbit session; federate only on cold start
+
+`/authorize` checks the iron-session (`isSessionValid`):
+
+- **Valid session** → the human is already authenticated to Orbit → the BFF has identity issue a short-lived authorization code bound to `{human identity, PKCE challenge, redirect_uri}` and redirects back to the client. **Silent — no IdP redirect.**
+- **No session** → drive the existing browser login flow (federate to the tenant's OIDC IdP), return to `/authorize`, then issue the code.
+
+Two layers of SSO therefore reduce prompts: the **tenant IdP's own** session already makes the cold-start redirect silent when the human has an active org session; the **Orbit-session** check additionally skips the redirect *entirely* once they have signed into Orbit. "Always redirect to the org IdP" is never "always re-login."
+
+### `/token` and `/register` stay on the **identity service** (back-channel)
+
+The MCP client exchanges `{code, PKCE verifier}` at `/token`; identity validates against its **code store** (Redis, alongside the JTI blocklist) and mints the ordinary `aud=orbit-platform` HUMAN token via `signToken`. No session is needed here — the code already carries the human the BFF authenticated. DCR (`/register`), AS metadata, and JWKS also stay on identity.
+
+**Tier split:** the **BFF** owns the session-aware browser step (`/authorize` — reads the iron-session, decides silent-code vs federate); the **identity service** owns the code store, token mint, DCR, and signing (`/token`, `/register`, metadata, JWKS). The thin BFF `/authorize` asks identity to mint the code after its session check.
+
+### Host derivation (implementation note)
+
+Discovery-metadata URLs (PRM, AS metadata, the 401 challenge) are **derived from the request host** (ingress `X-Forwarded-*` / `Host`) rather than a configured host, so one binary is correct at any exposure host. Because the host is client-influenceable, those responses are served `Cache-Control: no-store` (never shared-cached, to prevent cross-tenant metadata poisoning), and the resolved host **must be validated against an allowlist of trusted public hostnames before these endpoints are publicly exposed** — deferred to the public MCP-gateway exposure ADR, where the real hosts are decided.
+
+---
+
 ## Consequences
 
 ### Positive
@@ -187,8 +219,8 @@ The token is a standard `aud=orbit-platform` platform token — the same shape `
 
 ## Implementation
 
-- **Phase 1 — Metadata + resource server.** Gateway PRM endpoint and `401 + WWW-Authenticate`; identity AS metadata. Wires discovery end-to-end with a pre-registered test client.
-- **Phase 2 — Authorization-code + PKCE.** `/authorize` (federating to the tenant IdP via the existing OIDC path) and `/token` (minting an ordinary platform token via the reused id_token→token path); JTI revocation.
+- **Phase 1 — Metadata + resource server.** ✅ **Done.** Gateway PRM endpoint (RFC 9728) and `401 + WWW-Authenticate`; identity AS metadata (RFC 8414). URLs derived from the request host (see the 2026-07-04 amendment); `no-store`. Wires discovery end-to-end.
+- **Phase 2 — Authorization-code + PKCE.** **`/authorize` is a BFF route** that reuses the existing Orbit session (iron-session) and issues the code silently, federating to the tenant IdP via the existing OIDC path only on cold start; **`/token` on the identity service** validates the code + PKCE and mints an ordinary platform token via the reused id_token→token path; JTI revocation. The AS metadata's `authorization_endpoint` points at the BFF. See the 2026-07-04 amendment.
 - **Phase 3 — Dynamic client registration.** `POST /register` for public PKCE clients, with redirect-URI allow-listing and the pre-registration flag.
 - **Phase 4 — Hardening.** Consent, DCR abuse controls, audit of token issuance, and conformance testing against real MCP clients (Claude Desktop / Cursor).
 
