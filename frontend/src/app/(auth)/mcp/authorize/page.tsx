@@ -15,6 +15,7 @@ import {
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
+import { mcpConsentToken } from '@orbit/server/mcp-consent';
 
 import { ConsentActions } from './_components/consent-actions';
 
@@ -149,6 +150,14 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     ...(scope ? { scope } : {}),
   }).toString()}`;
 
+  // CSRF: bind this decision to the render for this user + these exact params.
+  const csrfToken = mcpConsentToken({
+    userKey: session.user.email,
+    clientId,
+    redirectUri,
+    codeChallenge,
+  });
+
   return (
     <Stack maxWidth="card">
       <Card>
@@ -172,7 +181,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
           </Stack>
         </CardContent>
         <CardFooter>
-          <ConsentActions action={action} />
+          <ConsentActions action={action} csrfToken={csrfToken} />
         </CardFooter>
       </Card>
     </Stack>

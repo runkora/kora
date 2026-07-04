@@ -6,6 +6,8 @@ import { Button, Stack } from '@orbit/terra';
 interface ConsentActionsProps {
   /** The issuing endpoint (/api/mcp/authorize) with the OAuth params in its query. */
   action: string;
+  /** Render-bound CSRF token; submitted with the decision and re-verified server-side. */
+  csrfToken: string;
 }
 
 /**
@@ -15,18 +17,23 @@ interface ConsentActionsProps {
  * navigation — the MCP client's local server catches the code there. The form is
  * built via the DOM rather than JSX so Terra's raw-<form> rule is satisfied.
  */
-export function ConsentActions({ action }: ConsentActionsProps) {
+export function ConsentActions({ action, csrfToken }: ConsentActionsProps) {
   function submit(decision: 'approve' | 'deny') {
     const form = document.createElement('form');
     form.method = 'post';
     form.action = action;
-    const field = document.createElement('input');
-    field.type = 'hidden';
-    field.name = 'decision';
-    field.value = decision;
-    form.appendChild(field);
+    appendHidden(form, 'decision', decision);
+    appendHidden(form, 'csrf_token', csrfToken);
     document.body.appendChild(form);
     form.submit();
+  }
+
+  function appendHidden(form: HTMLFormElement, name: string, value: string) {
+    const field = document.createElement('input');
+    field.type = 'hidden';
+    field.name = name;
+    field.value = value;
+    form.appendChild(field);
   }
 
   return (

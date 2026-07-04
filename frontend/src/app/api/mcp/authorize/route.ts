@@ -1,6 +1,7 @@
 import 'server-only';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { config } from '@orbit/server/config';
+import { consentTokenValid } from '@orbit/server/mcp-consent';
 
 /**
  * POST /api/mcp/authorize — the consent decision endpoint for the MCP OAuth flow.
@@ -18,6 +19,12 @@ import { config } from '@orbit/server/config';
  * independently reachable.
  */
 export async function POST(req: Request): Promise<Response> {
+  // CSRF belt: a browser sets Sec-Fetch-Site; reject a cross-site submission
+  // outright (the render-bound token below is the primary, header-independent gate).
+  if (req.headers.get('sec-fetch-site') === 'cross-site') {
+    return forbidden('cross-site request rejected');
+  }
+
   const url = new URL(req.url);
   const p = url.searchParams;
   const clientId = p.get('client_id');
@@ -38,6 +45,7 @@ export async function POST(req: Request): Promise<Response> {
 
   const form = await req.formData();
   const decision = form.get('decision');
+  const csrfToken = form.get('csrf_token');
 
   const session = await getSession();
   if (!isSessionValid(session)) {
@@ -46,6 +54,19 @@ export async function POST(req: Request): Promise<Response> {
   }
   if (decision !== 'approve') {
     return redirectError(redirectUri, state, 'access_denied', 'the user denied the request');
+  }
+  // CSRF: the token must be one this server minted when it rendered the consent
+  // page for THIS user and THESE exact params. A cross-site auto-submit cannot
+  // forge it (the HMAC key is server-only). Fail closed without minting.
+  if (
+    !consentTokenValid(typeof csrfToken === 'string' ? csrfToken : null, {
+      userKey: session.user.email,
+      clientId,
+      redirectUri,
+      codeChallenge,
+    })
+  ) {
+    return forbidden('invalid or missing consent token');
   }
 
   // Approved → identity mints the code, authenticated by the session's token.
@@ -100,6 +121,10 @@ function isLoopbackRedirect(raw: string): boolean {
 
 function badRequest(msg: string): Response {
   return new Response(msg, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+}
+
+function forbidden(msg: string): Response {
+  return new Response(msg, { status: 403, headers: { 'Cache-Control': 'no-store' } });
 }
 
 // redirectError sends an RFC 6749 error back to the (validated loopback) client.
