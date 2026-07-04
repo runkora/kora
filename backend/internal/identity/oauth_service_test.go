@@ -61,7 +61,10 @@ func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()
 	clientID := registerTestClient(t, svc)
-	human := AuthCode{Subject: "user-sub-1", TenantID: "acme", DisplayName: "jane@acme.com"}
+	human := AuthCode{
+		Subject: "user-sub-1", TenantID: "acme", DisplayName: "jane@acme.com",
+		Claims: map[string]string{"roles": "platform-admin"},
+	}
 
 	code, err := svc.CreateAuthCode(ctx, human, mkParams(clientID))
 	if err != nil {
@@ -95,6 +98,11 @@ func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 	}
 	if claims.Orbit.Claims["mcp_client_id"] != clientID {
 		t.Errorf("wrong mcp_client_id: %+v", claims.Orbit.Claims)
+	}
+	// The human's roles must survive into the MCP token (acts-as-you) — else
+	// role-derived grants are lost and tools/list comes back empty.
+	if claims.Orbit.Claims["roles"] != "platform-admin" {
+		t.Errorf("roles not preserved into MCP token: %+v", claims.Orbit.Claims)
 	}
 }
 

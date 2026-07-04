@@ -162,13 +162,20 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 		return nil, fmt.Errorf("%w: redirect_uri/client_id mismatch", ErrInvalidOAuthGrant)
 	}
 
+	// Preserve the human's verified claims (roles etc.) so the token carries their
+	// permissions, and record which MCP client it was minted for.
+	claims := make(map[string]string, len(data.Claims)+1)
+	for k, v := range data.Claims {
+		claims[k] = v
+	}
+	claims["mcp_client_id"] = data.ClientID
 	principal := &Principal{
 		ID:             data.Subject,
 		Type:           token.PrincipalTypeHuman,
 		TenantID:       data.TenantID,
 		DisplayName:    data.DisplayName,
 		IdentitySource: IdentitySourceFederated,
-		Claims:         map[string]string{"mcp_client_id": data.ClientID},
+		Claims:         claims,
 	}
 	_, accessToken, _, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
