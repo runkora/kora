@@ -2,11 +2,18 @@ package identity
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
+
+// bffAuthorizePath is the browser-facing OAuth authorization endpoint, served by
+// the Next.js BFF (which owns the Orbit session) at the same public host as this
+// service. The AS metadata advertises it as authorization_endpoint.
+const bffAuthorizePath = "/api/mcp/authorize"
 
 // authorizationServerMetadata is the RFC 8414 OAuth 2.0 Authorization Server
 // Metadata document a spec-compliant MCP client fetches to discover Orbit's
@@ -35,12 +42,15 @@ type authorizationServerMetadata struct {
 // exposed — no hardcoded host.
 func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	iss := api.RequestBaseURL(r) + c.basePath + c.GroupedBy()
+	base := api.RequestBaseURL(r)
+	iss := base + c.basePath + c.GroupedBy()
 	meta := authorizationServerMetadata{
-		Issuer:                            iss,
-		AuthorizationEndpoint:             iss + "/authorize",
-		TokenEndpoint:                     iss + "/token",
-		RegistrationEndpoint:              iss + "/register",
+		Issuer: iss,
+		// authorization_endpoint is the browser-facing BFF route (same host) — it
+		// reads the Orbit session for SSO; token/register are identity back-channel.
+		AuthorizationEndpoint:             base + bffAuthorizePath,
+		TokenEndpoint:                     iss + "/oauth/token",
+		RegistrationEndpoint:              iss + "/oauth/register",
 		JWKSURI:                           iss + "/.well-known/jwks.json",
 		ResponseTypesSupported:            []string{"code"},
 		GrantTypesSupported:               []string{"authorization_code"},
@@ -58,4 +68,88 @@ func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r 
 		c.logger.Error(ctx, "failed to write AS metadata response",
 			logging.Field{Key: "error", Value: err.Error()})
 	}
+}
+
+// ── OAuth authorization-code + PKCE (MCP profile) ─────────────────────────────
+
+type createCodeRequest struct {
+	ClientID            string `json:"client_id"`
+	RedirectURI         string `json:"redirect_uri"`
+	CodeChallenge       string `json:"code_challenge"`
+	CodeChallengeMethod string `json:"code_challenge_method"`
+	Scope               string `json:"scope"`
+}
+
+// handleCreateOAuthCode handles POST /identity/oauth/code — called by the BFF
+// /authorize after its session check, authenticated by the human's platform
+// token. It mints a single-use authorization code bound to that human.
+func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+	var req createCodeRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	human := AuthCode{
+		Subject:     claims.Subject,
+		TenantID:    claims.Orbit.TenantID,
+		DisplayName: claims.Orbit.DisplayName,
+	}
+	code, err := c.svc.CreateAuthCode(ctx, human, AuthorizeParams(req))
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil), nil)
+		return
+	}
+	writeOAuthJSON(w, http.StatusOK, map[string]string{"code": code})
+}
+
+// handleOAuthToken handles POST /identity/oauth/token (public, RFC 6749
+// authorization_code grant, form-encoded). Validates the code + PKCE and mints
+// the human's ordinary aud=orbit-platform token.
+func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024) // bound the token-endpoint body
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		return
+	}
+	resp, err := c.svc.ExchangeAuthCode(ctx, TokenRequest{
+		GrantType:    r.PostForm.Get("grant_type"),
+		Code:         r.PostForm.Get("code"),
+		CodeVerifier: r.PostForm.Get("code_verifier"),
+		RedirectURI:  r.PostForm.Get("redirect_uri"),
+		ClientID:     r.PostForm.Get("client_id"),
+	})
+	switch {
+	case errors.Is(err, ErrInvalidOAuthRequest):
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	case errors.Is(err, ErrInvalidOAuthGrant):
+		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", err.Error())
+		return
+	case err != nil:
+		c.logger.Error(ctx, "oauth token exchange failed", logging.Field{Key: "error", Value: err.Error()})
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token exchange failed")
+		return
+	}
+	writeOAuthJSON(w, http.StatusOK, resp)
+}
+
+// writeOAuthJSON writes a no-store JSON response (token/code endpoints must not cache).
+func writeOAuthJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// writeOAuthError writes an RFC 6749 {error, error_description} response.
+func writeOAuthError(w http.ResponseWriter, status int, code, desc string) {
+	writeOAuthJSON(w, status, map[string]string{"error": code, "error_description": desc})
 }

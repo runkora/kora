@@ -74,6 +74,7 @@ type Service struct {
 	sessions      SessionRepository
 	refreshTokens RefreshTokenRepository
 	blocklist     JTIBlocklistRepository
+	authCodes     AuthCodeRepository
 	pats          PATRepository
 	profiles      UserProfileRepository
 	policyClient  PolicyClient
@@ -131,6 +132,7 @@ func NewService(
 	sessions SessionRepository,
 	refreshTokens RefreshTokenRepository,
 	blocklist JTIBlocklistRepository,
+	authCodes AuthCodeRepository,
 	pats PATRepository,
 	profiles UserProfileRepository,
 	policyClient PolicyClient,
@@ -146,6 +148,7 @@ func NewService(
 		sessions:      sessions,
 		refreshTokens: refreshTokens,
 		blocklist:     blocklist,
+		authCodes:     authCodes,
 		pats:          pats,
 		profiles:      profiles,
 		policyClient:  policyClient,
