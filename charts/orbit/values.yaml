@@ -25,6 +25,14 @@
 #     -f deploy/local/orbit-values.yaml -n orbit-system
 # =============================================================================
 
+# -- Trusted-host allowlist for host-derived OAuth discovery metadata
+# (ADR 2026-07-04). The canonical host (fallback for a forged X-Forwarded-Host)
+# is listed first — use the api. host, which serves the metadata. Empty disables
+# validation (host reflected as-is). Set to the platform's real public hosts when
+# externally exposed. Wired into the identity + tool-gateway deployments as
+# ORBIT_PUBLIC_HOSTS.
+publicHosts: []
+
 # -- Global values shared across all templates.
 global:
   # Trust domain for SPIFFE SVIDs and Istio mTLS.

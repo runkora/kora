@@ -61,6 +61,10 @@ spec:
           env:
             - name: ORBIT_TOOL_GATEWAY_MODE
               value: publisher
+            {{- if .Values.publicHosts }}
+            - name: ORBIT_PUBLIC_HOSTS
+              value: {{ join "," .Values.publicHosts | quote }}
+            {{- end }}
             - name: ORBIT_OTLP_INSECURE
               value: {{ .Values.toolGateway.config.otlpInsecure | quote }}
             - name: ORBIT_LOG_FORMAT

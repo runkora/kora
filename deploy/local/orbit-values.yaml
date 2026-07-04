@@ -23,6 +23,12 @@
 # or deploy/local/tenants/*.yaml (OrbitTenant CRs).
 # =============================================================================
 
+# Trusted-host allowlist for OAuth discovery metadata (ADR 2026-07-04).
+# Canonical (fallback) host first — the api. host serves the metadata.
+publicHosts:
+  - api.orbit.local.clearroute.io
+  - orbit.local.clearroute.io
+
 global:
   # Force pull from local k3d registry on every pod start.
   # Local registry images are not content-addressed — Always ensures the

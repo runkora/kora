@@ -58,6 +58,12 @@ spec:
           env:
             - name: ORBIT_TOOL_GATEWAY_MODE
               value: proxy
+            {{- if .Values.publicHosts }}
+            # Trusted-host allowlist for the host-derived RFC 9728 metadata + 401
+            # challenge this proxy serves (ADR 2026-07-04). Canonical host first.
+            - name: ORBIT_PUBLIC_HOSTS
+              value: {{ join "," .Values.publicHosts | quote }}
+            {{- end }}
             - name: ORBIT_OTLP_INSECURE
               value: {{ .Values.toolGateway.config.otlpInsecure | quote }}
             - name: ORBIT_LOG_FORMAT

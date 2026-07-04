@@ -50,6 +50,10 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Identity service starting", logging.Field{Key: "version", Value: ic.Current.App.Version})
 
+	// Trusted-host allowlist for host-derived OAuth discovery metadata (ADR
+	// 2026-07-04). No-op unless ORBIT_PUBLIC_HOSTS is set (i.e. public exposure).
+	api.ConfigureTrustedHostsFromEnv()
+
 	// Initialize storage backends (Postgres + Redis) from a single config load.
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {

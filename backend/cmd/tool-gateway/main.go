@@ -52,6 +52,10 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
+	// Trusted-host allowlist for the host-derived RFC 9728 protected-resource
+	// metadata and 401 challenge (ADR 2026-07-04). No-op unless ORBIT_PUBLIC_HOSTS
+	// is set (i.e. public exposure).
+	platformapi.ConfigureTrustedHostsFromEnv()
 	// Mode is a deployment-topology flag: the same image runs as the publisher
 	// (replicas=1) or the scaled proxy. The env var lets the two Deployments
 	// select their mode from one baked config; it overrides config.Mode.
