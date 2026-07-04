@@ -67,7 +67,7 @@ func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController
 		servers: []Server{{TenantID: "", Name: "orbit", Endpoint: "http://orbit/mcp", CallerIdentity: "forward"}},
 		loaded:  true,
 	}
-	return NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), logging.NewLogger())
+	return NewMCPController(nil, eval, cat, reg, NewProxy("test", logging.NewLogger()), "/v1", logging.NewLogger())
 }
 
 // doRPC dispatches a JSON-RPC body against the per-server endpoint, setting the

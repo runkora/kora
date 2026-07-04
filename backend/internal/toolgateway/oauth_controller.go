@@ -3,6 +3,8 @@ package toolgateway
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -46,8 +48,15 @@ func (c *OAuthMetadataController) Boot(mux *api.Mux) {
 
 func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	base := api.RequestBaseURL(r)
+	// The specific per-server resource is carried in the `resource` query (set by
+	// the 401 challenge). Reflect it only if it is one of our own MCP endpoints —
+	// never an arbitrary attacker-supplied URL. Otherwise fall back to the gateway.
+	resource := base + c.basePath + "/mcp"
+	if q := r.URL.Query().Get("resource"); q != "" && strings.HasPrefix(q, base+c.basePath+"/mcp/") {
+		resource = q
+	}
 	meta := protectedResourceMetadata{
-		Resource: base + c.basePath + "/mcp",
+		Resource: resource,
 		// The authorization server is the API host root (RFC 8414 issuer); the
 		// client fetches its metadata from <base>/.well-known/oauth-authorization-server.
 		// Ref ADR 2026-07-04 (north-south ingress + external service exposure).
@@ -73,11 +82,16 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 // so an unauthenticated MCP client can begin the OAuth flow. The metadata URL is
 // derived from each request's host (no hardcoded host) and lives at the host root
 // per RFC 8615/9728 (ADR 2026-07-04); the edge routes root /.well-known/* to the
-// gateway.
-func challengeMiddleware() mw.Middleware {
+// gateway. The specific per-server resource (this endpoint, /v1/mcp/<server>) is
+// carried in the metadata URL's `resource` query so the client sends it as the
+// RFC 8707 resource indicator — which the consent screen uses to show exactly
+// which server's tools are being granted.
+func challengeMiddleware(basePath string) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			prmURL := api.RequestBaseURL(r) + "/.well-known/oauth-protected-resource"
+			base := api.RequestBaseURL(r)
+			resource := base + basePath + "/mcp/" + r.PathValue("server")
+			prmURL := base + "/.well-known/oauth-protected-resource?resource=" + url.QueryEscape(resource)
 			challenge := `Bearer resource_metadata="` + prmURL + `"`
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})

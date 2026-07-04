@@ -75,7 +75,8 @@ export function ConsentFlow(props: ConsentFlowProps) {
   }
 
   if (view === 'authorizing') return <AuthorizingCard />;
-  if (view === 'connected') return <ConnectedCard clientName={props.clientName} redirect={redirect} />;
+  if (view === 'connected')
+    return <ConnectedCard clientName={props.clientName} redirect={redirect} />;
   if (view === 'cancelled') return <CancelledCard onBack={() => setView('consent')} />;
 
   return (
@@ -118,9 +119,12 @@ function ConsentCard(
           <Text style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.01em' }}>
             Authorise {p.clientName}
           </Text>
-          <Text style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 7 }}>
-            It wants to connect to the <Strong>{p.server?.displayName ?? 'Orbit MCP'}</Strong> MCP
-            server and call its tools <Strong>as you</Strong>.
+          <Text
+            style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 7 }}
+          >
+            It wants to connect to the{' '}
+            <Strong>{(p.server?.displayName ?? 'Orbit').replace(/\s*MCP\s*$/i, '') || 'Orbit'}</Strong>{' '}
+            MCP server and call its tools <Strong>as you</Strong>.
           </Text>
         </Stack>
       </Stack>
@@ -179,7 +183,16 @@ function ConsentCard(
           <Button variant="ghost" onClick={p.onToggleTech} style={{ justifyContent: 'flex-start' }}>
             <Stack direction="horizontal" align="center" style={{ gap: 9, width: '100%' }}>
               <Icon name="lock" size="sm" color="subtle" />
-              <Text as="span" style={{ flex: 1, textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--color-muted)' }}>
+              <Text
+                as="span"
+                style={{
+                  flex: 1,
+                  textAlign: 'left',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: 'var(--color-muted)',
+                }}
+              >
                 Request details
               </Text>
               <Text as="span" mono style={{ fontSize: 10.5, color: 'var(--color-subtle)' }}>
@@ -189,16 +202,36 @@ function ConsentCard(
             </Stack>
           </Button>
           {p.techOpen ? (
-            <Stack style={{ padding: '2px 13px 12px', gap: 8, borderTop: '1px solid var(--color-border-subtle)' }}>
+            <Stack
+              style={{
+                padding: '2px 13px 12px',
+                gap: 8,
+                borderTop: '1px solid var(--color-border-subtle)',
+              }}
+            >
               {p.techRows.map((row) => (
-                <Stack key={row.k} direction="horizontal" justify="between" style={{ gap: 12, paddingTop: 9 }}>
-                  <Text as="span" mono style={{ fontSize: 11, color: 'var(--color-subtle)', flexShrink: 0 }}>
+                <Stack
+                  key={row.k}
+                  direction="horizontal"
+                  justify="between"
+                  style={{ gap: 12, paddingTop: 9 }}
+                >
+                  <Text
+                    as="span"
+                    mono
+                    style={{ fontSize: 11, color: 'var(--color-subtle)', flexShrink: 0 }}
+                  >
                     {row.k}
                   </Text>
                   <Text
                     as="span"
                     mono
-                    style={{ fontSize: 11, color: row.accent ? 'var(--color-accent)' : 'var(--color-muted)', textAlign: 'right', wordBreak: 'break-all' }}
+                    style={{
+                      fontSize: 11,
+                      color: row.accent ? 'var(--color-accent)' : 'var(--color-muted)',
+                      textAlign: 'right',
+                      wordBreak: 'break-all',
+                    }}
                   >
                     {row.v}
                   </Text>
@@ -217,7 +250,15 @@ function ConsentCard(
         <Button variant="outline" onClick={p.onDeny} style={{ width: '100%', height: 42 }}>
           Cancel
         </Button>
-        <Text style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--color-subtle)', textAlign: 'center', marginTop: 5 }}>
+        <Text
+          style={{
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: 'var(--color-subtle)',
+            textAlign: 'center',
+            marginTop: 5,
+          }}
+        >
           By authorising, Orbit issues a token that expires in 1 hour and refreshes silently while{' '}
           {p.clientName} stays connected. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
@@ -234,7 +275,15 @@ function ToolSurface(p: ConsentFlowProps) {
   return (
     <Stack style={{ gap: 0 }}>
       <Stack direction="horizontal" align="center" justify="between" style={{ marginBottom: 10 }}>
-        <Text as="span" style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.13em', color: 'var(--color-subtle)' }}>
+        <Text
+          as="span"
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: '0.13em',
+            color: 'var(--color-subtle)',
+          }}
+        >
           GRANTING YOUR TOOLS ON
         </Text>
         <Text as="span" style={{ fontSize: 11, color: 'var(--color-muted)' }}>
@@ -268,7 +317,14 @@ function ToolSurface(p: ConsentFlowProps) {
         </Stack>
         <Text
           as="span"
-          style={{ flexShrink: 0, fontSize: 10.5, color: 'var(--color-subtle)', padding: '3px 8px', borderRadius: 9999, border: '1px solid var(--color-border-subtle)' }}
+          style={{
+            flexShrink: 0,
+            fontSize: 10.5,
+            color: 'var(--color-subtle)',
+            padding: '3px 8px',
+            borderRadius: 9999,
+            border: '1px solid var(--color-border-subtle)',
+          }}
         >
           this server only
         </Text>
@@ -287,15 +343,40 @@ function ToolSurface(p: ConsentFlowProps) {
         }}
       >
         {p.domains.map((dm) => (
-          <Stack key={dm.name} style={{ borderTop: '1px solid var(--color-border-subtle)', gap: 0 }}>
-            <Stack direction="horizontal" align="center" style={{ gap: 9, padding: '8px 13px', background: 'var(--color-surface)' }}>
-              <Text as="span" style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize' }}>
+          <Stack
+            key={dm.name}
+            style={{ borderTop: '1px solid var(--color-border-subtle)', gap: 0 }}
+          >
+            <Stack
+              direction="horizontal"
+              align="center"
+              style={{ gap: 9, padding: '8px 13px', background: 'var(--color-surface)' }}
+            >
+              <Text
+                as="span"
+                style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize' }}
+              >
                 {dm.name}
               </Text>
-              <Text as="span" mono style={{ fontSize: 10.5, color: 'var(--color-subtle)', padding: '1px 6px', borderRadius: 'var(--radius-sm)', background: 'var(--color-background)', border: '1px solid var(--color-border-subtle)' }}>
+              <Text
+                as="span"
+                mono
+                style={{
+                  fontSize: 10.5,
+                  color: 'var(--color-subtle)',
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--color-background)',
+                  border: '1px solid var(--color-border-subtle)',
+                }}
+              >
                 {dm.scope}
               </Text>
-              <Text as="span" mono style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--color-subtle)' }}>
+              <Text
+                as="span"
+                mono
+                style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--color-subtle)' }}
+              >
                 {dm.tools.length}
               </Text>
             </Stack>
@@ -304,17 +385,55 @@ function ToolSurface(p: ConsentFlowProps) {
                 key={t.name}
                 direction="horizontal"
                 align="center"
-                style={{ gap: 10, padding: '8px 13px 8px 15px', borderTop: '1px solid var(--color-border-subtle)', opacity: t.granted ? 1 : 0.45 }}
+                style={{
+                  gap: 10,
+                  padding: '8px 13px 8px 15px',
+                  borderTop: '1px solid var(--color-border-subtle)',
+                  opacity: t.granted ? 1 : 0.45,
+                }}
               >
-                <Icon name={t.granted ? 'circle-check' : 'circle-x'} size="sm" color={t.granted ? 'accent' : 'subtle'} />
-                <Text as="span" mono style={{ fontSize: 11.5, fontWeight: 600, color: t.granted ? 'var(--color-foreground)' : 'var(--color-subtle)', flexShrink: 0 }}>
+                <Icon
+                  name={t.granted ? 'circle-check' : 'circle-x'}
+                  size="sm"
+                  color={t.granted ? 'accent' : 'subtle'}
+                />
+                <Text
+                  as="span"
+                  mono
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: t.granted ? 'var(--color-foreground)' : 'var(--color-subtle)',
+                    flexShrink: 0,
+                  }}
+                >
                   {t.name}
                 </Text>
-                <Text as="span" mono style={{ fontSize: 10.5, color: 'var(--color-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'right' }}>
+                <Text
+                  as="span"
+                  mono
+                  style={{
+                    fontSize: 10.5,
+                    color: 'var(--color-subtle)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                    textAlign: 'right',
+                  }}
+                >
                   {t.scope}
                 </Text>
                 {!t.granted ? (
-                  <Text as="span" style={{ flexShrink: 0, fontSize: 10, color: 'var(--color-subtle)', whiteSpace: 'nowrap' }}>
+                  <Text
+                    as="span"
+                    style={{
+                      flexShrink: 0,
+                      fontSize: 10,
+                      color: 'var(--color-subtle)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     not in your grants
                   </Text>
                 ) : null}
@@ -327,17 +446,24 @@ function ToolSurface(p: ConsentFlowProps) {
       {/* Shield note */}
       <Stack
         direction="horizontal"
-        style={{ gap: 9, marginTop: 12, padding: '11px 12px', borderRadius: 'var(--radius-md)', background: 'var(--color-accent-subtle)', border: '1px solid var(--color-accent-border)' }}
+        style={{
+          gap: 9,
+          marginTop: 12,
+          padding: '11px 12px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-accent-subtle)',
+          border: '1px solid var(--color-accent-border)',
+        }}
       >
         <Icon name="shield-check" size="sm" color="accent" />
         <Text style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--color-muted)' }}>
-          {p.clientName} receives only the tools <Strong>you</Strong> hold grants for on this server —
-          tools you can’t use are hidden from{' '}
+          {p.clientName} receives only the tools <Strong>you</Strong> hold grants for on this server
+          — tools you can’t use are hidden from{' '}
           <Text as="span" mono style={{ fontSize: 11.5 }}>
             tools/list
           </Text>
-          . Authorisation is <Strong>per server</Strong>: connecting another MCP server needs its own
-          approval.
+          . Authorisation is <Strong>per server</Strong>: connecting another MCP server needs its
+          own approval.
         </Text>
       </Stack>
     </Stack>
@@ -352,7 +478,9 @@ function AuthorizingCard() {
       <Spinner />
       <Stack style={{ gap: 0 }}>
         <Text style={{ fontSize: 16, fontWeight: 600 }}>Authorising…</Text>
-        <Text style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 7 }}>
+        <Text
+          style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 7 }}
+        >
           Issuing an authorisation code and redirecting.
         </Text>
       </Stack>
@@ -365,19 +493,45 @@ function AuthorizingCard() {
 
 function ConnectedCard({ clientName, redirect }: { clientName: string; redirect: string }) {
   return (
-    <Stack style={{ width: CARD, borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', overflow: 'hidden' }}>
+    <Stack
+      style={{
+        width: CARD,
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-surface)',
+        overflow: 'hidden',
+      }}
+    >
       <Stack align="center" style={{ padding: '36px 32px 24px', gap: 14, textAlign: 'center' }}>
-        <IconBadge name="circle-check" size={58} iconSize="lg" tone="healthy" radius="var(--radius-full)" />
+        <IconBadge
+          name="circle-check"
+          size={58}
+          iconSize="lg"
+          tone="healthy"
+          radius="var(--radius-full)"
+        />
         <Stack style={{ gap: 0 }}>
           <Text style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.01em' }}>
             {clientName} connected
           </Text>
-          <Text style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-muted)', marginTop: 8 }}>
-            Your tools are live. Return to {clientName} — its tool list now shows what you authorised.
+          <Text
+            style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-muted)', marginTop: 8 }}
+          >
+            Your tools are live. Return to {clientName} — its tool list now shows what you
+            authorised.
           </Text>
         </Stack>
       </Stack>
-      <Stack style={{ margin: '0 24px', padding: '13px 15px', borderRadius: 'var(--radius-md)', background: 'var(--color-background)', border: '1px solid var(--color-border-subtle)', gap: 9 }}>
+      <Stack
+        style={{
+          margin: '0 24px',
+          padding: '13px 15px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-background)',
+          border: '1px solid var(--color-border-subtle)',
+          gap: 9,
+        }}
+      >
         <Stack direction="horizontal" align="center" justify="between" style={{ gap: 12 }}>
           <Text as="span" mono style={{ fontSize: 11, color: 'var(--color-subtle)' }}>
             token expires
@@ -388,13 +542,21 @@ function ConnectedCard({ clientName, redirect }: { clientName: string; redirect:
         </Stack>
       </Stack>
       <Stack align="center" style={{ padding: '20px 24px 24px', gap: 10 }}>
-        <Stack direction="horizontal" align="center" style={{ gap: 8, fontSize: 12.5, color: 'var(--color-subtle)' }}>
+        <Stack
+          direction="horizontal"
+          align="center"
+          style={{ gap: 8, fontSize: 12.5, color: 'var(--color-subtle)' }}
+        >
           <Icon name="circle-check" size="sm" color="status-healthy" />
           <Text as="span" style={{ fontSize: 12.5, color: 'var(--color-subtle)' }}>
             You can close this window
           </Text>
         </Stack>
-        <Button variant="outline" onClick={() => (window.location.href = redirect)} style={{ width: '100%', height: 40 }}>
+        <Button
+          variant="outline"
+          onClick={() => (window.location.href = redirect)}
+          style={{ width: '100%', height: 40 }}
+        >
           Continue
         </Button>
       </Stack>
@@ -405,11 +567,15 @@ function ConnectedCard({ clientName, redirect }: { clientName: string; redirect:
 function CancelledCard({ onBack }: { onBack: () => void }) {
   return (
     <ResultCard>
-      <IconBadge name="circle-x" size={54} iconSize="lg" tone="subtle" radius="var(--radius-full)" />
+      <IconBadge
+        name="circle-x"
+        size={54}
+        iconSize="lg"
+        tone="subtle"
+        radius="var(--radius-full)"
+      />
       <Stack style={{ gap: 0 }}>
-        <Text style={{ fontSize: 18, fontWeight: 700 }}>
-          Request cancelled
-        </Text>
+        <Text style={{ fontSize: 18, fontWeight: 700 }}>Request cancelled</Text>
         <Text style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-muted)', marginTop: 8 }}>
           Access was not granted. No token was issued and nothing changed.
         </Text>
@@ -430,7 +596,15 @@ function ResultCard({ children }: { children: React.ReactNode }) {
   return (
     <Stack
       align="center"
-      style={{ width: CARD, borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', background: 'var(--color-surface)', padding: '44px 32px', gap: 16, textAlign: 'center' }}
+      style={{
+        width: CARD,
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-surface)',
+        padding: '44px 32px',
+        gap: 16,
+        textAlign: 'center',
+      }}
     >
       {children}
     </Stack>
@@ -471,13 +645,25 @@ function IconBadge({
         ? 'var(--color-border-subtle)'
         : 'var(--color-accent-border)';
   const color =
-    tone === 'healthy' ? 'var(--color-status-healthy)' : tone === 'subtle' ? 'var(--color-subtle)' : 'var(--color-accent)';
+    tone === 'healthy'
+      ? 'var(--color-status-healthy)'
+      : tone === 'subtle'
+        ? 'var(--color-subtle)'
+        : 'var(--color-accent)';
   const iconColor = tone === 'healthy' ? 'status-healthy' : tone === 'subtle' ? 'subtle' : 'accent';
   return (
     <Stack
       align="center"
       justify="center"
-      style={{ width: size, height: size, flexShrink: 0, borderRadius: radius, background: bg, border: `1px solid ${border}`, color }}
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        borderRadius: radius,
+        background: bg,
+        border: `1px solid ${border}`,
+        color,
+      }}
     >
       <Icon name={name as never} size={iconSize} color={iconColor} />
     </Stack>

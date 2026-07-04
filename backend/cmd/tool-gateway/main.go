@@ -97,7 +97,7 @@ func realMain() error {
 		// are derived from the request host — only the base path is configured.
 		basePath := tgc.Current.Server.BasePath
 		controllers = append(controllers,
-			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, logger),
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, basePath, logger),
 			toolgateway.NewOAuthMetadataController(basePath, logger),
 		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution

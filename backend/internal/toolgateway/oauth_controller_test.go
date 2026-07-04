@@ -43,17 +43,23 @@ func TestPRMHandler_DerivesFromRequestHost(t *testing.T) {
 // TestChallengeMiddleware confirms a 401 gains the RFC 9728 WWW-Authenticate
 // pointer built from the request host, and a 200 does not.
 func TestChallengeMiddleware(t *testing.T) {
-	mwHandler := mw.MiddlewareChain(challengeMiddleware())
+	mwHandler := mw.MiddlewareChain(challengeMiddleware("/v1"))
 
 	h401 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	rec := httptest.NewRecorder()
-	h401.ServeHTTP(rec, requestWithHost(http.MethodPost, "/v1/mcp", "mcp.example.com"))
+	req := requestWithHost(http.MethodPost, "/v1/mcp/orbit", "mcp.example.com")
+	req.SetPathValue("server", "orbit")
+	h401.ServeHTTP(rec, req)
 	wa := rec.Header().Get("WWW-Authenticate")
 	want := "https://mcp.example.com/.well-known/oauth-protected-resource"
 	if !strings.Contains(wa, want) || !strings.HasPrefix(wa, "Bearer ") {
 		t.Errorf("401 WWW-Authenticate = %q, want it to reference %q", wa, want)
+	}
+	// The per-server resource (this endpoint) is carried in the resource query.
+	if !strings.Contains(wa, "resource=") || !strings.Contains(wa, "orbit") {
+		t.Errorf("401 challenge should carry the per-server resource, got %q", wa)
 	}
 
 	h200 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
