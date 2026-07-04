@@ -75,13 +75,6 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Agents+"/api/v1/connections", nil))
 		})
 
-	addTool(srv, "agents.environments",
-		"List the reusable connectivity/connector environments in the caller's tenant. Use this to choose an "+
-			"environment_id for agents.create / agents.update.",
-		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Agents+"/api/v1/environments", nil))
-		})
-
 	addTool(srv, "agents.mcp_tools",
 		"List the governed MCP tools that can be granted to an agent — each tool's mcp:<server>:<tool>:use scope, "+
 			"its server, and what it does, from the tool-gateway catalog. Use this to choose values for the "+
@@ -116,7 +109,7 @@ type createAgentArgs struct {
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
-	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments tool to list"`
+	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments.list tool to list"`
 	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
 }
 
@@ -149,5 +142,5 @@ type updateAgentArgs struct {
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
-	EnvironmentID           *string          `json:"environment_id,omitempty" jsonschema:"id of a connectivity/connector environment to attach; empty string detaches — call the agents.environments tool to list"`
+	EnvironmentID           *string          `json:"environment_id,omitempty" jsonschema:"id of a connectivity/connector environment to attach; empty string detaches — call the agents.environments.list tool to list"`
 }

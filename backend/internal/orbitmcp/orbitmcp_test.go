@@ -346,6 +346,61 @@ func TestToolForwardsCallerTokenAndReturnsJSON(t *testing.T) {
 	}
 }
 
+// TestToolRequiresKeysAreRegisteredTools guards the toolRequires map against
+// typos: every key must name a real registered tool. A key with no matching tool
+// is dead (its scope is never emitted as _meta); a tool that needs a scope but is
+// missing from the map would silently 403 when granted — so this also spot-checks
+// that a representative new tool carries its _meta["orbit/requires"].
+func TestToolRequiresKeysAreRegisteredTools(t *testing.T) {
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	// List every tool, following the cursor so pagination can't hide any.
+	names := map[string]bool{}
+	meta := map[string]any{}
+	cursor := ""
+	for {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		resp := call("tools/list", params)
+		result, _ := resp["result"].(map[string]any)
+		for _, rt := range asSlice(result["tools"]) {
+			tm, _ := rt.(map[string]any)
+			name, _ := tm["name"].(string)
+			if name != "" {
+				names[name] = true
+				meta[name], _ = tm["_meta"]
+			}
+		}
+		cursor, _ = result["nextCursor"].(string)
+		if cursor == "" {
+			break
+		}
+	}
+
+	if len(names) < 50 {
+		t.Fatalf("expected the full tool surface (50+ tools), got %d", len(names))
+	}
+	for name := range toolRequires {
+		if !names[name] {
+			t.Errorf("toolRequires has %q but no such tool is registered (typo in scope mapping?)", name)
+		}
+	}
+	// The _meta path works end to end for a new catalog tool.
+	m, _ := meta["models.pricing.set_override"].(map[string]any)
+	req, _ := m[metaRequiresKey].([]any)
+	if len(req) != 1 || req[0] != "platform:catalog:write" {
+		t.Errorf("models.pricing.set_override should carry _meta requires=[platform:catalog:write], got %v", m)
+	}
+}
+
+func asSlice(v any) []any { s, _ := v.([]any); return s }
+
 // mcpCaller returns a function that issues a JSON-RPC request to the MCP gateway
 // over Streamable HTTP with a fixed caller token, parsing the SSE `data:` frame
 // (or a bare JSON body) into the response map.

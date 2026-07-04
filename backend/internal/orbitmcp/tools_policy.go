@@ -114,6 +114,37 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			}
 			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/roles/"+url.PathEscape(a.Role)))
 		})
+
+	// ── vocabulary + routes (read the authorization model itself) ────────────────
+
+	addTool(srv, "policy.vocabulary.list",
+		"List the scope vocabulary — every scope the platform knows about, its resource type, action, and "+
+			"description. This is the catalog of what can be granted.",
+		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/vocabulary", nil))
+		})
+
+	addTool(srv, "policy.vocabulary.get",
+		"Get a single scope-vocabulary entry by scope string (e.g. platform:grants:read) — its resource type, "+
+			"action, and description.",
+		func(ctx context.Context, a scopeArgs) (*sdk.CallToolResult, error) {
+			if a.Scope == "" {
+				return toolError(errors.New("scope is required")), nil
+			}
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/vocabulary/"+url.PathEscape(a.Scope), nil))
+		})
+
+	addTool(srv, "policy.routes.list",
+		"List every registered route→scope mapping — which API route requires which scope. Use this to "+
+			"understand what a scope actually authorizes across the platform.",
+		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/routes", nil))
+		})
+}
+
+// scopeArgs identifies a single scope-vocabulary entry.
+type scopeArgs struct {
+	Scope string `json:"scope" jsonschema:"the scope string (e.g. platform:grants:read)"`
 }
 
 // principalTypes is the closed set of grant principal types, surfaced as a
