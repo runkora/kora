@@ -74,7 +74,7 @@ MVP speaks **Streamable HTTP** (the current MCP transport) on the consumer side 
 
 ### Decision 5 — Aggregation & namespacing
 
-One gateway endpoint fronts many upstream servers. Tools are namespaced by server (`<server>__<tool>` on the wire, or per-server mount paths) so two servers exposing `search` don't collide. The namespace maps 1:1 to the `mcp:<server>:<tool>:use` scope path, keeping the wire name and the authz path aligned.
+The gateway fronts many upstream servers, disambiguated so two servers exposing `search` don't collide. Two options were on the table: `<server>__<tool>` wire-namespacing on one aggregate endpoint, or per-server mount paths. **Implemented (2026-07-04): per-server mount paths — `POST /v1/mcp/<server>`.** A client connects per server (one MCP entry per server in its config), tool names are plain, and the server is fixed by the URL path; there is no aggregate endpoint. The `<server>` path segment + plain tool name map 1:1 to the `mcp:<server>:<tool>:use` scope path, keeping the request and the authz path aligned. This matches the per-server UI (grants, Build-config) and gives per-server connection control. (Multi-server *agents* temporarily connect to the global `orbit` server only, until the granted-server list is plumbed from the operator to the session-manager runner.)
 
 ---
 
@@ -86,7 +86,7 @@ One gateway endpoint fronts many upstream servers. Tools are namespaced by serve
 | 2 | Per-tool authz via the in-process `policy.Evaluator` (OPA bundle); Layer-1 sidecar keeps a coarse route gate. |
 | 3 | `tools/list` filtered with one `Query` over the server's registered candidates; cacheable per principal+bundle. |
 | 4 | Streamable HTTP; gateway proxies consumer↔upstream MCP sessions with timeout/cancel/backpressure. |
-| 5 | Server-namespaced tool names aligned 1:1 with the scope path. |
+| 5 | Per-server mount paths (`POST /v1/mcp/<server>`), no aggregate; plain tool names aligned 1:1 with the scope path. |
 | 6 | Per-decision audit via OTel span + structured log; no event-spine dependency. |
 
 ---
