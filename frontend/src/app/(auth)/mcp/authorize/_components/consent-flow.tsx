@@ -317,19 +317,6 @@ function ToolSurface(p: ConsentFlowProps) {
             {p.server?.endpoint}
           </Text>
         </Stack>
-        <Text
-          as="span"
-          style={{
-            flexShrink: 0,
-            fontSize: 10.5,
-            color: 'var(--color-subtle)',
-            padding: '3px 8px',
-            borderRadius: 9999,
-            border: '1px solid var(--color-border-subtle)',
-          }}
-        >
-          this server only
-        </Text>
       </Stack>
 
       {/* Tools grouped by domain */}
