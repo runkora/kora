@@ -50,6 +50,21 @@ function serverFromResource(resource: string): string {
   }
 }
 
+/**
+ * The public gateway endpoint the client connects to — the resource itself, with
+ * the dev-only ingress port stripped. Never the internal upstream (svc DNS): that
+ * would leak cluster topology and isn't the address the user talks to.
+ */
+function publicEndpoint(resource: string): string {
+  try {
+    const u = new URL(resource);
+    u.port = '';
+    return u.toString();
+  } catch {
+    return resource;
+  }
+}
+
 function ConsentError({ title, message }: { title: string; message: string }) {
   return (
     <Stack maxWidth="card">
@@ -148,15 +163,12 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
       listGrantedTools(session.accessToken, serverSlug),
     ]);
     const meta = servers.find((s) => s.name === serverSlug);
-    if (meta) {
-      server = {
-        name: meta.name,
-        displayName: meta.display_name || meta.name,
-        endpoint: meta.endpoint,
-      };
-    } else {
-      server = { name: serverSlug, displayName: serverSlug, endpoint: '' };
-    }
+    server = {
+      name: meta?.name ?? serverSlug,
+      displayName: meta?.display_name || serverSlug,
+      // The public gateway URL the client connects to — not the internal upstream.
+      endpoint: publicEndpoint(resource),
+    };
     const grantedSet = new Set(granted);
     const byDomain = new Map<string, ConsentDomain>();
     for (const t of tools.filter((x) => x.server_slug === serverSlug)) {
