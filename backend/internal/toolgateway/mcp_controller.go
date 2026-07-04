@@ -1,11 +1,13 @@
 // MCP request-path controller — the PEP (Phase 4.1).
 //
-// The gateway is a governing MCP proxy: it authenticates the caller (agent
-// platform token or, later, human OAuth token — both ordinary PlatformClaims),
-// filters tools/list to only the caller's granted tools, and checks every
-// tools/call against mcp:<server>:<tool>:use before forwarding to the upstream.
-// Default-deny is structural: Query omits ungranted tools; Check rejects an
-// ungranted call even if the client guessed the name.
+// The gateway is a governing MCP proxy. Each upstream server is mounted at its
+// own path — POST /v1/mcp/<server> — so a client connects per server (ADR
+// Decision 5, the per-server-mount-paths option). The gateway authenticates the
+// caller (agent platform token or human OAuth token — both ordinary
+// PlatformClaims), filters tools/list to only the caller's granted tools on that
+// server, and checks every tools/call against mcp:<server>:<tool>:use before
+// forwarding to the upstream. Default-deny is structural: Query omits ungranted
+// tools; Check rejects an ungranted call even if the client guessed the name.
 //
 // See docs/adr/2026-06-29-mcp-tool-gateway.md.
 package toolgateway
@@ -30,11 +32,6 @@ import (
 
 // mcpProtocolVersion is the MCP protocol revision the gateway advertises.
 const mcpProtocolVersion = "2025-06-18"
-
-// serverToolSep namespaces a tool by its server on the wire: "<server>__<tool>".
-// It maps 1:1 to the mcp:<server>:<tool>:use scope path so the wire name and the
-// authz path stay aligned (ADR Decision 5).
-const serverToolSep = "__"
 
 // jsonRPCVersion is the fixed JSON-RPC version string.
 const jsonRPCVersion = "2.0"
@@ -80,9 +77,10 @@ func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	)
 }
 
-// Boot registers the Streamable HTTP JSON-RPC entrypoint.
+// Boot registers the per-server Streamable HTTP JSON-RPC entrypoint. The {server}
+// path segment selects the upstream server this connection is scoped to.
 func (c *MCPController) Boot(mux *api.Mux) {
-	mux.Handle("POST /mcp", c.handleMCP)
+	mux.Handle("POST /mcp/{server}", c.handleMCP)
 }
 
 // jsonRPCRequest is an inbound JSON-RPC message.
@@ -106,7 +104,7 @@ type jsonRPCError struct {
 	Message string `json:"message"`
 }
 
-// handleMCP dispatches an MCP JSON-RPC request by method.
+// handleMCP dispatches an MCP JSON-RPC request for the server named in the path.
 func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -114,6 +112,15 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if !ok || claims.Orbit.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
+		return
+	}
+
+	// The connection is scoped to one server, selected by the URL path.
+	server := r.PathValue("server")
+	srv, found := c.registry.lookup(server)
+	if !found {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
 	}
 
@@ -136,13 +143,13 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		c.writeRPCResult(ctx, w, req.ID, c.initializeResult())
+		c.writeRPCResult(ctx, w, req.ID, c.initializeResult(server))
 	case "ping":
 		c.writeRPCResult(ctx, w, req.ID, map[string]any{})
 	case "tools/list":
-		c.handleToolsList(ctx, w, req, claims)
+		c.handleToolsList(ctx, w, req, claims, server)
 	case "tools/call":
-		c.handleToolsCall(ctx, w, r, req, claims)
+		c.handleToolsCall(ctx, w, r, req, claims, server, srv)
 	default:
 		c.writeRPCError(ctx, w, req.ID, -32601, "method not found")
 	}
@@ -155,10 +162,11 @@ type mcpTool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// handleToolsList returns only the caller's granted tools across all registered
-// servers, namespaced <server>__<tool>. Candidates come from the catalog; the
-// filter is one Query whose prefix rule lets a server-level grant cover the set.
-func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, claims *platformtoken.PlatformClaims) {
+// handleToolsList returns only the caller's granted tools on this server, with
+// plain (un-namespaced) tool names — the connection is already scoped to the
+// server by its path. The filter is one Query whose prefix rule lets a
+// server-level grant cover the whole list.
+func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, claims *platformtoken.PlatformClaims, server string) {
 	tools, err := c.catalog.ListByTenant(ctx, claims.Orbit.TenantID)
 	if err != nil {
 		c.writeRPCError(ctx, w, req.ID, -32603, "failed to load tool catalog")
@@ -166,13 +174,15 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 	}
 
 	candidates := make([]policy.Candidate, 0, len(tools))
-	byWireName := make(map[string]CatalogTool, len(tools))
+	byName := make(map[string]CatalogTool, len(tools))
 	for _, t := range tools {
-		wire := t.ServerSlug + serverToolSep + t.ToolName
-		byWireName[wire] = t
+		if t.ServerSlug != server {
+			continue
+		}
+		byName[t.ToolName] = t
 		candidates = append(candidates, policy.Candidate{
-			ID:           wire,
-			PathSegments: toolScopePath(t.ServerSlug, t.ToolName),
+			ID:           t.ToolName,
+			PathSegments: toolScopePath(server, t.ToolName),
 		})
 	}
 
@@ -188,12 +198,13 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 	}
 
 	out := make([]mcpTool, 0, len(allowed))
-	for _, wire := range allowed {
-		t := byWireName[wire]
-		out = append(out, mcpTool{Name: wire, Description: t.Description, InputSchema: t.InputSchema})
+	for _, name := range allowed {
+		t := byName[name]
+		out = append(out, mcpTool{Name: name, Description: t.Description, InputSchema: t.InputSchema})
 	}
 	c.logger.Info(ctx, "tools/list filtered",
 		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "candidates", Value: len(candidates)},
 		logging.Field{Key: "allowed", Value: len(out)})
 	c.writeRPCResult(ctx, w, req.ID, map[string]any{"tools": out})
@@ -205,24 +216,18 @@ type callParams struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-// handleToolsCall checks mcp:<server>:<tool>:use and, if allowed, forwards to
-// the upstream. Default-deny: an ungranted call is rejected before the upstream.
-func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWriter, r *http.Request, req jsonRPCRequest, claims *platformtoken.PlatformClaims) {
+// handleToolsCall checks mcp:<server>:<tool>:use and, if allowed, forwards to the
+// upstream. The server is fixed by the connection's path; the tool name is plain.
+// Default-deny: an ungranted call is rejected before the upstream.
+func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWriter, r *http.Request, req jsonRPCRequest, claims *platformtoken.PlatformClaims, server string, srv Server) {
 	var params callParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		c.writeRPCError(ctx, w, req.ID, -32602, "invalid params")
 		return
 	}
-
-	server, tool, ok := strings.Cut(params.Name, serverToolSep)
-	if !ok || server == "" || tool == "" {
-		c.writeRPCError(ctx, w, req.ID, -32602, "tool name must be <server>__<tool>")
-		return
-	}
-
-	srv, found := c.registry.lookup(server)
-	if !found {
-		c.writeRPCError(ctx, w, req.ID, -32602, "unknown server")
+	tool := params.Name
+	if tool == "" {
+		c.writeRPCError(ctx, w, req.ID, -32602, "tool name is required")
 		return
 	}
 
@@ -277,12 +282,12 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	c.writeRPCResult(ctx, w, req.ID, result)
 }
 
-// initializeResult is the gateway's MCP server capabilities.
-func (c *MCPController) initializeResult() map[string]any {
+// initializeResult is the gateway's MCP server capabilities for one mounted server.
+func (c *MCPController) initializeResult(server string) map[string]any {
 	return map[string]any{
 		"protocolVersion": mcpProtocolVersion,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": "orbit-tool-gateway", "version": "0.1.0"},
+		"serverInfo":      map[string]any{"name": "orbit/" + server, "version": "0.1.0"},
 	}
 }
 

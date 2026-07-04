@@ -295,17 +295,19 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 		},
 	}
 
-	// Governed tool access: a single streamable-HTTP entry pointing at the MCP
-	// tool-gateway. The gateway fronts every server the agent is granted (tools
-	// namespaced <server>__<tool>); the agent calls it unauthenticated and the
-	// identity-proxy sidecar injects the platform token. See
-	// docs/adr/2026-06-29-mcp-tool-gateway.md.
+	// Governed tool access: a streamable-HTTP entry per MCP server, mounted at the
+	// gateway's per-server path POST /v1/mcp/<server> (ADR Decision 5). The agent
+	// calls it unauthenticated and the identity-proxy sidecar injects the platform
+	// token. See docs/adr/2026-06-29-mcp-tool-gateway.md.
+	//
+	// TODO(multi-server agents): emit one entry per granted server once the
+	// distinct granted-server list is plumbed from the operator (agent MCPTools)
+	// through to the session-manager. For now the agent connects to the global
+	// "orbit" platform server, which is the one agents are granted in practice.
 	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
-		// The gateway serves the Streamable-HTTP endpoint under its /v1 base path
-		// (POST /v1/mcp), which is also the route the edge OPA gates on mcp:invoke.
 		mcpServers["orbit"] = map[string]any{
 			"type": "http",
-			"url":  url + "/v1/mcp",
+			"url":  url + "/v1/mcp/orbit",
 		}
 	}
 

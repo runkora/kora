@@ -1,23 +1,32 @@
 /**
  * MCP tool-gateway client helpers.
  *
- * The gateway is served at the same public host as the dashboard (path-routed),
- * so we derive the host from the browser origin rather than hardcoding one — the
- * same "derive, don't hardcode" approach the backend metadata endpoints use.
- * Orbit does not yet expose a public MCP gateway ingress (the forthcoming "MCP
- * Gateway Public Exposure" ADR); until it lands this reflects the dashboard host.
+ * Per the north-south exposure convention (ADR 2026-07-04), backend APIs — the
+ * MCP gateway included — live on the `api.` host, while the dashboard is on the
+ * bare host. So we derive the gateway origin from the dashboard origin by
+ * prefixing `api.` ("derive, don't hardcode"). Each server is mounted at its own
+ * path: POST /v1/mcp/<server> (ADR 2026-06-29 Decision 5, per-server mounts) — a
+ * client connects per server, not to one aggregate endpoint.
  */
 import type { IconName } from '@orbit/terra';
 
-/** The host an MCP client uses to reach the gateway, derived from the dashboard origin. */
+/** The `api.` host an MCP client uses to reach the gateway, derived from the dashboard origin. */
 export function mcpGatewayHost(): string {
-  return typeof window !== 'undefined' ? window.location.host : '';
+  if (typeof window === 'undefined') return '';
+  const host = window.location.host;
+  return host.startsWith('api.') ? host : `api.${host}`;
 }
 
-/** The public URL an MCP client uses to reach one server through the gateway. */
+/** The gateway origin (scheme + api. host) for the current dashboard. */
+function mcpGatewayOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.protocol}//${mcpGatewayHost()}`;
+}
+
+/** The URL an MCP client uses to reach one server through the gateway. */
 export function mcpServerUrl(serverSlug: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/mcp/${serverSlug}`;
+  const origin = mcpGatewayOrigin();
+  return origin ? `${origin}/v1/mcp/${serverSlug}` : '';
 }
 
 /** The MCP clients we generate connection config for. */
