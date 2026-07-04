@@ -53,13 +53,11 @@ func TestChallengeMiddleware(t *testing.T) {
 	req.SetPathValue("server", "orbit")
 	h401.ServeHTTP(rec, req)
 	wa := rec.Header().Get("WWW-Authenticate")
-	want := "https://mcp.example.com/.well-known/oauth-protected-resource"
+	// The metadata pointer is the per-server PRM path (RFC 9728), so the client
+	// fetches it verbatim and learns resource=<host>/v1/mcp/orbit.
+	want := "https://mcp.example.com/v1/mcp/orbit/.well-known/oauth-protected-resource"
 	if !strings.Contains(wa, want) || !strings.HasPrefix(wa, "Bearer ") {
 		t.Errorf("401 WWW-Authenticate = %q, want it to reference %q", wa, want)
-	}
-	// The per-server resource (this endpoint) is carried in the resource query.
-	if !strings.Contains(wa, "resource=") || !strings.Contains(wa, "orbit") {
-		t.Errorf("401 challenge should carry the per-server resource, got %q", wa)
 	}
 
 	h200 := mwHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

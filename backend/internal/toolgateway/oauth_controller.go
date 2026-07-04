@@ -3,8 +3,6 @@ package toolgateway
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -44,16 +42,20 @@ func (c *OAuthMetadataController) Middleware() mw.MiddlewareHandler { return nil
 // Boot registers the RFC 9728 metadata endpoint.
 func (c *OAuthMetadataController) Boot(mux *api.Mux) {
 	mux.Handle("GET /.well-known/oauth-protected-resource", c.handleProtectedResourceMetadata)
+	// Per-server metadata under the server's own path (RFC 9728 resource_metadata
+	// pointer target). Routed to the gateway by the existing /v1/mcp prefix + covered
+	// by the self-enforced OPA bypass — no VS/policy change needed.
+	mux.Handle("GET /mcp/{server}/.well-known/oauth-protected-resource", c.handleProtectedResourceMetadata)
 }
 
 func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	base := api.RequestBaseURL(r)
-	// The specific per-server resource is carried in the `resource` query (set by
-	// the 401 challenge). Reflect it only if it is one of our own MCP endpoints —
-	// never an arbitrary attacker-supplied URL. Otherwise fall back to the gateway.
+	// The per-server route sets {server} (…/v1/mcp/<server>/.well-known/…); the base
+	// route is the generic gateway resource. The server comes from the trusted URL
+	// path, never a client-supplied value.
 	resource := base + c.basePath + "/mcp"
-	if q := r.URL.Query().Get("resource"); q != "" && strings.HasPrefix(q, base+c.basePath+"/mcp/") {
-		resource = q
+	if server := r.PathValue("server"); server != "" {
+		resource += "/" + server
 	}
 	meta := protectedResourceMetadata{
 		Resource: resource,
@@ -89,9 +91,13 @@ func (c *OAuthMetadataController) handleProtectedResourceMetadata(w http.Respons
 func challengeMiddleware(basePath string) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			base := api.RequestBaseURL(r)
-			resource := base + basePath + "/mcp/" + r.PathValue("server")
-			prmURL := base + "/.well-known/oauth-protected-resource?resource=" + url.QueryEscape(resource)
+			// Point at the per-server protected-resource metadata, served under the
+			// server's own path so the client fetches the URL verbatim (RFC 9728
+			// resource_metadata pointer — no query for the client to strip). The
+			// client then sends resource=<base>/v1/mcp/<server>, which the consent
+			// screen uses to show exactly that server's tools.
+			prmURL := api.RequestBaseURL(r) + basePath + "/mcp/" + r.PathValue("server") +
+				"/.well-known/oauth-protected-resource"
 			challenge := `Bearer resource_metadata="` + prmURL + `"`
 			next.ServeHTTP(&challengeWriter{ResponseWriter: w, challenge: challenge}, r)
 		})

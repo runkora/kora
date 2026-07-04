@@ -123,7 +123,9 @@ function ConsentCard(
             style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-muted)', marginTop: 7 }}
           >
             It wants to connect to the{' '}
-            <Strong>{(p.server?.displayName ?? 'Orbit').replace(/\s*MCP\s*$/i, '') || 'Orbit'}</Strong>{' '}
+            <Strong>
+              {(p.server?.displayName ?? 'Orbit').replace(/\s*MCP\s*$/i, '') || 'Orbit'}
+            </Strong>{' '}
             MCP server and call its tools <Strong>as you</Strong>.
           </Text>
         </Stack>
@@ -259,8 +261,9 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, Orbit issues a token that expires in 1 hour and refreshes silently while{' '}
-          {p.clientName} stays connected. You can revoke it any time from{' '}
+          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants —
+          {' '}
+          {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections
           </Text>
@@ -534,10 +537,10 @@ function ConnectedCard({ clientName, redirect }: { clientName: string; redirect:
       >
         <Stack direction="horizontal" align="center" justify="between" style={{ gap: 12 }}>
           <Text as="span" mono style={{ fontSize: 11, color: 'var(--color-subtle)' }}>
-            token expires
+            token
           </Text>
           <Text as="span" mono style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-            in 60 min · refreshes silently
+            short-lived · acts as you
           </Text>
         </Stack>
       </Stack>

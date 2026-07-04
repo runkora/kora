@@ -8,11 +8,7 @@ import { config } from '@orbit/server/config';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
 
-import {
-  ConsentFlow,
-  type ConsentDomain,
-  type ConsentServer,
-} from './_components/consent-flow';
+import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_components/consent-flow';
 
 /**
  * /mcp/authorize — the OAuth 2.1 authorization endpoint (MCP profile), rendered
@@ -153,7 +149,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     ]);
     const meta = servers.find((s) => s.name === serverSlug);
     if (meta) {
-      server = { name: meta.name, displayName: meta.display_name || meta.name, endpoint: meta.endpoint };
+      server = {
+        name: meta.name,
+        displayName: meta.display_name || meta.name,
+        endpoint: meta.endpoint,
+      };
     } else {
       server = { name: serverSlug, displayName: serverSlug, endpoint: '' };
     }
@@ -164,9 +164,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
       const isGranted = grantedSet.has(t.tool_name);
       totalCount += 1;
       if (isGranted) grantedCount += 1;
-      const group =
-        byDomain.get(domain) ??
-        { name: domain, scope: `mcp:${serverSlug}:${domain}:use`, tools: [] };
+      const group = byDomain.get(domain) ?? {
+        name: domain,
+        scope: `mcp:${serverSlug}:${domain}:use`,
+        tools: [],
+      };
       group.tools.push({ name: t.tool_name, scope: t.scope, granted: isGranted });
       byDomain.set(domain, group);
     }
