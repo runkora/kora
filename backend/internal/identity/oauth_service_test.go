@@ -120,6 +120,71 @@ func TestOAuth_CodeIsSingleUse(t *testing.T) {
 	}
 }
 
+func TestOAuth_RefreshToken_RotatesAndPreservesClaims(t *testing.T) {
+	svc := newOAuthTestService(t)
+	ctx := context.Background()
+	clientID := registerTestClient(t, svc)
+
+	code, err := svc.CreateAuthCode(ctx, AuthCode{
+		Subject: "user-sub-1", TenantID: "acme", DisplayName: "jane@acme.com",
+		Claims: map[string]string{"roles": "platform-admin"},
+	}, mkParams(clientID))
+	if err != nil {
+		t.Fatalf("CreateAuthCode: %v", err)
+	}
+	first, err := svc.ExchangeAuthCode(ctx, TokenRequest{GrantType: "authorization_code", Code: code, CodeVerifier: testVerifier, RedirectURI: testRedirect, ClientID: clientID})
+	if err != nil {
+		t.Fatalf("ExchangeAuthCode: %v", err)
+	}
+	// The exchange must now issue a refresh token so the client can refresh silently.
+	if first.RefreshToken == "" || first.RefreshTokenExpiresIn <= 0 {
+		t.Fatalf("exchange did not issue a refresh token: %+v", first)
+	}
+
+	// Refresh → a fresh token pair with a *rotated* refresh token.
+	second, err := svc.RefreshOAuthToken(ctx, first.RefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshOAuthToken: %v", err)
+	}
+	if second.AccessToken == "" || second.RefreshToken == "" {
+		t.Fatalf("refresh did not return a token pair: %+v", second)
+	}
+	if second.RefreshToken == first.RefreshToken {
+		t.Error("refresh token was not rotated — same token returned")
+	}
+
+	// The used refresh token must be revoked (one-time use / rotation).
+	if _, err := svc.RefreshOAuthToken(ctx, first.RefreshToken); !errors.Is(err, ErrInvalidOAuthGrant) {
+		t.Errorf("reusing a rotated refresh token should be invalid_grant, got %v", err)
+	}
+
+	// The human's roles + mcp_client_id must survive the refresh (acts-as-you).
+	var claims struct {
+		Orbit struct {
+			Claims map[string]string `json:"claims"`
+		} `json:"orbit"`
+	}
+	parts := strings.Split(second.AccessToken, ".")
+	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		t.Fatalf("decode refreshed claims: %v", err)
+	}
+	if claims.Orbit.Claims["roles"] != "platform-admin" {
+		t.Errorf("roles not preserved across refresh: %+v", claims.Orbit.Claims)
+	}
+	if claims.Orbit.Claims["mcp_client_id"] != clientID {
+		t.Errorf("mcp_client_id not preserved across refresh: %+v", claims.Orbit.Claims)
+	}
+
+	// An empty / unknown refresh token is invalid_grant, never a 500.
+	if _, err := svc.RefreshOAuthToken(ctx, ""); !errors.Is(err, ErrInvalidOAuthRequest) {
+		t.Errorf("empty refresh token should be invalid_request, got %v", err)
+	}
+	if _, err := svc.RefreshOAuthToken(ctx, "nope"); !errors.Is(err, ErrInvalidOAuthGrant) {
+		t.Errorf("unknown refresh token should be invalid_grant, got %v", err)
+	}
+}
+
 func TestOAuth_WrongVerifier_Denied(t *testing.T) {
 	svc := newOAuthTestService(t)
 	ctx := context.Background()

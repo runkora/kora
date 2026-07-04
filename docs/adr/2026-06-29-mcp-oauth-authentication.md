@@ -197,6 +197,34 @@ Discovery-metadata URLs (PRM, AS metadata, the 401 challenge) are **derived from
 
 ---
 
+## Amendment 2026-07-04 — Refresh tokens for durable MCP connections
+
+### The gap
+
+The first cut of `/token` (`authorization_code` grant) returned only a short-lived access token — `aud=orbit-platform`, lifetime `accessTokenTtlMinutes` (15 min in production). No `refresh_token` was issued and `grant_type=refresh_token` was not accepted. So when the access token expired, an MCP client had **no way to refresh** — it had to re-run the entire authorization-code + consent flow. At a 15-minute access-token lifetime that means re-consent every 15 minutes, which is unusable for a long-lived desktop MCP connection.
+
+### Decision
+
+The MCP `/token` endpoint issues a **refresh token** on the authorization-code exchange and accepts **`grant_type=refresh_token`** to rotate it. This is not new machinery: the human session flow (device grant, browser SSO) has always issued and rotated refresh tokens, and the MCP exchange already mints a full human session under the hood. The change is simply to **stop discarding the session's refresh token** and to route the refresh grant through the existing rotation path:
+
+- **Issue** — `ExchangeAuthCode` builds the session via `createSession` (which mints an opaque refresh token, stores only its hash, and returns it) instead of `buildAndPersistSession` (access-token only), and returns `refresh_token` + `refresh_token_expires_in` in the response.
+- **Refresh** — a thin `RefreshOAuthToken` wraps the existing `RefreshSession`, which validates the presented refresh token (hash lookup, not-revoked, not-expired), **rotates** it (revokes the used token and issues a new one), rebuilds the principal from `session.Claims` — so the human's **roles and `mcp_client_id` survive every refresh** — and mints a fresh access + refresh token pair.
+
+`grant_types_supported` (AS metadata) and the DCR response's `grant_types` advertise `refresh_token` so spec-compliant clients discover it.
+
+### Security posture
+
+- **Rotation is mandatory.** Every refresh revokes the used token (one-time use), matching the OAuth 2.1 requirement for public clients. Because the client is public (no secret; PKCE is the proof), the refresh token itself is the bearer credential — rotation is the protection against replay, and a stolen-then-reused token is detected as an already-revoked token.
+- **Lifetimes.** Access tokens stay short (`accessTokenTtlMinutes`); refresh tokens use the existing `refreshTokenTtlDays`. The short access-token lifetime plus JTI revocation is unchanged — refresh only removes the re-consent, not the revocation guarantees.
+- **Revocation still works.** Refresh tokens are session-bound and the session is revocable, so a human revoking a connection kills both the access path (JTI/session) and the refresh path.
+- **No new token model.** Still `aud=orbit-platform`; the [per-resource audience future work](#future-work--per-resource-audiences) is unchanged and orthogonal.
+
+### Deliberate non-goal
+
+The refresh grant is **not bound to `client_id`**. A public client cannot authenticate (no secret), so per RFC 6749 the refresh token is the credential and rotation is the sanctioned protection. Binding the session's `mcp_client_id` to the presenting client on refresh is a reasonable defense-in-depth hardening but is deferred — it does not change the trust model, only narrows misuse of an already-leaked token, which rotation already surfaces.
+
+---
+
 ## Consequences
 
 ### Positive

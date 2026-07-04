@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"time"
 
@@ -125,13 +126,17 @@ type TokenRequest struct {
 	CodeVerifier string
 	RedirectURI  string
 	ClientID     string
+	RefreshToken string // grant_type=refresh_token
 }
 
 // TokenResponse is the OAuth token endpoint response.
 type TokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	// RefreshTokenExpiresIn is the refresh token lifetime in seconds.
+	RefreshTokenExpiresIn int `json:"refresh_token_expires_in,omitempty"`
 }
 
 // ExchangeAuthCode consumes a single-use code, verifies PKCE and the
@@ -165,9 +170,7 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 	// Preserve the human's verified claims (roles etc.) so the token carries their
 	// permissions, and record which MCP client it was minted for.
 	claims := make(map[string]string, len(data.Claims)+1)
-	for k, v := range data.Claims {
-		claims[k] = v
-	}
+	maps.Copy(claims, data.Claims)
 	claims["mcp_client_id"] = data.ClientID
 	principal := &Principal{
 		ID:             data.Subject,
@@ -177,11 +180,50 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 		IdentitySource: IdentitySourceFederated,
 		Claims:         claims,
 	}
-	_, accessToken, _, ttl, err := s.buildAndPersistSession(ctx, principal)
+	// createSession (vs buildAndPersistSession) also mints a rotating refresh token,
+	// so the MCP client can refresh silently instead of re-running the consent flow
+	// when the short-lived access token expires.
+	sess, err := s.createSession(ctx, principal)
 	if err != nil {
 		return nil, fmt.Errorf("mint token: %w", err)
 	}
-	return &TokenResponse{AccessToken: accessToken, TokenType: "Bearer", ExpiresIn: int(ttl.Seconds())}, nil
+	return tokenResponseFromSession(sess), nil
+}
+
+// RefreshOAuthToken handles the OAuth `grant_type=refresh_token` request: it
+// rotates the presented refresh token via the shared session-refresh path
+// (validating + revoking the old token and preserving the human's claims,
+// including their roles and the mcp_client_id) and returns a fresh token pair.
+func (s *Service) RefreshOAuthToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
+	if refreshToken == "" {
+		return nil, fmt.Errorf("%w: refresh_token is required", ErrInvalidOAuthRequest)
+	}
+	sess, err := s.RefreshSession(ctx, SessionRequest{GrantType: "refresh_token", RefreshToken: refreshToken})
+	switch {
+	case errors.Is(err, ErrRefreshTokenNotFound),
+		errors.Is(err, ErrRefreshTokenRevoked),
+		errors.Is(err, ErrRefreshTokenExpired),
+		errors.Is(err, ErrTokenRevoked),
+		errors.Is(err, ErrSessionNotFound):
+		// All map to RFC 6749 invalid_grant; the specific cause is on the
+		// RefreshSession span (span.RecordError) for observability.
+		return nil, fmt.Errorf("%w: refresh token invalid, expired, or revoked", ErrInvalidOAuthGrant)
+	case err != nil:
+		return nil, fmt.Errorf("refresh token: %w", err)
+	}
+	return tokenResponseFromSession(sess), nil
+}
+
+// tokenResponseFromSession maps an internal SessionResponse to the RFC 6749
+// token-endpoint response shape.
+func tokenResponseFromSession(sess *SessionResponse) *TokenResponse {
+	return &TokenResponse{
+		AccessToken:           sess.AccessToken,
+		TokenType:             "Bearer",
+		ExpiresIn:             sess.ExpiresIn,
+		RefreshToken:          sess.RefreshToken,
+		RefreshTokenExpiresIn: sess.RefreshTokenExpiresIn,
+	}
 }
 
 // ── Dynamic Client Registration (RFC 7591) ────────────────────────────────────

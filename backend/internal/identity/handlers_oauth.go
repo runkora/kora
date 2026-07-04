@@ -57,7 +57,7 @@ func (c *Controller) handleAuthorizationServerMetadata(w http.ResponseWriter, r 
 		RegistrationEndpoint:              idPath + "/oauth/register",
 		JWKSURI:                           idPath + "/.well-known/jwks.json",
 		ResponseTypesSupported:            []string{"code"},
-		GrantTypesSupported:               []string{"authorization_code"},
+		GrantTypesSupported:               []string{"authorization_code", "refresh_token"},
 		CodeChallengeMethodsSupported:     []string{"S256"},
 		TokenEndpointAuthMethodsSupported: []string{"none"},
 	}
@@ -126,13 +126,23 @@ func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
-	resp, err := c.svc.ExchangeAuthCode(ctx, TokenRequest{
-		GrantType:    r.PostForm.Get("grant_type"),
-		Code:         r.PostForm.Get("code"),
-		CodeVerifier: r.PostForm.Get("code_verifier"),
-		RedirectURI:  r.PostForm.Get("redirect_uri"),
-		ClientID:     r.PostForm.Get("client_id"),
-	})
+	var (
+		resp *TokenResponse
+		err  error
+	)
+	switch r.PostForm.Get("grant_type") {
+	case "refresh_token":
+		// Public-client refresh: the refresh token is the credential (rotated on use).
+		resp, err = c.svc.RefreshOAuthToken(ctx, r.PostForm.Get("refresh_token"))
+	default:
+		resp, err = c.svc.ExchangeAuthCode(ctx, TokenRequest{
+			GrantType:    r.PostForm.Get("grant_type"),
+			Code:         r.PostForm.Get("code"),
+			CodeVerifier: r.PostForm.Get("code_verifier"),
+			RedirectURI:  r.PostForm.Get("redirect_uri"),
+			ClientID:     r.PostForm.Get("client_id"),
+		})
+	}
 	switch {
 	case errors.Is(err, ErrInvalidOAuthRequest):
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -197,7 +207,7 @@ func (c *Controller) handleRegisterClient(w http.ResponseWriter, r *http.Request
 		ClientID:                client.ClientID,
 		RedirectURIs:            client.RedirectURIs,
 		TokenEndpointAuthMethod: "none",
-		GrantTypes:              []string{"authorization_code"},
+		GrantTypes:              []string{"authorization_code", "refresh_token"},
 		ResponseTypes:           []string{"code"},
 		ClientName:              client.ClientName,
 		ClientIDIssuedAt:        client.CreatedAt.Unix(),
