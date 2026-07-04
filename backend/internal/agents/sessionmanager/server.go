@@ -105,6 +105,9 @@ type CreateSessionRequest struct {
 	Model        string   `json:"model"`
 	AllowedTools []string `json:"allowed_tools"`
 	SystemPrompt string   `json:"system_prompt"`
+	// MCPServers are the distinct MCP servers the agent has tool grants on; one
+	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
+	MCPServers []string `json:"mcp_servers"`
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -151,6 +154,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			Bare:              c.cfg.ClaudeBare,
 			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:    c.cfg.ToolGatewayURL,
+			MCPServers:        req.MCPServers,
 			RunID:             req.RunID,
 			ExtraEnv:          extraEnv,
 			Logger:            c.logger,

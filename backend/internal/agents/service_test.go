@@ -1136,3 +1136,34 @@ func TestStartReaper_DoesNotReapRunWithRecentEvents(t *testing.T) {
 		t.Errorf("no sandbox should be deleted for live run, got %d deletions", cleaned)
 	}
 }
+
+func TestAgentType_MCPServers(t *testing.T) {
+	cases := []struct {
+		name  string
+		tools []string
+		want  []string
+	}{
+		{"empty", nil, []string{}},
+		{"single", []string{"mcp:orbit:agents:list:use"}, []string{"orbit"}},
+		{
+			"multi distinct, first-seen order + dedup",
+			[]string{"mcp:orbit:agents:list:use", "mcp:github:issues:create:use", "mcp:orbit:agents:create:use"},
+			[]string{"orbit", "github"},
+		},
+		{"malformed skipped", []string{"not-a-scope", "mcp:", "mcp:orbit:x:use"}, []string{"orbit"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at := AgentType{MCPTools: tc.tools}
+			got := at.MCPServers()
+			if len(got) != len(tc.want) {
+				t.Fatalf("MCPServers() = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("MCPServers()[%d] = %q, want %q (%v)", i, got[i], tc.want[i], got)
+				}
+			}
+		})
+	}
+}

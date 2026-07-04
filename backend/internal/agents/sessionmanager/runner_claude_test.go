@@ -662,6 +662,8 @@ func TestWriteMCPConfig(t *testing.T) {
 func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	r := newTestRunner()
 	r.cfg.ToolGatewayURL = "http://orbit-tool-gateway.orbit-system.svc.cluster.local/"
+	// The agent has grants on two servers → one governed entry each.
+	r.cfg.MCPServers = []string{"orbit", "github"}
 
 	dir := t.TempDir()
 	path, err := r.writeMCPConfig(dir)
@@ -677,16 +679,19 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 	servers, _ := cfg["mcpServers"].(map[string]any)
-	orbit, _ := servers["orbit"].(map[string]any)
-	if orbit == nil {
-		t.Fatal("missing mcpServers.orbit gateway entry")
-	}
-	if orbit["type"] != "http" {
-		t.Errorf("orbit.type = %v, want http", orbit["type"])
-	}
-	// Trailing slash trimmed, per-server path /v1/mcp/orbit appended.
-	if want := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/v1/mcp/orbit"; orbit["url"] != want {
-		t.Errorf("orbit.url = %v, want %q", orbit["url"], want)
+	base := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/v1/mcp/"
+	for _, name := range []string{"orbit", "github"} {
+		entry, _ := servers[name].(map[string]any)
+		if entry == nil {
+			t.Fatalf("missing mcpServers.%s gateway entry", name)
+		}
+		if entry["type"] != "http" {
+			t.Errorf("%s.type = %v, want http", name, entry["type"])
+		}
+		// Trailing slash trimmed, per-server path /v1/mcp/<server> appended.
+		if want := base + name; entry["url"] != want {
+			t.Errorf("%s.url = %v, want %q", name, entry["url"], want)
+		}
 	}
 }
 

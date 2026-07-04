@@ -190,6 +190,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		TenantID:     run.TenantID,
 		Framework:    string(at.Framework),
 		AllowedTools: at.ToolScopes,
+		// One governed MCP endpoint per server the agent has tool grants on.
+		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
 	}

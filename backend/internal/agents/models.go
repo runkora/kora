@@ -258,6 +258,26 @@ func (at AgentType) MCPToolScopes() []string {
 	return out
 }
 
+// MCPServers returns the distinct MCP servers this agent has tool grants on,
+// derived from MCPTools (mcp:<server>:<...>:use), preserving first-seen order.
+// The gateway mounts one endpoint per server (POST /v1/mcp/<server>), so the run
+// gets one governed MCP config entry per server. Empty when nothing is granted.
+func (at AgentType) MCPServers() []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, t := range at.MCPTools {
+		parts := strings.Split(t, ":")
+		if len(parts) < 2 || parts[0] != "mcp" || parts[1] == "" {
+			continue
+		}
+		if server := parts[1]; !seen[server] {
+			seen[server] = true
+			out = append(out, server)
+		}
+	}
+	return out
+}
+
 // ValidateConnectors checks each connector names a connection and lists at least
 // one well-formed action. Connection names are single scope segments (no
 // whitespace, ':' or '/'); actions may contain ':' (e.g. "repo:read") but not

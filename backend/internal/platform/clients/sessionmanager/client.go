@@ -77,6 +77,9 @@ type CreateSessionRequest struct {
 	Model        string   `json:"model,omitempty"`
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
+	// MCPServers are the distinct MCP servers the agent has tool grants on; the
+	// runner provisions one governed endpoint (/v1/mcp/<server>) per entry.
+	MCPServers []string `json:"mcp_servers,omitempty"`
 }
 
 // CreateSession starts a new agent subprocess on the target pod.

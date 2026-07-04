@@ -59,6 +59,10 @@ type ClaudeRunnerConfig struct {
 	// the platform token. Empty disables the gateway entry.
 	ToolGatewayURL string
 
+	// MCPServers are the distinct MCP servers the agent has tool grants on; one
+	// governed endpoint (/v1/mcp/<server>) is written per entry.
+	MCPServers []string
+
 	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
 	RunID string
 
@@ -295,19 +299,17 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 		},
 	}
 
-	// Governed tool access: a streamable-HTTP entry per MCP server, mounted at the
-	// gateway's per-server path POST /v1/mcp/<server> (ADR Decision 5). The agent
-	// calls it unauthenticated and the identity-proxy sidecar injects the platform
-	// token. See docs/adr/2026-06-29-mcp-tool-gateway.md.
-	//
-	// TODO(multi-server agents): emit one entry per granted server once the
-	// distinct granted-server list is plumbed from the operator (agent MCPTools)
-	// through to the session-manager. For now the agent connects to the global
-	// "orbit" platform server, which is the one agents are granted in practice.
+	// Governed tool access: one streamable-HTTP entry per MCP server the agent has
+	// tool grants on, each mounted at the gateway's per-server path
+	// POST /v1/mcp/<server> (ADR Decision 5). The agent calls it unauthenticated
+	// and the identity-proxy sidecar injects the platform token. An agent with no
+	// MCP grants gets no governed entries. See docs/adr/2026-06-29-mcp-tool-gateway.md.
 	if url := strings.TrimRight(r.cfg.ToolGatewayURL, "/"); url != "" {
-		mcpServers["orbit"] = map[string]any{
-			"type": "http",
-			"url":  url + "/v1/mcp/orbit",
+		for _, server := range r.cfg.MCPServers {
+			mcpServers[server] = map[string]any{
+				"type": "http",
+				"url":  url + "/v1/mcp/" + server,
+			}
 		}
 	}
 
