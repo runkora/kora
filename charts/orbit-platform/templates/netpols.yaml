@@ -282,6 +282,7 @@ spec:
         # 8081: orbit-inference-gateway
         # 8083: orbit-policy-service
         # 8084: orbit-policy-gateway
+        # 8096: orbit-tool-gateway (MCP — /v1/mcp via the api. host, ADR 2026-07-04)
         # 9090: orbit-policy-gateway (gRPC ext_authz)
         - port: 3000
           protocol: TCP
@@ -292,6 +293,8 @@ spec:
         - port: 8083
           protocol: TCP
         - port: 8084
+          protocol: TCP
+        - port: 8096
           protocol: TCP
         - port: 9090
           protocol: TCP
