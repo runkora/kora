@@ -1,13 +1,20 @@
-// The tool-gateway binary governs MCP tool access. In PUBLISHER mode (this
-// phase) it mounts the operator-rendered orbit-mcp-servers registry,
-// introspects each server's tool surface (initialize + tools/list), and
-// (Phase 3.3) publishes the discovered tools as mcp:<server>:<tool>:use scopes.
-// The request-path PEP + Streamable-HTTP proxy (Phase 4) live in the same
-// binary as a separate concern.
+// The tool-gateway binary governs MCP tool access. One image runs in two modes,
+// deployed as two separate Deployments that scale independently:
 //
-// The publisher runs as a replicas=1 deployment: scope publication is
-// single-writer by deployment topology because DeleteOrphans is destructive
-// (it revokes pruned scopes from grants/roles). See
+//   - publisher: mounts the operator-rendered orbit-mcp-servers registry,
+//     introspects each server's tool surface (initialize + tools/list), publishes
+//     the discovered tools as mcp:<server>:<tool>:use scopes, and writes the tool
+//     catalog.
+//   - proxy: the request-path PEP (per-tool authorization) and the Streamable-HTTP
+//     proxy to the upstream MCP server.
+//
+// The publisher must run as replicas=1: scope publication is single-writer by
+// deployment topology because DeleteOrphans is destructive (it revokes pruned
+// scopes from grants/roles), so two concurrent writers could race. The proxy is
+// stateless on the request path and scales horizontally.
+//
+// The mode is selected per Deployment via the ORBIT_TOOL_GATEWAY_MODE env var,
+// which overrides the image's baked config default (see realMain). See
 // docs/adr/2026-06-29-mcp-server-registration-and-introspection.md.
 package main
 
