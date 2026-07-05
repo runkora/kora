@@ -241,27 +241,21 @@ See [local-development-environment](../adr/2026-03-10-local-development-environm
 
 ### Driving the Orbit MCP locally
 
-The cluster runs `orbit-mcp` (the platform MCP server). To use it from Claude Code while iterating:
+The cluster runs `orbit-mcp` (the platform MCP server) behind the governed tool
+gateway. The project-scoped `.mcp.json` points Claude Code at it over the gateway's
+MCP OAuth endpoint:
 
-```bash
-make mcp-local          # refresh the k3d token + start the orbit-mcp forward on :8095 (background)
-make mcp-local-stop      # stop it
+```json
+{ "mcpServers": { "orbit": { "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit", "type": "streamable-http" } } }
 ```
 
-`make mcp-local` refreshes your token and starts the port-forward **in the background**
-(logs to `/tmp/orbit-mcp-pf.log`), so it returns immediately and leaves your terminal free.
-It is idempotent — re-run it any time to refresh the token or replace a stale forward (e.g.
-after an `orbit-mcp` rollout).
-
-The repo ships a project-scoped `.mcp.json` with an `orbit-local` server pointing at
-`http://localhost:8095/mcp`. It authenticates with `headersHelper`
-(`.claude/helpers/orbit-mcp-token.sh`), which reads your current platform token from
-`/tmp/orbit_credentials.json` fresh on every connection — so a rotated token is picked up
-without restarting Claude Code. In a Claude Code session, run `/mcp` to connect (approve
-`orbit-local` the first time). The token lasts ~4h; to extend a long session, re-run
-`make mcp-local` (or `make auth-refresh-k3d`) and the helper picks up the new token on the
-next reconnect. Requires the cluster to be up (`make dev-cluster` + `make cluster-operator`)
-and a token (`make auth-device-k3d` if you have none yet).
+In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude Code
+runs the MCP OAuth flow (dynamic client registration + PKCE) and opens the consent
+screen in your browser; because you are already signed into the dashboard it is a
+silent SSO, so you just approve the tools being granted and it connects. The token
+refreshes silently — no manual token juggling — and you can revoke it any time from
+the dashboard's Connections. Requires the cluster up (`make dev-cluster` +
+`make cluster-operator`) and a dashboard browser session.
 
 ---
 
