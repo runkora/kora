@@ -138,6 +138,41 @@ func TestUnknownServer_404(t *testing.T) {
 	}
 }
 
+// TestTenantOwnershipGuard verifies a tenant can only reach a global server or
+// its own; another tenant's server is a 404, indistinguishable from unknown — so
+// the tenant-blind scope vocabulary can't be used to reach across tenants.
+func TestTenantOwnershipGuard(t *testing.T) {
+	// doRPC's caller is tenant "acme".
+	mk := func(serverTenant string) *MCPController {
+		reg := &Registry{
+			servers: []Server{{TenantID: serverTenant, Name: "s", Endpoint: "http://s/mcp"}},
+			loaded:  true,
+		}
+		return NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
+			NewProxy("test", logging.NewLogger()), "/v1", logging.NewLogger())
+	}
+	init := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
+
+	t.Run("another tenant's server → 404", func(t *testing.T) {
+		rec, _ := doRPC(t, mk("other-tenant"), "s", init)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("cross-tenant server should be 404, got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+	t.Run("global server → reachable", func(t *testing.T) {
+		rec, _ := doRPC(t, mk(""), "s", init)
+		if rec.Code == http.StatusNotFound {
+			t.Fatalf("global server should be reachable, got 404")
+		}
+	})
+	t.Run("own-tenant server → reachable", func(t *testing.T) {
+		rec, _ := doRPC(t, mk("acme"), "s", init)
+		if rec.Code == http.StatusNotFound {
+			t.Fatalf("own-tenant server should be reachable, got 404")
+		}
+	})
+}
+
 func TestEmptyToolName(t *testing.T) {
 	eval := &fakeEval{checkOK: true}
 	c := testController(eval, &memCatalog{})

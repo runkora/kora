@@ -22,9 +22,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/roles"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
@@ -418,9 +420,22 @@ func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]strin
 }
 
 // expandRequires returns scopes plus, transitively, every scope required by a
-// granted scope via the vocabulary "requires" edges. Order-stable (breadth-first
-// from the granted set), deduplicated, and cycle-safe.
+// granted scope via the vocabulary "requires" edges. Deduplicated and cycle-safe.
+//
+// Expansion is prefix-aware: a scope confers the requires of every vocabulary leaf
+// it *covers* (via the same ScopeCovers hierarchy the edge authorizes with), not
+// only the leaf whose key matches it exactly. So a family/parent grant or role
+// such as mcp:orbit:use confers each covered tool's upstream requires — without
+// this, a family scope passes the gateway PEP but the upstream call is denied.
+// requiresMap keys are iterated in sorted order so the output (and thus the
+// compiled bundle hash) is deterministic.
 func expandRequires(scopes []string, requiresMap map[string][]string) []string {
+	leaves := make([]string, 0, len(requiresMap))
+	for k := range requiresMap {
+		leaves = append(leaves, k)
+	}
+	sort.Strings(leaves)
+
 	seen := make(map[string]struct{}, len(scopes))
 	out := make([]string, 0, len(scopes))
 	queue := append([]string(nil), scopes...)
@@ -432,7 +447,12 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 		}
 		seen[s] = struct{}{}
 		out = append(out, s)
-		queue = append(queue, requiresMap[s]...)
+		// ScopeCovers is reflexive, so this also handles the exact-leaf case.
+		for _, leaf := range leaves {
+			if policy.ScopeCovers(s, leaf) {
+				queue = append(queue, requiresMap[leaf]...)
+			}
+		}
 	}
 	return out
 }
@@ -485,6 +505,13 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		if _, reserved := DefaultRoleScopes[e.Role]; !reserved {
 			mergedRoles[e.Role] = e.Scopes
 		}
+	}
+	// Expand each role's scopes with their transitive requires, exactly like grants,
+	// so a role bundling an MCP tool (or family) scope confers the tool's upstream
+	// platform scope — otherwise a HUMAN holding the role passes the gateway PEP but
+	// the upstream call is denied.
+	for role, scopes := range mergedRoles {
+		mergedRoles[role] = expandRequires(scopes, requiresMap)
 	}
 	rolesDoc := rolesDocument{RoleScopes: mergedRoles}
 	rolesJSON, err := json.Marshal(rolesDoc)

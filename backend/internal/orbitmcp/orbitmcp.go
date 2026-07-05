@@ -137,7 +137,7 @@ var toolRequires = map[string][]string{
 	"policy.grants.get":        {"platform:grants:read"},
 	"policy.grants.create":     {"platform:grants:write"},
 	"policy.grants.delete":     {"platform:grants:write"},
-	"policy.grants.set_budget": {"platform:grants:write"},
+	"policy.grants.set_budget": {"platform:budgets:write"},
 	"policy.roles.list":        {"platform:roles:read"},
 	"policy.roles.get":         {"platform:roles:read"},
 	"policy.roles.upsert":      {"platform:roles:write"},

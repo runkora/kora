@@ -111,7 +111,14 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
 			action         = EXCLUDED.action,
 			description    = EXCLUDED.description,
 			registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by),
-			requires       = EXCLUDED.requires
+			-- Only overwrite requires with a non-empty incoming set. A degraded or
+			-- partial (SkipPrune) introspection can re-register a scope with empty
+			-- requires; without this it would silently wipe the upstream-scope
+			-- conferral and break grants on the next bundle compile.
+			requires       = CASE
+				WHEN array_length(EXCLUDED.requires, 1) > 0 THEN EXCLUDED.requires
+				ELSE policy_scope_vocabulary.requires
+			END
 	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires)
 	if err != nil {
 		return fmt.Errorf("upsert scope: %w", err)

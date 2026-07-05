@@ -125,6 +125,18 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
 	}
+	// Tenant-ownership binding. A global server (TenantID == "") is reachable by
+	// every tenant; a tenant-scoped server only by its owner. lookup() resolves by
+	// name alone and the scope vocabulary is tenant-blind in the MVP (two tenants'
+	// same-named servers share one scope string), so without this a tenant holding
+	// mcp:<server>:<tool>:use could reach — or shadow — another tenant's server.
+	// Reject as 404 (indistinguishable from an unknown server) so a cross-tenant
+	// server can't even be probed. Covers tools/list, tools/call, and initialize.
+	if srv.TenantID != "" && srv.TenantID != claims.Orbit.TenantID {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
+		return
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

@@ -152,8 +152,15 @@ _is_platform_internal_path if {
 # edge scope enforcement (north-south only — the east-west sidecar OPA in
 # authz.rego still enforces mcp:invoke on agent traffic).
 # Ref ADR 2026-07-04 (edge-enforced vs self-enforced services).
+# Exact "/v1/mcp" (the aggregate metadata path) or a per-server subpath
+# "/v1/mcp/<server>". A bare prefix would also match "/v1/mcpx" and any future
+# sibling route mounted under /v1/mcp*, bypassing edge scope enforcement for it.
 _is_self_enforced_path if {
-	startswith(input.attributes.request.http.path, "/v1/mcp")
+	startswith(input.attributes.request.http.path, "/v1/mcp/")
+}
+
+_is_self_enforced_path if {
+	input.attributes.request.http.path == "/v1/mcp"
 }
 
 # ══ REQUIRED SCOPE ════════════════════════════════════════════════════════════

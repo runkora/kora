@@ -215,6 +215,28 @@ func evalGateway(t *testing.T, pq rego.PreparedEvalQuery, method, path string, h
 // Frontend host bypass
 // ---------------------------------------------------------------------------
 
+// TestGateway_SelfEnforcedMCP_PathBoundary pins the self-enforced bypass to the
+// exact "/v1/mcp" path and its "/v1/mcp/" subpaths — a bare prefix would also
+// self-enforce (i.e. bypass edge scope enforcement for) an unrelated sibling like
+// "/v1/mcpx".
+func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "orbit.example.com"})
+	hdr := map[string]string{":authority": "api.orbit.example.com"}
+
+	// The MCP gateway is self-enforcing → its paths are allowed unauthenticated so
+	// it can issue its own 401 challenge.
+	for _, p := range []string{"/v1/mcp", "/v1/mcp/orbit"} {
+		if allow, _ := evalGateway(t, pq, "POST", p, hdr); !allow {
+			t.Errorf("%s should be self-enforced (allowed unauthenticated)", p)
+		}
+	}
+	// A sibling that merely shares the prefix must NOT be self-enforced — with no
+	// token it is denied by normal edge enforcement.
+	if allow, _ := evalGateway(t, pq, "GET", "/v1/mcpx", hdr); allow {
+		t.Error("/v1/mcpx must not be self-enforced (would bypass edge scope enforcement)")
+	}
+}
+
 func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		frontendHost: "orbit.example.com",

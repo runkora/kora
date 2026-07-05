@@ -337,13 +337,20 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 // EffectiveScopes returns the union of all scopes a principal holds, derived from
 // its OIDC roles (reserved + custom) and any explicit grants matching its type + id.
 // Used by the effective-scopes endpoint (PAT scope selector UI) and by the grant
-// anti-escalation ceiling, which needs a caller's own scopes regardless of type
-// (e.g. an AGENT orchestrating the platform).
+// anti-escalation ceiling.
+//
+// Roles are credited only for HUMAN principals — the edge (authz_gateway.rego)
+// grants role-based authz to HUMAN only, so crediting a non-HUMAN token's `roles`
+// claim here would let it assign, via the ceiling, scopes it cannot itself exercise.
+// Grants apply to every principal type (an AGENT orchestrating the platform uses
+// its own grants regardless of type).
 func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
 	scopeSet := make(map[string]struct{})
 
-	if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
-		return nil, err
+	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
+		if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.addGrantScopes(ctx, tenantID, grants.PrincipalType(principalType), principalID, scopeSet); err != nil {
 		return nil, err
