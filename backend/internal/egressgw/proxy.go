@@ -23,18 +23,24 @@ import (
 // the originating TLS endpoint); transparent TLS termination against a
 // per-tenant CA lands in Phase 2b without changing the broker logic.
 type ProxyHandler struct {
-	broker    *Broker
-	transport http.RoundTripper // upstream forward transport; defaults to http.DefaultTransport
-	logger    logging.Logger
+	broker     *Broker
+	transports *TransportCache // upstream forward transport, keyed per-connection CA trust
+	logger     logging.Logger
 }
 
-// NewProxyHandler constructs a ProxyHandler. transport may be nil to use the
-// process's default transport.
+// NewProxyHandler constructs a ProxyHandler. transport is the shared base
+// transport used for every connection that declares no custom CA; it may be
+// nil to use the process's default transport.
 func NewProxyHandler(broker *Broker, transport http.RoundTripper, logger logging.Logger) *ProxyHandler {
-	if transport == nil {
-		transport = http.DefaultTransport
-	}
-	return &ProxyHandler{broker: broker, transport: transport, logger: logger}
+	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), logger: logger}
+}
+
+// Transports exposes the handler's TransportCache so the owning binary can
+// wire cache invalidation into the connection registry's reload hook (a
+// Connection/Secret change, including a rotated ca_cert, must not require a
+// gateway restart to take effect).
+func (p *ProxyHandler) Transports() *TransportCache {
+	return p.transports
 }
 
 // ServeHTTP implements http.Handler. It is the Phase 2a entry point.
@@ -73,8 +79,23 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // configured transport. The response (including streaming bodies) is piped
 // straight back to the caller.
 func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream *url.URL, d Decision) {
+	transport, err := p.transports.For(d.Connection)
+	if err != nil {
+		// A CA trust failure is a distinct, logged failure mode from a policy
+		// deny or an adapter resolve failure — surface it as such rather than
+		// letting it masquerade as a generic forward error.
+		p.logger.Error(r.Context(), "egress upstream transport unavailable",
+			logging.Field{Key: "connection", Value: d.Connection.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		platformapi.ErrorResponse(r.Context(), w, p.logger,
+			platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, "upstream connection unavailable", nil),
+			err)
+		return
+	}
+
 	rp := &httputil.ReverseProxy{
-		Transport: p.transport,
+		Transport: transport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(upstream)
 			// Tools expect their original Host (e.g. github.com), not the

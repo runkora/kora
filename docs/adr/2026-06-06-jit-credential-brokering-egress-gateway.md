@@ -227,7 +227,7 @@ type CredentialAdapter interface {
 // an injected header (Pattern A/B) or a vended short-lived credential set (Pattern C).
 ```
 
-Adapters: `github_app`, `k8s_bearer`, `oauth2_client_credentials`, `api_key`, `aws_sts` (Pattern C). Adding a SaaS that fits an existing adapter is a registration, not code.
+Adapters: `github_app`, `kubernetes`, `oauth2_client_credentials`, `api_key`, `aws_sts` (Pattern C). Adding a SaaS that fits an existing adapter is a registration, not code.
 
 ### Connection registration (data)
 
