@@ -244,7 +244,7 @@ func categorizeRequest(path string) (category string, ok bool) {
 // pathSegments splits a URL path into non-empty segments.
 func pathSegments(path string) []string {
 	var out []string
-	for _, s := range strings.Split(path, "/") {
+	for s := range strings.SplitSeq(path, "/") {
 		if s != "" {
 			out = append(out, s)
 		}
