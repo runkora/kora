@@ -91,6 +91,23 @@ The orbit-system namespace.
 {{- end }}
 
 {{/*
+The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
+Per the north-south exposure convention (ADR 2026-07-04), the unified backend API
+host is api.<frontendHost>. Set per environment (deploy/local for dev, a prod
+overlay for prod) — never hardcode a domain in the chart.
+*/}}
+{{- define "orbit.frontendHost" -}}
+{{- required "frontendHost must be set — the external host of the frontend/BFF, e.g. orbit.example.com" .Values.frontendHost }}
+{{- end }}
+
+{{/*
+The unified backend/data-plane API host: api.<frontendHost>.
+*/}}
+{{- define "orbit.apiHost" -}}
+api.{{ include "orbit.frontendHost" . }}
+{{- end }}
+
+{{/*
 Inference gateway service labels — applied to the Deployment and its pod template.
 */}}
 {{- define "orbit.inferenceGateway.labels" -}}

@@ -5,9 +5,11 @@
 # Individual services declare their own VirtualService resources (in the orbit
 # chart) that reference this Gateway by name.
 #
-# Current hosts:
-#   orbit.local.clearroute.io     → orbit-frontend     (browser UI)
-#   api.orbit.local.clearroute.io → orbit-inference-gateway  (developer / agent CLI API)
+# Hosts (derived from .Values.frontendHost, e.g. orbit.example.com):
+#   <frontendHost>       → orbit-frontend (browser UI / BFF)
+#   api.<frontendHost>   → the unified backend API (path-routed by the orbit-api
+#                          VirtualService to inference, identity, tool-gateway, …
+#                          — north-south exposure convention, ADR 2026-07-04)
 #
 # The selector `app: gateway` matches the Istio ingress gateway pods
 # deployed in istio-system by the operator's `gateway` Helm release.
@@ -45,8 +47,8 @@ spec:
         mode: SIMPLE
         credentialName: {{ .Values.gateway.tls.credentialName }}
       hosts:
-        - "orbit.local.clearroute.io"
-        - "api.orbit.local.clearroute.io"
+        - "{{ include "orbit-platform.frontendHost" . }}"
+        - "{{ include "orbit-platform.apiHost" . }}"
     # HTTP — redirect all traffic to HTTPS.
     - port:
         number: 80
@@ -55,8 +57,8 @@ spec:
       tls:
         httpsRedirect: true
       hosts:
-        - "orbit.local.clearroute.io"
-        - "api.orbit.local.clearroute.io"
+        - "{{ include "orbit-platform.frontendHost" . }}"
+        - "{{ include "orbit-platform.apiHost" . }}"
     {{- else }}
     # HTTP only — no TLS termination at the gateway.
     - port:
@@ -64,6 +66,6 @@ spec:
         name: http
         protocol: HTTP
       hosts:
-        - "orbit.local.clearroute.io"
-        - "api.orbit.local.clearroute.io"
+        - "{{ include "orbit-platform.frontendHost" . }}"
+        - "{{ include "orbit-platform.apiHost" . }}"
     {{- end }}

@@ -20,7 +20,7 @@ metadata:
     {{- include "orbit.labels" . | nindent 4 }}
 spec:
   hosts:
-    - "api.orbit.local.clearroute.io"
+    - "{{ include "orbit.apiHost" . }}"
   gateways:
     - {{ include "orbit.systemNamespace" . }}/orbit-gateway
   http:

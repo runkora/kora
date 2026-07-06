@@ -33,6 +33,13 @@
 # ORBIT_PUBLIC_HOSTS.
 publicHosts: []
 
+# -- The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
+# The unified backend API is served at api.<frontendHost> (north-south exposure
+# convention, ADR 2026-07-04). Drives the frontend + api VirtualServices and the
+# OPA frontend bypass. REQUIRED — set per environment (deploy/local for dev, a
+# prod overlay for prod). Must match the orbit-platform chart's frontendHost.
+frontendHost: ""
+
 # -- Global values shared across all templates.
 global:
   # Trust domain for SPIFFE SVIDs and Istio mTLS.
@@ -451,13 +458,6 @@ egressGateway:
 # Standalone OPA pod that enforces authz_gateway.rego on all traffic entering
 # through the Istio IngressGateway via gRPC ext_authz.
 opaGateway:
-  # frontendHost is the hostname (without port) of the frontend service as seen
-  # by the Istio IngressGateway :authority header. When set, an Envoy-level
-  # VirtualHost bypass is added so that browser cookie traffic never reaches OPA.
-  # Matches data.config.frontend_host in the gateway OPA bundle.
-  # Leave empty to rely only on the Rego-level bypass.
-  frontendHost: ""
-
   image:
     # openpolicyagent/opa with the Envoy plugin built in.
     repository: "openpolicyagent/opa"
