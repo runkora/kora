@@ -22,6 +22,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Accepted` · 2026-03-10
+- [Ephemeral Development Environments via vcluster](2026-07-07-ephemeral-development-environments-via-vcluster.md) — `Proposed` · 2026-07-07
 
 ### Identity, Auth & Tokens
 
@@ -188,3 +189,4 @@ Orbit records every significant technical decision as an ADR. This index is the 
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Proposed | — |
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
 | 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted | — |
+| 2026-07-07 | [Ephemeral Development Environments via vcluster](2026-07-07-ephemeral-development-environments-via-vcluster.md) | Proposed | — |
