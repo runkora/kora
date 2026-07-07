@@ -589,7 +589,7 @@ cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and de
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
-	@kubectl apply -f deploy/local/connections/kubernetes.yaml
+	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token — skipping Kubernetes connection; create it to enable)"
 	@if [ -f secrets/orbit-github-app.pem ]; then \
 		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
