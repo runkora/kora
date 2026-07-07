@@ -92,12 +92,5 @@ spec:
     cluster_name: orbit-local # ${cluster}
     ca_cert: |
       -----BEGIN CERTIFICATE-----
-      MIIBdzCCAR2gAwIBAgIBADAKBggqhkjOPQQDAjAjMSEwHwYDVQQDDBhrM3Mtc2Vy
-      dmVyLWNhQDE3ODMzNDgxOTQwHhcNMjYwNzA2MTQyOTU0WhcNMzYwNzAzMTQyOTU0
-      WjAjMSEwHwYDVQQDDBhrM3Mtc2VydmVyLWNhQDE3ODMzNDgxOTQwWTATBgcqhkjO
-      PQIBBggqhkjOPQMBBwNCAAQJscANXvfXeMJ9MaMmDtrThv9LPuJD1pIDRksSoDlu
-      TLp1ykvnmtO/9ZtuLBS6aSAGM34VPKNZbqP8XWC3rjF6o0IwQDAOBgNVHQ8BAf8E
-      BAMCAqQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU2yOaCt0W7yM7gz2LzUqb
-      AMEoz3swCgYIKoZIzj0EAwIDSAAwRQIgKlGwazqpRJt9iKNumYocjBvbQ+dnBT4O
-      QsrJE77CakQCIQDuoj2aU+oihQcfeE0/rvdFRGk+UmJsDnR/QNzKGJGtOg==
+      <replace with the target cluster CA certificate PEM>
       -----END CERTIFICATE-----
