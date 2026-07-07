@@ -257,10 +257,16 @@ func pathSegments(path string) []string {
 // bidirectional SPDY or WebSocket stream), which this adapter does not
 // support brokering.
 func isUpgradeRequest(req *http.Request) bool {
-	if !strings.EqualFold(req.Header.Get("Connection"), "Upgrade") {
+	conn := req.Header.Get("Connection")
+	if conn == "" || req.Header.Get("Upgrade") == "" {
 		return false
 	}
-	return req.Header.Get("Upgrade") != ""
+	for _, part := range strings.Split(conn, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+			return true
+		}
+	}
+	return false
 }
 
 // Resolve reads the static bearer token from the mounted secret and returns
