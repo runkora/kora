@@ -81,15 +81,15 @@
 apiVersion: orbit.io/v1alpha1
 kind: Connection
 metadata:
-  name: francis # ${cluster}
+  name: orbit-local # ${cluster}
   namespace: orbit-tenant-example
 spec:
   adapter: kubernetes
   baseHost: k3d-orbit-local-server-0:6443 # ${cluster_hostname}:${cluster_port}
-  secretRef: francis-token # ${cluster}-token
+  secretRef: orbit-local-token # ${cluster}-token
   secretKey: token
   config:
-    cluster_name: francis # ${cluster}
+    cluster_name: orbit-local # ${cluster}
     ca_cert: |
       -----BEGIN CERTIFICATE-----
       MIIBdzCCAR2gAwIBAgIBADAKBggqhkjOPQQDAjAjMSEwHwYDVQQDDBhrM3Mtc2Vy
