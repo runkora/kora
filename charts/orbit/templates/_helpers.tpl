@@ -91,6 +91,23 @@ The orbit-system namespace.
 {{- end }}
 
 {{/*
+The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
+Per the north-south exposure convention (ADR 2026-07-04), the unified backend API
+host is api.<frontendHost>. Set per environment (deploy/local for dev, a prod
+overlay for prod) — never hardcode a domain in the chart.
+*/}}
+{{- define "orbit.frontendHost" -}}
+{{- required "frontendHost must be set — the external host of the frontend/BFF, e.g. orbit.example.com" .Values.frontendHost }}
+{{- end }}
+
+{{/*
+The unified backend/data-plane API host: api.<frontendHost>.
+*/}}
+{{- define "orbit.apiHost" -}}
+api.{{ include "orbit.frontendHost" . }}
+{{- end }}
+
+{{/*
 Inference gateway service labels — applied to the Deployment and its pod template.
 */}}
 {{- define "orbit.inferenceGateway.labels" -}}
@@ -119,6 +136,68 @@ Pod-level override → global default → IfNotPresent.
 */}}
 {{- define "orbit.inferenceGateway.imagePullPolicy" -}}
 {{- .Values.inferenceGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
+Orbit MCP service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.orbitMcp.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-mcp
+app.kubernetes.io/component: orbit-mcp
+{{- end }}
+
+{{/*
+Orbit MCP selector labels — stable; used by Service selector and Deployment matchLabels.
+*/}}
+{{- define "orbit.orbitMcp.selectorLabels" -}}
+app: orbit-mcp
+{{- end }}
+
+{{/*
+Resolve the image tag for orbit-mcp.
+*/}}
+{{- define "orbit.orbitMcp.imageTag" -}}
+{{- .Values.orbitMcp.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for orbit-mcp.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.orbitMcp.imagePullPolicy" -}}
+{{- .Values.orbitMcp.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+{{- end }}
+
+{{/*
+Tool-gateway service labels — applied to the Deployment and its pod template.
+*/}}
+{{- define "orbit.toolGateway.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-tool-gateway
+app.kubernetes.io/component: tool-gateway
+{{- end }}
+
+{{/*
+Tool-gateway selector labels — stable; used by Service selector and Deployment matchLabels.
+*/}}
+{{- define "orbit.toolGateway.selectorLabels" -}}
+app: orbit-tool-gateway
+{{- end }}
+
+{{/*
+Resolve the image tag for the tool-gateway.
+*/}}
+{{- define "orbit.toolGateway.imageTag" -}}
+{{- .Values.toolGateway.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
+Resolve the imagePullPolicy for the tool-gateway.
+Pod-level override → global default → IfNotPresent.
+*/}}
+{{- define "orbit.toolGateway.imagePullPolicy" -}}
+{{- .Values.toolGateway.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
 {{- end }}
 
 {{/*

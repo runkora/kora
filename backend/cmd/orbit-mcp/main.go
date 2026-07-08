@@ -1,0 +1,114 @@
+// orbit-mcp is the Orbit platform MCP server: the first platform-global MCP
+// server. It exposes Orbit's own management surface (agents, policy, models, …)
+// as MCP tools over Streamable HTTP, forwarding the caller's token to each Orbit
+// API (passthrough — the downstream service enforces the real scope; this server
+// holds no authority). It is intended to be registered as a global MCPServer and
+// fronted by the MCP/tool gateway, but serves standalone for testing.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	omc "github.com/clear-route/orbit/cmd/orbit-mcp/config"
+	"github.com/clear-route/orbit/internal/orbitmcp"
+	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
+	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/clear-route/orbit/internal/platform/logging"
+	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/clear-route/orbit/internal/platform/observability"
+)
+
+func main() {
+	if err := realMain(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func realMain() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	shutdownObservability, err := initObservability(ctx)
+	if err != nil {
+		return fmt.Errorf("setup observability: %w", err)
+	}
+	defer shutdownObservability()
+
+	logger := initLogger()
+	logger.Info(ctx, "Orbit MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
+
+	jc := orbitjson.NewClient(logger)
+	srv := orbitmcp.NewServer(orbitmcp.Backends{
+		Agents:      omc.Current.Backends.Agents,
+		Policy:      omc.Current.Backends.Policy,
+		Inference:   omc.Current.Backends.Inference,
+		Identity:    omc.Current.Backends.Identity,
+		ToolGateway: omc.Current.Backends.ToolGateway,
+	}, jc)
+
+	controller := mcpkit.NewController("/mcp", srv)
+	apiServer := platformapi.NewAPI(ctx, logger)
+	httpSrv := apiServer.Server(
+		ctx,
+		omc.Current.Server.HTTPPort,
+		omc.Current.Server.BasePath,
+		mw.MiddlewareChain(
+			mw.TracingMiddleware(omc.Current.Observability.ServiceName),
+			mw.LoggingMiddleware(logger),
+		),
+		controller,
+	)
+
+	go func() {
+		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: httpSrv.Addr})
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error(ctx, "HTTP server error", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info(ctx, "Shutting down orbit-mcp...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.ShutdownTimeout())
+	defer cancel()
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
+	logger.Info(ctx, "Orbit MCP shutdown complete")
+	return nil
+}
+
+func initObservability(ctx context.Context) (func(), error) {
+	shutdown, err := observability.Setup(ctx, observability.Config{
+		ServiceName:     omc.Current.Observability.ServiceName,
+		ServiceVersion:  omc.Current.App.Version,
+		Environment:     config.Environment(),
+		ShutdownTimeout: omc.Current.ShutdownTimeout(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.ShutdownTimeout())
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error shutting down observability: %v\n", err)
+		}
+	}, nil
+}
+
+func initLogger() logging.Logger {
+	if observability.DefaultConfig.LogFormat == "console" {
+		return logging.NewDevelopmentLogger()
+	}
+	return logging.NewLogger()
+}

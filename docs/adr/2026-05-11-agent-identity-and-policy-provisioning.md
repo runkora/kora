@@ -207,4 +207,41 @@ The grant is deleted last — ensuring the agent cannot initiate new LLM calls v
 
 ---
 
-**Last Updated:** 2026-05-08
+## Amendment — 2026-06-30: Inference grant scopes are derived server-side from `model_id`
+
+**Status:** Accepted — extends **Grant Provisioning**.
+
+### Context
+
+The agent's effective grant is already composed **server-side** from its declared intent: connectors compile to `connection:<name>:<action>` (`AgentType.ConnectorScopes()`), connectivity to `egress:<host>:connect` (`Connectivity.EgressScopes()`), and `EffectiveGrantScopes()` unions those — plus connector auto-egress — with `grant_scopes` before `ensureAgentGrant` reconciles the result to the policy-service ([agent-sandbox-toolchain-and-connectivity-environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md)).
+
+The **inference** portion of that grant is the lone exception. `inference:invoke` plus the fine-grained `inference:{family}:{name}:use` for the agent's model are derived **client-side** and passed in `grant_scopes`; `orbit-agents` stores `grant_scopes` as an opaque passthrough (`CreateAgentType` defaults a missing slice to empty — "the agent has no policy grants"). The same rule is therefore duplicated in every client — the frontend BFF (`create-agent-form.tsx` `deriveGrantScopes`) and orbit-mcp. Two consequences:
+
+- **Drift.** The rule (`inference:invoke` + `inference:{family}:{name}:use` from a `family/name` model id) lives in both TypeScript and Go and must be hand-synced.
+- **A footgun.** A client that sends `model_id` but omits the derived scopes creates an agent whose async provisioning fails — it has no inference grant, so it cannot call the gateway it was created to use.
+
+Connectors and egress are server-derived from intent; inference should be too.
+
+### Decision
+
+`orbit-agents` derives the inference grant scopes from `model_id` in `CreateAgentType`/`UpdateAgentType` — the single source of truth, exactly as it already does for connectors and connectivity. Clients declare intent (`model_id`) and stop deriving.
+
+- **Derivation.** When the request carries no explicit `inference:*` scope, the service adds `inference:invoke`, plus `inference:{family}:{name}:use` when `model_id` is a two-segment `family/name`. These flow into the existing `EffectiveGrantScopes()` union — grant reconciliation is unchanged.
+- **Override preserved.** If the caller supplies any `inference:*` scope explicitly, it is taken as-is and nothing is auto-added — non-default grants are unaffected.
+- **Update.** When `model_id` changes and no explicit inference scope is supplied, the inference scopes are re-derived so the grant stays aligned with the model (matching today's UI edit behaviour).
+- **Still bounded by anti-escalation.** Grant creation already rejects scopes exceeding the caller's (delegation intersection). Server-side derivation can only attach a scope the caller already holds; it opens no new access path. The agent ends up with the exact scopes it gets today via the UI.
+- **No catalogue coupling (non-goal).** The service derives the scope string from `model_id` syntactically; it does **not** validate the model against the inference-gateway catalogue — consistent with how connector/egress scopes compile without a cross-service check. Validating `model_id` is deferred (Future Work).
+
+### Consequences
+
+- **Single source of truth.** The derivation lives once, in the service that owns the grant. The frontend BFF and orbit-mcp delete their derivation and send only `model_id`; create-with-just-`model_id` provisions correctly. No cross-language drift.
+- **Coupling.** `orbit-agents` now encodes the `inference:{family}:{name}:use` scope-string format (the inference scope vocabulary). It is already referenced across the platform; documenting it here is acceptable.
+- **Back-compatible.** Clients that still send the derived scopes are unaffected — derivation is idempotent and explicit inference scopes suppress it — so the server change and the client cleanup need not be a flag day.
+
+### Implementation pointer
+
+A `deriveInferenceScopes(modelID string) []string` in `internal/agents`, applied in `CreateAgentType`/`UpdateAgentType` before the `EffectiveGrantScopes()` composition; then remove the duplicated derivation from orbit-mcp (`internal/orbitmcp/tools_agents.go` `deriveGrantScopes`) and the frontend BFF (`create-agent-form.tsx`, `use-agent-settings.ts`).
+
+---
+
+**Last Updated:** 2026-06-30

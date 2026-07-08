@@ -25,6 +25,10 @@
 # scripts/cluster/resolve-docker-ips.sh at cluster setup time — the orbit-network
 # subnet is not deterministic across machines.
 
+# The external frontend host; the Istio Gateway also serves api.<frontendHost>.
+# Must match the orbit chart's frontendHost (deploy/local/orbit-values.yaml).
+frontendHost: orbit.local.clearroute.io
+
 # Enable HTTPS on the Istio gateway for local dev.
 # The TLS secret is created by: make setup-tls && make cluster-tls-secret
 # mkcert installs a local CA so the browser trusts the cert without warnings.

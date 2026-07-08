@@ -134,6 +134,12 @@
   --color-accent: var(--terra-raw-accent-400);
   --color-accent-hover: var(--terra-raw-accent-300);
   --color-accent-foreground: var(--terra-raw-accent-fg);
+  /* Translucent accent tints — for accent-tinted surfaces (callouts, selected   */
+  /* tiles, grant panels) and hairline accent borders. Derived from the accent   */
+  /* so they track any accent override.                                          */
+  --color-accent-subtle: color-mix(in oklch, var(--color-accent) 10%, transparent);
+  --color-accent-muted: color-mix(in oklch, var(--color-accent) 15%, transparent);
+  --color-accent-border: color-mix(in oklch, var(--color-accent) 30%, transparent);
 
   /* Borders */
   /* border: raw-700 (L=28%) fails WCAG 1.4.11 non-text 3:1 against all surfaces. */
@@ -174,6 +180,10 @@
   --radius-sm: 0.25rem; /* 4px  */
   --radius-md: 0.5rem; /* 8px  */
   --radius-lg: 0.75rem; /* 12px */
+  --radius-full: 9999px; /* pills, status dots, avatars */
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── OrbitalLoader keyframes ────────────────────────────────────────────── */

@@ -5,7 +5,7 @@ description: >
   Installs the OrbitPlatform, OrbitTenant, and Connection CRDs and the operator Deployment.
   Once installed, all further Orbit management is driven by CRs — no Helmfile required.
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "0.1.0"
 keywords:
   - orbit

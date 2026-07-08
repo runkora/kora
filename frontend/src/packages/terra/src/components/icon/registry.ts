@@ -97,6 +97,13 @@ import {
   X,
   XCircle,
   Zap,
+  Globe,
+  Monitor,
+  Braces,
+  Table,
+  ChevronLeft,
+  Building2,
+  Box,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -104,6 +111,13 @@ import {
 
 export type IconName =
   | 'activity'
+  | 'globe'
+  | 'monitor'
+  | 'braces'
+  | 'table'
+  | 'chevron-left'
+  | 'building'
+  | 'box'
   | 'alert-circle'
   | 'arrow-down'
   | 'arrow-left'
@@ -195,6 +209,13 @@ export type IconName =
 
 export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   activity: Activity,
+  globe: Globe,
+  monitor: Monitor,
+  braces: Braces,
+  table: Table,
+  'chevron-left': ChevronLeft,
+  building: Building2,
+  box: Box,
   'alert-circle': AlertCircle,
   'arrow-down': ArrowDown,
   'arrow-left': ArrowLeft,

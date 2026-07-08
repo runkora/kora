@@ -53,6 +53,12 @@ export const config = {
   orbitAgentsUrl: requireEnv('ORBIT_AGENTS_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the MCP tool-gateway (proxy deployment, port 8096). The BFF
+   * reads its read-only tool catalog (GET /v1/catalog). Never sent to the browser.
+   */
+  toolGatewayUrl: requireEnv('TOOL_GATEWAY_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

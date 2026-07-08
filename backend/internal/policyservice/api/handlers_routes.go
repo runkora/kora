@@ -15,6 +15,11 @@ type registerRoutesRequest struct {
 	Service string                    `json:"service"`
 	Routes  []routes.RouteScope       `json:"routes"`
 	Scopes  []routes.ScopeDeclaration `json:"scopes,omitempty"`
+	// SkipPrune upserts the declared scopes without the destructive orphan
+	// prune (DeleteOrphans + PurgeScopeFromAll). Default false preserves the
+	// prune-on-publish behavior. Honored only for global (SYSTEM) registrations
+	// — tenant registrations never prune.
+	SkipPrune bool `json:"skip_prune,omitempty"`
 }
 
 // handleListRoutes handles GET /policy/routes.
@@ -81,7 +86,7 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := c.svc.RegisterRoutes(ctx, req.Service, tenantID, req.Routes, req.Scopes); err != nil {
+	if err := c.svc.RegisterRoutesWithPrune(ctx, req.Service, tenantID, req.Routes, req.Scopes, !req.SkipPrune); err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, routesErrorResponse(err), err)
 		return
 	}

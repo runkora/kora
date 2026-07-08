@@ -34,6 +34,8 @@ import type {
 import { createAgentType } from '../../_services/agents-api';
 import { ConnectivityFields, textToHosts } from '../../_components/connectivity-fields';
 import { ConnectorsFields } from '../../_components/connectors-fields';
+import { McpToolsFields } from '../../_components/mcp-tools-fields';
+import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
 import { EnvironmentField } from '../../_components/environment-field';
 
 // ── Framework options ─────────────────────────────────────────────────────────
@@ -45,18 +47,6 @@ const FRAMEWORK_OPTIONS = [
 ] as const;
 
 // ── Scope derivation ──────────────────────────────────────────────────────────
-
-// Always grant inference:invoke so the agent can reach the endpoint.
-// When a specific model is chosen also grant the per-model scope so OPA
-// allows that model but nothing else.
-function deriveGrantScopes(modelId: string): string[] {
-  const scopes: string[] = ['inference:invoke'];
-  const parts = modelId.split('/');
-  if (parts.length === 2 && parts[0] && parts[1]) {
-    scopes.push(`inference:${parts[0]}:${parts[1]}:use`);
-  }
-  return scopes;
-}
 
 // ── Slug derivation ───────────────────────────────────────────────────────────
 
@@ -116,6 +106,9 @@ export function CreateAgentForm() {
   const [availableToolScopes, setAvailableToolScopes] = useState<ToolScopeDefinition[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
+  const [mcpGrantScopes, setMcpGrantScopes] = useState<string[]>([]);
 
   useEffect(() => {
     fetch(ApiRoute.models.GET(), { cache: 'no-store' })
@@ -149,10 +142,17 @@ export function CreateAgentForm() {
       .catch(() => undefined);
   }, []);
 
-  const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.mcpTools(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { servers?: McpServer[]; catalog?: McpCatalogTool[] }) => {
+        setMcpServers(body.servers ?? []);
+        setMcpCatalog(body.catalog ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
 
-  // Derived grant scopes — recomputed whenever modelId changes.
-  const grantScopes = useMemo(() => deriveGrantScopes(modelId), [modelId]);
+  const modelGroups = useMemo(() => groupModelsByFamily(models), [models]);
 
   // Auto-derive slug from name unless user has manually edited it.
   const handleNameChange = useCallback(
@@ -201,12 +201,12 @@ export function CreateAgentForm() {
           model_id: modelId,
           system_prompt: systemPrompt.trim(),
           tool_scopes: toolScopes,
-          grant_scopes: grantScopes,
           connectivity:
             connectivityMode === 'whitelist'
               ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
               : { mode: connectivityMode },
           connectors,
+          ...(mcpGrantScopes.length > 0 ? { mcp_tools: mcpGrantScopes } : {}),
           ...(environmentId ? { environment_id: environmentId } : {}),
           max_concurrent_runs_per_pod: parseInt(maxConcurrentRuns, 10),
           budget:
@@ -242,11 +242,11 @@ export function CreateAgentForm() {
       budgetPerRunUSD,
       modelId,
       systemPrompt,
-      grantScopes,
       toolScopes,
       connectivityMode,
       connectivityHosts,
       connectors,
+      mcpGrantScopes,
       environmentId,
       maxConcurrentRuns,
       router,
@@ -347,8 +347,8 @@ export function CreateAgentForm() {
               label="Model"
               hint={
                 modelId
-                  ? `Grants: ${grantScopes.join(', ')}`
-                  : 'Select a model — access scopes are derived automatically.'
+                  ? 'Inference access for this model is granted automatically.'
+                  : 'Select a model — inference access is granted automatically.'
               }
               error={fieldErrors.modelId}
             >
@@ -457,6 +457,24 @@ export function CreateAgentForm() {
             />
             <EnvironmentField value={environmentId} onChange={setEnvironmentId} />
           </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Governed MCP tools section */}
+      <Card>
+        <CardHeader
+          leadingIcon="server"
+          title="MCP tools"
+          description="The exact tools this agent may call through the governed MCP gateway. Everything outside this list is filtered from tools/list and rejected at call time."
+          divider
+        />
+        <CardContent padded>
+          <McpToolsFields
+            servers={mcpServers}
+            catalog={mcpCatalog}
+            value={mcpGrantScopes}
+            onChange={setMcpGrantScopes}
+          />
         </CardContent>
       </Card>
 

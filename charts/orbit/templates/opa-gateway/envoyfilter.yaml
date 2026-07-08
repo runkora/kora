@@ -5,7 +5,7 @@
 # IngressGateway and sends a gRPC CheckRequest to the OPA gateway service
 # before forwarding to the upstream service.
 #
-# Frontend traffic bypass: when opaGateway.frontendHost is set, an Envoy-level
+# Frontend traffic bypass: when frontendHost is set, an Envoy-level
 # VirtualHost override disables ext_authz for browser cookie traffic entirely.
 # This avoids unnecessary gRPC round-trips to OPA for session-authenticated
 # requests (which Rego would pass through anyway). authz_gateway.rego retains
@@ -87,7 +87,7 @@ spec:
               explicit_http_config:
                 http2_protocol_options: {}
 
-{{- if .Values.opaGateway.frontendHost }}
+{{- if .Values.frontendHost }}
     # Bypass ext_authz for the frontend host at the VirtualHost level.
     # Browser cookie traffic (no Bearer token) never reaches OPA, eliminating
     # unnecessary gRPC round-trips for requests that Rego would pass through.
@@ -97,7 +97,7 @@ spec:
         context: GATEWAY
         routeConfiguration:
           vhost:
-            name: "{{ .Values.opaGateway.frontendHost }}:443"
+            name: "{{ .Values.frontendHost }}:443"
       patch:
         operation: MERGE
         value:
@@ -110,7 +110,7 @@ spec:
         context: GATEWAY
         routeConfiguration:
           vhost:
-            name: "{{ .Values.opaGateway.frontendHost }}:80"
+            name: "{{ .Values.frontendHost }}:80"
       patch:
         operation: MERGE
         value:

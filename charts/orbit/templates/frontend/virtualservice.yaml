@@ -15,23 +15,14 @@ metadata:
     {{- include "orbit.frontend.labels" . | nindent 4 }}
 spec:
   hosts:
-    - "orbit.local.clearroute.io"
+    - "{{ include "orbit.frontendHost" . }}"
   gateways:
     - {{ include "orbit.systemNamespace" . }}/orbit-gateway
   http:
-    # Inbound webhook deliveries (Triggers feature) are HMAC-authenticated and
-    # served by the identity service — not the frontend. Route this prefix
-    # directly to orbit-identity, ahead of the catch-all frontend route below.
-    # The gateway OPA bypass for this path lives in authz_gateway.rego.
-    # Ref: ADR 2026-06-17 (agent triggers and webhook ingestion).
-    - match:
-        - uri:
-            prefix: /api/v1/webhooks/
-      route:
-        - destination:
-            host: orbit-identity.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
-            port:
-              number: 80
+    # <domain> with no prefix is the frontend/BFF only (ADR 2026-07-04). All
+    # backend APIs — including inbound webhooks, which moved to the api. host — are
+    # served by the orbit-api VirtualService. This host is a pure catch-all to the
+    # Next.js app.
     - route:
         - destination:
             host: orbit-frontend.{{ include "orbit.systemNamespace" . }}.svc.cluster.local

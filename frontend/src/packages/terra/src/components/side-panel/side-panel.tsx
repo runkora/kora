@@ -32,6 +32,11 @@ export interface SidePanelProps {
    */
   size?: 'sm' | 'md' | 'lg';
   /**
+   * Exact panel width (px or any CSS length). Overrides `size` when set — use
+   * when a design spec calls for a specific width rather than a size token.
+   */
+  width?: number | string;
+  /**
    * When `false`, clicking the overlay will NOT close the panel.
    * Use for flows where the user must take an explicit action before
    * dismissing (e.g. unsaved-changes guards).
@@ -70,6 +75,7 @@ const SidePanel = ({
   open,
   onClose,
   size = 'md',
+  width,
   dismissOnOutsideClick = true,
   children,
 }: SidePanelProps) => (
@@ -105,10 +111,13 @@ const SidePanel = ({
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
           'data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-right-full',
           'duration-300',
-          PANEL_SIZE[size],
+          width === undefined && PANEL_SIZE[size],
         )}
+        style={width === undefined ? undefined : { width }}
       >
-        <aside data-slot="side-panel">{children}</aside>
+        <aside data-slot="side-panel" className="flex h-full flex-col">
+          {children}
+        </aside>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   </DialogPrimitive.Root>

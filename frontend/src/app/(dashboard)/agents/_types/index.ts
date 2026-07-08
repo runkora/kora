@@ -31,6 +31,8 @@ export interface AgentTypeRow {
   connectivity: Connectivity;
   /** Attached credential connections + the actions granted through each. */
   connectors: Connector[];
+  /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
+  mcpTools: string[];
   maxConcurrentRunsPerPod: number;
   systemPrompt: string;
   createdAt: string;
@@ -84,6 +86,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     grantScopes: a.grant_scopes,
     connectivity: a.connectivity ?? { mode: 'none' },
     connectors: a.connectors ?? [],
+    mcpTools: a.mcp_tools ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,

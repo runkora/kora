@@ -254,6 +254,15 @@ func (m *mockRepository) AssignPod(_ context.Context, runID string, podOrdinal i
 	return nil
 }
 
+func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[id]; ok {
+		r.State = RunStateFailed
+	}
+	return nil
+}
+
 func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	if m.deleteRunErr != nil {
 		return m.deleteRunErr
