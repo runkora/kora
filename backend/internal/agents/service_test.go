@@ -61,6 +61,81 @@ func TestCreateAgentType_HappyPath(t *testing.T) {
 	}
 }
 
+func TestDeriveInferenceScopes(t *testing.T) {
+	cases := map[string][]string{
+		"anthropic/claude-sonnet-4-6": {"inference:invoke", "inference:anthropic:claude-sonnet-4-6:use"},
+		"":                            {"inference:invoke"},
+		"bare":                        {"inference:invoke"},
+		"too/many/parts":              {"inference:invoke"},
+	}
+	for model, want := range cases {
+		if got := deriveInferenceScopes(model); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("deriveInferenceScopes(%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+func TestReconcileInferenceScopes_SwapsModelScope(t *testing.T) {
+	old := "anthropic/claude-sonnet-4-6"
+	prior := append([]string{"connection:github:repo:read"}, deriveInferenceScopes(old)...)
+	next := "google/gemini-flash"
+	got := reconcileInferenceScopes(prior, &next)
+	want := []string{"connection:github:repo:read", "inference:invoke", "inference:google:gemini-flash:use"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("reconcileInferenceScopes swapped wrong: got %v, want %v", got, want)
+	}
+}
+
+func TestMCPToolScopes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"none", nil, nil},
+		{"one tool derives the coarse gate", []string{"mcp:orbit:agents:list:use"}, []string{"mcp:orbit:agents:list:use", "mcp:invoke"}},
+		{"many tools, one gate", []string{"mcp:orbit:agents:list:use", "mcp:orbit:models:list:use"}, []string{"mcp:orbit:agents:list:use", "mcp:orbit:models:list:use", "mcp:invoke"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := AgentType{MCPTools: tc.in}.MCPToolScopes()
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("MCPToolScopes(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateAgentType_DerivesInferenceScopesFromModel(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	model := "anthropic/claude-sonnet-4-6"
+	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
+		TenantID: "t-1", Name: "Bot", Slug: "bot", ModelID: &model,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "inference:invoke,inference:anthropic:claude-sonnet-4-6:use"
+	if strings.Join(at.GrantScopes, ",") != want {
+		t.Errorf("derived grant_scopes = %v, want [%s]", at.GrantScopes, want)
+	}
+}
+
+func TestCreateAgentType_ExplicitInferenceScopeSuppressesDerivation(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	model := "anthropic/claude-sonnet-4-6"
+	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
+		TenantID: "t-1", Name: "Bot", Slug: "bot", ModelID: &model,
+		GrantScopes: []string{"inference:anthropic:use"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Join(at.GrantScopes, ",") != "inference:anthropic:use" {
+		t.Errorf("explicit inference scope should suppress derivation; got %v", at.GrantScopes)
+	}
+}
+
 func TestCreateAgentType_DefaultsFrameworkAndMaxRuns(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
@@ -383,6 +458,31 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 	if sm.sessions[0].Framework != string(AgentFrameworkClaudeCode) {
 		t.Errorf("Framework not forwarded: got %q, want %q", sm.sessions[0].Framework, AgentFrameworkClaudeCode)
+	}
+}
+
+func TestStartRun_FailedStartMarksRunFailed(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework: AgentFrameworkClaudeCode, MaxConcurrentRunsPerPod: 5,
+	})
+	sm.createSessionErr = errors.New("session-manager unreachable")
+
+	if _, err := svc.StartRun(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err == nil {
+		t.Fatal("expected StartRun to fail when the session cannot be created")
+	}
+
+	// The created run must be marked failed, not left stuck in starting.
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.runs) != 1 {
+		t.Fatalf("expected 1 run row, got %d", len(repo.runs))
+	}
+	for _, r := range repo.runs {
+		if r.State != RunStateFailed {
+			t.Errorf("run left in %q, want failed", r.State)
+		}
 	}
 }
 
@@ -1034,5 +1134,36 @@ func TestStartReaper_DoesNotReapRunWithRecentEvents(t *testing.T) {
 	k8s.mu.Unlock()
 	if cleaned != 0 {
 		t.Errorf("no sandbox should be deleted for live run, got %d deletions", cleaned)
+	}
+}
+
+func TestAgentType_MCPServers(t *testing.T) {
+	cases := []struct {
+		name  string
+		tools []string
+		want  []string
+	}{
+		{"empty", nil, []string{}},
+		{"single", []string{"mcp:orbit:agents:list:use"}, []string{"orbit"}},
+		{
+			"multi distinct, first-seen order + dedup",
+			[]string{"mcp:orbit:agents:list:use", "mcp:github:issues:create:use", "mcp:orbit:agents:create:use"},
+			[]string{"orbit", "github"},
+		},
+		{"malformed skipped", []string{"not-a-scope", "mcp:", "mcp:orbit:x:use"}, []string{"orbit"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at := AgentType{MCPTools: tc.tools}
+			got := at.MCPServers()
+			if len(got) != len(tc.want) {
+				t.Fatalf("MCPServers() = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("MCPServers()[%d] = %q, want %q (%v)", i, got[i], tc.want[i], got)
+				}
+			}
+		})
 	}
 }

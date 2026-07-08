@@ -73,6 +73,12 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Anti-escalation: a role is an indirect grant, so a non-SYSTEM caller may only
+	// bundle scopes it holds itself (2026-06-30 amendment to the authorisation model).
+	if !c.enforceScopeCeiling(ctx, w, claims, req.Scopes) {
+		return
+	}
+
 	entry, err := c.svc.UpsertRole(ctx, tenantID, req.Role, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, roleErrorResponse(err), err)

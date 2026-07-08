@@ -109,6 +109,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 		OpenCodeBinaryPath:   cfg.OpenCode.BinaryPath,
 		OpenCodeDefaultModel: cfg.OpenCode.DefaultModel,
 		InferenceGatewayURL:  cfg.InferenceGateway.URL,
+		ToolGatewayURL:       cfg.ToolGateway.URL,
 	}, registry)
 
 	return apiServer.Server(

@@ -2,11 +2,13 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -121,7 +123,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
 	mux.Handle("POST /api/v1/runs/{id}/interrupt", c.handleInterruptRun)
-	mux.Handle("GET /api/v1/runs/{id}/events", c.handleStreamEvents)
+	mux.Handle("GET /api/v1/runs/{id}/events", c.handleRunEvents)
 
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
 	mux.Handle("POST /internal/runs/{id}/state", c.handleRunStateCallback)
@@ -494,6 +496,94 @@ func (c *Controller) handleRunStateCallback(w http.ResponseWriter, r *http.Reque
 // handleStreamEvents serves a Server-Sent Events stream for a run.
 //
 // On connect: subscribes to the in-memory PubSub first (to avoid a gap),
+// run-event read bounds: a long run accumulates hundreds of events, so the JSON
+// read is always paginated and capped.
+const (
+	defaultRunEventLimit = 50
+	maxRunEventLimit     = 200
+)
+
+// runEventDTO is the JSON shape of a recorded run event (RunEvent has no json tags
+// because the SSE path formats events by hand).
+type runEventDTO struct {
+	SequenceNo int64           `json:"sequence_no"`
+	EventType  string          `json:"event_type"`
+	Payload    json.RawMessage `json:"payload"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// handleRunEvents serves a run's events as Server-Sent Events (the default, for the
+// live UI stream) or, when the caller asks for application/json, as a single
+// paginated JSON page. The JSON form backs non-streaming readers such as the Orbit
+// MCP runs.events tool; the SSE behavior is unchanged.
+func (c *Controller) handleRunEvents(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		c.handleListEvents(w, r)
+		return
+	}
+	c.handleStreamEvents(w, r)
+}
+
+// handleListEvents returns one capped, cursor-paginated page of a run's recorded
+// events as JSON: events after `after_seq` (default 0), at most `limit` (default 50,
+// max 200). The response carries `next_seq` (advance the cursor) and `has_more` so a
+// caller can tail a long conversation without ever pulling the whole transcript.
+func (c *Controller) handleListEvents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+
+	// Existence + tenant scoping (GetRun returns ErrNotFound on tenant mismatch).
+	if _, err := c.runs.GetRun(ctx, id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil), nil)
+			return
+		}
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get run", nil), err)
+		return
+	}
+
+	afterSeq := queryInt(r, "after_seq", 0)
+	limit := queryInt(r, "limit", defaultRunEventLimit)
+	if limit <= 0 {
+		limit = defaultRunEventLimit
+	}
+	if limit > maxRunEventLimit {
+		limit = maxRunEventLimit
+	}
+
+	events, err := c.runs.ListRunEvents(ctx, id, int64(afterSeq))
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list run events", nil), err)
+		return
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
+	}
+	out := make([]runEventDTO, len(events))
+	nextSeq := int64(afterSeq)
+	for i, ev := range events {
+		out[i] = runEventDTO{SequenceNo: ev.SequenceNo, EventType: ev.EventType, Payload: ev.Payload, CreatedAt: ev.CreatedAt}
+		nextSeq = ev.SequenceNo
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"events":   out,
+		"next_seq": nextSeq,
+		"has_more": hasMore,
+	})
+}
+
+// queryInt reads an integer query parameter, falling back to def when absent or
+// malformed.
+func queryInt(r *http.Request, key string, def int) int {
+	if v := r.URL.Query().Get(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
 // replays persisted events from run_events (honoring Last-Event-ID), then
 // streams live pushed events until the client disconnects.
 //

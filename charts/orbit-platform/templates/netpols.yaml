@@ -55,6 +55,8 @@ spec:
 # - 8081:  orbit-inference-gateway
 # - 8083:  orbit-policy-service
 # - 8084:  orbit-policy-gateway
+# - 8095:  orbit-mcp (introspected east-west by the tool-gateway)
+# - 8096:  orbit-tool-gateway (catalog read by the BFF; health)
 # - 9090:  orbit-policy-gateway (gRPC ext_authz)
 # - 15006: Envoy inbound iptables redirect
 # - 15008: Envoy HBONE (HTTP/2 tunnel for mTLS)
@@ -87,6 +89,8 @@ spec:
         - port: 8081
         - port: 8083
         - port: 8084
+        - port: 8095
+        - port: 8096
         - port: 9090
         - port: 15006
         - port: 15008
@@ -102,6 +106,8 @@ spec:
         - port: 8081
         - port: 8083
         - port: 8084
+        - port: 8095
+        - port: 8096
         - port: 9090
         - port: 15006
         - port: 15008
@@ -111,6 +117,7 @@ spec:
 # - identity-proxy sidecar calls orbit-identity (/api/v1/identity/exchange) on port 8080
 # - OPA sidecar polls orbit-policy-service for bundles on port 8083
 # - session-manager (agent pods) calls orbit-inference-gateway on port 8081
+# - session-manager (agent pods) calls orbit-tool-gateway (MCP) on port 8096
 # With Istio mTLS, the source Envoy connects on the original destination port before
 # iptables redirect. Without this rule, the default-deny-all blocks the connection
 # and Envoy returns 503 "delayed connect error: Connection refused".
@@ -136,6 +143,8 @@ spec:
         - port: 8081
           protocol: TCP
         - port: 8083
+          protocol: TCP
+        - port: 8096
           protocol: TCP
         - port: 15006
           protocol: TCP
@@ -244,8 +253,8 @@ spec:
 ---
 # Allow the Istio ingress gateway (istio-system) to reach orbit-system pods.
 # Required for external traffic routed via the orbit-gateway VirtualServices
-# (orbit.local.clearroute.io → frontend, api.orbit.local.clearroute.io → inference-gateway) to reach
-# their destination pods' Envoy sidecars.
+# (<frontendHost> → frontend, api.<frontendHost> → the unified backend API) to
+# reach their destination pods' Envoy sidecars.
 # Without this rule, the default-deny-all baseline blocks the gateway connection
 # and Envoy returns 503 "delayed connect error".
 apiVersion: networking.k8s.io/v1
@@ -273,6 +282,7 @@ spec:
         # 8081: orbit-inference-gateway
         # 8083: orbit-policy-service
         # 8084: orbit-policy-gateway
+        # 8096: orbit-tool-gateway (MCP — /v1/mcp via the api. host, ADR 2026-07-04)
         # 9090: orbit-policy-gateway (gRPC ext_authz)
         - port: 3000
           protocol: TCP
@@ -283,6 +293,8 @@ spec:
         - port: 8083
           protocol: TCP
         - port: 8084
+          protocol: TCP
+        - port: 8096
           protocol: TCP
         - port: 9090
           protocol: TCP

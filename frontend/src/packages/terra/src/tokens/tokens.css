@@ -42,11 +42,17 @@
 /* The four background steps (background → surface-overlay) are derived from  */
 /* --terra-bg-base via calc() offsets. All other steps are fixed lightness.   */
 :root {
+  color-scheme: dark;
   --terra-neutral-hue: 248;
   --terra-neutral-chroma: 0.005;
   --terra-accent-hue: 8;
   --terra-accent-chroma: 0.17;
   --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
+
+  /* Elevation offsets from --terra-bg-base; light mode flips their sign */
+  --terra-bg-step-1: 5%; /* surface           */
+  --terra-bg-step-2: 10%; /* surface-elevated  */
+  --terra-bg-step-3: 16%; /* surface-overlay   */
 }
 
 /* ─── Raw colour palette ─────────────────────────────────────────────────── */
@@ -65,13 +71,16 @@
     var(--terra-bg-base) var(--terra-neutral-chroma) var(--terra-neutral-hue)
   );
   --terra-raw-950: oklch(
-    calc(var(--terra-bg-base) + 5%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+    calc(var(--terra-bg-base) + var(--terra-bg-step-1)) var(--terra-neutral-chroma)
+      var(--terra-neutral-hue)
   );
   --terra-raw-900: oklch(
-    calc(var(--terra-bg-base) + 10%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+    calc(var(--terra-bg-base) + var(--terra-bg-step-2)) var(--terra-neutral-chroma)
+      var(--terra-neutral-hue)
   );
   --terra-raw-800: oklch(
-    calc(var(--terra-bg-base) + 16%) var(--terra-neutral-chroma) var(--terra-neutral-hue)
+    calc(var(--terra-bg-base) + var(--terra-bg-step-3)) var(--terra-neutral-chroma)
+      var(--terra-neutral-hue)
   );
   --terra-raw-700: oklch(28% var(--terra-neutral-chroma) var(--terra-neutral-hue));
   --terra-raw-600: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
@@ -111,6 +120,48 @@
   /* Overlay — semi-transparent backdrop for modal/drawer overlays.              */
   /* Using OKLCH pure-black at 40% opacity: perceptually uniform across displays */
   --terra-raw-overlay: oklch(0% 0 0 / 40%);
+  /* overlay-strong: heavier scrim for modals (vs side panels at 40%) */
+  --terra-raw-overlay-strong: oklch(0% 0 0 / 50%);
+
+  /* Declared here, not inline in @theme — @theme inline bakes literals into    */
+  /* utilities, and only var() references can be re-themed at runtime.           */
+  /* subtle: L=63% is the minimum clearing WCAG AA 4.5:1 on every dark layer.    */
+  --terra-raw-subtle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  /* border: L=52% is the minimum clearing WCAG 1.4.11 non-text 3:1.             */
+  --terra-raw-border: oklch(52% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  /* border-subtle: decorative separators only — WCAG-exempt.                    */
+  --terra-raw-border-subtle: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+}
+
+/* ─── Light mode ─────────────────────────────────────────────────────────── */
+/* All values clear the same WCAG thresholds as their dark counterparts.       */
+[data-theme='light'] {
+  color-scheme: light;
+  --terra-bg-base: 96%;
+
+  --terra-accent-hue: 167;
+  --terra-accent-chroma: 0.14;
+
+  /* Elevation inverts: cards sit near-white, hover/overlay surfaces recede */
+  --terra-bg-step-1: 3%;
+  --terra-bg-step-2: -4%;
+  --terra-bg-step-3: -8%;
+
+  --terra-raw-white: oklch(15% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-300: oklch(40% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  --terra-raw-accent-400: oklch(52% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-300: oklch(44% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-fg: oklch(98% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+
+  --terra-raw-healthy: #3f8f1f;
+  --terra-raw-degraded: #946300;
+  --terra-raw-error: #dc2626;
+  --terra-raw-pending: oklch(48% var(--terra-accent-chroma) var(--terra-accent-hue));
+
+  --terra-raw-subtle: oklch(44% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-border: oklch(62% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-border-subtle: oklch(85% var(--terra-neutral-chroma) var(--terra-neutral-hue));
 }
 
 /* ─── Semantic tokens (Tailwind v4 @theme) ───────────────────────────────── */
@@ -125,34 +176,29 @@
   /* Foregrounds */
   --color-foreground: var(--terra-raw-white);
   --color-muted: var(--terra-raw-300);
-  /* subtle: raw-500 (L=45%) fails WCAG AA 4.5:1 against surface-overlay.          */
-  /* L=63% is the minimum that clears 4.5:1 on every background layer (worst-case: */
-  /* 4.58:1 on surface-overlay L=20%). No raw palette step exists at this value.   */
-  --color-subtle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --color-subtle: var(--terra-raw-subtle);
 
   /* Accent */
   --color-accent: var(--terra-raw-accent-400);
   --color-accent-hover: var(--terra-raw-accent-300);
   --color-accent-foreground: var(--terra-raw-accent-fg);
+  /* Translucent accent tints — for accent-tinted surfaces (callouts, selected   */
+  /* tiles, grant panels) and hairline accent borders. Derived from the accent   */
+  /* so they track any accent override.                                          */
+  --color-accent-subtle: color-mix(in oklch, var(--color-accent) 10%, transparent);
+  --color-accent-muted: color-mix(in oklch, var(--color-accent) 15%, transparent);
+  --color-accent-border: color-mix(in oklch, var(--color-accent) 30%, transparent);
 
   /* Borders */
-  /* border: raw-700 (L=28%) fails WCAG 1.4.11 non-text 3:1 against all surfaces. */
-  /* L=52% is the minimum that clears 3:1 on every background layer (worst-case:  */
-  /* 3.15:1 on surface-overlay L=20%). Inline OKLCH used — no matching raw step.  */
-  --color-border: oklch(52% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  /* border-subtle: used for decorative separators (card dividers, table rules).   */
-  /* Purely decorative borders are WCAG-exempt. Nudged from raw-800 (L=20%) to    */
-  /* L=36% for better visual definition without making dividers feel heavy.        */
-  --color-border-subtle: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --color-border: var(--terra-raw-border);
+  --color-border-subtle: var(--terra-raw-border-subtle);
   --color-border-accent: var(--terra-raw-accent-600);
 
   /* Status signals */
   --color-status-healthy: var(--terra-raw-healthy);
   --color-status-degraded: var(--terra-raw-degraded);
   --color-status-error: var(--terra-raw-error);
-  /* status-idle: raw-idle (L=45%) fails AA 4.5:1. Matched to --color-subtle at  */
-  /* L=63% — same perceptual tier, clears 4.58:1 on the darkest surface layer.   */
-  --color-status-idle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --color-status-idle: var(--terra-raw-subtle);
   --color-status-pending: var(--terra-raw-pending);
 
   /* Provider brand identity tokens */
@@ -165,6 +211,7 @@
 
   /* Overlay — for modal/drawer backdrop elements */
   --color-overlay: var(--terra-raw-overlay);
+  --color-overlay-strong: var(--terra-raw-overlay-strong);
 
   /* Typography */
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
@@ -174,6 +221,10 @@
   --radius-sm: 0.25rem; /* 4px  */
   --radius-md: 0.5rem; /* 8px  */
   --radius-lg: 0.75rem; /* 12px */
+  --radius-full: 9999px; /* pills, status dots, avatars */
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── OrbitalLoader keyframes ────────────────────────────────────────────── */

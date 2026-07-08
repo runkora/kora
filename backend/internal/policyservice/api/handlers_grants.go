@@ -51,6 +51,12 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Anti-escalation: a non-SYSTEM caller may only grant scopes it holds itself
+	// (2026-06-30 amendment to the authorisation model).
+	if !c.enforceScopeCeiling(ctx, w, claims, req.Scopes) {
+		return
+	}
+
 	g, err := c.svc.CreateGrant(ctx, tenantID, grants.PrincipalType(req.PrincipalType), req.PrincipalID, req.Scopes, budget)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, grantErrorResponse(err), err)

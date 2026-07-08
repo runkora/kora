@@ -215,6 +215,28 @@ func evalGateway(t *testing.T, pq rego.PreparedEvalQuery, method, path string, h
 // Frontend host bypass
 // ---------------------------------------------------------------------------
 
+// TestGateway_SelfEnforcedMCP_PathBoundary pins the self-enforced bypass to the
+// exact "/v1/mcp" path and its "/v1/mcp/" subpaths — a bare prefix would also
+// self-enforce (i.e. bypass edge scope enforcement for) an unrelated sibling like
+// "/v1/mcpx".
+func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "orbit.example.com"})
+	hdr := map[string]string{":authority": "api.orbit.example.com"}
+
+	// The MCP gateway is self-enforcing → its paths are allowed unauthenticated so
+	// it can issue its own 401 challenge.
+	for _, p := range []string{"/v1/mcp", "/v1/mcp/orbit"} {
+		if allow, _ := evalGateway(t, pq, "POST", p, hdr); !allow {
+			t.Errorf("%s should be self-enforced (allowed unauthenticated)", p)
+		}
+	}
+	// A sibling that merely shares the prefix must NOT be self-enforced — with no
+	// token it is denied by normal edge enforcement.
+	if allow, _ := evalGateway(t, pq, "GET", "/v1/mcpx", hdr); allow {
+		t.Error("/v1/mcpx must not be self-enforced (would bypass edge scope enforcement)")
+	}
+}
+
 func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		frontendHost: "orbit.example.com",
@@ -288,6 +310,43 @@ func TestGateway_Bypass_BundlePolling(t *testing.T) {
 	allow, _ := evalGateway(t, pq, "GET", "/api/v1/policy/bundles/some-tenant", nil)
 	if !allow {
 		t.Error("expected bundle polling endpoint to be bypassed")
+	}
+}
+
+// TestGateway_Bypass_RootDiscovery verifies the root RFC 8414/9728 discovery
+// documents are bypassed (public, unauthenticated) — ADR 2026-07-04.
+func TestGateway_Bypass_RootDiscovery(t *testing.T) {
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{})
+	for _, path := range []string{
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-authorization-server",
+	} {
+		allow, reason := evalGateway(t, pq, "GET", path, nil)
+		if !allow {
+			t.Errorf("expected root discovery %s to be bypassed", path)
+		}
+		if reason != "allow:platform_internal_bypass" {
+			t.Errorf("path %s reason = %q, want allow:platform_internal_bypass", path, reason)
+		}
+	}
+}
+
+// TestGateway_SelfEnforced_MCP verifies the MCP gateway path is allowed through
+// unauthenticated (so the gateway can issue its own 401 OAuth challenge) even
+// though /v1/mcp carries a route-scope — ADR 2026-07-04 (self-enforced services).
+func TestGateway_SelfEnforced_MCP(t *testing.T) {
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/v1/mcp", Method: "POST", RequiredScope: "mcp:invoke"},
+		},
+	})
+	// Unauthenticated — must still be allowed through (single reason, no conflict).
+	allow, reason := evalGateway(t, pq, "POST", "/v1/mcp", nil)
+	if !allow {
+		t.Error("expected /v1/mcp to be allowed through to the self-enforcing gateway")
+	}
+	if reason != "allow:self_enforced" {
+		t.Errorf("reason = %q, want allow:self_enforced", reason)
 	}
 }
 

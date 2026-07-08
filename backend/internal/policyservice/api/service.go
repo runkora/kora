@@ -226,10 +226,7 @@ func (s *Service) DeleteGrant(ctx context.Context, id string, tenantID string) e
 }
 
 func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, limit, offset int) ([]*grants.Grant, int, error) {
-	if principalID != "" {
-		return s.grantRepo.ListByPrincipal(ctx, tenantID, principalType, principalID, limit, offset)
-	}
-	return s.grantRepo.ListByTenant(ctx, tenantID, limit, offset)
+	return s.grantRepo.List(ctx, tenantID, principalType, principalID, limit, offset)
 }
 
 func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
@@ -337,16 +334,25 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
 
-// EffectiveScopes returns the union of all scopes a HUMAN principal holds,
-// derived from their OIDC roles (reserved + custom) and any explicit grants.
-// Used by the effective-scopes endpoint to populate the PAT scope selector UI.
-func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalID string, principalRoles []string) ([]string, error) {
+// EffectiveScopes returns the union of all scopes a principal holds, derived from
+// its OIDC roles (reserved + custom) and any explicit grants matching its type + id.
+// Used by the effective-scopes endpoint (PAT scope selector UI) and by the grant
+// anti-escalation ceiling.
+//
+// Roles are credited only for HUMAN principals — the edge (authz_gateway.rego)
+// grants role-based authz to HUMAN only, so crediting a non-HUMAN token's `roles`
+// claim here would let it assign, via the ceiling, scopes it cannot itself exercise.
+// Grants apply to every principal type (an AGENT orchestrating the platform uses
+// its own grants regardless of type).
+func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
 	scopeSet := make(map[string]struct{})
 
-	if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
-		return nil, err
+	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
+		if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+			return nil, err
+		}
 	}
-	if err := s.addGrantScopes(ctx, tenantID, principalID, scopeSet); err != nil {
+	if err := s.addGrantScopes(ctx, tenantID, grants.PrincipalType(principalType), principalID, scopeSet); err != nil {
 		return nil, err
 	}
 
@@ -395,9 +401,10 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 	return nil
 }
 
-// addGrantScopes populates scopeSet with scopes from explicit grants for the principal.
-func (s *Service) addGrantScopes(ctx context.Context, tenantID, principalID string, scopeSet map[string]struct{}) error {
-	grantList, _, err := s.grantRepo.ListByPrincipal(ctx, tenantID, grants.PrincipalTypeHuman, principalID, 0, 0)
+// addGrantScopes populates scopeSet with scopes from explicit grants held by the
+// principal (matched by its type + id).
+func (s *Service) addGrantScopes(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopeSet map[string]struct{}) error {
+	grantList, _, err := s.grantRepo.List(ctx, tenantID, principalType, principalID, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list grants: %w", err)
 	}
@@ -549,6 +556,17 @@ func (s *Service) ListRoutes() []*routes.Registration {
 // covered by the service's own declarations must already exist in the vocabulary.
 // Global registrations (tenantID == "") trigger recompilation for all tenants.
 func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	return s.RegisterRoutesWithPrune(ctx, service, tenantID, routeScopes, scopeDecls, true)
+}
+
+// RegisterRoutesWithPrune is RegisterRoutes with explicit control over the
+// destructive orphan-prune. With prune=false, a global registration upserts the
+// declared scopes but does NOT run DeleteOrphans/PurgeScopeFromAll — the
+// tool-gateway uses this to publish newly-discovered tools while its
+// introspection keep-list is still incomplete, so a partial list cannot revoke
+// live mcp scopes from grants and roles. Tenant registrations never prune, so
+// prune is a no-op for them.
+func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
 	// Upsert declared scopes into vocabulary first so that the existence check
 	// below sees the freshly declared entries.
 	incomingScopes := make([]string, len(scopeDecls))
@@ -561,6 +579,7 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 			Action:       scopeDecls[i].Action,
 			Description:  scopeDecls[i].Description,
 			RegisteredBy: service,
+			Requires:     scopeDecls[i].Requires,
 		}); err != nil {
 			return fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, err)
 		}
@@ -569,7 +588,7 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 	// For global registrations, reconcile owned scopes: any scope previously
 	// registered by this service that is no longer in the catalog means the
 	// virtual model was deleted. Remove it from vocab and cascade to grants/roles.
-	if tenantID == "" {
+	if tenantID == "" && prune {
 		deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
 		if err != nil {
 			return fmt.Errorf("prune orphan scopes for %q: %w", service, err)

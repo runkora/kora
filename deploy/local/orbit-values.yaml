@@ -23,6 +23,16 @@
 # or deploy/local/tenants/*.yaml (OrbitTenant CRs).
 # =============================================================================
 
+# Trusted-host allowlist for OAuth discovery metadata (ADR 2026-07-04).
+# Canonical (fallback) host first — the api. host serves the metadata.
+publicHosts:
+  - api.orbit.local.clearroute.io
+  - orbit.local.clearroute.io
+
+# The external frontend/BFF host; the backend API is served at api.<frontendHost>.
+# Drives the frontend + api VirtualServices and the OPA frontend bypass.
+frontendHost: orbit.local.clearroute.io
+
 global:
   # Force pull from local k3d registry on every pod start.
   # Local registry images are not content-addressed — Always ensures the
@@ -76,6 +86,29 @@ inferenceGateway:
     enabled: true
     region: "us-east-1"
 
+orbitMcp:
+  image:
+    # Local k3d registry — built by: make redeploy SERVICE=orbit-mcp
+    repository: orbit-registry:5001/orbit-mcp
+    tag: latest
+
+  replicas: 1
+
+  config:
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+
+toolGateway:
+  image:
+    # Local k3d registry — built by: make redeploy SERVICE=tool-gateway
+    repository: orbit-registry:5001/orbit-tool-gateway
+    tag: latest
+
+  config:
+    otlpInsecure: "true"                 # Local OTLP collector has no TLS.
+    logFormat: "console"                 # Human-readable logs locally.
+    postgresSSLMode: "disable"           # Local Postgres has no TLS cert.
+
 frontend:
   image:
     # Local k3d registry — built by: make docker-push-frontend
@@ -95,6 +128,7 @@ frontend:
     policyServiceUrl: "http://orbit-policy-service.orbit-system/api/v1"
     # In-cluster agents service — server-side BFF only, never sent to the browser.
     orbitAgentsUrl: "http://orbit-agents.orbit-system"
+    toolGatewayUrl: "http://orbit-tool-gateway.orbit-system"
     # Public URL of the frontend as seen from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg (baked into client bundle).
     nextPublicAppUrl: "https://orbit.local.clearroute.io:8443"
@@ -150,5 +184,4 @@ opaGateway:
     repository: orbit-registry:5001/openpolicyagent/opa
     tag: 1.15.2-envoy-static
   replicas: 1
-  frontendHost: orbit.local.clearroute.io
 

@@ -65,6 +65,7 @@ export default defineConfig({
       POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
       POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
       ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
+      TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
     },
   },
 });

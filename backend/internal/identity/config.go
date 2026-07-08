@@ -15,6 +15,16 @@ import (
 // tenant registry file (ORBIT_TENANTS_CONFIG).  See tenant_registry.go.
 type Config struct {
 	Token TokenConfig `yaml:"token"`
+	OAuth OAuthConfig `yaml:"oauth"`
+}
+
+// OAuthConfig controls the MCP OAuth authorization-server surface.
+type OAuthConfig struct {
+	// RequirePreRegistration, when true, disables open dynamic client registration
+	// (RFC 7591): POST /oauth/register returns 403 and only pre-registered clients
+	// work. Default false (zero value) — open DCR for public PKCE clients, the MCP
+	// MVP posture. Set true for stricter deployments.
+	RequirePreRegistration bool `yaml:"requirePreRegistration"`
 }
 
 // TokenConfig controls platform token lifetimes.
@@ -61,6 +71,9 @@ func LoadConfig() (*Config, error) {
 	overrideInt(&cfg.Token.RefreshTokenTTLDays, "ORBIT_REFRESH_TOKEN_TTL_DAYS")
 	overrideInt(&cfg.Token.PATDefaultTTLDays, "ORBIT_PAT_DEFAULT_TTL_DAYS")
 	overrideInt(&cfg.Token.PATMaxTTLDays, "ORBIT_PAT_MAX_TTL_DAYS")
+	if os.Getenv("ORBIT_MCP_REQUIRE_PRE_REGISTRATION") == "true" {
+		cfg.OAuth.RequirePreRegistration = true
+	}
 	if v := os.Getenv("ORBIT_TOKEN_AUDIENCE"); v != "" {
 		cfg.Token.Audience = v
 	}

@@ -239,6 +239,24 @@ make dev-cluster-down
 
 See [local-development-environment](../adr/2026-03-10-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) for the operator design.
 
+### Driving the Orbit MCP locally
+
+The cluster runs `orbit-mcp` (the platform MCP server) behind the governed tool
+gateway. The project-scoped `.mcp.json` points Claude Code at it over the gateway's
+MCP OAuth endpoint:
+
+```json
+{ "mcpServers": { "orbit": { "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit", "type": "streamable-http" } } }
+```
+
+In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude Code
+runs the MCP OAuth flow (dynamic client registration + PKCE) and opens the consent
+screen in your browser; because you are already signed into the dashboard it is a
+silent SSO, so you just approve the tools being granted and it connects. The token
+refreshes silently — no manual token juggling — and you can revoke it any time from
+the dashboard's Connections. Requires the cluster up (`make dev-cluster` +
+`make cluster-operator`) and a dashboard browser session.
+
 ---
 
 ## Environment Variables Reference

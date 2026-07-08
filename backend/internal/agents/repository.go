@@ -33,6 +33,11 @@ type RunRepository interface {
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
 	AssignPod(ctx context.Context, runID string, podOrdinal int) error
+	// MarkRunFailed unconditionally transitions a run to the failed terminal state
+	// and stamps completed_at. Used to clean up synchronously when a run's start
+	// fails after the row was created, so it never lingers in pending/starting
+	// waiting for the stale-run reaper.
+	MarkRunFailed(ctx context.Context, id string) error
 	DeleteRun(ctx context.Context, id string) error
 	// DeleteRunsByAgentType force-deletes all runs for the given agent type and returns
 	// their IDs. Used during agent type deletion to clear the FK reference before the

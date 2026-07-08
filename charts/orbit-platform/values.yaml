@@ -50,6 +50,12 @@ networkPolicy:
   #         - 6379
   externalServices: []
 
+# -- The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
+# The Istio ingress Gateway serves this host and api.<frontendHost> (the unified
+# backend host — north-south convention, ADR 2026-07-04). REQUIRED; must match the
+# orbit chart's frontendHost. Set per environment — never hardcode a domain here.
+frontendHost: ""
+
 # -- Istio ingress gateway configuration.
 gateway:
   tls:
