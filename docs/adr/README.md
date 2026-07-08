@@ -70,6 +70,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed` · 2026-06-06
+- [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted` · 2026-05-11
@@ -198,6 +199,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Proposed | — |
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
 | 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted | — |
+| 2026-07-06 | [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
