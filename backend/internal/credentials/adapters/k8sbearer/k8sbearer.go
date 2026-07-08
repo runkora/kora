@@ -279,7 +279,7 @@ func (a *Adapter) Resolve(ctx context.Context, conn credentials.Connection, id c
 		return credentials.Credential{}, fmt.Errorf("resolve k8s bearer secret: %w", err)
 	}
 
-	a.logger.Info(ctx, "resolved k8s bearer credential",
+	a.logger.Debug(ctx, "resolved k8s bearer credential",
 		logging.Field{Key: "connection", Value: conn.Name},
 		logging.Field{Key: "tenant_id", Value: id.TenantID},
 		logging.Field{Key: "run_id", Value: id.RunID},
