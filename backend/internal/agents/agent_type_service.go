@@ -194,6 +194,14 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	if grantScopes == nil {
 		grantScopes = []string{}
 	}
+
+	// mcp_tools is likewise NOT NULL: a nil slice encodes as SQL NULL, which
+	// overrides the column DEFAULT '{}' and trips the not-null constraint. Default
+	// a missing slice to empty so a request that omits MCP tools still creates.
+	mcpTools := req.MCPTools
+	if mcpTools == nil {
+		mcpTools = []string{}
+	}
 	// Inference grant scopes are derived server-side from the model (single source
 	// of truth) unless the caller supplied explicit inference:* scopes. Connector
 	// and connectivity scopes are compiled separately by EffectiveGrantScopes. See
@@ -240,7 +248,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		GrantScopes:             grantScopes,
 		Connectivity:            connectivity,
 		Connectors:              req.Connectors,
-		MCPTools:                req.MCPTools,
+		MCPTools:                mcpTools,
 		EnvironmentID:           environmentID,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
