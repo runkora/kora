@@ -5,6 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Icon, Indicator, Separator, Show, Stack, Text } from '@orbit/terra';
+import { ThemeToggle } from '@orbit/components';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
 
@@ -59,6 +60,7 @@ export function DashboardHeader() {
       align="center"
       justify="between"
       height="full"
+      grow
       paddingInline="comfortable"
     >
       <Stack direction="horizontal" align="center" gap="snug">
@@ -149,6 +151,7 @@ export function DashboardHeader() {
             <Icon name="bell" />
           </Button>
         </Indicator>
+        <ThemeToggle />
         <Separator orientation="vertical" span="narrow" />
         <Button variant="default" size="sm">
           <Icon name="bot" />

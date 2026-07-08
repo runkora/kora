@@ -63,6 +63,7 @@ import {
   LogOut,
   Menu,
   Minus,
+  Moon,
   MoreHorizontal,
   MoreVertical,
   Network,
@@ -82,6 +83,7 @@ import {
   ShieldOff,
   Sparkles,
   SquareTerminal,
+  Sun,
   Terminal,
   HardDrive,
   Server,
@@ -169,6 +171,7 @@ export type IconName =
   | 'log-out'
   | 'menu'
   | 'minus'
+  | 'moon'
   | 'more-horizontal'
   | 'more-vertical'
   | 'network'
@@ -190,6 +193,7 @@ export type IconName =
   | 'shield-off'
   | 'sparkles'
   | 'square-terminal'
+  | 'sun'
   | 'terminal'
   | 'hard-drive'
   | 'server'
@@ -267,6 +271,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'log-out': LogOut,
   menu: Menu,
   minus: Minus,
+  moon: Moon,
   'more-horizontal': MoreHorizontal,
   'more-vertical': MoreVertical,
   network: Network,
@@ -288,6 +293,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'shield-off': ShieldOff,
   sparkles: Sparkles,
   'square-terminal': SquareTerminal,
+  sun: Sun,
   terminal: Terminal,
   'hard-drive': HardDrive,
   server: Server,

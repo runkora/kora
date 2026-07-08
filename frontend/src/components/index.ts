@@ -32,6 +32,9 @@ export { HealthStatus } from './health-status';
 /** BFF-backed logout button, revokes tokens then redirects to /login. */
 export { LogoutButton } from './logout-button';
 
+/** Light/dark theme toggle via next-themes. */
+export { ThemeToggle } from './theme-toggle';
+
 /** Create/edit modal for a webhook trigger (event → agent + prompt template). */
 export { TriggerFormModal } from './trigger-form-modal';
 export type {
