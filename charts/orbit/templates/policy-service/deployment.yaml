@@ -49,7 +49,7 @@ spec:
             - name: ORBIT_LOG_FORMAT
               value: {{ .Values.policyService.config.logFormat | quote }}
             - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
-              value: {{ .Values.opaGateway.frontendHost | quote }}
+              value: {{ .Values.frontendHost | quote }}
           {{- if or .Values.policyService.existingConfigMap .Values.policyService.existingSecret }}
           envFrom:
             {{- if .Values.policyService.existingConfigMap }}

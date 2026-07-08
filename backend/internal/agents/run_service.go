@@ -97,7 +97,7 @@ func NewRunService(
 // derived from the verified platform claims in ctx; request-body values are
 // ignored. Returns ErrForbidden if the principal lacks the agents:runs:{slug}:write
 // scope; the handler maps this to 404 to avoid leaking existence.
-func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, error) {
+func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started *Run, retErr error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.StartRun",
 		trace.WithAttributes(
@@ -106,6 +106,22 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		),
 	)
 	defer span.End()
+
+	// Once the run row exists, any later failure (pod assign, session create) must
+	// not leave it stuck in pending/starting. Fail it synchronously rather than
+	// waiting for the stale-run reaper. WithoutCancel so cleanup runs even if the
+	// request context was canceled.
+	var createdRunID string
+	defer func() {
+		if retErr != nil && createdRunID != "" {
+			if ferr := s.repo.MarkRunFailed(context.WithoutCancel(ctx), createdRunID); ferr != nil {
+				s.logger.Warn(ctx, "failed to mark run failed after start error",
+					logging.Field{Key: "run_id", Value: createdRunID},
+					logging.Field{Key: "error", Value: ferr.Error()},
+				)
+			}
+		}
+	}()
 	req.TenantID = tenantID
 	// created_by is always the verified token subject — the request body cannot set
 	// it (prevents attribution spoofing).
@@ -158,6 +174,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		span.SetStatus(codes.Error, "create run")
 		return nil, fmt.Errorf("create run: %w", err)
 	}
+	createdRunID = run.ID
 	if err := s.repo.AssignPod(ctx, run.ID, podOrdinal); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "assign pod")
@@ -173,6 +190,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (*Run, e
 		TenantID:     run.TenantID,
 		Framework:    string(at.Framework),
 		AllowedTools: at.ToolScopes,
+		// One governed MCP endpoint per server the agent has tool grants on.
+		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
 	}

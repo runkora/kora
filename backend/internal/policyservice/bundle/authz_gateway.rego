@@ -132,8 +132,35 @@ _is_platform_internal_path if {
 		"/api/v1/identity/.well-known/",
 		"/api/v1/policy/bundles/",
 		"/api/v1/webhooks/",
+		# Root OAuth discovery metadata (RFC 8414/9728) served at the host root
+		# (ADR 2026-07-04) and the public token/registration endpoints.
+		"/.well-known/",
+		"/api/v1/identity/oauth/token",
+		"/api/v1/identity/oauth/register",
 	]
 	startswith(input.attributes.request.http.path, prefix)
+}
+
+# ══ SELF-ENFORCED SERVICES ════════════════════════════════════════════════════
+#
+# A self-enforced service runs its own authentication and PEP and must own the
+# full request/response — the MCP tool-gateway validates the token, issues the
+# RFC 9728 401 challenge for an unauthenticated client (bootstrapping OAuth), and
+# enforces per-tool scopes in-process. The edge must not pre-empt it: enforcing
+# the coarse mcp:invoke route-scope here would deny an unauthenticated discovery
+# request before the gateway can challenge it. So the gateway's own paths bypass
+# edge scope enforcement (north-south only — the east-west sidecar OPA in
+# authz.rego still enforces mcp:invoke on agent traffic).
+# Ref ADR 2026-07-04 (edge-enforced vs self-enforced services).
+# Exact "/v1/mcp" (the aggregate metadata path) or a per-server subpath
+# "/v1/mcp/<server>". A bare prefix would also match "/v1/mcpx" and any future
+# sibling route mounted under /v1/mcp*, bypassing edge scope enforcement for it.
+_is_self_enforced_path if {
+	startswith(input.attributes.request.http.path, "/v1/mcp/")
+}
+
+_is_self_enforced_path if {
+	input.attributes.request.http.path == "/v1/mcp"
 }
 
 # ══ REQUIRED SCOPE ════════════════════════════════════════════════════════════
@@ -246,6 +273,9 @@ allow if _is_frontend_request
 # Infrastructure paths: health, OIDC discovery, bundle polling.
 allow if _is_platform_internal_path
 
+# Self-enforced services (e.g. the MCP tool-gateway) own authn + PEP in-process.
+allow if _is_self_enforced_path
+
 # Authenticated principal — autonomous (no delegation).
 allow if {
 	not _is_delegated
@@ -278,8 +308,11 @@ reason := "allow:frontend_bypass" if _is_frontend_request
 
 reason := "allow:platform_internal_bypass" if _is_platform_internal_path
 
+reason := "allow:self_enforced" if _is_self_enforced_path
+
 reason := concat("", ["grant:", matched_grant_scope]) if {
 	not _is_delegated
+	not _is_self_enforced_path
 	principal_has_required_scope
 }
 
@@ -299,6 +332,7 @@ matched_roles contains role_match if {
 
 reason := concat("", ["role:", min(matched_roles)]) if {
 	not _is_delegated
+	not _is_self_enforced_path
 	not principal_has_required_scope
 	count(matched_roles) > 0
 }
@@ -326,12 +360,14 @@ reason := "deny:no_agent_grant" if {
 reason := "deny:invalid_token" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
+	not _is_self_enforced_path
 	not _claims
 }
 
 reason := "deny:no_route_match" if {
 	not _is_frontend_request
 	not _is_platform_internal_path
+	not _is_self_enforced_path
 	_claims
 	not _required_scope
 }

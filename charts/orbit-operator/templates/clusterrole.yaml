@@ -39,6 +39,27 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["connections"]
     verbs: ["get", "list", "watch"]
+  # MCPServer CRs — the operator reads/watches every MCPServer to aggregate the
+  # tool-gateway's orbit-mcp-servers registry, and creates the platform-global
+  # "orbit" MCPServer as part of the orbit chart. `create` cannot be scoped by
+  # resourceName in RBAC (the name isn't known at admission), so it is granted
+  # cluster-wide here — the operator is already a highly-privileged component.
+  - apiGroups: ["orbit.io"]
+    resources: ["mcpservers"]
+    verbs: ["get", "list", "watch", "create"]
+  # Mutating/deleting an EXISTING MCPServer is restricted to the single global
+  # "orbit" CR the operator owns, so a bug (or a compromised chart) can never
+  # rewrite or delete a TENANT's GitOps-authored MCPServer (e.g. change its
+  # endpoint or callerIdentity). resourceNames enforces this for update/patch/delete.
+  - apiGroups: ["orbit.io"]
+    resources: ["mcpservers"]
+    resourceNames: ["orbit"]
+    verbs: ["update", "patch", "delete"]
+  # Status is reconciliation state the operator owns for EVERY MCPServer (tenant
+  # + global), so status writes stay cluster-wide.
+  - apiGroups: ["orbit.io"]
+    resources: ["mcpservers/status"]
+    verbs: ["get", "update", "patch"]
   # Apps — Deployments and DaemonSets for SPIRE, Istio, and Orbit services
   - apiGroups: ["apps"]
     resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]

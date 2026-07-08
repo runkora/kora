@@ -87,6 +87,12 @@ spec:
               value: {{ .Values.identity.config.logFormat | quote }}
             - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
               value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
+            {{- if .Values.publicHosts }}
+            # Trusted-host allowlist for host-derived OAuth discovery metadata
+            # (ADR 2026-07-04). Canonical host first.
+            - name: ORBIT_PUBLIC_HOSTS
+              value: {{ join "," .Values.publicHosts | quote }}
+            {{- end }}
             # SPIFFE Workload API socket — used for SVID exchange and SPIRE SDS.
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"

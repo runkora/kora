@@ -36,7 +36,7 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	scopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, claims.Subject, roles)
+	scopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, string(claims.Orbit.PrincipalType), claims.Subject, roles)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve effective scopes", nil), err)

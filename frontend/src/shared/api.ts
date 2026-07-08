@@ -191,6 +191,41 @@ export interface ConnectionCatalogEntry {
 }
 
 /**
+ * One tool in the MCP tool-gateway catalog — the read-only projection the
+ * gateway rebuilds on each introspection. `scope` is the mcp:<server>:<tool>:use
+ * scope a principal must hold to call it; `server_slug` is the MCPServer name.
+ */
+export interface McpCatalogTool {
+  tenant_id: string;
+  server_slug: string;
+  tool_name: string;
+  scope: string;
+  description: string;
+}
+
+/**
+ * One MCP server visible to a tenant, from the tool-gateway's /v1/servers.
+ * `caller_identity` is "forward" when the gateway acts AS the caller against
+ * the upstream (global servers only); `global` is true for platform servers.
+ */
+export interface McpServer {
+  name: string;
+  display_name: string;
+  description: string;
+  transport: string;
+  caller_identity: string;
+  endpoint: string;
+  global: boolean;
+  tool_count: number;
+  /** The distinct tool domains (first path segment), e.g. ["agents","policy"]. */
+  domains: string[];
+  /** RFC3339 timestamp of the last introspection, or "" if never. */
+  last_synced: string;
+  /** Coarse health: "healthy" | "stale" | "unknown". */
+  status: string;
+}
+
+/**
  * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
  * credential connectors an agent type can reference. Attaching an environment to
  * an agent type folds its hosts and connectors into the agent's effective
@@ -242,6 +277,8 @@ export interface AgentType {
   grant_scopes: string[];
   connectivity: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
+  mcp_tools?: string[];
   max_concurrent_runs_per_pod: number;
   state: AgentTypeState;
   created_at: string;
@@ -325,6 +362,8 @@ export interface CreateAgentTypeRequest {
   grant_scopes?: string[];
   connectivity?: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
+  mcp_tools?: string[];
   max_concurrent_runs_per_pod?: number;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
@@ -399,6 +438,8 @@ export interface UpdateAgentTypeRequest {
   budget?: AgentBudget;
   connectivity?: Connectivity;
   connectors?: Connector[];
+  /** Governed MCP tool grants; replaces the set. Omit = unchanged; [] clears. */
+  mcp_tools?: string[];
   /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
   environment_id?: string;
 }

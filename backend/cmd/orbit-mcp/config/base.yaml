@@ -1,0 +1,17 @@
+app:
+  version: "0.1.0"
+
+server:
+  httpPort: 8095
+  basePath: ""
+  shutdownTimeoutSecs: 30
+
+backends:
+  agents: "http://orbit-agents.orbit-system.svc"
+  policy: "http://orbit-policy-service.orbit-system.svc"
+  inference: "http://orbit-inference-gateway.orbit-system.svc"
+  identity: "http://orbit-identity.orbit-system.svc"
+  toolGateway: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
+
+observability:
+  serviceName: "orbit-mcp"

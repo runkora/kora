@@ -25,6 +25,21 @@
 #     -f deploy/local/orbit-values.yaml -n orbit-system
 # =============================================================================
 
+# -- Trusted-host allowlist for host-derived OAuth discovery metadata
+# (ADR 2026-07-04). The canonical host (fallback for a forged X-Forwarded-Host)
+# is listed first — use the api. host, which serves the metadata. Empty disables
+# validation (host reflected as-is). Set to the platform's real public hosts when
+# externally exposed. Wired into the identity + tool-gateway deployments as
+# ORBIT_PUBLIC_HOSTS.
+publicHosts: []
+
+# -- The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com.
+# The unified backend API is served at api.<frontendHost> (north-south exposure
+# convention, ADR 2026-07-04). Drives the frontend + api VirtualServices and the
+# OPA frontend bypass. REQUIRED — set per environment (deploy/local for dev, a
+# prod overlay for prod). Must match the orbit-platform chart's frontendHost.
+frontendHost: ""
+
 # -- Global values shared across all templates.
 global:
   # Trust domain for SPIFFE SVIDs and Istio mTLS.
@@ -152,6 +167,81 @@ inferenceGateway:
   # Operator default: "orbit-config" (managed by operator, same as identity service).
   existingConfigMap: "orbit-config"
 
+# -- Orbit MCP server configuration. The first platform-global MCP server:
+# exposes Orbit's own management surface (agents, policy, models, …) as MCP
+# tools over Streamable HTTP. Forwards the caller's platform token to each Orbit
+# API (passthrough) — holds no DB and no secrets of its own.
+orbitMcp:
+  # Container image for the orbit-mcp service.
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-mcp"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  # Number of orbit-mcp replicas.
+  replicas: 1
+
+  # Register the platform Orbit MCP as a global MCPServer CR so the tool-gateway
+  # introspects it into mcp:orbit:<tool>:use scopes.
+  register: true
+
+  # Resource requests and limits.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+  # Observability tunables — backend URLs are baked into the binary's base.yaml.
+  config:
+    otlpInsecure: "false"
+    logFormat: "json"
+
+# -- Tool-gateway configuration (MCP / Tool Gateway — registration ADR).
+# Publisher mode: mounts the operator-rendered orbit-mcp-servers registry,
+# introspects each MCP server's tools/list, publishes mcp:<server>:<tool>:use
+# scopes, and serves the read-only tool catalog. replicas is pinned to 1 in the
+# Deployment (single-writer scope publication).
+toolGateway:
+  image:
+    repository: "ghcr.io/orbit-sh/orbit-tool-gateway"
+    tag: ""  # Defaults to .Chart.AppVersion when empty.
+    pullPolicy: ""  # Inherits global.imagePullPolicy when empty.
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+  # Number of request-path proxy replicas (the publisher is always 1).
+  proxyReplicas: 1
+
+  # Plain-HTTP port — health + GET /v1/catalog + the MCP request path.
+  # Must match cmd/tool-gateway/config/base.yaml's server.httpPort.
+  httpPort: 8096
+
+  # ConfigMap (rendered by the operator's MCPServerAggregator) holding the MCP
+  # server registry — servers.json keyed under "servers.json". Mounted into the
+  # gateway and parsed into its in-memory registry.
+  mcpServersConfigMapName: "orbit-mcp-servers"
+
+  # Shared platform config/secrets imported via envFrom (DB host/credentials,
+  # signing key path, etc.) — same wiring the egress gateway uses.
+  existingConfigMap: "orbit-config"
+  existingSecret: "orbit-secrets"
+
+  config:
+    otlpInsecure: "false"
+    logFormat: "json"
+    # "require" in production; deploy/local overrides to "disable" for the local
+    # cluster's non-TLS Postgres.
+    postgresSSLMode: "require"
+
 # -- Frontend service configuration.
 frontend:
   # Container image for the orbit-frontend service.
@@ -193,6 +283,7 @@ frontend:
     # Used by the BFF to proxy agent type and run CRUD + SSE endpoints.
     # Server-side only — never sent to the browser.
     orbitAgentsUrl: ""
+    toolGatewayUrl: ""
     # Public base URL of the frontend, reachable from the browser.
     # Must match the NEXT_PUBLIC_APP_URL Docker build arg used to build the image,
     # as Next.js inlines NEXT_PUBLIC_* values into client bundles at build time.
@@ -367,13 +458,6 @@ egressGateway:
 # Standalone OPA pod that enforces authz_gateway.rego on all traffic entering
 # through the Istio IngressGateway via gRPC ext_authz.
 opaGateway:
-  # frontendHost is the hostname (without port) of the frontend service as seen
-  # by the Istio IngressGateway :authority header. When set, an Envoy-level
-  # VirtualHost bypass is added so that browser cookie traffic never reaches OPA.
-  # Matches data.config.frontend_host in the gateway OPA bundle.
-  # Leave empty to rely only on the Rego-level bypass.
-  frontendHost: ""
-
   image:
     # openpolicyagent/opa with the Envoy plugin built in.
     repository: "openpolicyagent/opa"

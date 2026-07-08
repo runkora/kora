@@ -44,6 +44,10 @@ type ControllerConfig struct {
 	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
 	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
 	InferenceGatewayURL string
+
+	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
+	// into the per-run MCP config so agents reach governed tools through it.
+	ToolGatewayURL string
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -101,6 +105,9 @@ type CreateSessionRequest struct {
 	Model        string   `json:"model"`
 	AllowedTools []string `json:"allowed_tools"`
 	SystemPrompt string   `json:"system_prompt"`
+	// MCPServers are the distinct MCP servers the agent has tool grants on; one
+	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
+	MCPServers []string `json:"mcp_servers"`
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -146,6 +153,8 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
 			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:    c.cfg.ToolGatewayURL,
+			MCPServers:        req.MCPServers,
 			RunID:             req.RunID,
 			ExtraEnv:          extraEnv,
 			Logger:            c.logger,
