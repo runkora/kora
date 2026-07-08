@@ -5,3 +5,7 @@ operator:
   # Disable leader election in single-node local dev.
   leaderElection: false
   syncPeriodSecs: 60
+  # Same k3d mirror registry used by deploy/local/orbit-platform.yaml — dev
+  # environment workloads run as pods on the same host nodes, so the same
+  # registry reference resolves for them too.
+  devEnvImageRegistry: orbit-registry:5001

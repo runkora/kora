@@ -30,6 +30,15 @@ serviceAccount:
   create: true
   name: orbit-operator
 
+# devEnv configures the OrbitDevEnvironment reconciler (the vcluster ADR).
+# imageRegistry is the registry prefix used both for the in-vcluster
+# orbit-operator image and the OrbitPlatform CR applied inside each
+# environment. Empty (production default) means "use built-in versioned
+# image references". Set to the k3d mirror registry in
+# deploy/local/operator-values.yaml.
+devEnv:
+  imageRegistry: ""
+
 podAnnotations:
   # The operator installs Istio — it MUST NOT have the Istio sidecar injected.
   # This annotation is architectural, not a workaround. Do not remove it.

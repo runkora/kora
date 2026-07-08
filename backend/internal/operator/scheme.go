@@ -18,6 +18,8 @@ func AddToScheme(s *runtime.Scheme) error {
 		&OrbitTenantList{},
 		&Connection{},
 		&ConnectionList{},
+		&OrbitDevEnvironment{},
+		&OrbitDevEnvironmentList{},
 	)
 
 	// Wire up metav1 types (ListOptions, WatchEvent, etc.) to our group version.

@@ -1,0 +1,153 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: orbitdevenvironments.orbit.io
+  labels:
+    {{- include "orbit-operator.labels" . | nindent 4 }}
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+spec:
+  group: orbit.io
+  names:
+    kind: OrbitDevEnvironment
+    listKind: OrbitDevEnvironmentList
+    plural: orbitdevenvironments
+    singular: orbitdevenvironment
+    shortNames:
+      - ode
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: Awake
+          type: boolean
+          jsonPath: .spec.awake
+        - name: ExpiresAt
+          type: date
+          jsonPath: .status.expiresAt
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            OrbitDevEnvironment declares an ephemeral, full-stack Orbit
+            development environment backed by a vcluster. The CR name is the
+            environment ID — the operator derives the host namespace as
+            "orbit-devenv-{name}". See
+            docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - owner
+              properties:
+                owner:
+                  description: >
+                    The principal (human identity) that provisioned this
+                    environment. Set once at creation; the reconciler never
+                    mutates it.
+                  type: string
+                  minLength: 1
+                ref:
+                  description: >
+                    Chart/image ref installed inside the environment.
+                    Defaults to "main" (latest main build).
+                  type: string
+                  default: main
+                ttl:
+                  description: >
+                    How long the environment lives from creation before the
+                    reconciler deletes it. Extendable up to the 7-day hard
+                    cap by patching this field to a larger value.
+                  type: string
+                  default: 24h
+                idleTimeout:
+                  description: >
+                    How long the environment can go without activity before
+                    the reconciler puts it to sleep (scales workloads to
+                    zero, retains PVCs).
+                  type: string
+                  default: 2h
+                awake:
+                  description: >
+                    Explicit desired power state. Sleep can also be
+                    triggered automatically by idleTimeout, which itself
+                    flips this to false — wake is never automatic and only
+                    happens by an external actor setting this back to true.
+                  type: boolean
+                  default: true
+                kubeconfigCSR:
+                  description: >
+                    PEM-encoded PKCS#10 certificate signing request submitted
+                    on the developer's behalf. The reconciler signs it
+                    against the vcluster's own client CA and publishes the
+                    resulting certificate in status — the private key never
+                    transits this field.
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                namespace:
+                  type: string
+                ingressHost:
+                  type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+                lastActivityAt:
+                  type: string
+                  format: date-time
+                lastReconciledAt:
+                  type: string
+                  format: date-time
+                kubeconfigCertificate:
+                  type: string
+                kubeconfigCABundle:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

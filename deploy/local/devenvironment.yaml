@@ -1,0 +1,21 @@
+# Example OrbitDevEnvironment CR for local k3d development/testing of the
+# devenvironment reconciler itself (Phase 2 of
+# docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md).
+#
+# Apply after `make redeploy-operator`:
+#   kubectl apply -f deploy/local/devenvironment.yaml
+#
+# This is a short-TTL/short-idle-timeout variant so lifecycle paths (sleep,
+# expiry) can be observed in test time rather than waiting hours/days — per
+# the ADR's own Phase 2 local acceptance checklist. Production/UI-created
+# environments use the CRD's real defaults (ttl: 24h, idleTimeout: 2h).
+apiVersion: orbit.io/v1alpha1
+kind: OrbitDevEnvironment
+metadata:
+  name: local-test
+spec:
+  owner: dev@orbit.local.clearroute.io
+  ref: main
+  ttl: 15m
+  idleTimeout: 5m
+  awake: true

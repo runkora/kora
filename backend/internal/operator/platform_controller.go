@@ -417,6 +417,21 @@ func (r *PlatformReconciler) reconcileIstiod(ctx context.Context, p *OrbitPlatfo
 				"discoveryAddress": "istiod.istio-system.svc:15012",
 			},
 		},
+		"pilot": map[string]any{
+			"env": map[string]any{
+				// Istio's "Compatibility" auto-detection silently switches
+				// istio-proxy from a `containers` entry to a native-sidecar
+				// `initContainers` entry based on the target API server's
+				// reported Kubernetes version. buildSpireInjectionTemplate()
+				// and buildIdentityProxyInjectionTemplate() patch `containers`
+				// only, so that switch produces an invalid pod. Orbit already
+				// solves sidecar startup ordering itself via
+				// holdApplicationUntilProxyStarts, so native sidecars buy
+				// nothing here — pin this off so injection is deterministic
+				// regardless of what version string any given cluster reports.
+				"ENABLE_NATIVE_SIDECARS": "false",
+			},
+		},
 		"sidecarInjectorWebhook": map[string]any{
 			"templates": map[string]any{
 				"spire": buildSpireInjectionTemplate(),

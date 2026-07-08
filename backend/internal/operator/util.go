@@ -15,6 +15,7 @@ type chartVersions struct {
 	SPIRECRDs string
 	SPIRE     string
 	Istio     string
+	VCluster  string
 }
 
 // defaultChartVersions returns the pinned versions that match
@@ -24,6 +25,7 @@ func defaultChartVersions() *chartVersions {
 		SPIRECRDs: "0.5.0",
 		SPIRE:     "0.28.3",
 		Istio:     "1.29.1",
+		VCluster:  "0.35.1",
 	}
 }
 

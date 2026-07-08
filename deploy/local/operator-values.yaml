@@ -9,3 +9,8 @@ image:
 
 # Disable leader election for single-replica local dev clusters
 leaderElection: false
+
+# Registry prefix for OrbitDevEnvironment's in-vcluster orbit-operator image
+# and the OrbitPlatform CR it applies inside each environment (vcluster ADR).
+devEnv:
+  imageRegistry: orbit-registry:5001

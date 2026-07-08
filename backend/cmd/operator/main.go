@@ -229,5 +229,25 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		return err
 	}
 
+	devEnvironmentReconciler := &operator.DevEnvironmentReconciler{
+		Client:                    mgr.GetClient(),
+		Scheme:                    mgr.GetScheme(),
+		Logger:                    logger,
+		HelmFactory:               operator.NewHelmClientFactory(restCfg, logger),
+		Clock:                     operator.NewRealClock(),
+		IngressDomain:             oc.Current.Operator.DevEnvIngressDomain,
+		VClusterVersion:           oc.Current.Operator.DevEnvVClusterVersion,
+		ChartDir:                  oc.Current.Operator.ChartDir,
+		ImageRegistry:             oc.Current.Operator.DevEnvImageRegistry,
+		VClusterRestConfigFactory: operator.NewVClusterRestConfigFactory(mgr.GetClient()),
+		VClusterClientFactory:     operator.NewVClusterClientFactory(mgr.GetScheme()),
+		InVClusterHelmFactory: func(namespace string, cfg *rest.Config) operator.HelmInterface {
+			return operator.NewHelmClient(namespace, cfg, logger)
+		},
+	}
+	if err := devEnvironmentReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
 	return nil
 }

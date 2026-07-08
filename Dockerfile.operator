@@ -54,6 +54,14 @@ COPY --from=builder --chown=65532:65532 /orbit-operator ./orbit
 COPY --chown=65532:65532 charts/orbit-platform/ /etc/orbit/charts/orbit-platform/
 COPY --chown=65532:65532 charts/orbit/ /etc/orbit/charts/orbit/
 
+# orbit-operator itself is also baked in: the OrbitDevEnvironment reconciler
+# installs it a second time, inside each environment's vcluster, to bootstrap
+# the in-vcluster Orbit install (see docs/adr/2026-07-07-ephemeral-development-
+# environments-via-vcluster.md, decision 2). This is the one case where the
+# operator's own chart is a runtime dependency of the operator binary, not
+# just an external Makefile/helm-install concern.
+COPY --chown=65532:65532 charts/orbit-operator/ /etc/orbit/charts/orbit-operator/
+
 # Environment-specific Helm values files — baked in at /etc/orbit/values/.
 # loadValuesFile() probes this path as the production fallback after
 # the local-dev path ({ChartDir}/../deploy/local/) is tried first.

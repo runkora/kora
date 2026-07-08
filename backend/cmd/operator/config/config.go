@@ -61,6 +61,31 @@ type Config struct {
 		// BundlePollingMaxDelay is the maximum OPA bundle polling interval in seconds.
 		// Override via ORBIT_BUNDLE_POLLING_MAX_DELAY.
 		BundlePollingMaxDelay int `yaml:"bundlePollingMaxDelay"`
+
+		// DevEnvIngressDomain is the base domain used to compute each
+		// OrbitDevEnvironment's status.ingressHost ("{name}.{domain}").
+		// Real ingress/DNS/TLS wiring is a staging concern (see the vcluster
+		// ADR's "Out of local scope") — locally this is informational only.
+		DevEnvIngressDomain string `yaml:"devEnvIngressDomain"`
+
+		// DevEnvVClusterVersion pins the vcluster chart version installed by
+		// the OrbitDevEnvironment reconciler. Override via
+		// ORBIT_DEVENV_VCLUSTER_VERSION. Empty means "use the built-in
+		// default" (see defaultChartVersions in internal/operator).
+		DevEnvVClusterVersion string `yaml:"devEnvVClusterVersion"`
+
+		// DevEnvImageRegistry is the registry prefix used both for the
+		// in-vcluster orbit-operator chart's own image and for the
+		// spec.imageRegistry field of the OrbitPlatform CR the reconciler
+		// applies inside each environment. Empty means "use built-in
+		// versioned image references" (production); local dev sets this via
+		// the chart's devEnv.imageRegistry value (deploy/local/operator-values.yaml),
+		// which is templated into the ORBIT_DEVENV_IMAGE_REGISTRY env var —
+		// this in-cluster deployment never sets APP_ENV, so
+		// cmd/operator/config/development.yaml is not actually loaded here;
+		// env-var overrides are the only way local dev values reach the pod
+		// (same pattern as ORBIT_LEADER_ELECTION/ORBIT_OPA_IMAGE below).
+		DevEnvImageRegistry string `yaml:"devEnvImageRegistry"`
 	} `yaml:"operator"`
 
 	Observability struct {
@@ -106,6 +131,15 @@ var Current = func() *Config {
 	}
 	if cfg.Operator.BundlePollingMaxDelay == 0 {
 		cfg.Operator.BundlePollingMaxDelay = 60
+	}
+	if v := os.Getenv("ORBIT_DEVENV_VCLUSTER_VERSION"); v != "" {
+		cfg.Operator.DevEnvVClusterVersion = v
+	}
+	if v := os.Getenv("ORBIT_DEVENV_IMAGE_REGISTRY"); v != "" {
+		cfg.Operator.DevEnvImageRegistry = v
+	}
+	if cfg.Operator.DevEnvIngressDomain == "" {
+		cfg.Operator.DevEnvIngressDomain = "dev.orbit.local"
 	}
 	return cfg
 }()

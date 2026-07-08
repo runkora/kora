@@ -8,6 +8,7 @@ operator:
   webhookCertDir: /tmp/k8s-webhook-server/serving-certs
   syncPeriodSecs: 300
   shutdownTimeoutSecs: 30
+  devEnvIngressDomain: dev.orbit.local
 
 observability:
   serviceName: orbit-operator
