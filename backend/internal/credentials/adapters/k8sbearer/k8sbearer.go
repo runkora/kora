@@ -261,7 +261,7 @@ func isUpgradeRequest(req *http.Request) bool {
 	if conn == "" || req.Header.Get("Upgrade") == "" {
 		return false
 	}
-	for _, part := range strings.Split(conn, ",") {
+	for part := range strings.SplitSeq(conn, ",") {
 		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
 			return true
 		}
