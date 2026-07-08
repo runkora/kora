@@ -63,6 +63,7 @@ import {
   LogOut,
   Menu,
   Minus,
+  Moon,
   MoreHorizontal,
   MoreVertical,
   Network,
@@ -82,6 +83,7 @@ import {
   ShieldOff,
   Sparkles,
   SquareTerminal,
+  Sun,
   Terminal,
   HardDrive,
   Server,
@@ -97,6 +99,13 @@ import {
   X,
   XCircle,
   Zap,
+  Globe,
+  Monitor,
+  Braces,
+  Table,
+  ChevronLeft,
+  Building2,
+  Box,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -104,6 +113,13 @@ import {
 
 export type IconName =
   | 'activity'
+  | 'globe'
+  | 'monitor'
+  | 'braces'
+  | 'table'
+  | 'chevron-left'
+  | 'building'
+  | 'box'
   | 'alert-circle'
   | 'arrow-down'
   | 'arrow-left'
@@ -155,6 +171,7 @@ export type IconName =
   | 'log-out'
   | 'menu'
   | 'minus'
+  | 'moon'
   | 'more-horizontal'
   | 'more-vertical'
   | 'network'
@@ -176,6 +193,7 @@ export type IconName =
   | 'shield-off'
   | 'sparkles'
   | 'square-terminal'
+  | 'sun'
   | 'terminal'
   | 'hard-drive'
   | 'server'
@@ -195,6 +213,13 @@ export type IconName =
 
 export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   activity: Activity,
+  globe: Globe,
+  monitor: Monitor,
+  braces: Braces,
+  table: Table,
+  'chevron-left': ChevronLeft,
+  building: Building2,
+  box: Box,
   'alert-circle': AlertCircle,
   'arrow-down': ArrowDown,
   'arrow-left': ArrowLeft,
@@ -246,6 +271,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'log-out': LogOut,
   menu: Menu,
   minus: Minus,
+  moon: Moon,
   'more-horizontal': MoreHorizontal,
   'more-vertical': MoreVertical,
   network: Network,
@@ -267,6 +293,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'shield-off': ShieldOff,
   sparkles: Sparkles,
   'square-terminal': SquareTerminal,
+  sun: Sun,
   terminal: Terminal,
   'hard-drive': HardDrive,
   server: Server,

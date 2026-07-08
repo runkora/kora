@@ -15,6 +15,8 @@ import type {
   ConnectionCatalogEntry,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
+  McpCatalogTool,
+  McpServer,
 } from '@orbit/shared/api';
 import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -38,6 +40,9 @@ export function useAgentConnectivity() {
   const [connectors, setConnectors] = useState<Connector[]>(agent?.connectors ?? []);
   const [availableConnections, setAvailableConnections] = useState<ConnectionCatalogEntry[]>([]);
   const [environmentId, setEnvironmentId] = useState(agent?.environmentId ?? '');
+  const [mcpTools, setMcpTools] = useState<string[]>(agent?.mcpTools ?? []);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
 
   // Tracks the last-saved values so isDirty resets immediately after a save.
   const [savedBaseline, setSavedBaseline] = useState({
@@ -45,6 +50,7 @@ export function useAgentConnectivity() {
     connectivityHosts: hostsToText(agent?.connectivity.hosts),
     connectors: agent?.connectors ?? ([] as Connector[]),
     environmentId: agent?.environmentId ?? '',
+    mcpTools: agent?.mcpTools ?? ([] as string[]),
   });
 
   // ── Connector catalog data ────────────────────────────────────────────────────
@@ -53,6 +59,17 @@ export function useAgentConnectivity() {
       .then((r) => r.json())
       .then((body: { data?: ConnectionCatalogEntry[] }) => {
         setAvailableConnections(body.data ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  // ── Governed MCP tool catalog ─────────────────────────────────────────────────
+  useEffect(() => {
+    fetch(ApiRoute.agentTypes.mcpTools(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((body: { servers?: McpServer[]; catalog?: McpCatalogTool[] }) => {
+        setMcpServers(body.servers ?? []);
+        setMcpCatalog(body.catalog ?? []);
       })
       .catch(() => undefined);
   }, []);
@@ -107,7 +124,8 @@ export function useAgentConnectivity() {
     connectivityHosts !== savedBaseline.connectivityHosts ||
     environmentId !== savedBaseline.environmentId ||
     JSON.stringify(normalizeConnectors(connectors)) !==
-      JSON.stringify(normalizeConnectors(savedBaseline.connectors));
+      JSON.stringify(normalizeConnectors(savedBaseline.connectors)) ||
+    JSON.stringify([...mcpTools].sort()) !== JSON.stringify([...savedBaseline.mcpTools].sort());
 
   // ── Save / status ───────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -128,6 +146,9 @@ export function useAgentConnectivity() {
             ? { mode: 'whitelist', hosts: textToHosts(connectivityHosts) }
             : { mode: connectivityMode },
         connectors,
+        // Replace the governed MCP tool grants; the backend composes them (and
+        // derives the coarse mcp:invoke gate) into the effective grant.
+        mcp_tools: mcpTools,
         // Only send environment_id when it changed: a non-empty id attaches,
         // an empty string ("") detaches, and omitting it leaves it unchanged.
         ...(environmentId !== savedBaseline.environmentId ? { environment_id: environmentId } : {}),
@@ -143,6 +164,7 @@ export function useAgentConnectivity() {
         connectivityHosts,
         connectors,
         environmentId,
+        mcpTools,
       });
       setSaveSuccess(true);
       if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
@@ -150,7 +172,15 @@ export function useAgentConnectivity() {
       // The resolved panel already reflects the saved state — the live preview
       // tracks the same draft we just persisted, so no refetch is needed.
     },
-    [agent, connectivityMode, connectivityHosts, connectors, environmentId, savedBaseline],
+    [
+      agent,
+      connectivityMode,
+      connectivityHosts,
+      connectors,
+      mcpTools,
+      environmentId,
+      savedBaseline,
+    ],
   );
 
   const handleDiscard = useCallback(() => {
@@ -159,6 +189,7 @@ export function useAgentConnectivity() {
     setConnectivityHosts(savedBaseline.connectivityHosts);
     setConnectors(savedBaseline.connectors);
     setEnvironmentId(savedBaseline.environmentId);
+    setMcpTools(savedBaseline.mcpTools);
     setSaveError(null);
   }, [agent, savedBaseline]);
 
@@ -174,6 +205,11 @@ export function useAgentConnectivity() {
     availableConnections,
     environmentId,
     setEnvironmentId,
+    // governed MCP tools
+    mcpTools,
+    setMcpTools,
+    mcpServers,
+    mcpCatalog,
     // effective access
     effectiveAccess,
     accessLoading,

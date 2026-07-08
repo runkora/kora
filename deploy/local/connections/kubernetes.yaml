@@ -1,0 +1,96 @@
+# =============================================================================
+# Local dev — Kubernetes connection (GitOps registration)
+# =============================================================================
+#
+# Template for registering a Kubernetes connection against your local Orbit
+# control plane, mirroring github.yaml's shape. The *target* cluster — the
+# one this connection points at — is not Orbit's own local k3d dev cluster;
+# it's typically a real cloud-managed (EKS/GKE/AKS) or on-prem cluster
+# somewhere else. Copy this file (or edit the values below in place), fill in
+# the ${placeholder}-tagged fields, then work through steps 1-3. Everything
+# else should stay as-is for local dev.
+#
+# Step 1 — pick a connection name (${cluster})
+#   `metadata.name` identifies which target cluster this connection points at
+#   — not to be confused with `spec.adapter: kubernetes`, the credential
+#   mechanism. A tenant may register more than one `adapter: kubernetes`
+#   connection (e.g. one per cluster/environment), and `metadata.name` is what
+#   the Connections UI and agent-type connectors reference. Pick anything
+#   short and memorable — the cluster's real name, "staging", "prod-eu", etc.
+#   This is independent of Orbit's own local k3d dev cluster, which stays
+#   "orbit-local" regardless (see baseHost below).
+#
+# Step 2 — provision a bearer token
+#   The token is NEVER stored in this file — only a `secretRef` to a Secret
+#   you create out-of-band. Provision it against the target cluster (using
+#   whatever kubeconfig context / cloud CLI reaches it) with least-privilege
+#   RBAC:
+#
+#     kubectl create serviceaccount orbit-agent -n default --context <target-cluster-context>
+#     kubectl create clusterrolebinding orbit-agent-view \
+#       --clusterrole=view --serviceaccount=default:orbit-agent --context <target-cluster-context>
+#     kubectl create token orbit-agent --duration=8760h --context <target-cluster-context>
+#
+#   Then create the Secret in your LOCAL k3d cluster, since that's where
+#   Orbit itself runs (name must match `spec.secretRef` below):
+#
+#     kubectl create secret generic ${cluster}-token -n orbit-tenant-example \
+#       --from-literal=token=<ServiceAccount token> --dry-run=client -o yaml | kubectl apply -f -
+#
+#   `make cluster-deploy` applies this file unconditionally (unlike
+#   github.yaml, it needs no external secret to exist for the `kubectl apply`
+#   itself to succeed) — but the connection stays unusable, and won't appear
+#   in the gateway's aggregated registry, until the Secret above exists. The
+#   operator's ConnectionAggregator just skips a connection with a missing
+#   secretRef (logs a Warn) rather than failing.
+#
+# Step 3 — get the target cluster's CA cert
+#   `ca_cert` is public material (not a secret) — it goes inline in `config`,
+#   per the ADR's resolution of PRD Open Question 3. For a cloud/on-prem
+#   cluster, pull it from your kubeconfig (or ask the cluster admin / cloud
+#   console for the CA bundle):
+#
+#     kubectl config view --raw \
+#       -o jsonpath='{.clusters[?(@.name=="<target-cluster-context>")].cluster.certificate-authority-data}' \
+#       | base64 -d
+#
+#   If instead the target is your own local k3d cluster (e.g. testing the
+#   kubernetes adapter itself against "orbit-local"), get it with:
+#
+#     docker exec k3d-orbit-local-server-0 cat /var/lib/rancher/k3s/server/tls/server-ca.crt
+#
+#   Replace the placeholder cert below with that output, then re-apply.
+#
+# Reference — why `baseHost` looks like this
+#   `baseHost` is the target cluster's real API server host:port — the CRD
+#   rejects a bare IPv4 baseHost on a kubernetes-adapter connection outright
+#   (TLS to an IP literal carries no SNI), so it must be a hostname that's
+#   already a SAN on the target's kube-apiserver cert. For a cloud/on-prem
+#   cluster this is just its normal, publicly/internally resolvable API
+#   server hostname — no extra setup needed. If the target is your own local
+#   k3d cluster, use the server container's own name (e.g.
+#   k3d-orbit-local-server-0:6443) — it's already a SAN on that cert — and run
+#   `make cluster-operator` (via resolve-docker-ips.sh) to patch CoreDNS's
+#   NodeHosts so the name resolves inside the cluster to the container's
+#   Docker IP — same mechanism already used for orbit-postgres / orbit-redis.
+#
+#   Namespace: orbit-tenant-example (the operator derives
+#   "orbit-tenant-{name}" from the OrbitTenant CR in
+#   deploy/local/tenants/example.yaml).
+# =============================================================================
+apiVersion: orbit.io/v1alpha1
+kind: Connection
+metadata:
+  name: orbit-local # ${cluster}
+  namespace: orbit-tenant-example
+spec:
+  adapter: kubernetes
+  baseHost: k3d-orbit-local-server-0:6443 # ${cluster_hostname}:${cluster_port}
+  secretRef: orbit-local-token # ${cluster}-token
+  secretKey: token
+  config:
+    cluster_name: orbit-local # ${cluster}
+    ca_cert: |
+      -----BEGIN CERTIFICATE-----
+      <replace with the target cluster CA certificate PEM>
+      -----END CERTIFICATE-----

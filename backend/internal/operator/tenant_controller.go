@@ -38,6 +38,7 @@ type TenantReconciler struct {
 	Aggregator     *ClientSecretAggregator
 	CAAggregator   *TenantCAAggregator
 	ConnAggregator *ConnectionAggregator
+	MCPAggregator  *MCPServerAggregator
 	Logger         logging.Logger
 
 	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
@@ -66,7 +67,10 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if syncErr := r.CAAggregator.Sync(ctx); syncErr != nil {
 				return ctrl.Result{}, syncErr
 			}
-			return ctrl.Result{}, r.ConnAggregator.Sync(ctx)
+			if syncErr := r.ConnAggregator.Sync(ctx); syncErr != nil {
+				return ctrl.Result{}, syncErr
+			}
+			return ctrl.Result{}, r.MCPAggregator.Sync(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
 	}
@@ -170,6 +174,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// Secret in orbit-system the egress gateway mounts (Amendment 3).
 			name: "aggregated connections",
 			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
+		},
+		{
+			// Aggregated MCP servers — every MCPServer CR across all namespaces
+			// is rendered into the orbit-mcp-servers ConfigMap in orbit-system
+			// the tool-gateway mounts. Re-aggregated here so a tenant suspend /
+			// reactivate includes/excludes that tenant's servers.
+			name: "aggregated MCP servers",
+			run:  func(ctx context.Context) error { return r.MCPAggregator.Sync(ctx) },
 		},
 	}
 	for _, step := range steps {
@@ -361,6 +373,10 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *Orbit
 	if err := r.ConnAggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated connections for suspended tenant: %w", err)
+	}
+	if err := r.MCPAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated MCP servers for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

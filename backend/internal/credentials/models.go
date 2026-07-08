@@ -26,7 +26,7 @@ type AdapterType string
 
 const (
 	AdapterGitHubApp         AdapterType = "github_app"
-	AdapterKubernetesBearer  AdapterType = "k8s_bearer"
+	AdapterKubernetesBearer  AdapterType = "kubernetes"
 	AdapterOAuth2ClientCreds AdapterType = "oauth2_client_credentials"
 	AdapterAPIKey            AdapterType = "api_key"
 	AdapterAWSSTS            AdapterType = "aws_sts"

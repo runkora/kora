@@ -86,6 +86,12 @@ type Config struct {
 		URL string `yaml:"url"`
 	} `yaml:"inferenceGateway"`
 
+	ToolGateway struct {
+		// URL is the in-mesh base URL of the MCP tool-gateway; written into the
+		// per-run MCP config so agents reach governed tools through it.
+		URL string `yaml:"url"`
+	} `yaml:"toolGateway"`
+
 	Session struct {
 		// IdleTimeoutSecs is how long a session may be idle (no message_stop
 		// followed by a new message) before it is automatically closed.

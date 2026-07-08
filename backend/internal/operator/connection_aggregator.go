@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -160,6 +161,17 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 
 		for j := range list.Items {
 			conn := &list.Items[j]
+
+			if err := platformconns.ValidateBaseHost(conn.Spec.Adapter, conn.Spec.BaseHost); err != nil {
+				a.logger.Warn(ctx, "connection has invalid base_host, skipping",
+					logging.Field{Key: "connection", Value: conn.Name},
+					logging.Field{Key: "namespace", Value: ns},
+					logging.Field{Key: "baseHost", Value: conn.Spec.BaseHost},
+					logging.Field{Key: "error", Value: err.Error()},
+				)
+				continue
+			}
+
 			// tenant_id MUST equal claims.Orbit.TenantID — the OrbitTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
 			tenantID := t.Name

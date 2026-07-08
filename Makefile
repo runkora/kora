@@ -404,7 +404,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend operator session-manager sandbox-exec
+	egress-gateway agents frontend orbit-mcp operator session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
@@ -588,10 +588,11 @@ cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and de
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
-	@echo "$(COLOR_YELLOW)Registering tenant connections (GitHub if an App key is present)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
+	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token — skipping Kubernetes connection; create it to enable)"
 	@if [ -f secrets/orbit-github-app.pem ]; then \
 		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
-		kubectl apply -f deploy/local/connections/ ; \
+		kubectl apply -f deploy/local/connections/github.yaml ; \
 		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
 	else \
 		echo "  (no secrets/orbit-github-app.pem — skipping GitHub connection; it is optional)"; \
@@ -762,6 +763,7 @@ build-backend: proto-gen ## Build all service binaries to .bin directory (runs p
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-session-manager ./cmd/session-manager
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-shell ./cmd/orbit-shell
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-runtime-mcp ./cmd/orbit-runtime-mcp
+	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-mcp ./cmd/orbit-mcp
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/sandbox-exec ./cmd/sandbox-exec
 	@echo "$(COLOR_GREEN)✓ Binaries built to $(BINARY_DIR)/$(COLOR_RESET)"
 

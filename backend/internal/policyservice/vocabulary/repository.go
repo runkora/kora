@@ -29,8 +29,12 @@ type ScopeEntry struct {
 	Description string `json:"description,omitempty"`
 	// RegisteredBy is the service that owns this scope (e.g. "inference-gateway").
 	// Empty for manually-created scopes.
-	RegisteredBy string    `json:"registered_by,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	RegisteredBy string `json:"registered_by,omitempty"`
+	// Requires lists scopes this scope depends on: a grant holding this scope
+	// confers the required scopes in the compiled effective set. Empty for
+	// ordinary scopes; set by first-party platform MCP tool leaf scopes.
+	Requires  []string  `json:"requires,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ScopeEntryWithUsage extends ScopeEntry with usage counts from grants and roles.
@@ -93,16 +97,29 @@ func (r *postgresRepository) Upsert(ctx context.Context, e *ScopeEntry) error {
 		registeredBy = &e.RegisteredBy
 	}
 
+	requires := e.Requires
+	if requires == nil {
+		requires = []string{}
+	}
+
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		INSERT INTO policy_scope_vocabulary (scope, resource_type, path_segments, action, description, registered_by, requires, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		ON CONFLICT (scope) DO UPDATE SET
 			resource_type  = EXCLUDED.resource_type,
 			path_segments  = EXCLUDED.path_segments,
 			action         = EXCLUDED.action,
 			description    = EXCLUDED.description,
-			registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by)
-	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy)
+			registered_by  = COALESCE(policy_scope_vocabulary.registered_by, EXCLUDED.registered_by),
+			-- Only overwrite requires with a non-empty incoming set. A degraded or
+			-- partial (SkipPrune) introspection can re-register a scope with empty
+			-- requires; without this it would silently wipe the upstream-scope
+			-- conferral and break grants on the next bundle compile.
+			requires       = CASE
+				WHEN array_length(EXCLUDED.requires, 1) > 0 THEN EXCLUDED.requires
+				ELSE policy_scope_vocabulary.requires
+			END
+	`, e.Scope, e.ResourceType, pathJSON, e.Action, e.Description, registeredBy, requires)
 	if err != nil {
 		return fmt.Errorf("upsert scope: %w", err)
 	}
@@ -139,7 +156,7 @@ func (r *postgresRepository) DeleteOrphans(ctx context.Context, registeredBy str
 
 func (r *postgresRepository) GetByScope(ctx context.Context, scope string) (*ScopeEntry, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT scope, resource_type, path_segments, action, description, created_at
+		SELECT scope, resource_type, path_segments, action, description, requires, created_at
 		FROM policy_scope_vocabulary WHERE scope = $1
 	`, scope)
 	return r.scanEntry(row)
@@ -159,12 +176,12 @@ func (r *postgresRepository) List(ctx context.Context, resourceType string) ([]*
 	var err error
 	if resourceType != "" {
 		rows, err = r.pool.Query(ctx, `
-			SELECT scope, resource_type, path_segments, action, description, created_at
+			SELECT scope, resource_type, path_segments, action, description, requires, created_at
 			FROM policy_scope_vocabulary WHERE resource_type = $1 ORDER BY scope
 		`, resourceType)
 	} else {
 		rows, err = r.pool.Query(ctx, `
-			SELECT scope, resource_type, path_segments, action, description, created_at
+			SELECT scope, resource_type, path_segments, action, description, requires, created_at
 			FROM policy_scope_vocabulary ORDER BY scope
 		`)
 	}
@@ -258,7 +275,7 @@ func (r *postgresRepository) CountByResourceType(ctx context.Context) (map[strin
 func (r *postgresRepository) scanEntry(s scanner) (*ScopeEntry, error) {
 	var e ScopeEntry
 	var pathJSON []byte
-	err := s.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.CreatedAt)
+	err := s.Scan(&e.Scope, &e.ResourceType, &pathJSON, &e.Action, &e.Description, &e.Requires, &e.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrScopeNotFound
 	}

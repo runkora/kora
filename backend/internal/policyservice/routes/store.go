@@ -24,6 +24,8 @@ type ScopeDeclaration struct {
 	PathSegments []string `json:"path"`
 	Action       string   `json:"action"`
 	Description  string   `json:"description,omitempty"`
+	// Requires lists scopes this scope depends on (see vocabulary.ScopeEntry.Requires).
+	Requires []string `json:"requires,omitempty"`
 }
 
 // Registration is a single service's route and scope declaration.

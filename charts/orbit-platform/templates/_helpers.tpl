@@ -55,3 +55,20 @@ The orbit-system namespace name.
 {{- define "orbit-platform.systemNamespace" -}}
 {{- .Values.namespaces.system | default "orbit-system" }}
 {{- end }}
+
+{{/*
+The external frontend/BFF host (no scheme, no port), e.g. orbit.example.com. The
+unified backend API host is api.<frontendHost> (north-south convention, ADR
+2026-07-04). Must match the orbit chart's frontendHost. Set per environment —
+never hardcode a domain in the chart.
+*/}}
+{{- define "orbit-platform.frontendHost" -}}
+{{- required "frontendHost must be set — the external host of the frontend/BFF, e.g. orbit.example.com (must match the orbit chart)" .Values.frontendHost }}
+{{- end }}
+
+{{/*
+The unified backend/data-plane API host: api.<frontendHost>.
+*/}}
+{{- define "orbit-platform.apiHost" -}}
+api.{{ include "orbit-platform.frontendHost" . }}
+{{- end }}

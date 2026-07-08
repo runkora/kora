@@ -25,6 +25,7 @@ import { useAgentConnectivity } from '../_hooks/use-agent-connectivity';
 import { hostsToText, textToHosts } from '../../_components/connectivity-fields';
 import { ConnectivityEgressField } from './connectivity-egress-field';
 import { ConnectorsFields } from '../../_components/connectors-fields';
+import { McpToolsFields } from '../../_components/mcp-tools-fields';
 import { EnvironmentField } from '../../_components/environment-field';
 import { EnvironmentSummary } from './environment-summary';
 import { EffectiveAccessPanel } from './effective-access-panel';
@@ -41,7 +42,7 @@ function LayerCard({
   action,
   children,
 }: {
-  icon: 'network' | 'key' | 'layers';
+  icon: 'network' | 'key' | 'layers' | 'server';
   title: string;
   description: string;
   action?: React.ReactNode;
@@ -73,6 +74,10 @@ export function AgentConnectivityTab() {
     availableConnections,
     environmentId,
     setEnvironmentId,
+    mcpTools,
+    setMcpTools,
+    mcpServers,
+    mcpCatalog,
     effectiveAccess,
     accessLoading,
     accessError,
@@ -140,6 +145,22 @@ export function AgentConnectivityTab() {
                 value={connectors}
                 onChange={(c) => {
                   setConnectors(c);
+                  setSaveSuccess(false);
+                }}
+              />
+            </LayerCard>
+
+            <LayerCard
+              icon="server"
+              title="MCP tools"
+              description="The exact tools this agent may call through the governed MCP gateway. Everything else is filtered from tools/list and rejected at call time."
+            >
+              <McpToolsFields
+                servers={mcpServers}
+                catalog={mcpCatalog}
+                value={mcpTools}
+                onChange={(t) => {
+                  setMcpTools(t);
                   setSaveSuccess(false);
                 }}
               />

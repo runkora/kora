@@ -47,6 +47,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
+	"github.com/clear-route/orbit/internal/credentials/adapters/k8sbearer"
 	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/credentials/resolvers/k8sfile"
 	"github.com/clear-route/orbit/internal/egressgw"
@@ -105,6 +106,9 @@ func realMain() error {
 	// No-auth passthrough: governed egress to public/unauthenticated upstreams
 	// (no credential minted or injected). Needs no secret resolver.
 	registry.Register(passthrough.New())
+	// Static ServiceAccount bearer token, reusing the same k8sfile secret
+	// resolver instance as githubapp. No minting, no cache.
+	registry.Register(k8sbearer.New(secretResolver, logger))
 
 	// ── Per-tenant CA bundle ─────────────────────────────────────────────────
 	caBundle, err := cabundle.LoadEager(ctx, egc.Current.Secrets.TenantCARoot, logger)
@@ -176,6 +180,10 @@ func realMain() error {
 	// re-aggregated by the operator). Runs in a goroutine because the
 	// routescopes client retries until the identity-proxy sidecar is ready.
 	connRegistry.OnReload(func(ctx context.Context) {
+		// Drop every cached upstream transport so a rotated ca_cert (or any
+		// other Connection/Secret change) takes effect on the next forward
+		// without a gateway restart.
+		proxyHandler.Transports().Invalidate()
 		if err := scopePub.Publish(ctx, ""); err != nil {
 			logger.Error(ctx, "scope republish after registry reload failed", logging.Field{Key: "error", Value: err.Error()})
 		}

@@ -57,8 +57,14 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-:root {
-  color-scheme: dark;
+[data-theme-switch='light'] {
+  display: none;
+}
+[data-theme='light'] [data-theme-switch='light'] {
+  display: inline-flex;
+}
+[data-theme='light'] [data-theme-switch='dark'] {
+  display: none;
 }
 
 body {
@@ -67,4 +73,30 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/**
+ * MCP catalog — floating selection tray slide-up. Keeps the horizontal centering
+ * (translateX(-50%)) while easing in from below.
+ */
+@keyframes mcp-tray-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/** MCP detail — pulsing health-badge dot. */
+@keyframes mcp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }

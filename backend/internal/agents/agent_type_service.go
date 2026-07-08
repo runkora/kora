@@ -189,12 +189,24 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	}
 
 	// grant_scopes is NOT NULL in the database; default a missing slice to an
-	// empty one so a request that omits the field still creates cleanly. An
-	// empty list is the correct semantics — the agent has no policy grants.
+	// empty one so a request that omits the field still creates cleanly.
 	grantScopes := req.GrantScopes
 	if grantScopes == nil {
 		grantScopes = []string{}
 	}
+
+	// mcp_tools is likewise NOT NULL: a nil slice encodes as SQL NULL, which
+	// overrides the column DEFAULT '{}' and trips the not-null constraint. Default
+	// a missing slice to empty so a request that omits MCP tools still creates.
+	mcpTools := req.MCPTools
+	if mcpTools == nil {
+		mcpTools = []string{}
+	}
+	// Inference grant scopes are derived server-side from the model (single source
+	// of truth) unless the caller supplied explicit inference:* scopes. Connector
+	// and connectivity scopes are compiled separately by EffectiveGrantScopes. See
+	// the 2026-06-30 amendment to agent-identity-and-policy-provisioning.
+	grantScopes = applyDerivedInferenceScopes(grantScopes, req.ModelID)
 
 	// Connectivity posture: default to deny-by-default (none) when omitted.
 	connectivity := Connectivity{Mode: ConnectivityNone}
@@ -236,6 +248,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		GrantScopes:             grantScopes,
 		Connectivity:            connectivity,
 		Connectors:              req.Connectors,
+		MCPTools:                mcpTools,
 		EnvironmentID:           environmentID,
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
@@ -415,17 +428,27 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	}
 	applyAgentTypeUpdates(at, req)
 
+	// Keep the inference grant aligned with the model: when the model changes and
+	// the caller didn't supply explicit inference scopes in this update, re-derive
+	// (replacing the prior model's inference scopes). See the 2026-06-30 amendment
+	// to agent-identity-and-policy-provisioning.
+	callerSetInference := req.GrantScopes != nil && hasInferenceScope(req.GrantScopes)
+	if req.ModelID != nil && !callerSetInference {
+		at.GrantScopes = reconcileInferenceScopes(at.GrantScopes, at.ModelID)
+	}
+
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update agent type")
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
-	// Re-reconcile the policy-service grant when grant scopes, budget, the
-	// connectivity posture, or the connectors change (egress + connection scopes
-	// are compiled into the grant). Run in background so the update response is not
+	// Re-reconcile the policy-service grant when grant scopes, the model (which
+	// drives inference scopes), budget, the connectivity posture, the connectors,
+	// or the governed MCP tool grants change (all compiled into the grant via
+	// EffectiveGrantScopes). Run in background so the update response is not
 	// delayed by a policy-service round-trip.
-	if req.GrantScopes != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.EnvironmentID != nil {
+	if req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.EnvironmentID != nil {
 		detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 		go func() {
@@ -490,6 +513,9 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	}
 	if req.GrantScopes != nil {
 		at.GrantScopes = req.GrantScopes
+	}
+	if req.MCPTools != nil {
+		at.MCPTools = req.MCPTools
 	}
 	if req.Budget != nil {
 		at.Budget = req.Budget

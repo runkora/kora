@@ -40,6 +40,10 @@ export const APP_ROUTES = {
   connections: '/connections',
   environments: '/environments',
   triggers: '/triggers',
+  mcpGateway: {
+    servers: '/mcp-gateway',
+    server: (slug: string) => `/mcp-gateway/${slug}` as const,
+  },
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {
@@ -110,6 +114,13 @@ export const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   // The middleware matches pathname only (no query string), so we register the
   // bare path here rather than a URL with ?email= baked in.
   ApiRoute.discover.PATH(),
+  // MCP OAuth consent page + its decision endpoint — both do their own session
+  // check (SSO reuse) and cold-start login redirect, preserving the FULL authorize
+  // URL (including the OAuth query) in `next`. The middleware must not intercept
+  // them, or it would redirect with pathname-only `next` and drop the OAuth params
+  // through login.
+  '/mcp/authorize',
+  '/api/mcp/authorize',
 ]);
 
 // ── Redirect safety ───────────────────────────────────────────────────────────

@@ -64,7 +64,12 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /exchange", c.handleExchange)
 	mux.Handle("POST /revoke", c.handleRevoke)
 	mux.Handle("GET /.well-known/jwks.json", c.handleJWKS)
+	mux.Handle("GET /.well-known/oauth-authorization-server", c.handleAuthorizationServerMetadata)
 	mux.Handle("GET /tenants/discover", c.handleDiscoverTenant)
+	// OAuth token endpoint (MCP profile) is public: the MCP client authenticates
+	// with the authorization code + PKCE verifier, not a session.
+	mux.Handle("POST /oauth/token", c.handleOAuthToken)
+	mux.Handle("POST /oauth/register", c.handleRegisterClient)
 
 	// PAT management routes: require a non-PAT authenticated caller.
 	// AuthMiddleware verifies the JWT; rejectPATMiddleware then ensures the
@@ -77,6 +82,16 @@ func (c *Controller) Boot(mux *api.Mux) {
 		rejectPATMiddleware(c.logger),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
+	// OAuth authorization code creation: called by the BFF /authorize with the
+	// human's session token. Any authenticated (non-PAT) human may start their own
+	// MCP OAuth flow, so it authenticates but requires no specific scope.
+	authNoScope := mw.MiddlewareChain(
+		c.svc.AuthMiddleware(c.logger),
+		rejectPATMiddleware(c.logger),
+	)
+	mux.HandleWithMiddleware("POST /oauth/code", authNoScope, c.handleCreateOAuthCode)
+	mux.HandleWithMiddleware("GET /oauth/clients/{id}", authNoScope, c.handleGetClient)
+
 	mux.HandleWithMiddleware("POST /tokens", auth, c.handleCreatePAT)
 	mux.HandleWithMiddleware("GET /tokens", auth, c.handleListPATs)
 	// /tokens/attribution must be registered before /tokens/{id} so the literal

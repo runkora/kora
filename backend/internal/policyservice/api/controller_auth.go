@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"strings"
 
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
@@ -39,4 +42,54 @@ func (c *Controller) resolveTenantID(w http.ResponseWriter, r *http.Request, cla
 		return "", false
 	}
 	return claims.Orbit.TenantID, true
+}
+
+// enforceScopeCeiling implements the grant-administration anti-escalation invariant
+// (2026-06-30 amendment to the authorisation model): a non-SYSTEM caller may assign,
+// in a grant or role, only scopes that are covered by its own effective scopes.
+// SYSTEM principals (e.g. orbit-agents provisioning agent grants) are exempt.
+// Returns true if the request may proceed; otherwise it has written the error
+// response (403 naming the rejected scopes, or 500 if the caller's scopes can't be
+// resolved) and the caller must return.
+func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, scopes []string) bool {
+	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+		return true
+	}
+
+	var roles []string
+	if raw := claims.Orbit.Claims["roles"]; raw != "" {
+		for role := range strings.SplitSeq(raw, ",") {
+			if t := strings.TrimSpace(role); t != "" {
+				roles = append(roles, t)
+			}
+		}
+	}
+
+	callerScopes, err := c.svc.EffectiveScopes(ctx, claims.Orbit.TenantID, string(claims.Orbit.PrincipalType), claims.Subject, roles)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve caller scopes", nil), err)
+		return false
+	}
+
+	if rejected := uncoveredScopes(callerScopes, scopes); len(rejected) > 0 {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
+				"cannot grant scopes you do not hold: "+strings.Join(rejected, ", "), nil), nil)
+		return false
+	}
+	return true
+}
+
+// uncoveredScopes returns the scopes in `requested` that are not covered by any
+// scope in `held` (per the Orbit scope hierarchy). Empty result means every
+// requested scope is within the holder's authority.
+func uncoveredScopes(held, requested []string) []string {
+	var out []string
+	for _, s := range requested {
+		if !policy.AnyScopeCovers(held, s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
