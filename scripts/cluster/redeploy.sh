@@ -267,19 +267,33 @@ pin_workload() {
   local workload="$1"
   local kind="${workload%%/*}"
   local name="${workload##*/}"
-  local container_name current
+  local containers container_name current
 
-  container_name=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
-    -o jsonpath='{.spec.template.spec.containers[?(@.image)].name}' 2>/dev/null \
-    | awk '{print $1}')
+  # `|| true`: under `set -euo pipefail` a missing workload would otherwise kill
+  # the script mid-run with no message — reachable when a chart hasn't created
+  # the Deployment yet, or on a cluster predating an extra_workloads entry.
+  containers=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
+    -o jsonpath='{range .spec.template.spec.containers[*]}{.name} {.image}{"\n"}{end}' 2>/dev/null || true)
+  if [ -z "$containers" ]; then
+    info "$workload not found in $NAMESPACE — skipping rollout"
+    return 0
+  fi
+
+  # Match the container running *this* image rather than taking the first one.
+  # Deployment specs are single-container today (istio/identity-proxy sidecars
+  # are injected at admission, so they never appear here), but the publisher's
+  # container is named for its image, not its workload — never match on $name.
+  container_name=$(printf '%s\n' "$containers" | grep -E "/${IMAGE}[@:]" | awk '{print $1; exit}' || true)
+  if [ -z "$container_name" ]; then
+    container_name=$(printf '%s\n' "$containers" | awk 'NF {print $1; exit}')
+  fi
 
   if [ -n "$DIGEST" ] && [ -n "$container_name" ]; then
     # Skip the rollout entirely when the workload is already pinned to this
     # exact digest. Saves ~30s of pod churn on a no-op redeploy. Even with
     # source unchanged, Docker often produces a fresh manifest digest because
     # the runtime-stage export isn't deterministic (timestamps, layer order).
-    current=$(kubectl get "$workload" -n "$NAMESPACE" \
-      -o jsonpath='{.spec.template.spec.containers[?(@.name=="'"$container_name"'")].image}' 2>/dev/null)
+    current=$(printf '%s\n' "$containers" | awk -v c="$container_name" '$1 == c {print $2; exit}')
     if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
       ok "$workload already at $IMAGE@${DIGEST:0:19} — no rollout needed"
       return 0
@@ -379,8 +393,11 @@ if [ -z "$SLUG" ]; then SLUG="$TENANT"; fi
 NAMESPACE="${NAMESPACE//\{tenant\}/$TENANT}"
 WORKLOAD="${WORKLOAD//\{tenant\}/$TENANT}"
 WORKLOAD="${WORKLOAD//\{slug\}/$SLUG}"
+EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{tenant\}/$TENANT}"
+EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{slug\}/$SLUG}"
 
-if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]]; then
+if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]] \
+  || [[ "$EXTRA_WORKLOADS" == *"{tenant}"* ]] || [[ "$EXTRA_WORKLOADS" == *"{slug}"* ]]; then
   err "Service '$SERVICE' requires --tenant <slug>"
   exit 1
 fi
