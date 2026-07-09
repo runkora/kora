@@ -13,6 +13,9 @@ ARG RUST_VERSION=1.83.0
 ARG JAVA_VERSION=21
 ARG DOTNET_VERSION=8.0
 ARG RUBY_VERSION=3.3
+# kubectl only supports one minor version of skew from the API server, so pin
+# this to the minor of the cluster a `kubernetes` connection points at.
+ARG KUBECTL_VERSION=1.33.13
 
 # =============================================================================
 # INSTALL FLAGS
@@ -24,6 +27,7 @@ ARG INSTALL_JAVA=false
 ARG INSTALL_DOTNET=false
 ARG INSTALL_RUBY=false
 ARG INSTALL_BROWSERS=false
+ARG INSTALL_KUBECTL=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -54,6 +58,7 @@ ARG RUST_VERSION
 ARG JAVA_VERSION
 ARG DOTNET_VERSION
 ARG RUBY_VERSION
+ARG KUBECTL_VERSION
 ARG INSTALL_BUN
 ARG INSTALL_RUST
 ARG INSTALL_GO
@@ -61,6 +66,7 @@ ARG INSTALL_JAVA
 ARG INSTALL_DOTNET
 ARG INSTALL_RUBY
 ARG INSTALL_BROWSERS
+ARG INSTALL_KUBECTL
 
 # Base dependencies + the universal developer CLIs an agent needs for real
 # engineering work (clone, search, build native deps, fetch, slice JSON). Heavier
@@ -205,6 +211,36 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* && \
       echo "Chromium version:" && chromium --version && \
       echo "Firefox version:" && firefox --version ; \
+    fi
+
+# kubectl — for agents granted a `kubernetes` connection.
+#
+# No credential ever reaches the sandbox: the agent points kubectl at the target
+# API server (`kubectl --server=https://<baseHost> …`) with no token and no
+# kubeconfig user. Transparent egress intercepts the TLS, and the egress
+# gateway's credential broker resolves the connection's ServiceAccount bearer
+# and injects it on the re-originated leg. The target cluster's own RBAC is the
+# backstop. See docs/adr/2026-07-06-kubernetes-connection-bearer-adapter-and-
+# gateway-ca-trust.md.
+#
+# The gateway's CA is already trusted here: the agent pod mounts the tenant CA
+# and exports SSL_CERT_FILE (internal/agents/k8s.go), which Go's crypto/x509
+# honours when building the system root pool — so kubectl needs no
+# --certificate-authority and must never be given --insecure-skip-tls-verify.
+RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
+      set -eux; \
+      dpkgArch="$(dpkg --print-architecture)"; \
+      case "${dpkgArch##*-}" in \
+        amd64) ARCH='amd64';; \
+        arm64) ARCH='arm64';; \
+      esac; \
+      base="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}"; \
+      curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl" && \
+      curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl.sha256" && \
+      echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status && \
+      install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+      rm -f kubectl kubectl.sha256 && \
+      kubectl version --client ; \
     fi
 
 # sandbox-exec gRPC server
