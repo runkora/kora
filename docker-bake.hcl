@@ -42,6 +42,7 @@ target "backend-images" {
       { service = "policy-service" },
       { service = "policy-gateway" },
       { service = "egress-gateway" },
+      { service = "tool-gateway" },
       { service = "example" },
     ]
   }
@@ -107,6 +108,23 @@ target "orbit-shell" {
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-shell:${IMAGE_TAG}"]
+}
+
+// Not a matrix entry: the matrix names images "orbit-${service}", which would
+// yield "orbit-orbit-mcp" for the orbit-mcp service directory.
+target "orbit-mcp" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "orbit-mcp"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "orbit-mcp"
+    "org.opencontainers.image.description" = "Orbit MCP server — Orbit's management surface as MCP tools over Streamable HTTP"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-mcp:${IMAGE_TAG}"]
 }
 
 target "orbit-runtime-mcp" {
@@ -190,6 +208,7 @@ group "default" {
     "backend-images",
     "orbit-agents",
     "orbit-shell",
+    "orbit-mcp",
     "orbit-runtime-mcp",
     "orbit-session-manager",
     "orbit-sandbox-exec",
