@@ -227,19 +227,35 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
 # and exports SSL_CERT_FILE (internal/agents/k8s.go), which Go's crypto/x509
 # honours when building the system root pool — so kubectl needs no
 # --certificate-authority and must never be given --insecure-skip-tls-verify.
+# The expected digests are pinned HERE rather than fetched from dl.k8s.io
+# alongside the binary. A published kubectl.sha256 travels over the same channel
+# as the binary it attests, so anyone able to tamper with one can tamper with
+# both; a digest committed to this file is reviewed by a human and verified
+# against the release at pin time. Kubernetes publishes no GPG signature for
+# kubectl.sha256 (that URL is a 404) — the binary is cosign/sigstore-signed
+# (kubectl.sig, kubectl.cert), which would need cosign and a Rekor round-trip in
+# the build. The pinned digest gives the same integrity guarantee offline.
+#
+# To bump: set KUBECTL_VERSION to a release matching the target cluster's minor
+# (one minor of API-server skew is all kubectl supports), then refresh both
+# digests from
+#   https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/{amd64,arm64}/kubectl.sha256
+# Pinned 2026-07-09 for v1.33.13 against a v1.33 cluster.
+ARG KUBECTL_SHA256_AMD64=316d712726d857c20744c57cb36aa47cfc79bc0af7e82cebf3780244b654c073
+ARG KUBECTL_SHA256_ARM64=9fe8aadd5aab9421978c7ac95de6fad304a3c4c0ce9dbf4127579779e0699080
 RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       set -eux; \
       dpkgArch="$(dpkg --print-architecture)"; \
       case "${dpkgArch##*-}" in \
-        amd64) ARCH='amd64';; \
-        arm64) ARCH='arm64';; \
+        amd64) ARCH='amd64'; SHA="${KUBECTL_SHA256_AMD64}";; \
+        arm64) ARCH='arm64'; SHA="${KUBECTL_SHA256_ARM64}";; \
+        *) echo "unsupported architecture for kubectl: ${dpkgArch}" >&2; exit 1;; \
       esac; \
       base="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}"; \
       curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl" && \
-      curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl.sha256" && \
-      echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check --status && \
+      echo "${SHA}  kubectl" | sha256sum --check && \
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
-      rm -f kubectl kubectl.sha256 && \
+      rm -f kubectl && \
       kubectl version --client ; \
     fi
 
