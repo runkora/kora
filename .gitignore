@@ -108,3 +108,11 @@ infrastructure/overlays/*/charts
 
 # Scratch / working files (local only)
 .scratch/
+
+# Stray binaries from `go build ./cmd/<svc>` with no -o (the binary lands in CWD).
+/backend/sandbox-exec
+/backend/orbit-shell
+/backend/orbit-mcp
+/backend/tool-gateway
+/backend/identity
+/backend/orbit-agents

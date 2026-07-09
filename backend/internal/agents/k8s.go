@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -262,7 +264,7 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 // The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
 // (named "workspaces-{slug}-{ordinal}") so files written by the agent container
 // (Edit, Write tools) are immediately visible in the sandbox without copying.
-func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error) {
+func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error) {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", run.ID),
@@ -343,7 +345,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 				},
 			},
 			Volumes:    sandboxVolumes(workspacesPVC, p.cfg),
-			Containers: []corev1.Container{sandboxContainer(p.cfg)},
+			Containers: []corev1.Container{sandboxContainer(p.cfg, kubeClusters)},
 		},
 	}
 
@@ -543,7 +545,7 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 // When SystemNamespace is empty (defensive — should never happen in
 // production) the CA env is omitted so the sandbox simply has no governed
 // egress.
-func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
+func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
 	}
@@ -594,6 +596,14 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig) []corev1.EnvVar {
 		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
 		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-orbit-egress-gateway"},
 	)
+	// Kubernetes connections the agent is granted. sandbox-exec renders these to
+	// $HOME/.kube/config at startup, so the agent runs `kubectl get pods` with no
+	// server URL, no kubeconfig and no token — the gateway injects the brokered
+	// ServiceAccount credential on the wire. Omitted entirely when the agent has
+	// no Kubernetes connector.
+	if encoded, err := kubeconfig.Encode(kubeClusters); err == nil && encoded != "" {
+		env = append(env, corev1.EnvVar{Name: kubeconfig.ClustersEnvVar, Value: encoded})
+	}
 	return env
 }
 
@@ -675,7 +685,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 // when an egress gateway URL can be derived, a read-only mount of the tenant
 // CA root is added so the env vars in sandboxContainerEnv point at a real
 // file.
-func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
+func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster) corev1.Container {
 	mounts := []corev1.VolumeMount{
 		{Name: "workspaces", MountPath: "/workspaces"},
 	}
@@ -723,7 +733,7 @@ func sandboxContainer(cfg K8sProvisionerConfig) corev1.Container {
 				Drop: []corev1.Capability{"ALL"},
 			},
 		},
-		Env:          sandboxContainerEnv(cfg),
+		Env:          sandboxContainerEnv(cfg, kubeClusters),
 		VolumeMounts: mounts,
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
