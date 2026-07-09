@@ -59,6 +59,8 @@ EOF
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
 #   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}).
 #               Use {slug} as a placeholder for the agent slug (== tenant).
+#   extra_workloads  Optional space-separated list of additional workloads that
+#               run the same image and must be rolled alongside `workload`.
 #   post_build  Optional script step run after the base image is built.
 #               Currently used only by identity to layer the mkcert CA in.
 #   restart     'true' to do a rollout restart, 'false' for build-only services.
@@ -168,6 +170,8 @@ restart=true
 EOF
       ;;
     tool-gateway)
+      # The publisher runs the same orbit-tool-gateway image in a different mode,
+      # so it must be rolled with the gateway or it keeps serving the old build.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
@@ -175,6 +179,7 @@ build_arg=SERVICE=tool-gateway
 image=orbit-tool-gateway
 namespace=orbit-system
 workload=deployment/orbit-tool-gateway
+extra_workloads=deployment/orbit-tool-gateway-publisher
 restart=true
 EOF
       ;;
@@ -240,14 +245,72 @@ identity-proxy      (sidecar — restart by deleting injected pods)
 inference-gateway   (deployment, orbit-system)
 policy-service      (deployment, orbit-system)
 policy-gateway      (deployment, orbit-system)
+egress-gateway      (deployment, orbit-system)
 agents              (deployment, orbit-system)
 frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
+tool-gateway        (deployment, orbit-system; also rolls the publisher)
 operator            (deployment, orbit-operator)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
 sandbox-exec        (build-only — picked up by next agent run)
 EOF
+}
+
+# ── rollout ───────────────────────────────────────────────────────────────────
+
+# Pin one workload to the exact digest we just pushed. Deterministic (kubelet
+# always pulls exactly this image) and surfaces the running version in
+# `kubectl describe`. Falls back to a plain rollout restart if we can't resolve
+# the digest (e.g. registry hiccup). Reads $NAMESPACE/$IMAGE/$DIGEST/$GIT_SHA.
+pin_workload() {
+  local workload="$1"
+  local kind="${workload%%/*}"
+  local name="${workload##*/}"
+  local containers container_name current
+
+  # `|| true`: under `set -euo pipefail` a missing workload would otherwise kill
+  # the script mid-run with no message — reachable when a chart hasn't created
+  # the Deployment yet, or on a cluster predating an extra_workloads entry.
+  containers=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
+    -o jsonpath='{range .spec.template.spec.containers[*]}{.name} {.image}{"\n"}{end}' 2>/dev/null || true)
+  if [ -z "$containers" ]; then
+    info "$workload not found in $NAMESPACE — skipping rollout"
+    return 0
+  fi
+
+  # Match the container running *this* image rather than taking the first one.
+  # Deployment specs are single-container today (istio/identity-proxy sidecars
+  # are injected at admission, so they never appear here), but the publisher's
+  # container is named for its image, not its workload — never match on $name.
+  container_name=$(printf '%s\n' "$containers" | grep -E "/${IMAGE}[@:]" | awk '{print $1; exit}' || true)
+  if [ -z "$container_name" ]; then
+    container_name=$(printf '%s\n' "$containers" | awk 'NF {print $1; exit}')
+  fi
+
+  if [ -n "$DIGEST" ] && [ -n "$container_name" ]; then
+    # Skip the rollout entirely when the workload is already pinned to this
+    # exact digest. Saves ~30s of pod churn on a no-op redeploy. Even with
+    # source unchanged, Docker often produces a fresh manifest digest because
+    # the runtime-stage export isn't deterministic (timestamps, layer order).
+    current=$(printf '%s\n' "$containers" | awk -v c="$container_name" '$1 == c {print $2; exit}')
+    if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
+      ok "$workload already at $IMAGE@${DIGEST:0:19} — no rollout needed"
+      return 0
+    fi
+    log "Pinning $workload ($container_name) to $IMAGE@${DIGEST:0:19}..."
+    # Push uses localhost:5001 (host perspective) but cluster nodes resolve
+    # the registry as orbit-registry:5001. Digests are content-addressed so
+    # they're identical from either side.
+    kubectl set image "$workload" \
+      "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
+      -n "$NAMESPACE"
+  else
+    log "Restarting $workload in $NAMESPACE (digest unavailable)..."
+    kubectl rollout restart "$workload" -n "$NAMESPACE"
+  fi
+  kubectl rollout status "$workload" -n "$NAMESPACE" --timeout=180s
+  ok "$workload updated to $IMAGE:$GIT_SHA"
 }
 
 # ── post-build hooks ──────────────────────────────────────────────────────────
@@ -302,7 +365,7 @@ fi
 
 # Parse spec.
 DOCKERFILE=""; CONTEXT=""; BUILD_ARG=""; IMAGE=""; NAMESPACE=""
-WORKLOAD=""; POST_BUILD=""; RESTART=""; TENANT_DEFAULT=""
+WORKLOAD=""; EXTRA_WORKLOADS=""; POST_BUILD=""; RESTART=""; TENANT_DEFAULT=""
 while IFS='=' read -r k v; do
   [ -z "$k" ] && continue
   case "$k" in
@@ -312,6 +375,7 @@ while IFS='=' read -r k v; do
     image) IMAGE="$v" ;;
     namespace) NAMESPACE="$v" ;;
     workload) WORKLOAD="$v" ;;
+    extra_workloads) EXTRA_WORKLOADS="$v" ;;
     post_build) POST_BUILD="$v" ;;
     restart) RESTART="$v" ;;
     tenant_default) TENANT_DEFAULT="$v" ;;
@@ -329,8 +393,11 @@ if [ -z "$SLUG" ]; then SLUG="$TENANT"; fi
 NAMESPACE="${NAMESPACE//\{tenant\}/$TENANT}"
 WORKLOAD="${WORKLOAD//\{tenant\}/$TENANT}"
 WORKLOAD="${WORKLOAD//\{slug\}/$SLUG}"
+EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{tenant\}/$TENANT}"
+EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{slug\}/$SLUG}"
 
-if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]]; then
+if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]] \
+  || [[ "$EXTRA_WORKLOADS" == *"{tenant}"* ]] || [[ "$EXTRA_WORKLOADS" == *"{slug}"* ]]; then
   err "Service '$SERVICE' requires --tenant <slug>"
   exit 1
 fi
@@ -413,38 +480,9 @@ case "$WORKLOAD" in
     info "$SERVICE has no long-lived workload to restart"
     ;;
   *)
-    # Pin to the exact digest we just pushed. This is deterministic (kubelet
-    # always pulls exactly this image) and surfaces the running version in
-    # `kubectl describe`. Falls back to a plain rollout restart if we can't
-    # resolve the digest (e.g. registry hiccup).
-    kind="${WORKLOAD%%/*}"
-    name="${WORKLOAD##*/}"
-    container_name=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
-      -o jsonpath='{.spec.template.spec.containers[?(@.image)].name}' 2>/dev/null \
-      | awk '{print $1}')
-    if [ -n "$DIGEST" ] && [ -n "$container_name" ]; then
-      # Skip the rollout entirely when the deployment is already pinned to this
-      # exact digest. Saves ~30s of pod churn on a no-op redeploy. Even with
-      # source unchanged, Docker often produces a fresh manifest digest because
-      # the runtime-stage export isn't deterministic (timestamps, layer order).
-      current=$(kubectl get "$WORKLOAD" -n "$NAMESPACE" \
-        -o jsonpath='{.spec.template.spec.containers[?(@.name=="'"$container_name"'")].image}' 2>/dev/null)
-      if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
-        ok "$WORKLOAD already at $IMAGE@${DIGEST:0:19} — no rollout needed"
-        exit 0
-      fi
-      log "Pinning $WORKLOAD ($container_name) to $IMAGE@${DIGEST:0:19}..."
-      # Push uses localhost:5001 (host perspective) but cluster nodes resolve
-      # the registry as orbit-registry:5001. Digests are content-addressed so
-      # they're identical from either side.
-      kubectl set image "$WORKLOAD" \
-        "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
-        -n "$NAMESPACE"
-    else
-      log "Restarting $WORKLOAD in $NAMESPACE (digest unavailable)..."
-      kubectl rollout restart "$WORKLOAD" -n "$NAMESPACE"
-    fi
-    kubectl rollout status "$WORKLOAD" -n "$NAMESPACE" --timeout=180s
-    ok "$WORKLOAD updated to $IMAGE:$GIT_SHA"
+    pin_workload "$WORKLOAD"
+    for extra in $EXTRA_WORKLOADS; do
+      pin_workload "$extra"
+    done
     ;;
 esac

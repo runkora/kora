@@ -404,8 +404,21 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp operator session-manager sandbox-exec
+	egress-gateway agents frontend orbit-mcp tool-gateway operator \
+	session-manager sandbox-exec
 REDEPLOY_TENANT_SERVICES := example
+
+# Services with a long-lived orbit-system workload that `cluster-update` rolls
+# after the build pass. Excludes identity-proxy (sidecar), sandbox-exec
+# (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
+# operator (helm-managed — upgraded separately so chart/CRD changes land).
+REDEPLOY_ROLLOUT_SERVICES := \
+	identity inference-gateway policy-service policy-gateway egress-gateway \
+	agents frontend orbit-mcp tool-gateway
+
+# orbit-system deployments we don't build (third-party images) but still restart
+# on cluster-update so they re-read chart-managed config on the way back up.
+REDEPLOY_RESTART_ONLY := orbit-opa-gateway
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
 
@@ -538,10 +551,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 .PHONY: cluster-operator
 cluster-operator: redeploy-platform docker-pull-third-party ## Install the Orbit operator and bring up the full platform (SPIRE + Istio + Orbit services)
 	@echo "$(COLOR_YELLOW)Installing Orbit operator...$(COLOR_RESET)"
-	@helm upgrade --install orbit-operator charts/orbit-operator \
-		-f deploy/local/operator-values.yaml \
-		--namespace orbit-operator --create-namespace \
-		--timeout 60s --wait
+	@$(MAKE) cluster-operator-chart
 	@echo "$(COLOR_YELLOW)Applying OrbitPlatform CR...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/orbit-platform.yaml
 	@echo "  Waiting for orbit-system namespace (created by operator)..."
@@ -577,6 +587,19 @@ cluster-operator: redeploy-platform docker-pull-third-party ## Install the Orbit
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
 
+.PHONY: cluster-operator-chart
+cluster-operator-chart: ## helm upgrade --install the operator chart (CRDs + operator deployment)
+	@# --force-conflicts: redeploy.sh pins the operator image with `kubectl set image`,
+	@# which takes server-side-apply ownership of .image away from helm. Without this
+	@# flag every upgrade after a redeploy fails with a field-manager conflict, so
+	@# chart/CRD changes never land. Helm reclaims the field and resets it to :latest;
+	@# callers re-pin the digest afterwards.
+	@helm upgrade --install orbit-operator charts/orbit-operator \
+		-f deploy/local/operator-values.yaml \
+		--namespace orbit-operator --create-namespace \
+		--force-conflicts \
+		--timeout 90s --wait
+
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and deploy workloads
 	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
@@ -606,12 +629,26 @@ cluster-deploy: redeploy-tenant ## Build tenant images, register tenants, and de
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Restarting all Orbit deployments...$(COLOR_RESET)"
-	@kubectl rollout restart deployment -n orbit-system
-	@kubectl rollout restart deployment -n orbit-tenant-example 2>/dev/null || true
-	@echo "$(COLOR_YELLOW)Waiting for rollouts to complete...$(COLOR_RESET)"
-	@kubectl rollout status deployment -n orbit-system --timeout=120s
-	@kubectl rollout status deployment -n orbit-tenant-example --timeout=120s 2>/dev/null || true
+	@echo "$(COLOR_YELLOW)Upgrading the operator chart (picks up CRD + template changes)...$(COLOR_RESET)"
+	@$(MAKE) cluster-operator-chart
+	@bash scripts/cluster/redeploy.sh operator --no-build
+	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
+	@# `kubectl rollout restart` is NOT enough: redeploy.sh pins workloads to an
+	@# image digest, so a restart faithfully re-pulls the *old* digest. Re-pinning
+	@# via redeploy.sh --no-build is what actually advances the image.
+	@for svc in $(REDEPLOY_ROLLOUT_SERVICES); do \
+		bash scripts/cluster/redeploy.sh $$svc --no-build || exit $$?; \
+	done
+	@echo "$(COLOR_YELLOW)Restarting non-built platform deployments...$(COLOR_RESET)"
+	@for dep in $(REDEPLOY_RESTART_ONLY); do \
+		kubectl get deployment $$dep -n orbit-system >/dev/null 2>&1 || continue; \
+		kubectl rollout restart deployment/$$dep -n orbit-system; \
+		kubectl rollout status deployment/$$dep -n orbit-system --timeout=120s; \
+	done
+	@echo "$(COLOR_YELLOW)Rolling tenant workloads...$(COLOR_RESET)"
+	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
+		bash scripts/cluster/redeploy.sh $$svc --no-build || exit $$?; \
+	done
 	@echo "$(COLOR_GREEN)✓ All services updated with latest images$(COLOR_RESET)"
 
 .PHONY: cluster-bedrock-creds
@@ -685,6 +722,10 @@ redeploy-agents: ## Redeploy orbit-agents (agent control plane)
 .PHONY: redeploy-frontend
 redeploy-frontend: ## Redeploy the frontend
 	@bash scripts/cluster/redeploy.sh frontend $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-tool-gateway
+redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher — same image)
+	@bash scripts/cluster/redeploy.sh tool-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
 redeploy-operator: ## Redeploy the orbit-operator (charts are baked into the image)
