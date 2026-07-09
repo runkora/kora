@@ -3,6 +3,7 @@ package connections
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -74,14 +75,49 @@ func TestEgressHosts_Passthrough(t *testing.T) {
 }
 
 // TestEgressHosts_KubernetesBearer locks that a cluster connection serves
-// exactly its own declared host — no host family the way GitHub's does.
+// exactly its own declared host — no host family the way GitHub's does — and
+// that the PORT IS STRIPPED. An egress scope names a host, never a host:port:
+// the grant path rejects a host segment containing ":" (it reserves the colon
+// for IPv6 literals), and the rego matcher compares against the CONNECT
+// :authority with the port already removed. Returning "host:6443" here yielded
+// "egress:host:6443:connect" — ungrantable, and unmatchable even if granted —
+// which made every kubernetes connection unusable by any agent.
 func TestEgressHosts_KubernetesBearer(t *testing.T) {
-	want := []string{"k8s.acme.internal:6443"}
+	want := []string{"k8s.acme.internal"}
 	if got := EgressHosts(AdapterKubernetesBearer, "k8s.acme.internal:6443"); !slices.Equal(got, want) {
 		t.Errorf("EgressHosts(kubernetes, k8s.acme.internal:6443) = %v, want %v", got, want)
 	}
+	// A baseHost with no port is returned unchanged.
+	if got := EgressHosts(AdapterKubernetesBearer, "k8s.acme.internal"); !slices.Equal(got, want) {
+		t.Errorf("EgressHosts(kubernetes, k8s.acme.internal) = %v, want %v", got, want)
+	}
+	// Mixed case is lowercased — EKS endpoints are upper-case, and the rego
+	// lowercases the CONNECT host before matching.
+	if got := EgressHosts(AdapterKubernetesBearer, "ABC123.gr7.ap-southeast-2.eks.amazonaws.com:443"); !slices.Equal(got, []string{"abc123.gr7.ap-southeast-2.eks.amazonaws.com"}) {
+		t.Errorf("EgressHosts(kubernetes, mixed-case EKS host) = %v, want lowercased and port-stripped", got)
+	}
 	if got := EgressHosts(AdapterKubernetesBearer, ""); got != nil {
 		t.Errorf("EgressHosts(kubernetes, \"\") = %v, want nil", got)
+	}
+}
+
+// TestEgressHosts_PortStrippedIsGrantable locks the invariant that actually
+// broke: every host EgressHosts returns must be usable as the host segment of
+// an "egress:<host>:connect" scope, i.e. contain no colon. The policy service's
+// isStructurallyValidEgressScope enforces this at grant time; this test is the
+// same rule applied at the source.
+func TestEgressHosts_PortStrippedIsGrantable(t *testing.T) {
+	cases := map[string]string{
+		AdapterKubernetesBearer: "cluster.example.com:6443",
+		AdapterPassthrough:      "example.com:8443",
+		AdapterGitHubApp:        "github.acme.com",
+	}
+	for adapter, baseHost := range cases {
+		for _, h := range EgressHosts(adapter, baseHost) {
+			if strings.ContainsAny(h, " \t:/") {
+				t.Errorf("EgressHosts(%s, %q) returned %q — not a valid egress scope host segment", adapter, baseHost, h)
+			}
+		}
 	}
 }
 
