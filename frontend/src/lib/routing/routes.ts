@@ -54,6 +54,14 @@ export const APP_ROUTES = {
     routes: '/policy/routes',
     evaluate: '/policy/evaluate',
   },
+  identity: '/identity',
+
+  // ── Account ─────────────────────────────────────────────────────────────
+  profile: '/profile',
+
+  // ── System ───────────────────────────────────────────────────────────────
+  storage: '/storage',
+  settings: '/settings',
 
   // ── Model Gateway ─────────────────────────────────────────────────────────
   modelGateway: {

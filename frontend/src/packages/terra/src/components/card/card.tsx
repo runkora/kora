@@ -342,7 +342,7 @@ const CardHeader = React.forwardRef<HTMLDivElement, CardHeaderProps>(
       <div
         ref={ref}
         className={cn(
-          'flex flex-col gap-1.5 px-4',
+          'flex flex-col gap-1.5 px-6',
           compact ? 'py-2.5' : 'py-3.5',
           divider && 'border-b border-border-subtle',
           className,
