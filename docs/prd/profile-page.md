@@ -315,7 +315,7 @@ The profile page displays three cards in a single-column layout:
 
 ### Related Documents
 
-- [ADR-0037](../adr/0037-frontend-policy-projection.md) - Frontend policy projection
+- [ADR-0037](../adr/2026-04-14-frontend-policy-projection.md) - Frontend policy projection
 - [Personal Access Tokens PRD](./personal-access-tokens.md) - PAT backend API (consumed by this feature)
 
 ### References

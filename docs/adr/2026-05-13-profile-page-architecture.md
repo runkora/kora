@@ -1,4 +1,4 @@
-# 0061. Profile Page Architecture
+# Profile Page Architecture
 
 **Status:** Proposed
 **Date:** 2026-05-13
@@ -456,12 +456,12 @@ Per the golden path and `AGENTS.md` conventions:
 
 ## Related Decisions
 
-- [ADR-0019](0019-frontend-scaffolding-and-toolchain.md) — Next.js App Router; server component fetch and SSR hydration patterns apply here
-- [ADR-0030](0030-browser-auth-flow-and-bff-session-architecture.md) — BFF session architecture (iron-session, sealed cookie, server-only access token)
-- [ADR-0033](0033-personal-access-tokens.md) — PAT model and listing endpoint
-- [ADR-0037](0037-frontend-policy-projection.md) — Permission projection into session; `GET /policy/scopes` for session enrichment (the `/scopes/explain` variant is an extension of this endpoint, implemented in `policy/_services/policy-server.ts`)
-- [ADR-0042](0042-user-profiles-table-for-principal-attribution.md) — `user_profiles` table and `GET /identity/users/{id}` endpoint
-- [ADR-0046](0046-frontend-component-consolidation.md) — Three-tier component model; Terra and app-shared components
+- [ADR-0019](2026-03-17-frontend-scaffolding-and-toolchain.md) — Next.js App Router; server component fetch and SSR hydration patterns apply here
+- [ADR-0030](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — BFF session architecture (iron-session, sealed cookie, server-only access token)
+- [ADR-0033](2026-04-02-personal-access-tokens.md) — PAT model and listing endpoint
+- [ADR-0037](2026-04-14-frontend-policy-projection.md) — Permission projection into session; `GET /policy/scopes` for session enrichment (the `/scopes/explain` variant is an extension of this endpoint, implemented in `policy/_services/policy-server.ts`)
+- [ADR-0042](2026-04-19-user-profiles-table-for-principal-attribution.md) — `user_profiles` table and `GET /identity/users/{id}` endpoint
+- [ADR-0046](2026-05-04-frontend-component-consolidation.md) — Three-tier component model; Terra and app-shared components
 
 ---
 
