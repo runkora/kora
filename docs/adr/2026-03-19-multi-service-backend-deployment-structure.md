@@ -406,7 +406,7 @@ No `ClusterSPIFFEID` resource is required — step 3 is the only infrastructure 
 - [Go Modules Reference — Multiple main packages in one module](https://go.dev/ref/mod)
 - [Goose — Timestamp-based migration versioning](https://github.com/pressly/goose)
 - [Kubernetes Jobs — run-to-completion workloads](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-- [infrastructure/base/spiffe.yaml](../../infrastructure/base/spiffe.yaml) — Generic label-driven ClusterSPIFFEID templates
+- infrastructure/base/spiffe.yaml — Generic label-driven ClusterSPIFFEID templates
 
 ---
 

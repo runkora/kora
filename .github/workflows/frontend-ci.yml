@@ -42,6 +42,10 @@ jobs:
       - name: Format check
         run: make frontend-fmt
 
+      # Terra has its own vitest config; the app's unit config excludes src/packages/**.
+      - name: Terra component tests
+        run: cd frontend && pnpm --filter @orbit/terra run test:unit
+
       - name: Unit tests
         run: cd frontend && pnpm run test:coverage:unit
 

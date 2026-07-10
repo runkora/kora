@@ -26,8 +26,9 @@ pnpm install
 
 ### Environment
 
-The BFF server layer (`src/server/config.ts`) **requires** six env vars and the
-app throws on boot if any is missing. There are no defaults.
+The BFF server layer (`src/server/config.ts`) calls `requireEnv(...)` for every
+backend URL and the session secret, so the app throws on boot if any is missing.
+There are no defaults.
 
 - **Running via `make frontend-dev`** — the root Makefile sources the repo root
   `.env` and re-exports everything into the pnpm sub-shell, so the root `.env`
@@ -44,8 +45,11 @@ app throws on boot if any is missing. There are no defaults.
   collides with identity on the host). Generate `BFF_SESSION_SECRET` (min 32
   chars) with `openssl rand -base64 32`.
 
-Required: `ORBIT_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_SERVICE_URL`,
-`POLICY_GATEWAY_URL`, `ORBIT_AGENTS_URL`, `BFF_SESSION_SECRET`.
+Required — one `requireEnv(...)` call each in `src/server/config.ts`:
+`ORBIT_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_SERVICE_URL`,
+`POLICY_GATEWAY_URL`, `ORBIT_AGENTS_URL`, `TOOL_GATEWAY_URL`,
+`BFF_SESSION_SECRET`. (`TOOL_GATEWAY_URL` and `ORBIT_AGENTS_URL` point at
+cluster-only services — see the note below and in `.env.example`.)
 
 ## Running the dev server
 
@@ -61,6 +65,29 @@ The app starts on http://localhost:3000. For a working login you also need the
 backend running — at minimum the identity service (`make run-identity`, :8080)
 and Dex/infra (`make dev-up`); see the root `README` / `AGENTS.md` for the full
 backend bootstrap.
+
+### Two ways to run the frontend — pick the right loop
+
+There are two distinct frontend loops. Use the fast host loop for almost all UI
+work; only reach for the cluster loop when a feature depends on a cluster-only
+backend service.
+
+| Loop               | Command                          | Speed              | What it is                                                                                                                         | When you need it                                                                                                                  |
+| ------------------ | -------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Host (fast)**    | `pnpm dev` / `make frontend-dev` | Instant hot-reload | `next dev` on the host at :3000, reading the root `.env` (or `frontend/.env.local`)                                                | The default for all UI work — styling, components, pages backed by host-reachable services (identity, inference gateway, policy). |
+| **Cluster (slow)** | `make redeploy-frontend`         | Minutes per change | Builds a Docker image (`docker buildx bake`) and rolls it into the k3d cluster, served at `https://orbit.local.clearroute.io:8443` | When you must exercise the app against cluster-only services, or verify the production image build itself.                        |
+
+The cluster image bakes in `NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443`
+at build time (overridable via the `NEXT_PUBLIC_APP_URL` make variable — see the
+root `Makefile`), so it is not a hot-reload loop: every change means a full
+rebuild + rollout.
+
+> **The agents pages need the cluster.** `orbit-agents` runs in-cluster only
+> (it binds `:8080` there and has no host run target), and the MCP tool gateway
+> (`TOOL_GATEWAY_URL`) is likewise cluster-only. Under the host loop those env
+> vars are satisfied by placeholders so the BFF can boot, but the agents and
+> tool-catalog pages will error until you point them at the cluster (or a
+> port-forward) or run the whole frontend in-cluster via `make redeploy-frontend`.
 
 ## Architecture (BFF: server vs. client)
 

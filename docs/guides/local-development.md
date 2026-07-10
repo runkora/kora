@@ -182,13 +182,30 @@ Both `service=` and `name=` are required. This creates a correctly timestamped f
 ## Running Tests
 
 ```bash
-make test          # unit tests — no cluster required
-make test-integration  # integration tests — requires make dev-cluster
+make test              # unit tests — no cluster required
+make test-integration  # integration tests — requires the full Tier 2 cluster
 ```
 
-Unit tests run against the Tier 1 stack (Postgres + Redis). They do not require the Dex container or any OIDC provider — the identity service's `SVIDValidator` interface is stubbed, and OIDC flows are not exercised in unit tests.
+`make test` is what `make check` and CI run. It needs neither the Dex container nor an OIDC provider — the identity service's `SVIDValidator` interface is stubbed and OIDC flows are not exercised.
 
-Integration tests (`//go:build integration`) require the Tier 2 k3d cluster and test the full SPIFFE SVID exchange flow. See [Full-Stack Cluster (Tier 2)](#full-stack-cluster-tier-2) below.
+`make test-integration` (`//go:build integration`) is **not** run by CI or `make check`. It drives the full SPIFFE SVID exchange against a live cluster and needs the complete Tier 2 stack up first:
+
+```bash
+make dev-cluster
+make cluster-operator
+make cluster-deploy
+make auth-device-k3d   # session token the tests authenticate with
+make test-integration
+```
+
+### Postgres-backed repository tests
+
+Repository tests that hit a real database are gated on `ORBIT_TEST_DB_URL` and skip when it is unset (so they stay out of `make test`). Point it at the Tier 1 Postgres after `make migrate-up`:
+
+```bash
+ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+  go test ./internal/triggers/ -run Postgres
+```
 
 ---
 
@@ -239,6 +256,22 @@ make dev-cluster-down
 
 See [local-development-environment](../adr/2026-03-10-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) for the operator design.
 
+### Iterating on one service in the cluster
+
+Rebuild and roll a single service without redoing the whole deploy. Every service known to `make redeploy` is registered in `scripts/cluster/redeploy.sh`; the full loop is documented in [deploy/local/README.md](../../deploy/local/README.md).
+
+| Command | Does |
+|---|---|
+| `make redeploy SERVICE=identity` | Build image, push to `orbit-registry:5001`, roll the workload |
+| `make redeploy-<svc>` (e.g. `make redeploy-identity`) | Per-service shortcut for the above |
+| `make redeploy SERVICE=identity NO_BUILD=1` | Roll the current image only, skip the build |
+| `make redeploy SERVICE=session-manager TENANT=example` | Roll a tenant-scoped workload |
+| `make redeploy-list` | List every service `make redeploy` knows |
+| `make redeploy-status` | Show drift between cluster-deployed images and the local registry |
+| `make cluster-update` | Rebuild every image and roll every workload |
+
+Each redeploy runs a full `docker build` unless you pass `NO_BUILD=1` — expect tens of seconds to minutes per service. Run `make redeploy-warm` once at the start of a session to pre-build every service and warm the BuildKit caches, so subsequent single-service redeploys are fast.
+
 ### Driving the Orbit MCP locally
 
 The cluster runs `orbit-mcp` (the platform MCP server) behind the governed tool
@@ -278,7 +311,8 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 | `DB_USER` | Yes | PostgreSQL username. Default: `orbit` |
 | `DB_PASSWORD` | Yes | PostgreSQL password. Default: `orbit` |
 | `DB_NAME` | Yes | Database name. Default: `orbit` |
-| `DB_SSL_MODE` | No | SSL mode. Default: `disable` (local only) |
+| `ORBIT_POSTGRES_SSL_MODE` | No | pgx `sslmode` override. Local default (from YAML): `disable`. |
+| `ORBIT_POSTGRES_CAPTURE_QUERY_TEXT` | No | When `true`, records SQL text on query spans. |
 
 ### Redis
 
@@ -287,7 +321,9 @@ All secrets are read from environment variables. The `.env` file (copied from `.
 | `REDIS_HOST` | Yes | Redis host. Default: `localhost` |
 | `REDIS_PORT` | Yes | Redis port. Default: `6379` |
 | `REDIS_PASSWORD` | Yes | Redis password. Required in all environments. Default: `orbit` |
-| `REDIS_DB` | No | Redis database index. Default: `0` |
+| `ORBIT_REDIS_TLS_ENABLED` | No | Overrides the YAML `redis.tlsEnabled` flag. Set `false` for local. |
+
+The Redis database index is a YAML setting (`redis.db`), not an environment variable.
 
 ### Identity / Token Signing
 

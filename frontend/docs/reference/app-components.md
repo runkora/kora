@@ -161,3 +161,26 @@ interface EventFeedItemProps {
   ))}
 </ul>
 ```
+
+---
+
+## ThemeToggle
+
+**Import:** `import { ThemeToggle } from '@orbit/components'`
+
+**When to use:** The user-facing control that switches between the light and dark
+themes — typically placed in the dashboard header.
+
+**How it works:** Calls `setTheme(...)` from `next-themes`, which flips the
+`data-theme` attribute on `<html>`. Terra's design tokens re-colour the entire UI
+from that attribute, so no other wiring is needed. It renders both a sun (switch
+to dark) and a moon (switch to light) `Button`; `globals.css` shows the one that
+matches the active theme so the control is correct at first paint. Takes no props.
+
+For how theming works end-to-end and how to author theme-aware components (use
+tokens, never hardcoded colours), see
+[Theming](./terra-design-system.md#theming-light--dark) in the Terra reference.
+
+```tsx
+<ThemeToggle />
+```

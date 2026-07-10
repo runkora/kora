@@ -40,7 +40,7 @@ Parent scopes implicitly cover narrower child scopes. A grant of `inference:invo
 
 The vocabulary is the finite registered set of valid scopes for a tenant. Grants and role assignments are validated against it at write time — a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
 
-Platform-level scopes (e.g. `platform:grants:write`) are seeded by the platform operator. Only SYSTEM principals can register or remove vocabulary entries.
+The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API — the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
 
 ### Grants
 
@@ -114,24 +114,9 @@ If any of steps 2, 3, or 4 allows access, the request proceeds. If none do, it i
 
 ---
 
-## Managing the Scope Vocabulary
+## Reading the Scope Vocabulary
 
-Before creating grants or roles, the scopes you reference must exist in the vocabulary. Vocabulary management requires a SYSTEM principal — it is a platform operator operation.
-
-**Register a scope:**
-
-```
-POST /api/v1/policy/vocabulary
-Authorization: Bearer <system-token>
-
-{
-  "scope":         "mcp:jira:issues:write",
-  "resource_type": "mcp",
-  "path":          ["jira", "issues"],
-  "action":        "write",
-  "description":   "Create and update Jira issues via the MCP server"
-}
-```
+Before creating grants or roles, the scopes you reference must exist in the vocabulary. The vocabulary is populated by services registering their scope declarations (see [Route Registration](#route-registration)) — there is no HTTP endpoint to add or remove a scope directly. Any authenticated principal can read it.
 
 **Get a single scope:**
 
@@ -146,16 +131,7 @@ GET /api/v1/policy/vocabulary
 GET /api/v1/policy/vocabulary?resource_type=mcp
 ```
 
-Any authenticated principal can read the vocabulary.
-
-**Remove a scope:**
-
-```
-DELETE /api/v1/policy/vocabulary/mcp:jira:issues:write
-Authorization: Bearer <system-token>
-```
-
-Removing a scope does not automatically remove grants that reference it — those grants will fail vocabulary validation on their next recompile. Clean up grants before removing scopes.
+Passing `?tenant_id=` additionally returns `grant_count` and `role_count` per scope — how many grants and roles in that tenant reference it.
 
 ---
 
@@ -362,8 +338,6 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 |---|---|---|---|
 | `GET` | `/policy/vocabulary` | Any | List all registered scopes |
 | `GET` | `/policy/vocabulary/{scope}` | Any | Get a single scope entry |
-| `POST` | `/policy/vocabulary` | SYSTEM only | Register a scope |
-| `DELETE` | `/policy/vocabulary/{scope}` | SYSTEM only | Remove a scope |
 
 ### Grants
 

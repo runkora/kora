@@ -283,4 +283,4 @@ The Phase 1 dashboard met the goal of showing real data, but in practice it was 
 
 - [ADR: Nav Cleanup and Live Dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md)
 - [ADR: Frontend Scaffolding and Toolchain](../adr/2026-03-17-frontend-scaffolding-and-toolchain.md)
-- [ADR: Terra Design System](../adr/2026-03-25-terra-design-system.md)
+- [ADR: Terra Design System](../adr/2026-03-25-terra-frontend-design-system.md)

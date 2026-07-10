@@ -39,10 +39,12 @@ Agents never handle credentials. The platform intercepts outbound calls and inje
 |----------------|--------------|
 | `inference-gateway` ([Inference Gateway ADRs](adr/README.md#inference-gateway)) | OpenAI/Anthropic-compatible interface across Bedrock / Vertex / Azure / OpenAI; model catalog, alias routing, embeddings, Responses, usage logs, analytics |
 | `identity-proxy` sidecar | Injects platform tokens on outbound calls; agents never see credentials |
+| `egress-gateway` ([JIT Credential Brokering ADR](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) | Brokers scoped, just-in-time external credentials into outbound calls (GitHub App, Kubernetes bearer, passthrough adapters) so agents never hold raw secrets |
+| `tool-gateway` + `orbit-mcp` ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) | Governed MCP/tool access — server catalog, per-tool scope enforcement, OAuth + consent |
 | `orbit-agents` + `session-manager` + sandbox stack | Runs and isolates agent workloads (Claude Code today; CLI-agnostic) |
 | Operator + Helm/GitOps | Reconciles tenants, mesh, and Orbit services |
 
-> **Designed but not yet built.** Three pieces are in design and have ADRs but their feature packages are still empty stubs: a **general credential broker** (beyond the Orbit-platform-token broker that the `identity-proxy` already provides), a **governed MCP/tool gateway** (the existing `orbit-runtime-mcp` is single-purpose for sandbox provisioning), and a **platform-wide event spine** (agent run events stream inside `orbit-agents` today). See [`internal/credentials/`, `internal/toolgateway/`, `internal/events/`](code-organization.md#feature-packages-backendinternal).
+> **Still in design.** A **platform-wide event spine** — a general structured event bus for awareness and audit — is not yet built. The `internal/events` package does not exist; agent run events are emitted and streamed inside `orbit-agents` ([agent-event-streaming-protocol](adr/2026-05-11-agent-event-streaming-protocol.md)).
 
 ## The technical posture
 
@@ -58,9 +60,9 @@ Every agent action traces back to the human who initiated it and the policy that
 
 ## Runtime topology
 
-The backend is a **multi-service control plane** ([multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md)) — 13 binaries sharing one platform layer, deployed to Kubernetes by the Orbit operator. Two planes:
+The backend is a **multi-service control plane** ([multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md)) — a set of small binaries sharing one platform layer, deployed to Kubernetes by the Orbit operator. Each binary is listed in the [binary table](code-organization.md#binaries-backendcmd). Two planes:
 
-- **Control plane (platform namespace):** the always-on Orbit services — `identity`, `inference-gateway`, `policy-service`, `policy-gateway`, `orbit-agents`, and the `operator`. Backed by PostgreSQL and Redis.
+- **Control plane (platform namespace):** the always-on Orbit services — `identity`, `inference-gateway`, `policy-service`, `policy-gateway`, `orbit-agents`, `egress-gateway`, `tool-gateway`, `orbit-mcp`, and the `operator`. Backed by PostgreSQL and Redis.
 - **Tenant data plane (per-tenant namespaces):** agent workloads and their `session-manager`, each pod fronted by an Istio Envoy sidecar plus the Orbit `identity-proxy` sidecar that injects platform tokens. SPIRE attests workloads; the operator reconciles each tenant namespace.
 
 ```
@@ -115,14 +117,14 @@ An OpenAI/Anthropic-compatible interface between agents and model providers (AWS
 ### Observability — ✅ built
 OpenTelemetry traces and metrics across every service, W3C trace propagation through the typed platform HTTP clients, and log–trace correlation via the injected structured logger ([opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md)). See [docs/observability/](observability/README.md).
 
-### Credential Broker — ⛔ designed, not yet built
-Scoped, just-in-time credential provisioning so agents never see raw secrets. Designed in [credential-aware-outbound-gateway](adr/2026-03-05-credential-aware-outbound-gateway.md); `internal/credentials` is an empty stub. Today the `identity-proxy` brokers Orbit *platform* tokens for service-to-service calls, but general external-credential brokering is future work.
+### Credential Broker — ✅ built
+Scoped, just-in-time credential provisioning so agents never see raw secrets. The `egress-gateway` intercepts outbound calls and injects credentials at the edge via pluggable adapters (`githubapp`, `k8sbearer`, `passthrough`), implemented in `internal/credentials`. See [jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md). This is distinct from the `identity-proxy`, which brokers Orbit *platform* tokens for service-to-service calls.
 
-### Tool / MCP Gateway — ⛔ designed, not yet built
-A governed broker for tool and MCP access with permission enforcement. Designed in [mcp-server-registration-deployment-and-governance](adr/2026-03-05-mcp-server-registration-deployment-and-governance.md) and [scope-gated-tool-exposure-via-mcp](adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md); `internal/toolgateway` is an empty stub. `orbit-runtime-mcp` exists but is a single-purpose MCP server for sandbox provisioning, not the governed gateway.
+### Tool / MCP Gateway — ✅ built
+A governed broker for tool and MCP access with permission enforcement, implemented in `internal/toolgateway` (server catalog, MCP controller, OAuth controller, introspector) behind the `tool-gateway` binary, with `orbit-mcp` exposing platform management as an MCP server. See the [MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway). (`orbit-runtime-mcp` remains a separate single-purpose MCP server for sandbox provisioning.)
 
 ### Event Spine — ⛔ designed, not yet built
-A platform-wide structured event bus for awareness and audit. `internal/events` is an empty stub. Agent run events are currently emitted and streamed within `orbit-agents` ([agent-event-streaming-protocol](adr/2026-05-11-agent-event-streaming-protocol.md)); a general spine is future work.
+A platform-wide structured event bus for awareness and audit. The `internal/events` package does not exist yet. Agent run events are currently emitted and streamed within `orbit-agents` ([agent-event-streaming-protocol](adr/2026-05-11-agent-event-streaming-protocol.md)); a general spine is future work.
 
 ## Technical stack
 
@@ -145,7 +147,9 @@ A platform-wide structured event bus for awareness and audit. `internal/events` 
 | Configuration | Per-service YAML via `config.LoadService[T]` + `base.yaml`; secrets via `os.Getenv` — [yaml-file-based-configuration](adr/2026-02-18-yaml-file-based-configuration.md) | ✅ |
 | Static analysis | `golangci-lint` with custom `ruleguard` + `depguard` rules enforcing ADRs | ✅ |
 | Local dev | Docker Compose (Postgres/Redis/Dex/glauth) + optional k3d cluster (Istio + SPIRE) | ✅ |
-| Credential broker / tool gateway / event spine | — | ⛔ designed, not built |
+| Credential broker | `egress-gateway` — JIT external-credential injection ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) | ✅ |
+| Tool / MCP gateway | `tool-gateway` + `orbit-mcp` — governed MCP/tool access ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) | ✅ |
+| Event spine | Platform-wide structured event bus | ⛔ designed, not built |
 
 ## Design principles
 

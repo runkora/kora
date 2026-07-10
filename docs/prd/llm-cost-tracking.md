@@ -496,10 +496,10 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 
 ### Related Documents
 
-- [ADR-0023](../adr/0023-inference-gateway-architecture.md) - Inference gateway architecture and usage write path
-- [ADR-0039](../adr/0039-virtual-model-catalog-and-platform-routing.md) - Virtual model catalog; budget controls deferral decision
-- [ADR-0040](../adr/0040-inference-usage-logs.md) - Inference usage logs and PAT attribution
-- [ADR-0043](../adr/0043-inference-analytics.md) - Analytics endpoints and aggregation design
+- [ADR-0023](../adr/2026-04-01-inference-gateway-architecture.md) - Inference gateway architecture and usage write path
+- [ADR-0039](../adr/2026-04-17-virtual-model-catalog-and-platform-routing.md) - Virtual model catalog; budget controls deferral decision
+- [ADR-0040](../adr/2026-04-17-inference-usage-logs.md) - Inference usage logs and PAT attribution
+- [ADR-0043](../adr/2026-04-27-inference-analytics.md) - Analytics endpoints and aggregation design
 - [LLM Cost Tracking ADR](../adr/2026-06-05-llm-cost-tracking.md) - Pricing pipeline, budget storage, and enforcement decisions (Decisions 1–4 accepted; Decision 5 superseded by [Budget Model Redesign ADR](../adr/2026-06-10-budget-model-redesign.md))
 - [Budget Model Redesign ADR](../adr/2026-06-10-budget-model-redesign.md) - Inline budget JSONB on roles/grants, MAX resolution, per-category spend accumulation
 

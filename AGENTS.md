@@ -14,30 +14,13 @@ Underneath, Orbit is established platform engineering applied to a new domain: S
 
 **These three questions guide architectural decisions.** When you propose a change, be explicit about which one it touches and how it preserves the others.
 
-**Development Status**: Active development — Orbit runs a multi-service control plane (13 binaries). Built and running: identity/auth, the identity-proxy sidecar, policy enforcement (OPA PDP/PAP + PEP), the inference gateway, the agent run control plane (runs/sessions/sandboxing), the Kubernetes operator, and the platform foundation. Designed but **not yet built**: the general credential broker, the governed MCP/tool gateway, and a platform-wide event spine (`internal/{credentials,toolgateway,events}` are empty stubs). See [docs/architecture.md](docs/architecture.md) and the [ADR index](docs/adr/README.md).
+Build status lives in [docs/architecture.md](docs/architecture.md), the binary and port map in [docs/code-organization.md](docs/code-organization.md), and the decision history in the [ADR index](docs/adr/README.md). Check them before assuming a capability exists.
 
-## Product Development Workflow
+## Development Workflow
 
-Orbit follows a structured process for new features and significant changes:
+Orbit follows a **PRD → ADR → implementation** process for new features and significant changes: write a PRD (`docs/prd/`, from `docs/prd/template.md`) defining the problem and solution; then, once it's agreed, an ADR (`docs/adr/`, Context → Options → Decision → Consequences) capturing the technical approach and the "why"; then implement against the agreed docs, referencing them in commits and the PR. Bug fixes and minor changes skip the PRD/ADR. **An ADR before significant implementation is a hard rule** — architectural decisions are captured in an ADR the PR references, never inline in a PR.
 
-### 1. Product Requirements Document (PRD)
-When working on a new feature or significant change:
-- Create a PRD in `docs/prd/` following the template in `docs/prd/template.md`
-- PRDs define the problem, user needs, and high-level solution approach
-- Collaborate with the human to refine requirements and scope
-
-### 2. Architecture Decision Record (ADR)
-After PRD approval, create an ADR in `docs/adr/`:
-- ADRs document the technical implementation approach
-- Work with the human to explore options and trade-offs
-- Use the ADR template: Context → Options → Decision → Consequences
-- ADRs capture the "why" behind architectural choices
-
-### 3. Implementation
-Only after PRD and ADR approval:
-- Implement the feature following the documented approach
-- Reference the ADR and PRD in commit messages and PR descriptions
-- Update documentation as needed
+Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-development-workflow).
 
 **The three questions are the spine of every architectural decision.** Be explicit about which one a change touches — *Who is this agent? What can it access? How does it connect?* — and how it preserves the others.
 
@@ -110,10 +93,10 @@ Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (
 **Run the full quality gate before committing:**
 
 ```bash
-make check             # fmt + vet + lint (golangci-lint) + secret scan + tests
+make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + tests + frontend checks
 ```
 
-All PRs must pass `make check` with zero issues.
+`docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift — broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
 
 ## Key Conventions
 
@@ -253,39 +236,22 @@ Orbit is infrastructure for autonomous agents. Security is not optional.
 
 See `SECURITY.md` for vulnerability reporting.
 
-## Contributing Workflow
-
-### For New Features or Significant Changes:
-
-1. **Create PRD**: Start with a Product Requirements Document in `docs/prd/` using the template
-   - Define the problem, goals, and user stories
-   - Collaborate with the human to refine requirements
-   - Get PRD approval before proceeding
-
-2. **Create ADR**: After PRD approval, create an Architecture Decision Record in `docs/adr/`
-   - Document the technical approach and trade-offs
-   - Work with the human to explore implementation options
-   - Use the ADR template to capture decisions and rationale
-
-3. **Implement**: Only after PRD and ADR approval
-   - Write tests for all new code
-   - Follow Go standards: `gofmt`, idiomatic Go
-   - Run `make check` and fix all issues before opening a PR
-   - Reference PRD and ADR in commit messages and PR descriptions
-
-### For Bug Fixes or Minor Changes:
-
-1. **Document**: Create an issue describing the problem
-2. **Implement**: Fix with tests and documentation updates
-3. **Review**: Run `make check`, then open a PR with a clear description
-
 ## Testing Strategy
 
-- **Unit tests**: Test individual components in isolation using table-driven tests
-- **Integration tests**: Test component interactions (repository implementations against a real Postgres instance)
-- **E2E tests**: Test full agent workflows through Orbit
-- **Security tests**: Validate policy enforcement and credential isolation
-- **No dedicated lint-rule unit tests**: Custom `golangci-lint` rules are validated empirically via `make check` — no `analysistest` harness to keep `backend/go.mod` lean
+This describes what the backend test suite **actually is today**, and — separately and clearly labelled — where it's headed.
+
+**What exists today:**
+- **Unit tests** — the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
+- **One Postgres-backed repository test** — `backend/internal/triggers/postgres_test.go`, gated on `ORBIT_TEST_DB_URL` and skipped when it's unset. It is currently the *only* test that talks to a real database.
+- **One integration suite** — `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
+- **No dedicated lint-rule unit tests** — custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
+
+**Goals (aspirational — not yet built):**
+- **Broader integration coverage** — Postgres-backed repository tests for more feature packages, beyond the single `triggers` suite.
+- **An E2E layer** — full agent workflows exercised end-to-end through Orbit.
+- **A security-test layer** — dedicated tests for policy enforcement and credential isolation.
+
+Write tests alongside new code; unit tests are the default and must pass in `make check`.
 
 ## Implementation Principles
 

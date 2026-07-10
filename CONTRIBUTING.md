@@ -84,8 +84,10 @@ Every change must pass the quality gate with **zero issues** before a PR. The sa
 **Backend** — run from the **repository root** (not `backend/`):
 
 ```bash
-make check   # tidy + gofmt + go vet + golangci-lint + gitleaks (secret scan) + tests + frontend checks
+make check   # tidy + gofmt + go vet + golangci-lint + gitleaks (secret scan) + docs-check + tests + frontend checks
 ```
+
+`docs-check` (`scripts/docs/check-docs.sh`) is a doc-drift guard: it fails on broken links, ADR/PRD index gaps, dead `make` targets, a stale binary table, and hardcoded counts — so the docs can't quietly assert something the code has changed underneath them.
 
 **Frontend** — if you touched anything under `frontend/`:
 

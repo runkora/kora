@@ -48,11 +48,17 @@ Agent type registry, run/session lifecycle, event streaming, BYOC discovery, per
 ### Identity-aware egress
 The `identity-proxy` Envoy `ext_proc` sidecar exchanges each pod's SPIFFE SVID for an Orbit platform token and injects it as a `Bearer` header on outbound calls. Agents never see credentials.
 
+### JIT credential brokering
+The `egress-gateway` brokers scoped, just-in-time external credentials into outbound calls (GitHub App, Kubernetes bearer, and passthrough adapters) so agents never hold raw secrets.
+
+### Governed MCP / tool gateway
+The `tool-gateway` (with the `orbit-mcp` server) governs MCP tool access — catalog, consent, OAuth, and policy-checked invocation — so every tool call is authorised before it runs.
+
 ### Observability
 OpenTelemetry traces and metrics across every service, W3C trace propagation through typed platform HTTP clients, log–trace correlation via the injected structured logger.
 
 ### Future
-A general credential broker, a governed MCP/tool gateway, and a platform-wide event spine are designed (ADRs exist) but not yet implemented. See [docs/architecture.md](docs/architecture.md) for the current build status.
+A platform-wide event spine — a general structured event bus for awareness and audit — is designed (ADRs exist) but not yet implemented. See [docs/architecture.md](docs/architecture.md) for the current build status.
 
 ## Use Cases
 
@@ -66,12 +72,6 @@ A general credential broker, a governed MCP/tool gateway, and a platform-wide ev
 
 See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
 
-## Development Status
-
-Orbit is in **active development** and already runs a multi-service control plane (13 binaries). **Built and running:** the identity layer (OIDC federation, Device Authorization Grant, SPIFFE SVID exchange, sessions, PATs, multi-tenant registry); the Envoy ext_proc token-injection sidecar; policy enforcement (OPA-based PDP/PAP + PEP, with an admin dashboard); the inference gateway (multi-provider, OpenAI/Anthropic-compatible, with usage logging and analytics); the agent run control plane (runs, sessions, sandboxing, event streaming); the Kubernetes operator and Helm/GitOps deployment; and the platform foundation (controller routing, DI logging, OpenTelemetry, PostgreSQL, Redis, typed service clients). **Designed but not yet built:** the general credential broker, the governed MCP/tool gateway, and a platform-wide event spine.
-
-See [docs/architecture.md](docs/architecture.md) for the full picture and [docs/adr/README.md](docs/adr/README.md) for the decision history.
-
 ## Getting Started
 
 ### Prerequisites
@@ -81,9 +81,9 @@ See [docs/architecture.md](docs/architecture.md) for the full picture and [docs/
 - Docker Desktop (or Colima on macOS)
 - Make
 
-**Tier 2 — Full cluster (adds k3d + Istio + SPIRE)**
+**Tier 2 — Full cluster (adds Istio + SPIRE + the Orbit services)**
 - [Colima](https://github.com/abiosoft/colima) (macOS) or Docker Desktop — minimum 4 CPUs / 8 GiB RAM allocated to the VM
-- k3d, kubectl, istioctl, helm — installed via `make setup`
+- k3d, kubectl, helm — installed via `make setup`. (Istio and SPIRE are not host tools; the operator installs them into the cluster during `make cluster-operator`.)
 
 ### Quick Start
 
@@ -104,9 +104,11 @@ make auth-device       # device auth flow → log in as dev@orbit.local.clearrou
                        # token saved to /tmp/orbit_credentials.json
 ```
 
-**Tier 2 — Full local cluster**
+**Tier 2 — Full local cluster** (three ordered steps — `dev-cluster` alone is just the cluster + backing services)
 ```bash
-make dev-cluster       # provisions k3d cluster + SPIRE + Istio (~2 min)
+make dev-cluster       # create the k3d cluster (starts Postgres + Redis + Dex first)
+make cluster-operator  # install the Orbit operator → deploys SPIRE + Istio + the Orbit services
+make cluster-deploy    # register tenants and deploy tenant workloads
 ```
 
 For a detailed walkthrough see the **[Local Development Guide](docs/guides/local-development.md)**.
@@ -117,6 +119,7 @@ For a detailed walkthrough see the **[Local Development Guide](docs/guides/local
 - `make setup` — Install development tools and git hooks
 - `make env` — Copy `.env.example` → `.env`
 - `make gen-signing-key` — Regenerate RSA signing key at `secrets/signing.key` (auto-run by `dev-up` on first run)
+- `make gen-session-secret` — Print a `BFF_SESSION_SECRET` for `.env` (never written to disk)
 - `make dex-env` — Bootstrap `config/dex/.env` with the default dev password, no-op if already exists (auto-run by `dev-up` on first run)
 - `make dex-hash password=X` — Generate Dex credentials with a custom password
 
@@ -137,12 +140,15 @@ For a detailed walkthrough see the **[Local Development Guide](docs/guides/local
 - `make frontend-dev` — Start the Next.js frontend (see [frontend/README.md](frontend/README.md))
 
 **Testing & Quality**
-- `make check` — Full quality gate: tidy, fmt, `go vet`, `golangci-lint`, secret scan, backend tests, **and** the frontend checks (lint + type-check + tests). Run from the repo root.
-- `make test` — Run unit tests with coverage
-- `make test-integration` — Run integration tests (requires Tier 2 cluster)
+- `make check` — Full quality gate: tidy, fmt, `go vet`, `golangci-lint`, secret scan, `docs-check` (doc-drift guard), backend unit tests, **and** the frontend checks (lint + type-check + tests). Run from the repo root.
+- `make test` — Run unit tests with coverage (no cluster required)
+- `make test-integration` — Run the live-cluster authz suite. Requires a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`); **not** run by CI or `make check`.
+- `make docs-check` — Guard the docs against drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts)
 
 **Cluster (Tier 2)**
-- `make dev-cluster` — Provision k3d cluster with Istio + SPIRE
+- `make dev-cluster` — Create the local k3d cluster (starts backing services first); run `make cluster-operator` next
+- `make cluster-operator` — Install the Orbit operator, which deploys SPIRE + Istio + the Orbit services
+- `make cluster-deploy` — Register tenants and deploy tenant workloads
 - `make dev-cluster-down` — Tear down the local cluster
 
 **Cleanup**

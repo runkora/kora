@@ -813,7 +813,7 @@ build-backend: proto-gen ## Build all service binaries to .bin directory (runs p
 # ===========================================
 
 .PHONY: test-integration
-test-integration: auth-refresh-k3d ## Run integration tests (requires dev-cluster to be running)
+test-integration: auth-refresh-k3d ## Live-cluster authz tests — needs a full k3d cluster (dev-cluster + cluster-operator + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
 	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
@@ -852,6 +852,10 @@ test-quiet: ## Run tests with minimal output (CI/agent-friendly)
 test-coverage: test ## Run tests and generate HTML coverage report
 	@cd $(BACKEND_DIR) && $(GOCMD) tool cover -html=coverage.out -o coverage.html
 	@echo "$(COLOR_GREEN)✓ Coverage report: backend/coverage.html$(COLOR_RESET)"
+
+.PHONY: docs-check
+docs-check: ## Check docs for drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts)
+	@bash scripts/docs/check-docs.sh
 
 .PHONY: secrets
 secrets: ## Scan for secrets and leaked credentials (gitleaks)
@@ -1098,6 +1102,10 @@ cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-sys
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in orbit-system$(COLOR_RESET)"
 
+.PHONY: gen-session-secret
+gen-session-secret: ## Print a BFF_SESSION_SECRET for .env (32+ chars, never written to disk)
+	@openssl rand -base64 32
+
 .PHONY: gen-signing-key
 gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@mkdir -p secrets
@@ -1135,7 +1143,7 @@ dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it
 # ===========================================
 
 .PHONY: check
-check: tidy fmt vet fix lint secrets test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, test, frontend-check)
+check: tidy fmt vet fix lint secrets docs-check test frontend-check ## Run all checks (tidy, fmt, vet, lint, secrets, docs-check, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all

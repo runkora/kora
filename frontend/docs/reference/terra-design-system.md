@@ -6,23 +6,28 @@
 
 ---
 
-> ⚠️ **The conventions in this document are enforced by eight ESLint rules in `frontend/eslint.config.mjs`. Violations will fail `pnpm lint`.**
+> ⚠️ **The conventions in this document are enforced by the Terra design-system ESLint rules in `frontend/eslint.config.mjs` (enumerated below). Violations will fail `pnpm lint`.**
 
 ## Before You Start
 
-Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. Eight local ESLint rules enforce this — there are no exceptions in product code:
+Terra (`@orbit/terra`) is the **mandatory** UI foundation for all product JSX. These local ESLint rules enforce it, with no exceptions in product code. The enforced set is `TERRA_RULES` in `frontend/eslint.config.mjs`.
 
-| Rule                                | What it bans                                                                                                                                                  | Escape hatch                                                                                                                                                                |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local/no-raw-layout-elements`      | Every `<div>` (unconditional) + `<section>` (unconditional) + semantic containers (`aside`, `nav`, `header`, `footer`, `article`, `main`) with layout classes | **None** — use `<Stack>` / `<Grid>` / `<Section>`; for other semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Terra component (see below) |
-| `local/no-raw-inline-elements`      | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`, `code`, `kbd`, `samp`, `var`)                             | **None** — use a Terra equivalent; if missing, propose a new Terra component (see below)                                                                                    |
-| `local/no-raw-html-text-tags`       | `<p>` and `<h1>`–`<h6>`                                                                                                                                       | **None** — use `<Text>` and `<Heading>`                                                                                                                                     |
-| `local/no-raw-interactive-elements` | `<button>`                                                                                                                                                    | **None** — use `<Button>` from `@orbit/terra`                                                                                                                               |
-| `local/no-terra-classname`          | `className` on any Terra component                                                                                                                            | **None** — use the component's design-token props                                                                                                                           |
+| Rule                                | What it bans                                                                                                                                       | Escape hatch                                                                                                                                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `local/no-raw-layout-elements`      | Every `<div>` (unconditional), `<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>` (unconditional) + `<main>` with layout classes | **None** — use `<Stack>` / `<Grid>` / `<Section>` / `<Navigation>` / `<Callout>` / `<SidePanel>`; for other semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Terra component (see below) |
+| `local/no-raw-inline-elements`      | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`, `code`, `kbd`, `samp`, `var`)                  | **None** — use a Terra equivalent; if missing, propose a new Terra component (see below)                                                                                                                                   |
+| `local/no-raw-html-text-tags`       | `<p>` and `<h1>`–`<h6>`                                                                                                                            | **None** — use `<Text>` and `<Heading>`                                                                                                                                                                                    |
+| `local/no-raw-interactive-elements` | `<button>`                                                                                                                                         | **None** — use `<Button>` from `@orbit/terra`                                                                                                                                                                              |
+| `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                                                                             | **None** — use `<List>` (or `<List ordered>`) and `<ListItem>` from `@orbit/terra`; `<Stack>` for pure layout containers                                                                                                   |
+| `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                                                                         | **None** — use `<Form>`, `<Label>` (or `<Checkbox>` for labelled checkboxes), `<Input>` / `<Checkbox>`, `<Output>` from `@orbit/terra`                                                                                     |
+| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'`                                                                                                                 | **None** — use `<Icon name="…" />`; add new icons to `src/packages/terra/src/components/icon/registry.ts` only                                                                                                             |
+| `local/no-terra-classname`          | `className` on any Terra component                                                                                                                 | **None** — use the component's design-token props                                                                                                                                                                          |
 
 > 🚫 **`eslint-disable` comments targeting any of these rules are themselves a lint error** (`local/no-terra-disable-comment`). There are no escape hatches — fix violations by using the correct Terra component. If no Terra component exists for your use case, write a proposal and wait for human engineer approval before making any changes to Terra (see [Proposing a Missing Terra Component](#proposing-a-missing-terra-component)).
 
-All eight rules fire in `src/**/*.tsx` and are ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
+Every rule above fires in `src/**/*.tsx` and is ignored only inside `src/packages/terra/**` (Terra is the implementation layer and must render raw HTML to provide these components).
+
+> **Structural rules too.** Beyond the design-system rules above, three structural ESLint rules (`require-server-only`, `require-use-client-for-hooks`, `require-kebab-filename`) are error-severity and are common first-PR failures — see [Structural ESLint Rules](./component-placement.md#structural-eslint-rules-serverclient-boundary--filenames) in the component-placement reference.
 
 **If a Terra component is missing for your use case, do not use raw HTML and do not modify Terra unilaterally.** Write a short proposal and wait for approval from a human engineer before making any changes to the Terra package. See [Proposing a Missing Terra Component](#proposing-a-missing-terra-component) at the bottom of this guide.
 
@@ -538,6 +543,54 @@ import { PageLayout, Section } from '@orbit/terra';
 
 ---
 
+## Theming (light & dark)
+
+Orbit ships a dark theme by default and a light theme. Theming is driven entirely
+by design tokens — **you never write a colour value, and components you author are
+theme-aware for free if (and only if) you consume tokens instead of hardcoding
+colours.**
+
+### How it works
+
+- The app is wrapped in `next-themes` `ThemeProvider` in `src/app/layout.tsx`,
+  configured with `attribute="data-theme"`, `defaultTheme="system"`, and
+  `enableSystem`. It stamps `data-theme="light"` or `data-theme="dark"` on the
+  `<html>` element (and `suppressHydrationWarning` is set because the attribute
+  is applied pre-hydration).
+- Terra's token stylesheet (`src/packages/terra/src/tokens/tokens.css`) defines
+  the whole palette in OKLCH on `:root` (dark) and overrides the seed variables
+  under a `[data-theme='light']` block. Only the raw seed/palette variables flip;
+  every semantic token (`--color-background`, `--color-foreground`,
+  `--color-border`, `--color-status-*`, …) is derived from them via Tailwind v4's
+  `@theme`, so a single attribute swap re-colours the entire UI. All light values
+  are tuned to clear the same WCAG contrast thresholds as their dark counterparts.
+- The user-facing switch is the Tier 2 `ThemeToggle` component
+  (`src/components/theme-toggle.tsx`), which calls `setTheme(...)` from
+  `next-themes`.
+
+### Writing theme-aware components
+
+The single rule: **consume semantic tokens; never hardcode a colour.**
+
+- Use the Tailwind utilities backed by Terra semantic tokens — `bg-background`,
+  `bg-surface`, `text-foreground`, `text-muted`, `border-border-subtle`,
+  `text-status-error`, etc. These resolve per-theme automatically.
+- Prefer the Terra components' own colour props (`<Text color="muted">`,
+  `<Heading color="accent">`, `<Badge variant="healthy">`) over raw utilities —
+  they are already token-backed.
+- **Do not** hardcode hex/rgb/named colours or fixed OKLCH literals in `className`
+  or inline styles (e.g. `text-[#fff]`, `bg-black`, `style={{ color: '#111' }}`).
+  A hardcoded colour will look correct in one theme and wrong in the other.
+- Because `no-terra-classname` bans `className` on Terra components, you cannot
+  patch a colour onto a Terra component anyway — use its props, or a token-backed
+  wrapper (`<Stack>`), which is the intended path.
+
+If you genuinely need a new colour, add it to the token system in
+`tokens.css` (with both a `:root` and a `[data-theme='light']` value) rather than
+inlining it — and, as with any Terra change, get human engineer approval first.
+
+---
+
 ## Proposing a Missing Terra Component
 
 > ⚠️ **Agents must not add or modify Terra components without explicit human approval.** Terra is a stable design API; unilateral changes break the contract between the design system and all product code. If you identify a gap, write a proposal and stop — do not implement until a human engineer approves.
@@ -581,6 +634,11 @@ Use this checklist before opening a PR. Every item must be true.
 - [ ] No raw `<button>` elements — all replaced with `<Button>` from `@orbit/terra`.
 - [ ] Icon-only buttons have `size="icon"` or `size="icon-sm"` and an `aria-label`.
 
+### Lists & Forms
+
+- [ ] No raw `<ul>`, `<ol>`, `<li>` elements — replaced with `<List>` / `<List ordered>` and `<ListItem>` (or `<Stack>` for pure layout containers).
+- [ ] No raw `<form>`, `<label>`, `<input>`, `<output>` elements — replaced with `<Form>`, `<Label>` (or `<Checkbox>`), `<Input>` / `<Checkbox>`, `<Output>` from `@orbit/terra`.
+
 ### Typography
 
 - [ ] No `<h1>`–`<h6>` elements — all replaced with `Heading` using the correct variant.
@@ -596,7 +654,7 @@ Use this checklist before opening a PR. Every item must be true.
 ### ESLint
 
 - [ ] `pnpm lint` passes with zero errors.
-- [ ] No `eslint-disable` comments targeting any Terra rule (`local/no-raw-layout-elements`, `local/no-raw-inline-elements`, `local/no-raw-html-text-tags`, `local/no-terra-classname`, `local/no-direct-lucide-import`, `local/no-raw-interactive-elements`) — these are themselves a lint error.
+- [ ] No `eslint-disable` comments targeting any Terra rule (`local/no-raw-layout-elements`, `local/no-raw-inline-elements`, `local/no-raw-html-text-tags`, `local/no-terra-classname`, `local/no-direct-lucide-import`, `local/no-raw-interactive-elements`, `local/no-raw-list-elements`, `local/no-raw-form-elements`) — these are themselves a lint error.
 
 ### New Terra components (if applicable)
 
@@ -608,4 +666,4 @@ Use this checklist before opening a PR. Every item must be true.
 ---
 
 _Guide owned by: Frontend Engineering_  
-_Last updated: 2026-04-22_
+_Last updated: 2026-07-10_

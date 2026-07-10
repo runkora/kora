@@ -1,6 +1,6 @@
 # Code Organization
 
-This document defines the canonical code organization for the Orbit backend. It reflects the **current codebase**. A handful of feature packages exist as empty placeholders for designed-but-unbuilt subsystems — these are called out explicitly as **stubs** so engineers and AI agents know where that code will live.
+The canonical code organization for the Orbit backend. Packages that exist as empty placeholders for unbuilt subsystems are marked **stub**.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -8,17 +8,20 @@ See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-ba
 
 ## The big picture
 
-The backend compiles to **13 binaries** under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. There is **no single "orbit" binary** — the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
+The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer — each is listed in the [binary table below](#binaries-backendcmd). There is **no single "orbit" binary** — the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
 
 ### Binaries (`backend/cmd/`)
 
-| Binary | Role | Local port | Has migrations |
-|--------|------|------------|----------------|
-| `identity` | **Main control-plane API** — identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ (4) |
-| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway — chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ (11) |
-| `policy-service` | Authorization data plane (PDP/PAP) — grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ (3) |
+| Binary | Role | Local port | Owns tables |
+|--------|------|------------|-------------|
+| `identity` | **Main control-plane API** — identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
+| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway — chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
+| `policy-service` | Authorization data plane (PDP/PAP) — grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
 | `policy-gateway` | In-app authorization API (PEP) — `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | — |
-| `orbit-agents` | Agent control plane — agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ (5) |
+| `egress-gateway` | JIT credential broker — intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, passthrough adapters); backed by `internal/credentials` | `8085` | — |
+| `orbit-mcp` | Platform-management MCP server — exposes Orbit's own APIs as governed MCP tools | `8095` | — |
+| `tool-gateway` | Governed MCP/tool gateway — server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
+| `orbit-agents` | Agent control plane — agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | — |
 | `operator` | Kubernetes operator — reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | — |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar — injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | — |
@@ -26,7 +29,7 @@ The backend compiles to **13 binaries** under `backend/cmd/`, all sharing one `b
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code — exposes the `provision_sandbox` tool | stdio | — |
 | `orbit-shell` | `$SHELL` shim in the agent container — execs local bash or streams `-c` commands to the sandbox pod | — | — |
 | `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | — | — |
-| `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ (1) |
+| `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
 > The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
@@ -42,12 +45,11 @@ The backend compiles to **13 binaries** under `backend/cmd/`, all sharing one `b
 | `operator` | ✅ implemented | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
 | `identityproxy` | ✅ implemented | `ext_proc` server, token cache, refresh loop |
 | `example` | reference | Minimal `controller.go` + `repository.go` demonstrating the pattern |
-| `credentials` | ⛔ **stub (empty)** | Designed credential broker — [credential-aware-outbound-gateway](adr/2026-03-05-credential-aware-outbound-gateway.md). Not yet implemented. |
-| `toolgateway` | ⛔ **stub (empty)** | Designed governed MCP tool gateway — [mcp-server-registration-deployment-and-governance](adr/2026-03-05-mcp-server-registration-deployment-and-governance.md), [scope-gated-tool-exposure-via-mcp](adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md). Not yet implemented. |
-| `events` | ⛔ **stub (empty)** | Designed event spine. Not yet implemented (agent event streaming currently lives in `agents/`). |
+| `credentials` | ✅ implemented | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` — [jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
+| `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector — [MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway) |
 | `errors` | ⛔ **stub (empty)** | Placeholder. |
 
-> The four empty packages are intentional placeholders — `git`-tracked directories with no Go files yet. Do not assume the credential broker, tool gateway, or event spine exist; see the [architecture overview](architecture.md) for current capability status.
+> `internal/events` does **not** exist yet — the platform-wide event spine is designed but unbuilt, and agent event streaming currently lives in `agents/`. Only `internal/errors` remains an intentional empty placeholder (`git`-tracked directory with no Go files). See the [architecture overview](architecture.md) for current capability status.
 
 ---
 
@@ -61,10 +63,13 @@ orbit/
 │   │   │   ├── main.go
 │   │   │   ├── config/               # base.yaml + config.go (+ optional env overlays)
 │   │   │   └── migrations/           # Goose SQL migrations (per-binary)
-│   │   ├── inference-gateway/        # ... same shape; migrations/ (11 files)
-│   │   ├── policy-service/           # ... migrations/ (3 files)
+│   │   ├── inference-gateway/        # ... same shape; owns tables (migrations/)
+│   │   ├── policy-service/           # ... owns tables (migrations/)
 │   │   ├── policy-gateway/           # config only (no DB)
-│   │   ├── orbit-agents/             # ... migrations/ (5 files)
+│   │   ├── egress-gateway/           # JIT credential broker (no DB)
+│   │   ├── orbit-mcp/                # platform-management MCP server (no DB)
+│   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
+│   │   ├── orbit-agents/             # ... owns tables (migrations/)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
@@ -93,10 +98,9 @@ orbit/
 │   │   ├── policygw/                 # ✅ feature: policy-gateway transport
 │   │   ├── operator/                 # ✅ feature: k8s reconciliation
 │   │   ├── identityproxy/            # ✅ feature: ext_proc sidecar
+│   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
+│   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
 │   │   ├── example/                  # reference feature
-│   │   ├── credentials/              # ⛔ stub (empty)
-│   │   ├── toolgateway/              # ⛔ stub (empty)
-│   │   ├── events/                   # ⛔ stub (empty)
 │   │   └── errors/                   # ⛔ stub (empty)
 │   │
 │   ├── go.mod
@@ -116,7 +120,7 @@ orbit/
 └── README.md
 ```
 
-> **Migrations are per-binary**, under `backend/cmd/{service}/migrations/` — not in a single shared directory. Only services that own tables have one: `identity`, `inference-gateway`, `policy-service`, `orbit-agents`, `example`.
+> **Migrations are per-binary**, under `backend/cmd/{service}/migrations/` — not in a single shared directory. Only binaries that own tables carry a `migrations/` directory (the "Owns tables" column in the [binary table](#binaries-backendcmd) marks which); the rest have none.
 
 ---
 
