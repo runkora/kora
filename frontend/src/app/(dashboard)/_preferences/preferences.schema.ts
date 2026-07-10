@@ -118,8 +118,11 @@ export function serializeSparse(prefs: UserPreferences): Record<string, unknown>
   if (prefs.tables.defaultPageSize !== PREFERENCE_DEFAULTS.tables.defaultPageSize) {
     tables.defaultPageSize = prefs.tables.defaultPageSize;
   }
-  if (Object.keys(prefs.tables.columns).length > 0) {
-    tables.columns = prefs.tables.columns;
+  const nonEmptyColumns = Object.fromEntries(
+    Object.entries(prefs.tables.columns).filter(([, v]) => Object.keys(v).length > 0),
+  );
+  if (Object.keys(nonEmptyColumns).length > 0) {
+    tables.columns = nonEmptyColumns;
   }
   if (Object.keys(tables).length > 0) doc.tables = tables;
 
