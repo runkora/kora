@@ -215,18 +215,26 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
 
 # kubectl — for agents granted a `kubernetes` connection.
 #
-# No credential ever reaches the sandbox: the agent points kubectl at the target
-# API server (`kubectl --server=https://<baseHost> …`) with no token and no
-# kubeconfig user. Transparent egress intercepts the TLS, and the egress
-# gateway's credential broker resolves the connection's ServiceAccount bearer
-# and injects it on the re-originated leg. The target cluster's own RBAC is the
-# backstop. See docs/adr/2026-07-06-kubernetes-connection-bearer-adapter-and-
-# gateway-ca-trust.md.
+# The agent runs plain `kubectl get pods`. sandbox-exec writes $HOME/.kube/config
+# at startup from ORBIT_KUBE_CLUSTERS (internal/agents/sandbox/kubeconfig), so
+# there is no server URL to pass, no kubeconfig to author and no token to find.
 #
-# The gateway's CA is already trusted here: the agent pod mounts the tenant CA
-# and exports SSL_CERT_FILE (internal/agents/k8s.go), which Go's crypto/x509
-# honours when building the system root pool — so kubectl needs no
-# --certificate-authority and must never be given --insecure-skip-tls-verify.
+# No credential ever reaches the sandbox. The rendered kubeconfig carries a
+# self-describing placeholder bearer; transparent egress intercepts the TLS and
+# the gateway's credential broker overwrites the Authorization header with the
+# connection's ServiceAccount token on the re-originated leg. The target
+# cluster's own RBAC is the backstop. See docs/adr/2026-07-06-kubernetes-
+# connection-bearer-adapter-and-gateway-ca-trust.md.
+#
+# The placeholder is required, not cosmetic: kubectl's clientcmd refuses to send
+# an unauthenticated request. Given no auth info — even an explicit empty
+# `user: {}` — it prompts on stdin for a username and never opens a connection.
+# `kubectl --server=<host>` alone therefore does NOT work here.
+#
+# The gateway's CA is already trusted: the agent pod mounts the tenant CA over
+# the OS trust bundle (internal/agents/k8s.go), which kubectl honours as a Go
+# binary — so the kubeconfig sets no certificate-authority, and kubectl must
+# never be given --insecure-skip-tls-verify.
 # The expected digests are pinned HERE rather than fetched from dl.k8s.io
 # alongside the binary. A published kubectl.sha256 travels over the same channel
 # as the binary it attests, so anyone able to tamper with one can tamper with

@@ -15,6 +15,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 )
 
 // RunServiceConfig holds runtime parameters for RunService.
@@ -212,7 +214,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	// Optional pre-provisioning: warm the sandbox pod so the first tool call avoids
 	// cold-start latency. Runs in the background (see maybeWarmSandbox).
-	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace)
+	s.maybeWarmSandbox(ctx, req.ProvisionSandbox, run, at.Slug, namespace, *at)
 
 	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
 
@@ -614,7 +616,7 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string) (string
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace)
+	endpoint, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, s.sandboxKubeClusters(ctx, *at))
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision sandbox pod")
@@ -734,14 +736,29 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // warmed pod. The request ctx ends when StartRun returns, so we detach from its
 // cancellation (keeping its trace via WithoutCancel) and cap the warm-up so a stuck
 // pod cannot leak the goroutine.
-func (s *RunService) maybeWarmSandbox(ctx context.Context, enabled bool, run Run, slug, namespace string) {
+func (s *RunService) maybeWarmSandbox(ctx context.Context, enabled bool, run Run, slug, namespace string, at AgentType) {
 	if !enabled {
+		return
+	}
+	// Resolve BEFORE warming, and skip the warm-up entirely if the connection
+	// registry has not loaded yet. A warmed pod is reused by the run's later
+	// on-demand ProvisionSandbox (it only replaces a dead pod), so a sandbox
+	// warmed with an empty ORBIT_KUBE_CLUSTERS would leave the agent without a
+	// kubeconfig for the whole run. Skipping simply defers provisioning to the
+	// first tool call, by which point the registry is almost certainly mounted —
+	// warm-up is a latency optimization, never a correctness requirement.
+	kubeClusters, unresolved, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
+	if err != nil || unresolved > 0 {
+		s.logger.Warn(ctx, "skipping sandbox warm-up: connection registry not resolved",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "unresolved_connectors", Value: unresolved},
+		)
 		return
 	}
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
 		defer cancel()
-		if _, err := s.k8s.ProvisionSandbox(bgCtx, run, slug, namespace); err != nil {
+		if _, err := s.k8s.ProvisionSandbox(bgCtx, run, slug, namespace, kubeClusters); err != nil {
 			s.logger.Warn(bgCtx, "pre-provision sandbox failed",
 				logging.Field{Key: "run_id", Value: run.ID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -778,4 +795,20 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 		return nil
 	}
 	return s.repo.SetRunSummary(ctx, runID, summary)
+}
+
+// sandboxKubeClusters resolves the Kubernetes connections whose kubeconfig the
+// sandbox materializes. Best-effort by design: a registry that has not loaded
+// yet leaves the agent without a kubeconfig rather than failing the run — the
+// on-demand provisioning path runs at first tool call, long after start-up.
+func (s *RunService) sandboxKubeClusters(ctx context.Context, at AgentType) []kubeconfig.Cluster {
+	clusters, _, err := s.resolver.KubeClusters(ctx, at.TenantID, at.Connectors)
+	if err != nil {
+		s.logger.Warn(ctx, "resolve kubeconfig clusters for sandbox",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return clusters
 }

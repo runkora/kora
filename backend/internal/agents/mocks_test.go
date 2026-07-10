@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -407,6 +408,7 @@ type mockK8s struct {
 	replicaCount            int
 	replicaCountErr         error
 	sandboxEndpoint         string
+	provisionKubeClusters   []kubeconfig.Cluster
 	provisionSandboxErr     error
 	deleteSandboxErr        error
 }
@@ -441,7 +443,8 @@ func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
 	return m.replicaCount, nil
 }
 
-func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string) (string, error) {
+func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeClusters []kubeconfig.Cluster) (string, error) {
+	m.provisionKubeClusters = kubeClusters
 	if m.provisionSandboxErr != nil {
 		return "", m.provisionSandboxErr
 	}

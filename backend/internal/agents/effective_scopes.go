@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 )
 
@@ -265,4 +266,46 @@ func mergeConnectors(in []Connector) []Connector {
 		out = append(out, Connector{Connection: name, Actions: actions[name]})
 	}
 	return out
+}
+
+// KubeClusters resolves the agent's Kubernetes connections into the clusters
+// materialized as a kubeconfig inside its sandbox, so `kubectl` works with no
+// flags and no credential. Connectors of any other adapter are ignored — this is
+// an explicit allowlist on AdapterKubernetesBearer, not a silent skip of an
+// unrecognized adapter: a github_app connector correctly contributes no
+// kubeconfig entry.
+//
+// unresolved counts connectors the registry could not resolve at all. The
+// ConnectionCatalog treats a missing connections.json as an empty registry, so
+// unresolved > 0 means "the registry has not loaded yet", which is NOT the same
+// as "this agent has no Kubernetes connection". Callers that would bake the
+// result into a long-lived pod must not treat the two alike.
+//
+// Returns nil when no connection resolver is wired: the sandbox then gets no
+// kubeconfig at all.
+func (r *ScopeResolver) KubeClusters(ctx context.Context, tenantID string, connectors []Connector) (clusters []kubeconfig.Cluster, unresolved int, err error) {
+	if r == nil || r.conns == nil {
+		return nil, 0, nil
+	}
+	for _, c := range mergeConnectors(connectors) {
+		name := strings.TrimSpace(c.Connection)
+		if name == "" {
+			continue
+		}
+		adapter, baseHost, ok, err := r.conns.ResolveConnection(ctx, tenantID, name)
+		if err != nil {
+			return nil, 0, fmt.Errorf("resolve connection %q for kubeconfig: %w", name, err)
+		}
+		if !ok {
+			unresolved++
+			continue
+		}
+		if adapter != platformconns.AdapterKubernetesBearer {
+			continue
+		}
+		if server := kubeconfig.ServerURL(baseHost); server != "" {
+			clusters = append(clusters, kubeconfig.Cluster{Name: name, Server: server})
+		}
+	}
+	return clusters, unresolved, nil
 }
