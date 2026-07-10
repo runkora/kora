@@ -21,6 +21,8 @@ make auth    # log in as dev@orbit.local.clearroute.io / password
 
 `make up` is idempotent. Run it again whenever the cluster drifts.
 
+When the cluster itself is the problem, `make reset` deletes it and brings it back. Postgres and Redis are Docker Compose volumes, so your data survives. k3d owns the image registry, so a reset rebuilds every image. The only targets that delete data are `make dev-down-clean` and `make db-reset`.
+
 - Frontend: `https://orbit.local.clearroute.io:8443`
 - Inference gateway: `https://api.orbit.local.clearroute.io:8443/v1`
 

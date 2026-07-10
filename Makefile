@@ -305,7 +305,7 @@ db-down: ## Stop the PostgreSQL database
 	@echo "$(COLOR_GREEN)✓ Database stopped$(COLOR_RESET)"
 
 .PHONY: db-reset
-db-reset: ## Reset database (destroy volume, recreate)
+db-reset: ## DESTRUCTIVE: destroy the Postgres volume and recreate it. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Resetting database...$(COLOR_RESET)"
 	@docker compose down -v
 	@docker compose up -d --wait postgres
@@ -394,7 +394,7 @@ dev-down: ## Stop Postgres + Redis
 	@echo "$(COLOR_GREEN)✓ Local services stopped$(COLOR_RESET)"
 
 .PHONY: dev-down-clean
-dev-down-clean: ## Stop Postgres + Redis and remove volumes
+dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Stopping local services and removing volumes...$(COLOR_RESET)"
 	@docker compose down -v
 	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
@@ -426,7 +426,13 @@ up: dev-cluster migrate-up cluster-operator cluster-deploy ## Bring up everythin
 	@echo "$(COLOR_BLUE)Next: 'make auth' for a token, 'make redeploy SERVICE=<name>' to iterate$(COLOR_RESET)"
 
 .PHONY: down
-down: dev-cluster-down dev-down ## Tear down the cluster and the backing services
+down: dev-cluster-down dev-down ## Tear down the cluster and the backing services (keeps Postgres and Redis data)
+
+# k3d owns the image registry, so deleting the cluster deletes every built image
+# and the next `up` rebuilds them all. Postgres and Redis are Docker Compose
+# volumes and are never touched. `make dev-down-clean` is the one that drops data.
+.PHONY: reset
+reset: dev-cluster-down up ## Recreate the cluster from scratch. Keeps Postgres and Redis data; rebuilds every image.
 
 .PHONY: auth
 auth: auth-device-k3d ## Authenticate against the cluster (Device Authorization Grant)

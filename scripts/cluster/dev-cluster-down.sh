@@ -3,13 +3,13 @@
 # dev-cluster-down.sh — Tear down the Orbit local k3d development cluster
 #
 # ┌─────────────────────────────────────────────────────────────────────────┐
-# │  IMPORTANT: This script only tears down Tier 2 (the k3d cluster).      │
+# │  IMPORTANT: This script only tears down the k3d cluster.               │
 # │                                                                         │
-# │  Tier 1 resources (postgres, redis, orbit-network) managed by          │
+# │  The backing services (postgres, redis, orbit-network) managed by      │
 # │  Docker Compose are intentionally left running. This lets you           │
 # │  recreate the cluster without losing your database state.               │
 # │                                                                         │
-# │  To also stop Tier 1 services, run afterwards:                         │
+# │  To also stop the backing services, run afterwards:                    │
 # │    make dev-down        (stops postgres + redis)                        │
 # │    make dev-down-clean  (stops postgres + redis and removes volumes)    │
 # └─────────────────────────────────────────────────────────────────────────┘
@@ -41,6 +41,6 @@ else
 fi
 
 echo ""
-echo -e "${YELLOW}Note: Tier 1 (postgres, redis, orbit-network) is still running.${RESET}"
+echo -e "${YELLOW}Note: postgres, redis and orbit-network are still running. Data is untouched.${RESET}"
 echo "  Run 'make dev-down' to stop Docker Compose services."
 echo ""
