@@ -300,23 +300,26 @@ When a service is running the wrong build, `make redeploy-status` shows what is 
 no tenants in registry — federated authentication disabled
 ```
 
-It watches the tenant registry ConfigMap to recover, but that watcher fails when the host is out of inotify instances:
+It watches the tenant registry ConfigMap to recover. That watcher fails when the Docker VM is out of inotify instances:
 
 ```
 failed to create fsnotify watcher — hot-reload disabled  error="too many open files"
 ```
 
-`make up` restarts identity when it has no provider, so this should self-heal. To fix it by hand:
+Docker's Linux VM defaults `fs.inotify.max_user_instances` to 128, which a full Orbit cluster exhausts between the kubelet, the Istio sidecars, and the services that watch their own ConfigMaps. `make up` raises it to 1024 before creating the cluster, and restarts identity if it still has no provider. The sysctl does not survive a VM restart, so `make up` re-applies it every time.
 
-```bash
-kubectl rollout restart deployment/orbit-identity -n orbit-system
-kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep "OIDC provider initialized"
-```
-
-The underlying cause is the VM's inotify limit. Check it, and raise it if hot-reload matters to you:
+Check the current value, as a k3d node sees it:
 
 ```bash
 docker exec k3d-orbit-local-server-0 cat /proc/sys/fs/inotify/max_user_instances
+```
+
+Recover by hand:
+
+```bash
+docker run --rm --privileged alpine:3.20 sysctl -w fs.inotify.max_user_instances=1024
+kubectl rollout restart deployment/orbit-identity -n orbit-system
+kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep "OIDC provider initialized"
 ```
 
 ### `orbit-dex` container is unhealthy
