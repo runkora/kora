@@ -691,8 +691,25 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	@kubectl apply -f deploy/local/tenants/
 	@echo "  Waiting for tenant namespaces (operator provisioning)..."
 	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
-	@echo "  Waiting for orbit-identity to load tenant OIDC config..."
+	@echo "  Waiting for the operator to write the tenant registry ConfigMap..."
 	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
+	@# orbit-identity boots before the tenant exists (cluster-operator runs first) and
+	@# builds its OIDC providers at startup. It watches the ConfigMap, but the fsnotify
+	@# watcher dies with "too many open files" when the host's inotify limits are low,
+	@# leaving federated auth disabled and `make auth` failing with oidc_not_configured.
+	@# Restart it unless it has already initialised a provider.
+	@if kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+		echo "  orbit-identity has the tenant OIDC config"; \
+	else \
+		echo "$(COLOR_YELLOW)  orbit-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
+		kubectl rollout restart deployment/orbit-identity -n orbit-system >/dev/null; \
+		kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s; \
+		if ! kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+			echo "$(COLOR_RED)✗ orbit-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
+			echo "  Check: kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep -i tenant"; \
+			exit 1; \
+		fi; \
+	fi
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"

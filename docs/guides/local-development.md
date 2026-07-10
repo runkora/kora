@@ -292,6 +292,33 @@ kubectl exec <pod> -n orbit-system -c istio-proxy -- curl -s localhost:8080/heal
 
 When a service is running the wrong build, `make redeploy-status` shows what is deployed against what is in the registry. When the cluster itself is wedged, `make reset` rebuilds it and keeps your data.
 
+### `make auth` fails with `oidc_not_configured`
+
+`orbit-identity` builds its OIDC providers at startup. `cluster-operator` starts it before `cluster-deploy` registers the tenant, so on a cold cluster it boots with no tenants and logs:
+
+```
+no tenants in registry — federated authentication disabled
+```
+
+It watches the tenant registry ConfigMap to recover, but that watcher fails when the host is out of inotify instances:
+
+```
+failed to create fsnotify watcher — hot-reload disabled  error="too many open files"
+```
+
+`make up` restarts identity when it has no provider, so this should self-heal. To fix it by hand:
+
+```bash
+kubectl rollout restart deployment/orbit-identity -n orbit-system
+kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep "OIDC provider initialized"
+```
+
+The underlying cause is the VM's inotify limit. Check it, and raise it if hot-reload matters to you:
+
+```bash
+docker exec k3d-orbit-local-server-0 cat /proc/sys/fs/inotify/max_user_instances
+```
+
 ### `orbit-dex` container is unhealthy
 
 Dex authenticates against `glauth` over LDAP. Check both containers are healthy, then restart them.
