@@ -16,7 +16,7 @@ Clone to a running change. Orbit runs in Kubernetes locally, the same way it run
 ```bash
 make setup   # once per machine: tools, git hooks, local DNS, TLS, and a generated .env
 make up      # backing services, k3d cluster, migrations, SPIRE, Istio, Orbit, tenants
-make auth    # log in as dev@orbit.local.clearroute.io / password
+make auth    # log in as dev@orbit.local.clearroute.io / password (the admin account)
 ```
 
 `make up` is idempotent. Run it again whenever the cluster drifts.
@@ -38,7 +38,9 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   https://api.orbit.local.clearroute.io:8443/v1/models | jq .
 ```
 
-Listing models works out of the box. Scope-gated endpoints, including `POST /v1/chat/completions`, return `403` until your user holds a role or grant that carries the scope. [policy-and-roles.md](policy-and-roles.md) covers roles, grants, and the `tenant-admin` bootstrap.
+`dev` is the admin (`platform-admin`, `tenant-admin`, `engineer`). `engineer@orbit.local.clearroute.io` is a regular engineer, for checking what a non-admin can do. Both use password `password`.
+
+Scopes come from those roles and from grants. When a call returns `403`, [policy-and-roles.md](policy-and-roles.md) covers roles, grants, and the `tenant-admin` bootstrap.
 
 Access tokens last 4h locally, set by `accessTokenTtlMinutes` in `deploy/local/orbit-values.yaml`. When one expires, `make auth-refresh` rotates the pair. If the refresh token is dead too, run `make auth` again.
 

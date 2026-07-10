@@ -83,6 +83,15 @@ make auth
 
 Runs the Device Authorization Grant against the cluster. Open the printed URL, enter the code, and log in as `dev@orbit.local.clearroute.io` with password `password`. The token pair is written to `/tmp/orbit_credentials.json`.
 
+Local dev has two accounts, both with password `password`, backed by `glauth` and surfaced to Dex over LDAP:
+
+| Account | OIDC roles | Use it for |
+|---|---|---|
+| `dev@orbit.local.clearroute.io` | `platform-admin`, `tenant-admin`, `engineer` | The admin. Policy administration and everything else. |
+| `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
+
+`tenant-admin` is the bootstrap role: it confers `platform:grants:write` without a prior grant, so `dev` can create the first grants. Role-to-scope mappings live in `backend/internal/policyservice/bundle/compiler.go` for the built-in roles, and in the `policy_role_scopes` table for custom roles such as `engineer`.
+
 ### Call an authenticated API
 
 `$ORBIT_TOKEN` is not exported into subprocess shells. Read the token inline. The local certs are from a private CA, so `curl` needs `-k`:
