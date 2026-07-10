@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/go-logr/logr"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,7 +48,7 @@ func main() {
 	}
 
 	// Create controller-runtime manager.
-	mgr, err := initManager(restCfg)
+	mgr, err := initManager(restCfg, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to create controller-runtime manager",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -152,7 +151,7 @@ func buildRestConfig(ctx context.Context, logger logging.Logger) (*rest.Config, 
 
 // initManager creates the controller-runtime Manager with our CRD scheme and
 // options derived from operator config.
-func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
+func initManager(restCfg *rest.Config, logger logging.Logger) (ctrl.Manager, error) {
 	scheme := operator.NewScheme()
 
 	syncPeriod := oc.Current.SyncPeriod()
@@ -172,10 +171,13 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		}),
 	}
 
-	// Wire a discard logr into controller-runtime so it doesn't emit the
-	// "log.SetLogger was never called" warning. All meaningful logging goes
-	// through our own injected logging.Logger in the reconcilers.
-	ctrl.SetLogger(logr.Discard())
+	// Wire controller-runtime's own logr into our injected logging.Logger, so
+	// errors controller-runtime logs internally (in particular "Reconciler
+	// error" on every failed Reconcile call, for any controller in this
+	// binary) are not silently discarded. A stuck OrbitDevEnvironment
+	// deletion previously produced 20 failed reconciles with zero log
+	// output because this was wired to logr.Discard().
+	ctrl.SetLogger(newCRLogSink(logger))
 
 	return ctrl.NewManager(restCfg, opts)
 }
@@ -235,9 +237,13 @@ func initControllers(mgr ctrl.Manager, restCfg *rest.Config, logger logging.Logg
 		Client:                    mgr.GetClient(),
 		Scheme:                    mgr.GetScheme(),
 		Logger:                    logger,
+		RestConfig:                restCfg,
+		HostJWKSFetcher:           operator.NewHostJWKSFetcher(restCfg),
 		HelmFactory:               operator.NewHelmClientFactory(restCfg, logger),
 		Clock:                     operator.NewRealClock(),
 		IngressDomain:             oc.Current.Operator.DevEnvIngressDomain,
+		AppExternalURL:            oc.Current.Operator.DevEnvAppExternalURL,
+		AppTLSCredentialName:      oc.Current.Operator.DevEnvAppTLSCredentialName,
 		VClusterVersion:           oc.Current.Operator.DevEnvVClusterVersion,
 		ChartDir:                  oc.Current.Operator.ChartDir,
 		ImageRegistry:             oc.Current.Operator.DevEnvImageRegistry,

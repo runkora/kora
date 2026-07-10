@@ -31,6 +31,26 @@ spec:
 ---
 # Allow all pods in orbit-system to make DNS queries.
 # Without this, service discovery fails under the default-deny-all baseline.
+#
+# Scoped to kube-system DNS pods rather than a bare "any destination" rule:
+# an egress rule with no `to:` at all hits a kube-router quirk where the
+# resulting iptables/ipset rule intermittently (and sometimes persistently)
+# fails to actually pass DNS traffic, surfacing as connection-refused from
+# CoreDNS even though CoreDNS itself is healthy — confirmed live against a
+# devenvironment's in-vcluster CoreDNS, which crash-looped the DB migration
+# Job indefinitely under the unscoped rule. tenant_netpol.go's
+# ensureSandboxEgressPolicy already uses this same scoped shape.
+#
+# Matches both `k8s-app: kube-dns` (the real CoreDNS on a host install) and
+# `k8s-app: vcluster-kube-dns` (vcluster's own bundled DNS server) — the
+# latter never actually renders today, since networkPolicy.enabled is forced
+# false for devenvironment installs (platform_controller.go's
+# reconcileOrbitPlatform, keyed off spire.enabled — NetworkPolicy enforcement
+# on vcluster-synced pods proved unreliable regardless of rule shape, see
+# that function's comment). Kept here in case in-vcluster NetworkPolicy is
+# ever re-enabled: a selector scoped to only `kube-dns` would match zero pods
+# in that case and block 100% of DNS traffic under default-deny-all — worse
+# than the unscoped rule this replaced.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -43,7 +63,18 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - ports:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - vcluster-kube-dns
+      ports:
         - protocol: UDP
           port: 53
         - protocol: TCP

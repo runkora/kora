@@ -65,6 +65,14 @@ spec:
             - name: ORBIT_DEVENV_IMAGE_REGISTRY
               value: {{ .Values.devEnv.imageRegistry | quote }}
             {{- end }}
+            {{- if .Values.devEnv.appExternalURL }}
+            - name: ORBIT_DEVENV_APP_EXTERNAL_URL
+              value: {{ .Values.devEnv.appExternalURL | quote }}
+            {{- end }}
+            {{- if .Values.devEnv.appTLSCredentialName }}
+            - name: ORBIT_DEVENV_APP_TLS_CREDENTIAL
+              value: {{ .Values.devEnv.appTLSCredentialName | quote }}
+            {{- end }}
             {{- end }}
           ports:
             - name: health

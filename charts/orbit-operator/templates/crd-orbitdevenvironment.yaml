@@ -112,6 +112,16 @@ spec:
                 namespace:
                   type: string
                 ingressHost:
+                  description: >
+                    Per-environment SNI/certificate-SAN value of the kubectl
+                    API-passthrough route. Never needs to resolve in DNS —
+                    browser-facing access is appURL.
+                  type: string
+                appURL:
+                  description: >
+                    Browser-facing entry point ({appExternalURL}/{name}) —
+                    one shared hostname, path-scoped per environment (the
+                    vcluster ADR's path-based-app-ingress amendment).
                   type: string
                 expiresAt:
                   type: string
@@ -125,6 +135,12 @@ spec:
                 kubeconfigCertificate:
                   type: string
                 kubeconfigCABundle:
+                  type: string
+                # Was missing while the Go type already wrote it: structural
+                # schemas PRUNE unknown fields, so the API server silently
+                # dropped the fingerprint and the operator re-signed the same
+                # CSR on every reconcile instead of only on change.
+                kubeconfigCSRFingerprint:
                   type: string
                 conditions:
                   type: array

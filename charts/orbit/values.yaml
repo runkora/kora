@@ -304,9 +304,14 @@ platform:
     tenants: []
 
   # SPIFFE configuration for DestinationRule SAN validation.
-  # Operator injects this from spec.spire.enabled in the OrbitPlatform CR.
+  # Operator injects this from the OrbitPlatform CR: enabled is true whenever
+  # workloads carry SPIFFE identities (spec.spire.enabled, OR a dev-environment
+  # install where identity is host-provided), and devEnvID is the optional
+  # /devenv/<id> SAN prefix on dev-environment installs (ADR 2026-07-07).
+  # Never set devEnvID by hand.
   spiffe:
     enabled: true
+    devEnvID: ""
 
 # -- NetworkPolicy toggle.
 # Should match the value used in the orbit-platform chart.

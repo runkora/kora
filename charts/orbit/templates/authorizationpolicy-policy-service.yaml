@@ -43,6 +43,6 @@ spec:
       from:
         - source:
             notPrincipals:
-              - "{{ .Values.global.trustDomain }}/system/opa-gateway"
+              - "{{ include "orbit.spiffePrincipalBase" . }}/system/opa-gateway"
 {{- end }}
 

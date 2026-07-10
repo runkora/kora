@@ -3,6 +3,19 @@ package operator
 // buildSpireInjectionTemplate returns the Istio sidecar injection template that
 // wires istio-proxy to use SPIRE for mTLS certificate delivery via the SPIFFE
 // CSI driver. This is Orbit's opinionated wiring — users never write this.
+//
+// Deliberately does NOT try to set ISTIO_META_CLUSTER_ID here — confirmed
+// empirically that this specific env var is not a normal template-mergeable
+// field: pkg/kube/inject/inject.go's RunTemplate computes it from
+// values.global.multiCluster.clusterName (or the injection webhook's own
+// URL path params) and pkg/kube/inject/webhook.go's updateClusterEnvs
+// reapplies that computed value to every container AFTER all named
+// templates ("gateway", "spire", ...) have already been merged — silently
+// overwriting any per-template override, including this one. (Historical:
+// this mattered for the abandoned Istio multicluster remote-secret approach
+// to dev-environment XDS auth; the working replacement is JWT_RULE — see
+// reconcileIstiod and docs/adr/2026-07-07-ephemeral-development-
+// environments-via-vcluster.md.)
 func buildSpireInjectionTemplate() string {
 	return `spec:
   containers:

@@ -563,3 +563,63 @@ export interface TriggerDeliveryRun {
   error?: string;
   created_at: string;
 }
+
+// ── Dev Environments ──────────────────────────────────────────────────────────
+//
+// Ephemeral, vcluster-backed Orbit installs, provisioned via the identity
+// service's /dev-environments API. Mirrors Go: devenvironments.Environment
+// (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md).
+
+/** Lifecycle phase reported by the OrbitDevEnvironment CR's status. */
+export type DevEnvironmentPhase =
+  | 'Pending'
+  | 'Provisioning'
+  | 'Ready'
+  | 'Sleeping'
+  | 'Expired'
+  | 'Failed';
+
+/** A dev environment: the registry row (owner, audit) merged with the live CR. */
+export interface DevEnvironment {
+  id: string;
+  owner: string;
+  ref: string;
+  createdAt: string;
+  phase: DevEnvironmentPhase;
+  namespace?: string;
+  /**
+   * SNI value of the kubectl API-passthrough route — never a browser URL
+   * (it does not resolve in DNS). Browser access is `appURL`.
+   */
+  ingressHost?: string;
+  /**
+   * Browser-facing entry point: one shared hostname, path-scoped per
+   * environment (`{base}/{id}` — the vcluster ADR's path-based-app-ingress
+   * amendment).
+   */
+  appURL?: string;
+  awake: boolean;
+  expiresAt?: string;
+}
+
+/** Request body for POST /api/dev-environments. */
+export interface DevEnvironmentCreateRequest {
+  /** Chart/image ref to install inside the environment. Empty means "main". */
+  ref?: string;
+}
+
+/** Request body for POST /api/dev-environments/:id/extend. */
+export interface DevEnvironmentExtendRequest {
+  /** New total time-to-live from creation (e.g. "48h"), not an increment. */
+  ttl: string;
+}
+
+/**
+ * Response to POST /api/dev-environments/:id/kubeconfig. `kubeconfig` is a
+ * complete, ready-to-use kubeconfig YAML document, returned once — the
+ * private key is never persisted server-side (decision 6).
+ */
+export interface DevEnvironmentKubeconfigResponse {
+  kubeconfig: string;
+  expiresAt: string;
+}

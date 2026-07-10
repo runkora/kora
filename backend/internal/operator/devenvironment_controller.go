@@ -54,9 +54,27 @@ const (
 	// starving the node," not "predict the stack's true footprint."
 	devEnvQuotaCPURequests    = "6"
 	devEnvQuotaMemoryRequests = "12Gi"
-	devEnvQuotaCPULimits      = "12"
-	devEnvQuotaMemoryLimits   = "24Gi"
-	devEnvQuotaMaxPods        = "60"
+	// devEnvQuotaCPULimits caps the SUM of every container's CPU *limit* in
+	// the namespace, not actual usage — ResourceQuota's limits.cpu accounts
+	// against declared limits regardless of load. Confirmed live: with the
+	// full orbit chart's ~11 services up alongside istiod/gateway/vcluster
+	// overhead, declared limits alone summed past the previous 12-core
+	// ceiling while real node CPU usage stayed under 3% — raised to give the
+	// full chart headroom without pretending this is a measured footprint.
+	//
+	// Raised again after fixing a separate bug (ensureInVClusterSecrets was
+	// creating orbit-system without the istio-injection label, so no
+	// orbit-system service ever actually got a sidecar): every real
+	// istio-proxy sidecar declares a 2-core / 1Gi limit, so ~11 services
+	// each gaining a sidecar for the first time pushed the accounted total
+	// to ~26+ cores on its own, before any app-container limit — the
+	// previous 20-core ceiling was headroom calculated against a devenv
+	// where injection silently never happened. Confirmed live: quota was
+	// fully exhausted (20/20 limits.cpu) with only 4 of ~11 orbit-system
+	// services able to schedule.
+	devEnvQuotaCPULimits    = "48"
+	devEnvQuotaMemoryLimits = "32Gi"
+	devEnvQuotaMaxPods      = "60"
 
 	// LimitRange defaults applied to containers that don't specify their own
 	// requests/limits, so a single unbounded pod can't consume the entire
@@ -94,6 +112,17 @@ type DevEnvironmentReconciler struct {
 	Scheme *runtime.Scheme
 	Logger logging.Logger
 
+	// RestConfig is the operator's own in-cluster rest.Config (the HOST
+	// apiserver) — the credential behind the production HostJWKSFetcher.
+	RestConfig *rest.Config
+
+	// HostJWKSFetcher returns the host apiserver's ServiceAccount-token
+	// issuer and JWKS, handed to each environment's in-vcluster istiod so it
+	// can validate host-signed workload tokens (devenvironment_jwks.go).
+	// Production wiring supplies NewHostJWKSFetcher(RestConfig); tests
+	// inject a stub.
+	HostJWKSFetcher HostJWKSFetcher
+
 	// HelmFactory constructs the HelmInterface used to manage each
 	// environment's vcluster release. Production wiring supplies
 	// NewHelmClientFactory; tests inject a factory returning a fake.
@@ -104,9 +133,22 @@ type DevEnvironmentReconciler struct {
 	Clock Clock
 
 	// IngressDomain is the base domain used to compute status.ingressHost
-	// ("{name}.{IngressDomain}"). Real ingress/DNS/TLS wiring is a staging
-	// concern (ADR "Out of local scope") — locally this field is informational.
+	// ("{name}.{IngressDomain}") — since the path-based app-ingress amendment,
+	// purely the per-environment SNI/certificate-SAN value for the kubectl
+	// API-passthrough route (devenvironment_ingress.go). It never needs to
+	// resolve in DNS.
 	IngressDomain string
+
+	// AppExternalURL is the browser-facing base URL every environment's app
+	// UI/API is served under, path-scoped per environment
+	// ("{AppExternalURL}/{name}" → status.appURL). Its hostname is the shared
+	// L7 app listener's host match (devenvironment_app_ingress.go).
+	AppExternalURL string
+
+	// AppTLSCredentialName optionally names an istio-system TLS Secret the
+	// shared app listener terminates HTTPS with. Empty (local k3d) means the
+	// listener is plain HTTP on port 80.
+	AppTLSCredentialName string
 
 	// VClusterVersion pins the vcluster chart version. Must stay in sync with
 	// scripts/cluster/versions.env (VCLUSTER_CHART_VERSION).
@@ -218,6 +260,14 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvNamespaceReady, metav1.ConditionTrue,
 		"Ready", "namespace exists with quota, limits, and labels")
 
+	// Must exist before the vcluster's own workloads (in particular the Istio
+	// ingress gateway) start requesting SPIFFE SVIDs — see
+	// devenvironment_identity.go for why a missing grant here hangs the
+	// in-vcluster release sequence rather than failing fast.
+	if err := r.ensureHostIdentity(ctx, env); err != nil {
+		return r.failReconcile(ctx, env, "HostIdentityError", err)
+	}
+
 	if err := r.ensureVCluster(ctx, env); err != nil {
 		if isHelmBusy(err) {
 			log.Info(ctx, "helm release busy, requeueing",
@@ -231,6 +281,18 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvVClusterReady, metav1.ConditionTrue,
 		"Deployed", "vcluster helm release deployed")
 
+	// External reachability for this environment's vcluster API server
+	// (decision 6's Connect flow) — see devenvironment_ingress.go.
+	if err := r.ensureDevEnvAPIAccess(ctx, env); err != nil {
+		return r.failReconcile(ctx, env, "APIAccessError", err)
+	}
+
+	// Browser-facing app ingress at {AppExternalURL}/{env-id} (the ADR's
+	// path-based-app-ingress amendment) — see devenvironment_app_ingress.go.
+	if err := r.ensureDevEnvAppAccess(ctx, env); err != nil {
+		return r.failReconcile(ctx, env, "AppAccessError", err)
+	}
+
 	phase, err := r.reconcilePowerState(ctx, env, now)
 	if err != nil {
 		return r.failReconcile(ctx, env, "PowerStateError", err)
@@ -239,8 +301,11 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 	// Only attempt the in-vcluster install while the vcluster's own control
 	// plane is actually up — while Sleeping its API server is unreachable
 	// (decision 8 scales it to zero), so there is nothing to apply to yet.
+	var fastRequeue time.Duration
 	if phase == DevEnvPhaseReady {
-		if err := r.reconcileInVClusterPlatform(ctx, env); err != nil {
+		var err error
+		phase, fastRequeue, err = r.reconcileInVClusterPlatformAndReadiness(ctx, env)
+		if err != nil {
 			// A transient "no matches for kind" immediately after the
 			// orbit-operator chart's CRDs are first installed (API server
 			// discovery cache not yet refreshed) is expected to self-heal on
@@ -249,8 +314,6 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 			// dedicated non-fatal path.
 			return r.failReconcile(ctx, env, "InVClusterPlatformError", err)
 		}
-		_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformApplied, metav1.ConditionTrue,
-			"Applied", "orbit-operator installed and OrbitPlatform/OrbitTenant applied inside the vcluster")
 	}
 
 	if err := r.reconcileKubeconfigCSR(ctx, env); err != nil {
@@ -266,7 +329,8 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 		reconciled := metav1.NewTime(now)
 		expiry := metav1.NewTime(expiresAt)
 		s.Namespace = devEnvNamespace(env)
-		s.IngressHost = fmt.Sprintf("%s.%s", env.Name, r.IngressDomain)
+		s.IngressHost = r.ingressHost(env)
+		s.AppURL = r.appURL(env)
 		s.ExpiresAt = &expiry
 		s.LastReconciledAt = &reconciled
 	}); err != nil {
@@ -281,7 +345,64 @@ func (r *DevEnvironmentReconciler) reconcileReady(ctx context.Context, env *Orbi
 		logging.Field{Key: "phase", Value: phase},
 	)
 
-	return ctrl.Result{RequeueAfter: r.nextRequeueAfter(env, now, expiresAt)}, nil
+	return ctrl.Result{RequeueAfter: minRequeue(r.nextRequeueAfter(env, now, expiresAt), fastRequeue)}, nil
+}
+
+// minRequeue returns the sooner of the two requeue intervals, treating a
+// zero fastRequeue as "no override" rather than "requeue immediately".
+func minRequeue(requeue, fastRequeue time.Duration) time.Duration {
+	if fastRequeue > 0 && fastRequeue < requeue {
+		return fastRequeue
+	}
+	return requeue
+}
+
+// reconcileInVClusterPlatformAndReadiness applies the in-vcluster
+// orbit-operator/OrbitPlatform/OrbitTenant install and reports back the
+// phase the environment should ultimately be set to. "Applied" (the CRs were
+// submitted) is not the same as "Ready" (the nested orbit-operator has
+// actually finished the real release sequence) — reporting Ready on Applied
+// alone let the UI show a live ingress link ~60-90s before
+// identity/frontend/the gateways were even scheduled (confirmed against a
+// live provisioning run). Returns DevEnvPhaseProvisioning, with a shortened
+// requeue interval, until the nested OrbitPlatform's own status agrees.
+func (r *DevEnvironmentReconciler) reconcileInVClusterPlatformAndReadiness(ctx context.Context, env *OrbitDevEnvironment) (string, time.Duration, error) {
+	log := r.Logger
+
+	if err := r.reconcileInVClusterPlatform(ctx, env); err != nil {
+		return "", 0, err
+	}
+	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformApplied, metav1.ConditionTrue,
+		"Applied", "orbit-operator installed and OrbitPlatform/OrbitTenant applied inside the vcluster")
+
+	if err := r.mirrorIstioCARootCert(ctx, env); err != nil {
+		// Non-fatal and self-healing: the source ConfigMap doesn't exist
+		// until the in-vcluster istiod completes its own startup, which can
+		// lag behind this point — the next reconcile retries.
+		log.Error(ctx, "mirror istiod CA root configmap failed",
+			logging.Field{Key: "name", Value: env.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+
+	platformReady, err := r.inVClusterPlatformReady(ctx, env)
+	if err != nil {
+		// Non-fatal: an unreachable vcluster API server right after apply is
+		// expected and self-heals, same posture as the rest of this
+		// reconciler.
+		log.Error(ctx, "check in-vcluster OrbitPlatform readiness failed, will retry",
+			logging.Field{Key: "name", Value: env.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	if !platformReady {
+		_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformReady, metav1.ConditionFalse,
+			"Converging", "in-vcluster OrbitPlatform has not reported Ready yet")
+		return DevEnvPhaseProvisioning, 5 * time.Second, nil
+	}
+	_ = r.setDevEnvCondition(ctx, env, ConditionDevEnvPlatformReady, metav1.ConditionTrue,
+		"Ready", "in-vcluster OrbitPlatform reports Ready")
+	return DevEnvPhaseReady, 0, nil
 }
 
 // SetupWithManager registers the controller with the controller-runtime Manager.
@@ -306,7 +427,19 @@ func (r *DevEnvironmentReconciler) handleDeletion(ctx context.Context, env *Orbi
 	ns := devEnvNamespace(env)
 
 	if err := r.HelmFactory(ns).Uninstall(ctx, vclusterReleaseName); err != nil {
-		return ctrl.Result{}, fmt.Errorf("uninstall vcluster release for %q: %w", env.Name, err)
+		return r.deletionError(ctx, env, "uninstall vcluster release", err)
+	}
+
+	if err := r.deleteHostIdentity(ctx, env); err != nil {
+		return r.deletionError(ctx, env, "delete host identity", err)
+	}
+
+	if err := r.deleteDevEnvAPIRoute(ctx, env); err != nil {
+		return r.deletionError(ctx, env, "delete devenv API route", err)
+	}
+
+	if err := r.deleteDevEnvAppRoute(ctx, env); err != nil {
+		return r.deletionError(ctx, env, "delete devenv app route", err)
 	}
 
 	namespace := &corev1.Namespace{}
@@ -315,17 +448,17 @@ func (r *DevEnvironmentReconciler) handleDeletion(ctx context.Context, env *Orbi
 	case apierrors.IsNotFound(err):
 		// already gone
 	case err != nil:
-		return ctrl.Result{}, fmt.Errorf("get namespace %q: %w", ns, err)
+		return r.deletionError(ctx, env, "get namespace", err)
 	default:
 		if delErr := r.Delete(ctx, namespace); delErr != nil && !apierrors.IsNotFound(delErr) {
-			return ctrl.Result{}, fmt.Errorf("delete namespace %q: %w", ns, delErr)
+			return r.deletionError(ctx, env, "delete namespace", delErr)
 		}
 	}
 
 	patch := client.MergeFrom(env.DeepCopy())
 	controllerutil.RemoveFinalizer(env, devEnvironmentFinalizer)
 	if err := r.Patch(ctx, env, patch); err != nil {
-		return ctrl.Result{}, fmt.Errorf("remove finalizer from OrbitDevEnvironment %q: %w", env.Name, err)
+		return r.deletionError(ctx, env, "remove finalizer", err)
 	}
 
 	r.Logger.Info(ctx, "OrbitDevEnvironment deleted, cleanup complete",
@@ -333,6 +466,23 @@ func (r *DevEnvironmentReconciler) handleDeletion(ctx context.Context, env *Orbi
 		logging.Field{Key: "namespace", Value: ns},
 	)
 	return ctrl.Result{}, nil
+}
+
+// deletionError logs a handleDeletion step failure directly against a real
+// sink before returning it, rather than relying solely on controller-runtime
+// surfacing the returned error (see newCRLogSink in cmd/operator — this is
+// belt-and-suspenders once that's wired, and load-bearing if it ever isn't).
+// Without this, a stuck cleanup step produced zero log output across 20+
+// failed reconciles.
+func (r *DevEnvironmentReconciler) deletionError(
+	ctx context.Context, env *OrbitDevEnvironment, step string, err error,
+) (ctrl.Result, error) {
+	r.Logger.Error(ctx, "OrbitDevEnvironment deletion step failed",
+		logging.Field{Key: "name", Value: env.Name},
+		logging.Field{Key: "step", Value: step},
+		logging.Field{Key: "error", Value: err.Error()},
+	)
+	return ctrl.Result{}, fmt.Errorf("%s for %q: %w", step, env.Name, err)
 }
 
 // -----------------------------------------------------------------------------
@@ -480,7 +630,40 @@ func (r *DevEnvironmentReconciler) ensureVCluster(ctx context.Context, env *Orbi
 	values := map[string]any{
 		"controlPlane": map[string]any{
 			"distro": map[string]any{
-				"k8s": map[string]any{"enabled": true},
+				"k8s": map[string]any{
+					"enabled": true,
+					// The embedded apiserver has no real node identity to
+					// advertise, so it defaults --service-account-jwks-uri to
+					// a loopback address (https://127.0.0.1:6443/...) in its
+					// own OIDC discovery document — unreachable by any other
+					// pod, including istiod, which needs it to validate the
+					// bound service account tokens workloads present when
+					// opening their XDS stream (see the ADR's Phase 2 "istiod
+					// XDS rejection" investigation). Point it at the
+					// apiserver's own in-cluster Service instead, which every
+					// pod can already reach.
+					"apiServer": map[string]any{
+						"extraArgs": []string{
+							"--service-account-jwks-uri=https://kubernetes.default.svc.cluster.local/openid/v1/jwks",
+						},
+					},
+				},
+			},
+			// The kubeconfig's tls-server-name (assembleKubeconfig,
+			// internal/devenvironments/service.go) does double duty in any
+			// standard TLS client: it is both the SNI value the shared gateway
+			// routes on (devenvironment_ingress.go) AND the hostname the
+			// client verifies the server's presented certificate against.
+			// Confirmed live: without this, a real kubectl correctly reached
+			// this environment's vcluster proxy through the passthrough route
+			// but then rejected its certificate outright (SAN list contained
+			// only the default kubernetes.default/vcluster names, never the
+			// ingress host) — connectivity worked, verification didn't.
+			// extraSANs adds the ingress host to the proxy's own certificate
+			// so genuine verification succeeds instead of requiring
+			// insecure-skip-tls-verify.
+			"proxy": map[string]any{
+				"extraSANs": []string{r.ingressHost(env)},
 			},
 		},
 		"sync": map[string]any{
@@ -523,6 +706,13 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 	wasAsleep := env.Status.Phase == DevEnvPhaseSleeping
 
 	if !env.Spec.Awake {
+		if !wasAsleep {
+			// Scale down the environment's real workloads, inside the
+			// vcluster, while its control plane is still reachable to ask —
+			// this must happen BEFORE the vcluster control-plane itself is
+			// scaled to zero below, or there is nothing left to ask.
+			r.bestEffortScaleInVCluster(ctx, env, true)
+		}
 		if err := r.scaleWorkloads(ctx, ns, true); err != nil {
 			return "", fmt.Errorf("scale workloads to zero: %w", err)
 		}
@@ -542,6 +732,11 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 		if err := r.scaleWorkloads(ctx, ns, false); err != nil {
 			return "", fmt.Errorf("scale workloads up: %w", err)
 		}
+		// The vcluster control plane was just asked to scale up above and is
+		// very unlikely to be reachable yet within this same reconcile pass
+		// — best-effort here, the idle-not-reached branch below retries this
+		// every subsequent reconcile (idempotently) until it succeeds once.
+		r.bestEffortScaleInVCluster(ctx, env, false)
 		return DevEnvPhaseReady, nil
 	}
 
@@ -557,6 +752,7 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 		if err := r.setSpecAwake(ctx, env, false); err != nil {
 			return "", err
 		}
+		r.bestEffortScaleInVCluster(ctx, env, true)
 		if err := r.scaleWorkloads(ctx, ns, true); err != nil {
 			return "", fmt.Errorf("scale workloads to zero: %w", err)
 		}
@@ -566,6 +762,11 @@ func (r *DevEnvironmentReconciler) reconcilePowerState(ctx context.Context, env 
 	if err := r.scaleWorkloads(ctx, ns, false); err != nil {
 		return "", fmt.Errorf("scale workloads up: %w", err)
 	}
+	// Idempotent retry of the wake-path restore above: a no-op once every
+	// in-vcluster workload's pre-sleep-replicas annotation has already been
+	// consumed, but keeps retrying on every reconcile until the vcluster's
+	// control plane becomes reachable after a fresh wake.
+	r.bestEffortScaleInVCluster(ctx, env, false)
 	return DevEnvPhaseReady, nil
 }
 
@@ -582,33 +783,82 @@ func (r *DevEnvironmentReconciler) setSpecAwake(ctx context.Context, env *OrbitD
 	return nil
 }
 
-// scaleWorkloads scales every Deployment and StatefulSet in the namespace to
-// zero (sleep) or restores their pre-sleep replica count (wake). PVCs are
-// never touched — sleep is a compute-only scale-down, per decision 8.
+// scaleWorkloads scales every Deployment and StatefulSet in the given HOST
+// namespace to zero (sleep) or restores their pre-sleep replica count (wake).
+// PVCs are never touched — sleep is a compute-only scale-down, per decision
+// 8. This only ever finds resources the operator itself created directly in
+// the environment's host namespace (e.g. none today, by default vcluster
+// sync config) — the environment's real workloads live inside the vcluster's
+// own virtual API server; see scaleInVClusterWorkloads for those.
 func (r *DevEnvironmentReconciler) scaleWorkloads(ctx context.Context, namespace string, toZero bool) error {
+	return scaleWorkloadsWith(ctx, r.Client, toZero, client.InNamespace(namespace))
+}
+
+// scaleInVClusterWorkloads mirrors scaleWorkloads but targets every
+// Deployment/StatefulSet INSIDE the environment's own vcluster, across all
+// of its namespaces. It exists because a vcluster's syncer, by default, only
+// mirrors Pods (and Secrets/ConfigMaps/Services/Endpoints/PVCs) onto the
+// host — the Deployment/StatefulSet controllers that actually own replica
+// counts run entirely inside the vcluster's virtual API server and are
+// invisible to a host-namespace List. Without this, "sleep" only ever
+// stopped the vcluster control-plane pod itself while every workload inside
+// it (Postgres, Redis, Dex, istiod, the in-vcluster orbit-operator, ...)
+// kept running — observed directly against a live environment before this
+// fix. Best-effort by design: callers must invoke this while the vcluster's
+// own API server is still reachable and treat errors as non-fatal, since
+// scaling the host-side vcluster control plane (scaleWorkloads) is what
+// actually stops billed compute either way.
+func (r *DevEnvironmentReconciler) scaleInVClusterWorkloads(ctx context.Context, env *OrbitDevEnvironment, toZero bool) error {
+	cfg, err := r.VClusterRestConfigFactory(ctx, devEnvNamespace(env))
+	if err != nil {
+		return fmt.Errorf("resolve vcluster rest config: %w", err)
+	}
+	vc, err := r.VClusterClientFactory(cfg)
+	if err != nil {
+		return fmt.Errorf("build vcluster client: %w", err)
+	}
+	return scaleWorkloadsWith(ctx, vc, toZero)
+}
+
+// bestEffortScaleInVCluster calls scaleInVClusterWorkloads and logs, rather
+// than fails, any error — the vcluster's own API server may be transiently
+// unreachable (already asleep, or freshly woken and not yet ready), and the
+// host-side vcluster control-plane scale in reconcilePowerState is what
+// actually governs the environment's phase.
+func (r *DevEnvironmentReconciler) bestEffortScaleInVCluster(ctx context.Context, env *OrbitDevEnvironment, toZero bool) {
+	if err := r.scaleInVClusterWorkloads(ctx, env, toZero); err != nil {
+		r.Logger.Error(ctx, "scale in-vcluster workloads failed, will retry on next reconcile",
+			logging.Field{Key: "name", Value: env.Name},
+			logging.Field{Key: "toZero", Value: toZero},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+func scaleWorkloadsWith(ctx context.Context, c client.Client, toZero bool, opts ...client.ListOption) error {
 	deployments := &appsv1.DeploymentList{}
-	if err := r.List(ctx, deployments, client.InNamespace(namespace)); err != nil {
-		return fmt.Errorf("list deployments in %q: %w", namespace, err)
+	if err := c.List(ctx, deployments, opts...); err != nil {
+		return fmt.Errorf("list deployments: %w", err)
 	}
 	for i := range deployments.Items {
-		if err := r.scaleDeployment(ctx, &deployments.Items[i], toZero); err != nil {
+		if err := scaleDeployment(ctx, c, &deployments.Items[i], toZero); err != nil {
 			return err
 		}
 	}
 
 	statefulSets := &appsv1.StatefulSetList{}
-	if err := r.List(ctx, statefulSets, client.InNamespace(namespace)); err != nil {
-		return fmt.Errorf("list statefulsets in %q: %w", namespace, err)
+	if err := c.List(ctx, statefulSets, opts...); err != nil {
+		return fmt.Errorf("list statefulsets: %w", err)
 	}
 	for i := range statefulSets.Items {
-		if err := r.scaleStatefulSet(ctx, &statefulSets.Items[i], toZero); err != nil {
+		if err := scaleStatefulSet(ctx, c, &statefulSets.Items[i], toZero); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *DevEnvironmentReconciler) scaleDeployment(ctx context.Context, d *appsv1.Deployment, toZero bool) error {
+func scaleDeployment(ctx context.Context, c client.Client, d *appsv1.Deployment, toZero bool) error {
 	if toZero {
 		current := int32(1)
 		if d.Spec.Replicas != nil {
@@ -621,7 +871,7 @@ func (r *DevEnvironmentReconciler) scaleDeployment(ctx context.Context, d *appsv
 		setPreSleepReplicas(d, current)
 		zero := int32(0)
 		d.Spec.Replicas = &zero
-		return r.Patch(ctx, d, patch)
+		return c.Patch(ctx, d, patch)
 	}
 
 	restore, ok := preSleepReplicas(d)
@@ -631,10 +881,10 @@ func (r *DevEnvironmentReconciler) scaleDeployment(ctx context.Context, d *appsv
 	patch := client.MergeFrom(d.DeepCopy())
 	delete(d.Annotations, preSleepReplicasAnnotation)
 	d.Spec.Replicas = &restore
-	return r.Patch(ctx, d, patch)
+	return c.Patch(ctx, d, patch)
 }
 
-func (r *DevEnvironmentReconciler) scaleStatefulSet(ctx context.Context, s *appsv1.StatefulSet, toZero bool) error {
+func scaleStatefulSet(ctx context.Context, c client.Client, s *appsv1.StatefulSet, toZero bool) error {
 	if toZero {
 		current := int32(1)
 		if s.Spec.Replicas != nil {
@@ -647,7 +897,7 @@ func (r *DevEnvironmentReconciler) scaleStatefulSet(ctx context.Context, s *apps
 		setPreSleepReplicas(s, current)
 		zero := int32(0)
 		s.Spec.Replicas = &zero
-		return r.Patch(ctx, s, patch)
+		return c.Patch(ctx, s, patch)
 	}
 
 	restore, ok := preSleepReplicas(s)
@@ -657,7 +907,7 @@ func (r *DevEnvironmentReconciler) scaleStatefulSet(ctx context.Context, s *apps
 	patch := client.MergeFrom(s.DeepCopy())
 	delete(s.Annotations, preSleepReplicasAnnotation)
 	s.Spec.Replicas = &restore
-	return r.Patch(ctx, s, patch)
+	return c.Patch(ctx, s, patch)
 }
 
 func setPreSleepReplicas(obj metav1.Object, replicas int32) {

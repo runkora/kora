@@ -68,6 +68,25 @@ type Config struct {
 		// ADR's "Out of local scope") — locally this is informational only.
 		DevEnvIngressDomain string `yaml:"devEnvIngressDomain"`
 
+		// DevEnvAppExternalURL is the browser-facing base URL every dev
+		// environment's Orbit UI/API is served under, path-scoped per
+		// environment: {DevEnvAppExternalURL}/{env-id} (the ADR's
+		// path-based-app-ingress amendment). One shared hostname for all
+		// environments — one DNS record, one TLS certificate — as opposed to
+		// the per-environment SNI hostnames of the kubectl API route
+		// (DevEnvIngressDomain above), which never need to resolve in DNS.
+		// The URL's hostname is what the shared gateway's L7 app listener
+		// matches on; the scheme/port only shape status.appURL. Override via
+		// ORBIT_DEVENV_APP_EXTERNAL_URL.
+		DevEnvAppExternalURL string `yaml:"devEnvAppExternalURL"`
+
+		// DevEnvAppTLSCredentialName optionally names an istio-system TLS
+		// Secret for the shared app listener. When set, the app gateway
+		// terminates HTTPS with it (and redirects HTTP); when empty (local
+		// k3d), the listener is plain HTTP on port 80. Override via
+		// ORBIT_DEVENV_APP_TLS_CREDENTIAL.
+		DevEnvAppTLSCredentialName string `yaml:"devEnvAppTLSCredentialName"`
+
 		// DevEnvVClusterVersion pins the vcluster chart version installed by
 		// the OrbitDevEnvironment reconciler. Override via
 		// ORBIT_DEVENV_VCLUSTER_VERSION. Empty means "use the built-in
@@ -140,6 +159,19 @@ var Current = func() *Config {
 	}
 	if cfg.Operator.DevEnvIngressDomain == "" {
 		cfg.Operator.DevEnvIngressDomain = "dev.orbit.local"
+	}
+	if v := os.Getenv("ORBIT_DEVENV_APP_EXTERNAL_URL"); v != "" {
+		cfg.Operator.DevEnvAppExternalURL = v
+	}
+	if v := os.Getenv("ORBIT_DEVENV_APP_TLS_CREDENTIAL"); v != "" {
+		cfg.Operator.DevEnvAppTLSCredentialName = v
+	}
+	if cfg.Operator.DevEnvAppExternalURL == "" {
+		// *.orbit.local.clearroute.io resolves to 127.0.0.1 (public wildcard
+		// record — same one the host's own orbit.local.clearroute.io uses);
+		// 8880 is the k3d loadbalancer's mapping of the shared gateway's
+		// port 80 (infrastructure/bootstrap/k3d-config.yaml).
+		cfg.Operator.DevEnvAppExternalURL = "http://devenv.orbit.local.clearroute.io:8880"
 	}
 	return cfg
 }()

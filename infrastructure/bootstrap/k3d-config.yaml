@@ -17,6 +17,17 @@ ports:
   - port: 8880:80
     nodeFilters:
       - loadbalancer
+  # Shared TLS-passthrough listener for dev-environment vcluster API server
+  # access (SNI-routed per environment — see the operator's
+  # devenvironment_ingress.go and the ephemeral-dev-environments-via-vcluster
+  # ADR). NOT 6443: k3d's own loadbalancer already reverse-proxies the k3s
+  # API server itself on container port 6443 (confirmed live via `docker ps`
+  # — a random host port maps to it automatically, independent of this
+  # file), so this listener needs its own distinct port to avoid colliding
+  # with that. 16443 matches devEnvAPIGatewayPort.
+  - port: 16443:16443
+    nodeFilters:
+      - loadbalancer
 
 registries:
   create: 

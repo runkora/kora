@@ -224,6 +224,65 @@ func TestReconcileKubeconfigCSR_SignsAgainstVClusterCASecretAndPublishesStatus(t
 	}
 }
 
+func TestReconcileKubeconfigCSR_ReSignsWhenSpecCSRChanges(t *testing.T) {
+	clock := newFakeClock(time.Now())
+	env := newTestEnv("csr-rotate-env", func(e *OrbitDevEnvironment) {
+		e.Spec.KubeconfigCSR = string(testCSR(t, "dev-first"))
+	})
+	r, _ := newDevEnvTestReconciler(t, clock, env)
+
+	reconcileOnce(t, r, env.Name)
+	caCertPEM, caKeyPEM := testCA(t)
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vclusterReleaseName + vclusterCertsSecretSuffix,
+			Namespace: "orbit-devenv-csr-rotate-env",
+		},
+		Data: map[string][]byte{
+			vclusterClientCACertKey: caCertPEM,
+			vclusterClientCAKeyKey:  caKeyPEM,
+		},
+	}
+	if err := r.Create(context.Background(), secret); err != nil {
+		t.Fatalf("create fake vcluster certs secret: %v", err)
+	}
+	reconcileOnce(t, r, env.Name)
+
+	first := getEnv(t, r, env.Name)
+	if first.Status.KubeconfigCertificate == "" {
+		t.Fatal("first CSR was not signed")
+	}
+	firstCert := first.Status.KubeconfigCertificate
+
+	// A second kubeconfig request (a fresh keypair bound to a new CSR) must
+	// be signed too — the identity service cannot clear
+	// status.KubeconfigCertificate itself (no status-subresource RBAC), so
+	// the reconciler must key "already fulfilled" off the CSR's fingerprint,
+	// not off KubeconfigCertificate merely being non-empty.
+	live := getEnv(t, r, env.Name)
+	live.Spec.KubeconfigCSR = string(testCSR(t, "dev-second"))
+	if err := r.Update(context.Background(), live); err != nil {
+		t.Fatalf("patch spec.kubeconfigCSR: %v", err)
+	}
+	reconcileOnce(t, r, env.Name)
+
+	second := getEnv(t, r, env.Name)
+	if second.Status.KubeconfigCertificate == firstCert {
+		t.Fatal("second CSR was not re-signed — got back the first CSR's certificate")
+	}
+	block, _ := pem.Decode([]byte(second.Status.KubeconfigCertificate))
+	if block == nil {
+		t.Fatal("second status.kubeconfigCertificate is not valid PEM")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse second signed cert: %v", err)
+	}
+	if cert.Subject.CommonName != "dev-second" {
+		t.Errorf("second signed cert CN = %q, want %q", cert.Subject.CommonName, "dev-second")
+	}
+}
+
 func TestReconcileKubeconfigCSR_NoCSRIsANoOp(t *testing.T) {
 	clock := newFakeClock(time.Now())
 	env := newTestEnv("no-csr-env", nil)

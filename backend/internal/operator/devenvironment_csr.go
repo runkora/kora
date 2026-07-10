@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/orbitapi"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,13 +50,20 @@ var (
 )
 
 // reconcileKubeconfigCSR fulfills spec.KubeconfigCSR, if present and not
-// already fulfilled, by signing it against the vcluster's own client CA. It
-// is a no-op when there is nothing to sign or the CSR has already been
-// fulfilled — a new signing request requires the caller to clear
-// status.KubeconfigCertificate (or the CR is recreated), it is never
-// re-signed implicitly on every reconcile.
+// already fulfilled, by signing it against the vcluster's own client CA.
+// "Already fulfilled" is judged by comparing orbitapi.CSRFingerprint of the
+// current spec.KubeconfigCSR against status.KubeconfigCSRFingerprint, not by
+// whether status.KubeconfigCertificate is merely non-empty — the caller
+// (identity service) requests a fresh kubeconfig by patching spec with a new
+// CSR bound to a new keypair, and its RBAC has no access to the status
+// subresource to clear KubeconfigCertificate itself. Comparing fingerprints
+// re-signs exactly when the CSR actually changed, and stays a no-op on every
+// other reconcile in between.
 func (r *DevEnvironmentReconciler) reconcileKubeconfigCSR(ctx context.Context, env *OrbitDevEnvironment) error {
-	if env.Spec.KubeconfigCSR == "" || env.Status.KubeconfigCertificate != "" {
+	if env.Spec.KubeconfigCSR == "" {
+		return nil
+	}
+	if fp := orbitapi.CSRFingerprint([]byte(env.Spec.KubeconfigCSR)); fp == env.Status.KubeconfigCSRFingerprint {
 		return nil
 	}
 
@@ -85,6 +93,12 @@ func (r *DevEnvironmentReconciler) reconcileKubeconfigCSR(ctx context.Context, e
 	if err := r.patchStatusFields(ctx, env, func(s *OrbitDevEnvironmentStatus) {
 		s.KubeconfigCertificate = string(certPEM)
 		s.KubeconfigCABundle = string(caCertPEM)
+		s.KubeconfigCSRFingerprint = orbitapi.CSRFingerprint([]byte(env.Spec.KubeconfigCSR))
+		// Minting a kubeconfig is a real platform-visible activity signal
+		// (decision 8) available today, independent of the identity service
+		// (Phase 3) that will eventually originate these requests.
+		t := metav1.NewTime(r.Clock.Now())
+		s.LastActivityAt = &t
 	}); err != nil {
 		return err
 	}

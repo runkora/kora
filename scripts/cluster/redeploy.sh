@@ -57,7 +57,9 @@ EOF
 #   build_arg   Optional --build-arg, KEY=VALUE; empty if not needed.
 #   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
-#   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}).
+#   workload    Comma-separated list of kind/name pairs (deployment/orbit-foo or
+#               statefulset/{slug}). Multiple entries let one image update several
+#               workloads (e.g. tool-gateway's proxy + publisher deployments).
 #               Use {slug} as a placeholder for the agent slug (== tenant).
 #   post_build  Optional script step run after the base image is built.
 #               Currently used only by identity to layer the mkcert CA in.
@@ -168,13 +170,15 @@ restart=true
 EOF
       ;;
     tool-gateway)
+      # Publisher deployment shares this image (ORBIT_TOOL_GATEWAY_MODE=publisher
+      # env var is the only difference) — pin both on redeploy.
       cat <<'EOF'
 dockerfile=backend/Dockerfile
 context=backend
 build_arg=SERVICE=tool-gateway
 image=orbit-tool-gateway
 namespace=orbit-system
-workload=deployment/orbit-tool-gateway
+workload=deployment/orbit-tool-gateway,deployment/orbit-tool-gateway-publisher
 restart=true
 EOF
       ;;
@@ -417,34 +421,37 @@ case "$WORKLOAD" in
     # always pulls exactly this image) and surfaces the running version in
     # `kubectl describe`. Falls back to a plain rollout restart if we can't
     # resolve the digest (e.g. registry hiccup).
-    kind="${WORKLOAD%%/*}"
-    name="${WORKLOAD##*/}"
-    container_name=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
-      -o jsonpath='{.spec.template.spec.containers[?(@.image)].name}' 2>/dev/null \
-      | awk '{print $1}')
-    if [ -n "$DIGEST" ] && [ -n "$container_name" ]; then
-      # Skip the rollout entirely when the deployment is already pinned to this
-      # exact digest. Saves ~30s of pod churn on a no-op redeploy. Even with
-      # source unchanged, Docker often produces a fresh manifest digest because
-      # the runtime-stage export isn't deterministic (timestamps, layer order).
-      current=$(kubectl get "$WORKLOAD" -n "$NAMESPACE" \
-        -o jsonpath='{.spec.template.spec.containers[?(@.name=="'"$container_name"'")].image}' 2>/dev/null)
-      if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
-        ok "$WORKLOAD already at $IMAGE@${DIGEST:0:19} — no rollout needed"
-        exit 0
+    IFS=',' read -r -a workloads <<< "$WORKLOAD"
+    for wl in "${workloads[@]}"; do
+      kind="${wl%%/*}"
+      name="${wl##*/}"
+      container_name=$(kubectl get "$kind" "$name" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.template.spec.containers[?(@.image)].name}' 2>/dev/null \
+        | awk '{print $1}')
+      if [ -n "$DIGEST" ] && [ -n "$container_name" ]; then
+        # Skip the rollout entirely when the deployment is already pinned to this
+        # exact digest. Saves ~30s of pod churn on a no-op redeploy. Even with
+        # source unchanged, Docker often produces a fresh manifest digest because
+        # the runtime-stage export isn't deterministic (timestamps, layer order).
+        current=$(kubectl get "$wl" -n "$NAMESPACE" \
+          -o jsonpath='{.spec.template.spec.containers[?(@.name=="'"$container_name"'")].image}' 2>/dev/null)
+        if [ "$current" = "orbit-registry:5001/$IMAGE@$DIGEST" ]; then
+          ok "$wl already at $IMAGE@${DIGEST:0:19} — no rollout needed"
+          continue
+        fi
+        log "Pinning $wl ($container_name) to $IMAGE@${DIGEST:0:19}..."
+        # Push uses localhost:5001 (host perspective) but cluster nodes resolve
+        # the registry as orbit-registry:5001. Digests are content-addressed so
+        # they're identical from either side.
+        kubectl set image "$wl" \
+          "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
+          -n "$NAMESPACE"
+      else
+        log "Restarting $wl in $NAMESPACE (digest unavailable)..."
+        kubectl rollout restart "$wl" -n "$NAMESPACE"
       fi
-      log "Pinning $WORKLOAD ($container_name) to $IMAGE@${DIGEST:0:19}..."
-      # Push uses localhost:5001 (host perspective) but cluster nodes resolve
-      # the registry as orbit-registry:5001. Digests are content-addressed so
-      # they're identical from either side.
-      kubectl set image "$WORKLOAD" \
-        "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
-        -n "$NAMESPACE"
-    else
-      log "Restarting $WORKLOAD in $NAMESPACE (digest unavailable)..."
-      kubectl rollout restart "$WORKLOAD" -n "$NAMESPACE"
-    fi
-    kubectl rollout status "$WORKLOAD" -n "$NAMESPACE" --timeout=180s
-    ok "$WORKLOAD updated to $IMAGE:$GIT_SHA"
+      kubectl rollout status "$wl" -n "$NAMESPACE" --timeout=180s
+      ok "$wl updated to $IMAGE:$GIT_SHA"
+    done
     ;;
 esac

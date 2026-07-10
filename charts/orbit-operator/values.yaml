@@ -38,6 +38,15 @@ serviceAccount:
 # deploy/local/operator-values.yaml.
 devEnv:
   imageRegistry: ""
+  # appExternalURL is the browser-facing base URL every dev environment's
+  # app is served under, path-scoped per environment ({url}/{env-id} — the
+  # vcluster ADR's path-based-app-ingress amendment). Empty means the local
+  # k3d default (http://devenv.orbit.local.clearroute.io:8880); real
+  # infrastructure sets e.g. https://orbit.dev.clearroute.io plus
+  # appTLSCredentialName (an istio-system TLS Secret the shared app listener
+  # terminates with).
+  appExternalURL: ""
+  appTLSCredentialName: ""
 
 podAnnotations:
   # The operator installs Istio — it MUST NOT have the Istio sidecar injected.

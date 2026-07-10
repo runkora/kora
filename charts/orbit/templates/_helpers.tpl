@@ -84,6 +84,23 @@ Sourced from global.trustDomain so it stays consistent with orbit-platform.
 {{- end }}
 
 {{/*
+The base of every chart-pinned SPIFFE identity (DestinationRule SANs):
+spiffe://<trustDomain>, plus an optional /devenv/<id> segment on Orbit
+dev-environment installs, where identity is host-provided and every SVID is
+path-scoped under the environment's ID (ADR 2026-07-07). platform.spiffe.devEnvID
+is set by the operator on in-vcluster installs only — never by hand, and never
+on a host install. orbit.spiffePrincipalBase is the same value without the
+scheme, for AuthorizationPolicy principals (Istio prepends spiffe:// itself).
+*/}}
+{{- define "orbit.spiffeIDBase" -}}
+spiffe://{{ include "orbit.spiffePrincipalBase" . }}
+{{- end }}
+
+{{- define "orbit.spiffePrincipalBase" -}}
+{{- include "orbit.trustDomain" . }}{{- with .Values.platform.spiffe.devEnvID }}/devenv/{{ . }}{{- end }}
+{{- end }}
+
+{{/*
 The orbit-system namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}

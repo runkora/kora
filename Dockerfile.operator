@@ -24,7 +24,19 @@ COPY backend/ .
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator/main.go
+    CGO_ENABLED=0 GOOS=linux go build -o /orbit-operator ./cmd/operator
+
+# goose CLI — used by the dev-environment migration Job, which runs this same
+# image inside each environment's vcluster (devenvironment_migrations.go).
+# Version matches the Makefile's `make setup` install.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux GOBIN=/out go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
+
+# Collect every per-service Goose migration into one flat directory —
+# mirrors the Makefile's COLLECT_MIGRATIONS (timestamped filenames are
+# globally unique, so flattening cannot collide).
+RUN mkdir -p /migrations && find /app/cmd -path "*/migrations/*.sql" -exec cp {} /migrations/ \;
 
 # Collect every */config/*.yaml file into /configs/ maintaining relative paths.
 RUN find /app -path "*/config/*.yaml" | while read f; do \
@@ -48,6 +60,11 @@ COPY --from=builder --chown=65532:65532 /configs/ ./
 
 # Operator binary — owned by nonroot.
 COPY --from=builder --chown=65532:65532 /orbit-operator ./orbit
+
+# goose + collected migrations for the dev-environment migration Job
+# (devenvironment_migrations.go runs this image with `goose ... up`).
+COPY --from=builder --chown=65532:65532 /out/goose /usr/local/bin/goose
+COPY --from=builder --chown=65532:65532 /migrations/ /etc/orbit/migrations/
 
 # Helm charts baked into the image at the path the operator expects.
 # base.yaml: chartDir: /etc/orbit/charts

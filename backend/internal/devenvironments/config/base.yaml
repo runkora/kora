@@ -1,0 +1,22 @@
+quota:
+  # Per-principal cap on active (non-deleted) environments — decision 8's
+  # "per-principal cap of 2 active environments (policy-configurable)".
+  # Override with ORBIT_DEVENV_MAX_ACTIVE_PER_OWNER for local dev.
+  maxActivePerOwner: 2
+
+kubeconfig:
+  # How long POST /v1/dev-environments/{id}/kubeconfig waits for the operator
+  # to sign a freshly submitted CSR before giving up with a 504. The operator
+  # reconciles on its own loop (SyncPeriod), so this must comfortably exceed
+  # one reconcile interval. Override with ORBIT_DEVENV_KUBECONFIG_SIGN_TIMEOUT_SECONDS.
+  signTimeoutSeconds: 20
+
+apiServer:
+  # host:port of the shared Istio ingress gateway's TLS-passthrough listener
+  # (operator's devEnvAPIGatewayPort, 16443) — what the minted kubeconfig's
+  # server: field actually points at. This does NOT need to resolve to a
+  # specific environment: SNI (tls-server-name, set to status.ingressHost)
+  # carries that. Local dev default matches
+  # infrastructure/bootstrap/k3d-config.yaml's loadbalancer port mapping.
+  # Override with ORBIT_DEVENV_API_SERVER_EXTERNAL_ADDRESS for staging.
+  externalAddress: "localhost:16443"

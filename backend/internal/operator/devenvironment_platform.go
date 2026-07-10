@@ -155,8 +155,14 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 	if err != nil {
 		return fmt.Errorf("ensure in-vcluster platform secret: %w", err)
 	}
-	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues); fixturesErr != nil {
+	if frontendSecretErr := ensureInVClusterFrontendSecret(ctx, vcClient); frontendSecretErr != nil {
+		return fmt.Errorf("ensure in-vcluster frontend secret: %w", frontendSecretErr)
+	}
+	if fixturesErr := ensureFixtures(ctx, vcClient, secretValues, r.appAuthCallbackURL()); fixturesErr != nil {
 		return fmt.Errorf("ensure in-vcluster fixtures: %w", fixturesErr)
+	}
+	if migErr := r.ensureInVClusterMigrations(ctx, vcClient); migErr != nil {
+		return fmt.Errorf("ensure in-vcluster db migrations: %w", migErr)
 	}
 
 	trustDomain, err := r.hostTrustDomain(ctx)
@@ -164,7 +170,16 @@ func (r *DevEnvironmentReconciler) reconcileInVClusterPlatform(ctx context.Conte
 		return fmt.Errorf("determine host trust domain: %w", err)
 	}
 
-	if err := r.applyInVClusterOrbitPlatform(ctx, vcClient, trustDomain); err != nil {
+	// The in-vcluster istiod must validate HOST-signed workload tokens
+	// (devenvironment_jwks.go) — fetch the host issuer/JWKS fresh on every
+	// reconcile so a signing-key rotation propagates within one requeue.
+	issuer, jwks, err := r.HostJWKSFetcher(ctx)
+	if err != nil {
+		return fmt.Errorf("fetch host service-account issuer/JWKS: %w", err)
+	}
+	meshJWT := MeshJWTValidationSpec{Enabled: true, Issuer: issuer, JWKS: jwks}
+
+	if err := r.applyInVClusterOrbitPlatform(ctx, vcClient, env, trustDomain, meshJWT); err != nil {
 		return fmt.Errorf("apply in-vcluster OrbitPlatform: %w", err)
 	}
 	if err := r.applyInVClusterOrbitTenant(ctx, vcClient); err != nil {
@@ -246,23 +261,39 @@ func (r *DevEnvironmentReconciler) hostTrustDomain(ctx context.Context) (string,
 // the vcluster. spire.enabled is always false (option C3 — SPIRE cannot run
 // inside a vcluster and identity is host-provided instead); everything else
 // mirrors deploy/local/orbit-platform.yaml.
-func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Context, vcClient client.Client, trustDomain string) error {
+func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Context, vcClient client.Client, env *OrbitDevEnvironment, trustDomain string, meshJWT MeshJWTValidationSpec) error {
+	// Every environment's charts serve the SHARED app hostname (the ADR's
+	// path-based-app-ingress amendment): the host gateway forwards app
+	// traffic with the original Host header intact, so the in-vcluster
+	// orbit-gateway and the orbit chart's VirtualServices must match that
+	// hostname, not the baked deploy/local frontendHost. The same value for
+	// every environment — per-environment routing is the HOST gateway's
+	// path/cookie concern (devenvironment_app_ingress.go), never the
+	// environment's own bits (decision 4: identical image/chart everywhere).
+	appHost, err := r.appHostname()
+	if err != nil {
+		return err
+	}
 	spec := OrbitPlatformSpec{
-		Version:       inVClusterOrbitPlatformVersion,
-		TrustDomain:   trustDomain,
-		SPIRE:         SPIRESpec{Enabled: false},
-		Istio:         IstioSpec{Enabled: true},
-		Gateway:       GatewaySpec{ServiceType: "ClusterIP"},
-		ImageRegistry: r.ImageRegistry,
+		Version:           inVClusterOrbitPlatformVersion,
+		TrustDomain:       trustDomain,
+		SPIRE:             SPIRESpec{Enabled: false},
+		Istio:             IstioSpec{Enabled: true},
+		MeshJWTValidation: meshJWT,
+		DevEnvironmentID:  env.Name,
+		Gateway:           GatewaySpec{ServiceType: "ClusterIP"},
+		ImageRegistry:     r.ImageRegistry,
 		Secrets: PlatformSecretsSpec{
 			PlatformSecretRef: SecretRef{Name: "orbit-secrets", Namespace: "orbit-system"},
 		},
 		Config:          r.inVClusterPlatformConfig(),
 		UpgradeStrategy: UpgradeStrategySpec{Mode: "Explicit"},
+		PlatformValues:  map[string]any{"frontendHost": appHost},
+		OrbitValues:     map[string]any{"frontendHost": appHost},
 	}
 
 	existing := &OrbitPlatform{}
-	err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterOrbitPlatformName}, existing)
+	err = vcClient.Get(ctx, client.ObjectKey{Name: inVClusterOrbitPlatformName}, existing)
 	switch {
 	case apierrors.IsNotFound(err):
 		desired := &OrbitPlatform{
@@ -283,6 +314,42 @@ func (r *DevEnvironmentReconciler) applyInVClusterOrbitPlatform(ctx context.Cont
 		}
 		return nil
 	}
+}
+
+// inVClusterPlatformReady reports whether the in-vcluster OrbitPlatform CR
+// (submitted by reconcileInVClusterPlatform) has itself reached
+// status.phase == PhaseReady — i.e. the nested orbit-operator has finished
+// the real release sequence (spire-crds → spire → istio-base → istiod →
+// gateway → orbit-platform → orbit) inside the vcluster, not merely that the
+// CR was applied. Confirmed live: without this check, OrbitDevEnvironment
+// reported status.phase Ready ~60-90s before orbit-identity/orbit-frontend/the
+// gateways were even scheduled, so the UI showed a live ingress link the
+// environment could not yet serve.
+//
+// A missing vcluster API server or a not-yet-created OrbitPlatform CR is
+// reported as "not ready" rather than an error — both are expected
+// transiently right after apply and self-heal on the next reconcile, the
+// same posture as the rest of this reconciler.
+func (r *DevEnvironmentReconciler) inVClusterPlatformReady(ctx context.Context, env *OrbitDevEnvironment) (bool, error) {
+	ns := devEnvNamespace(env)
+
+	vcCfg, err := r.VClusterRestConfigFactory(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("build vcluster rest config: %w", err)
+	}
+	vcClient, err := r.VClusterClientFactory(vcCfg)
+	if err != nil {
+		return false, fmt.Errorf("build vcluster client: %w", err)
+	}
+
+	platform := &OrbitPlatform{}
+	if err := vcClient.Get(ctx, client.ObjectKey{Name: inVClusterOrbitPlatformName}, platform); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get in-vcluster OrbitPlatform %q: %w", inVClusterOrbitPlatformName, err)
+	}
+	return platform.Status.Phase == PhaseReady, nil
 }
 
 // applyInVClusterOrbitTenant creates or updates the seeded OrbitTenant CR

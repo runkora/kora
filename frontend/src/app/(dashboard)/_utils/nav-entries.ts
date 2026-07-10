@@ -24,6 +24,12 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
   { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
   {
+    label: 'Dev Environments',
+    href: APP_ROUTES.devEnvironments,
+    icon: 'rocket',
+    requiredScope: 'devenvironments:read',
+  },
+  {
     label: 'Triggers',
     href: APP_ROUTES.triggers,
     icon: 'zap',

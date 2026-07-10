@@ -80,6 +80,31 @@ spec:
                       description: Whether the operator installs and manages Istio.
                       type: boolean
                       default: true
+                meshJWTValidation:
+                  description: >
+                    Configures istiod's JWT_RULE authenticator for installs whose mesh
+                    workloads carry tokens signed by a different apiserver (Orbit dev
+                    environments, where workloads are host pods). Leave disabled on
+                    host installs.
+                  type: object
+                  properties:
+                    enabled:
+                      description: Whether istiod validates XDS callers' tokens against the external issuer/JWKS below.
+                      type: boolean
+                      default: false
+                    issuer:
+                      description: External token issuer, exactly as it appears in tokens' iss claim.
+                      type: string
+                    jwks:
+                      description: The issuer's JSON Web Key Set document, verbatim (public key material).
+                      type: string
+                devEnvironmentID:
+                  description: >
+                    Marks this install as an Orbit dev environment and carries the environment's
+                    ID. Identity is host-provided with SVIDs path-scoped under /devenv/<id>/, and
+                    chart DestinationRule SANs are prefixed to match. Set by the devenvironment
+                    reconciler only — never on a host install.
+                  type: string
                 secrets:
                   description: References the pre-existing Secret with platform credentials.
                   type: object

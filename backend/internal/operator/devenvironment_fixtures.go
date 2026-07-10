@@ -96,7 +96,21 @@ func ensureInVClusterSecrets(ctx context.Context, vcClient client.Client) (*inVC
 	const namespace = "orbit-system"
 	const name = "orbit-secrets"
 
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+	// This runs before the in-vcluster orbit-operator's own PlatformReconciler
+	// ever gets scheduled, so it wins the race to create orbit-system — which
+	// means it must carry the same istio-injection/spiffe labels
+	// ensureSystemNamespace (platform_controller.go) and the orbit-platform
+	// chart's namespaces.yaml apply on a host install, or their own
+	// lookup/already-exists guards silently no-op and no orbit-system pod in
+	// the devenvironment ever gets a sidecar injected (confirmed live: every
+	// chart-shipped service came up as a single, un-injected container).
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: namespace,
+		Labels: map[string]string{
+			"istio-injection":         "enabled",
+			"spiffe.io/spire-managed": "true",
+		},
+	}}
 	if err := vcClient.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, fmt.Errorf("create namespace %q: %w", namespace, err)
 	}
@@ -133,6 +147,44 @@ func ensureInVClusterSecrets(ctx context.Context, vcClient client.Client) (*inVC
 			RedisPassword: string(existing.Data["REDIS_PASSWORD"]),
 			SigningKeyPEM: existing.Data["ORBIT_TOKEN_SIGNING_KEY"],
 		}, nil
+	}
+}
+
+// ensureInVClusterFrontendSecret creates the orbit-frontend-secrets Secret
+// the orbit chart's frontend deployment references as an existingSecret
+// (charts/orbit/values.yaml: frontend.existingSecret). On a host install this
+// is provisioned out-of-band by scripts/cluster/create-secrets.sh, never by
+// the operator — but a devenvironment has no equivalent out-of-band step, so
+// without this the frontend pod never leaves CreateContainerConfigError
+// (confirmed live: "secret \"orbit-frontend-secrets...\" not found"). A fresh
+// throwaway value on first create only, left untouched after — same idiom as
+// ensureInVClusterSecrets.
+func ensureInVClusterFrontendSecret(ctx context.Context, vcClient client.Client) error {
+	const namespace = "orbit-system"
+	const name = "orbit-frontend-secrets"
+
+	existing := &corev1.Secret{}
+	err := vcClient.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, existing)
+	switch {
+	case apierrors.IsNotFound(err):
+		// 32 random bytes, base64url-encoded, is 43 characters — comfortably
+		// past create-secrets.sh's own 32-character minimum for this value.
+		sessionSecret, genErr := randomToken(32)
+		if genErr != nil {
+			return fmt.Errorf("generate BFF session secret: %w", genErr)
+		}
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Data:       map[string][]byte{"BFF_SESSION_SECRET": []byte(sessionSecret)},
+		}
+		if createErr := vcClient.Create(ctx, secret); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create secret %q: %w", name, createErr)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("get secret %q: %w", name, err)
+	default:
+		return nil
 	}
 }
 
@@ -198,7 +250,7 @@ func inVClusterDexIssuerURLValue() string {
 // inVClusterFixturesNamespace, configured with the credentials from
 // ensureInVClusterSecrets so the in-vcluster orbit-identity service (which
 // reads those same credentials from orbit-secrets) can actually connect.
-func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClusterSecretValues) error {
+func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClusterSecretValues, externalCallbackURL string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: inVClusterFixturesNamespace}}
 	if err := vcClient.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create namespace %q: %w", inVClusterFixturesNamespace, err)
@@ -218,7 +270,7 @@ func ensureFixtures(ctx context.Context, vcClient client.Client, secrets *inVClu
 		return fmt.Errorf("ensure redis service: %w", err)
 	}
 
-	dexConfigMap := dexConfigMap()
+	dexConfigMap := dexConfigMap(externalCallbackURL)
 	existingCM := &corev1.ConfigMap{}
 	err := vcClient.Get(ctx, client.ObjectKey{Name: dexConfigMap.Name, Namespace: dexConfigMap.Namespace}, existingCM)
 	switch {
@@ -415,7 +467,16 @@ func redisService() *corev1.Service {
 // else, so the same OIDC client wiring works unmodified inside a dev
 // environment. In-memory storage — state is lost on restart, which is fine
 // for a disposable environment.
-func dexConfig() string {
+//
+// externalCallbackURL is the browser-facing PKCE redirect URI under the
+// shared app-ingress host ("{appExternalURL}/auth/callback" — unprefixed,
+// because the routing cookie carries the environment identity for every
+// non-path-prefixed request; see devenvironment_app_ingress.go). Registered
+// alongside the relative device-flow callback. Note the issuer itself is
+// still the in-vcluster DNS URL — browser-completed logins additionally need
+// the issuer reachable from the browser, tracked as a follow-up in the ADR's
+// amendment-implementation notes.
+func dexConfig(externalCallbackURL string) string {
 	return fmt.Sprintf(`issuer: %s
 storage:
   type: memory
@@ -438,13 +499,14 @@ staticClients:
     public: true
     redirectURIs:
       - "/device/callback"
-`, inVClusterDexIssuerURLValue(), inVClusterDexPort, inVClusterDevUserEmail, inVClusterDevUserBcrypt, inVClusterDevUserID, inVClusterOIDCClientID)
+      - %q
+`, inVClusterDexIssuerURLValue(), inVClusterDexPort, inVClusterDevUserEmail, inVClusterDevUserBcrypt, inVClusterDevUserID, inVClusterOIDCClientID, externalCallbackURL)
 }
 
-func dexConfigMap() *corev1.ConfigMap {
+func dexConfigMap(externalCallbackURL string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: inVClusterDexName + "-config", Namespace: inVClusterFixturesNamespace},
-		Data:       map[string]string{inVClusterDexConfigFile: dexConfig()},
+		Data:       map[string]string{inVClusterDexConfigFile: dexConfig(externalCallbackURL)},
 	}
 }
 

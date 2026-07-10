@@ -2,9 +2,11 @@ package operator
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -102,6 +104,15 @@ func TestReconcile_InstallsInVClusterPlatformOnceReady(t *testing.T) {
 	if platform.Spec.Config.DB.Host == "" || platform.Spec.Config.Redis.Host == "" {
 		t.Error("in-vcluster OrbitPlatform must point at the fixture Postgres/Redis hosts")
 	}
+	// The in-vcluster istiod must be able to validate HOST-signed workload
+	// tokens: the host issuer/JWKS ride the CR spec (devenvironment_jwks.go).
+	if !platform.Spec.MeshJWTValidation.Enabled {
+		t.Error("in-vcluster OrbitPlatform must have meshJWTValidation.enabled=true")
+	}
+	if platform.Spec.MeshJWTValidation.Issuer == "" || platform.Spec.MeshJWTValidation.JWKS == "" {
+		t.Errorf("meshJWTValidation must carry the host issuer and JWKS, got issuer=%q jwks=%q",
+			platform.Spec.MeshJWTValidation.Issuer, platform.Spec.MeshJWTValidation.JWKS)
+	}
 
 	tenant := &OrbitTenant{}
 	if err := vcClient.Get(context.Background(), client.ObjectKey{Name: inVClusterOrbitTenantName}, tenant); err != nil {
@@ -117,6 +128,19 @@ func TestReconcile_InstallsInVClusterPlatformOnceReady(t *testing.T) {
 	}
 	if len(secret.Data["ORBIT_TOKEN_SIGNING_KEY"]) == 0 {
 		t.Error("orbit-secrets missing ORBIT_TOKEN_SIGNING_KEY")
+	}
+
+	// The fixture Postgres must be migrated or orbit-identity cannot boot —
+	// a goose Job using the operator's own image (devenvironment_migrations.go).
+	job := &batchv1.Job{}
+	if err := vcClient.Get(context.Background(), client.ObjectKey{Name: inVClusterMigrationsJobName, Namespace: "orbit-system"}, job); err != nil {
+		t.Fatalf("migration Job not created inside the vcluster: %v", err)
+	}
+	if img := job.Spec.Template.Spec.Containers[0].Image; img != "orbit-registry:5001/orbit-operator:latest" {
+		t.Errorf("migration Job image = %q, want the operator's own registry-prefixed image", img)
+	}
+	if inject := job.Spec.Template.Annotations["sidecar.istio.io/inject"]; inject != "false" {
+		t.Error("migration Job pod must opt out of sidecar injection or it never completes")
 	}
 
 	got := getEnv(t, r, env.Name)
@@ -178,11 +202,12 @@ func TestEnsureFixtures_DeploysPostgresRedisDex(t *testing.T) {
 		t.Fatalf("ensureInVClusterSecrets: %v", err)
 	}
 
-	if err := ensureFixtures(context.Background(), vcClient, secrets); err != nil {
+	callback := "http://devenv.orbit.test:8880/auth/callback"
+	if err := ensureFixtures(context.Background(), vcClient, secrets, callback); err != nil {
 		t.Fatalf("ensureFixtures: %v", err)
 	}
 	// Re-apply must be idempotent.
-	if err := ensureFixtures(context.Background(), vcClient, secrets); err != nil {
+	if err := ensureFixtures(context.Background(), vcClient, secrets, callback); err != nil {
 		t.Fatalf("ensureFixtures (re-apply): %v", err)
 	}
 
@@ -191,5 +216,16 @@ func TestEnsureFixtures_DeploysPostgresRedisDex(t *testing.T) {
 		if err := vcClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: inVClusterFixturesNamespace}, svc); err != nil {
 			t.Errorf("service %q not created: %v", name, err)
 		}
+	}
+
+	// The Dex client must register the shared-host browser callback (the
+	// path-based app-ingress amendment) alongside the relative device-flow
+	// callback.
+	cm := &corev1.ConfigMap{}
+	if err := vcClient.Get(context.Background(), client.ObjectKey{Name: inVClusterDexName + "-config", Namespace: inVClusterFixturesNamespace}, cm); err != nil {
+		t.Fatalf("dex configmap not created: %v", err)
+	}
+	if !strings.Contains(cm.Data[inVClusterDexConfigFile], callback) {
+		t.Errorf("dex config missing external callback %q:\n%s", callback, cm.Data[inVClusterDexConfigFile])
 	}
 }

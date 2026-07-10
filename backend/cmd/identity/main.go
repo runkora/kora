@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ic "github.com/clear-route/orbit/cmd/identity/config"
+	"github.com/clear-route/orbit/internal/devenvironments"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/api"
 	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
@@ -205,10 +206,109 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// ready at startup.
 	go registerTriggerScopes(ctx, logger, policyClient)
 
+	// Dev environments feature (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md,
+	// decision 5). Hosted here for the same reason as Triggers — identity is
+	// the only externally-reachable, platform-token-authority binary — but
+	// unlike Triggers this gains a narrow (single-CRD) Kubernetes client.
+	devEnvCtrl, err := initDevEnvironmentsController(logger, db, svc, policyEval)
+	if err != nil {
+		return nil, err
+	}
+	go registerDevEnvironmentScopes(ctx, logger, policyClient)
+
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 		triggerCtrl,
+		devEnvCtrl,
 	}, nil
+}
+
+// initDevEnvironmentsController wires the devenvironments feature: the
+// Postgres registry, the narrow (OrbitDevEnvironment-only) Kubernetes
+// client, and the controller. The identity service doubles as the auth
+// middleware provider, exactly as for Triggers.
+func initDevEnvironmentsController(
+	logger logging.Logger,
+	db *storage.DB,
+	svc *identity.Service,
+	policyEval policy.Evaluator,
+) (api.Controller, error) {
+	devEnvCfg, err := devenvironments.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load devenvironments config: %w", err)
+	}
+
+	restCfg, err := devenvironments.BuildRestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("build devenvironments k8s rest config: %w", err)
+	}
+	crClient, err := devenvironments.NewCRClient(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("build devenvironments k8s client: %w", err)
+	}
+
+	repo := devenvironments.NewPostgresRepository(db.Pool())
+	devEnvSvc := devenvironments.NewService(repo, crClient, devEnvCfg, logger)
+
+	return devenvironments.NewController(devEnvSvc, svc.AuthMiddleware(logger), policyEval, devEnvironmentRoutes(), ic.Current.Server.BasePath, logger), nil
+}
+
+// devEnvironmentRoutes returns the route→required-scope bindings for the
+// devenvironments API, consumed by ScopeEnforcementMiddleware.
+func devEnvironmentRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/dev-environments/all", Method: "GET", RequiredScope: "devenvironments:admin"},
+		{PathPrefix: "/api/v1/dev-environments", Method: "POST", RequiredScope: "devenvironments:write"},
+		{PathPrefix: "/api/v1/dev-environments", Method: "GET", RequiredScope: "devenvironments:read"},
+		{PathPrefix: "/api/v1/dev-environments", Method: "DELETE", RequiredScope: "devenvironments:write"},
+	}
+}
+
+// devEnvironmentScopes declares the devenvironments scope vocabulary
+// (decision 5's "new scope family (devenvironments:read|write|admin) enters
+// the policy vocabulary").
+func devEnvironmentScopes() []routescopes.ScopeDeclaration {
+	return []routescopes.ScopeDeclaration{
+		{Scope: "devenvironments:read", ResourceType: "devenvironments", PathSegments: []string{}, Action: "read", Description: "View ephemeral dev environments"},
+		{Scope: "devenvironments:write", ResourceType: "devenvironments", PathSegments: []string{}, Action: "write", Description: "Provision, extend, connect to, and destroy ephemeral dev environments"},
+		{Scope: "devenvironments:admin", ResourceType: "devenvironments", PathSegments: []string{}, Action: "admin", Description: "List every ephemeral dev environment regardless of owner"},
+	}
+}
+
+// registerDevEnvironmentScopes publishes devEnvironmentRoutes()/devEnvironmentScopes()
+// to the policy service, mirroring registerTriggerScopes.
+func registerDevEnvironmentScopes(ctx context.Context, logger logging.Logger, pc *policyclient.Client) {
+	const maxAttempts = 15
+	maxBackoff := 30 * time.Second
+	backoff := 2 * time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := pc.RegisterRoutes(ctx, "identity", devEnvironmentRoutes(), devEnvironmentScopes()); err == nil {
+			logger.Info(ctx, "devenvironments scope vocabulary registered with policy service")
+			return
+		} else {
+			lastErr = err
+			logger.Warn(ctx, "devenvironments scope registration attempt failed, retrying",
+				logging.Field{Key: "attempt", Value: attempt},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	errStr := "unknown"
+	if lastErr != nil {
+		errStr = lastErr.Error()
+	}
+	logger.Error(ctx, "devenvironments scope registration gave up after max attempts",
+		logging.Field{Key: "attempts", Value: maxAttempts},
+		logging.Field{Key: "last_error", Value: errStr})
 }
 
 // initTriggersController wires the Triggers feature: the Postgres repository, the

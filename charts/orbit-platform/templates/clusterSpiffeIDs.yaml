@@ -14,6 +14,7 @@
 # className (set in the controller-manager-config.yaml ConfigMap, field: className).
 #
 # Ref: ADR-0018 (SPIFFE identity grants), ADR-0019 (tenant isolation)
+{{- if .Values.spire.enabled }}
 {{- $trustDomain := include "orbit-platform.trustDomain" . }}
 ---
 # Istio gateway pods need a SPIFFE identity so that the service mesh can
@@ -37,9 +38,21 @@ spec:
     - "k8s:ns:istio-system"
     - "k8s:sa:gateway"
 ---
-# Istio sidecar proxies injected into non-system, non-tenant namespaces.
-# Scoped by exclusion: does NOT match orbit-system or any orbit.io/role=tenant namespace —
-# those are covered by the orbit-system-component and orbit-tenant-* IDs below.
+# Istio sidecar proxies injected into non-system, non-tenant, non-devenv namespaces.
+# Scoped by exclusion: does NOT match orbit-system, any orbit.io/role=tenant namespace,
+# or any orbit.io/role=devenv namespace — those are covered by the
+# orbit-system-component, orbit-tenant-*, and (host-side, devenvironment_identity.go)
+# devenv-{env}/devenv-{env}-system IDs respectively.
+#
+# The devenv exclusion matters: every devenvironment's flattened host namespace
+# (orbit-devenv-{id}) carries chart-shipped services with the identical
+# spiffe.io/spire-managed-identity=true label this ClusterSPIFFEID selects on, and
+# is neither orbit-system nor orbit.io/role=tenant — so without this exclusion a
+# devenv pod matches BOTH this ID and its own devenv-scoped one, giving it two
+# competing SPIFFE identities. SPIRE's SDS handler resolves the ambiguous
+# "default" resource to whichever entry was created first, which is not
+# guaranteed to be the devenv-prefixed one — confirmed live, see the ADR's Ninth
+# Slice, Bug 4 (docs/adr/2026-07-07-ephemeral-development-environments-via-vcluster.md).
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
@@ -62,6 +75,7 @@ spec:
         operator: NotIn
         values:
           - tenant
+          - devenv
 ---
 # Orbit system components (identity service, etc.) in orbit-system namespace.
 # SPIFFE ID path: spiffe://<trust-domain>/system/<component>
@@ -156,3 +170,4 @@ spec:
         operator: Exists
       - key: orbit.io/run-id
         operator: Exists
+{{- end }}
