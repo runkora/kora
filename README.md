@@ -112,7 +112,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
 
 When the token expires, `make auth-refresh` rotates the pair.
 
-For a detailed walkthrough see the **[Local Development Guide](docs/guides/local-development.md)**.
+For a detailed walkthrough see the **[Local Development Guide](docs/guides/local-development.md)**. Everything else lives in **[docs/](docs/README.md)**.
 
 ### Development Commands
 

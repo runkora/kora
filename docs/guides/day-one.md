@@ -21,7 +21,7 @@ make auth    # log in as dev@orbit.local.clearroute.io / password
 
 `make up` is idempotent. Run it again whenever the cluster drifts.
 
-When the cluster itself is the problem, `make reset` deletes it and brings it back. Postgres and Redis are Docker Compose volumes, so your data survives. k3d owns the image registry, so a reset rebuilds every image. The only targets that delete data are `make dev-down-clean` and `make db-reset`.
+When the cluster itself is the problem, `make reset` deletes it and brings it back. Postgres and Redis are Docker Compose volumes, so your data survives. k3d owns the image registry, so a reset rebuilds every image. Targets that delete data announce themselves with `DESTRUCTIVE` in `make help`: `dev-down-clean`, `db-reset` and `clean-all`.
 
 - Frontend: `https://orbit.local.clearroute.io:8443`
 - Inference gateway: `https://api.orbit.local.clearroute.io:8443/v1`
@@ -38,7 +38,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   https://api.orbit.local.clearroute.io:8443/v1/models | jq .
 ```
 
-That returns `403` until your user has a policy grant. Local dev seeds grants for the example agents, PATs and trigger sources, but not for the human you log in as, so a freshly authenticated token carries no scopes and the gateway OPA rejects it before the request reaches a service. Grant yourself scopes with the policy API or the admin dashboard, see [policy-and-roles.md](policy-and-roles.md).
+Listing models works out of the box. Scope-gated endpoints, including `POST /v1/chat/completions`, return `403` until your user holds a role or grant that carries the scope. [policy-and-roles.md](policy-and-roles.md) covers roles, grants, and the `tenant-admin` bootstrap.
 
 Access tokens last 4h locally, set by `accessTokenTtlMinutes` in `deploy/local/orbit-values.yaml`. When one expires, `make auth-refresh` rotates the pair. If the refresh token is dead too, run `make auth` again.
 

@@ -38,7 +38,7 @@ make setup
 | `tidy` | `go mod tidy`. |
 | `frontend-install` | Enforces Node 24 and pnpm 10, runs `pnpm install`. |
 | `hooks` | Installs the git pre-commit hooks. |
-| `setup-dns` | Configures `*.orbit.local.clearroute.io` resolution on macOS via dnsmasq. No-op on Linux. |
+| `setup-dns` | Verifies `*.orbit.local.clearroute.io` resolves. It is a public wildcard record, so there is nothing to configure. |
 | `setup-tls` | Generates mkcert TLS certs for the local domain. |
 
 ---
@@ -53,7 +53,7 @@ Idempotent. Run it again whenever the cluster drifts. It composes, in order:
 
 | Step | Does |
 |---|---|
-| `dev-up` | Starts Postgres, Redis, glauth, and Dex in Docker Compose. On first run, generates `secrets/signing.key` and `config/dex/.env` if absent. |
+| `dev-up` | Starts Postgres, Redis, glauth, and Dex in Docker Compose. Generates `secrets/signing.key` on first run. |
 | `dev-cluster` | Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`. |
 | `migrate-up` | Applies every service's Goose migrations. |
 | `cluster-operator` | Builds and installs the `orbit-operator`, which reconciles the `OrbitPlatform` CR: SPIRE, Istio, the gateway, `orbit-platform`, and the Orbit services. |
@@ -167,7 +167,6 @@ Both `service=` and `name=` are required. This writes a correctly timestamped fi
 | `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation, so changing it needs `make dev-down-clean` first. |
 | `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
 | `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `orbit-frontend-secrets`. |
-| `ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET` | Generated with `openssl rand -hex 32` | Confidential-client secret for the example tenant. Unused in the default public-client setup. |
 
 `create-secrets.sh` reads `DB_PASSWORD`, `REDIS_PASSWORD`, and `BFF_SESSION_SECRET` from `.env` and, together with `secrets/signing.key`, writes them into `orbit-secrets` and `orbit-frontend-secrets` in the cluster.
 
@@ -181,7 +180,6 @@ Everything else has a default and does not appear in `.env`:
 | Variable | Purpose |
 |---|---|
 | `BEDROCK_ENABLED`, `AWS_PROFILE`, `BEDROCK_REGION` | Enable the Bedrock provider. `make cluster-bedrock-creds` reads these to refresh the cluster's AWS credentials from your SSO session. |
-| `K3D_FIX_DNS` | Docker Desktop only: patch node DNS on cluster creation when `host.docker.internal` does not resolve. |
 | `DB_PORT`, `DB_USER`, `DB_NAME`, `DB_PASSWORD`, `REDIS_PORT`, `REDIS_PASSWORD` | Override compose defaults on port collisions. |
 | `ORBIT_TENANT_ID` | Tenant used by `make auth`. Defaults to `example`. |
 
@@ -202,6 +200,7 @@ make test-integration  # live-cluster authz tests
 
 ```bash
 make up
+make auth              # test-integration refreshes an existing token; it cannot create one
 make test-integration
 ```
 
@@ -255,14 +254,42 @@ In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude
 
 ## Troubleshooting
 
-### `orbit-dex` container is unhealthy
+### Looking at a failing pod
 
-`config/dex/.env` is missing or holds an invalid bcrypt hash. `make up` generates it on first run, but it can become stale.
+Orbit services run as pods with sidecars, so "the service is broken" usually means one container is broken. Find out which.
 
 ```bash
-make dex-hash password=password
-make dev-down
-make up
+kubectl get pods -n orbit-system            # what is not Running
+kubectl get pods -n orbit-tenant-example    # tenant workloads
+
+# Per-container readiness and restart counts. A pod can be 2/3 Ready and useless.
+kubectl get pod <pod> -n orbit-system \
+  -o jsonpath='{range .status.containerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}'
+
+kubectl logs <pod> -n orbit-system -c <container>              # current logs
+kubectl logs <pod> -n orbit-system -c <container> --previous   # why it died last time
+kubectl describe pod <pod> -n orbit-system                     # events: scheduling, image pulls, evictions
+```
+
+`--previous` is the one that matters in a crash loop. The running container's logs are from the attempt that has not failed yet.
+
+Every meshed pod carries an `istio-proxy`, and Orbit workloads also carry `identity-proxy`. If the app container is healthy but the pod is not, read the sidecar's logs.
+
+Port-forwarding into a meshed pod is blocked by mTLS. To call a service directly, exec into its Envoy and curl from inside:
+
+```bash
+kubectl exec <pod> -n orbit-system -c istio-proxy -- curl -s localhost:8080/health
+```
+
+When a service is running the wrong build, `make redeploy-status` shows what is deployed against what is in the registry. When the cluster itself is wedged, `make reset` rebuilds it and keeps your data.
+
+### `orbit-dex` container is unhealthy
+
+Dex authenticates against `glauth` over LDAP. Check both containers are healthy, then restart them.
+
+```bash
+docker compose ps glauth dex
+docker compose restart glauth dex
 ```
 
 ### `https://orbit.local.clearroute.io:8443` is unreachable

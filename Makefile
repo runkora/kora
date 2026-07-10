@@ -48,10 +48,6 @@ REDIS_PASSWORD ?= orbit
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
-# Colima (Lima-based Docker runtime on macOS) uses 192.168.5.2 as its internal DNS,
-# which conflicts with k3d's DNS-fix behaviour. Auto-detect Colima and disable the fix.
-# Developers on Docker Desktop can override this in .env: K3D_FIX_DNS=1
-K3D_FIX_DNS ?= $(if $(shell which colima 2>/dev/null),0,)
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
 # Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake orbit-frontend
@@ -81,10 +77,21 @@ COLOR_BLUE=\033[36m
 # Help Target
 # ===========================================
 
+# The day-to-day targets come first. Everything else is listed below them, in
+# file order. A new engineer should not have to read 100 targets to find `up`.
+COMMON_TARGETS := setup up down reset auth redeploy test check
+
 .PHONY: help
 help: ## Display this help screen
-	@echo "$(COLOR_BOLD)Orbit Control Plane - Available Targets$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Orbit Control Plane$(COLOR_RESET)"
 	@echo ""
+	@echo "$(COLOR_BOLD)Start here$(COLOR_RESET)"
+	@for t in $(COMMON_TARGETS); do \
+		desc=$$(grep -Eh "^$$t:.*?## " $(MAKEFILE_LIST) | head -1 | sed 's/^[^#]*## //'); \
+		printf "  $(COLOR_GREEN)%-20s$(COLOR_RESET) %s\n" "$$t" "$$desc"; \
+	done
+	@echo ""
+	@echo "$(COLOR_BOLD)All targets$(COLOR_RESET)"
 	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
 	@echo ""
@@ -114,7 +121,6 @@ env: ## Generate .env with machine-local secrets (no-op if .env already exists)
 			"" \
 			"# Real secrets, generated per machine." \
 			"BFF_SESSION_SECRET=$$(openssl rand -base64 32)" \
-			"ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET=$$(openssl rand -hex 32)" \
 			> .env; \
 		echo "$(COLOR_GREEN)✓ .env generated with machine-local secrets$(COLOR_RESET)"; \
 	fi
@@ -129,7 +135,7 @@ setup: env install-tools install-tools-cluster tidy frontend-install hooks setup
 	fi
 
 .PHONY: setup-dns
-setup-dns: ## Configure *.orbit.local.clearroute.io DNS on macOS via dnsmasq (idempotent, no-op on Linux)
+setup-dns: ## Verify *.orbit.local.clearroute.io resolves (public wildcard record; no local DNS config needed)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
@@ -166,7 +172,6 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 	ln -s "$(CURDIR)/.env" "$$WORKTREE_DIR/.env"; \
 	ln -s "$(CURDIR)/secrets" "$$WORKTREE_DIR/secrets"; \
 	mkdir -p "$$WORKTREE_DIR/config/dex"; \
-	ln -s "$(CURDIR)/config/dex/.env" "$$WORKTREE_DIR/config/dex/.env"; \
 	echo "$(COLOR_YELLOW)Configuring git hooks...$(COLOR_RESET)"; \
 	git -C "$$WORKTREE_DIR" config core.hooksPath .githooks; \
 	echo "$(COLOR_GREEN)✓ Worktree ready$(COLOR_RESET)"; \
@@ -365,7 +370,7 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
 
 # ===========================================
-# Local Development Environment (Tier 1 — docker-compose)
+# Backing services (Postgres, Redis, Dex, glauth) via docker-compose
 # ===========================================
 
 .PHONY: dev-up
@@ -400,7 +405,7 @@ dev-down-clean: ## DESTRUCTIVE: stop Postgres + Redis and delete their volumes. 
 	@echo "$(COLOR_GREEN)✓ Local services stopped and volumes removed$(COLOR_RESET)"
 
 # ===========================================
-# Local Development Environment (Tier 2 — k3d cluster)
+# The local Kubernetes cluster (k3d)
 # ===========================================
 
 .PHONY: install-tools-cluster
@@ -443,7 +448,7 @@ auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/orbit_credent
 .PHONY: dev-cluster
 dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-operator' next.
 	@echo "$(COLOR_YELLOW)Bringing up local k3d cluster...$(COLOR_RESET)"
-	@K3D_FIX_DNS=$(K3D_FIX_DNS) bash scripts/cluster/dev-cluster-up.sh
+	@bash scripts/cluster/dev-cluster-up.sh
 
 .PHONY: dev-cluster-down
 dev-cluster-down: ## Tear down the local k3d cluster
@@ -838,7 +843,7 @@ prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
 # ===========================================
 
 .PHONY: build-backend
-build-backend: proto-gen ## Build all service binaries to .bin directory (runs proto-gen first)
+build-backend: proto-gen ## Build the host-buildable service binaries to .bin (runs proto-gen first). Not every cmd/ binary.
 	@echo "$(COLOR_YELLOW)Building service binaries...$(COLOR_RESET)"
 	@mkdir -p $(BINARY_DIR)
 	@cd $(BACKEND_DIR) && $(GOBUILD) -o ../$(BINARY_DIR)/orbit-identity ./cmd/identity
@@ -977,6 +982,10 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 .PHONY: frontend-build
 frontend-build: ## Build the frontend for production
 	@echo "$(COLOR_YELLOW)Building frontend...$(COLOR_RESET)"
+	@if [ ! -f .env ]; then \
+		echo "$(COLOR_RED)✗ .env not found. Run 'make setup' (or 'make env') first.$(COLOR_RESET)"; \
+		exit 1; \
+	fi
 	@set -a && . ./.env && set +a && cd $(FRONTEND_DIR) && pnpm build
 	@echo "$(COLOR_GREEN)✓ Frontend built$(COLOR_RESET)"
 
@@ -1064,7 +1073,7 @@ clean: ## Clean build artifacts and temporary files
 	@echo "$(COLOR_GREEN)✓ Clean complete$(COLOR_RESET)"
 
 .PHONY: clean-all
-clean-all: clean ## Clean everything including database volumes
+clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres and Redis volumes. Every local database row is lost.
 	@echo "$(COLOR_YELLOW)Cleaning all artifacts and stopping services...$(COLOR_RESET)"
 	@docker compose down -v
 	@echo "$(COLOR_GREEN)✓ All clean$(COLOR_RESET)"
@@ -1142,25 +1151,6 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@echo ""
 	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
 	@echo ""
-
-.PHONY: dex-hash
-dex-hash: ## Write config/dex/.env with a fresh bcrypt hash  (usage: make dex-hash password=yourpassword)
-	$(if $(password),,$(error password is required — usage: make dex-hash password=yourpassword))
-	@echo "$(COLOR_YELLOW)Generating bcrypt hash for '$(password)'...$(COLOR_RESET)"
-	@mkdir -p config/dex
-	@HASH=$$(docker run --rm httpd:alpine htpasswd -bnBC 10 "" "$(password)" 2>/dev/null | tr -d ':\n'); \
-	ESCAPED=$$(printf '%s' "$$HASH" | sed 's/[$$]/&&/g'); \
-	printf 'DEX_USER_PASSWORD_HASH=%s\n' "$$ESCAPED" > config/dex/.env; \
-	echo "$(COLOR_GREEN)✓ config/dex/.env written$(COLOR_RESET)"; \
-	echo "  Test user: dev@orbit.local.clearroute.io / $(password)"
-
-.PHONY: dex-env
-dex-env: ## Bootstrap config/dex/.env with the default dev password (no-op if it already exists)
-	@if [ -f config/dex/.env ]; then \
-		echo "$(COLOR_YELLOW)config/dex/.env already exists, skipping$(COLOR_RESET)"; \
-	else \
-		$(MAKE) dex-hash password=password; \
-	fi
 
 # ===========================================
 # Convenience Targets

@@ -412,6 +412,21 @@ if [ "$PRINT_IMAGE" -eq 1 ]; then
   exit 0
 fi
 
+# ── preflight ─────────────────────────────────────────────────────────────────
+# Without this, a torn-down cluster surfaces as a raw
+# `dial tcp [::1]:5001: connect: connection refused` from `docker push`.
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "orbit-registry"; then
+  err "The local image registry (orbit-registry) is not running."
+  echo "  k3d owns it, so the cluster is down. Bring it up with: make up" >&2
+  exit 1
+fi
+if ! kubectl cluster-info >/dev/null 2>&1; then
+  err "No reachable Kubernetes cluster for the current kubectl context."
+  echo "  Context: $(kubectl config current-context 2>/dev/null || echo '<none>') (expected k3d-orbit-local)" >&2
+  echo "  Bring the cluster up with 'make up', or switch context." >&2
+  exit 1
+fi
+
 # ── build + push ──────────────────────────────────────────────────────────────
 
 # git-sha tag for this build — both :latest and :<sha> get pushed, and rollouts
