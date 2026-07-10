@@ -87,15 +87,19 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ### Quick Start
 
+New here? [docs/guides/day-one.md](docs/guides/day-one.md) takes you from clone to a running change, backend and frontend.
+
 **Tier 1: First-run setup**
 
 ```bash
 make setup             # install goose, air, golangci-lint, gitleaks; tidy deps
-make env               # copy .env.example → .env
+make env               # copy .env.example → .env, generating BFF_SESSION_SECRET
 make dev-up            # start Postgres + Redis + Dex (auto-generates signing key + Dex credentials on first run)
 make migrate-up        # apply database migrations
 make dev               # start Orbit with hot-reload
 ```
+
+`make bootstrap` runs those four setup steps in one go.
 
 **Authenticate (in a second terminal):**
 

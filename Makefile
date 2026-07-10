@@ -84,12 +84,15 @@ help: ## Display this help screen
 # ===========================================
 
 .PHONY: env
-env: ## Scaffold .env from .env.example (no-op if .env already exists)
+env: ## Scaffold .env from .env.example, generating BFF_SESSION_SECRET (no-op if .env already exists)
 	@if [ -f .env ]; then \
 		echo "$(COLOR_YELLOW).env already exists, skipping$(COLOR_RESET)"; \
 	else \
 		cp .env.example .env; \
-		echo "$(COLOR_GREEN)✓ .env created from .env.example — review and update values before continuing$(COLOR_RESET)"; \
+		secret=$$(openssl rand -base64 32); \
+		sed -i.bak "s|^BFF_SESSION_SECRET=.*|BFF_SESSION_SECRET=$$secret|" .env && rm -f .env.bak; \
+		echo "$(COLOR_GREEN)✓ .env created from .env.example, with a generated BFF_SESSION_SECRET$(COLOR_RESET)"; \
+		echo "$(COLOR_BLUE)  Review the values before continuing.$(COLOR_RESET)"; \
 	fi
 
 .PHONY: setup

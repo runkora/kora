@@ -17,15 +17,16 @@ Most work needs only the **Tier 1** stack, which is the Go binary on your host p
 
 ```bash
 make setup             # install goose, air, golangci-lint, gitleaks + git hooks
-make env               # cp .env.example .env  (defaults work as-is)
-make gen-session-secret # prints a secret; paste it into BFF_SESSION_SECRET in .env
+make env               # cp .env.example .env, generating BFF_SESSION_SECRET
 make dev-up            # Postgres + Redis + Dex; auto-generates secrets/signing.key
                        #   and config/dex/.env on first run
 make migrate-up        # apply all pending migrations
 make dev               # start the backend on :8080 with air hot-reload
 ```
 
-`make dev-up` bootstraps the RSA signing key and the Dex password hash on first run only. Regenerate them any time with `make gen-signing-key` / `make dex-hash password=…`.
+`make dev-up` bootstraps the RSA signing key and the Dex password hash on first run only. Regenerate them any time with `make gen-signing-key` or `make dex-hash password=…`, and rotate the BFF session secret with `make gen-session-secret`.
+
+All four steps together are `make bootstrap`.
 
 ### Get a token and call the API
 
@@ -45,7 +46,7 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s \
   http://localhost:8081/v1/models | jq .
 ```
 
-Tokens expire after ~4h in local dev. `make auth-refresh` rotates the pair; if the refresh token is dead, re-run `make auth-device`.
+Access tokens last 4h locally because `.env.example` sets `ORBIT_ACCESS_TOKEN_TTL_MINUTES=240`. Without that override the default is 15 minutes, so if your `.env` predates it you will re-authenticate a lot. `make auth-refresh` rotates the pair; if the refresh token is dead, re-run `make auth-device`.
 
 ## Frontend
 
@@ -54,7 +55,7 @@ make frontend-install  # enforces Node 24 + pnpm 10, runs pnpm install
 make frontend-dev      # Next.js on :3000 (sources .env for backend URLs + BFF_SESSION_SECRET)
 ```
 
-The BFF calls `requireEnv(...)` for every backend URL at boot, so the app throws if `.env` is incomplete. Run the backend `make env` and `make gen-session-secret` steps first. Pages backed by in-cluster-only services (agents, tool gateway) error against a host-only backend; point their URLs at the cluster to use them.
+The BFF calls `requireEnv(...)` for every backend URL at boot, so the app throws if `.env` is incomplete. Run `make env` first. Pages backed by in-cluster-only services (agents, tool gateway) error against a host-only backend; point their URLs at the cluster to use them.
 
 ## When you need the cluster (Tier 2)
 

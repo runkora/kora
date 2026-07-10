@@ -17,7 +17,9 @@ make bootstrap   # scaffolds .env, installs tools, starts Postgres + Redis + Dex
 make dev         # start the backend with hot-reload (air)
 ```
 
-`make bootstrap` runs `make env`, `make setup`, `make dev-up`, and `make migrate-up` in sequence. If you prefer to run them individually, that's exactly the Tier-1 first-run sequence.
+`make bootstrap` runs `make env`, `make setup`, `make dev-up`, and `make migrate-up` in sequence. If you prefer to run them individually, that's exactly the Tier-1 first-run sequence. `make env` generates a `BFF_SESSION_SECRET`, which the frontend BFF refuses to start without.
+
+If this is your first day, [docs/guides/day-one.md](docs/guides/day-one.md) walks the whole path, backend and frontend.
 
 Then authenticate in a second terminal:
 
