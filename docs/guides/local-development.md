@@ -1,206 +1,213 @@
 # Local Development Guide
 
-This guide takes you from a fresh clone to a running Orbit backend with a valid session token. It covers both the fast daily-development tier and the full-stack cluster tier.
+Orbit runs in Kubernetes locally, the same way it runs anywhere else. There is one environment. There is no host-process mode ([kubernetes-only-local-development](../adr/2026-07-10-kubernetes-only-local-development.md)).
+
+This is the deep reference. For the shortest path from clone to a running change, read [day-one.md](day-one.md) first.
 
 ---
 
 ## Prerequisites
 
-Install these tools before starting. All versions listed are minimums.
-
-| Tool | Version | Install |
+| Tool | Version | Notes |
 |---|---|---|
-| Go | 1.26+ | https://go.dev/dl |
-| Docker Desktop | 4.x+ | https://www.docker.com/products/docker-desktop |
-| Make | system | pre-installed on macOS/Linux |
+| Go | 1.26+ | control plane |
+| Docker Desktop or Colima | 4 CPUs, 8 GiB allocated to the VM | runs the cluster and the backing services |
+| Node | 24 (`>=24 <25`) | frontend host checks; `nvm install 24 && nvm use` |
+| pnpm | 10 (`>=10 <11`) | `corepack enable` |
+| Make | system | pre-installed on macOS and Linux |
 
-The following tools are installed automatically by `make setup`:
-
-| Tool | Purpose |
-|---|---|
-| `goose` | Database migrations |
-| `air` | Hot-reload for Go services |
-| `golangci-lint` | Code linting |
-| `gitleaks` | Secret scanning |
-
-For Tier 2 (full-stack cluster), these are also installed by `make setup`:
-
-| Tool | Purpose |
-|---|---|
-| `k3d` | Local Kubernetes cluster |
-| `kubectl` | Kubernetes CLI |
-| `helm` | Kubernetes package manager |
+`make setup` installs the rest: `goose`, `golangci-lint`, `gitleaks`, `buf`, `k3d`, `kubectl`, `helm`.
 
 ---
 
-## First-Run Bootstrap
+## Setup
 
-Run these steps once after cloning. They are safe to re-run.
-
-### Step 1: Install tooling
+Run once per machine. Safe to re-run.
 
 ```bash
 make setup
 ```
 
-Installs `goose`, `air`, `golangci-lint`, `gitleaks`, and git hooks. Runs `go mod tidy`.
+`make setup` composes:
 
-### Step 2: Create your `.env` file
+| Step | Does |
+|---|---|
+| `env` | Generates `.env` with machine-local secrets. No-op if `.env` exists. |
+| `install-tools` | Installs `goose`, `golangci-lint`, `gitleaks`, `buf`, protoc plugins. |
+| `install-tools-cluster` | Installs `k3d`, `kubectl`, `helm`. |
+| `tidy` | `go mod tidy`. |
+| `frontend-install` | Enforces Node 24 and pnpm 10, runs `pnpm install`. |
+| `hooks` | Installs the git pre-commit hooks. |
+| `setup-dns` | Configures `*.orbit.local.clearroute.io` resolution on macOS via dnsmasq. No-op on Linux. |
+| `setup-tls` | Generates mkcert TLS certs for the local domain. |
 
-```bash
-make env
-```
+---
 
-Copies `.env.example` → `.env`. Open `.env` and review the values. The defaults work for local development without modification.
-
-### Step 3: Start backing services
-
-```bash
-make dev-up
-```
-
-Starts five Docker containers on the `orbit-network` bridge:
-
-| Container | Port | Purpose |
-|---|---|---|
-| `orbit-postgres` | 5432 | Primary PostgreSQL database |
-| `orbit-redis` | 6379 | JTI blocklist and session cache |
-| `orbit-glauth` | internal | LDAP directory backing Dex user authentication |
-| `orbit-dex` | 5556 | Local OIDC identity provider |
-| `orbit-port-proxy` | 80, 443 | TLS/ingress proxy for `*.orbit.local.clearroute.io` |
-
-**On first run, `make dev-up` automatically bootstraps two prerequisites before starting the containers:**
-
-- **`secrets/signing.key`**: a 4096-bit RSA private key for signing platform JWTs. The identity service reads this via `ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key` (already set in `.env.example`). Stored as a file rather than an env var because RSA PEM blocks are multi-line and `.env` parsers do not reliably preserve newlines.
-- **`config/dex/.env`**: a bcrypt hash of the default dev password (`password`), consumed by the Dex container. Stored in a separate file rather than the root `.env` because Docker Compose v2 interpolates `$` characters in the `environment:` block, destroying the `$2y$10$...` bcrypt prefix.
-
-Both guards are idempotent. They are skipped on subsequent runs if the files already exist.
-
-**To use a custom Dex password** instead of the default `password`, generate `config/dex/.env` before running `dev-up`:
+## Bring the environment up
 
 ```bash
-make dex-hash password=mysecretpassword
-make dev-up
+make up
 ```
 
-**To regenerate the signing key** at any time:
+Idempotent. Run it again whenever the cluster drifts. It composes, in order:
+
+| Step | Does |
+|---|---|
+| `dev-up` | Starts Postgres, Redis, glauth, and Dex in Docker Compose. On first run, generates `secrets/signing.key` and `config/dex/.env` if absent. |
+| `dev-cluster` | Creates the k3d cluster `orbit-local` with a registry at `orbit-registry:5001`, and patches CoreDNS so pods resolve `dex.orbit.local.clearroute.io`. |
+| `migrate-up` | Applies every service's Goose migrations. |
+| `cluster-operator` | Builds and installs the `orbit-operator`, which reconciles the `OrbitPlatform` CR: SPIRE, Istio, the gateway, `orbit-platform`, and the Orbit services. |
+| `cluster-deploy` | Runs `create-secrets.sh`, applies the `OrbitTenant` CRs, and deploys the workload fixtures. |
+
+Each composed step is a standalone target. Run any one on its own to drive a single stage.
+
+Endpoints once `make up` finishes:
+
+- Frontend: `https://orbit.local.clearroute.io:8443`
+- Inference gateway: `https://api.orbit.local.clearroute.io:8443/v1`
+
+Tear it all down:
 
 ```bash
-make gen-signing-key
-```
-
-Docker Compose health checks will block `make dev-up` until the containers pass their health checks.
-
-### Step 4: Run database migrations
-
-```bash
-make migrate-up
-```
-
-Applies all pending Goose migrations. Each service owns its migrations under `backend/cmd/{service}/migrations/`; `make migrate-up` applies them across every service. Safe to run multiple times: already-applied migrations are skipped.
-
-### Step 5: Start the backend
-
-```bash
-make dev
-```
-
-Starts the Orbit backend with `air` for hot-reload. The server listens on `http://localhost:8080` by default.
-
-You should see startup output including:
-
-```
-INFO  OIDC provider initialized  issuer=https://dex.orbit.local.clearroute.io:5556/dex
-INFO  Server listening           addr=:8080
-```
-
-### Step 6: Authenticate
-
-```bash
-make auth-device
-```
-
-Runs the Device Authorization Grant flow against local Dex:
-
-1. The script calls `POST /api/v1/identity/device` and receives a `user_code` and `verification_uri`
-2. It prints the code and URL. Open the URL in your browser and enter the code
-3. Log in as `dev@orbit.local.clearroute.io` with password `password` (or your custom password from Step 4)
-4. The script polls `POST /api/v1/identity/session` until authorization completes
-5. On success, the Orbit platform JWT is saved to `/tmp/orbit_credentials.json`
-
-Your token is now ready. Use it in API calls:
-
-```bash
-TOKEN=$(jq -r .access_token /tmp/orbit_credentials.json)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/...
+make down          # cluster + backing services
+make dev-down-clean # also drops the Postgres and Redis volumes
 ```
 
 ---
 
-## Daily Development Workflow
-
-After the first-run bootstrap, your daily workflow is:
+## Authenticate
 
 ```bash
-make dev-up      # if containers are not already running
-make dev         # start the backend with hot-reload
+make auth
 ```
 
-The backend restarts automatically when you save a `.go` file. Migrations only need to be re-run after pulling changes that include new migration files.
+Runs the Device Authorization Grant against the cluster. Open the printed URL, enter the code, and log in as `dev@orbit.local.clearroute.io` with password `password`. The token pair is written to `/tmp/orbit_credentials.json`.
 
-To check code quality before committing:
+### Call an authenticated API
+
+`$ORBIT_TOKEN` is not exported into subprocess shells. Read the token inline. The local certs are from a private CA, so `curl` needs `-k`:
 
 ```bash
-make check
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  https://api.orbit.local.clearroute.io:8443/v1/models | jq .
 ```
 
-This runs `go mod tidy`, `gofmt`, `go vet`, `golangci-lint`, `gitleaks`, the backend tests, **and** the frontend checks (lint + type-check + tests). Run it from the repo root.
+Access tokens last 4h locally, set by `accessTokenTtlMinutes` in `deploy/local/orbit-values.yaml`. When one expires:
+
+```bash
+make auth-refresh   # rotates the token pair in place
+```
+
+If the refresh token is dead too, run `make auth` again.
 
 ---
 
-## Database Migrations
+## The inner loop: redeploy
 
-Orbit uses [Goose](https://github.com/pressly/goose) for database migrations.
+There is no hot-reload. A change ships as a docker build, a push to the local registry, and a rollout.
 
-**Never write migration files by hand.** Always generate them:
+```bash
+make redeploy SERVICE=identity   # rebuild and roll one service
+make redeploy                    # rebuild and roll every service
+```
+
+| Command | Does |
+|---|---|
+| `make redeploy SERVICE=<name>` | Build image, push to `orbit-registry:5001`, roll the workload. |
+| `make redeploy` | The same, for every service. |
+| `make redeploy SERVICE=<name> NO_BUILD=1` | Roll the current image only, skip the build. |
+| `make redeploy SERVICE=session-manager TENANT=example` | Roll a tenant-scoped workload. |
+| `make redeploy-list` | List every service `make redeploy` knows. |
+| `make redeploy-status` | Show drift between cluster-deployed images and the local registry. |
+| `make redeploy-warm` | Prebuild every image so the BuildKit caches are hot. Run once at the start of a session. |
+| `make cluster-update` | Rebuild every image and roll every workload. |
+
+The full per-service loop, including the shortcut targets, lives in [deploy/local/README.md](../../deploy/local/README.md).
+
+Frontend changes ship the same way:
+
+```bash
+make redeploy SERVICE=frontend
+```
+
+See [frontend/README.md](../../frontend/README.md) for the frontend workflow and host-side lint, type-check, and test loops.
+
+---
+
+## Database migrations
+
+Orbit uses [Goose](https://github.com/pressly/goose). Each service owns its migrations under `backend/cmd/{service}/migrations/`.
+
+**Never write migration files by hand.** Generate them:
 
 ```bash
 make migrate-create service=orbit-agents name=add_agent_sessions
 ```
 
-Both `service=` and `name=` are required. This creates a correctly timestamped file in `backend/cmd/{service}/migrations/` with the `-- +goose Up` and `-- +goose Down` annotations pre-populated.
+Both `service=` and `name=` are required. This writes a correctly timestamped file with the `-- +goose Up` and `-- +goose Down` annotations pre-populated.
 
-| Command | Description |
+| Command | Does |
 |---|---|
-| `make migrate-up` | Apply all pending migrations |
-| `make migrate-down` | Roll back the last applied migration |
-| `make migrate-status` | Show applied and pending migrations |
-| `make migrate-create service=X name=Y` | Generate a new migration file for a service |
+| `make migrate-up` | Apply all pending migrations across every service. |
+| `make migrate-down` | Roll back the last applied migration. |
+| `make migrate-status` | Show applied and pending migrations. |
+| `make migrate-create service=X name=Y` | Generate a new migration file for a service. |
+
+`make up` runs `migrate-up`. Re-run it after pulling changes that add migration files.
 
 ---
 
-## Running Tests
+## Environment configuration
+
+`.env` is generated by `make setup` and is machine-local and gitignored. It holds only the values that cannot have a shared default:
+
+| Variable | Source | Purpose |
+|---|---|---|
+| `DB_PASSWORD` | Fixed default `orbit` | Postgres password. Baked into the volume at first initialisation, so changing it needs `make dev-down-clean` first. |
+| `REDIS_PASSWORD` | Fixed default `orbit` | Redis password. |
+| `BFF_SESSION_SECRET` | Generated with `openssl rand -base64 32` | Signs the frontend iron-session cookie. Written into `orbit-frontend-secrets`. |
+| `ORBIT_TENANT_EXAMPLE_OIDC_CLIENT_SECRET` | Generated with `openssl rand -hex 32` | Confidential-client secret for the example tenant. Unused in the default public-client setup. |
+
+`create-secrets.sh` reads `DB_PASSWORD`, `REDIS_PASSWORD`, and `BFF_SESSION_SECRET` from `.env` and, together with `secrets/signing.key`, writes them into `orbit-secrets` and `orbit-frontend-secrets` in the cluster.
+
+Everything else has a default and does not appear in `.env`:
+
+- Compose settings (`DB_PORT`, `DB_USER`, `DB_NAME`, `REDIS_PORT`) default inside `docker-compose.yml`.
+- In-cluster service settings, including the token TTL, come from `deploy/local/orbit-values.yaml`.
+
+`.env.example` is not the source of `.env`. It documents the optional overrides you can copy into `.env` when you need them:
+
+| Variable | Purpose |
+|---|---|
+| `BEDROCK_ENABLED`, `AWS_PROFILE`, `BEDROCK_REGION` | Enable the Bedrock provider. `make cluster-bedrock-creds` reads these to refresh the cluster's AWS credentials from your SSO session. |
+| `K3D_FIX_DNS` | Docker Desktop only: patch node DNS on cluster creation when `host.docker.internal` does not resolve. |
+| `DB_PORT`, `DB_USER`, `DB_NAME`, `DB_PASSWORD`, `REDIS_PORT`, `REDIS_PASSWORD` | Override compose defaults on port collisions. |
+| `ORBIT_TENANT_ID` | Tenant used by `make auth`. Defaults to `example`. |
+
+The signing key is a file, not an env var: `secrets/signing.key` holds a 4096-bit RSA private key, generated on first `make up`. Regenerate it with `make gen-signing-key`.
+
+---
+
+## Running tests
 
 ```bash
-make test              # unit tests — no cluster required
-make test-integration  # integration tests — requires the full Tier 2 cluster
+make test              # unit tests, no cluster required
+make test-integration  # live-cluster authz tests
 ```
 
-`make test` is what `make check` and CI run. It needs neither the Dex container nor an OIDC provider: the identity service's `SVIDValidator` interface is stubbed and OIDC flows are not exercised.
+`make test` is what `make check` and CI run. It needs no cluster: the identity service's SVID validator is stubbed and OIDC flows are not exercised. It is the fastest feedback available.
 
-`make test-integration` (`//go:build integration`) is **not** run by CI or `make check`. It drives the full SPIFFE SVID exchange against a live cluster and needs the complete Tier 2 stack up first:
+`make test-integration` (`//go:build integration`) is **not** run by CI or `make check`. It drives the full SPIFFE SVID exchange against the running cluster and refreshes the k3d token first. Bring the environment up before running it:
 
 ```bash
-make dev-cluster
-make cluster-operator
-make cluster-deploy
-make auth-device-k3d   # session token the tests authenticate with
+make up
 make test-integration
 ```
 
 ### Postgres-backed repository tests
 
-Repository tests that hit a real database are gated on `ORBIT_TEST_DB_URL` and skip when it is unset (so they stay out of `make test`). Point it at the Tier 1 Postgres after `make migrate-up`:
+Repository tests that hit a real database are gated on `ORBIT_TEST_DB_URL` and skip when it is unset, so they stay out of `make test`. Point it at the local Postgres after `make up`:
 
 ```bash
 ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
@@ -209,188 +216,40 @@ ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' 
 
 ---
 
-## Using a Real OIDC Provider
+## Using a real OIDC provider
 
-OIDC configuration is **per-tenant**, defined in the tenant registry. There are no global `ORBIT_OIDC_*` variables. For host dev (`make dev`), the identity service reads `config/tenants.yaml` (via `ORBIT_TENANTS_CONFIG`, already set in `.env`); the committed file is pre-wired for local Dex.
+OIDC configuration is per-tenant, defined in the tenant registry, not via `ORBIT_OIDC_*` variables ([tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md)).
 
-To authenticate against Microsoft Entra (or any OIDC-compliant provider) instead, edit the tenant's `oidc` block in `config/tenants.yaml`:
+Local tenants are `OrbitTenant` CRs under `deploy/local/tenants/`, reconciled into the `orbit-tenants` ConfigMap by the operator. To bind a tenant to Microsoft Entra or any OIDC-compliant provider, edit the tenant's `oidc` block and re-apply:
 
 ```yaml
-tenants:
-  - id: "example"
-    oidc:
-      issuerURL: "https://login.microsoftonline.com/{tenant-id}/v2.0"
-      clientID: "{your-application-client-id}"
-      emailDomains: ["yourcompany.com"]
-      scopes: [openid, profile, email, groups]
+spec:
+  oidc:
+    issuerURL: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+    clientID: "{your-application-client-id}"
+    emailDomains: ["yourcompany.com"]
+    scopes: [openid, profile, email, groups]
 ```
 
-No code changes are required: the backend discovers the provider's endpoints from its `/.well-known/openid-configuration` document on startup. The local Dex client is public and needs no secret; confidential clients are handled by the operator in cluster deployments ([oidc-client-secret-projection-for-confidential-tenants](../adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md)).
+```bash
+kubectl apply -f deploy/local/tenants/example.yaml
+```
 
-For **cluster** dev, tenants are `OrbitTenant` CRs under `deploy/local/tenants/`, reconciled into a ConfigMap by the operator. `config/tenants.yaml` is not used. See [tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md).
+The backend discovers the provider's endpoints from its `/.well-known/openid-configuration` document, so no code change is needed. The local Dex client is public and needs no secret. Confidential clients are handled by the operator ([oidc-client-secret-projection-for-confidential-tenants](../adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md)).
 
-> **Entra application requirements**: The registered application must have the `urn:ietf:params:oauth:grant-type:device_code` grant type enabled under Authentication → Advanced settings → Allow public client flows.
+> **Entra application requirements**: the registered application must have the `urn:ietf:params:oauth:grant-type:device_code` grant type enabled under Authentication, Advanced settings, Allow public client flows.
 
 ---
 
-## Full-Stack Cluster (Tier 2)
+## Driving the Orbit MCP locally
 
-The Tier 2 environment provisions a local Kubernetes cluster with SPIRE, Istio, and Envoy, all managed by the Orbit operator. Use it when you need to test the SPIFFE SVID exchange flow (`POST /api/v1/identity/exchange`) or sidecar token injection.
-
-**Three-step bootstrap:**
-
-```bash
-make dev-cluster        # start Docker Compose (Postgres, Redis, Dex) + k3d cluster
-make cluster-operator   # build + deploy the orbit-operator; it installs SPIRE, Istio,
-                        # and all Orbit Helm releases automatically
-make cluster-deploy     # create secrets (orbit-secrets) and apply workload fixtures
-```
-
-`make dev-cluster` starts Docker Compose services first, so you do not need to run `make dev-up` separately.
-
-To tear down the cluster (Docker Compose services keep running):
-
-```bash
-make dev-cluster-down
-```
-
-See [local-development-environment](../adr/2026-03-10-local-development-environment.md) for the full Tier 2 architecture, including the CoreDNS DNS injection pattern for reaching Docker Compose services from cluster pods. See [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) for the operator design.
-
-### Iterating on one service in the cluster
-
-Rebuild and roll a single service without redoing the whole deploy. Every service known to `make redeploy` is registered in `scripts/cluster/redeploy.sh`; the full loop is documented in [deploy/local/README.md](../../deploy/local/README.md).
-
-| Command | Does |
-|---|---|
-| `make redeploy SERVICE=identity` | Build image, push to `orbit-registry:5001`, roll the workload |
-| `make redeploy-<svc>` (e.g. `make redeploy-identity`) | Per-service shortcut for the above |
-| `make redeploy SERVICE=identity NO_BUILD=1` | Roll the current image only, skip the build |
-| `make redeploy SERVICE=session-manager TENANT=example` | Roll a tenant-scoped workload |
-| `make redeploy-list` | List every service `make redeploy` knows |
-| `make redeploy-status` | Show drift between cluster-deployed images and the local registry |
-| `make cluster-update` | Rebuild every image and roll every workload |
-
-Each redeploy runs a full `docker build` unless you pass `NO_BUILD=1`. Expect tens of seconds to minutes per service. Run `make redeploy-warm` once at the start of a session to pre-build every service and warm the BuildKit caches, so subsequent single-service redeploys are fast.
-
-### Driving the Orbit MCP locally
-
-The cluster runs `orbit-mcp` (the platform MCP server) behind the governed tool
-gateway. The project-scoped `.mcp.json` points Claude Code at it over the gateway's
-MCP OAuth endpoint:
+The cluster runs `orbit-mcp` behind the governed tool gateway. The project-scoped `.mcp.json` points Claude Code at it over the gateway's MCP OAuth endpoint:
 
 ```json
 { "mcpServers": { "orbit": { "url": "https://api.orbit.local.clearroute.io/v1/mcp/orbit", "type": "streamable-http" } } }
 ```
 
-In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude Code
-runs the MCP OAuth flow (dynamic client registration + PKCE) and opens the consent
-screen in your browser; because you are already signed into the dashboard it is a
-silent SSO, so you just approve the tools being granted and it connects. The token
-refreshes silently (no manual token juggling), and you can revoke it any time from
-the dashboard's Connections. Requires the cluster up (`make dev-cluster` +
-`make cluster-operator`) and a dashboard browser session.
-
----
-
-## Environment Variables Reference
-
-All secrets are read from environment variables. The `.env` file (copied from `.env.example` during setup) provides local defaults.
-
-### Application
-
-| Variable | Required | Description |
-|---|---|---|
-| `APP_ENV` | No | Environment name: `local`, `development`, `production`. Defaults to `local`. |
-
-### Database
-
-| Variable | Required | Description |
-|---|---|---|
-| `DB_HOST` | Yes | PostgreSQL host. Default: `localhost` |
-| `DB_PORT` | Yes | PostgreSQL port. Default: `5432` |
-| `DB_USER` | Yes | PostgreSQL username. Default: `orbit` |
-| `DB_PASSWORD` | Yes | PostgreSQL password. Default: `orbit` |
-| `DB_NAME` | Yes | Database name. Default: `orbit` |
-| `ORBIT_POSTGRES_SSL_MODE` | No | pgx `sslmode` override. Local default (from YAML): `disable`. |
-| `ORBIT_POSTGRES_CAPTURE_QUERY_TEXT` | No | When `true`, records SQL text on query spans. |
-
-### Redis
-
-| Variable | Required | Description |
-|---|---|---|
-| `REDIS_HOST` | Yes | Redis host. Default: `localhost` |
-| `REDIS_PORT` | Yes | Redis port. Default: `6379` |
-| `REDIS_PASSWORD` | Yes | Redis password. Required in all environments. Default: `orbit` |
-| `ORBIT_REDIS_TLS_ENABLED` | No | Overrides the YAML `redis.tlsEnabled` flag. Set `false` for local. |
-
-The Redis database index is a YAML setting (`redis.db`), not an environment variable.
-
-### Identity / Token Signing
-
-| Variable | Required | Description |
-|---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | Local | Path to RSA private key PEM file (mode 600). Default: `secrets/signing.key`. Generate with `make gen-signing-key`. |
-| `ORBIT_TOKEN_SIGNING_KEY` | CI/Prod | Inline RSA private key PEM (with real newlines, as injected by secret managers). If both are set, `_FILE` takes precedence. |
-
-### OIDC / Tenant Registry
-
-OIDC is configured per-tenant in the registry, not via `ORBIT_OIDC_*` variables ([tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md)).
-
-| Variable | Required | Description |
-|---|---|---|
-| `ORBIT_TENANTS_CONFIG` | Local (host dev) | Path to the tenant registry YAML read by the identity service. Default: `../config/tenants.yaml`. Not used in cluster mode: the operator builds a ConfigMap from `OrbitTenant` CRs. |
-
----
-
-## Project Structure
-
-```
-orbit/
-├── backend/
-│   ├── cmd/
-│   │   ├── identity/          # Main control-plane API (port 8080) — identity, sessions, PATs, tenants
-│   │   ├── inference-gateway/ # OpenAI/Anthropic-compatible LLM gateway (8081)
-│   │   ├── policy-service/    # Authz data plane PDP/PAP (8083); policy-gateway/ is the PEP (8084)
-│   │   ├── orbit-agents/      # Agent control plane — runs, sessions, sandboxing
-│   │   ├── operator/          # Kubernetes operator (reconciles Tenant/Platform CRDs)
-│   │   ├── identity-proxy/    # Envoy ext_proc sidecar — injects platform tokens
-│   │   └── ...                # session-manager, sandbox-exec, orbit-runtime-mcp, orbit-shell, example
-│   ├── internal/
-│   │   ├── identity/          # Authentication, sessions, token issuance
-│   │   ├── identityproxy/     # Envoy ext_proc server, token cache, SVID watcher
-│   │   ├── platform/
-│   │   │   ├── api/           # HTTP mux, controller interface, JSON helpers
-│   │   │   ├── clients/       # Typed service-to-service HTTP clients
-│   │   │   │   ├── httpclient/ # Base client: OTel tracing, W3C propagation, logging
-│   │   │   │   └── identity/  # Identity service typed client
-│   │   │   ├── config/        # YAML config loaders (config.Load[T] / config.LoadService[T])
-│   │   │   ├── logging/       # Structured logger (zerolog, trace correlation)
-│   │   │   ├── middleware/    # HTTP middleware (tracing, logging, auth)
-│   │   │   ├── observability/ # OpenTelemetry setup and OTLP exporter
-│   │   │   └── storage/       # Postgres (pgx/v5) + Redis clients (migrations live per-binary under cmd/{service}/migrations/)
-│   │   └── example/           # Reference implementation of a feature package
-│   └── rules/                 # Custom golangci-lint ruleguard rules (orbit_rules.go)
-├── config/
-│   └── dex/
-│       ├── config.yaml        # Dex OIDC provider configuration
-│       └── .env               # Generated by make dex-hash (gitignored)
-├── docs/
-│   ├── adr/                   # Architecture Decision Records — see [docs/adr/README.md](../adr/README.md)
-│   ├── guides/                # This file and other how-to guides
-│   └── observability/         # Tracing, logging, and OTel configuration docs
-├── rules/                     # Custom golangci-lint AST rules (enforces ADRs)
-│   ├── orbit_rules.go         # ruleguard patterns (Tier 1 lint rules)
-│   └── README.md              # Rule catalog and rationale
-├── scripts/
-│   └── auth-device.sh         # Device Authorization Grant CLI script
-├── secrets/                   # Gitignored — local signing keys
-│   └── signing.key            # Generated by make gen-signing-key
-├── .env                       # Local secrets (gitignored, copied from .env.example)
-├── .env.example               # Template for .env — committed, no real secrets
-├── .golangci.yml              # Linter configuration (Tier 2 import-ban rules)
-├── docker-compose.yml         # Tier 1: Postgres + Redis + glauth + Dex + port-proxy
-└── Makefile                   # All development targets
-```
+In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude Code runs the MCP OAuth flow (dynamic client registration and PKCE) and opens the consent screen in your browser. Because you are already signed into the dashboard it is a silent SSO, so you approve the tools being granted and it connects. The token refreshes silently, and you can revoke it any time from the dashboard's Connections. Requires the cluster up and a dashboard browser session.
 
 ---
 
@@ -398,124 +257,62 @@ orbit/
 
 ### `orbit-dex` container is unhealthy
 
-**Symptom:** `make dev-up` fails with `container orbit-dex is unhealthy`.
+`config/dex/.env` is missing or holds an invalid bcrypt hash. `make up` generates it on first run, but it can become stale.
 
-**Cause:** `config/dex/.env` is missing or contains an invalid bcrypt hash. `make dev-up` auto-generates this file on first run, but it may have become stale or corrupt.
-
-**Fix:**
 ```bash
-make dex-hash password=password   # regenerates config/dex/.env with a fresh hash
+make dex-hash password=password
 make dev-down
-make dev-up
+make up
 ```
 
-### `OIDC provider initialized` not in startup logs
+### `https://orbit.local.clearroute.io:8443` is unreachable
 
-**Symptom:** The backend starts but OIDC discovery does not appear in logs.
+The wildcard DNS record `*.orbit.local.clearroute.io -> 127.0.0.1` is missing.
 
-**Cause:** The tenant's `oidc.issuerURL` is missing or unreachable, so OIDC discovery did not run.
-
-**Fix:** Confirm the `example` tenant in `config/tenants.yaml` has `oidc.issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"`, that `ORBIT_TENANTS_CONFIG` points at that file, and that the Dex container is healthy:
-```bash
-docker compose ps
-curl -k https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration
-```
-
-### `POST /api/v1/identity/device` returns 400 `oidc_not_configured`
-
-**Cause:** Same as above: the identity service started without a configured OIDC provider.
-
-### Backend fails to start: `failed to parse RSA private key`
-
-**Cause:** `secrets/signing.key` does not exist or is corrupt.
-
-**Fix:**
-```bash
-make gen-signing-key   # regenerates secrets/signing.key
-make dev               # restart the backend
-```
-
-### Sign In button fails with a CORS error in the browser console
-
-**Symptom:** Clicking **Sign In** on the login page immediately shows an error. The browser console reports something like:
-
-```
-Access to fetch at 'https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration'
-from origin 'http://localhost:3000' has been blocked by CORS policy:
-No 'Access-Control-Allow-Origin' header is present on the requested resource.
-```
-
-**Cause:** `oidc-client-ts` runs in the browser and fetches Dex's OIDC discovery document cross-origin (from `http://localhost:3000` → `https://dex.orbit.local.clearroute.io:5556`). Dex must be explicitly configured to allow this origin via `web.allowedOrigins`.
-
-**Fix:** Confirm `config/dex/config.yaml` has `allowedOrigins` under the `web:` block:
-
-```yaml
-web:
-  https: 0.0.0.0:5556
-  tlsCert: /etc/dex/tls.crt
-  tlsKey: /etc/dex/tls.key
-  allowedOrigins:
-    - http://localhost:3000
-    - https://orbit.local.clearroute.io:8443
-```
-
-Then restart Dex to pick up the change:
-
-```bash
-docker compose restart orbit-dex
-```
-
-### `make auth-device` times out waiting for authorization
-
-**Cause:** The device code expired (default: 5 minutes) before authorization was completed in the browser.
-
-**Fix:** Run `make auth-device` again and complete the browser step promptly.
-
-### `https://orbit.local.clearroute.io/` is unreachable: browser can't connect
-
-**Symptom:** `ping orbit.local.clearroute.io` fails or the browser shows a DNS error.
-
-**Cause:** The wildcard DNS record `*.orbit.local.clearroute.io → 127.0.0.1` is missing or hasn't propagated yet.
-
-**Diagnose:**
 ```bash
 dig +short orbit.local.clearroute.io   # should return 127.0.0.1
-make setup-dns                         # verifies the record and prints fix instructions if missing
+make setup-dns                         # reconfigures the record and prints fixes
 ```
 
-**Fix:** Add this record in the clearroute.io DNS provider (one-time, done once for the whole team):
+### Pod cannot reach Postgres: `connection refused`
 
-| Field | Value |
-|-------|-------|
-| Type  | A |
-| Name  | `*.orbit.local` |
-| Value | `127.0.0.1` |
-| TTL   | 60 |
+A stale k3d cluster whose CoreDNS lost the Compose-service route. Rebuild rather than debug Istio:
 
-Once it propagates (usually under a minute), `ping orbit.local.clearroute.io` will resolve and the site will load.
-
-### Redis fails to start: `FATAL CONFIG FILE ERROR`
-
-**Cause:** An unsupported flag was passed to the Redis server binary.
-
-**Fix:** Check `docker-compose.yml`: the Redis `command:` override (if present) must not include `--no-auth-warning`, which is a client-only flag not accepted by `redis-server`.
-
-### Migration fails: `no such table` or `relation does not exist`
-
-**Cause:** Migrations have not been run, or were run against a different database.
-
-**Fix:**
 ```bash
-make migrate-status   # check what's applied
+make down
+make up
+```
+
+### Backend pod fails to start: `failed to parse RSA private key`
+
+`secrets/signing.key` is missing or corrupt.
+
+```bash
+make gen-signing-key
+make redeploy SERVICE=identity
+```
+
+### Migration fails: `relation does not exist`
+
+```bash
+make migrate-status   # check what is applied
 make migrate-up       # apply pending migrations
 ```
 
+### `make auth` times out waiting for authorization
+
+The device code expired before you completed the browser step. Run `make auth` again and enter the code promptly.
+
 ---
 
-## Related Documentation
+## Related documentation
 
-- [local-development-environment](../adr/2026-03-10-local-development-environment.md): Local development environment strategy (Tier 1 vs Tier 2)
-- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md): OIDC provider abstraction and Dex decision
-- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md): Unified identity model
-- [Configuration reference](../configuration/config.md): YAML config system
-- [Secrets reference](../configuration/secrets.md): How secrets are managed
+- [day-one.md](day-one.md): the shortest path from clone to a running change.
+- [kubernetes-only-local-development](../adr/2026-07-10-kubernetes-only-local-development.md): why local development is Kubernetes-only.
+- [deploy/local/README.md](../../deploy/local/README.md): the cluster deploy sequence and the per-service redeploy loop.
+- [code-organization.md](../code-organization.md): the binary map and feature layout.
+- [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md): the operator design.
+- [Configuration reference](../configuration/config.md): the YAML config system.
+- [Secrets reference](../configuration/secrets.md): how secrets are managed.
+</content>
+</invoke>

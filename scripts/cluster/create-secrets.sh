@@ -78,7 +78,7 @@ if should_run "orbit-system"; then
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for orbit-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
-    || fail "BFF_SESSION_SECRET is not set — run 'make gen-session-secret' and add to .env"
+    || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
     || fail "BFF_SESSION_SECRET must be at least 32 characters (got ${#BFF_SESSION_SECRET})"
 fi

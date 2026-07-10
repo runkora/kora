@@ -8,19 +8,11 @@ Orbit reads secrets from environment variables at runtime.
 
 ## Local Development
 
-Use a `.env` file at the repository root for local secrets. This file is gitignored and never committed.
+`make setup` generates a machine-local `.env` at the repository root. It is gitignored and never committed. It holds only the values that are secret or machine-specific: `DB_PASSWORD`, `REDIS_PASSWORD`, `BFF_SESSION_SECRET`, and the tenant OIDC client secret. The Postgres and Redis passwords are fixed local defaults; the two real secrets are generated with `openssl rand`. Nothing needs editing before the platform runs.
 
-```bash
-cp .env.example .env   # run once after cloning (or: make env)
-```
+Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/local/orbit-values.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, Docker Desktop DNS, port collisions).
 
-`.env.example` documents every required variable with safe placeholder values. Keep it up to date whenever you add a new secret.
-
-Start the server with your `.env` loaded:
-
-```bash
-make dev      # air reads .env automatically
-```
+`make up` reads `.env`, injects these values into the cluster's `orbit-secrets`, and brings the platform up.
 
 ---
 
@@ -43,12 +35,10 @@ Fail fast on startup if a required secret is missing, don't let the service star
 
 RSA private keys are PEM-encoded and multi-line. Standard `.env` parsers do not reliably preserve newlines, and `pem.Decode` requires real newlines to parse PEM headers and footers.
 
-**For local development**, write the key to a file and reference it by path:
+**For local development**, `make gen-signing-key` writes the key to `secrets/signing.key` (gitignored). `make up` generates it automatically if absent, then loads it into the cluster's `orbit-secrets` as the inline `ORBIT_TOKEN_SIGNING_KEY`.
 
 ```bash
 make gen-signing-key          # writes secrets/signing.key (gitignored)
-# .env already contains:
-ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key
 ```
 
 **For CI/production**, secret managers (GitHub Actions secrets, Kubernetes Secrets, Vault) inject multi-line values with real newlines. Use the inline variable:
@@ -84,26 +74,26 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `APP_ENV` | `.env` | Environment: `local`, `development`, `production`. Not a secret but controls config loading. |
+| `APP_ENV` | chart values / deployment env | Environment: `local`, `development`, `production`. Not a secret but controls config loading. In-cluster it is injected as an env var, not read from `.env`. |
 
 ### Database
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Defaults to `orbit` in `.env.example`. |
+| `DB_PASSWORD` | `.env` / secret manager | PostgreSQL password. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
 
 ### Redis
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Defaults to `orbit` in `.env.example`. |
+| `REDIS_PASSWORD` | `.env` / secret manager | Redis password. Required in all environments. Generated into `.env` by `make setup` (value `orbit`), defaulted in `docker-compose.yml`. |
 
 ### Token Signing
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `ORBIT_TOKEN_SIGNING_KEY_FILE` | `.env` | Path to RSA private key PEM file (mode 600). Local dev. Generate with `make gen-signing-key`. |
-| `ORBIT_TOKEN_SIGNING_KEY` | secret manager | Inline RSA private key PEM. CI/production. Takes precedence over `_FILE` if set. |
+| `ORBIT_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
+| `ORBIT_TOKEN_SIGNING_KEY` | `orbit-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
 
 ### OIDC / Federated Identity
 
@@ -137,8 +127,8 @@ The application code is identical regardless: it always reads `os.Getenv`.
 ## Adding a New Secret
 
 1. Add `os.Getenv("YOUR_VAR")` with a fail-fast check in the relevant service initializer
-2. Add the variable to `.env.example` with a placeholder value and an explanatory comment
-3. Add it to your local `.env`
+2. If it is machine-local, generate it into `.env` in the `env` target in the `Makefile`, and wire it into `orbit-secrets` via `scripts/cluster/create-secrets.sh`
+3. If it is an optional override, document it in `.env.example`
 4. Add it to this reference table above
 5. Add it to the relevant deployment secret store for staging/production
 

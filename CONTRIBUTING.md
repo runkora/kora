@@ -10,26 +10,19 @@ By contributing, you agree your work is licensed under the [Apache License 2.0](
 
 ## 1. Getting set up
 
-Orbit's backend is **Go 1.26**. You'll need Docker (Docker Desktop or Colima) and Make. The fastest path to a working environment is a single command:
+Orbit's backend is **Go 1.26**. Local development runs in Kubernetes. You'll need Docker (Docker Desktop or Colima) with at least 4 CPUs and 8 GiB of RAM allocated to the VM, Node 24 with pnpm 10 for the frontend, and Make. Three commands take you from clone to a running platform:
 
 ```bash
-make bootstrap   # scaffolds .env, installs tools, starts Postgres + Redis + Dex, runs migrations
-make dev         # start the backend with hot-reload (air)
+make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
+make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
+make auth    # Device Authorization Grant against the cluster → dev@orbit.local.clearroute.io / password
 ```
 
-`make bootstrap` runs `make env`, `make setup`, `make dev-up`, and `make migrate-up` in sequence. If you prefer to run them individually, that's exactly the Tier-1 first-run sequence. `make env` generates a `BFF_SESSION_SECRET`, which the frontend BFF refuses to start without.
+`make setup` generates a machine-local `.env` with the secrets the platform needs, including `BFF_SESSION_SECRET`, which the frontend BFF refuses to start without. `make up` composes the granular `dev-cluster`, `migrate-up`, `cluster-operator`, and `cluster-deploy` recipes, and is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. `make auth` writes the token pair to `/tmp/orbit_credentials.json`; `make auth-refresh` rotates it when the token expires.
 
 If this is your first day, [docs/guides/day-one.md](docs/guides/day-one.md) walks the whole path, backend and frontend.
 
-Then authenticate in a second terminal:
-
-```bash
-make auth-device   # OAuth Device Authorization Grant against local Dex
-                   # browser → dev@orbit.local.clearroute.io / password
-                   # token saved to /tmp/orbit_credentials.json
-```
-
-For the full walkthrough, including the Tier-2 local Kubernetes cluster (k3d + Istio + SPIRE), how to call authenticated APIs, and troubleshooting, see the **[Local Development Guide](docs/guides/local-development.md)**.
+The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service). For the full walkthrough, how to call authenticated APIs, and troubleshooting, see the **[Local Development Guide](docs/guides/local-development.md)**.
 
 > Run any `make` target without arguments (`make` or `make help`) to list every available target.
 

@@ -112,7 +112,7 @@ orbit/
 ├── scripts/                          # auth-device.sh, setup helpers
 ├── secrets/                          # gitignored — local signing key etc.
 ├── docs/                             # ADRs, PRDs, guides, this file (see docs/README.md)
-├── docker-compose.yml                # Tier 1: Postgres + Redis + Dex + glauth + port-proxy
+├── docker-compose.yml                # Backing services: Postgres + Redis + Dex + glauth + port-proxy
 ├── Makefile
 ├── .env.example
 ├── AGENTS.md                         # AI-agent + contributor conventions
@@ -257,7 +257,7 @@ Apply / roll back / inspect with `make migrate-up`, `make migrate-down`, `make m
 
 Each binary under `backend/cmd/` has its own `main.go` and is otherwise independent; all share `internal/platform/`.
 
-- **`cmd/identity`**: the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. `make dev` runs this binary with hot-reload (`air`).
+- **`cmd/identity`**: the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. Runs in the cluster; roll a change with `make redeploy SERVICE=identity`.
 - **`cmd/inference-gateway`**: the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
 - **`cmd/policy-service`** / **`cmd/policy-gateway`**: the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
 - **`cmd/orbit-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).

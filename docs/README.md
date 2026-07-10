@@ -7,7 +7,7 @@ Orbit is the **control plane for AI agents**: the identity, policy, and coordina
 New to the repo? Read these in order:
 
 1. **[guides/day-one.md](guides/day-one.md)**: clone to a running change, backend and frontend
-2. **[../README.md](../README.md)**: what Orbit is and a 5-minute quick start
+2. **[../README.md](../README.md)**: what Orbit is, and the quick start
 3. **[architecture.md](architecture.md)**: the runtime topology and what's built vs designed
 4. **[code-organization.md](code-organization.md)**: how the backend is laid out (binaries, feature packages, conventions)
 5. **[guides/backend-golden-path.md](guides/backend-golden-path.md)**: add a backend feature end to end

@@ -1,86 +1,74 @@
 # Day One
 
-Clone to a running, authenticated change, backend and frontend. [local-development.md](local-development.md) has the depth: env vars, cluster tiers, troubleshooting.
-
-Most work needs only the **Tier 1** stack, which is the Go binary on your host plus Postgres, Redis, and Dex in Docker. You need the k3d cluster (Tier 2) only for SPIFFE, the mesh, sidecar token injection, and the in-cluster-only services (`orbit-agents`, `session-manager`, `tool-gateway`). Start on Tier 1.
+Clone to a running change. Orbit runs in Kubernetes locally, the same way it runs anywhere else. There is no host-process mode ([kubernetes-only-local-development](../adr/2026-07-10-kubernetes-only-local-development.md)).
 
 ## Prerequisites
 
 | Tool | Version | Notes |
 |---|---|---|
 | Go | 1.26+ | control plane |
-| Docker Desktop | 4.x+ | runs Postgres/Redis/Dex |
+| Docker Desktop or Colima | 4 CPUs, 8 GiB allocated to the VM | runs the cluster and the backing services |
 | Node | 24 (`>=24 <25`) | frontend; `nvm install 24 && nvm use` |
 | pnpm | 10 | `corepack enable` |
 
-## Backend (Tier 1)
+## Start
 
 ```bash
-make setup             # install goose, air, golangci-lint, gitleaks + git hooks
-make env               # cp .env.example .env, generating BFF_SESSION_SECRET
-make dev-up            # Postgres + Redis + Dex; auto-generates secrets/signing.key
-                       #   and config/dex/.env on first run
-make migrate-up        # apply all pending migrations
-make dev               # start the backend on :8080 with air hot-reload
+make setup   # once per machine: tools, git hooks, local DNS, TLS, and a generated .env
+make up      # backing services, k3d cluster, migrations, SPIRE, Istio, Orbit, tenants
+make auth    # log in as dev@orbit.local.clearroute.io / password
 ```
 
-`make dev-up` bootstraps the RSA signing key and the Dex password hash on first run only. Regenerate them any time with `make gen-signing-key` or `make dex-hash password=…`, and rotate the BFF session secret with `make gen-session-secret`.
+`make up` is idempotent. Run it again whenever the cluster drifts.
 
-All four steps together are `make bootstrap`.
+- Frontend: `https://orbit.local.clearroute.io:8443`
+- Inference gateway: `https://api.orbit.local.clearroute.io:8443/v1`
 
-### Get a token and call the API
+`make down` tears it all down.
 
-In a second terminal:
+## Call an authenticated API
 
-```bash
-make auth-device       # Device Authorization Grant against local Dex
-                       #   browser → dev@orbit.local.clearroute.io / password
-                       #   token saved to /tmp/orbit_credentials.json
-```
-
-`$ORBIT_TOKEN` is not exported into subprocess shells, so always read the token inline:
+`make auth` writes the token pair to `/tmp/orbit_credentials.json`. `$ORBIT_TOKEN` is not exported into subprocess shells, so read the token inline:
 
 ```bash
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s \
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8081/v1/models | jq .
+  https://api.orbit.local.clearroute.io:8443/v1/models | jq .
 ```
 
-Access tokens last 4h locally because `.env.example` sets `ORBIT_ACCESS_TOKEN_TTL_MINUTES=240`. Without that override the default is 15 minutes, so if your `.env` predates it you will re-authenticate a lot. `make auth-refresh` rotates the pair; if the refresh token is dead, re-run `make auth-device`.
+That returns `403` until your user has a policy grant. Local dev seeds grants for the example agents, PATs and trigger sources, but not for the human you log in as, so a freshly authenticated token carries no scopes and the gateway OPA rejects it before the request reaches a service. Grant yourself scopes with the policy API or the admin dashboard, see [policy-and-roles.md](policy-and-roles.md).
 
-## Frontend
+Access tokens last 4h locally, set by `accessTokenTtlMinutes` in `deploy/local/orbit-values.yaml`. When one expires, `make auth-refresh` rotates the pair. If the refresh token is dead too, run `make auth` again.
+
+## Change something
+
+Rebuild and roll one service:
 
 ```bash
-make frontend-install  # enforces Node 24 + pnpm 10, runs pnpm install
-make frontend-dev      # Next.js on :3000 (sources .env for backend URLs + BFF_SESSION_SECRET)
+make redeploy SERVICE=identity   # make redeploy-list shows every service
+make redeploy                    # all of them
+make redeploy-status             # what is running vs what is built
 ```
 
-The BFF calls `requireEnv(...)` for every backend URL at boot, so the app throws if `.env` is incomplete. Run `make env` first. Pages backed by in-cluster-only services (agents, tool gateway) error against a host-only backend; point their URLs at the cluster to use them.
+Each redeploy is a docker build, a push to the local registry, and a rollout. `make redeploy-warm` prebuilds every image so the caches are hot before your first change.
 
-## When you need the cluster (Tier 2)
-
-For SPIFFE SVID exchange, sidecar token injection, or the in-cluster-only services:
+Unit tests need no cluster and are the fastest feedback you have:
 
 ```bash
-make dev-cluster       # Docker Compose (Postgres, Redis, Dex) + k3d cluster
-make cluster-operator  # deploy orbit-operator → it installs SPIRE, Istio, and all Orbit releases
-make cluster-deploy    # create secrets + register tenants + apply workload fixtures
+make test
 ```
-
-Then `make auth-device-k3d` for a cluster-issued token. Iterate on one service with `make redeploy-<svc>`; check drift with `make redeploy-status`. Full details in [local-development.md](local-development.md#full-stack-cluster-tier-2).
 
 ## Before you commit
 
 ```bash
-make check             # go mod tidy + gofmt + vet + golangci-lint + gitleaks + docs-check
-                       #   + backend tests + frontend lint/type-check/tests
+make check   # tidy, fmt, vet, golangci-lint, gitleaks, docs-check, backend tests, frontend lint/type-check/tests
 ```
 
-All PRs must pass `make check` with zero issues. It does **not** run `make test-integration` (that needs a full cluster).
+All PRs must pass `make check`. It does not run `make test-integration`, which exercises authz against the live cluster.
 
 ## Next
 
 - [backend-golden-path.md](backend-golden-path.md): add a backend feature end to end
 - [../../frontend/docs/golden-paths/frontend-state-pattern.md](../../frontend/docs/golden-paths/frontend-state-pattern.md): frontend data fetching, caching, reactive state
-- [policy-and-roles.md](policy-and-roles.md): grants, roles, and the scope vocabulary
+- [local-development.md](local-development.md): the full environment reference and troubleshooting
 - [../code-organization.md](../code-organization.md): the binary map and feature layout

@@ -21,7 +21,8 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) — `Accepted` · 2026-03-03
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
-- [Local Development Environment](2026-03-10-local-development-environment.md) — `Accepted` · 2026-03-10
+- [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
+- [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 
 ### Identity, Auth & Tokens
 
@@ -146,7 +147,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-03-05 | [SPIFFE/SPIRE Workload Attestation](2026-03-05-spiffe-spire-workload-attestation.md) | Accepted | 0010 |
 | 2026-03-05 | [Unified Identity Model](2026-03-05-unified-identity-model.md) | Accepted | 0008 |
 | 2026-03-05 | [Universal Gateway as Policy Enforcement Point](2026-03-05-universal-gateway-policy-enforcement.md) | Accepted | 0011 |
-| 2026-03-10 | [Local Development Environment](2026-03-10-local-development-environment.md) | Accepted | 0016 |
+| 2026-03-10 | [Local Development Environment](2026-03-10-local-development-environment.md) | Superseded | 0016 |
 | 2026-03-16 | [OIDC Provider Abstraction and Local Identity Provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) | Accepted | 0017 |
 | 2026-03-17 | [Dynamic SPIFFE Identity Grants and Tenant Isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md) | Accepted | 0018 |
 | 2026-03-17 | [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) | Accepted | 0019 |
@@ -221,3 +222,4 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
 | 2026-06-30 | [Orbit MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
+| 2026-07-10 | [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) | Accepted | — |

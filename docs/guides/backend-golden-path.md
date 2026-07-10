@@ -188,7 +188,7 @@ func testRepo(t *testing.T) (*postgresRepository, string) {
 }
 ```
 
-Run against the Tier 1 Postgres after `make migrate-up`:
+Run against the local Postgres that `make up` starts:
 
 ```bash
 ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \

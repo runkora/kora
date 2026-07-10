@@ -4,16 +4,16 @@ services:
     container_name: orbit-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-orbit}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-orbit}
+      POSTGRES_DB: ${DB_NAME:-orbit}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-orbit} -d ${DB_NAME:-orbit}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: orbit-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    command: redis-server --requirepass ${REDIS_PASSWORD:-orbit} --appendonly yes
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -53,12 +53,12 @@ services:
     image: ghcr.io/glauth/glauth:v2.3.2
     container_name: orbit-glauth
     restart: unless-stopped
-    # entrypoint.sh substitutes ${GLAUTH_DEV_PASSWORD_HASH} from .env into
+    # entrypoint.sh substitutes ${GLAUTH_DEV_PASSWORD_HASH:-5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8} from .env into
     # the committed config at startup (the glauth image is too minimal for
     # sed/envsubst, so the script uses pure shell builtins).
     entrypoint: ["/bin/sh", "/etc/glauth/entrypoint.sh"]
     environment:
-      - GLAUTH_DEV_PASSWORD_HASH=${GLAUTH_DEV_PASSWORD_HASH}
+      - GLAUTH_DEV_PASSWORD_HASH=${GLAUTH_DEV_PASSWORD_HASH:-5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8}
     volumes:
       - ./config/glauth/config.cfg:/etc/glauth/config.cfg.in:ro
       - ./config/glauth/entrypoint.sh:/etc/glauth/entrypoint.sh:ro

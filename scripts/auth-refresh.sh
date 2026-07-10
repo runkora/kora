@@ -72,11 +72,11 @@ done
 
 # ─── Load the current refresh token ───────────────────────────────────────────
 
-[[ -f "$CREDS_FILE" ]] || die "No credentials file at $CREDS_FILE — run: make auth-device (or auth-device-k3d)"
+[[ -f "$CREDS_FILE" ]] || die "No credentials file at $CREDS_FILE — run: make auth"
 
 REFRESH_TOKEN=$(jq -r '.refresh_token // ""' "$CREDS_FILE" 2>/dev/null) ||
-  die "Credentials file $CREDS_FILE is not valid JSON — run: make auth-device (or auth-device-k3d)"
-[[ -n "$REFRESH_TOKEN" ]] || die "No refresh_token in $CREDS_FILE — run: make auth-device (or auth-device-k3d)"
+  die "Credentials file $CREDS_FILE is not valid JSON — run: make auth"
+[[ -n "$REFRESH_TOKEN" ]] || die "No refresh_token in $CREDS_FILE — run: make auth"
 
 # ─── Exchange it ──────────────────────────────────────────────────────────────
 
@@ -91,12 +91,12 @@ HTTP_CODE=$(curl -s --retry 5 --retry-connrefused --retry-delay 1 \
   -X POST "${API_BASE}/identity/session" \
   -H "Content-Type: application/json" \
   -d "{\"grant_type\": \"refresh_token\", \"refresh_token\": \"${REFRESH_TOKEN}\", \"tenant_id\": \"${TENANT_ID}\"}") ||
-  die "Could not reach ${API_BASE} — is the service running? (local: make dev | cluster: make auth-refresh-k3d)"
+  die "Could not reach ${API_BASE} — is the cluster up? (make up)"
 
 if [[ "$HTTP_CODE" != "200" ]]; then
   error "Refresh rejected (HTTP ${HTTP_CODE}): $(head -c 300 "$BODY_FILE")"
   error "Existing credentials left untouched at $CREDS_FILE"
-  die   "If the refresh token has expired, re-authenticate with: make auth-device (or auth-device-k3d)"
+  die   "If the refresh token has expired, re-authenticate with: make auth"
 fi
 
 # ─── Validate before touching the credentials file ────────────────────────────

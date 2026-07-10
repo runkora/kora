@@ -9,14 +9,20 @@ needed to install Orbit into the k3d local development cluster using the
 ## Quick Start
 
 ```bash
+make up   # composes the granular steps below, plus migrations. Idempotent.
+```
+
+`make up` is the one-shot. To drive a single stage, run the steps it composes:
+
+```bash
 make dev-cluster       # start Docker Compose (Postgres, Redis, Dex) + k3d cluster
 make cluster-operator  # build + deploy orbit-operator; installs SPIRE, Istio,
                        # orbit-platform, and orbit automatically via the OrbitPlatform CR
 make cluster-deploy    # create secrets (orbit-secrets) and apply workload fixtures
 ```
 
-That's it. The operator drives the full install sequence, so you do not need to
-run `helm upgrade` commands manually.
+The operator drives the full install sequence, so you do not need to run
+`helm upgrade` commands manually.
 
 ---
 
@@ -96,17 +102,6 @@ The operator will reconcile the CR and update the ConfigMap automatically.
 `orbit-identity` picks up the change via its file watcher (no manual rollout
 restart required).
 
-For **non-cluster local dev** (`make dev` / air hot-reload on the host), the
-identity service reads `config/tenants.yaml` directly via the
-`ORBIT_TENANTS_CONFIG` environment variable:
-
-```bash
-export ORBIT_TENANTS_CONFIG=./config/tenants.yaml
-make dev
-```
-
-Or set `ORBIT_TENANTS_CONFIG=./config/tenants.yaml` in your `.env` file.
-
 ---
 
 ## Trust Domain Consistency
@@ -131,7 +126,8 @@ will cause SPIFFE SAN validation failures and mTLS peer authentication will brea
 ```bash
 make redeploy-list               # show every service known to the redeploy dispatcher
 make redeploy-status             # show drift between cluster and local-registry images
-make redeploy SERVICE=identity   # build + push + restart a single service
+make redeploy                    # build + push + restart every service
+make redeploy SERVICE=identity   # narrow it to a single service
 
 # Per-service shortcuts (handle Dockerfile, build args, namespace, workload kind for you):
 make redeploy-identity           # +mkcert CA layer for Dex TLS

@@ -76,87 +76,81 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture docum
 
 ### Prerequisites
 
-**Tier 1: Local development (backend + Postgres + Redis + Dex)**
 - Go 1.26 or later
-- Docker Desktop (or Colima on macOS)
+- Docker (Docker Desktop or Colima) with at least 4 CPUs and 8 GiB of RAM allocated to the VM
+- Node 24 and pnpm 10 (frontend)
 - Make
 
-**Tier 2: Full cluster (adds Istio + SPIRE + the Orbit services)**
-- [Colima](https://github.com/abiosoft/colima) (macOS) or Docker Desktop: minimum 4 CPUs / 8 GiB RAM allocated to the VM
-- k3d, kubectl, helm: installed via `make setup`. (Istio and SPIRE are not host tools; the operator installs them into the cluster during `make cluster-operator`.)
+`make setup` installs the rest: k3d, kubectl, helm, and the Go tooling. Istio and SPIRE are not host tools; the operator installs them into the cluster during `make up`.
 
 ### Quick Start
 
 New here? [docs/guides/day-one.md](docs/guides/day-one.md) takes you from clone to a running change, backend and frontend.
 
-**Tier 1: First-run setup**
+Local development runs in Kubernetes. Three commands:
 
 ```bash
-make setup             # install goose, air, golangci-lint, gitleaks; tidy deps
-make env               # copy .env.example → .env, generating BFF_SESSION_SECRET
-make dev-up            # start Postgres + Redis + Dex (auto-generates signing key + Dex credentials on first run)
-make migrate-up        # apply database migrations
-make dev               # start Orbit with hot-reload
+make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
+make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
+make auth    # Device Authorization Grant against the cluster → dev@orbit.local.clearroute.io / password
 ```
 
-`make bootstrap` runs those four setup steps in one go.
+`make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears the cluster and backing services down.
 
-**Authenticate (in a second terminal):**
+Endpoints once `make up` completes:
+
+- Frontend: `https://orbit.local.clearroute.io:8443`
+- Inference gateway: `https://api.orbit.local.clearroute.io:8443/v1`
+
+`make auth` writes the token pair to `/tmp/orbit_credentials.json`. Call an authenticated API by reading the token inline:
 
 ```bash
-make auth-device       # device auth flow → log in as dev@orbit.local.clearroute.io / password
-                       # token saved to /tmp/orbit_credentials.json
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
+  -H "Authorization: Bearer $TOKEN" \
+  https://api.orbit.local.clearroute.io:8443/v1/models
 ```
 
-**Tier 2: Full local cluster** (three ordered steps: `dev-cluster` alone is just the cluster + backing services)
-```bash
-make dev-cluster       # create the k3d cluster (starts Postgres + Redis + Dex first)
-make cluster-operator  # install the Orbit operator → deploys SPIRE + Istio + the Orbit services
-make cluster-deploy    # register tenants and deploy tenant workloads
-```
+When the token expires, `make auth-refresh` rotates the pair.
 
 For a detailed walkthrough see the **[Local Development Guide](docs/guides/local-development.md)**.
 
 ### Development Commands
 
-**Setup & Credentials**
-- `make setup`: Install development tools and git hooks
-- `make env`: Copy `.env.example` → `.env`
-- `make gen-signing-key`: Regenerate RSA signing key at `secrets/signing.key` (auto-run by `dev-up` on first run)
-- `make gen-session-secret`: Print a `BFF_SESSION_SECRET` for `.env` (never written to disk)
-- `make dex-env`: Bootstrap `config/dex/.env` with the default dev password, no-op if already exists (auto-run by `dev-up` on first run)
-- `make dex-hash password=X`: Generate Dex credentials with a custom password
+**Environment**
+- `make setup`: Once per machine. Generate `.env`, install tools, git hooks, local DNS, mkcert TLS.
+- `make up`: Bring up everything: backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit services), tenants, workloads. Idempotent.
+- `make down`: Tear down the cluster and backing services.
 
-**Backing Services (Tier 1)**
-- `make dev-up`: Start Postgres + Redis + Dex (bootstraps signing key + Dex credentials if missing)
-- `make dev-down`: Stop all Tier 1 containers
+**Inner loop**
+- `make redeploy`: Rebuild and roll every service. `SERVICE=<name>` narrows it to one.
+- `make redeploy-list`: List every service known to `make redeploy`.
+- `make redeploy-status`: Show drift between cluster-deployed images and the local registry.
+- `make redeploy-warm`: Pre-build every image to warm BuildKit caches before the first change.
+
+**Credentials**
+- `make auth`: Authenticate via Device Authorization Grant against the cluster.
+- `make auth-refresh`: Rotate the token pair in `/tmp/orbit_credentials.json`.
 
 **Database Migrations**
-- `make migrate-up`: Apply pending migrations
-- `make migrate-down`: Roll back last migration
-- `make migrate-status`: Show applied and pending migrations
-- `make migrate-create service=X name=Y`: Generate a new Goose migration file for a service (e.g. `service=identity name=add_sessions_index`)
-
-**Development**
-- `make dev`: Start the main API (the `identity` service) with hot-reload (`air`)
-- `make auth-device`: Authenticate via Device Authorization Grant
-- `make build-backend`: Build the Go service binaries to `.bin/`
-- `make frontend-dev`: Start the Next.js frontend (see [frontend/README.md](frontend/README.md))
+- `make migrate-up`: Apply pending migrations.
+- `make migrate-down`: Roll back the last migration.
+- `make migrate-status`: Show applied and pending migrations.
+- `make migrate-create service=X name=Y`: Generate a new Goose migration file for a service (e.g. `service=identity name=add_sessions_index`).
 
 **Testing & Quality**
 - `make check`: Full quality gate: tidy, fmt, `go vet`, `golangci-lint`, secret scan, `docs-check` (doc-drift guard), backend unit tests, **and** the frontend checks (lint + type-check + tests). Run from the repo root.
-- `make test`: Run unit tests with coverage (no cluster required)
-- `make test-integration`: Run the live-cluster authz suite. Requires a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`); **not** run by CI or `make check`.
-- `make docs-check`: Guard the docs against drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts)
+- `make test`: Run unit tests with coverage. No cluster required.
+- `make test-integration`: Run the live-cluster authz suite. Requires a running cluster; **not** run by CI or `make check`.
+- `make docs-check`: Guard the docs against drift (broken links, missing index entries, dead make targets, stale binary table, hardcoded counts).
 
-**Cluster (Tier 2)**
-- `make dev-cluster`: Create the local k3d cluster (starts backing services first); run `make cluster-operator` next
-- `make cluster-operator`: Install the Orbit operator, which deploys SPIRE + Istio + the Orbit services
-- `make cluster-deploy`: Register tenants and deploy tenant workloads
-- `make dev-cluster-down`: Tear down the local cluster
+**Granular cluster steps** (composed by `make up`)
+- `make dev-cluster`: Create the k3d cluster and start backing services.
+- `make cluster-operator`: Install the Orbit operator, which deploys SPIRE + Istio + the Orbit services.
+- `make cluster-deploy`: Register tenants and deploy tenant workloads.
+- `make dev-cluster-down`: Tear down the cluster.
 
 **Cleanup**
-- `make clean`: Remove build artifacts
+- `make clean`: Remove build artifacts.
 
 ## Contributing
 

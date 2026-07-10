@@ -28,49 +28,39 @@ Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-de
 
 **Language**: Go 1.26 (control plane)
 
-For the full local setup walkthrough, see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
+Local development runs in Kubernetes. There is one environment. For the full walkthrough see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
 
-**First-run bootstrap (Tier 1: backend only):**
-
-```bash
-make setup             # install goose, air, golangci-lint, gitleaks
-make env               # copy .env.example → .env
-make dev-up            # start Postgres + Redis + Dex — auto-generates secrets/signing.key
-                       # and config/dex/.env on first run if they do not exist
-make migrate-up        # apply database migrations
-make dev               # start backend with hot-reload (air)
-```
-
-> `make gen-signing-key` and `make dex-hash` can be run manually to regenerate
-> credentials at any time. `make dev-up` only auto-runs them when the files are absent.
-
-**Authenticate in a second terminal:**
+**First run:**
 
 ```bash
-make auth-device       # Device Authorization Grant against local Dex
-                       # browser → dev@orbit.local.clearroute.io / password
-                       # token saved to /tmp/orbit_credentials.json
+make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
+make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
+make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / password. Token → /tmp/orbit_credentials.json
 ```
+
+`make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service).
 
 **Calling authenticated Orbit APIs (curl):**
 
-Tokens are saved to `/tmp/orbit_credentials.json` by `make auth-device`. The `$ORBIT_TOKEN` environment variable is **not** available in subprocess shells, so always read the token inline:
+Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress on `:8443`.
 
 ```bash
 # Standard pattern for any authenticated API call
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s \
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8081/v1/models
+  https://api.orbit.local.clearroute.io:8443/v1/models
 
 # POST example (inference gateway)
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -X POST \
+TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
-  http://localhost:8081/v1/chat/completions | jq .
+  https://api.orbit.local.clearroute.io:8443/v1/chat/completions | jq .
 ```
 
-**Service ports (local dev):**
+**Endpoints:** frontend `https://orbit.local.clearroute.io:8443`, inference gateway `https://api.orbit.local.clearroute.io:8443/v1`.
+
+**In-cluster ports** (each service binds these inside the mesh):
 | Service | Port |
 |---------|------|
 | Main API (`identity`) | `8080` |
@@ -81,14 +71,13 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -s -X POST \
 
 (`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
-**If you get `{"code":"unauthorized","message":"invalid or expired platform token"}` (token expired after ~1 hour):**
+**If a call returns `{"code":"unauthorized","message":"invalid or expired platform token"}` (the token expired):**
 
 ```bash
-make auth-refresh       # local backend on :8080
-make auth-refresh-k3d   # k3d cluster (port-forwards to orbit-identity)
+make auth-refresh   # rotate the token pair in /tmp/orbit_credentials.json
 ```
 
-Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (never refresh with raw `curl`: see `scripts/auth-refresh.sh` for why). If the refresh token itself is expired, run `make auth-device` (or `make auth-device-k3d`) to start a fresh session.
+If the refresh token itself is expired, run `make auth` to start a fresh session. Never refresh with raw `curl`: see `scripts/auth-refresh.sh` for why.
 
 **Run the full quality gate before committing:**
 

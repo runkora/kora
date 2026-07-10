@@ -8,7 +8,6 @@ src/packages/*/node_modules
 
 # Dev / editor
 .env*
-!.env.example
 *.local
 .DS_Store
 .idea
