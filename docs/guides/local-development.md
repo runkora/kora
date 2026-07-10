@@ -37,7 +37,7 @@ For Tier 2 (full-stack cluster), these are also installed by `make setup`:
 
 Run these steps once after cloning. They are safe to re-run.
 
-### Step 1 — Install tooling
+### Step 1: Install tooling
 
 ```bash
 make setup
@@ -45,15 +45,15 @@ make setup
 
 Installs `goose`, `air`, `golangci-lint`, `gitleaks`, and git hooks. Runs `go mod tidy`.
 
-### Step 2 — Create your `.env` file
+### Step 2: Create your `.env` file
 
 ```bash
 make env
 ```
 
-Copies `.env.example` → `.env`. Open `.env` and review the values — the defaults work for local development without modification.
+Copies `.env.example` → `.env`. Open `.env` and review the values. The defaults work for local development without modification.
 
-### Step 3 — Start backing services
+### Step 3: Start backing services
 
 ```bash
 make dev-up
@@ -71,10 +71,10 @@ Starts five Docker containers on the `orbit-network` bridge:
 
 **On first run, `make dev-up` automatically bootstraps two prerequisites before starting the containers:**
 
-- **`secrets/signing.key`** — a 4096-bit RSA private key for signing platform JWTs. The identity service reads this via `ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key` (already set in `.env.example`). Stored as a file rather than an env var because RSA PEM blocks are multi-line and `.env` parsers do not reliably preserve newlines.
-- **`config/dex/.env`** — a bcrypt hash of the default dev password (`password`), consumed by the Dex container. Stored in a separate file rather than the root `.env` because Docker Compose v2 interpolates `$` characters in the `environment:` block, destroying the `$2y$10$...` bcrypt prefix.
+- **`secrets/signing.key`**: a 4096-bit RSA private key for signing platform JWTs. The identity service reads this via `ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key` (already set in `.env.example`). Stored as a file rather than an env var because RSA PEM blocks are multi-line and `.env` parsers do not reliably preserve newlines.
+- **`config/dex/.env`**: a bcrypt hash of the default dev password (`password`), consumed by the Dex container. Stored in a separate file rather than the root `.env` because Docker Compose v2 interpolates `$` characters in the `environment:` block, destroying the `$2y$10$...` bcrypt prefix.
 
-Both guards are idempotent — they are skipped on subsequent runs if the files already exist.
+Both guards are idempotent. They are skipped on subsequent runs if the files already exist.
 
 **To use a custom Dex password** instead of the default `password`, generate `config/dex/.env` before running `dev-up`:
 
@@ -91,15 +91,15 @@ make gen-signing-key
 
 Docker Compose health checks will block `make dev-up` until the containers pass their health checks.
 
-### Step 4 — Run database migrations
+### Step 4: Run database migrations
 
 ```bash
 make migrate-up
 ```
 
-Applies all pending Goose migrations. Each service owns its migrations under `backend/cmd/{service}/migrations/`; `make migrate-up` applies them across every service. Safe to run multiple times — already-applied migrations are skipped.
+Applies all pending Goose migrations. Each service owns its migrations under `backend/cmd/{service}/migrations/`; `make migrate-up` applies them across every service. Safe to run multiple times: already-applied migrations are skipped.
 
-### Step 5 — Start the backend
+### Step 5: Start the backend
 
 ```bash
 make dev
@@ -114,7 +114,7 @@ INFO  OIDC provider initialized  issuer=https://dex.orbit.local.clearroute.io:55
 INFO  Server listening           addr=:8080
 ```
 
-### Step 6 — Authenticate
+### Step 6: Authenticate
 
 ```bash
 make auth-device
@@ -123,7 +123,7 @@ make auth-device
 Runs the Device Authorization Grant flow against local Dex:
 
 1. The script calls `POST /api/v1/identity/device` and receives a `user_code` and `verification_uri`
-2. It prints the code and URL — open the URL in your browser and enter the code
+2. It prints the code and URL. Open the URL in your browser and enter the code
 3. Log in as `dev@orbit.local.clearroute.io` with password `password` (or your custom password from Step 4)
 4. The script polls `POST /api/v1/identity/session` until authorization completes
 5. On success, the Orbit platform JWT is saved to `/tmp/orbit_credentials.json`
@@ -186,7 +186,7 @@ make test              # unit tests — no cluster required
 make test-integration  # integration tests — requires the full Tier 2 cluster
 ```
 
-`make test` is what `make check` and CI run. It needs neither the Dex container nor an OIDC provider — the identity service's `SVIDValidator` interface is stubbed and OIDC flows are not exercised.
+`make test` is what `make check` and CI run. It needs neither the Dex container nor an OIDC provider: the identity service's `SVIDValidator` interface is stubbed and OIDC flows are not exercised.
 
 `make test-integration` (`//go:build integration`) is **not** run by CI or `make check`. It drives the full SPIFFE SVID exchange against a live cluster and needs the complete Tier 2 stack up first:
 
@@ -211,7 +211,7 @@ ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' 
 
 ## Using a Real OIDC Provider
 
-OIDC configuration is **per-tenant**, defined in the tenant registry — there are no global `ORBIT_OIDC_*` variables. For host dev (`make dev`), the identity service reads `config/tenants.yaml` (via `ORBIT_TENANTS_CONFIG`, already set in `.env`); the committed file is pre-wired for local Dex.
+OIDC configuration is **per-tenant**, defined in the tenant registry. There are no global `ORBIT_OIDC_*` variables. For host dev (`make dev`), the identity service reads `config/tenants.yaml` (via `ORBIT_TENANTS_CONFIG`, already set in `.env`); the committed file is pre-wired for local Dex.
 
 To authenticate against Microsoft Entra (or any OIDC-compliant provider) instead, edit the tenant's `oidc` block in `config/tenants.yaml`:
 
@@ -225,9 +225,9 @@ tenants:
       scopes: [openid, profile, email, groups]
 ```
 
-No code changes are required — the backend discovers the provider's endpoints from its `/.well-known/openid-configuration` document on startup. The local Dex client is public and needs no secret; confidential clients are handled by the operator in cluster deployments ([oidc-client-secret-projection-for-confidential-tenants](../adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md)).
+No code changes are required: the backend discovers the provider's endpoints from its `/.well-known/openid-configuration` document on startup. The local Dex client is public and needs no secret; confidential clients are handled by the operator in cluster deployments ([oidc-client-secret-projection-for-confidential-tenants](../adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md)).
 
-For **cluster** dev, tenants are `OrbitTenant` CRs under `deploy/local/tenants/`, reconciled into a ConfigMap by the operator — `config/tenants.yaml` is not used. See [tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md).
+For **cluster** dev, tenants are `OrbitTenant` CRs under `deploy/local/tenants/`, reconciled into a ConfigMap by the operator. `config/tenants.yaml` is not used. See [tenant-registration-and-oidc-provider-binding](../adr/2026-03-31-tenant-registration-and-oidc-provider-binding.md).
 
 > **Entra application requirements**: The registered application must have the `urn:ietf:params:oauth:grant-type:device_code` grant type enabled under Authentication → Advanced settings → Allow public client flows.
 
@@ -246,7 +246,7 @@ make cluster-operator   # build + deploy the orbit-operator; it installs SPIRE, 
 make cluster-deploy     # create secrets (orbit-secrets) and apply workload fixtures
 ```
 
-`make dev-cluster` starts Docker Compose services first — you do not need to run `make dev-up` separately.
+`make dev-cluster` starts Docker Compose services first, so you do not need to run `make dev-up` separately.
 
 To tear down the cluster (Docker Compose services keep running):
 
@@ -270,7 +270,7 @@ Rebuild and roll a single service without redoing the whole deploy. Every servic
 | `make redeploy-status` | Show drift between cluster-deployed images and the local registry |
 | `make cluster-update` | Rebuild every image and roll every workload |
 
-Each redeploy runs a full `docker build` unless you pass `NO_BUILD=1` — expect tens of seconds to minutes per service. Run `make redeploy-warm` once at the start of a session to pre-build every service and warm the BuildKit caches, so subsequent single-service redeploys are fast.
+Each redeploy runs a full `docker build` unless you pass `NO_BUILD=1`. Expect tens of seconds to minutes per service. Run `make redeploy-warm` once at the start of a session to pre-build every service and warm the BuildKit caches, so subsequent single-service redeploys are fast.
 
 ### Driving the Orbit MCP locally
 
@@ -286,7 +286,7 @@ In a Claude Code session, run `/mcp` and authenticate the `orbit` server. Claude
 runs the MCP OAuth flow (dynamic client registration + PKCE) and opens the consent
 screen in your browser; because you are already signed into the dashboard it is a
 silent SSO, so you just approve the tools being granted and it connects. The token
-refreshes silently — no manual token juggling — and you can revoke it any time from
+refreshes silently (no manual token juggling), and you can revoke it any time from
 the dashboard's Connections. Requires the cluster up (`make dev-cluster` +
 `make cluster-operator`) and a dashboard browser session.
 
@@ -338,7 +338,7 @@ OIDC is configured per-tenant in the registry, not via `ORBIT_OIDC_*` variables 
 
 | Variable | Required | Description |
 |---|---|---|
-| `ORBIT_TENANTS_CONFIG` | Local (host dev) | Path to the tenant registry YAML read by the identity service. Default: `../config/tenants.yaml`. Not used in cluster mode — the operator builds a ConfigMap from `OrbitTenant` CRs. |
+| `ORBIT_TENANTS_CONFIG` | Local (host dev) | Path to the tenant registry YAML read by the identity service. Default: `../config/tenants.yaml`. Not used in cluster mode: the operator builds a ConfigMap from `OrbitTenant` CRs. |
 
 ---
 
@@ -423,7 +423,7 @@ curl -k https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-config
 
 ### `POST /api/v1/identity/device` returns 400 `oidc_not_configured`
 
-**Cause:** Same as above — the identity service started without a configured OIDC provider.
+**Cause:** Same as above: the identity service started without a configured OIDC provider.
 
 ### Backend fails to start: `failed to parse RSA private key`
 
@@ -471,7 +471,7 @@ docker compose restart orbit-dex
 
 **Fix:** Run `make auth-device` again and complete the browser step promptly.
 
-### `https://orbit.local.clearroute.io/` is unreachable — browser can't connect
+### `https://orbit.local.clearroute.io/` is unreachable: browser can't connect
 
 **Symptom:** `ping orbit.local.clearroute.io` fails or the browser shows a DNS error.
 
@@ -498,7 +498,7 @@ Once it propagates (usually under a minute), `ping orbit.local.clearroute.io` wi
 
 **Cause:** An unsupported flag was passed to the Redis server binary.
 
-**Fix:** Check `docker-compose.yml` — the Redis `command:` override (if present) must not include `--no-auth-warning`, which is a client-only flag not accepted by `redis-server`.
+**Fix:** Check `docker-compose.yml`: the Redis `command:` override (if present) must not include `--no-auth-warning`, which is a client-only flag not accepted by `redis-server`.
 
 ### Migration fails: `no such table` or `relation does not exist`
 
@@ -514,8 +514,8 @@ make migrate-up       # apply pending migrations
 
 ## Related Documentation
 
-- [local-development-environment](../adr/2026-03-10-local-development-environment.md) — Local development environment strategy (Tier 1 vs Tier 2)
-- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction and Dex decision
-- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md) — Unified identity model
-- [Configuration reference](../configuration/config.md) — YAML config system
-- [Secrets reference](../configuration/secrets.md) — How secrets are managed
+- [local-development-environment](../adr/2026-03-10-local-development-environment.md): Local development environment strategy (Tier 1 vs Tier 2)
+- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md): OIDC provider abstraction and Dex decision
+- [unified-identity-model](../adr/2026-03-05-unified-identity-model.md): Unified identity model
+- [Configuration reference](../configuration/config.md): YAML config system
+- [Secrets reference](../configuration/secrets.md): How secrets are managed

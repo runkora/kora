@@ -813,7 +813,7 @@ build-backend: proto-gen ## Build all service binaries to .bin directory (runs p
 # ===========================================
 
 .PHONY: test-integration
-test-integration: auth-refresh-k3d ## Live-cluster authz tests — needs a full k3d cluster (dev-cluster + cluster-operator + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
+test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-operator + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
 	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \

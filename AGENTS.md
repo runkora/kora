@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-Orbit is **the control plane for AI agents** — the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is *not* an agent framework, a model router, or an LLM wrapper.
+Orbit is **the control plane for AI agents**, the agentic engineering platform that closes the gap between an agent running on a developer's laptop and a secure, governed agent running in production. It is *not* an agent framework, a model router, or an LLM wrapper.
 
 The platform answers three questions for every agent that goes into production, and the architecture is organised around them:
 
 - **Who is this agent?** Every agent gets a machine-verifiable identity at deploy time. Humans and agents share one identity model; a person can delegate to an agent with defined scope and full accountability, and the agent can never access more than the delegator.
-- **What can it access?** Every action is checked against policy *before* it executes. Admins define what each agent can do down to the individual tool; everything outside that list is rejected and logged. Enforcement happens at the edge inside each pod — the agent is never trusted to behave.
+- **What can it access?** Every action is checked against policy *before* it executes. Admins define what each agent can do down to the individual tool; everything outside that list is rejected and logged. Enforcement happens at the edge inside each pod. The agent is never trusted to behave.
 - **How does it connect?** Agents never handle credentials. The platform intercepts outbound calls and injects credentials just-in-time, deferring to the upstream system as the authority on what a user can access. A Claude Code or Codex instance drops in without modifying its auth handling.
 
 Underneath, Orbit is established platform engineering applied to a new domain: SPIFFE workload attestation, OPA policy-as-code, Istio/Envoy at the edge, all Kubernetes-native and standards-based. Every agent action traces back to the human who initiated it and the policy that authorised it.
@@ -18,11 +18,11 @@ Build status lives in [docs/architecture.md](docs/architecture.md), the binary a
 
 ## Development Workflow
 
-Orbit follows a **PRD → ADR → implementation** process for new features and significant changes: write a PRD (`docs/prd/`, from `docs/prd/template.md`) defining the problem and solution; then, once it's agreed, an ADR (`docs/adr/`, Context → Options → Decision → Consequences) capturing the technical approach and the "why"; then implement against the agreed docs, referencing them in commits and the PR. Bug fixes and minor changes skip the PRD/ADR. **An ADR before significant implementation is a hard rule** — architectural decisions are captured in an ADR the PR references, never inline in a PR.
+Orbit follows a **PRD → ADR → implementation** process for new features and significant changes: write a PRD (`docs/prd/`, from `docs/prd/template.md`) defining the problem and solution; then, once it's agreed, an ADR (`docs/adr/`, Context → Options → Decision → Consequences) capturing the technical approach and the "why"; then implement against the agreed docs, referencing them in commits and the PR. Bug fixes and minor changes skip the PRD/ADR. **An ADR before significant implementation is a hard rule**: architectural decisions are captured in an ADR the PR references, never inline in a PR.
 
 Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-development-workflow).
 
-**The three questions are the spine of every architectural decision.** Be explicit about which one a change touches — *Who is this agent? What can it access? How does it connect?* — and how it preserves the others.
+**The three questions are the spine of every architectural decision.** Be explicit about which one a change touches (*Who is this agent? What can it access? How does it connect?*) and how it preserves the others.
 
 ## Development Setup
 
@@ -30,7 +30,7 @@ Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-de
 
 For the full local setup walkthrough, see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
 
-**First-run bootstrap (Tier 1 — backend only):**
+**First-run bootstrap (Tier 1: backend only):**
 
 ```bash
 make setup             # install goose, air, golangci-lint, gitleaks
@@ -54,7 +54,7 @@ make auth-device       # Device Authorization Grant against local Dex
 
 **Calling authenticated Orbit APIs (curl):**
 
-Tokens are saved to `/tmp/orbit_credentials.json` by `make auth-device`. The `$ORBIT_TOKEN` environment variable is **not** available in subprocess shells — always read the token inline:
+Tokens are saved to `/tmp/orbit_credentials.json` by `make auth-device`. The `$ORBIT_TOKEN` environment variable is **not** available in subprocess shells, so always read the token inline:
 
 ```bash
 # Standard pattern for any authenticated API call
@@ -88,7 +88,7 @@ make auth-refresh       # local backend on :8080
 make auth-refresh-k3d   # k3d cluster (port-forwards to orbit-identity)
 ```
 
-Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (never refresh with raw `curl` — see `scripts/auth-refresh.sh` for why). If the refresh token itself is expired, run `make auth-device` (or `make auth-device-k3d`) to start a fresh session.
+Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (never refresh with raw `curl`: see `scripts/auth-refresh.sh` for why). If the refresh token itself is expired, run `make auth-device` (or `make auth-device-k3d`) to start a fresh session.
 
 **Run the full quality gate before committing:**
 
@@ -96,11 +96,11 @@ Both rotate the token pair and atomically update `/tmp/orbit_credentials.json` (
 make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + tests + frontend checks
 ```
 
-`docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift — broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
+`docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift: broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
 
 ## Key Conventions
 
-An agent **must** follow these conventions when modifying this codebase. Each convention is enforced by a linting rule — violations will fail `make check`.
+An agent **must** follow these conventions when modifying this codebase. Each convention is enforced by a linting rule; violations will fail `make check`.
 
 ### Data & Storage
 - **No ORMs**: All database access uses explicit SQL via `*storage.DB` (wraps `pgx/v5` pgxpool.Pool)
@@ -109,8 +109,8 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 
 ### HTTP & Routing
 - **No third-party routers**: Routes implement the `api.Controller` interface with `GroupedBy()`, `Middleware()`, and `Boot(*api.Mux)`. No gin, chi, echo, or gorilla/mux.
-- **No raw JSON decoding**: Use `api.DecodeJSON(ctx, r, w, logger, &req)` in handlers — never `json.NewDecoder(r.Body).Decode(...)`.
-- **No raw response writing**: Use `api.JSON(...)` and `api.ErrorResponse(...)` — never `w.WriteHeader(code)` or `http.Error(w, ...)` directly in handlers.
+- **No raw JSON decoding**: Use `api.DecodeJSON(ctx, r, w, logger, &req)` in handlers, never `json.NewDecoder(r.Body).Decode(...)`.
+- **No raw response writing**: Use `api.JSON(...)` and `api.ErrorResponse(...)`, never `w.WriteHeader(code)` or `http.Error(w, ...)` directly in handlers.
 - **No raw HTTP clients**: Service-to-service HTTP calls must use a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`. Never instantiate `http.Client{}` directly in feature or service code.
 
 ### Logging
@@ -122,9 +122,9 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 - **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
 
 ### Errors & Observability
-- **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)` — never `%s` for error wrapping.
-- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string — never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
-- **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly — the `httpclient.Base` handles all span lifecycle.
+- **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)`, never `%s` for error wrapping.
+- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string, never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
+- **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly; the `httpclient.Base` handles all span lifecycle.
 
 ### Code Structure
 - **Cross-cutting code lives in `internal/platform/`**: Feature packages must not import each other.
@@ -132,9 +132,9 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 
 ## Automated Enforcement
 
-All conventions above are mechanically enforced. Do not add inline `//nolint` directives — exceptions are managed centrally via path-scoped exclusions in `.golangci.yml`.
+All conventions above are mechanically enforced. Do not add inline `//nolint` directives; exceptions are managed centrally via path-scoped exclusions in `.golangci.yml`.
 
-**Tier 1 — AST rules** (`rules/orbit_rules.go`, enforced via `gocritic/ruleguard`):
+**Tier 1: AST rules** (`rules/orbit_rules.go`, enforced via `gocritic/ruleguard`):
 
 | Rule | What it bans |
 |------|-------------|
@@ -148,7 +148,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | `noHttpErrorInHandler` | `http.Error(w, ...)` in handlers |
 | `noDirectWriteHeader` | `w.WriteHeader(code)` in handlers |
 
-**Tier 2 — Import bans** (`depguard` in `.golangci.yml`):
+**Tier 2: Import bans** (`depguard` in `.golangci.yml`):
 
 | Rule | What it bans |
 |------|-------------|
@@ -175,18 +175,18 @@ Orbit follows a **feature-based architecture** with the repository pattern for d
 
 | Binary | Path | Purpose |
 |--------|------|---------|
-| `identity` | `cmd/identity/` | **Main control-plane API** — identity, sessions, PATs, tenant registry (port 8080) |
+| `identity` | `cmd/identity/` | **Main control-plane API**: identity, sessions, PATs, tenant registry (port 8080) |
 | `inference-gateway` | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081) |
-| `policy-service` | `cmd/policy-service/` | Authz data plane (PDP/PAP) — grants, roles, OPA bundles (port 8083) |
+| `policy-service` | `cmd/policy-service/` | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083) |
 | `policy-gateway` | `cmd/policy-gateway/` | In-app authz API (PEP) (port 8084) |
-| `orbit-agents` | `cmd/orbit-agents/` | Agent control plane — runs, sessions, event streaming, k8s orchestration |
+| `orbit-agents` | `cmd/orbit-agents/` | Agent control plane: runs, sessions, event streaming, k8s orchestration |
 | `session-manager` | `cmd/session-manager/` | Per-tenant runner for the agent (Claude Code) subprocess (port 8090) |
-| `operator` | `cmd/operator/` | Kubernetes operator — reconciles Tenant/Platform CRDs, injects sidecars |
-| `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar — injects platform tokens into agent outbound calls |
+| `operator` | `cmd/operator/` | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars |
+| `identity-proxy` | `cmd/identity-proxy/` | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls |
 | `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner` | `cmd/*/` | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper) |
 | `example` | `cmd/example/` | Reference implementation (not production) |
 
-> There is **no `cmd/orbit`** binary — the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
+> There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
 
 **Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
 - Repository interface (storage contract)
@@ -218,7 +218,7 @@ When contributing code or architecture:
 1. **Security First**: Every component designed with security as primary concern
 2. **Identity-Driven**: All actions tied to verified identities
 3. **Policy-Governed**: Policies enforced *before* execution, not after
-4. **Observable**: Complete visibility into agent behavior — distributed tracing, structured logging, log-trace correlation
+4. **Observable**: Complete visibility into agent behavior: distributed tracing, structured logging, log-trace correlation
 5. **Extensible**: Pluggable integrations for models, tools, identity providers
 6. **Production-Grade**: Built for enterprise reliability and scale
 7. **Open Standards**: OPA for policy, OIDC/SPIFFE for identity, MCP for tools, OpenTelemetry for observability
@@ -238,18 +238,18 @@ See `SECURITY.md` for vulnerability reporting.
 
 ## Testing Strategy
 
-This describes what the backend test suite **actually is today**, and — separately and clearly labelled — where it's headed.
+This describes what the backend test suite **actually is today**, and (separately and clearly labelled) where it's headed.
 
 **What exists today:**
-- **Unit tests** — the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **One Postgres-backed repository test** — `backend/internal/triggers/postgres_test.go`, gated on `ORBIT_TEST_DB_URL` and skipped when it's unset. It is currently the *only* test that talks to a real database.
-- **One integration suite** — `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
-- **No dedicated lint-rule unit tests** — custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
+- **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
+- **One Postgres-backed repository test**: `backend/internal/triggers/postgres_test.go`, gated on `ORBIT_TEST_DB_URL` and skipped when it's unset. It is currently the *only* test that talks to a real database.
+- **One integration suite**: `backend/tests/integration/policy/authz_test.go` (build tag `integration`): a live-cluster authz test run via `make test-integration`. It needs a full running cluster (`dev-cluster` + `cluster-operator` + `cluster-deploy` + `auth-device-k3d`) and is **not** run by CI or by `make check`.
+- **No dedicated lint-rule unit tests**: custom `golangci-lint` rules are validated empirically via `make check`; no `analysistest` harness, to keep `backend/go.mod` lean.
 
-**Goals (aspirational — not yet built):**
-- **Broader integration coverage** — Postgres-backed repository tests for more feature packages, beyond the single `triggers` suite.
-- **An E2E layer** — full agent workflows exercised end-to-end through Orbit.
-- **A security-test layer** — dedicated tests for policy enforcement and credential isolation.
+**Goals (aspirational, not yet built):**
+- **Broader integration coverage**: Postgres-backed repository tests for more feature packages, beyond the single `triggers` suite.
+- **An E2E layer**: full agent workflows exercised end-to-end through Orbit.
+- **A security-test layer**: dedicated tests for policy enforcement and credential isolation.
 
 Write tests alongside new code; unit tests are the default and must pass in `make check`.
 
@@ -259,10 +259,10 @@ When implementing Orbit components:
 
 - **Policy Evaluation**: Always evaluate policies before executing actions, not after
 - **Event Emission**: Emit structured events for all significant actions and decisions
-- **Credential Brokering**: Never expose raw credentials to agents — use scoped, temporary access
+- **Credential Brokering**: Never expose raw credentials to agents; use scoped, temporary access
 - **Identity Context**: Carry identity context through the entire execution chain via `context.Context`
 - **Repository Pattern**: Define repository interfaces in feature packages, implement with PostgreSQL in the same package
-- **Feature Independence**: Features must not import each other — share only through `internal/platform/`
+- **Feature Independence**: Features must not import each other; share only through `internal/platform/`
 - **Idiomatic Go**: Favor simplicity, flat packages, and explicit code over deep abstraction hierarchies
 - **Sentinel Errors**: Define package-level `var ErrXxx = errors.New("...")` rather than inline string errors; wrap with `%w`
 
@@ -270,7 +270,7 @@ See [repository-pattern-and-code-organization](docs/adr/2026-02-17-repository-pa
 
 ## Frontend Development
 
-All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`.
+All product JSX must use Terra (`@orbit/terra`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`.
 
 | Rule | What it bans | Use instead |
 | ---- | ------------ | ----------- |
@@ -279,8 +279,8 @@ All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are bann
 | `local/no-raw-inline-elements` | `<span>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<code>`, `<kbd>`, all other phrasing-content HTML | `Text`, `Text weight="heavy"`, `Code` |
 | `local/no-raw-interactive-elements` | `<button>` | `Button` |
 | `local/no-terra-classname` | `className` on any Terra component | Use the component's own props |
-| `local/no-direct-lucide-import` | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**` | `<Icon name="…" />` — **no escape hatch**. Add icons to `src/packages/terra/src/components/icon/registry.ts` only. |
-| `local/no-terra-disable-comment` | Any `eslint-disable` targeting a Terra rule | There is no escape hatch — use the correct Terra component |
+| `local/no-direct-lucide-import` | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**` | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/terra/src/components/icon/registry.ts` only. |
+| `local/no-terra-disable-comment` | Any `eslint-disable` targeting a Terra rule | There is no escape hatch; use the correct Terra component |
 
 **Common HTML → Terra replacements:**
 
@@ -305,19 +305,19 @@ All product JSX must use Terra (`@orbit/terra`) — raw HTML primitives are bann
 
 **Missing Terra component:** If no Terra component covers the use case:
 
-1. Do not write the raw element — `pnpm lint` will fail.
+1. Do not write the raw element, or `pnpm lint` will fail.
 2. Write a short proposal: element needed, suggested name and minimal API, Radix/ShadCN base if one exists.
 3. Wait for approval from a human engineer before writing any code in `src/packages/terra/`.
 4. Once approved: implement with `cva` + `cn`, `React.forwardRef`, `.displayName`, `data-slot`. Base on ShadCN/Radix where available. Export from `src/packages/terra/src/index.ts`.
 5. Replace the raw element across the codebase.
 
-**Component placement — three-tier model:**
+**Component placement (three-tier model):**
 
 | Tier | Name | Filesystem | Import | Storybook prefix |
 | ---- | ---- | ---------- | ------ | ---------------- |
 | **1** | Terra | `src/packages/terra/src/components/` | `import { X } from '@orbit/terra'` | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
 | **2** | App-level shared | `src/components/` | `import { X } from '@orbit/components'` | `App/Shared/` |
-| **3** | Feature-scoped | `src/app/(dashboard)/[feature]/_components/` | relative import | — |
+| **3** | Feature-scoped | `src/app/(dashboard)/[feature]/_components/` | relative import | n/a |
 
 Apply this decision tree in order, stop at the first match, never pre-generalise:
 
@@ -336,11 +336,11 @@ Every extracted component file must open with a `@tier` JSDoc comment:
 /** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */
 ```
 
-Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is hard — always start at the most specific tier.
+Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is hard. Always start at the most specific tier.
 
-All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit` — both must pass with zero errors.
+All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit`; both must pass with zero errors.
 
-**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem) · [`frontend/docs/reference/terra-design-system.md`](frontend/docs/reference/terra-design-system.md) (full Terra usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state)
+**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API: EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem) · [`frontend/docs/reference/terra-design-system.md`](frontend/docs/reference/terra-design-system.md) (full Terra usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state)
 
 ## Getting Help
 
@@ -354,4 +354,4 @@ Orbit is licensed under Apache License 2.0. All contributions must be compatible
 
 ---
 
-**Remember**: Orbit is the control plane underneath production agentic systems. Every change should answer one or more of: *Who is this agent? What can it access? How does it connect?* — and never weaken the others.
+**Remember**: Orbit is the control plane underneath production agentic systems. Every change should answer one or more of: *Who is this agent? What can it access? How does it connect?*, and never weaken the others.

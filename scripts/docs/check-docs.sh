@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# check-docs.sh — Fail the build when the docs no longer match the code.
+# check-docs.sh. Fail the build when the docs no longer match the code.
 #
 #   links     Every relative markdown link resolves to a file on disk.
 #   indexes   Every ADR/PRD on disk appears in its index, and vice versa.
 #   targets   Every `make <target>` named in a doc exists in the Makefile.
 #   binaries  The binary table and backend/cmd/ agree, in both directions.
 #   counts    No doc hardcodes "N binaries"/"N services".
+#   prose     No em dashes in living docs. ADRs and PRDs are exempt: they are
+#             point-in-time records, not prose we keep rewriting.
 #
-# Usage: scripts/docs/check-docs.sh [links|indexes|targets|binaries|counts]
+# Usage: scripts/docs/check-docs.sh [links|indexes|targets|binaries|counts|prose]
 #        (no argument runs every check)
 # =============================================================================
 
@@ -216,14 +218,32 @@ check_counts() {
   [ "$found" -eq 0 ] && ok "no drift-prone counts in prose"
 }
 
+# ── prose ────────────────────────────────────────────────────────────────────
+# House style: punctuation serves grammar, not drama. Use a comma, a full stop,
+# or a colon. Code blocks are exempt; so are ADRs and PRDs.
+check_prose() {
+  head_ "Checking prose punctuation (living docs)..."
+  local found=0
+  while IFS= read -r file; do
+    local n; n=$(strip_fences < "$file" | grep -c '—' || true)
+    if [ "$n" -gt 0 ]; then
+      local line; line=$(strip_fences < "$file" | grep -n '—' | head -1 | cut -d: -f1)
+      fail "$file: $n em dash(es), first near line $line. Use a comma, full stop, or colon."
+      found=1
+    fi
+  done < <(md_files | grep -vE '^(docs/(adr|prd)/|\.claude/)')  # .claude/ is agent prompts
+  [ "$found" -eq 0 ] && ok "no em dashes in living docs"
+}
+
 case "${1:-all}" in
   links)    check_links ;;
   indexes)  check_indexes ;;
   targets)  check_targets ;;
   binaries) check_binaries ;;
   counts)   check_counts ;;
-  all)      check_links; check_indexes; check_targets; check_binaries; check_counts ;;
-  *)        echo "usage: $0 [links|indexes|targets|binaries|counts]" >&2; exit 2 ;;
+  prose)    check_prose ;;
+  all)      check_links; check_indexes; check_targets; check_binaries; check_counts; check_prose ;;
+  *)        echo "usage: $0 [links|indexes|targets|binaries|counts|prose]" >&2; exit 2 ;;
 esac
 
 echo

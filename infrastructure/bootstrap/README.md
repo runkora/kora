@@ -23,7 +23,7 @@ This will:
 2. Create the k3d cluster from `infrastructure/bootstrap/k3d-config.yaml`
 3. Patch CoreDNS to resolve `dex.orbit.local.clearroute.io` → Docker bridge gateway
 
-**This command is idempotent** — re-running it when the cluster already exists is a no-op.
+**This command is idempotent**: re-running it when the cluster already exists is a no-op.
 
 ## After cluster creation
 

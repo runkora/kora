@@ -11,25 +11,25 @@ There are two tiers depending on what the rule needs to inspect:
 
 ---
 
-## Tier 1 — AST rules (`rules/orbit_rules.go`)
+## Tier 1: AST rules (`rules/orbit_rules.go`)
 
 Each function in the file is one rule. The rule name is the function name. Violation messages include the governing ADR and a link to the decision document.
 
 | Rule | What it bans | ADR |
 |------|-------------|-----|
-| `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())` — dynamic local error string in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
-| `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())` — dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
-| `spanAttrStringLocalErr` | `attribute.String(_, err.Error())` — raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
-| `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())` — context error string in a span attribute | [ADD-0022] |
-| `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` — raw body decode bypassing `api.DecodeJSON` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
-| `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)` — `%s` formatting that discards the error chain | [[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)] |
+| `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())`: dynamic local error string in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())`: dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`: raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())`: context error string in a span attribute | [ADD-0022] |
+| `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)`: raw body decode bypassing `api.DecodeJSON` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)`: `%s` formatting that discards the error chain | [[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)] |
 | `noRawHttpClientLiteral` | `http.Client{...}` composite literal outside the httpclient base package | [[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)] |
-| `noHttpErrorInHandler` | `http.Error(w, ...)` — plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
-| `noDirectWriteHeader` | `w.WriteHeader(code)` — bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noHttpErrorInHandler` | `http.Error(w, ...)`: plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noDirectWriteHeader` | `w.WriteHeader(code)`: bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 
 ### [opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md) rules (span telemetry)
 
-Span status descriptions and span attributes are indexed by observability backends (Jaeger, Tempo, Datadog). A dynamic `err.Error()` string leaks internal hostnames, connection strings, and upstream messages into those indexes — a security and cardinality problem. The mandatory pattern is:
+Span status descriptions and span attributes are indexed by observability backends (Jaeger, Tempo, Datadog). A dynamic `err.Error()` string leaks internal hostnames, connection strings, and upstream messages into those indexes, a security and cardinality problem. The mandatory pattern is:
 
 ```go
 span.RecordError(err)                              // full error as an exception event
@@ -54,15 +54,15 @@ The rules target the literal identifier `err` and the `ctx.Err()` chain, which c
 
 Some call sites are legitimately exempt. Rather than scattering `//nolint` directives, all exceptions are centrally declared as path-scoped rules in the `exclusions:` block of `.golangci.yml` with documented rationale. Notable examples:
 
-- `internal/platform/api/` — owns `DecodeJSON` and `api.JSON`; permitted to call `json.NewDecoder` and `w.WriteHeader` directly
-- `internal/platform/clients/httpclient/` — owns `*http.Client`; permitted to construct one
-- `internal/identity/service.go` — constructs `*http.Client` for coreos/go-oidc provider discovery (external IdP, not a platform service)
-- `internal/identityproxy/server.go` — constructs `*http.Client` for the Istio readiness health poll (local loopback, no tracing required)
-- `internal/platform/middleware/` — uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
+- `internal/platform/api/`: owns `DecodeJSON` and `api.JSON`; permitted to call `json.NewDecoder` and `w.WriteHeader` directly
+- `internal/platform/clients/httpclient/`: owns `*http.Client`; permitted to construct one
+- `internal/identity/service.go`: constructs `*http.Client` for coreos/go-oidc provider discovery (external IdP, not a platform service)
+- `internal/identityproxy/server.go`: constructs `*http.Client` for the Istio readiness health poll (local loopback, no tracing required)
+- `internal/platform/middleware/`: uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
 
 ---
 
-## Tier 2 — Import bans (`depguard` in `.golangci.yml`)
+## Tier 2: Import bans (`depguard` in `.golangci.yml`)
 
 | Rule name | Banned package(s) | Allowed in | ADR |
 |-----------|------------------|------------|-----|
@@ -75,7 +75,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 
 ### Why depguard instead of ruleguard for these?
 
-Import bans don't need AST inspection — the presence of the import path is the violation. `depguard` handles this more reliably than a ruleguard pattern because it operates on the resolved import graph, not on call-site text.
+Import bans don't need AST inspection: the presence of the import path is the violation. `depguard` handles this more reliably than a ruleguard pattern because it operates on the resolved import graph, not on call-site text.
 
 ### `no-stdlib-log`
 
@@ -83,7 +83,7 @@ Stdlib `log` and `log/slog` produce unstructured output and have no access to th
 
 ### `no-otel-span-mgmt-in-service-clients`
 
-`httpclient.Base` owns span lifecycle for all outbound HTTP calls. Individual typed service clients (e.g. `platform/clients/identity/client.go`) call `Base.Do`, `Base.HandleErrorResponse`, and `Base.RecordError` — they never open or close spans themselves. Importing `otel/codes` or `otel/trace` in a service client is a signal that it is doing work it should delegate to the base.
+`httpclient.Base` owns span lifecycle for all outbound HTTP calls. Individual typed service clients (e.g. `platform/clients/identity/client.go`) call `Base.Do`, `Base.HandleErrorResponse`, and `Base.RecordError`. They never open or close spans themselves. Importing `otel/codes` or `otel/trace` in a service client is a signal that it is doing work it should delegate to the base.
 
 ### `no-database-sql`
 

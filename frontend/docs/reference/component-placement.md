@@ -1,4 +1,4 @@
-# Reference: Component Placement — Three-Tier Model
+# Reference: Component Placement, Three-Tier Model
 
 **Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the Orbit frontend.
 **Last updated:** 2026-04-28
@@ -18,21 +18,21 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 | **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Shared/`                                                           |
 | **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
-> **`App/Shared/` is a Storybook `title` field value — a sidebar path, not a filesystem directory.** Setting `title: 'App/Shared/MetricCard'` in a story file's meta places it under `App → Shared → MetricCard` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
+> **`App/Shared/` is a Storybook `title` field value: a sidebar path, not a filesystem directory.** Setting `title: 'App/Shared/MetricCard'` in a story file's meta places it under `App → Shared → MetricCard` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
 
 ---
 
 ## Storybook Story Title Conventions
 
-The `title` field in a story's `meta` object sets its position in the Storybook sidebar. These are sidebar hierarchy strings — not filesystem paths.
+The `title` field in a story's `meta` object sets its position in the Storybook sidebar. These are sidebar hierarchy strings, not filesystem paths.
 
-| Tier                | Story title prefix | Example                              |
-| ------------------- | ------------------ | ------------------------------------ |
-| Tier 1 — atoms      | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`          |
-| Tier 1 — molecules  | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`     |
-| Tier 1 — layout     | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`        |
-| Tier 1 — organisms  | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'` |
-| Tier 2 — app shared | `App/Shared/`      | `title: 'App/Shared/StatusBadge'`    |
+| Tier               | Story title prefix | Example                              |
+| ------------------ | ------------------ | ------------------------------------ |
+| Tier 1: atoms      | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`          |
+| Tier 1: molecules  | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`     |
+| Tier 1: layout     | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`        |
+| Tier 1: organisms  | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'` |
+| Tier 2: app shared | `App/Shared/`      | `title: 'App/Shared/StatusBadge'`    |
 
 ---
 
@@ -44,7 +44,7 @@ New Tier 1 components must follow these patterns (per [terra-frontend-design-sys
 - `data-slot="component-name"` on every rendered element
 - `cn()` for class merging, `cva()` for variant maps
 - `displayName` set explicitly on all sub-components
-- Static Tailwind class strings in variant maps — no dynamic string concatenation
+- Static Tailwind class strings in variant maps: no dynamic string concatenation
 - A Storybook story file in the same directory with `tags: ['autodocs']`
 
 ---
@@ -53,7 +53,7 @@ New Tier 1 components must follow these patterns (per [terra-frontend-design-sys
 
 All components below are exported from `@orbit/terra`. Never import from sub-paths.
 
-> **`frontend/src/packages/terra/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index — check there first, then add it here.
+> **`frontend/src/packages/terra/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
 
 ### Layout
 
@@ -140,19 +140,19 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 
 ---
 
-## Banned Patterns (ESLint — violations fail `pnpm lint`)
+## Banned Patterns (ESLint: violations fail `pnpm lint`)
 
-| Rule                                | What is banned                                                                                     | Use instead                                                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `local/no-raw-layout-elements`      | `<div>`, `<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>`, `<main>`            | `Stack`, `Grid`, or `Stack asChild`/`Grid asChild` for semantic elements                                             |
-| `local/no-raw-html-text-tags`       | `<p>`, `<h1>`–`<h6>`                                                                               | `Text`, `Heading`                                                                                                    |
-| `local/no-raw-inline-elements`      | `<span>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<code>`, `<kbd>`, and all other phrasing-content HTML | `Text`, `Text weight="heavy"`, `Code`                                                                                |
-| `local/no-raw-interactive-elements` | `<button>`                                                                                         | `Button`                                                                                                             |
-| `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                             | `List`, `List ordered`, `ListItem` (or `Stack` for pure layout containers)                                           |
-| `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                         | `Form`, `Label` (or `Checkbox` for labelled checkboxes), `Input` / `Checkbox`, `Output`                              |
-| `local/no-terra-classname`          | `className` on any Terra component                                                                 | Use the component's own props                                                                                        |
-| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">` — **no escape hatch**. Add new icons to `src/packages/terra/src/components/icon/registry.ts` only. |
-| `local/no-terra-disable-comment`    | Any `eslint-disable` comment targeting a Terra rule                                                | There is no escape hatch — use the correct Terra component                                                           |
+| Rule                                | What is banned                                                                                     | Use instead                                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `local/no-raw-layout-elements`      | `<div>`, `<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>`, `<main>`            | `Stack`, `Grid`, or `Stack asChild`/`Grid asChild` for semantic elements                                            |
+| `local/no-raw-html-text-tags`       | `<p>`, `<h1>`–`<h6>`                                                                               | `Text`, `Heading`                                                                                                   |
+| `local/no-raw-inline-elements`      | `<span>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<code>`, `<kbd>`, and all other phrasing-content HTML | `Text`, `Text weight="heavy"`, `Code`                                                                               |
+| `local/no-raw-interactive-elements` | `<button>`                                                                                         | `Button`                                                                                                            |
+| `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                             | `List`, `List ordered`, `ListItem` (or `Stack` for pure layout containers)                                          |
+| `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                         | `Form`, `Label` (or `Checkbox` for labelled checkboxes), `Input` / `Checkbox`, `Output`                             |
+| `local/no-terra-classname`          | `className` on any Terra component                                                                 | Use the component's own props                                                                                       |
+| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">`: **no escape hatch**. Add new icons to `src/packages/terra/src/components/icon/registry.ts` only. |
+| `local/no-terra-disable-comment`    | Any `eslint-disable` comment targeting a Terra rule                                                | There is no escape hatch. Use the correct Terra component                                                           |
 
 ---
 
@@ -182,7 +182,7 @@ cd frontend && pnpm tsc --noEmit   # TypeScript — must pass with zero errors
 
 ## Implementation Rule 9: Keep This Document Current
 
-When you add a new component at any tier — update this document in the **same PR**. A component not listed in the inventory is invisible to the next agent and will be duplicated.
+When you add a new component at any tier, update this document in the **same PR**. A component not listed in the inventory is invisible to the next agent and will be duplicated.
 
 ---
 
@@ -190,16 +190,16 @@ When you add a new component at any tier — update this document in the **same 
 
 Tier 2 components live at `frontend/src/components/` and are exported from `frontend/src/components/index.ts`. Import all Tier 2 components via `@orbit/components` (the `@orbit/*` path alias maps to `./src/*`).
 
-| Component           | Description                                                                                                                                                                                                                                              |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EmptyState`        | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`.                                                                                                       |
-| `ErrorBanner`       | **Removed** — use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
-| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                 |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                              |
-| `ConfirmDialog`     | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`.                                                                 |
-| `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.            |
-| `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>` — wrap in `<ul className="divide-y">`. |
-| `ThemeToggle`       | Light/dark theme switch. Calls `setTheme(...)` from `next-themes`; renders sun/dark and moon/light buttons. No props. See [Theming](./terra-design-system.md#theming-light--dark).                                                                       |
+| Component           | Description                                                                                                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmptyState`        | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`.                                                                                                      |
+| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
+| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                             |
+| `ConfirmDialog`     | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`.                                                                |
+| `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.           |
+| `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>`, wrap in `<ul className="divide-y">`. |
+| `ThemeToggle`       | Light/dark theme switch. Calls `setTheme(...)` from `next-themes`; renders sun/dark and moon/light buttons. No props. See [Theming](./terra-design-system.md#theming-light--dark).                                                                      |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 
@@ -207,10 +207,10 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 
 ## Related Documents
 
-| Document                                                                                                                      | What it covers                                                                           |
-| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide — props, examples, every lint rule explained            |
-| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API — EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
-| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)                       |
-| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                            |
-| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list — source of truth for available component names                   |
+| Document                                                                                                                      | What it covers                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained            |
+| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
+| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)                      |
+| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                           |
+| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names                   |

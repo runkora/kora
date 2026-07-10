@@ -1,8 +1,8 @@
 # Backend Golden Path
 
-Add a backend feature end to end. Every snippet is lifted from live code — read [`internal/example/`](../../backend/internal/example/) (the reference feature) and [`internal/triggers/`](../../backend/internal/triggers/) (a real one) alongside this.
+Add a backend feature end to end. Every snippet is lifted from live code, so read [`internal/example/`](../../backend/internal/example/) (the reference feature) and [`internal/triggers/`](../../backend/internal/triggers/) (a real one) alongside this.
 
-A feature package owns its whole stack and never imports another feature — share only through `internal/platform/`. See [code-organization.md](../code-organization.md).
+A feature package owns its whole stack and never imports another feature, sharing only through `internal/platform/`. See [code-organization.md](../code-organization.md).
 
 ## Package layout
 
@@ -36,7 +36,7 @@ type User struct {
 
 ## 2. Repository interface + Postgres implementation
 
-Data access is explicit SQL through the shared `*pgxpool.Pool` — no ORM, no `database/sql`. Map `pgx.ErrNoRows` to your sentinel; wrap everything else with `%w`.
+Data access is explicit SQL through the shared `*pgxpool.Pool`, with no ORM and no `database/sql`. Map `pgx.ErrNoRows` to your sentinel; wrap everything else with `%w`.
 
 ```go
 type Repository interface {
@@ -68,7 +68,7 @@ Detect a unique-violation with `pgconn.PgError` code `23505` and return `ErrDupl
 
 ## 3. The controller (HTTP transport)
 
-Routes implement `api.Controller` — no gin/chi/echo. The interface is `GroupedBy()`, `Middleware()`, `Boot(*api.Mux)`. From [`internal/example/handlers.go`](../../backend/internal/example/handlers.go):
+Routes implement `api.Controller`, not gin/chi/echo. The interface is `GroupedBy()`, `Middleware()`, `Boot(*api.Mux)`. From [`internal/example/handlers.go`](../../backend/internal/example/handlers.go):
 
 ```go
 type Controller struct {
@@ -158,12 +158,12 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 			mw.TracingMiddleware(ec.Current.Observability.ServiceName), // tracing first: provides context
 			mw.LoggingMiddleware(logger),
 		),
-		controller, // Server(...) is variadic — pass every controller here
+		controller, // Server(...) is variadic; pass every controller here
 	)
 }
 ```
 
-Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`) — no raw viper/yaml.
+Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`). No raw viper or yaml.
 
 ## 6. Test it
 
@@ -201,4 +201,4 @@ ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' 
 make check
 ```
 
-`gofmt`, `go vet`, `golangci-lint` (the Orbit AST + import-ban rules in [AGENTS.md](../../AGENTS.md)), `gitleaks`, `docs-check`, and tests. Do not add `//nolint` — exceptions are managed centrally in `.golangci.yml`.
+`gofmt`, `go vet`, `golangci-lint` (the Orbit AST + import-ban rules in [AGENTS.md](../../AGENTS.md)), `gitleaks`, `docs-check`, and tests. Do not add `//nolint`; exceptions are managed centrally in `.golangci.yml`.

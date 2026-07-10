@@ -6,7 +6,7 @@ OpenTelemetry-based observability for Orbit, providing distributed tracing, stru
 
 Orbit implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
 
-Orbit is a multi-service backend — it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
+Orbit is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
 
 ## Documentation Structure
 
@@ -44,7 +44,7 @@ Orbit is a multi-service backend — it compiles to a set of binaries under `bac
 
 ## Configuration
 
-Service identity (name, version) comes from each binary's YAML config — `observability.serviceName` and `app.version` — and the environment is selected by `APP_ENV`. The shared observability tunables load from `internal/platform/observability/config/base.yaml` (plus its `{APP_ENV}.yaml` overlay) and can be overridden per-process with these environment variables:
+Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`, and the environment is selected by `APP_ENV`. The shared observability tunables load from `internal/platform/observability/config/base.yaml` (plus its `{APP_ENV}.yaml` overlay) and can be overridden per-process with these environment variables:
 
 ```bash
 # Environment selector — picks which config overlay loads and sets the
@@ -65,9 +65,9 @@ ORBIT_LOG_FORMAT=console             # Log output style: "console" or "json"
 
 The trace exporter is chosen at startup, in priority order:
 
-1. **OTLP endpoint set** (`ORBIT_OTLP_ENDPOINT` non-empty) — export to the OTLP collector (Jaeger, Tempo, …) in *any* environment. TLS is on unless `ORBIT_OTLP_INSECURE=true`.
-2. **`APP_ENV=local`, no endpoint** — stdout exporter, for laptop development.
-3. **Anything else with no endpoint** — no-op: spans are created but not exported; logs still carry `trace_id`/`span_id` for correlation. This covers the development cluster until a collector is deployed, and any production misconfiguration.
+1. **OTLP endpoint set** (`ORBIT_OTLP_ENDPOINT` non-empty): export to the OTLP collector (Jaeger, Tempo, …) in *any* environment. TLS is on unless `ORBIT_OTLP_INSECURE=true`.
+2. **`APP_ENV=local`, no endpoint**: stdout exporter, for laptop development.
+3. **Anything else with no endpoint** is a no-op: spans are created but not exported; logs still carry `trace_id`/`span_id` for correlation. This covers the development cluster until a collector is deployed, and any production misconfiguration.
 
 ## Usage
 
@@ -137,7 +137,7 @@ See [tracing.md](tracing.md) for detailed usage patterns.
 Orbit uses **W3C TraceContext** standard for trace propagation:
 
 1. **Incoming requests**: `TracingMiddleware` extracts trace context from the `traceparent` header and starts a `SpanKindServer` span
-2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span — never do this manually
+2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span. Never do this manually
 3. **Cross-service**: Trace context flows automatically across all service boundaries via the platform client layer
 
 Example propagation header:

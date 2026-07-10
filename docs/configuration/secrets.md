@@ -1,6 +1,6 @@
 # Secrets
 
-Secrets are values that, if leaked, would require a security incident response — passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
+Secrets are values that, if leaked, would require a security incident response: passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
 
 Orbit reads secrets from environment variables at runtime.
 
@@ -35,7 +35,7 @@ if clientID == "" {
 }
 ```
 
-Fail fast on startup if a required secret is missing — don't let the service start in a broken state.
+Fail fast on startup if a required secret is missing, don't let the service start in a broken state.
 
 ---
 
@@ -59,13 +59,13 @@ MIIEowIBAAKCAQEA...
 -----END RSA PRIVATE KEY-----
 ```
 
-**Priority**: `ORBIT_TOKEN_SIGNING_KEY_FILE` is checked first. `ORBIT_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart — a warning is logged).
+**Priority**: `ORBIT_TOKEN_SIGNING_KEY_FILE` is checked first. `ORBIT_TOKEN_SIGNING_KEY` is the fallback. If neither is set and `APP_ENV=local`, an ephemeral key is generated at startup (tokens do not survive a restart, and a warning is logged).
 
 ---
 
 ## Dex OIDC Credentials (Local Only)
 
-The local Dex identity provider requires a bcrypt password hash that cannot safely be stored in the root `.env` file — Docker Compose v2 interpolates `$` characters in the `environment:` block, which destroys `$2y$10$...` bcrypt hashes.
+The local Dex identity provider requires a bcrypt password hash that cannot safely be stored in the root `.env` file: Docker Compose v2 interpolates `$` characters in the `environment:` block, which destroys `$2y$10$...` bcrypt hashes.
 
 Dex credentials live in a separate file:
 
@@ -125,12 +125,12 @@ make dex-hash password=custom  # generates config/dex/.env with a custom passwor
 
 In deployed environments, inject secrets via your platform's secret mechanism:
 
-- **Kubernetes** — `Secret` objects mounted as environment variables or projected volumes
-- **AWS** — Secrets Manager or Parameter Store via the pod's IAM role
-- **GCP** — Secret Manager with Workload Identity
-- **HashiCorp Vault** — Agent sidecar injection
+- **Kubernetes**: `Secret` objects mounted as environment variables or projected volumes
+- **AWS**: Secrets Manager or Parameter Store via the pod's IAM role
+- **GCP**: Secret Manager with Workload Identity
+- **HashiCorp Vault**: Agent sidecar injection
 
-The application code is identical regardless — it always reads `os.Getenv`.
+The application code is identical regardless: it always reads `os.Getenv`.
 
 ---
 
@@ -146,8 +146,8 @@ The application code is identical regardless — it always reads `os.Getenv`.
 
 ## Reference
 
-- [config.md](config.md) — YAML-based configuration for non-secret values
-- [guides/local-development.md](../guides/local-development.md) — Full local setup walkthrough
-- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md) — Configuration system design
-- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) — OIDC provider abstraction
-- `SECURITY.md` — reporting vulnerabilities
+- [config.md](config.md): YAML-based configuration for non-secret values
+- [guides/local-development.md](../guides/local-development.md): Full local setup walkthrough
+- [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): Configuration system design
+- [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md): OIDC provider abstraction
+- `SECURITY.md`: reporting vulnerabilities

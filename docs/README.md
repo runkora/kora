@@ -1,19 +1,19 @@
 # Orbit Documentation
 
-Orbit is the **control plane for AI agents** — the identity, policy, and coordination infrastructure for running autonomous agents safely at scale. This is the documentation home; start here.
+Orbit is the **control plane for AI agents**: the identity, policy, and coordination infrastructure for running autonomous agents safely at scale. This is the documentation home; start here.
 
 ## Start here
 
 New to the repo? Read these in order:
 
-1. **[guides/day-one.md](guides/day-one.md)** — clone → a running change, backend and frontend
-2. **[../README.md](../README.md)** — what Orbit is and a 5-minute quick start
-3. **[architecture.md](architecture.md)** — the runtime topology and what's built vs designed
-4. **[code-organization.md](code-organization.md)** — how the backend is laid out (binaries, feature packages, conventions)
-5. **[guides/backend-golden-path.md](guides/backend-golden-path.md)** — add a backend feature end to end
-6. **[guides/local-development.md](guides/local-development.md)** — the full local environment reference
-7. **[../CONTRIBUTING.md](../CONTRIBUTING.md)** — the PRD → ADR → implement workflow and the quality gate
-8. **[../frontend/README.md](../frontend/README.md)** — run and develop the Next.js frontend
+1. **[guides/day-one.md](guides/day-one.md)**: clone to a running change, backend and frontend
+2. **[../README.md](../README.md)**: what Orbit is and a 5-minute quick start
+3. **[architecture.md](architecture.md)**: the runtime topology and what's built vs designed
+4. **[code-organization.md](code-organization.md)**: how the backend is laid out (binaries, feature packages, conventions)
+5. **[guides/backend-golden-path.md](guides/backend-golden-path.md)**: add a backend feature end to end
+6. **[guides/local-development.md](guides/local-development.md)**: the full local environment reference
+7. **[../CONTRIBUTING.md](../CONTRIBUTING.md)**: the PRD → ADR → implement workflow and the quality gate
+8. **[../frontend/README.md](../frontend/README.md)**: run and develop the Next.js frontend
 
 ## Map
 
@@ -39,7 +39,7 @@ Each subsystem is described in [architecture.md](architecture.md); the design hi
 | **Operator & Deployment** | Kubernetes operator, Helm/GitOps, service mesh | [ADRs](adr/README.md#service-mesh-operator--deployment) |
 | **Frontend** | Next.js app, BFF, Terra design system | [frontend/README.md](../frontend/README.md) · [ADRs](adr/README.md#frontend--design-system) |
 
-> **Not yet built:** a platform-wide event spine — a general structured event bus for awareness and audit — is designed (ADRs exist) but unimplemented. (The general credential broker and the governed MCP/tool gateway, once future work, are now built and running as `egress-gateway` and `tool-gateway`/`orbit-mcp`.) See the per-pillar status table in [architecture.md](architecture.md#capabilities-in-detail).
+> **Not yet built:** a platform-wide event spine, a general structured event bus for awareness and audit, is designed (ADRs exist) but unimplemented. See the per-pillar status table in [architecture.md](architecture.md#capabilities-in-detail).
 
 ## Conventions
 
@@ -49,4 +49,4 @@ Each subsystem is described in [architecture.md](architecture.md); the design hi
 
 ## Archive
 
-Superseded and point-in-time working documents (retired PRDs, old design scratch, shipped implementation plans) live in [archive/](archive/) — kept for history, not current guidance.
+Superseded and point-in-time working documents (retired PRDs, old design scratch, shipped implementation plans) live in [archive/](archive/), kept for history, not current guidance.

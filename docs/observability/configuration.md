@@ -2,7 +2,7 @@
 
 ## Environment Variables
 
-Shared observability tunables load from `internal/platform/observability/config/base.yaml` and its `{APP_ENV}.yaml` overlay. A handful of environment variables override those YAML values per-process (they are the ones the code actually reads — see `internal/platform/observability/config.go`). Service identity (name and version) is **not** an environment variable; it comes from each binary's YAML config.
+Shared observability tunables load from `internal/platform/observability/config/base.yaml` and its `{APP_ENV}.yaml` overlay. A handful of environment variables override those YAML values per-process (they are the ones the code actually reads; see `internal/platform/observability/config.go`). Service identity (name and version) is **not** an environment variable; it comes from each binary's YAML config.
 
 ### Service Identity
 
@@ -198,7 +198,7 @@ go run ./cmd/identity
 1. Is `APP_ENV` set correctly (stdout export requires `local`)?
 2. For OTLP export, is `ORBIT_OTLP_ENDPOINT` configured?
 3. Is the OTLP collector reachable?
-4. Check sampling rate (`ORBIT_SAMPLING_RATE`) — might be too low
+4. Check sampling rate (`ORBIT_SAMPLING_RATE`): might be too low
 
 ### TLS connection errors
 

@@ -8,27 +8,27 @@ See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-ba
 
 ## The big picture
 
-The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer — each is listed in the [binary table below](#binaries-backendcmd). There is **no single "orbit" binary** — the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
+The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. Each is listed in the [binary table below](#binaries-backendcmd). There is **no single "orbit" binary**: the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
 
 ### Binaries (`backend/cmd/`)
 
 | Binary | Role | Local port | Owns tables |
 |--------|------|------------|-------------|
-| `identity` | **Main control-plane API** — identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
-| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway — chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
-| `policy-service` | Authorization data plane (PDP/PAP) — grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
-| `policy-gateway` | In-app authorization API (PEP) — `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | — |
-| `egress-gateway` | JIT credential broker — intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, passthrough adapters); backed by `internal/credentials` | `8085` | — |
-| `orbit-mcp` | Platform-management MCP server — exposes Orbit's own APIs as governed MCP tools | `8095` | — |
-| `tool-gateway` | Governed MCP/tool gateway — server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
-| `orbit-agents` | Agent control plane — agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | — |
-| `operator` | Kubernetes operator — reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | — |
-| `identity-proxy` | Envoy `ext_proc` gRPC sidecar — injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | — |
-| `sandbox-exec` | gRPC exec server inside a sandbox pod — streams stdout/stderr/exit for commands | gRPC `50051` | — |
-| `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code — exposes the `provision_sandbox` tool | stdio | — |
-| `orbit-shell` | `$SHELL` shim in the agent container — execs local bash or streams `-c` commands to the sandbox pod | — | — |
-| `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | — | — |
+| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
+| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
+| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
+| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, passthrough adapters); backed by `internal/credentials` | `8085` | none |
+| `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
+| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
+| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
+| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
+| `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
+| `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
+| `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
+| `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
+| `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
+| `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
 > The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
@@ -45,11 +45,11 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | ✅ implemented | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
 | `identityproxy` | ✅ implemented | `ext_proc` server, token cache, refresh loop |
 | `example` | reference | Minimal `controller.go` + `repository.go` demonstrating the pattern |
-| `credentials` | ✅ implemented | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` — [jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
-| `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector — [MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway) |
+| `credentials` | ✅ implemented | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
+| `toolgateway` | ✅ implemented | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `errors` | ⛔ **stub (empty)** | Placeholder. |
 
-> `internal/events` does **not** exist yet — the platform-wide event spine is designed but unbuilt, and agent event streaming currently lives in `agents/`. Only `internal/errors` remains an intentional empty placeholder (`git`-tracked directory with no Go files). See the [architecture overview](architecture.md) for current capability status.
+> `internal/events` does **not** exist yet: the platform-wide event spine is designed but unbuilt, and agent event streaming currently lives in `agents/`. Only `internal/errors` remains an intentional empty placeholder (`git`-tracked directory with no Go files). See the [architecture overview](architecture.md) for current capability status.
 
 ---
 
@@ -120,7 +120,7 @@ orbit/
 └── README.md
 ```
 
-> **Migrations are per-binary**, under `backend/cmd/{service}/migrations/` — not in a single shared directory. Only binaries that own tables carry a `migrations/` directory (the "Owns tables" column in the [binary table](#binaries-backendcmd) marks which); the rest have none.
+> **Migrations are per-binary**, under `backend/cmd/{service}/migrations/`, not in a single shared directory. Only binaries that own tables carry a `migrations/` directory (the "Owns tables" column in the [binary table](#binaries-backendcmd) marks which); the rest have none.
 
 ---
 
@@ -134,17 +134,17 @@ Infrastructure shared by all features. Platform packages **never import feature 
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
-| `config` | Generic YAML loaders — `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV` |
+| `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV` |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |
 | `middleware` | Request logging, OTel trace injection, platform scope enforcement |
 | `observability` | OTel `TracerProvider` + `MeterProvider` + OTLP exporter setup |
 | `policy` | OPA evaluation helpers / policy-gateway client glue used by owned services |
-| `storage` | PostgreSQL (`*pgxpool.Pool` via `storage.DB`) + Redis (`storage.RedisClient`) — config, pool builders, transactions |
+| `storage` | PostgreSQL (`*pgxpool.Pool` via `storage.DB`) + Redis (`storage.RedisClient`): config, pool builders, transactions |
 | `token` | JWT signing / verification primitives |
 
 ### Feature layer (`internal/`)
 
-Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list and status. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages — that is expected and idiomatic, not a deviation.
+Each feature owns a vertical slice (storage contract → implementation → service → HTTP transport → types). See the feature table above for the full list and status. Smaller features follow the flat file layout below; larger ones (`inferencegw`, `agents`, `policyservice`) split into multiple files and sub-packages. That is expected and idiomatic, not a deviation.
 
 ---
 
@@ -205,7 +205,7 @@ The `Logger` interface lives in `internal/platform/logging/logger.go`. Features 
 
 ### 3. Database access via `storage.DB`
 
-All database access uses explicit SQL — no ORM. `storage.DB` wraps a `*pgxpool.Pool`:
+All database access uses explicit SQL, no ORM. `storage.DB` wraps a `*pgxpool.Pool`:
 
 ```go
 type DB struct { Pool *pgxpool.Pool }
@@ -227,7 +227,7 @@ Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.
 
 All outbound HTTP to other Orbit services goes through a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`, which automatically opens an OTel `SpanKindClient` span, injects W3C `traceparent`/`tracestate`, sets HTTP semantic-convention attributes, captures upstream error bodies, and emits a structured log line per request.
 
-**Never construct `http.Client{}` directly** in feature or service code (`noRawHttpClientLiteral` enforces this). Typed clients must **not** import `otel/codes` or `otel/trace` directly — `httpclient.Base` owns the span lifecycle.
+**Never construct `http.Client{}` directly** in feature or service code (`noRawHttpClientLiteral` enforces this). Typed clients must **not** import `otel/codes` or `otel/trace` directly: `httpclient.Base` owns the span lifecycle.
 
 ### 6. Configuration via `config.LoadService[T]` + `base.yaml`
 
@@ -243,7 +243,7 @@ cfg := config.MustLoadService[AppConfig]("identity", config.Environment())
 
 ### 7. Migrations via Goose (per-binary)
 
-SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. **Never hand-write migration files** — always generate them, specifying the owning service:
+SQL migrations live under `backend/cmd/{service}/migrations/` and use Goose annotations. **Never hand-write migration files**, always generate them, specifying the owning service:
 
 ```bash
 make migrate-create service=identity name=add_sessions_index
@@ -257,12 +257,12 @@ Apply / roll back / inspect with `make migrate-up`, `make migrate-down`, `make m
 
 Each binary under `backend/cmd/` has its own `main.go` and is otherwise independent; all share `internal/platform/`.
 
-- **`cmd/identity`** — the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. `make dev` runs this binary with hot-reload (`air`).
-- **`cmd/inference-gateway`** — the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
-- **`cmd/policy-service`** / **`cmd/policy-gateway`** — the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
-- **`cmd/orbit-agents`** — the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
-- **`cmd/identity-proxy`** — the `ext_proc` sidecar; see [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
-- **`cmd/operator`** — the Kubernetes operator; see [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md).
+- **`cmd/identity`**: the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. `make dev` runs this binary with hot-reload (`air`).
+- **`cmd/inference-gateway`**: the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
+- **`cmd/policy-service`** / **`cmd/policy-gateway`**: the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
+- **`cmd/orbit-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
+- **`cmd/identity-proxy`**: the `ext_proc` sidecar; see [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
+- **`cmd/operator`**: the Kubernetes operator; see [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md).
 
 ### Adding a new binary
 
@@ -273,15 +273,15 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 ## Adding a new feature
 
 1. **Create the package** at `internal/{feature}/`.
-2. **Define models** in `models.go` — domain types, request/response structs, sentinel errors.
-3. **Define repository interfaces** in `repository.go` — small, focused storage contracts.
-4. **Implement PostgreSQL** in `postgres.go` — explicit SQL, inject `*storage.DB`.
-5. **Implement Redis** in `redis.go` — if needed, inject `*storage.RedisClient`.
-6. **Write business logic** in `service.go` — call repositories, platform clients, emit events.
-7. **Write HTTP handlers** in `handlers.go` — implement `api.Controller`, register routes in `Boot(*api.Mux)`.
+2. **Define models** in `models.go`: domain types, request/response structs, sentinel errors.
+3. **Define repository interfaces** in `repository.go`: small, focused storage contracts.
+4. **Implement PostgreSQL** in `postgres.go`: explicit SQL, inject `*storage.DB`.
+5. **Implement Redis** in `redis.go`: if needed, inject `*storage.RedisClient`.
+6. **Write business logic** in `service.go`: call repositories, platform clients, emit events.
+7. **Write HTTP handlers** in `handlers.go`: implement `api.Controller`, register routes in `Boot(*api.Mux)`.
 8. **Add config** at `backend/cmd/{binary}/config/base.yaml` for the binary that mounts the feature.
 9. **Generate migrations** with `make migrate-create service={binary} name=create_{feature}_tables`.
-10. **Register in `main.go`** — construct the controller and add it to the binary's controller list.
+10. **Register in `main.go`**: construct the controller and add it to the binary's controller list.
 
 `internal/example/` demonstrates the repository + controller pattern with working code. Read it before implementing the first route in a new feature.
 
@@ -289,27 +289,27 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 
 ## What this codebase is NOT
 
-- **No ORM** — `*pgxpool.Pool` + explicit SQL only; no GORM, Ent, sqlx.
-- **No `database/sql`** — `pgx/v5` exclusively.
-- **No third-party router** — no Gin, Chi, Echo, Gorilla; routing is `api.Mux` + the `Controller` interface.
-- **No global logger** — no `log`/`log/slog`/`fmt.Print*`; inject `*logging.Logger`.
-- **No `cmd/orbit` binary** — the main API is `cmd/identity`.
-- **No shared `internal/models/` package** — each feature owns its types.
-- **No central `router.go`** — features self-register via `Controller.Boot()`.
-- **No `providers/` in every feature** — external integrations live in `service.go` (the inference gateway's `providers/` subtree is the deliberate exception for multi-provider routing).
-- **No hand-written migrations** — always `make migrate-create service=X name=Y`.
-- **No secrets in YAML** — `yaml:"-"` + `os.Getenv`.
+- **No ORM**: `*pgxpool.Pool` + explicit SQL only; no GORM, Ent, sqlx.
+- **No `database/sql`**: `pgx/v5` exclusively.
+- **No third-party router**: no Gin, Chi, Echo, Gorilla; routing is `api.Mux` + the `Controller` interface.
+- **No global logger**: no `log`/`log/slog`/`fmt.Print*`; inject `*logging.Logger`.
+- **No `cmd/orbit` binary**: the main API is `cmd/identity`.
+- **No shared `internal/models/` package**: each feature owns its types.
+- **No central `router.go`**: features self-register via `Controller.Boot()`.
+- **No `providers/` in every feature**: external integrations live in `service.go` (the inference gateway's `providers/` subtree is the deliberate exception for multi-provider routing).
+- **No hand-written migrations**: always `make migrate-create service=X name=Y`.
+- **No secrets in YAML**: `yaml:"-"` + `os.Getenv`.
 
 ---
 
 ## References
 
-- [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) — Repository pattern and feature structure
-- [dependency-injected-logging](adr/2026-02-17-dependency-injected-logging.md) — Dependency-injected logging
-- [controller-based-http-routing](adr/2026-02-17-controller-based-http-routing.md) — Controller-based HTTP routing
-- [yaml-file-based-configuration](adr/2026-02-18-yaml-file-based-configuration.md) — YAML configuration system
-- [database-infrastructure-layer](adr/2026-03-03-database-infrastructure-layer.md) — Database infrastructure layer
-- [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) — Multi-binary deployment model and typed platform clients
-- [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md) — OpenTelemetry observability discipline
-- [docs/configuration/config.md](configuration/config.md) · [docs/configuration/secrets.md](configuration/secrets.md) — Configuration & secret-management reference
-- [docs/guides/local-development.md](guides/local-development.md) — Local setup walkthrough
+- [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md): Repository pattern and feature structure
+- [dependency-injected-logging](adr/2026-02-17-dependency-injected-logging.md): Dependency-injected logging
+- [controller-based-http-routing](adr/2026-02-17-controller-based-http-routing.md): Controller-based HTTP routing
+- [yaml-file-based-configuration](adr/2026-02-18-yaml-file-based-configuration.md): YAML configuration system
+- [database-infrastructure-layer](adr/2026-03-03-database-infrastructure-layer.md): Database infrastructure layer
+- [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md): Multi-binary deployment model and typed platform clients
+- [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md): OpenTelemetry observability discipline
+- [docs/configuration/config.md](configuration/config.md) · [docs/configuration/secrets.md](configuration/secrets.md): Configuration & secret-management reference
+- [docs/guides/local-development.md](guides/local-development.md): Local setup walkthrough

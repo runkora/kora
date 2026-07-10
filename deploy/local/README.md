@@ -1,4 +1,4 @@
-# Orbit Local Cluster — Deploy
+# Orbit Local Cluster: Deploy
 
 This directory contains Helm values files, local fixtures, and CR manifests
 needed to install Orbit into the k3d local development cluster using the
@@ -15,7 +15,7 @@ make cluster-operator  # build + deploy orbit-operator; installs SPIRE, Istio,
 make cluster-deploy    # create secrets (orbit-secrets) and apply workload fixtures
 ```
 
-That's it. The operator drives the full install sequence — you do not need to
+That's it. The operator drives the full install sequence, so you do not need to
 run `helm upgrade` commands manually.
 
 ---
@@ -50,7 +50,7 @@ declaring `OrbitPlatform` as `Ready`.
 ### `make cluster-deploy`
 
 1. Builds and pushes all service images (`identity`, `example`, `identity-proxy`).
-2. Runs `scripts/cluster/create-secrets.sh` — creates `orbit-secrets` in
+2. Runs `scripts/cluster/create-secrets.sh`: creates `orbit-secrets` in
    `orbit-system` and `orbit-tenant-example`.
 3. Applies all manifests in `deploy/local/fixtures/` (workload fixtures, including
    `orbit-tenant-example.yaml` which is fully self-contained).
@@ -72,15 +72,15 @@ deploy/local/
     └── example.yaml           # OrbitTenant CR for the example tenant (namespace: orbit-tenant-example)
 ```
 
-SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields —
-no separate values files for those components are needed.
+SPIRE, Istio, and gateway are configured entirely from `OrbitPlatform` CR fields,
+so no separate values files for those components are needed.
 
 ---
 
 ## Tenant Registry
 
 The operator builds the `orbit-tenants` ConfigMap in `orbit-system` directly
-from `OrbitTenant` CRs — it does **not** read `config/tenants.yaml`. The
+from `OrbitTenant` CRs. It does **not** read `config/tenants.yaml`. The
 ConfigMap is created eagerly during `OrbitPlatform` reconciliation (so
 `orbit-identity` can start before any tenants exist) and is updated whenever
 an `OrbitTenant` CR is created, modified, or deleted.
@@ -93,8 +93,8 @@ kubectl apply -f deploy/local/tenants/example.yaml
 ```
 
 The operator will reconcile the CR and update the ConfigMap automatically.
-`orbit-identity` picks up the change via its file watcher — no manual rollout
-restart required.
+`orbit-identity` picks up the change via its file watcher (no manual rollout
+restart required).
 
 For **non-cluster local dev** (`make dev` / air hot-reload on the host), the
 identity service reads `config/tenants.yaml` directly via the
@@ -116,9 +116,9 @@ that reference it:
 
 | File | Field |
 |------|-------|
-| `deploy/local/orbit-platform.yaml` | `spec.trustDomain` — primary source; operator derives SPIRE and Istio trust domain from this |
-| `deploy/local/platform-values.yaml` | `global.trustDomain` — used by the orbit-platform Helm chart |
-| `deploy/local/orbit-values.yaml` | `global.trustDomain` — used by the orbit Helm chart |
+| `deploy/local/orbit-platform.yaml` | `spec.trustDomain`: primary source; operator derives SPIRE and Istio trust domain from this |
+| `deploy/local/platform-values.yaml` | `global.trustDomain`: used by the orbit-platform Helm chart |
+| `deploy/local/orbit-values.yaml` | `global.trustDomain`: used by the orbit Helm chart |
 
 All are currently set to `orbit.local.clearroute.io`. If you change `spec.trustDomain` in
 `orbit-platform.yaml`, update the two chart values files to match. A mismatch
