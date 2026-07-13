@@ -17,6 +17,7 @@
  * Supports an optional `?next` query parameter forwarded to the OIDC state.
  */
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 
 import {
   Alert,
@@ -31,7 +32,7 @@ import {
 } from '@orbit/terra';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { isSafeRedirectPath } from '@orbit/lib/routing';
+import { APP_ROUTES, isSafeRedirectPath, getDevEnvPrefix } from '@orbit/lib/routing';
 
 import { EmailSignInForm } from './_components/email-sign-in-form';
 
@@ -55,11 +56,21 @@ function errorMessage(code: string | null): string | null {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const errorCode = typeof params.error === 'string' ? params.error : null;
-  const next = typeof params.next === 'string' ? params.next : '/';
+
+  // The gateway strips a dev environment's /{env-id} prefix before this page
+  // ever sees the request, recording it in X-Forwarded-Prefix. Restoring it
+  // on the default `next` (reached when /login is visited with no explicit
+  // ?next=, e.g. typed directly) keeps the post-login destination — and so
+  // the browser URL — inside the same environment instead of dropping to the
+  // unprefixed root. An explicit ?next= (set by proxy.ts, or by the caller
+  // in the mcp/authorize case) is already prefixed and passed through as-is.
+  const prefix = getDevEnvPrefix(await headers());
+  const next = typeof params.next === 'string' ? params.next : `${prefix}/`;
 
   const session = await getSession();
   if (isSessionValid(session)) {
-    redirect(isSafeRedirectPath(next) && next !== '/login' ? next : '/');
+    const loginPath = prefix + APP_ROUTES.login;
+    redirect(isSafeRedirectPath(next) && next !== loginPath ? next : `${prefix}/`);
   }
 
   const message = errorMessage(errorCode);

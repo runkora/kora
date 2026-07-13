@@ -589,15 +589,18 @@ cluster-operator: redeploy-platform docker-pull-third-party ## Install the Orbit
 
 .PHONY: cluster-operator-chart
 cluster-operator-chart: ## helm upgrade --install the operator chart (CRDs + operator deployment)
-	@# --force-conflicts: redeploy.sh pins the operator image with `kubectl set image`,
-	@# which takes server-side-apply ownership of .image away from helm. Without this
-	@# flag every upgrade after a redeploy fails with a field-manager conflict, so
-	@# chart/CRD changes never land. Helm reclaims the field and resets it to :latest;
-	@# callers re-pin the digest afterwards.
+	@# --take-ownership: redeploy.sh pins the operator image with `kubectl set image`,
+	@# which takes ownership of .image away from helm's own release tracking.
+	@# Without this flag every upgrade after a redeploy fails ("current release
+	@# manifest is missing ... exists and cannot be imported")-style ownership
+	@# checks, so chart/CRD changes never land. Helm reclaims the field and
+	@# resets it to :latest; callers re-pin the digest afterwards. Requires
+	@# Helm >= 3.16 (scripts/cluster/versions.env); the flag this replaced,
+	@# --force-conflicts, was never a real helm upgrade/install flag.
 	@helm upgrade --install orbit-operator charts/orbit-operator \
 		-f deploy/local/operator-values.yaml \
 		--namespace orbit-operator --create-namespace \
-		--force-conflicts \
+		--take-ownership \
 		--timeout 90s --wait
 
 .PHONY: cluster-deploy

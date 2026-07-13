@@ -20,15 +20,18 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { scopes } = useSession();
+  const { scopes, devEnvironmentId } = useSession();
 
   return (
     <Navigation aria-label="Main">
       <Stack gap="comfortable" paddingInline="cozy" paddingBlock="relaxed">
         {NAV_GROUPS.map(({ label, items }) => {
-          // Filter out entries that require a scope the user doesn't have.
+          // Filter out entries that require a scope the user doesn't have, or
+          // that shouldn't appear when this install is itself a dev environment.
           const visibleItems = items.filter(
-            (entry) => !entry.requiredScope || hasScope(scopes, entry.requiredScope),
+            (entry) =>
+              (!entry.requiredScope || hasScope(scopes, entry.requiredScope)) &&
+              !(entry.hideInDevEnv && devEnvironmentId),
           );
           if (visibleItems.length === 0) return null;
 

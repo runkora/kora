@@ -97,6 +97,21 @@ const (
 	// with gateway TLS disabled — TLS for real infrastructure terminates once
 	// at the SHARED gateway, never per environment).
 	devEnvAppGatewayPort = 80
+
+	// devEnvRouteCookieMaxAgeSeconds bounds how long a stale routing cookie
+	// can misdirect the shared host's own (non-devenv) traffic. The cookie's
+	// match on devEnvAppCookieRoute has no uri constraint — it applies to
+	// every path on the shared host, including a plain visit to the real
+	// Orbit app — so an unbounded (session-only) cookie left the main app
+	// hijacked into a stale environment for as long as the browser session
+	// lasted, with no expiry and no indication anything was wrong. Every
+	// prefixed request re-sets this cookie (devEnvAppPrefixRoutes), so an
+	// actively-used environment's cookie never actually expires underfoot;
+	// only an abandoned one does. This is a stopgap, not the fix: the real
+	// fix is the frontend becoming prefix-aware so the cookie-fallback route
+	// is no longer needed for general navigation at all (see the ADR's
+	// 2026-07-13 amendment).
+	devEnvRouteCookieMaxAgeSeconds = 900
 )
 
 // appHostname is the shared hostname all environments' app traffic is served
@@ -313,7 +328,10 @@ func devEnvAppPrefixRoutes(name string) []any {
 			// add, not set: the environment's own Set-Cookie headers (the BFF
 			// session) must survive alongside the routing cookie.
 			"add": map[string]any{
-				"Set-Cookie": fmt.Sprintf("%s=%s; Path=/; HttpOnly; SameSite=Lax", devEnvRouteCookieName, name),
+				"Set-Cookie": fmt.Sprintf(
+					"%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax",
+					devEnvRouteCookieName, name, devEnvRouteCookieMaxAgeSeconds,
+				),
 			},
 		},
 	}

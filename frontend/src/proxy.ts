@@ -26,7 +26,7 @@ import {
   type SessionPermissions,
   type BackendSessionResponse,
 } from '@orbit/server/auth-config';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath, getDevEnvPrefix } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
 
@@ -100,6 +100,26 @@ async function tryRefreshScopes(accessToken: string): Promise<SessionPermissions
   }
 }
 
+// ── Login redirect ────────────────────────────────────────────────────────────
+
+/**
+ * Builds the redirect to /login for an unauthenticated request, restoring the
+ * dev-environment path prefix (X-Forwarded-Prefix, stripped by the gateway
+ * before this request reached the app — see getDevEnvPrefix) on both the
+ * /login path itself and the `next` destination, so the browser round-trips
+ * back through the environment's own /{env-id} gateway route rather than
+ * landing on the unprefixed root. Outside a dev environment, prefix is "" and
+ * this is unchanged from a plain /login redirect.
+ */
+function loginRedirectURL(request: NextRequest, pathname: string): URL {
+  const prefix = getDevEnvPrefix(request.headers);
+  const loginUrl = new URL(prefix + APP_ROUTES.login, request.url);
+  if (isSafeRedirectPath(pathname)) {
+    loginUrl.searchParams.set('next', prefix + pathname);
+  }
+  return loginUrl;
+}
+
 // ── Proxy ────────────────────────────────────────────────────────────────
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
@@ -120,11 +140,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   // 3. No valid session — redirect to login, preserving the destination path.
   if (!session.user || !session.accessToken) {
-    const loginUrl = new URL(APP_ROUTES.login, request.url);
-    if (isSafeRedirectPath(pathname)) {
-      loginUrl.searchParams.set('next', pathname);
-    }
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect(loginRedirectURL(request, pathname));
   }
 
   // 4. Inline refresh when the token expires within 5 minutes.
@@ -141,11 +157,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // rather than logging the user out for a transient failure.
       if (secondsUntilExpiry <= 0) {
         await session.destroy();
-        const loginUrl = new URL(APP_ROUTES.login, request.url);
-        if (isSafeRedirectPath(pathname)) {
-          loginUrl.searchParams.set('next', pathname);
-        }
-        const loginRedirect = NextResponse.redirect(loginUrl);
+        const loginRedirect = NextResponse.redirect(loginRedirectURL(request, pathname));
         for (const cookie of response.cookies.getAll()) {
           loginRedirect.cookies.set(cookie);
         }

@@ -9,6 +9,7 @@ import { Alert, Badge, Button, DataTable, Heading, Icon, Stack, Text } from '@or
 import type { DataTableColumn } from '@orbit/terra';
 import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
 import type { DevEnvironment } from '@orbit/shared/api';
+import { useSession } from '../../_components/permissions-provider';
 import { useDevEnvironments } from '../_hooks/use-dev-environments';
 import { formatCountdown, formatTimestamp, isInFlight, phaseStatus } from '../_types';
 import { ProvisionModal } from './provision-modal';
@@ -40,6 +41,8 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
     destroy,
     kubeconfig,
   } = useDevEnvironments(environments, initialError);
+  const { devEnvironmentId } = useSession();
+  const canCreate = !devEnvironmentId;
 
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [connectTarget, setConnectTarget] = useState<DevEnvironment | null>(null);
@@ -239,14 +242,17 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
         <Stack gap="tight">
           <Heading variant="title">Dev Environments</Heading>
           <Text size="supporting" color="muted">
-            Disposable, full-stack Orbit installs — each a real vcluster running the actual operator
-            and charts. TTL-bounded, sleep when idle, delete and re-provision to recover.
+            {canCreate
+              ? 'Disposable, full-stack Orbit installs — each a real vcluster running the actual operator and charts. TTL-bounded, sleep when idle, delete and re-provision to recover.'
+              : 'This install is itself a dev environment, so it cannot provision further dev environments.'}
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setProvisionOpen(true)}>
-          <Icon name="rocket" size="xs" />
-          New environment
-        </Button>
+        {canCreate && (
+          <Button size="sm" onClick={() => setProvisionOpen(true)}>
+            <Icon name="rocket" size="xs" />
+            New environment
+          </Button>
+        )}
       </Stack>
 
       {error ? (
@@ -257,10 +263,12 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
           title="No dev environments"
           description="Provision a disposable Orbit install to iterate on operator, chart, or mesh changes without touching shared staging."
           action={
-            <Button size="sm" onClick={() => setProvisionOpen(true)}>
-              <Icon name="rocket" size="xs" />
-              New environment
-            </Button>
+            canCreate ? (
+              <Button size="sm" onClick={() => setProvisionOpen(true)}>
+                <Icon name="rocket" size="xs" />
+                New environment
+              </Button>
+            ) : undefined
           }
         />
       ) : (
