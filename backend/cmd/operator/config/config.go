@@ -167,11 +167,17 @@ var Current = func() *Config {
 		cfg.Operator.DevEnvAppTLSCredentialName = v
 	}
 	if cfg.Operator.DevEnvAppExternalURL == "" {
-		// *.orbit.local.clearroute.io resolves to 127.0.0.1 (public wildcard
-		// record — same one the host's own orbit.local.clearroute.io uses);
-		// 8880 is the k3d loadbalancer's mapping of the shared gateway's
-		// port 80 (infrastructure/bootstrap/k3d-config.yaml).
-		cfg.Operator.DevEnvAppExternalURL = "http://devenv.orbit.local.clearroute.io:8880"
+		// Same host + TLS port the main platform frontend already uses
+		// locally (deploy/local/platform-values.yaml's frontendHost, 8443
+		// being the k3d loadbalancer's mapping of the shared gateway's port
+		// 443 — infrastructure/bootstrap/k3d-config.yaml). Path-prefix
+		// routing (/{env-id}) distinguishes an environment, not a separate
+		// hostname, so dev environments share the same host/cert as prod
+		// traffic rather than a distinct plain-HTTP "devenv." host.
+		cfg.Operator.DevEnvAppExternalURL = "https://orbit.local.clearroute.io:8443"
+	}
+	if cfg.Operator.DevEnvAppTLSCredentialName == "" {
+		cfg.Operator.DevEnvAppTLSCredentialName = "orbit-gateway-tls"
 	}
 	return cfg
 }()

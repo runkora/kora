@@ -41,10 +41,10 @@ devEnv:
   # appExternalURL is the browser-facing base URL every dev environment's
   # app is served under, path-scoped per environment ({url}/{env-id} — the
   # vcluster ADR's path-based-app-ingress amendment). Empty means the local
-  # k3d default (http://devenv.orbit.local.clearroute.io:8880); real
-  # infrastructure sets e.g. https://orbit.dev.clearroute.io plus
-  # appTLSCredentialName (an istio-system TLS Secret the shared app listener
-  # terminates with).
+  # k3d default (https://orbit.local.clearroute.io:8443 — the same host/port
+  # the main platform frontend uses); real infrastructure sets e.g.
+  # https://orbit.dev.clearroute.io plus appTLSCredentialName (an
+  # istio-system TLS Secret the shared app listener terminates with).
   appExternalURL: ""
   appTLSCredentialName: ""
 

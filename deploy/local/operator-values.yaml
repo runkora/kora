@@ -12,5 +12,12 @@ leaderElection: false
 
 # Registry prefix for OrbitDevEnvironment's in-vcluster orbit-operator image
 # and the OrbitPlatform CR it applies inside each environment (vcluster ADR).
+# appExternalURL/appTLSCredentialName point dev-environment app ingress at the
+# SAME shared gateway host and TLS cert the main platform frontend already
+# uses locally (deploy/local/platform-values.yaml's frontendHost/credentialName)
+# rather than a separate plain-HTTP "devenv." host — path-prefix routing
+# (/{env-id}) is what distinguishes an environment, not a distinct hostname.
 devEnv:
   imageRegistry: orbit-registry:5001
+  appExternalURL: https://orbit.local.clearroute.io:8443
+  appTLSCredentialName: orbit-gateway-tls

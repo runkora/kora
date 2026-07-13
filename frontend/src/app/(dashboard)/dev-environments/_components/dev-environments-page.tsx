@@ -101,7 +101,7 @@ export function DevEnvironmentsPage({ environments, initialError }: DevEnvironme
       },
       {
         id: 'appURL',
-        header: 'App',
+        header: 'URL',
         locked: true,
         // Only a Ready environment serves its app URL — while
         // provisioning/sleeping the link would just error, so show it as
