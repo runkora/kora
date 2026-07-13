@@ -13,6 +13,9 @@ ARG RUST_VERSION=1.83.0
 ARG JAVA_VERSION=21
 ARG DOTNET_VERSION=8.0
 ARG RUBY_VERSION=3.3
+# kubectl only supports one minor version of skew from the API server, so pin
+# this to the minor of the cluster a `kubernetes` connection points at.
+ARG KUBECTL_VERSION=1.33.13
 
 # =============================================================================
 # INSTALL FLAGS
@@ -24,6 +27,7 @@ ARG INSTALL_JAVA=false
 ARG INSTALL_DOTNET=false
 ARG INSTALL_RUBY=false
 ARG INSTALL_BROWSERS=false
+ARG INSTALL_KUBECTL=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -54,6 +58,7 @@ ARG RUST_VERSION
 ARG JAVA_VERSION
 ARG DOTNET_VERSION
 ARG RUBY_VERSION
+ARG KUBECTL_VERSION
 ARG INSTALL_BUN
 ARG INSTALL_RUST
 ARG INSTALL_GO
@@ -61,6 +66,7 @@ ARG INSTALL_JAVA
 ARG INSTALL_DOTNET
 ARG INSTALL_RUBY
 ARG INSTALL_BROWSERS
+ARG INSTALL_KUBECTL
 
 # Base dependencies + the universal developer CLIs an agent needs for real
 # engineering work (clone, search, build native deps, fetch, slice JSON). Heavier
@@ -205,6 +211,60 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
       rm -rf /var/lib/apt/lists/* && \
       echo "Chromium version:" && chromium --version && \
       echo "Firefox version:" && firefox --version ; \
+    fi
+
+# kubectl — for agents granted a `kubernetes` connection.
+#
+# The agent runs plain `kubectl get pods`. sandbox-exec writes $HOME/.kube/config
+# at startup from ORBIT_KUBE_CLUSTERS (internal/agents/sandbox/kubeconfig), so
+# there is no server URL to pass, no kubeconfig to author and no token to find.
+#
+# No credential ever reaches the sandbox. The rendered kubeconfig carries a
+# self-describing placeholder bearer; transparent egress intercepts the TLS and
+# the gateway's credential broker overwrites the Authorization header with the
+# connection's ServiceAccount token on the re-originated leg. The target
+# cluster's own RBAC is the backstop. See docs/adr/2026-07-06-kubernetes-
+# connection-bearer-adapter-and-gateway-ca-trust.md.
+#
+# The placeholder is required, not cosmetic: kubectl's clientcmd refuses to send
+# an unauthenticated request. Given no auth info — even an explicit empty
+# `user: {}` — it prompts on stdin for a username and never opens a connection.
+# `kubectl --server=<host>` alone therefore does NOT work here.
+#
+# The gateway's CA is already trusted: the agent pod mounts the tenant CA over
+# the OS trust bundle (internal/agents/k8s.go), which kubectl honours as a Go
+# binary — so the kubeconfig sets no certificate-authority, and kubectl must
+# never be given --insecure-skip-tls-verify.
+# The expected digests are pinned HERE rather than fetched from dl.k8s.io
+# alongside the binary. A published kubectl.sha256 travels over the same channel
+# as the binary it attests, so anyone able to tamper with one can tamper with
+# both; a digest committed to this file is reviewed by a human and verified
+# against the release at pin time. Kubernetes publishes no GPG signature for
+# kubectl.sha256 (that URL is a 404) — the binary is cosign/sigstore-signed
+# (kubectl.sig, kubectl.cert), which would need cosign and a Rekor round-trip in
+# the build. The pinned digest gives the same integrity guarantee offline.
+#
+# To bump: set KUBECTL_VERSION to a release matching the target cluster's minor
+# (one minor of API-server skew is all kubectl supports), then refresh both
+# digests from
+#   https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/{amd64,arm64}/kubectl.sha256
+# Pinned 2026-07-09 for v1.33.13 against a v1.33 cluster.
+ARG KUBECTL_SHA256_AMD64=316d712726d857c20744c57cb36aa47cfc79bc0af7e82cebf3780244b654c073
+ARG KUBECTL_SHA256_ARM64=9fe8aadd5aab9421978c7ac95de6fad304a3c4c0ce9dbf4127579779e0699080
+RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
+      set -eux; \
+      dpkgArch="$(dpkg --print-architecture)"; \
+      case "${dpkgArch##*-}" in \
+        amd64) ARCH='amd64'; SHA="${KUBECTL_SHA256_AMD64}";; \
+        arm64) ARCH='arm64'; SHA="${KUBECTL_SHA256_ARM64}";; \
+        *) echo "unsupported architecture for kubectl: ${dpkgArch}" >&2; exit 1;; \
+      esac; \
+      base="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}"; \
+      curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl" && \
+      echo "${SHA}  kubectl" | sha256sum --check && \
+      install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+      rm -f kubectl && \
+      kubectl version --client ; \
     fi
 
 # sandbox-exec gRPC server

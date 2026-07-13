@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
 )
@@ -19,6 +21,17 @@ func main() {
 	port := os.Getenv("SANDBOX_EXEC_PORT")
 	if port == "" {
 		port = "50051"
+	}
+
+	// Materialize the kubeconfig for whichever Kubernetes connections this agent
+	// is granted, before any command can run. It holds no credential — the egress
+	// gateway injects the brokered ServiceAccount token on the wire — so the agent
+	// runs `kubectl get pods` with no flags, no server URL and no token, exactly
+	// as `gh` works via the GH_TOKEN placeholder.
+	if err := writeKubeconfig(); err != nil {
+		// Not fatal: an agent with no Kubernetes connection must still start, and
+		// one with a broken kubeconfig should fail at kubectl, not at boot.
+		log.Printf("sandbox-exec: kubeconfig not written: %v", err)
 	}
 
 	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", ":"+port)
@@ -121,4 +134,28 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 		}
 	}
 	done <- nil
+}
+
+// kubeconfigPath is where the rendered kubeconfig lands. kubectl reads
+// $HOME/.kube/config by default, so writing here means the agent needs no
+// KUBECONFIG env var and no --kubeconfig flag.
+const kubeconfigPath = ".kube/config"
+
+// writeKubeconfig renders the credential-less kubeconfig for the Kubernetes
+// connections named in ORBIT_KUBE_CLUSTERS. It is a no-op when the agent holds
+// no Kubernetes connection.
+func writeKubeconfig() error {
+	clusters, err := kubeconfig.Decode(os.Getenv(kubeconfig.ClustersEnvVar))
+	if err != nil {
+		return err
+	}
+	if len(clusters) == 0 {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
+	path := filepath.Join(home, kubeconfigPath)
+	return kubeconfig.WriteTo(path, clusters)
 }

@@ -23,8 +23,12 @@ SERVICES=(
   "inference-gateway   orbit-inference-gateway   orbit-system            deployment/orbit-inference-gateway"
   "policy-service      orbit-policy-service      orbit-system            deployment/orbit-policy-service"
   "policy-gateway      orbit-policy-gateway      orbit-system            deployment/orbit-policy-gateway"
+  "egress-gateway      orbit-egress-gateway      orbit-system            deployment/orbit-egress-gateway"
   "agents              orbit-agents              orbit-system            deployment/orbit-agents"
   "frontend            orbit-frontend            orbit-system            deployment/orbit-frontend"
+  "orbit-mcp           orbit-mcp                 orbit-system            deployment/orbit-mcp"
+  "tool-gateway        orbit-tool-gateway        orbit-system            deployment/orbit-tool-gateway"
+  "tool-gw-publisher   orbit-tool-gateway        orbit-system            deployment/orbit-tool-gateway-publisher"
   "operator            orbit-operator            orbit-operator          deployment/orbit-operator"
   "example             orbit-example             orbit-tenant-example    deployment/orbit-example"
   "session-manager     orbit-session-manager     orbit-tenant-example    statefulset/example"
@@ -39,40 +43,40 @@ registry_digest() {
     | awk '/^Digest:/ {print $2; exit}'
 }
 
-# Cluster digest for a workload. Returns the @sha256:... portion of the running container's image,
-# or "" if there's no such workload / no digest yet.
+# Cluster digest for a workload. Returns the @sha256:... digest the workload is
+# pinned to, "MISSING" if there's no such workload, or "" if it isn't pinned.
+#
+# We read the *spec* image, not the running pod's status.imageID. imageID is the
+# repo digest containerd resolved the image to, and when a rebuild produces
+# byte-identical content containerd reports a digest it already had on disk —
+# so a freshly-rolled pod looks stale even though it is running the new image.
+# The spec image is what redeploy.sh pinned, which is the question being asked.
+#
+# Containers are matched by image name (orbit-foo), not workload name: the
+# tool-gateway publisher runs the orbit-tool-gateway image, and every meshed pod
+# carries istio-proxy/identity-proxy sidecars we must not read the digest from.
 cluster_digest() {
-  local namespace="$1" workload="$2"
+  local namespace="$1" workload="$2" image="$3"
   if [ "$namespace" = "-" ] || [ "$workload" = "on-demand" ] || [ "$workload" = "sidecar" ]; then
     echo ""
     return
   fi
-  # status.imageID is the digest the kubelet actually pulled, which is what we want.
   local kind="${workload%%/*}"
   local name="${workload##*/}"
-  local selector
-  selector=$(kubectl get "$kind" "$name" -n "$namespace" \
-    -o jsonpath='{.spec.selector.matchLabels}' 2>/dev/null || true)
-  if [ -z "$selector" ]; then
+  local images
+  images=$(kubectl get "$kind" "$name" -n "$namespace" \
+    -o jsonpath='{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}' 2>/dev/null || true)
+  if [ -z "$images" ]; then
     echo "MISSING"
     return
   fi
-  # Convert {"k":"v","a":"b"} → k=v,a=b
-  local label_selector
-  label_selector=$(echo "$selector" | sed 's/[{}"]//g; s/:/=/g; s/,/,/g')
-  local imageid
-  imageid=$(kubectl get pods -n "$namespace" -l "$label_selector" \
-    -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null || true)
-  # Some pods have multiple containers (sidecars). Try to find the one whose
-  # image matches the workload name; fall back to the first if no match.
-  if [ -n "$imageid" ] && [[ "$imageid" != *"$name"* ]]; then
-    local match
-    match=$(kubectl get pods -n "$namespace" -l "$label_selector" \
-      -o jsonpath="{.items[0].status.containerStatuses[?(@.name=='$name')].imageID}" 2>/dev/null || true)
-    [ -n "$match" ] && imageid="$match"
-  fi
-  # imageID is typically "docker-pullable://localhost:5001/orbit-X@sha256:...". We want the digest.
-  echo "${imageid##*@}"
+  local img
+  img=$(printf '%s\n' "$images" | grep -E "/${image}[@:]" | head -1 || true)
+  case "$img" in
+    *@sha256:*) echo "${img##*@}" ;;
+    # Pinned by tag (fresh install, or helm reclaimed the field) — nothing to compare.
+    *) echo "" ;;
+  esac
 }
 
 printf "%s\n" "${C_BLUE}Service              Cluster                                   Registry                                  Status${C_RESET}"
@@ -81,7 +85,7 @@ printf "%s\n" "${C_DIM}───────────────────
 for row in "${SERVICES[@]}"; do
   read -r name image namespace workload <<< "$row"
   reg=$(registry_digest "$image")
-  cluster=$(cluster_digest "$namespace" "$workload")
+  cluster=$(cluster_digest "$namespace" "$workload" "$image")
 
   reg_short="${reg#sha256:}"; reg_short="${reg_short:0:12}"
   cluster_short="${cluster#sha256:}"; cluster_short="${cluster_short:0:12}"
@@ -100,7 +104,7 @@ for row in "${SERVICES[@]}"; do
     status="${C_RED}workload missing${C_RESET}"
     cluster_short="${C_DIM}—${C_RESET}           "
   elif [ -z "$cluster" ]; then
-    status="${C_YELLOW}no pods${C_RESET}"
+    status="${C_BLUE}info: pinned by tag (redeploy to pin a digest)${C_RESET}"
     cluster_short="${C_DIM}—${C_RESET}           "
   elif [ "$cluster" = "$reg" ]; then
     status="${C_GREEN}in sync${C_RESET}"

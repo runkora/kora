@@ -137,10 +137,25 @@ func githubEgressHosts(baseHost string) []string {
 
 // passthroughEgressHosts returns the connection's single declared host, if any —
 // a passthrough connection injects no credential and reaches exactly its host.
+//
+// The port is stripped. An egress scope names a HOST, never a host:port: the
+// grant path rejects a host segment containing ":" (isStructurallyValidEgressScope,
+// which reserves the colon for IPv6 literals), and the rego matcher compares
+// against the CONNECT :authority with its port already removed (_connect_host in
+// authz.rego). A kubernetes connection's baseHost is conventionally "host:443",
+// so returning it verbatim produced "egress:host:443:connect" — a scope the
+// policy service refuses to grant, and which could never match at runtime even
+// if it did. That made every kubernetes connection unusable by any agent.
 func passthroughEgressHosts(baseHost string) []string {
 	h := strings.ToLower(strings.TrimSpace(baseHost))
 	if h == "" {
 		return nil
+	}
+	// SplitHostPort errors when there is no port — keep h as-is in that case.
+	// A bracketed IPv6 literal yields its bare address, which no egress pattern
+	// matches (deny), consistent with the rego's IPv4/DNS-only host matching.
+	if host, _, err := net.SplitHostPort(h); err == nil && host != "" {
+		h = host
 	}
 	return []string{h}
 }

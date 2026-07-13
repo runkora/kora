@@ -7,6 +7,8 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 )
 
 // agentsTracer is the package-level OpenTelemetry tracer used by both services.
@@ -20,7 +22,7 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
-	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string) (string, error)
+	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (string, error)
 	DeleteSandbox(ctx context.Context, runID, namespace string) error
 }
 
